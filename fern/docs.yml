@@ -316,6 +316,24 @@ navigation:
               - page: Split and Dedup
                 path: pages/curate-video/tutorials/split-dedup.mdx
                 slug: split-dedup
+              - section: Pipeline Customization
+                slug: pipeline-customization
+                contents:
+                  - page: Overview
+                    path: pages/curate-video/tutorials/pipeline-customization/index.mdx
+                    slug: ""
+                  - page: Add Custom Environment
+                    path: pages/curate-video/tutorials/pipeline-customization/add-cust-env.mdx
+                    slug: add-cust-env
+                  - page: Add Custom Code
+                    path: pages/curate-video/tutorials/pipeline-customization/add-cust-code.mdx
+                    slug: add-cust-code
+                  - page: Add Custom Model
+                    path: pages/curate-video/tutorials/pipeline-customization/add-cust-model.mdx
+                    slug: add-cust-model
+                  - page: Add Custom Stage
+                    path: pages/curate-video/tutorials/pipeline-customization/add-cust-stage.mdx
+                    slug: add-cust-stage
           - section: Load Data
             slug: load-data
             contents:
@@ -388,6 +406,45 @@ navigation:
               - page: Overview
                 path: pages/curate-audio/process-data/index.mdx
                 slug: ""
+              - section: ASR Inference
+                slug: asr-inference
+                contents:
+                  - page: Overview
+                    path: pages/curate-audio/process-data/asr-inference/index.mdx
+                    slug: ""
+                  - page: NeMo ASR Models
+                    path: pages/curate-audio/process-data/asr-inference/nemo-models.mdx
+                    slug: nemo-models
+              - section: Quality Assessment
+                slug: quality-assessment
+                contents:
+                  - page: Overview
+                    path: pages/curate-audio/process-data/quality-assessment/index.mdx
+                    slug: ""
+                  - page: WER Filtering
+                    path: pages/curate-audio/process-data/quality-assessment/wer-filtering.mdx
+                    slug: wer-filtering
+                  - page: Duration Filtering
+                    path: pages/curate-audio/process-data/quality-assessment/duration-filtering.mdx
+                    slug: duration-filtering
+              - section: Audio Analysis
+                slug: audio-analysis
+                contents:
+                  - page: Overview
+                    path: pages/curate-audio/process-data/audio-analysis/index.mdx
+                    slug: ""
+                  - page: Duration Calculation
+                    path: pages/curate-audio/process-data/audio-analysis/duration-calculation.mdx
+                    slug: duration-calculation
+                  - page: Format Validation
+                    path: pages/curate-audio/process-data/audio-analysis/format-validation.mdx
+                    slug: format-validation
+              - section: Text Integration
+                slug: text-integration
+                contents:
+                  - page: Overview
+                    path: pages/curate-audio/process-data/text-integration/index.mdx
+                    slug: ""
           - page: Save and Export
             path: pages/curate-audio/save-export.mdx
             slug: save-export
