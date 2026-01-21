@@ -1,0 +1,2 @@
+export RAY_TMPDIR=/tmp && export XENNA_RESPECT_CUDA_VISIBLE_DEVICES=1 && cd /lustre/fsw/portfolios/maxine/users/shbhawsar/debug/nemo_curator/Curator/tutorials/audio/Audio_Data_Filter && python run.py --config-path . --config-name pipeline.yaml raw_data_dir=/lustre/fsw/portfolios/maxine/users/shbhawsar/debug/nemo_curator/Curator/nemo_curator/stages/audio/datasets/youtube/batch_small
+

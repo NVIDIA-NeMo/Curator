@@ -1,0 +1,112 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  Audio Data Filtration Pipeline
+  ##############################
+  This config uses the AudioDataFilterStage for audio curation with
+  consistent timestamp mapping throughout all transformations.
+
+  Timestamp Mapping:
+    All output segments contain accurate original_start_ms and original_end_ms
+    values that point back to the source audio file, maintained via TimestampTracker.
+
+  The pipeline performs:
+  1. Mono conversion and sample rate verification
+  2. VAD segmentation (optional)
+  3. Quality filtering (NISQA, SIGMOS, Band)
+  4. Concatenation with timestamp tracking
+  5. Speaker separation (optional)
+  6. Per-speaker VAD and quality filtering
+  7. Timestamp mapping back to original file positions
+
+  **Required arguments**.
+
+  * **raw_data_dir**: specify the directory where audio files are located.
+
+  **Output format**
+
+  Output manifest contains timestamp-mapped fields:
+
+  * **original_file (str)**: path to the source audio file.
+  * **original_start_ms (int)**: start position in source file (ms).
+  * **original_end_ms (int)**: end position in source file (ms).
+  * **duration_sec (float)**: segment duration in seconds.
+  * **speaker_id (str)**: speaker identifier (if enabled).
+  * **nisqa_mos (float)**: NISQA MOS score (if enabled).
+  * **sigmos_noise (float)**: SIGMOS noise score (if enabled).
+
+processors_to_run: all
+raw_data_dir: ???
+output_dir: ${raw_data_dir}/result
+
+# Resource allocation
+# When cpus > 1 and gpus == 0: Uses CPU parallel processing
+# When gpus > 0: Uses GPU for model inference
+cpus: 4.0
+gpus: 1.0
+
+# Audio processing settings
+sample_rate: 48000
+
+# VAD settings
+enable_vad: false
+vad_min_duration_sec: 2.0
+vad_max_duration_sec: 60.0
+vad_threshold: 0.5
+
+# Quality filter settings
+enable_nisqa: true
+nisqa_mos_threshold: 0
+nisqa_noi_threshold: 0
+
+enable_sigmos: false
+sigmos_noise_threshold: 4.0
+sigmos_ovrl_threshold: 3.5
+
+enable_band_filter: false
+band_value: full_band
+
+# Speaker separation settings
+enable_speaker_separation: false
+speaker_min_duration: 0.8
+speaker_exclude_overlaps: true
+
+processors:
+  # AudioDataFilterStage - Composite stage with timestamp mapping
+  # Note: Results are saved by run.py after pipeline execution (JsonlWriter doesn't support AudioBatch)
+  # Resource allocation (cpus, gpus) is now part of the config
+  - _target_: nemo_curator.stages.audio.AudioDataFilterStage
+    config:
+      _target_: nemo_curator.stages.audio.AudioDataFilterConfig
+      # Resource allocation
+      cpus: ${cpus}
+      gpus: ${gpus}
+      # General settings
+      sample_rate: ${sample_rate}
+      # VAD settings
+      enable_vad: ${enable_vad}
+      vad_min_duration_sec: ${vad_min_duration_sec}
+      vad_max_duration_sec: ${vad_max_duration_sec}
+      vad_threshold: ${vad_threshold}
+      # Quality filter settings
+      enable_band_filter: ${enable_band_filter}
+      band_value: ${band_value}
+      enable_nisqa: ${enable_nisqa}
+      nisqa_mos_threshold: ${nisqa_mos_threshold}
+      nisqa_noi_threshold: ${nisqa_noi_threshold}
+      enable_sigmos: ${enable_sigmos}
+      sigmos_noise_threshold: ${sigmos_noise_threshold}
+      sigmos_ovrl_threshold: ${sigmos_ovrl_threshold}
+      # Speaker separation settings
+      enable_speaker_separation: ${enable_speaker_separation}
+      speaker_min_duration: ${speaker_min_duration}
+      speaker_exclude_overlaps: ${speaker_exclude_overlaps}
+
