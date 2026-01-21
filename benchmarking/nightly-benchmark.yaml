@@ -266,7 +266,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
       --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
-    timeout_s: 20000
+    timeout_s: 200
     sink_data:
       - name: slack
         additional_metrics:
@@ -297,7 +297,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
       --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
-    timeout_s: 20000
+    timeout_s: 350
     sink_data:
       - name: slack
         additional_metrics:
@@ -317,6 +317,42 @@ entries:
         max_value: 2090490
       - metric: throughput_docs_per_sec
         min_value: 8500
+
+  - name: modifier_raydata
+    enabled: true
+    script: modifier_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --input-path={dataset:tinystories,parquet}
+    timeout_s: 200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+
+  - name: modifier_xenna
+    enabled: true
+    script: modifier_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --input-path={dataset:tinystories,parquet}
+    timeout_s: 250
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
 
   - name: image_curation
     enabled: true
