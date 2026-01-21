@@ -325,7 +325,6 @@ def main() -> int:  # noqa: C901
 
     # Print a summary of the entries that will be run in the for loop below
     # Disabled entries will not be printed
-    # TODO: should entries be created unconditionally and have an "enabled" field instead?
     logger.info("Benchmark entries to be run in this session:")
     for idx, entry in enumerate(session.entries, start=1):
         logger.info(f"\t{idx}. {entry.name}")

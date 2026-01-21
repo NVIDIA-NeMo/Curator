@@ -141,16 +141,16 @@ def check_ray_responsive(timeout_s: int = 20) -> bool:
                 timeout=timeout_s,
             )
             if "No cluster status" in result.stdout or "Error" in result.stdout:
-                logger.debug(f"Ray cluster is not responsive: {result.stdout}")
+                logger.debug("Ray cluster is not responsive ('No cluster status' returned or Error in output)")
             else:
                 logger.debug("Ray cluster IS responsive")
                 responsive = True
 
-        except subprocess.CalledProcessError as e:
-            logger.debug(f"Ray cluster is not responsive ('ray status' command failed): {e.stdout}")
+        except subprocess.CalledProcessError:
+            logger.debug("Ray cluster is not responsive ('ray status' command failed)")
 
-        except subprocess.TimeoutExpired as e:
-            logger.debug(f"Ray cluster is not responsive ('ray status' command timed out): {e.stdout}")
+        except subprocess.TimeoutExpired:
+            logger.debug("Ray cluster is not responsive ('ray status' command timed out)")
 
         finally:
             # Also show the output of `df -h /dev/shm`, since this is often a symptom of problems

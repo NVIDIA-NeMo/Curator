@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -43,7 +43,6 @@ class Entry:
     object_store_size_bytes: int | None = None
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
-    enabled: bool = True
 
     def __post_init__(self) -> None:  # noqa: C901, PLR0912
         """Post-initialization checks and updates for dataclass."""
@@ -108,6 +107,21 @@ class Entry:
                     msg = f"Invalid requirement for metric '{metric_name}': max_value ({max_value}) < min_value ({min_value})"
                     raise ValueError(msg)
         self.requirements = requirements
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Entry:
+        """Create Entry from dict, ignoring extra keys.
+
+        Args:
+            data: Dictionary containing entry configuration data.
+
+        Returns:
+            Entry instance with only valid fields populated.
+        """
+        # Get only the fields that are defined in the dataclass
+        valid_fields = {f.name for f in fields(cls)}
+        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+        return cls(**filtered_data)
 
     def get_command_to_run(
         self,

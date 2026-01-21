@@ -99,9 +99,7 @@ class Session:
         sess_data = {k: v for k, v in data.items() if k in sess_field_names}
         sinks = cls.create_sinks_from_dict(sess_data.get("sinks", []))
 
-        # Load entries only if enabled (enabled by default)
-        # TODO: should entries be created unconditionally and use their "enabled" field instead?
-        entries = [Entry(**e) for e in sess_data["entries"] if e.get("enabled", True)]
+        entries = [Entry.from_dict(e) for e in sess_data["entries"]]
 
         # Filter entries based on the expression, if provided.
         # Example: expr "foo and not foobar" will include all entries
@@ -132,10 +130,6 @@ class Session:
         sinks = []
         for sink_config in sink_configs:
             sink_name = sink_config["name"]
-            sink_enabled = sink_config.get("enabled", True)
-            if not sink_enabled:
-                logger.warning(f"Sink {sink_name} is not enabled, skipping")
-                continue
             if sink_name == "mlflow":
                 from runner.sinks.mlflow_sink import MlflowSink
 

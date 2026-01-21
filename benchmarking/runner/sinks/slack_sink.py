@@ -75,7 +75,6 @@ class SlackSink(Sink):
     def __init__(self, sink_config: dict[str, Any]):
         super().__init__(sink_config)
         self.sink_config = sink_config
-        self.enabled = self.sink_config.get("enabled", True)
         self.session_name: str | None = None
         self.matrix_config: Session = None
         self.env_dict: dict[str, Any] = None
@@ -108,15 +107,12 @@ class SlackSink(Sink):
 
     def finalize(self) -> None:
         # Posts the queued results to slack as a final report.
-        if self.enabled:
-            try:
-                self._post()
-            except Exception as e:  # noqa: BLE001
-                # Optionally, log or handle posting errors
-                tb = traceback.format_exc()
-                logger.error(f"SlackSink: Error posting to Slack: {e}\n{tb}")
-        else:
-            logger.warning("SlackSink: Not enabled, skipping post.")
+        try:
+            self._post()
+        except Exception as e:  # noqa: BLE001
+            # Optionally, log or handle posting errors
+            tb = traceback.format_exc()
+            logger.error(f"SlackSink: Error posting to Slack: {e}\n{tb}")
 
     def _post(self) -> None:  # noqa: C901
         message_text_values = {
