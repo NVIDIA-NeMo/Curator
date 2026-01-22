@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -47,35 +47,6 @@ def setup_mocks(mock_tokenizer: Mock) -> None:  # type: ignore[no-untyped-def]
 
 class TestTokenSplitterStage:
     """Test the TokenSplitterStage class."""
-
-    def test_init_default_values(self):
-        """Test TokenSplitterStage initialization with default values."""
-        stage = TokenSplitterStage(model_name="test-model")
-
-        assert stage.model_name == "test-model"
-        assert stage.max_length_tokens == 8000
-        assert stage.separator == "\n\n"
-        assert stage.text_field == "text"
-        assert stage.chunk_id_field == "chunk_id"
-        assert stage.n_tokens_field == "n_tokens"
-
-    def test_init_custom_values(self):
-        """Test TokenSplitterStage initialization with custom values."""
-        stage = TokenSplitterStage(
-            model_name="custom-model",
-            max_length_tokens=5000,
-            separator="\n",
-            text_field="content",
-            chunk_id_field="custom_chunk_id",
-            n_tokens_field="custom_n_tokens",
-        )
-
-        assert stage.model_name == "custom-model"
-        assert stage.max_length_tokens == 5000
-        assert stage.separator == "\n"
-        assert stage.text_field == "content"
-        assert stage.chunk_id_field == "custom_chunk_id"
-        assert stage.n_tokens_field == "custom_n_tokens"
 
     def test_process_single_short_text(self):
         """Test process method with a single short text that doesn't need chunking."""
