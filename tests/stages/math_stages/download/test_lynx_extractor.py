@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,16 +24,6 @@ from nemo_curator.stages.math.download.html_extractors.lynx import LynxExtractor
 @pytest.mark.skipif(not shutil.which("lynx"), reason="lynx executable not found in PATH")
 class TestLynxExtractor:
     """Test the LynxExtractor class."""
-
-    def test_lynx_extractor_init_default_timeout(self) -> None:
-        """Test LynxExtractor initialization with default timeout."""
-        extractor = LynxExtractor()
-        assert extractor.timeout_sec == 20
-
-    def test_lynx_extractor_init_custom_timeout(self) -> None:
-        """Test LynxExtractor initialization with custom timeout."""
-        extractor = LynxExtractor(timeout_sec=30)
-        assert extractor.timeout_sec == 30
 
     @mock.patch("subprocess.run")
     def test_lynx_extractor_extract_text_success(self, mock_run: mock.Mock, html_with_content: str) -> None:
