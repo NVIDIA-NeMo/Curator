@@ -172,7 +172,7 @@ def run_entry(
             num_gpus=ray_num_gpus,
             enable_object_spilling=ray_enable_object_spilling,
             ray_log_path=logs_path / "ray.log",
-            object_store_size_bytes=entry.object_store_size_bytes,
+            object_store_size=None if entry.object_store_size == "default" else entry.object_store_size,
         )
 
         # Prepopulate <session_entry_path>/params.json with entry params.
@@ -180,7 +180,7 @@ def run_entry(
         (session_entry_path / "params.json").write_text(
             json.dumps(
                 {
-                    "object_store_size_bytes": entry.object_store_size_bytes,
+                    "object_store_size_bytes": entry.object_store_size,
                     "ray_num_cpus": ray_num_cpus,
                     "ray_num_gpus": ray_num_gpus,
                     "ray_enable_object_spilling": ray_enable_object_spilling,
@@ -304,7 +304,7 @@ def main() -> int:  # noqa: C901
         logger.error(f"Invalid configuration: {e}")
         return 1
 
-    session = Session.create_from_dict(config_dict, args.entries)
+    session = Session.from_dict(config_dict, args.entries)
 
     if args.list:
         for entry in session.entries:

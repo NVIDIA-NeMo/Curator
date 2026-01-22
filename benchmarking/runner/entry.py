@@ -21,6 +21,8 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from runner.utils import get_total_memory_bytes
+
 if TYPE_CHECKING:
     from runner.datasets import DatasetResolver
     from runner.path_resolver import PathResolver
@@ -39,13 +41,19 @@ class Entry:
     sink_data: list[dict[str, Any]] | dict[str, Any] = field(default_factory=dict)
     requirements: list[dict[str, Any]] | dict[str, Any] = field(default_factory=dict)
     ray: dict[str, Any] = field(default_factory=dict)  # supports only single node: num_cpus,num_gpus,object_store_gb
-    # If set, overrides the session-level default_object_store_size setting for this entry
-    object_store_size_bytes: int | None = None
+    # If set, overrides the session-level object_store_size setting for this entry
+    # Value will be either number of bytes (int), fraction of system memory (float), or None or "default" (string) both
+    # representing the default object store size as used by "ray start".
+    object_store_size: int | float | str | None = None
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
 
     def __post_init__(self) -> None:  # noqa: C901, PLR0912
         """Post-initialization checks and updates for dataclass."""
+        # Process object_store_size by converting values representing fractions of system memory to bytes.
+        if isinstance(self.object_store_size, float):
+            self.object_store_size = int(get_total_memory_bytes() * self.object_store_size)
+
         # Convert the sink_data list of dicts to a dict of dicts for easier lookup with key from "name".
         # sink_data typically starts as a list of dicts from reading YAML, like this:
         # sink_data:

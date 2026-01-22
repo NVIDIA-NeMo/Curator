@@ -36,14 +36,15 @@ from runner.path_resolver import PathResolver
 from runner.utils import get_total_memory_bytes
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(kw_only=True)
 class Session:
     results_path: Path
     entries: list[Entry] = field(default_factory=list)
     sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
-    # Set object store memory to 50% of total system memory by default
-    default_object_store_size_bytes: int = int(get_total_memory_bytes() * 0.5)
+    # object store size is either a value in bytes (int), a fraction of total system memory (float), or None or the
+    # value "default" (string) both representing the default object store size as used by "ray start".
+    object_store_size: int | float | str | None = 0.5
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
     path_resolver: PathResolver = None
@@ -57,6 +58,10 @@ class Session:
             msg = f"Duplicate entry name(s) found: {', '.join(duplicates)}"
             raise ValueError(msg)
 
+        # Process object_store_size by converting values representing fractions of system memory to bytes.
+        if isinstance(self.object_store_size, float):
+            self.object_store_size = int(get_total_memory_bytes() * self.object_store_size)
+
         # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
         for entry in self.entries:
             if entry.delete_scratch is None:
@@ -67,10 +72,10 @@ class Session:
             if entry.timeout_s is None:
                 entry.timeout_s = self.default_timeout_s
 
-        # Update object store size for each entry that has not been set to the session-level default_object_store_size setting
+        # Update object store size for each entry that has not been set.
         for entry in self.entries:
-            if entry.object_store_size_bytes is None:
-                entry.object_store_size_bytes = self.default_object_store_size_bytes
+            if entry.object_store_size is None:
+                entry.object_store_size = self.object_store_size
 
     @classmethod
     def assert_valid_config_dict(cls, data: dict) -> None:
@@ -82,7 +87,7 @@ class Session:
             raise ValueError(msg)
 
     @classmethod
-    def create_from_dict(cls, data: dict, entry_filter_expr: str | None = None) -> Session:
+    def from_dict(cls, data: dict, entry_filter_expr: str | None = None) -> Session:
         """
         Factory method to create a Session from a dictionary.
 

@@ -35,7 +35,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
     num_gpus: int,
     enable_object_spilling: bool,
     ray_log_path: Path,
-    object_store_size_bytes: int | None = None,
+    object_store_size: int | None = None,
     include_dashboard: bool = True,
 ) -> tuple[RayClient, Path]:
     """Setup a Ray cluster and set the RAY_ADDRESS environment variable and return the Ray client and temp dir."""
@@ -70,7 +70,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
             enable_object_spilling=enable_object_spilling,
             ray_dashboard_host="0.0.0.0",  # noqa: S104
             ray_stdouterr_capture_file=ray_stdouterr_capture_file,
-            object_store_memory=object_store_size_bytes,
+            object_store_memory=object_store_size,
         )
         client.start()
 
