@@ -29,11 +29,17 @@ from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
+from nemo_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
+from nemo_curator.stages.video.embedding.cosmos_embed1 import (
+    CosmosEmbed1EmbeddingStage,
+    CosmosEmbed1FrameCreationStage,
+)
 from nemo_curator.stages.video.io.clip_writer import ClipWriterStage
 from nemo_curator.stages.video.io.video_reader import VideoReader
+from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
 
 
-def create_video_pipeline(
+def create_video_pipeline(  # noqa: PLR0913
     video_dir: Path,
     output_path: Path,
     video_limit: int | None = None,
@@ -42,10 +48,15 @@ def create_video_pipeline(
     transcode_cpus_per_worker: float = 6.0,
     transcode_encoder: str = "libopenh264",
     transcode_use_hwaccel: bool = False,
+    generate_embeddings: bool = False,
+    embedding_variant: str = "224p",
+    embedding_gpu_memory_gb: float = 20.0,
+    embedding_target_fps: float = 2.0,
+    model_dir: str = "./models",
     verbose: bool = False,
 ) -> Pipeline:
-    """Create a basic video pipeline with read, split, transcode, and write stages."""
-    pipeline = Pipeline(name="video_pipeline_benchmark", description="Basic video processing pipeline benchmark")
+    """Create a video pipeline with read, split, transcode, optional embeddings, and write stages."""
+    pipeline = Pipeline(name="video_pipeline_benchmark", description="Video processing pipeline benchmark")
 
     # Stage 1: Read videos
     pipeline.add_stage(
@@ -79,16 +90,49 @@ def create_video_pipeline(
         )
     )
 
-    # Stage 4: Write clips
+    # Optional: Embedding generation stages
+    if generate_embeddings:
+        # Stage 4a: Extract frames from clips for embedding
+        pipeline.add_stage(
+            ClipFrameExtractionStage(
+                extraction_policies=(FrameExtractionPolicy.sequence,),
+                extract_purposes=[FramePurpose.EMBEDDINGS],
+                target_res=(-1, -1),  # Use original resolution
+                verbose=verbose,
+            )
+        )
+
+        # Stage 4b: Prepare frames for Cosmos Embed1 model
+        pipeline.add_stage(
+            CosmosEmbed1FrameCreationStage(
+                model_dir=model_dir,
+                variant=embedding_variant,
+                target_fps=embedding_target_fps,
+                verbose=verbose,
+            )
+        )
+
+        # Stage 4c: Generate embeddings using Cosmos Embed1
+        pipeline.add_stage(
+            CosmosEmbed1EmbeddingStage(
+                model_dir=model_dir,
+                variant=embedding_variant,
+                gpu_memory_gb=embedding_gpu_memory_gb,
+                verbose=verbose,
+            )
+        )
+
+    # Final Stage: Write clips (and embeddings if generated)
     pipeline.add_stage(
         ClipWriterStage(
             output_path=str(output_path),
             input_path=str(video_dir),
             upload_clips=True,
             dry_run=False,
-            generate_embeddings=False,
+            generate_embeddings=generate_embeddings,
             generate_previews=False,
             generate_captions=False,
+            embedding_algorithm=f"cosmos-embed1-{embedding_variant}" if generate_embeddings else "cosmos-embed1",
             verbose=verbose,
         )
     )
@@ -107,6 +151,11 @@ def run_video_pipeline_benchmark(  # noqa: PLR0913
     transcode_cpus_per_worker: float = 6.0,
     transcode_encoder: str = "libopenh264",
     transcode_use_hwaccel: bool = False,
+    generate_embeddings: bool = False,
+    embedding_variant: str = "224p",
+    embedding_gpu_memory_gb: float = 20.0,
+    embedding_target_fps: float = 2.0,
+    model_dir: str = "./models",
     verbose: bool = False,
 ) -> dict[str, Any]:
     """Run the video pipeline benchmark and collect comprehensive metrics."""
@@ -121,6 +170,11 @@ def run_video_pipeline_benchmark(  # noqa: PLR0913
     logger.info(f"Video limit: {video_limit}")
     logger.info(f"Split duration: {split_duration}s")
     logger.info(f"Hardware acceleration (GPU decode): {transcode_use_hwaccel}")
+    logger.info(f"Generate embeddings: {generate_embeddings}")
+    if generate_embeddings:
+        logger.info(f"Embedding variant: cosmos-embed1-{embedding_variant}")
+        logger.info(f"Embedding GPU memory: {embedding_gpu_memory_gb}GB")
+        logger.info(f"Model directory: {model_dir}")
     logger.debug(f"Executor: {executor}")
 
     # Create pipeline
@@ -133,6 +187,11 @@ def run_video_pipeline_benchmark(  # noqa: PLR0913
         transcode_cpus_per_worker=transcode_cpus_per_worker,
         transcode_encoder=transcode_encoder,
         transcode_use_hwaccel=transcode_use_hwaccel,
+        generate_embeddings=generate_embeddings,
+        embedding_variant=embedding_variant,
+        embedding_gpu_memory_gb=embedding_gpu_memory_gb,
+        embedding_target_fps=embedding_target_fps,
+        model_dir=model_dir,
         verbose=verbose,
     )
 
@@ -180,6 +239,10 @@ def run_video_pipeline_benchmark(  # noqa: PLR0913
             "min_clip_length_s": min_clip_length_s,
             "transcode_encoder": transcode_encoder,
             "transcode_use_hwaccel": transcode_use_hwaccel,
+            "generate_embeddings": generate_embeddings,
+            "embedding_variant": embedding_variant,
+            "embedding_gpu_memory_gb": embedding_gpu_memory_gb,
+            "model_dir": model_dir,
         },
         "metrics": {
             "is_success": success,
@@ -224,6 +287,38 @@ def main() -> int:
         default=False,
         help="Use GPU hardware acceleration for decoding (NVDEC). Works on A100 even without NVENC.",
     )
+    # Embedding arguments
+    parser.add_argument(
+        "--generate-embeddings",
+        action="store_true",
+        default=False,
+        help="Generate Cosmos Embed1 embeddings for video clips.",
+    )
+    parser.add_argument(
+        "--embedding-variant",
+        type=str,
+        default="224p",
+        choices=["224p", "336p", "448p"],
+        help="Cosmos Embed1 model variant (resolution).",
+    )
+    parser.add_argument(
+        "--embedding-gpu-memory-gb",
+        type=float,
+        default=20.0,
+        help="GPU memory in GB per worker for embedding generation.",
+    )
+    parser.add_argument(
+        "--embedding-target-fps",
+        type=float,
+        default=2.0,
+        help="Target FPS for frame sampling in embedding generation.",
+    )
+    parser.add_argument(
+        "--model-dir",
+        type=str,
+        default="./models",
+        help="Directory containing model weights (downloaded automatically if not present).",
+    )
     parser.add_argument("--verbose", action="store_true", default=False, help="Enable verbose logging")
 
     args = parser.parse_args()
@@ -243,6 +338,11 @@ def main() -> int:
             transcode_cpus_per_worker=args.transcode_cpus_per_worker,
             transcode_encoder=args.transcode_encoder,
             transcode_use_hwaccel=args.transcode_use_hwaccel,
+            generate_embeddings=args.generate_embeddings,
+            embedding_variant=args.embedding_variant,
+            embedding_gpu_memory_gb=args.embedding_gpu_memory_gb,
+            embedding_target_fps=args.embedding_target_fps,
+            model_dir=args.model_dir,
             verbose=args.verbose,
         )
 
