@@ -14,21 +14,7 @@ modality: "universal"
 
 This page lists software component versions bundled with each NeMo Curator release. Use this reference to verify compatibility with your environment.
 
-:::{tip}
-**Quick Start**: Install NeMo Curator with all modalities:
-
-```bash
-uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]
-```
-
-For modality-specific installations, refer to [Installation Extras](#installation-extras).
-:::
-
-## NeMo Curator 25.09
-
-NeMo Curator 25.09 is part of the [NeMo Framework 25.09](https://docs.nvidia.com/nemo/megatron-bridge/latest/releases/software-versions.html) release.
-
-### Core Components
+## Core Components
 
 ```{list-table}
 :header-rows: 1
@@ -54,7 +40,7 @@ NeMo Curator 25.09 is part of the [NeMo Framework 25.09](https://docs.nvidia.com
   - 22.0.0
 ```
 
-### GPU-Accelerated Components (CUDA 12)
+## GPU-Accelerated Components (CUDA 12)
 
 These components are included when you install with `[cuda12]` or modality-specific CUDA extras.
 
@@ -78,7 +64,7 @@ These components are included when you install with `[cuda12]` or modality-speci
   - ≤2.8.3
 ```
 
-### Modality-Specific Components
+## Modality-Specific Components
 
 ```{list-table}
 :header-rows: 1
@@ -104,7 +90,7 @@ These components are included when you install with `[cuda12]` or modality-speci
   - 13.1.0
 ```
 
-### Text Processing Components
+## Text Processing Components
 
 ```{list-table}
 :header-rows: 1
@@ -124,7 +110,7 @@ These components are included when you install with `[cuda12]` or modality-speci
   - mecab-python3
 ```
 
-### Container Environment
+## Container Environment
 
 ```{list-table}
 :header-rows: 1
@@ -140,7 +126,7 @@ These components are included when you install with `[cuda12]` or modality-speci
   - nvcr.io/nvidia/nemo-curator:25.09
 ```
 
-## Installation Extras
+## Extras
 
 NeMo Curator supports modular installation through pip extras. Choose based on your use case:
 
