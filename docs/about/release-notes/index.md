@@ -225,6 +225,7 @@ The next release will focus on completing the refactor of Synthetic Data Generat
 :hidden:
 :maxdepth: 4
 
+Software Versions <software-versions>
 Migration Guide <migration-guide>
 Migration FAQ <migration-faq>
 
