@@ -60,7 +60,7 @@ delete_scratch: true
 # The size of the object store used by Ray, which can be either a value in bytes (int) or a
 # fraction of total system memory (float), or the value "default" (string) which represents
 # the default value for the object store size as used by "ray start".
-#object_store_size: 0.5
+object_store_size: 0.5
 
 entries:
   - name: domain_classification_raydata
