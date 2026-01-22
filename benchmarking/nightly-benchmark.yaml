@@ -397,9 +397,10 @@ entries:
       --video-dir={dataset:videos,mp4}
       --split-duration=10.0
       --min-clip-length-s=2.0
-      --transcode-encoder=libopenh264
+      --transcode-cpus-per-worker=4.0
+      --transcode-use-hwaccel
     timeout_s: 1800
     ray:
-      num_cpus: 8
-      num_gpus: 0
+      num_cpus: 16
+      num_gpus: 1
       enable_object_spilling: false

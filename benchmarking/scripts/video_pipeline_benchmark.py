@@ -41,6 +41,7 @@ def create_video_pipeline(
     min_clip_length_s: float = 2.0,
     transcode_cpus_per_worker: float = 6.0,
     transcode_encoder: str = "libopenh264",
+    transcode_use_hwaccel: bool = False,
     verbose: bool = False,
 ) -> Pipeline:
     """Create a basic video pipeline with read, split, transcode, and write stages."""
@@ -73,6 +74,7 @@ def create_video_pipeline(
             encoder=transcode_encoder,
             encoder_threads=1,
             encode_batch_size=16,
+            use_hwaccel=transcode_use_hwaccel,
             verbose=verbose,
         )
     )
@@ -104,6 +106,7 @@ def run_video_pipeline_benchmark(  # noqa: PLR0913
     min_clip_length_s: float = 2.0,
     transcode_cpus_per_worker: float = 6.0,
     transcode_encoder: str = "libopenh264",
+    transcode_use_hwaccel: bool = False,
     verbose: bool = False,
 ) -> dict[str, Any]:
     """Run the video pipeline benchmark and collect comprehensive metrics."""
@@ -117,6 +120,7 @@ def run_video_pipeline_benchmark(  # noqa: PLR0913
     logger.info(f"Output path: {output_path}")
     logger.info(f"Video limit: {video_limit}")
     logger.info(f"Split duration: {split_duration}s")
+    logger.info(f"Hardware acceleration (GPU decode): {transcode_use_hwaccel}")
     logger.debug(f"Executor: {executor}")
 
     # Create pipeline
@@ -128,6 +132,7 @@ def run_video_pipeline_benchmark(  # noqa: PLR0913
         min_clip_length_s=min_clip_length_s,
         transcode_cpus_per_worker=transcode_cpus_per_worker,
         transcode_encoder=transcode_encoder,
+        transcode_use_hwaccel=transcode_use_hwaccel,
         verbose=verbose,
     )
 
@@ -143,7 +148,10 @@ def run_video_pipeline_benchmark(  # noqa: PLR0913
         # Calculate metrics from output tasks
         # VideoReader is a CompositeStage that decomposes to FilePartitioningStage + VideoReaderStage
         # So _stage_perf indices: 0=FilePartitioning, 1=VideoReader, 2=FixedStride, 3=Transcode, 4=Writer
-        num_videos_processed = len(output_tasks)
+        # Note: One video can produce multiple output tasks due to clip chunking in ClipTranscodingStage
+        # Count unique videos by their input_video path
+        unique_videos = {task.data.input_video for task in output_tasks if task.data and task.data.input_video}
+        num_videos_processed = len(unique_videos)
         num_clips_generated = sum(len(task.data.clips) for task in output_tasks if task.data and task.data.clips)
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
@@ -171,6 +179,7 @@ def run_video_pipeline_benchmark(  # noqa: PLR0913
             "split_duration": split_duration,
             "min_clip_length_s": min_clip_length_s,
             "transcode_encoder": transcode_encoder,
+            "transcode_use_hwaccel": transcode_use_hwaccel,
         },
         "metrics": {
             "is_success": success,
@@ -209,6 +218,12 @@ def main() -> int:
         choices=["libopenh264", "libx264", "h264_nvenc"],
         help="Video encoder for transcoding",
     )
+    parser.add_argument(
+        "--transcode-use-hwaccel",
+        action="store_true",
+        default=False,
+        help="Use GPU hardware acceleration for decoding (NVDEC). Works on A100 even without NVENC.",
+    )
     parser.add_argument("--verbose", action="store_true", default=False, help="Enable verbose logging")
 
     args = parser.parse_args()
@@ -227,6 +242,7 @@ def main() -> int:
             min_clip_length_s=args.min_clip_length_s,
             transcode_cpus_per_worker=args.transcode_cpus_per_worker,
             transcode_encoder=args.transcode_encoder,
+            transcode_use_hwaccel=args.transcode_use_hwaccel,
             verbose=args.verbose,
         )
 
