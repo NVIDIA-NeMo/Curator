@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
 import gc
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -108,7 +108,7 @@ class TestVLLMEmbeddingModelStage:
         assert stage.resources.gpus == 1
         assert stage.resources.cpus == 1
 
-    def test_llm_uses_cache_dir_for_download(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_llm_uses_cache_dir_for_download(self, tmp_path: Path) -> None:
         """Ensure vLLM receives download_dir so weights reuse snapshot cache."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -121,45 +121,28 @@ class TestVLLMEmbeddingModelStage:
             verbose=True,
         )
 
-        captured: dict[str, Any] = {}
+        with (
+            patch("nemo_curator.stages.text.embedders.vllm.snapshot_download") as mock_snapshot_download,
+            patch("nemo_curator.stages.text.embedders.vllm.LLM") as mock_llm,
+        ):
+            stage.setup_on_node()
 
-        def _fake_snapshot_download(
-            model_identifier: str,
-            cache_dir: str | None = None,
-            token: str | None = None,
-            local_files_only: bool | None = None,
-        ) -> None:
-            captured["snapshot_download"] = {
-                "model_identifier": model_identifier,
-                "cache_dir": cache_dir,
-                "token": token,
-                "local_files_only": local_files_only,
-            }
+            mock_snapshot_download.assert_called_once()
+            assert mock_snapshot_download.call_args.kwargs["cache_dir"] == str(cache_dir)
+            assert mock_snapshot_download.call_args.kwargs["token"] == hf_token
+            assert mock_snapshot_download.call_args.kwargs["local_files_only"] is False
 
-        class _FakeLLM:
-            def __init__(self, model: str, **kwargs: Any) -> None:  # noqa: ANN401
-                captured["llm"] = {"model": model, "kwargs": kwargs}
+            mock_llm.assert_called_once()
+            assert mock_llm.call_args.kwargs["model"] == TEST_MODEL
+            assert mock_llm.call_args.kwargs["download_dir"] == str(cache_dir)
 
-        monkeypatch.setattr("nemo_curator.stages.text.embedders.vllm.snapshot_download", _fake_snapshot_download)
-        monkeypatch.setattr("nemo_curator.stages.text.embedders.vllm.LLM", _FakeLLM)
-
-        stage.setup_on_node()
-
-        assert captured["snapshot_download"]["cache_dir"] == str(cache_dir)
-        assert captured["snapshot_download"]["token"] == hf_token
-        assert captured["snapshot_download"]["local_files_only"] is False
-
-        assert captured["llm"]["model"] == TEST_MODEL
-        assert captured["llm"]["kwargs"]["download_dir"] == str(cache_dir)
-
-    @pytest.mark.parametrize("pretokenize", [True, False])
-    def test_vllm_produces_valid_embeddings(
-        self, sample_data: DocumentBatch, pretokenize: bool, reference_model: "SentenceTransformer"
+    def test_vllm_produces_valid_embeddings_pretokenize_false(
+        self, sample_data: DocumentBatch, reference_model: "SentenceTransformer"
     ) -> None:
         """Test that VLLM produces embeddings matching SentenceTransformer reference."""
         vllm_stage = VLLMEmbeddingModelStage(
             model_identifier=TEST_MODEL,
-            pretokenize=pretokenize,
+            pretokenize=False,
             verbose=False,
         )
         try:
@@ -186,3 +169,40 @@ class TestVLLMEmbeddingModelStage:
         # Explicit cleanup: delete the vLLM model before test ends to prevent Ray state corruption
         del vllm_stage.model
         vllm_stage.model = None
+
+    def test_pretokenize_uses_tokenizer_and_tokens_prompt(self, sample_data: DocumentBatch) -> None:
+        """Test pretokenization path without running full vLLM."""
+        vllm_stage = VLLMEmbeddingModelStage(
+            model_identifier=TEST_MODEL,
+            pretokenize=True,
+            verbose=False,
+        )
+
+        captured_embed_input: list[Any] = []
+
+        def _fake_embed(input_data: list[Any], **_: object) -> list[Any]:
+            captured_embed_input.extend(input_data)
+            return [Mock(outputs=Mock(embedding=[0.1, 0.2, 0.3])) for _ in range(len(input_data))]
+
+        with (
+            patch.object(vllm_stage, "tokenizer") as mock_tokenizer,
+            patch.object(vllm_stage, "model") as mock_model,
+        ):
+            mock_tokenizer.batch_encode_plus.return_value = Mock(
+                input_ids=[[1, 2, 3] for _ in sample_data.data["text"]]
+            )
+            mock_model.model_config.max_model_len = 16
+            mock_model.embed.side_effect = _fake_embed
+
+            result = vllm_stage.process(sample_data)
+
+            mock_tokenizer.batch_encode_plus.assert_called_once()
+            mock_model.embed.assert_called_once()
+
+        assert isinstance(result, DocumentBatch)
+        result_df = result.to_pandas()
+        assert result_df["embeddings"].apply(len).tolist() == [3, 3, 3]
+
+        assert all(isinstance(item, dict) for item in captured_embed_input)
+        assert all("prompt_token_ids" in item for item in captured_embed_input)
+        assert all(isinstance(item["prompt_token_ids"], list) for item in captured_embed_input)
