@@ -40,6 +40,11 @@ datasets:
     formats:
     - type: "mp4"
       path: "{datasets_path}/videos"
+  - name: "videos_model_weights"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/video_model_weights"
+      
 
 default_timeout_s: 7200
 
@@ -395,10 +400,8 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --video-dir={dataset:videos,mp4}
-      --split-duration=10.0
-      --min-clip-length-s=2.0
-      --transcode-cpus-per-worker=4.0
-      --transcode-use-hwaccel
+      --model-dir={dataset:videos_model_weights,files}
+      --generate-embeddings
     timeout_s: 1800
     ray:
       num_cpus: 16
