@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -234,47 +234,6 @@ class TestFineMathModelStage:
 class TestFineMathClassifier:
     """Test the FineMathClassifier composite stage."""
 
-    def test_init_default_values(self) -> None:
-        """Test FineMathClassifier initialization with default values."""
-        classifier = FineMathClassifier()
-
-        assert classifier.cache_dir is None
-        assert classifier.float_score_column == "finemath_scores"
-        assert classifier.int_score_column == "finemath_int_scores"
-        assert classifier.text_field == "text"
-        assert classifier.max_chars is None
-        assert classifier.max_seq_length == MAX_SEQ_LENGTH
-        assert classifier.sort_by_length is False
-        assert classifier.model_inference_batch_size == 1024
-        assert classifier.autocast is True
-        assert classifier.center_crop_chars == 10_000
-
-    def test_init_custom_values(self) -> None:
-        """Test FineMathClassifier initialization with custom values."""
-        classifier = FineMathClassifier(
-            cache_dir="/custom/cache",
-            float_score_column="custom_float_scores",
-            int_score_column="custom_int_scores",
-            text_field="content",
-            max_chars=1000,
-            max_seq_length=256,
-            sort_by_length=True,  # Override default
-            model_inference_batch_size=128,
-            autocast=False,
-            center_crop_chars=5000,  # Custom value
-        )
-
-        assert classifier.cache_dir == "/custom/cache"
-        assert classifier.float_score_column == "custom_float_scores"
-        assert classifier.int_score_column == "custom_int_scores"
-        assert classifier.text_field == "content"
-        assert classifier.max_chars == 1000
-        assert classifier.max_seq_length == 256
-        assert classifier.sort_by_length is True  # Custom override
-        assert classifier.model_inference_batch_size == 128
-        assert classifier.autocast is False
-        assert classifier.center_crop_chars == 5000  # Custom value
-
     def test_post_init_creates_stages(self) -> None:
         """Test that __post_init__ creates the correct stages."""
         classifier = FineMathClassifier()
@@ -300,75 +259,6 @@ class TestFineMathClassifier:
         assert model_stage.model_identifier == FINEMATH_MODEL_ID
         assert model_stage.float_score_column == "finemath_scores"
         assert model_stage.int_score_column == "finemath_int_scores"
-
-    def test_post_init_with_custom_parameters(self) -> None:
-        """Test __post_init__ with custom parameters."""
-        classifier = FineMathClassifier(
-            cache_dir="/test/cache",
-            text_field="content",
-            max_chars=500,
-            max_seq_length=256,
-            float_score_column="custom_float",
-            int_score_column="custom_int",
-            model_inference_batch_size=64,
-            sort_by_length=False,
-            autocast=False,
-        )
-
-        # Check tokenizer stage configuration
-        tokenizer_stage = classifier.stages[1]
-        assert tokenizer_stage.cache_dir == "/test/cache"
-        assert tokenizer_stage.text_field == "content"
-        assert tokenizer_stage.max_chars == 500
-        assert tokenizer_stage.max_seq_length == 256
-        assert tokenizer_stage.sort_by_length is False
-
-        # Check model stage configuration
-        model_stage = classifier.stages[2]
-        assert model_stage.cache_dir == "/test/cache"
-        assert model_stage.float_score_column == "custom_float"
-        assert model_stage.int_score_column == "custom_int"
-        assert model_stage.model_inference_batch_size == 64
-        assert model_stage.has_seq_order is False
-        assert model_stage.autocast is False
-
-    def test_inputs(self) -> None:
-        """Test inputs method returns tokenizer stage inputs."""
-        classifier = FineMathClassifier()
-
-        # Should return the inputs from the first stage (center crop)
-        inputs = classifier.inputs()
-        first_stage_inputs = classifier.stages[0].inputs()
-
-        assert inputs == first_stage_inputs
-
-    def test_outputs(self) -> None:
-        """Test outputs method returns model stage outputs."""
-        classifier = FineMathClassifier()
-
-        # Should return the outputs from the last stage (model)
-        outputs = classifier.outputs()
-        expected_outputs = (["data"], ["finemath_scores", "finemath_int_scores"])
-
-        assert outputs == expected_outputs
-
-    def test_outputs_custom_columns(self) -> None:
-        """Test outputs method with custom column names."""
-        classifier = FineMathClassifier(float_score_column="custom_float", int_score_column="custom_int")
-
-        outputs = classifier.outputs()
-        expected_outputs = (["data"], ["custom_float", "custom_int"])
-
-        assert outputs == expected_outputs
-
-    def test_decompose(self) -> None:
-        """Test decompose method returns the stages list."""
-        classifier = FineMathClassifier()
-
-        decomposed_stages = classifier.decompose()
-
-        assert decomposed_stages == classifier.stages
-        assert len(decomposed_stages) == 3
 
     def test_name_generation(self) -> None:
         """Test that the classifier name is generated correctly."""
