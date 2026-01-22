@@ -164,7 +164,7 @@ class GlinerPiiRedactor(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         # Run model inference via the GLiNER library
         # This returns a list of dictionaries per document, each containing the entities and their confidence scores
-        entities = self.model.run(
+        entities = self.model.inference(
             df[self.text_field].tolist(),
             self.labels,
             threshold=self.threshold,

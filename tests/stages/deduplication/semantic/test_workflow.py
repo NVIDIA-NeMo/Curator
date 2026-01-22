@@ -77,9 +77,9 @@ class TestSemanticDeduplicationWorkflow:
             chunk_path = os.path.join(input_dir, f"part_{i:04d}.parquet")
             chunk_df.to_parquet(chunk_path, index=False)
 
-    @pytest.mark.parametrize("which_to_keep", ["hard", "random", "easy"])
-    @pytest.mark.parametrize("distance_metric", ["cosine", "l2"])
-    @pytest.mark.parametrize("executor_type", ["ray_data", "xenna"])
+    @pytest.mark.parametrize("which_to_keep", ["hard"])  # random and easy are tested in test_pairwise.py
+    @pytest.mark.parametrize("distance_metric", ["cosine"])  # l2 is tested in test_pairwise.py
+    @pytest.mark.parametrize("executor_type", ["xenna"])  # ray_data is tested in test_semantic.py
     def test_semantic_deduplication_with_duplicate_identification(
         self,
         tmpdir: Path,
@@ -88,10 +88,6 @@ class TestSemanticDeduplicationWorkflow:
         executor_type: Literal["ray_data", "xenna"],
     ) -> None:
         """Test semantic deduplication with duplicate identification to match original test results."""
-
-        # Skip Ray Data tests except for one specific configuration to reduce test time
-        if executor_type == "ray_data" and not (which_to_keep == "hard" and distance_metric == "cosine"):
-            pytest.skip("Ray Data executor only tested on hard+cosine configuration")
 
         input_dir = os.path.join(tmpdir, "input")
         output_dir = os.path.join(tmpdir, "output")
@@ -126,13 +122,14 @@ class TestSemanticDeduplicationWorkflow:
             executor = RayDataExecutor()
 
         results = pipeline.run(pairwise_executor=executor)
+        assert results.pipeline_tasks
 
         # Validate basic execution
-        assert results["total_execution_time"] > 0
-        assert results["kmeans_execution_time"] > 0
-        assert results["pairwise_execution_time"] > 0
-        assert len(results["kmeans_results"]) > 0
-        assert len(results["pairwise_results"]) > 0
+        assert results.get_metadata("total_time") > 0
+        assert results.get_metadata("kmeans_time") > 0
+        assert results.get_metadata("pairwise_time") > 0
+        assert len(results.pipeline_tasks.get("kmeans", [])) > 0
+        assert len(results.pipeline_tasks.get("pairwise", [])) > 0
 
         # Check that output directories were created (now automatically created)
         kmeans_output_dir = os.path.join(output_dir, "kmeans_results")
@@ -144,7 +141,7 @@ class TestSemanticDeduplicationWorkflow:
         assert os.path.exists(duplicates_dir)
 
         # Check duplicate identification results
-        duplicates_identified = results["total_duplicates_identified"]
+        duplicates_identified = results.get_metadata("num_duplicates") or 0
         assert duplicates_identified > 0
 
         # Validate against expected results from original test

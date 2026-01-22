@@ -53,26 +53,30 @@ classifiers = [
 dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
-    "cosmos-xenna==0.1.8",
+    "cosmos-xenna==0.1.2",
     "fsspec",
+    "hydra-core",
     "jieba==0.42.1",
     "loguru",
     "mecab-python3",
+    "omegaconf",
+    "openai>=1.0.0",
     "pandas>=2.1.0",
     "pyarrow",
     "ray[default,data]>=2.50",
     "torch",
     "transformers",
-    "openai>=1.0.0",
 ]
 
 [project.optional-dependencies]
 cuda12 = ["gpustat", "nvidia-ml-py"]
+vllm = ["vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
     "cudf-cu12==25.10.*",
     "cuml-cu12==25.10.*",
+    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
     "pylibcugraph-cu12==25.10.*",
     "pylibraft-cu12==25.10.*",
     "raft-dask-cu12==25.10.*",
@@ -118,12 +122,15 @@ text_cpu = [
     "peft",
     # Modifiers
     "ftfy",
+    # Embedders
+    "sentence-transformers"
 ]
 
 text_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
     "nemo_curator[text_cpu]",
+    "nemo_curator[vllm]",
 ]
 
 # Video Curation Dependencies
@@ -138,13 +145,13 @@ video_cpu = [
 video_cuda12 = [
     "nemo_curator[video_cpu]",
     "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
     "cvcuda_cu12",
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "pycuda",
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "torch<=2.9.0",
+    "torch<=2.9.1",
     "torchaudio",
-    "vllm==0.11.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # Math Curation Dependencies
@@ -156,7 +163,7 @@ math_cuda12 = [
     "nemo_curator[math_cpu]",
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
-    "vllm==0.11.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # All dependencies
@@ -169,7 +176,7 @@ all = [
 ]
 
 [dependency-groups]
-build = ["setuptools", "torch<=2.9.0"]
+build = ["setuptools", "torch<=2.9.1"]
 dev = ["jupyter"]
 linting = ["pre-commit", "ruff==0.11.4"]
 test = [
@@ -179,7 +186,7 @@ test = [
     "pytest-asyncio",
     "pytest-cov",
     "pytest-loguru",
-    "scikit-learn",
+    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
     "s3fs", # added for testing cloud fs
 ]
 
@@ -190,10 +197,12 @@ default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
 no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
+    "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
     "protobuf>=4.25.8", # Address CVE GHSA-8qvm-5x2c-j2w7
     "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
     "ray[default,data]>=2.52", # Address CVE GHSA-q279-jhrf-cc6v
+    "urllib3>=2.6.3", #Address CVE GHSA-38jv-5279-wg99
 ]
 override-dependencies = [
     "apex; sys_platform == 'never'",

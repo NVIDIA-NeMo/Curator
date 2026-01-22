@@ -200,7 +200,10 @@ class TestFuzzyDuplicates:
             bands_per_iteration=5,
         )
 
-        workflow.run(initial_tasks=tasks)
+        result = workflow.run(initial_tasks=tasks)
+        assert result.pipeline_tasks
+        assert result.get_metadata("total_time") > 0
+        assert result.get_metadata("connected_components_pipeline_time") > 0
 
         # Verify the duplicate groups found match expected
         connected_components_df = cudf.read_parquet(cache_path / "ConnectedComponentsStage")
@@ -226,6 +229,7 @@ class TestFuzzyDuplicates:
         removal_ids = set(removal_ids_df.id.to_arrow().to_pylist())
         # For every duplicate group assert that 1 document was not removed
         assert all(len(set(expected_group) - removal_ids) == 1 for expected_group in duplicate_docs)
+        assert result.get_metadata("num_duplicates") == len(removal_ids)
 
     def test_fuzzy_dedup_no_duplicates(
         self,
@@ -251,7 +255,10 @@ class TestFuzzyDuplicates:
             bands_per_iteration=10,
         )
 
-        workflow.run(initial_tasks=tasks)
+        result = workflow.run(initial_tasks=tasks)
+        assert result.pipeline_tasks
+        assert result.get_metadata("total_time") > 0
+        assert result.get_metadata("num_duplicates") == 0
 
         assert not (cache_path / "ConnectedComponentsStage").exists()
         assert not (cache_path / "BucketsToEdgesStage").exists()
