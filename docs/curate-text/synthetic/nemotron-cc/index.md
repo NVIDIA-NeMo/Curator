@@ -48,6 +48,101 @@ flowchart TB
     J --> K[Output Dataset]
 ```
 
+## Input Data Requirements
+
+Before running a NemotronCC pipeline, prepare your input data as Parquet files with the required schema.
+
+### Required Schema
+
+```{list-table} Required Parquet Columns
+:header-rows: 1
+:widths: 20 15 65
+
+* - Column
+  - Type
+  - Description
+* - `id`
+  - `int64`
+  - Unique document identifier. Required by the preprocessing pipeline to reassemble document segments after splitting.
+* - `text`
+  - `string`
+  - Document content to transform. This is the primary input field for all NemotronCC stages.
+* - `bucketed_results`
+  - `int64`
+  - Quality score used to route documents to appropriate pipelines. Values typically range from 0-20, where higher scores indicate higher quality content.
+```
+
+### Quality Score Field
+
+The `bucketed_results` field contains quality scores that determine which pipeline processes each document:
+
+- **High-quality documents** (`bucketed_results > 11`): Process with DiverseQA, Distill, ExtractKnowledge, or KnowledgeList tasks
+- **Low-quality documents** (`bucketed_results <= 11`): Process with WikipediaParaphrasing to improve text quality
+
+### Generating Quality Scores
+
+Use NeMo Curator's quality assessment tools to generate quality scores before running SDG pipelines:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import ParquetWriter
+from nemo_curator.stages.text.classifiers import FineWebEduClassifier
+from nemo_curator.stages.text.modules import AddId
+
+# Create pipeline to score documents
+pipeline = Pipeline(name="quality_scoring")
+
+# Read raw documents
+pipeline.add_stage(JsonlReader(file_paths="raw_data/*.jsonl", fields=["text"]))
+
+# Add unique document IDs
+pipeline.add_stage(AddId(id_field="id"))
+
+# Score document quality (outputs int score 0-5)
+pipeline.add_stage(
+    FineWebEduClassifier(
+        int_score_field="bucketed_results",  # Use this as quality score
+    )
+)
+
+# Save as Parquet for SDG pipeline
+pipeline.add_stage(ParquetWriter(path="scored_data/"))
+
+results = pipeline.run()
+```
+
+:::{tip}
+The example above uses `FineWebEduClassifier` which outputs scores 0-5. For the NemotronCC threshold of 11, you can either:
+- Scale the scores (e.g., multiply by 4)
+- Adjust the filter threshold in your SDG pipeline
+- Use a different classifier that outputs scores in the 0-20 range
+:::
+
+```{seealso}
+For detailed information on quality scoring options, see {ref}`Quality Assessment & Filtering <text-process-data-filter>`.
+```
+
+### Example Data
+
+An example Parquet file with the correct schema is available in the tutorials directory:
+
+```bash
+tutorials/synthetic/nemotron_cc/example_data/data.parquet
+```
+
+You can inspect its structure:
+
+```python
+import pandas as pd
+
+df = pd.read_parquet("tutorials/synthetic/nemotron_cc/example_data/data.parquet")
+print(df.columns.tolist())  # ['id', 'text', 'bucketed_results']
+print(df.head(2))
+```
+
+---
+
 ## Available Tasks
 
 NemotronCC provides five specialized generation tasks, each designed for specific data transformation needs:
@@ -101,7 +196,7 @@ from nemo_curator.stages.text.modules.score_filter import Filter
 pipeline.add_stage(
     Filter(
         filter_fn=lambda x: int(x) > 11,
-        filter_field="quality_score",
+        filter_field="bucketed_results",
     ),
 )
 ```
@@ -115,7 +210,7 @@ For documents with lower quality scores, use Wikipedia Paraphrasing to improve t
 pipeline.add_stage(
     Filter(
         filter_fn=lambda x: int(x) <= 11,
-        filter_field="quality_score",
+        filter_field="bucketed_results",
     ),
 )
 ```
