@@ -51,7 +51,6 @@ class BeginsWithLanguageFilter(DocumentFilter):
     """
 
     def __init__(self, languages: list[str]):
-        super().__init__()
         self._name = "begins_with_language_filter"
         self.languages = languages
 

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,14 +21,12 @@ using TaskPerfUtils and logs results to configured sinks.
 """
 
 import argparse
-import json
-import os
-import pickle
 import time
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from utils import write_benchmark_results
 
 from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
 
@@ -41,6 +39,7 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     bands_per_iteration: int = 20,  # Number of bands to shuffle concurrently during LSH. Higher values have higher memory pressure but can reduce runtime
     text_field: str = "text",
     input_blocksize: str = "1.5GiB",
+    **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the duplicate identification benchmark and collect comprehensive metrics."""
 
@@ -51,60 +50,57 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     logger.info("Starting duplicate identification benchmark")
     run_start_time = time.perf_counter()
 
-    try:
-        # Create and run workflow-backed pipeline
-        workflow = FuzzyDeduplicationWorkflow(
-            input_path=input_path,
-            cache_path=cache_path,
-            output_path=output_path,
-            input_filetype=input_filetype,
-            bands_per_iteration=bands_per_iteration,
-            text_field=text_field,
-            input_blocksize=input_blocksize,
-        )
-        # TODO: Uncomment this when the pipeline is fixed
-        # output_tasks = pipeline.run(executor=executor, initial_tasks=None)
-        output_tasks = []
-        workflow.run(initial_tasks=None)
-        run_time_taken = time.perf_counter() - run_start_time
+    # Create and run workflow-backed pipeline
+    workflow = FuzzyDeduplicationWorkflow(
+        input_path=input_path,
+        cache_path=cache_path,
+        output_path=output_path,
+        input_filetype=input_filetype,
+        bands_per_iteration=bands_per_iteration,
+        text_field=text_field,
+        input_blocksize=input_blocksize,
+    )
 
-        success = True
-        logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
+    # Run the workflow, extract metrics from the WorkflowRunResult object
+    workflow_run_result = workflow.run(initial_tasks=None)
 
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"Benchmark failed: {e}")
-        output_tasks = []
-        run_time_taken = time.perf_counter() - run_start_time
-        success = False
+    run_time_taken = time.perf_counter() - run_start_time
+
+    # Extract metrics
+    workflow_total_time = workflow_run_result.metadata.get("total_time")
+    minhash_time = workflow_run_result.metadata.get("minhash_time")
+    lsh_time = workflow_run_result.metadata.get("lsh_time")
+    connected_components_time = workflow_run_result.metadata.get("connected_components_pipeline_time")
+    num_duplicates = workflow_run_result.metadata.get("num_duplicates")
+
+    minhash_percent_time = None
+    lsh_percent_time = None
+    connected_components_percent_time = None
+    if workflow_total_time:
+        if minhash_time is not None:
+            minhash_percent_time = round((minhash_time / workflow_total_time) * 100, 2)
+        if lsh_time is not None:
+            lsh_percent_time = round((lsh_time / workflow_total_time) * 100, 2)
+        if connected_components_time is not None:
+            connected_components_percent_time = round((connected_components_time / workflow_total_time) * 100, 2)
+
+    logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
 
     return {
-        "params": {
-            "input_path": input_path,
-            "cache_path": cache_path,
-            "output_path": output_path,
-            "input_filetype": input_filetype,
-            "bands_per_iteration": bands_per_iteration,
-            "text_field": text_field,
-            "input_blocksize": input_blocksize,
-        },
         "metrics": {
-            "is_success": success,
-            "time_taken": run_time_taken,
-            "num_output_tasks": len(output_tasks),
+            "is_success": True,
+            "time_taken_s": run_time_taken,
+            "workflow_total_time": workflow_total_time,
+            "minhash_time": minhash_time,
+            "lsh_time": lsh_time,
+            "connected_components_time": connected_components_time,
+            "num_duplicates": num_duplicates,
+            "minhash_percent_time": minhash_percent_time,
+            "lsh_percent_time": lsh_percent_time,
+            "connected_components_percent_time": connected_components_percent_time,
         },
-        "tasks": output_tasks,
+        "tasks": workflow_run_result,
     }
-
-
-def write_results(results: dict, output_path: str | None = None) -> None:
-    """Write results to a file or stdout."""
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(os.path.join(output_path, "params.json"), "w") as f:
-        json.dump(results["params"], f, indent=2)
-    with open(os.path.join(output_path, "metrics.json"), "w") as f:
-        json.dump(results["metrics"], f, indent=2)
-    with open(os.path.join(output_path, "tasks.pkl"), "wb") as f:
-        pickle.dump(results["tasks"], f)
 
 
 def main() -> int:
@@ -127,31 +123,22 @@ def main() -> int:
     logger.info("=== Duplicate Identification Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
+    success_code = 1  # assume failure until benchmark succeeds
+
+    # This dictionary will contain benchmark metadata and results, written to files for the benchmark framework to read.
+    result_dict = {
+        "params": vars(args),
+        "metrics": {
+            "is_success": False,
+        },
+        "tasks": [],
+    }
     try:
-        results = run_duplicate_identification_benchmark(
-            input_path=args.input_path,
-            cache_path=args.cache_path,
-            output_path=args.output_path,
-            input_filetype=args.input_filetype,
-            bands_per_iteration=args.bands_per_iteration,
-            text_field=args.text_field,
-            input_blocksize=args.input_blocksize,
-        )
-
-    except Exception as e:  # noqa: BLE001
-        print(f"Benchmark failed: {e}")
-        results = {
-            "params": vars(args),
-            "metrics": {
-                "is_success": False,
-            },
-            "tasks": [],
-        }
+        result_dict.update(run_duplicate_identification_benchmark(**vars(args)))
+        success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
-        write_results(results, args.benchmark_results_path)
-
-    # Return proper exit code based on success
-    return 0 if results["metrics"]["is_success"] else 1
+        write_benchmark_results(result_dict, args.benchmark_results_path)
+    return success_code
 
 
 if __name__ == "__main__":
