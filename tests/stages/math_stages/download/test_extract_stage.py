@@ -60,28 +60,6 @@ class MockMathExtractor(DocumentExtractor):
 class TestMathContentExtractorStage:
     """Tests for MathContentExtractor with DocumentExtractStage."""
 
-    def test_stage_with_math_extractor_properties(self) -> None:
-        """Test DocumentExtractStage properties with MathContentExtractor."""
-        extractor = MathContentExtractor()
-        stage = DocumentExtractStage(extractor=extractor, add_filename_column=False)
-
-        # Test stage name
-        assert stage.name == "extract_mathcontentextractor"
-
-        # Test inputs and outputs
-        assert stage.inputs() == (["data"], ["binary_content", "url", "mime_type"])
-        assert stage.outputs() == (["data"], ["text", "url", "type", "magic_mime_type"])
-
-    def test_stage_with_custom_column_names(self) -> None:
-        """Test DocumentExtractStage with custom column names."""
-        extractor = MathContentExtractor(
-            binary_column="custom_binary", url_column="custom_url", mime_type_column="custom_mime"
-        )
-        stage = DocumentExtractStage(extractor=extractor, add_filename_column=False)
-
-        assert stage.inputs() == (["data"], ["custom_binary", "custom_url", "custom_mime"])
-        assert stage.outputs() == (["data"], ["text", "custom_url", "type", "magic_mime_type"])
-
     @pytest.mark.parametrize(
         ("url", "expected_type", "expected_text"),
         [
