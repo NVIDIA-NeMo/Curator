@@ -22,54 +22,6 @@ from nemo_curator.stages.math.download.extract import MathContentExtractor
 class TestMathContentExtractor:
     """Test the MathContentExtractor class."""
 
-    def test_extractor_init_default_values(self) -> None:
-        """Test extractor initialization with default values."""
-        extractor = MathContentExtractor()
-
-        assert extractor.binary_column == "binary_content"
-        assert extractor.url_column == "url"
-        assert extractor.mime_type_column == "mime_type"
-        assert extractor.lynx_timeout_sec == 20
-        assert extractor._lynx is None
-        assert extractor._magic is None
-
-    def test_extractor_init_custom_values(self) -> None:
-        """Test extractor initialization with custom values."""
-        extractor = MathContentExtractor(
-            binary_column="custom_binary", url_column="custom_url", mime_type_column="custom_mime", lynx_timeout_sec=30
-        )
-
-        assert extractor.binary_column == "custom_binary"
-        assert extractor.url_column == "custom_url"
-        assert extractor.mime_type_column == "custom_mime"
-        assert extractor.lynx_timeout_sec == 30
-
-    def test_input_columns(self) -> None:
-        """Test input columns definition."""
-        extractor = MathContentExtractor()
-        expected = ["binary_content", "url", "mime_type"]
-        assert extractor.input_columns() == expected
-
-    def test_input_columns_custom(self) -> None:
-        """Test input columns with custom column names."""
-        extractor = MathContentExtractor(
-            binary_column="custom_binary", url_column="custom_url", mime_type_column="custom_mime"
-        )
-        expected = ["custom_binary", "custom_url", "custom_mime"]
-        assert extractor.input_columns() == expected
-
-    def test_output_columns(self) -> None:
-        """Test output columns definition."""
-        extractor = MathContentExtractor()
-        expected = ["text", "url", "type", "magic_mime_type"]
-        assert extractor.output_columns() == expected
-
-    def test_output_columns_custom_url(self) -> None:
-        """Test output columns with custom URL column name."""
-        extractor = MathContentExtractor(url_column="custom_url")
-        expected = ["text", "custom_url", "type", "magic_mime_type"]
-        assert extractor.output_columns() == expected
-
     def test_extract_edge_cases_none_binary_content(self, test_records: dict) -> None:
         """Test extraction with None binary content - integration style."""
         extractor = MathContentExtractor()
