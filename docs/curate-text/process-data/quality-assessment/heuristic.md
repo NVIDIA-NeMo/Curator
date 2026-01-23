@@ -321,26 +321,120 @@ quality_pipeline.add_stage(ScoreFilter(
 
 ## Analyzing Filter Results
 
-When working with non-English data or tuning your filtering pipeline, it's valuable to examine which filters are removing documents:
+When tuning filter thresholds, analyze score distributions before applying filters. NeMo Curator provides two modules for this workflow:
+
+- **`Score`**: Computes scores and adds them as columns without removing documents
+- **`ScoreFilter`**: Computes scores, filters based on thresholds, and optionally retains scores in output
+
+Use `Score` first to understand your data distribution, then apply `ScoreFilter` with tuned thresholds.
 
 ::::{tab-set}
 
-:::{tab-item} Filter Analysis
+:::{tab-item} Score Without Filtering
+Use `Score` to add score columns to your data without removing any documents:
+
 ```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modules import Score
+from nemo_curator.stages.text.filters import WordCountFilter, RepeatingTopNGramsFilter
+
+# Create scoring pipeline (no filtering)
+pipeline = Pipeline(name="score_analysis")
+
+# Load data
+pipeline.add_stage(JsonlReader(file_paths="input_data/", fields=["text", "id"]))
+
+# Add scores without filtering
+pipeline.add_stage(Score(
+    score_fn=WordCountFilter(min_words=80),
+    text_field="text",
+    score_field="word_count"
+))
+pipeline.add_stage(Score(
+    score_fn=RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18),
+    text_field="text",
+    score_field="ngram_ratio"
+))
+
+# Write scored data (all documents preserved)
+pipeline.add_stage(JsonlWriter(path="scored_output/"))
+
+pipeline.run()
+```
+
+Output files are written to the `scored_output/` directory with one file per input partition.
+:::
+
+:::{tab-item} Analyze Score Distribution
+Load the scored output and analyze distributions to tune filter thresholds:
+
+```python
+import glob
 import pandas as pd
+import matplotlib.pyplot as plt
 
-# Load scores from filter run
-scores = pd.read_json("output/scores/scores.jsonl", lines=True)
-
-# Analyze rejection reasons
-rejection_counts = scores[scores["rejected"] == True].groupby("rejected_by").size()
-print(f"Documents rejected by filter:\n{rejection_counts}")
+# Load all scored output files
+files = glob.glob("scored_output/*.jsonl")
+scored_data = pd.concat([pd.read_json(f, lines=True) for f in files], ignore_index=True)
 
 # Analyze score distributions
-import matplotlib.pyplot as plt
-scores.hist(column="word_count", bins=50)
-plt.title("Word Count Distribution")
-plt.savefig("word_count_hist.png")
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+# Word count distribution
+axes[0].hist(scored_data["word_count"], bins=50, edgecolor="black")
+axes[0].axvline(x=80, color="red", linestyle="--", label="Threshold (80)")
+axes[0].set_title("Word Count Distribution")
+axes[0].set_xlabel("Word Count")
+axes[0].legend()
+
+# N-gram ratio distribution
+axes[1].hist(scored_data["ngram_ratio"], bins=50, edgecolor="black")
+axes[1].axvline(x=0.18, color="red", linestyle="--", label="Threshold (0.18)")
+axes[1].set_title("3-gram Repetition Ratio")
+axes[1].set_xlabel("Ratio")
+axes[1].legend()
+
+plt.tight_layout()
+plt.savefig("score_distributions.png")
+
+# Print statistics
+print(f"Total documents: {len(scored_data)}")
+print(f"Documents below word count threshold: {(scored_data['word_count'] < 80).sum()}")
+print(f"Documents above ngram threshold: {(scored_data['ngram_ratio'] > 0.18).sum()}")
+```
+
+For large datasets, consider sampling or using Dask/Polars for memory-efficient analysis.
+:::
+
+:::{tab-item} Apply Tuned Filters
+After analyzing distributions, apply filters with your chosen thresholds:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import WordCountFilter, RepeatingTopNGramsFilter
+
+pipeline = Pipeline(name="filtering_pipeline")
+pipeline.add_stage(JsonlReader(file_paths="input_data/", fields=["text", "id"]))
+
+# Filter with tuned thresholds (scores retained in output)
+pipeline.add_stage(ScoreFilter(
+    filter_obj=WordCountFilter(min_words=80),
+    text_field="text",
+    score_field="word_count"
+))
+pipeline.add_stage(ScoreFilter(
+    filter_obj=RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18),
+    text_field="text",
+    score_field="ngram_ratio"
+))
+
+pipeline.add_stage(JsonlWriter(path="filtered_output/"))
+pipeline.run()
 ```
 :::
 
