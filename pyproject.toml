@@ -70,6 +70,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cuda12 = ["gpustat", "nvidia-ml-py"]
+vllm = ["vllm>=0.14.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
@@ -121,12 +122,15 @@ text_cpu = [
     "peft",
     # Modifiers
     "ftfy",
+    # Embedders
+    "sentence-transformers"
 ]
 
 text_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
     "nemo_curator[text_cpu]",
+    "nemo_curator[vllm]",
 ]
 
 # Video Curation Dependencies
@@ -141,13 +145,13 @@ video_cpu = [
 video_cuda12 = [
     "nemo_curator[video_cpu]",
     "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
     "cvcuda_cu12",
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "pycuda",
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "torch<=2.9.0",
+    "torch<=2.9.1",
     "torchaudio",
-    "vllm==0.11.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # All dependencies
@@ -159,7 +163,7 @@ all = [
 ]
 
 [dependency-groups]
-build = ["setuptools", "torch<=2.9.0"]
+build = ["setuptools", "torch<=2.9.1"]
 dev = ["jupyter"]
 linting = ["pre-commit", "ruff==0.11.4"]
 test = [
@@ -181,7 +185,6 @@ index-strategy = "unsafe-best-match"
 no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
-    "protobuf>=4.25.8", # Address CVE GHSA-8qvm-5x2c-j2w7
     "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
     "ray[default,data]>=2.52", # Address CVE GHSA-q279-jhrf-cc6v
@@ -193,6 +196,7 @@ override-dependencies = [
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
     "transformers>=4.55.2",
+    "protobuf>=5.29.5",  # Allow vLLM 0.14.0's protobuf requirement while maintaining minimum for security
 ]
 
 
