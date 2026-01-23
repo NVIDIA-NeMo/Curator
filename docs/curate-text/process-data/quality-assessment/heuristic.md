@@ -178,39 +178,46 @@ NeMo Curator includes more than 30 heuristic filters for assessing document qual
 | **PornographicUrlsFilter** | Detects URLs containing "porn" substring | None | N/A |
 | **EllipsisFilter** | Limits excessive ellipses | `max_num_lines_ending_with_ellipsis_ratio` | 0.3 |
 | **HistogramFilter** | Filters based on character distribution | `threshold` | 0.8 |
-| **SubstringFilter** | Filters based on presence of specific substring in a position | `substring`, `position` | "", "any" |
+| **SubstringFilter** | Filters based on presence of specific substring in a position | `substring`, `position` | N/A (required) |
 
 ## Configuration
 
+NeMo Curator pipelines can be configured using YAML files with [Hydra](https://hydra.cc/). The configuration uses `_target_` to specify class paths:
+
 ::::{tab-set}
 
-:::{tab-item} Example Configuration
+:::{tab-item} Hydra Configuration
 ```yaml
-# Sample filter configuration (simplified)
-filters:
-  - name: ScoreFilter
-    filter:
-      name: WordCountFilter
+# Hydra-based pipeline configuration
+input_path: /path/to/input
+output_path: /path/to/output
+text_field: text
+
+stages:
+  - _target_: nemo_curator.stages.text.io.reader.JsonlReader
+    file_paths: ${input_path}
+    fields: null
+
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.WordCountFilter
       min_words: 50
       max_words: 100000
-    text_field: text
+    text_field: ${text_field}
     score_field: word_count
 
-  - name: ScoreFilter
-    filter:
-      name: PunctuationFilter
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.PunctuationFilter
       max_num_sentences_without_endmark_ratio: 0.85
-    text_field: text
-    score_field: punctuation_ratio
+    text_field: ${text_field}
+    score_field: null
 
-  - name: ScoreFilter
-    filter:
-      name: RepeatingTopNGramsFilter
-      n: 2
-      max_repeating_ngram_ratio: 0.18
-    text_field: text
-    score_field: ngram_repetition
+  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
+    path: ${output_path}
 ```
+
+See `nemo_curator/config/text/` for complete pipeline examples.
 :::
 
 ::::
@@ -243,6 +250,7 @@ pipeline.add_stage(ScoreFilter(filter_obj=RepeatingTopNGramsFilter(), text_field
 :::{tab-item} Performance Tuning
 ```python
 # Optimize filter performance with proper configuration
+from nemo_curator.backends.xenna import XennaExecutor
 
 # Configure executor for better performance
 executor_config = {
@@ -449,6 +457,7 @@ For large datasets, consider these performance optimizations:
 :::{tab-item} Memory Efficient Processing
 ```python
 # Process large datasets efficiently using pipeline streaming
+from nemo_curator.backends.xenna import XennaExecutor
 
 # Configure for streaming processing
 executor_config = {
@@ -469,6 +478,7 @@ results = pipeline.run(executor)
 :::{tab-item} Distributed Processing
 ```python
 # Scale processing across multiple workers
+from nemo_curator.backends.xenna import XennaExecutor
 
 # Configure for distributed processing
 executor_config = {
@@ -481,7 +491,7 @@ executor_config = {
 executor = XennaExecutor(config=executor_config)
 results = pipeline.run(executor)
 
-# Default configuration uses single worker
+# Or use default XennaExecutor configuration
 # results = pipeline.run()
 ```
 :::
