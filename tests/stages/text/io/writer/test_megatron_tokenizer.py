@@ -67,16 +67,12 @@ def mock_tokenizer() -> Mock:
 def setup_mocks(mock_tokenizer: Mock):
     with (
         patch("nemo_curator.stages.text.io.writer.megatron_tokenizer.AutoTokenizer") as mock_auto_tokenizer,
-        patch("nemo_curator.stages.text.io.writer.megatron_tokenizer.snapshot_download") as mock_snapshot_download,
     ):
         # Setup AutoTokenizer mock
         mock_auto_tokenizer.from_pretrained.return_value = mock_tokenizer
 
-        # snapshot_download doesn't need special setup, just needs to not fail
-
         yield {
             "auto_tokenizer": mock_auto_tokenizer,
-            "snapshot_download": mock_snapshot_download,
         }
 
 
