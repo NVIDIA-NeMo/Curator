@@ -197,7 +197,7 @@ override-dependencies = [
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
     "transformers>=4.55.2",
-    "protobuf>=5.29.5",  # Allow vLLM 0.14.0's protobuf requirement while maintaining minimum for security
+    "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
 ]
 
 
