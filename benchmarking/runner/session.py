@@ -36,14 +36,15 @@ from runner.path_resolver import PathResolver
 from runner.utils import get_total_memory_bytes
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(kw_only=True)
 class Session:
     results_path: Path
     entries: list[Entry] = field(default_factory=list)
     sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
-    # Set object store memory to 50% of total system memory by default
-    default_object_store_size_bytes: int = int(get_total_memory_bytes() * 0.5)
+    # object store size is either a value in bytes (int), a fraction of total system memory (float), or None or the
+    # value "default" (string) both representing the default object store size as used by "ray start".
+    object_store_size: int | float | str | None = 0.5
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
     path_resolver: PathResolver = None
@@ -57,6 +58,10 @@ class Session:
             msg = f"Duplicate entry name(s) found: {', '.join(duplicates)}"
             raise ValueError(msg)
 
+        # Process object_store_size by converting values representing fractions of system memory to bytes.
+        if isinstance(self.object_store_size, float):
+            self.object_store_size = int(get_total_memory_bytes() * self.object_store_size)
+
         # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
         for entry in self.entries:
             if entry.delete_scratch is None:
@@ -67,10 +72,10 @@ class Session:
             if entry.timeout_s is None:
                 entry.timeout_s = self.default_timeout_s
 
-        # Update object store size for each entry that has not been set to the session-level default_object_store_size setting
+        # Update object store size for each entry that has not been set.
         for entry in self.entries:
-            if entry.object_store_size_bytes is None:
-                entry.object_store_size_bytes = self.default_object_store_size_bytes
+            if entry.object_store_size is None:
+                entry.object_store_size = self.object_store_size
 
     @classmethod
     def assert_valid_config_dict(cls, data: dict) -> None:
@@ -82,7 +87,7 @@ class Session:
             raise ValueError(msg)
 
     @classmethod
-    def create_from_dict(cls, data: dict, entry_filter_expr: str | None = None) -> Session:
+    def from_dict(cls, data: dict, entry_filter_expr: str | None = None) -> Session:
         """
         Factory method to create a Session from a dictionary.
 
@@ -99,9 +104,7 @@ class Session:
         sess_data = {k: v for k, v in data.items() if k in sess_field_names}
         sinks = cls.create_sinks_from_dict(sess_data.get("sinks", []))
 
-        # Load entries only if enabled (enabled by default)
-        # TODO: should entries be created unconditionally and use their "enabled" field instead?
-        entries = [Entry(**e) for e in sess_data["entries"] if e.get("enabled", True)]
+        entries = [Entry.from_dict(e) for e in sess_data["entries"]]
 
         # Filter entries based on the expression, if provided.
         # Example: expr "foo and not foobar" will include all entries
@@ -132,10 +135,6 @@ class Session:
         sinks = []
         for sink_config in sink_configs:
             sink_name = sink_config["name"]
-            sink_enabled = sink_config.get("enabled", True)
-            if not sink_enabled:
-                logger.warning(f"Sink {sink_name} is not enabled, skipping")
-                continue
             if sink_name == "mlflow":
                 from runner.sinks.mlflow_sink import MlflowSink
 

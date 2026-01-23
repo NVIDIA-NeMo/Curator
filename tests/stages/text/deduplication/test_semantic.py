@@ -29,17 +29,20 @@ from nemo_curator.pipeline.workflow import WorkflowRunResult
 with suppress(ImportError):
     from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
 
-# Pre-download the model to avoid rate limiting in CI. If it fails, skip the test.
-try:
-    snapshot_download(
-        repo_id="sentence-transformers/all-MiniLM-L6-v2",
-        cache_dir=None,
-        token=None,
-        local_files_only=False,
-    )
-except Exception as e:  # noqa: BLE001
-    msg = f"Failed to download sentence-transformers/all-MiniLM-L6-v2 due to {e}"
-    pytest.skip(msg)
+
+@pytest.fixture(scope="session", autouse=True)
+def ensure_semantic_model_downloaded() -> None:
+    """Pre-download the model once per session to avoid rate limiting in CI."""
+    try:
+        snapshot_download(
+            repo_id="sentence-transformers/all-MiniLM-L6-v2",
+            cache_dir=None,
+            token=None,
+            local_files_only=False,
+        )
+    except Exception as e:  # noqa: BLE001
+        msg = f"Failed to download sentence-transformers/all-MiniLM-L6-v2 due to {e}"
+        pytest.skip(msg)
 
 
 def create_data_with_duplicates(input_dir: Path) -> pd.DataFrame:
@@ -70,9 +73,8 @@ def create_data_with_duplicates(input_dir: Path) -> pd.DataFrame:
 @pytest.mark.parametrize(
     "test_config",
     [
+        # trying both executors with and without id generator to have more coverage
         pytest.param((XennaExecutor, {}, True), id="xenna_with_id_generator"),
-        # TODO: Uncomment this when we are able to figure out how to run Xenna again after deduplication
-        # pytest.param((XennaExecutor, {}, False), id="xenna_without_id_generator"),
         pytest.param((RayDataExecutor, {}, False), id="ray_data_without_id_generator"),
     ],
     indirect=True,

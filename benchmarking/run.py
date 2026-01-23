@@ -45,11 +45,12 @@ from runner.env_capture import dump_env
 from runner.path_resolver import PathResolver
 from runner.process import run_command_with_timeout
 from runner.ray_cluster import (
+    get_ray_cluster_data,
     setup_ray_cluster_and_env,
     teardown_ray_cluster_and_env,
 )
 from runner.session import Session
-from runner.utils import find_result, get_obj_for_json, resolve_env_vars
+from runner.utils import find_result, get_obj_for_json, remove_disabled_blocks, resolve_env_vars
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -172,7 +173,7 @@ def run_entry(
             num_gpus=ray_num_gpus,
             enable_object_spilling=ray_enable_object_spilling,
             ray_log_path=logs_path / "ray.log",
-            object_store_size_bytes=entry.object_store_size_bytes,
+            object_store_size=None if entry.object_store_size == "default" else entry.object_store_size,
         )
 
         # Prepopulate <session_entry_path>/params.json with entry params.
@@ -180,7 +181,7 @@ def run_entry(
         (session_entry_path / "params.json").write_text(
             json.dumps(
                 {
-                    "object_store_size_bytes": entry.object_store_size_bytes,
+                    "object_store_size_bytes": entry.object_store_size,
                     "ray_num_cpus": ray_num_cpus,
                     "ray_num_gpus": ray_num_gpus,
                     "ray_enable_object_spilling": ray_enable_object_spilling,
@@ -215,7 +216,7 @@ def run_entry(
                 "logs_dir": logs_path,
             }
         )
-        ray_data = {}
+        ray_cluster_data = get_ray_cluster_data()
         # script_persisted_data is a dictionary with keys "params" and "metrics"
         # "params" will contain everything the script wrote to its params.json file
         # "metrics" will contain everything the script wrote to its metrics.json file plus metrics
@@ -223,7 +224,7 @@ def run_entry(
         script_persisted_data = get_entry_script_persisted_data(session_entry_path)
         result_data.update(
             {
-                "ray_data": ray_data,
+                "ray_cluster_data": ray_cluster_data,
                 "metrics": script_persisted_data["metrics"],
                 "params": script_persisted_data["params"],
             }
@@ -298,12 +299,13 @@ def main() -> int:  # noqa: C901
     # Preprocess the config dict prior to creating objects from it
     try:
         Session.assert_valid_config_dict(config_dict)
+        config_dict = remove_disabled_blocks(config_dict)
         config_dict = resolve_env_vars(config_dict)
     except ValueError as e:
         logger.error(f"Invalid configuration: {e}")
         return 1
 
-    session = Session.create_from_dict(config_dict, args.entries)
+    session = Session.from_dict(config_dict, args.entries)
 
     if args.list:
         for entry in session.entries:
@@ -324,7 +326,6 @@ def main() -> int:  # noqa: C901
 
     # Print a summary of the entries that will be run in the for loop below
     # Disabled entries will not be printed
-    # TODO: should entries be created unconditionally and have an "enabled" field instead?
     logger.info("Benchmark entries to be run in this session:")
     for idx, entry in enumerate(session.entries, start=1):
         logger.info(f"\t{idx}. {entry.name}")

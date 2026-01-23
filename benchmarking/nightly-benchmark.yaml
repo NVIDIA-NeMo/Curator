@@ -57,6 +57,11 @@ sinks:
 # Whether to delete scratch dirs after each run
 delete_scratch: true
 
+# The size of the object store used by Ray which can be either a value in bytes (int), or
+# a fraction of total system memory (float), or the value "default" (string) which allows
+# for "ray start" to determine object store size.
+object_store_size: 536870912000  # 500GB
+
 entries:
   - name: domain_classification_raydata
     enabled: true
@@ -91,7 +96,6 @@ entries:
       - metric: domain_label_news_count
         exact_value: 2817
 
-    object_store_size_bytes: 214748364800
   - name: domain_classification_xenna
     enabled: true
     script: domain_classification_benchmark.py
