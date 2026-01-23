@@ -34,6 +34,7 @@ resolution-markers = [
 [manifest]
 constraints = [
     { name = "aiohttp", specifier = ">=3.13.3" },
+    { name = "protobuf", specifier = ">=4.25.8" },
     { name = "ray", extras = ["default", "data"], specifier = ">=2.52" },
     { name = "starlette", specifier = ">=0.49.1" },
     { name = "urllib3", specifier = ">=2.6.3" },
