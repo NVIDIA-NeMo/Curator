@@ -43,7 +43,7 @@ def run_video_pipeline_benchmark(args) -> dict[str, Any]:
     executor = setup_executor(args.executor)
 
     video_dir = Path(args.video_dir).absolute()
-    output_path = Path(args.output_clip_path).absolute()
+    output_path = Path(args.output_path).absolute()
     output_path.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Video directory: {video_dir}")

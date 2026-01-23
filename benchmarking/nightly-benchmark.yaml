@@ -401,7 +401,6 @@ entries:
       --executor=xenna
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
-      --generate-embeddings
     timeout_s: 1800
     ray:
       num_cpus: 64
@@ -415,9 +414,26 @@ entries:
       --benchmark-results-path={session_entry_dir}
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
+      --no-generate-embeddings
       --video-dir={dataset:videos,mp4}
     timeout_s: 1800
     ray:
       num_cpus: 64
       num_gpus: 0
+      enable_object_spilling: false
+
+  - name: video_captioning
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --video-dir={dataset:videos,mp4}
+      --model-dir={dataset:videos_model_weights,files}
+      --generate-captions
+    timeout_s: 1800
+    ray:
+      num_cpus: 64
+      num_gpus: 1
       enable_object_spilling: false

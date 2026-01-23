@@ -245,7 +245,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
 
     pipeline.add_stage(
         ClipWriterStage(
-            output_path=args.output_clip_path,
+            output_path=args.output_path,
             input_path=args.video_dir,
             upload_clips=args.upload_clips,
             dry_run=args.dry_run,
@@ -310,7 +310,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--video-limit", type=int, default=None, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
-    parser.add_argument("--output-clip-path", type=str, help="Path to output clips", required=True)
+    parser.add_argument("--output-path", type=str, help="Path to output clips", required=True)
 
     parser.add_argument(
         "--no-upload-clips",
