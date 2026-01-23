@@ -32,7 +32,6 @@ class GdriveSink(Sink):
     def __init__(self, sink_config: dict[str, Any]):
         super().__init__(sink_config)
         self.sink_config = sink_config
-        self.enabled = self.sink_config.get("enabled", True)
         self.results: list[dict[str, Any]] = []
         self.session_name: str = None
         self.matrix_config: Session = None
@@ -57,17 +56,14 @@ class GdriveSink(Sink):
         pass
 
     def finalize(self) -> None:
-        if self.enabled:
-            try:
-                tar_path = self._tar_results_and_artifacts()
-                self._upload_to_gdrive(tar_path)
-            except Exception as e:  # noqa: BLE001
-                tb = traceback.format_exc()
-                logger.error(f"GdriveSink: Error uploading to Google Drive: {e}\n{tb}")
-            finally:
-                self._delete_tar_file(tar_path)
-        else:
-            logger.warning("GdriveSink: Not enabled, skipping post.")
+        try:
+            tar_path = self._tar_results_and_artifacts()
+            self._upload_to_gdrive(tar_path)
+        except Exception as e:  # noqa: BLE001
+            tb = traceback.format_exc()
+            logger.error(f"GdriveSink: Error uploading to Google Drive: {e}\n{tb}")
+        finally:
+            self._delete_tar_file(tar_path)
 
     def _tar_results_and_artifacts(self) -> Path:
         results_path = Path(self.matrix_config.results_path)
