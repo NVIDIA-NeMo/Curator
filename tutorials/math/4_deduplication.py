@@ -1,0 +1,184 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import argparse
+import os
+from pathlib import Path
+
+from loguru import logger
+
+from nemo_curator.core.client import RayClient
+from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
+from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Run fuzzy deduplication on Parquet or JSONL files",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--input",
+        type=str,
+        required=True,
+        help="Input directory path for Parquet/JSONL files",
+    )
+    parser.add_argument(
+        "--cache_dir",
+        type=str,
+        required=True,
+        help="Cache directory for deduplication intermediates (must be empty between runs)",
+    )
+    parser.add_argument(
+        "--duplicate_ids_dir",
+        type=str,
+        required=True,
+        help="Output directory for duplicate IDs and id generator mapping",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        required=True,
+        help="Output directory for deduplicated data",
+    )
+    parser.add_argument(
+        "--text_field",
+        type=str,
+        default="text",
+        help="Field containing the text to deduplicate",
+    )
+    parser.add_argument(
+        "--input_filetype",
+        type=str,
+        choices=["parquet", "jsonl"],
+        default="jsonl",
+        help="Input file type (auto-detected if not specified)",
+    )
+    parser.add_argument(
+        "--input_blocksize",
+        type=str,
+        default="1GiB",
+        help="Size of input blocks to read",
+    )
+    parser.add_argument(
+        "--bands_per_iteration",
+        type=int,
+        default=5,
+        help="Number of bands to shuffle concurrently (reduce if OOM)",
+    )
+    # MinHash + LSH parameters
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Seed for minhash permutations",
+    )
+    parser.add_argument(
+        "--char_ngrams",
+        type=int,
+        default=24,
+        help="Size of character n-grams for MinHash (recommended: >= 20)",
+    )
+    parser.add_argument(
+        "--num_bands",
+        type=int,
+        default=20,
+        help="Number of bands/buckets for LSH",
+    )
+    parser.add_argument(
+        "--minhashes_per_band",
+        type=int,
+        default=13,
+        help="Number of hashes per band",
+    )
+    parser.add_argument(
+        "--use_64_bit_hash",
+        action="store_true",
+        default=False,
+        help="Use 64-bit hash function (default: 32-bit)",
+    )
+
+    args = parser.parse_args()
+
+    cache_files = list(Path(args.cache_dir).glob("*"))
+    if cache_files:
+        logger.warning(
+            f"Cache directory {args.cache_dir} is not empty. "
+            "It's recommended to clear it between runs to avoid conflicts."
+        )
+
+    if args.input_filetype == "parquet":
+        input_file_extensions = [".parquet"]
+    elif args.input_filetype == "jsonl":
+        input_file_extensions = [".jsonl", ".json"]
+
+    ray_client = RayClient()
+    ray_client.start()
+
+    try:
+        logger.info("Running fuzzy deduplication workflow to identify duplicate IDs...")
+        fuzzy_workflow = FuzzyDeduplicationWorkflow(
+            input_path=args.input,
+            cache_path=args.cache_dir,
+            output_path=args.duplicate_ids_dir,
+            input_filetype=args.input_filetype,
+            input_file_extensions=input_file_extensions,
+            input_blocksize=args.input_blocksize,
+            text_field=args.text_field,
+            perform_removal=False,
+            char_ngrams=args.char_ngrams,
+            num_bands=args.num_bands,
+            minhashes_per_band=args.minhashes_per_band,
+            use_64_bit_hash=args.use_64_bit_hash,
+            bands_per_iteration=args.bands_per_iteration,
+            seed=args.seed,
+        )
+        fuzzy_workflow.run()
+
+        duplicate_ids_path = os.path.join(args.duplicate_ids_dir, "FuzzyDuplicateIds")
+        id_generator_path = os.path.join(args.duplicate_ids_dir, "fuzzy_id_generator.json")
+
+        # Check if duplicates were found
+        if not os.path.exists(id_generator_path):
+            logger.info("No duplicates found. Copying input to output directory...")
+            import shutil
+
+            if os.path.exists(args.output):
+                shutil.rmtree(args.output)
+            shutil.copytree(args.input, args.output)
+            logger.info(f"All documents are unique. Copied {args.input} → {args.output}")
+        else:
+            logger.info("Running text duplicates removal workflow to remove duplicates...")
+            removal_workflow = TextDuplicatesRemovalWorkflow(
+                input_path=args.input,
+                ids_to_remove_path=duplicate_ids_path,
+                output_path=args.output,
+                input_filetype=args.input_filetype,
+                input_file_extensions=input_file_extensions,
+                input_id_field="_curator_dedup_id",
+                ids_to_remove_duplicate_id_field="_curator_dedup_id",
+                input_blocksize=args.input_blocksize,
+                id_generator_path=id_generator_path,
+            )
+            removal_workflow.run()
+
+        logger.info("Pipeline completed successfully.")
+        logger.info(f"Deduplication complete! Deduplicated output: {args.output}")
+
+    finally:
+        ray_client.stop()
+
+
+if __name__ == "__main__":
+    main()

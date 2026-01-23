@@ -18,6 +18,7 @@ import subprocess
 from loguru import logger
 
 from nemo_curator.stages.text.download import DocumentDownloader
+from nemo_curator.stages.text.download.utils import check_s5cmd_installed
 
 
 class ArxivDownloader(DocumentDownloader):
@@ -25,7 +26,7 @@ class ArxivDownloader(DocumentDownloader):
 
     def __init__(self, download_dir: str, verbose: bool = False):
         super().__init__(download_dir, verbose)
-        if not self._check_s5cmd_installed():
+        if not check_s5cmd_installed():
             msg = "s5cmd is not installed. Please install it from https://github.com/peak/s5cmd"
             raise RuntimeError(msg)
 

@@ -1,0 +1,32 @@
+{
+  "_comment": "Math dataset configurations for download. Run with: python 0_download.py --list",
+
+  "FINEMATH_4PLUS": {
+    "huggingface": "HuggingFaceTB/finemath/finemath-4plus",
+    "needs_cc_lookup": false
+  },
+  "FINEMATH_3PLUS": {
+    "huggingface": "HuggingFaceTB/finemath/finemath-3plus",
+    "needs_cc_lookup": false
+  },
+  "OPENWEBMATH": {
+    "huggingface": "open-web-math/open-web-math",
+    "needs_cc_lookup": true,
+    "url_col": "url"
+  },
+  "OPC_FINEWEB_MATH": {
+    "huggingface": "OpenCoder-LLM/opc-fineweb-math-corpus",
+    "needs_cc_lookup": true,
+    "url_col": "url"
+  },
+  "MEGAMATH_PRO": {
+    "huggingface": "LLM360/MegaMath/megamath-web-pro",
+    "needs_cc_lookup": true,
+    "url_col": "url"
+  },
+  "MEGAMATH_WEB": {
+    "huggingface": "LLM360/MegaMath/megamath-web",
+    "needs_cc_lookup": true,
+    "url_col": "url"
+  }
+}
