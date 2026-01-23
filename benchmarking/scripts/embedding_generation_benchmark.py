@@ -85,7 +85,7 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
     run_time_taken = time.perf_counter() - run_start_time
 
     # Calculate metrics
-    num_documents_processed = sum(task.num_items for task in output_tasks)
+    num_documents_processed = sum(task._stage_perf[-1].num_items_processed for task in output_tasks)
     throughput_docs_per_sec = num_documents_processed / run_time_taken if run_time_taken > 0 else 0
 
     logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
