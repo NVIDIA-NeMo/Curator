@@ -434,7 +434,7 @@ jobs:
           uv run python -c "import sys; print('Python:', sys.version);"
           uv run python -c "from nemo_curator import package_info; print(f'nemo_curator v{package_info.__version__}')"
           uv run python -c "import cudf, cuml; print('cudf, cuml');"
-          uv run python -c "import torch; print(f'torch {torch.__version__} (CUDA: {torch.cuda.is_available()})');"
+          uv run python -c "import torch; print(f'torch {torch.__version__} (CUDA: {assert not torch.cuda.is_available()})');"
           uv run python -c "import torchvision; print(f'torchvision {torchvision.__version__}')"
           echo "::endgroup::"
           SCRIPT
