@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import pathlib
 import re
 from pathlib import Path
@@ -23,10 +24,20 @@ from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
 try:
     from vllm import LLM, SamplingParams
+    from vllm.engine.arg_utils import EngineArgs
 
     VLLM_AVAILABLE = True
+    # Check which multimodal cache parameter is supported in this vLLM version
+    _engine_args_sig = inspect.signature(EngineArgs.__init__)
+    _engine_args_params = _engine_args_sig.parameters
+    # Old API (vLLM ~0.6.4 to ~0.12.x): disable_mm_preprocessor_cache (boolean)
+    VLLM_SUPPORTS_DISABLE_MM_CACHE = "disable_mm_preprocessor_cache" in _engine_args_params
+    # New API (vLLM 0.13.0+): mm_processor_cache_gb (float, set to 0 to disable)
+    VLLM_SUPPORTS_MM_CACHE_GB = "mm_processor_cache_gb" in _engine_args_params
 except ImportError:
     VLLM_AVAILABLE = False
+    VLLM_SUPPORTS_DISABLE_MM_CACHE = False
+    VLLM_SUPPORTS_MM_CACHE_GB = False
 
     # Create dummy classes for type hints when vllm is not available
     class LLM:
@@ -87,16 +98,31 @@ class QwenVL(ModelInterface):
             "do_rescale": self.model_does_preprocess,
             "do_normalize": self.model_does_preprocess,
         }
-        self.model = LLM(
-            model=self.weight_file,
-            limit_mm_per_prompt={"image": 0, "video": 1},
-            quantization="fp8" if self.fp8 else None,
-            max_model_len=32768,
-            gpu_memory_utilization=0.85,
-            mm_processor_kwargs=mm_processor_kwargs,
-            disable_mm_preprocessor_cache=self.disable_mmcache,
-            max_num_batched_tokens=32768,
-        )
+        llm_kwargs = {
+            "model": self.weight_file,
+            "limit_mm_per_prompt": {"image": 0, "video": 1},
+            "quantization": "fp8" if self.fp8 else None,
+            "max_model_len": 32768,
+            "gpu_memory_utilization": 0.85,
+            "mm_processor_kwargs": mm_processor_kwargs,
+            "max_num_batched_tokens": 32768,
+        }
+        # Handle multimodal cache configuration across vLLM versions:
+        if self.disable_mmcache:
+            if VLLM_SUPPORTS_MM_CACHE_GB:
+                # New API: set cache size to 0 to disable
+                llm_kwargs["mm_processor_cache_gb"] = 0
+                logger.info("Disabling multimodal processor cache via mm_processor_cache_gb=0")
+            elif VLLM_SUPPORTS_DISABLE_MM_CACHE:
+                # Old API: use boolean flag
+                llm_kwargs["disable_mm_preprocessor_cache"] = True
+                logger.info("Disabling multimodal processor cache via disable_mm_preprocessor_cache=True")
+            else:
+                logger.warning(
+                    "disable_mmcache=True was requested but no supported multimodal cache parameter found "
+                    "in this vLLM version."
+                )
+        self.model = LLM(**llm_kwargs)
         self.sampling_params = SamplingParams(
             temperature=0.1,
             top_p=0.001,
