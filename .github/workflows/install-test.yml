@@ -424,43 +424,20 @@ jobs:
           echo "🚀 Installing ALL extras (uv, Py3.12) - Install + Import"
 
           cat > ${{ github.workspace }}/.run_install.sh << 'SCRIPT'
-set -e
-apt-get update && apt-get install -y --no-install-recommends git curl software-properties-common
-add-apt-repository -y ppa:deadsnakes/ppa
-apt-get update
-apt-get install -y python3.12 python3.12-venv python3.12-dev
-curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="/root/.local/bin:$PATH"
-uv sync --locked --link-mode copy --extra all --python 3.12 2>&1 | tee install.log
+          set -e
+          apt-get update && apt-get install -y --no-install-recommends git curl
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="/root/.local/bin:$PATH"
+          uv sync --locked --link-mode copy --extra all --python 3.12 2>&1 | tee install.log
 
-echo "::group::🔍 Import Verification"
-uv run python << 'PYEOF'
-import sys
-print('Python:', sys.version)
-
-from nemo_curator import package_info
-print(f'✅ nemo_curator v{package_info.__version__}')
-
-try:
-    import torch
-    print(f'✅ torch {torch.__version__} (CUDA: {torch.cuda.is_available()})')
-except Exception as e:
-    print(f'⚠️ torch: {e}')
-
-try:
-    import cudf, cuml
-    print('✅ cudf, cuml')
-except Exception as e:
-    print(f'⚠️ cudf/cuml: {e}')
-
-try:
-    import torchvision
-    print(f'✅ torchvision {torchvision.__version__}')
-except Exception as e:
-    print(f'⚠️ torchvision: {e}')
-PYEOF
-echo "::endgroup::"
-SCRIPT
+          echo "::group::Import Verification"
+          uv run python -c "import sys; print('Python:', sys.version);"
+          uv run python -c "from nemo_curator import package_info; print(f'nemo_curator v{package_info.__version__}')"
+          uv run python -c "import cudf, cuml; print('cudf, cuml');"
+          uv run python -c "import torch; print(f'torch {torch.__version__} (CUDA: {torch.cuda.is_available()})');"
+          uv run python -c "import torchvision; print(f'torchvision {torchvision.__version__}')"
+          echo "::endgroup::"
+          SCRIPT
 
           if docker run --rm --gpus all \
             -v "${{ github.workspace }}:/workspace" \
