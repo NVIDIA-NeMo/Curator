@@ -280,8 +280,15 @@ def main(args: argparse.Namespace) -> None:
     print("\nPipeline completed!")
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def create_video_splitting_argparser() -> argparse.ArgumentParser:
+    """Create and return the argument parser for video splitting pipeline.
+
+    This function is extracted to allow reuse by other scripts (e.g., benchmarks).
+    """
+    parser = argparse.ArgumentParser(
+        description="Split videos into clips with optional embeddings, captions, and filtering.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     # General arguments
     parser.add_argument("--video-dir", type=str, required=True, help="Path to input video directory")
     parser.add_argument(
@@ -730,5 +737,10 @@ if __name__ == "__main__":
         choices=["qwen_lm"],
         help="Enhanced LLM models to use to improve captions",
     )
+    return parser
+
+
+if __name__ == "__main__":
+    parser = create_video_splitting_argparser()
     args = parser.parse_args()
     main(args)
