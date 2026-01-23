@@ -45,6 +45,7 @@ from runner.env_capture import dump_env
 from runner.path_resolver import PathResolver
 from runner.process import run_command_with_timeout
 from runner.ray_cluster import (
+    get_ray_cluster_data,
     setup_ray_cluster_and_env,
     teardown_ray_cluster_and_env,
 )
@@ -215,7 +216,7 @@ def run_entry(
                 "logs_dir": logs_path,
             }
         )
-        ray_data = {}
+        ray_cluster_data = get_ray_cluster_data()
         # script_persisted_data is a dictionary with keys "params" and "metrics"
         # "params" will contain everything the script wrote to its params.json file
         # "metrics" will contain everything the script wrote to its metrics.json file plus metrics
@@ -223,7 +224,7 @@ def run_entry(
         script_persisted_data = get_entry_script_persisted_data(session_entry_path)
         result_data.update(
             {
-                "ray_data": ray_data,
+                "ray_cluster_data": ray_cluster_data,
                 "metrics": script_persisted_data["metrics"],
                 "params": script_persisted_data["params"],
             }
