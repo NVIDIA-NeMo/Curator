@@ -71,6 +71,17 @@ snapshot_download(
 )
 ```
 
+Please ensure that the above dataset was downloaded correctly. You can check:
+
+```bash
+$ ls /path/to/Llama-Nemotron-Post-Training-Dataset/SFT
+chat  code  math  safety  science
+$ du -sh /path/to/Llama-Nemotron-Post-Training-Dataset/SFT
+122G    /path/to/Llama-Nemotron-Post-Training-Dataset/SFT
+```
+
+The above example ensures that the full SFT dataset was downloaded and is ready to use for the tutorial. If you only selected a subset of the data to download, then you should check that it matches the files on the [Hugging Face page](https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset).
+
 ### Tokenizer access instructions
 
 The tokenizer used by this tutorial is called [meta-llama/Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct). Using it requires requesting access:
