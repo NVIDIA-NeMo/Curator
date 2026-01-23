@@ -33,7 +33,6 @@ class MlflowSink(Sink):
         if not self.experiment:
             msg = "MlflowSink: No experiment configured"
             raise ValueError(msg)
-        self.enabled = self.sink_config.get("enabled", True)
         self.results: list[dict[str, Any]] = []
         self.session_name: str = None
         self.matrix_config: Session = None
@@ -54,14 +53,11 @@ class MlflowSink(Sink):
         self.results.append((additional_metrics, result_dict))
 
     def finalize(self) -> None:
-        if self.enabled:
-            try:
-                self._push(self.results)
-            except Exception as e:  # noqa: BLE001
-                tb = traceback.format_exc()
-                logger.error(f"MlflowSink: Error posting to Mlflow: {e}\n{tb}")
-        else:
-            logger.warning("MlflowSink: Not enabled, skipping post.")
+        try:
+            self._push(self.results)
+        except Exception as e:  # noqa: BLE001
+            tb = traceback.format_exc()
+            logger.error(f"MlflowSink: Error posting to Mlflow: {e}\n{tb}")
 
     def _push(self, results: list[dict[str, Any]]) -> None:
         pass

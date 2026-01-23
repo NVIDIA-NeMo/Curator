@@ -60,6 +60,34 @@ def _replace_env_var(match: re.Match[str]) -> str:
         raise ValueError(msg)
 
 
+def remove_disabled_blocks(obj: object) -> object:
+    """
+    Recursively remove dictionary blocks that contain "enabled": False.
+    Processes dicts and lists; other types are returned unchanged.
+    """
+    if isinstance(obj, dict):
+        # If this block explicitly disables itself, remove it
+        if obj.get("enabled", True) is False:
+            return None
+        # Else process all values
+        result = {}
+        for k, v in obj.items():
+            filtered = remove_disabled_blocks(v)
+            if filtered is not None:
+                result[k] = filtered
+        return result
+    elif isinstance(obj, list):
+        # Process each item; skip any that are removed
+        result = []
+        for item in obj:
+            filtered = remove_disabled_blocks(item)
+            if filtered is not None:
+                result.append(filtered)
+        return result
+    else:
+        return obj
+
+
 def resolve_env_vars(data: dict | list | str | object) -> dict | list | str | object:
     """Recursively resolve environment variables in strings in/from various objects.
 
