@@ -392,7 +392,7 @@ entries:
       --wer-threshold=5.5
       --gpus=1
 
-  - name: video_pipeline_xenna
+  - name: video_embedding
     enabled: true
     script: video_pipeline_benchmark.py
     args: >-
@@ -404,6 +404,20 @@ entries:
       --generate-embeddings
     timeout_s: 1800
     ray:
-      num_cpus: 16
+      num_cpus: 64
       num_gpus: 1
+      enable_object_spilling: false
+  
+  - name: video_transcoding
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --video-dir={dataset:videos,mp4}
+    timeout_s: 1800
+    ray:
+      num_cpus: 64
+      num_gpus: 0
       enable_object_spilling: false
