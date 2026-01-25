@@ -17,9 +17,11 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from runner.utils import get_total_memory_bytes
 
 if TYPE_CHECKING:
     from runner.datasets import DatasetResolver
@@ -39,14 +41,19 @@ class Entry:
     sink_data: list[dict[str, Any]] | dict[str, Any] = field(default_factory=dict)
     requirements: list[dict[str, Any]] | dict[str, Any] = field(default_factory=dict)
     ray: dict[str, Any] = field(default_factory=dict)  # supports only single node: num_cpus,num_gpus,object_store_gb
-    # If set, overrides the session-level default_object_store_size setting for this entry
-    object_store_size_bytes: int | None = None
+    # If set, overrides the session-level object_store_size setting for this entry
+    # Value will be either number of bytes (int), fraction of system memory (float), or None or "default" (string) both
+    # representing the default object store size as used by "ray start".
+    object_store_size: int | float | str | None = None
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
-    enabled: bool = True
 
     def __post_init__(self) -> None:  # noqa: C901, PLR0912
         """Post-initialization checks and updates for dataclass."""
+        # Process object_store_size by converting values representing fractions of system memory to bytes.
+        if isinstance(self.object_store_size, float):
+            self.object_store_size = int(get_total_memory_bytes() * self.object_store_size)
+
         # Convert the sink_data list of dicts to a dict of dicts for easier lookup with key from "name".
         # sink_data typically starts as a list of dicts from reading YAML, like this:
         # sink_data:
@@ -108,6 +115,21 @@ class Entry:
                     msg = f"Invalid requirement for metric '{metric_name}': max_value ({max_value}) < min_value ({min_value})"
                     raise ValueError(msg)
         self.requirements = requirements
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Entry:
+        """Create Entry from dict, ignoring extra keys.
+
+        Args:
+            data: Dictionary containing entry configuration data.
+
+        Returns:
+            Entry instance with only valid fields populated.
+        """
+        # Get only the fields that are defined in the dataclass
+        valid_fields = {f.name for f in fields(cls)}
+        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+        return cls(**filtered_data)
 
     def get_command_to_run(
         self,
