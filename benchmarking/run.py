@@ -305,21 +305,23 @@ def main() -> int:  # noqa: C901
         logger.error(f"Invalid configuration: {e}")
         return 1
 
+    session_name = args.session_name or time.strftime("benchmark-run__%Y-%m-%d_%H-%M-%S_UTC")
+    config_dict["name"] = session_name
     session = Session.from_dict(config_dict, args.entries)
 
+    # List the entries that will be run and exit if list-only option specified
     if args.list:
         for entry in session.entries:
             logger.info(f"\t{entry.name}")
         return 0
 
-    # Create session folder under results_dir
-    session_name = args.session_name or time.strftime("benchmark-run__%Y-%m-%d_%H-%M-%S_UTC")
-    session_path = (session.results_path / session_name).absolute()
-    ensure_dir(session_path)
+    # The session output path (path where all results for this session are stored) is set by the Session object, but not created.
+    # Create here and error if not possible.
+    ensure_dir(session.output_path)
 
     session_overall_success = True
     logger.info(f"Started session {session_name}...")
-    env_dict = dump_env(session_obj=session, output_path=session_path)
+    env_dict = dump_env(session_obj=session)
 
     for sink in session.sinks:
         sink.initialize(session_name=session_name, matrix_config=session, env_dict=env_dict)
@@ -344,7 +346,7 @@ def main() -> int:  # noqa: C901
                 entry=entry,
                 path_resolver=session.path_resolver,
                 dataset_resolver=session.dataset_resolver,
-                session_path=session_path,
+                session_path=session.output_path,
                 result_data=result_data,
             )
 
