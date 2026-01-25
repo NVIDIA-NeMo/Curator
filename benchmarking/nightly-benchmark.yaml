@@ -6,8 +6,8 @@
 # Paths can be used in other values in this file by using their placeholder
 # (e.g. {datasets_path}/my/test/dataset.parquet) and will be resolved to the
 # appropriate path at runtime.
-results_path: /home/aot/output/curator_benchmark
-datasets_path: /home/aot/datasets
+results_path: /raid/aot/output/curator_benchmark
+datasets_path: /raid/aot/datasets
 
 datasets:
   - name: "tinystories"
