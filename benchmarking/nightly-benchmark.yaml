@@ -49,7 +49,7 @@ datasets:
 default_timeout_s: 7200
 
 # Optional sinks
-sinks: []
+sinks:
 #  - name: mlflow
 #    enabled: false
 #    tracking_uri: ${MLFLOW_TRACKING_URI}
