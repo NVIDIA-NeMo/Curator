@@ -59,7 +59,7 @@ These components are included when you install with `[cuda12]` or modality-speci
 * - RAPIDS MPF
   - 25.10.0
 * - vLLM
-  - ≥0.13
+  - ≥0.14.0
 * - Flash Attention
   - ≤2.8.3
 ```
