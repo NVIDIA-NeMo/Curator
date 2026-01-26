@@ -87,7 +87,7 @@ pipeline.add_stage(wer_filter)
 
 - `input_value_key`: Field containing WER values (matches `wer_key` from previous stage)
 - `target_value`: WER threshold (percentage as float, e.g., `30.0` for 30%)
-- `operator`: Comparison operator (`"le"` for ≤, `"lt"` for <, `"ge"` for ≥, `"gt"` for >)
+- `operator`: Comparison operator (`"le"` for ≤, `"lt"` for \<, `"ge"` for ≥, `"gt"` for \>)
 
 The stage preserves samples meeting the threshold criteria and filters out others.
 
