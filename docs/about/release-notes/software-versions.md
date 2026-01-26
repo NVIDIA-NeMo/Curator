@@ -202,7 +202,7 @@ NeMo Curator enforces minimum versions for dependencies with known security vuln
   - CVE Addressed
 * - aiohttp
   - ≥3.13.3
-  - GHSA-6mq8-rvhq-wgg
+  - GHSA-6mq8-rvhq-8wgg
 * - protobuf
   - ≥4.25.8
   - GHSA-8qvm-5x2c-j2w7
