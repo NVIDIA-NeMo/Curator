@@ -32,7 +32,7 @@ Intelligent command interface for NeMo Curator data curation pipelines, built on
 ## Directory Structure
 
 ```
-dori/
+skills/
 ├── README.md                            # This file
 │
 ├── # Setup Skills
