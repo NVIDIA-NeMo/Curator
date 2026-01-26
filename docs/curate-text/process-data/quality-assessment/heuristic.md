@@ -248,24 +248,7 @@ pipeline.add_stage(ScoreFilter(filter_obj=RepeatingTopNGramsFilter(), text_field
 :::
 
 :::{tab-item} Performance Tuning
-```python
-# Optimize filter performance with proper configuration
-from nemo_curator.backends.xenna import XennaExecutor
-
-# Configure executor for better performance
-executor_config = {
-    "execution_mode": "streaming",
-    "cpu_allocation_percentage": 0.95,
-    "logging_interval": 30
-}
-
-# Use custom executor configuration when needed
-executor = XennaExecutor(config=executor_config)
-results = pipeline.run(executor)
-
-# Or use default configuration
-# results = pipeline.run()
-```
+See the [Performance Tuning](#performance-tuning) section below for executor configuration examples using Xenna or Ray backends.
 :::
 
 :::{tab-item} Precision vs. Recall
@@ -413,7 +396,7 @@ print(f"Documents below word count threshold: {(scored_data['word_count'] < 80).
 print(f"Documents above ngram threshold: {(scored_data['ngram_ratio'] > 0.18).sum()}")
 ```
 
-For large datasets, consider sampling or using Dask/Polars for memory-efficient analysis.
+For large datasets, consider sampling or using Ray, Dask, or Polars for memory-efficient analysis.
 :::
 
 :::{tab-item} Apply Tuned Filters
@@ -454,45 +437,45 @@ For large datasets, consider these performance optimizations:
 
 ::::{tab-set}
 
-:::{tab-item} Memory Efficient Processing
+:::{tab-item} XennaExecutor (Default)
 ```python
-# Process large datasets efficiently using pipeline streaming
+# Xenna is the default executor - optimized for streaming workloads
 from nemo_curator.backends.xenna import XennaExecutor
 
 # Configure for streaming processing
 executor_config = {
     "execution_mode": "streaming",
-    "cpu_allocation_percentage": 0.8,
+    "cpu_allocation_percentage": 0.95,
     "logging_interval": 60
 }
 
-# Use custom configuration for large datasets
 executor = XennaExecutor(config=executor_config)
 results = pipeline.run(executor)
 
-# Default configuration works for most cases
+# Or use default configuration
 # results = pipeline.run()
 ```
 :::
 
-:::{tab-item} Distributed Processing
+:::{tab-item} Ray Executors (Experimental)
 ```python
-# Scale processing across multiple workers
-from nemo_curator.backends.xenna import XennaExecutor
+# Ray executors for distributed processing (experimental)
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 
-# Configure for distributed processing
-executor_config = {
-    "execution_mode": "streaming",
-    "cpu_allocation_percentage": 0.95,
-    "max_workers_per_stage": 8
-}
+# Option 1: RayDataExecutor - uses Ray Data for streaming
+ray_data_executor = RayDataExecutor(
+    config={"ignore_failures": False},
+    ignore_head_node=True  # Exclude head node from computation
+)
+results = pipeline.run(ray_data_executor)
 
-# Use custom configuration for distributed processing
-executor = XennaExecutor(config=executor_config)
-results = pipeline.run(executor)
-
-# Or use default XennaExecutor configuration
-# results = pipeline.run()
+# Option 2: RayActorPoolExecutor - uses Ray Actor Pools
+ray_actor_executor = RayActorPoolExecutor(
+    config={"ignore_failures": False},
+    ignore_head_node=True
+)
+results = pipeline.run(ray_actor_executor)
 ```
 :::
 
