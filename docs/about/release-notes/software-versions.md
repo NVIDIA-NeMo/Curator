@@ -27,7 +27,7 @@ This page lists software component versions bundled with each NeMo Curator relea
 * - Python
   - 3.10, 3.11, 3.12
 * - PyTorch
-  - 2.9.0
+  - ≤2.9.1
 * - Transformers
   - ≥4.55.2
 * - Ray
