@@ -125,7 +125,7 @@ graph LR
     subgraph "Backend Layer"
         XE[XennaExecutor]
         RAP[RayActorPoolExecutor]
-        RDE[RayDataExecutor<br/>Experimental]
+        RDE[RayDataExecutor]
     end
     
     subgraph "Adaptation Layer"
@@ -160,7 +160,6 @@ graph LR
     RAPA --> RAY1
     RDA --> RAY2
     
-    style RDE fill:#FFE4B5
     style P fill:#E6F3FF
     style BE fill:#F0F8FF
 ```
