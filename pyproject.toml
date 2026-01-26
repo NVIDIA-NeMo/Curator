@@ -70,6 +70,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cuda12 = ["gpustat", "nvidia-ml-py"]
+vllm = ["vllm>=0.14.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
@@ -141,13 +142,13 @@ video_cpu = [
 video_cuda12 = [
     "nemo_curator[video_cpu]",
     "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
     "cvcuda_cu12",
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "pycuda",
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "torch<=2.9.0",
+    "torch<=2.9.1",
     "torchaudio",
-    "vllm==0.11.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # All dependencies
@@ -159,7 +160,7 @@ all = [
 ]
 
 [dependency-groups]
-build = ["setuptools", "torch<=2.9.0"]
+build = ["setuptools", "torch<=2.9.1"]
 dev = ["jupyter"]
 linting = ["pre-commit", "ruff==0.11.4"]
 test = [
@@ -193,6 +194,7 @@ override-dependencies = [
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
     "transformers>=4.55.2",
+    "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
 ]
 
 
