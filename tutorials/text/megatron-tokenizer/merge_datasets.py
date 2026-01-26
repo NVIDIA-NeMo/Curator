@@ -122,7 +122,7 @@ class _IndexWriter:
         Args:
             sequence_lengths (List[int]): The length of each sequence
 
-            document_indices (List[int]): The seqyebce indices demarcating the end of each document
+            document_indices (List[int]): The sequence indices demarcating the end of each document
         """
         sequence_pointers = self._sequence_pointers(sequence_lengths)
 
