@@ -27,7 +27,10 @@ from typing import Any
 import yaml
 from loguru import logger
 
-from nemo_curator.pipeline.workflow import WorkflowRunResult
+try:
+    from nemo_curator.pipeline.workflow import WorkflowRunResult
+except ModuleNotFoundError:
+    WorkflowRunResult = None
 from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
@@ -83,7 +86,8 @@ def get_entry_script_persisted_data(session_entry_path: Path) -> dict[str, Any]:
     else:
         with open(tasks_pkl, "rb") as f:
             script_tasks = pickle.load(f)  # noqa: S301
-        if isinstance(script_tasks, (list, WorkflowRunResult, Mapping)):
+        task_types = (list, WorkflowRunResult, Mapping) if WorkflowRunResult is not None else (list, Mapping)
+        if isinstance(script_tasks, task_types):
             script_metrics.update(TaskPerfUtils.aggregate_task_metrics(script_tasks, prefix="task"))
         else:
             msg = f"Invalid tasks type loaded from {tasks_pkl}: {type(script_tasks)}"

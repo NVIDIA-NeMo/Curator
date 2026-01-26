@@ -38,6 +38,18 @@ RUN cd /opt/Curator \
     rich \
   && uv cache prune
 
+# Copy the benchmarking directory only if it does not already exist in the image.
+# This is useful for benchmarking pre-26.02 Curator releases which did not contain
+# the benchmarking tools.
+COPY benchmarking /tmp/benchmarking
+RUN if [ ! -d /opt/Curator/benchmarking ]; then \
+      echo "Copying benchmarking directory to /opt/Curator..."; \
+      mv /tmp/benchmarking /opt/Curator; \
+    else \
+      echo "Curator benchmarking already exists in image, skipping copy"; \
+      rm -rf /tmp/benchmarking; \
+    fi
+
 # Add the Curator repo to the safe.directory list to avoid GitPython warnings
 RUN git config --global --add safe.directory /opt/Curator
 
