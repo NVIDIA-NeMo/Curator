@@ -280,7 +280,7 @@ def main(args: argparse.Namespace) -> None:
     print("\nPipeline completed!")
 
 
-def create_video_splitting_argparser() -> argparse.ArgumentParser:
+def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0915
     """Create and return the argument parser for video splitting pipeline.
 
     This function is extracted to allow reuse by other scripts (e.g., benchmarks).

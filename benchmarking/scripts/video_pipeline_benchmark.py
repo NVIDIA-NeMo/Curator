@@ -19,6 +19,7 @@ tutorials/video/getting-started/video_split_clip_example.py with comprehensive
 metrics collection and various executor support.
 """
 
+import argparse
 import sys
 import time
 import traceback
@@ -38,7 +39,7 @@ from video_split_clip_example import (  # noqa: E402
 )
 
 
-def run_video_pipeline_benchmark(args) -> dict[str, Any]:
+def run_video_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     """Run the video pipeline benchmark and collect comprehensive metrics."""
     executor = setup_executor(args.executor)
 
