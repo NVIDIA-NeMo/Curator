@@ -20,7 +20,9 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
+import ray
 from loguru import logger
 from runner.utils import run_shm_size_check
 
@@ -35,7 +37,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
     num_gpus: int,
     enable_object_spilling: bool,
     ray_log_path: Path,
-    object_store_size_bytes: int | None = None,
+    object_store_size: int | None = None,
     include_dashboard: bool = True,
 ) -> tuple[RayClient, Path]:
     """Setup a Ray cluster and set the RAY_ADDRESS environment variable and return the Ray client and temp dir."""
@@ -70,7 +72,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
             enable_object_spilling=enable_object_spilling,
             ray_dashboard_host="0.0.0.0",  # noqa: S104
             ray_stdouterr_capture_file=ray_stdouterr_capture_file,
-            object_store_memory=object_store_size_bytes,
+            object_store_memory=object_store_size,
         )
         client.start()
 
@@ -111,17 +113,6 @@ def teardown_ray_cluster_and_env(
             logger.exception("Failed to copy/remove Ray temp dir")
 
 
-def _ensure_ray_client_process_started(client: RayClient, timeout_s: int, poll_interval_s: float) -> None:
-    """Ensure the Ray client process has been started, no longer than timeout."""
-    elapsed_s = 0
-    while client.ray_process is None and elapsed_s < timeout_s:
-        time.sleep(poll_interval_s)
-        elapsed_s += poll_interval_s
-    if client.ray_process is None:
-        msg = f"Ray client process failed to start in {timeout_s} seconds"
-        raise RuntimeError(msg)
-
-
 def check_ray_responsive(timeout_s: int = 20) -> bool:
     # Assume the env var RAY_ADDRESS is set to the correct value by code starting the Ray cluster
     logger.debug(f"Verifying Ray cluster is responsive, using RAY_ADDRESS={os.environ.get('RAY_ADDRESS')}")
@@ -141,16 +132,16 @@ def check_ray_responsive(timeout_s: int = 20) -> bool:
                 timeout=timeout_s,
             )
             if "No cluster status" in result.stdout or "Error" in result.stdout:
-                logger.debug(f"Ray cluster is not responsive: {result.stdout}")
+                logger.debug("Ray cluster is not responsive ('No cluster status' returned or Error in output)")
             else:
                 logger.debug("Ray cluster IS responsive")
                 responsive = True
 
-        except subprocess.CalledProcessError as e:
-            logger.debug(f"Ray cluster is not responsive ('ray status' command failed): {e.stdout}")
+        except subprocess.CalledProcessError:
+            logger.debug("Ray cluster is not responsive ('ray status' command failed)")
 
-        except subprocess.TimeoutExpired as e:
-            logger.debug(f"Ray cluster is not responsive ('ray status' command timed out): {e.stdout}")
+        except subprocess.TimeoutExpired:
+            logger.debug("Ray cluster is not responsive ('ray status' command timed out)")
 
         finally:
             # Also show the output of `df -h /dev/shm`, since this is often a symptom of problems
@@ -163,6 +154,26 @@ def check_ray_responsive(timeout_s: int = 20) -> bool:
         logger.debug("Ray cluster did not become responsive in time...")
 
     return responsive
+
+
+def get_ray_cluster_data() -> dict[str, Any]:
+    """Get resource data from the Ray cluster."""
+    ray.init(ignore_reinit_error=True)
+    time.sleep(0.2)  # ray.available_resources() returns might have a lag
+    ray_data = ray.cluster_resources()
+    ray.shutdown()
+    return ray_data
+
+
+def _ensure_ray_client_process_started(client: RayClient, timeout_s: int, poll_interval_s: float) -> None:
+    """Ensure the Ray client process has been started, no longer than timeout."""
+    elapsed_s = 0
+    while client.ray_process is None and elapsed_s < timeout_s:
+        time.sleep(poll_interval_s)
+        elapsed_s += poll_interval_s
+    if client.ray_process is None:
+        msg = f"Ray client process failed to start in {timeout_s} seconds"
+        raise RuntimeError(msg)
 
 
 def _copy_item_safely(src_path: Path, dst_path: Path) -> None:
