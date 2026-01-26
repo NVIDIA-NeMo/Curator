@@ -31,6 +31,7 @@ try:
     from nemo_curator.pipeline.workflow import WorkflowRunResult
 except ModuleNotFoundError:
     WorkflowRunResult = None
+from nemo_curator.tasks import Task
 from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
@@ -54,6 +55,72 @@ from runner.ray_cluster import (
 )
 from runner.session import Session
 from runner.utils import find_result, get_obj_for_json, remove_disabled_blocks, resolve_env_vars
+
+
+def _normalize_pipeline_tasks(
+    tasks: list[Task] | Mapping[str, list[Task]] | None,
+) -> dict[str, list[Task]]:
+    """Return a mapping of pipeline name -> list of tasks from various input shapes."""
+    if isinstance(tasks, Mapping):
+        if "pipeline_tasks" in tasks and isinstance(tasks["pipeline_tasks"], Mapping):
+            source = tasks["pipeline_tasks"]
+        else:
+            source = tasks
+    elif isinstance(tasks, list):
+        return {"": list(tasks)}
+    elif tasks is None:
+        return {"": []}
+    else:
+        msg = (
+            "tasks must be a list of Task objects, a mapping of pipeline_name -> tasks, "
+            "a workflow result dict, or WorkflowRunResult instance."
+        )
+        raise TypeError(msg)
+
+    normalized: dict[str, list[Task]] = {}
+    for pipeline_name, pipeline_tasks in source.items():
+        if pipeline_tasks is None:
+            normalized[str(pipeline_name)] = []
+        elif isinstance(pipeline_tasks, list):
+            normalized[str(pipeline_name)] = pipeline_tasks
+        elif isinstance(pipeline_tasks, Task):
+            normalized[str(pipeline_name)] = [pipeline_tasks]
+        else:
+            normalized[str(pipeline_name)] = list(pipeline_tasks)
+
+    return normalized or {"": []}
+
+
+def _aggregate_task_metrics(
+    tasks: list[Task] | WorkflowRunResult | Mapping[str, list[Task]] | None,
+    prefix: str | None = None,
+) -> dict[str, Any]:
+    """Aggregate task metrics by computing mean/std/sum."""
+    import numpy as np
+
+    metrics: dict[str, float] = {}
+    pipeline_task_map = _normalize_pipeline_tasks(tasks)
+    multiple_pipelines = len(pipeline_task_map) > 1
+
+    for pipeline_name, pipeline_tasks in pipeline_task_map.items():
+        stage_metrics = TaskPerfUtils.collect_stage_metrics(pipeline_tasks)
+        if prefix:
+            stage_prefix = f"{prefix}_{pipeline_name}" if pipeline_name else prefix
+        elif pipeline_name and multiple_pipelines:
+            stage_prefix = pipeline_name
+        else:
+            stage_prefix = None
+
+        for stage_name, stage_data in stage_metrics.items():
+            resolved_stage_name = stage_name if stage_prefix is None else f"{stage_prefix}_{stage_name}"
+            for metric_name, values in stage_data.items():
+                for agg_name, agg_func in [("sum", np.sum), ("mean", np.mean), ("std", np.std)]:
+                    metric_key = f"{resolved_stage_name}_{metric_name}_{agg_name}"
+                    if len(values) > 0:
+                        metrics[metric_key] = float(agg_func(values))
+                    else:
+                        metrics[metric_key] = 0.0
+    return metrics
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -88,7 +155,10 @@ def get_entry_script_persisted_data(session_entry_path: Path) -> dict[str, Any]:
             script_tasks = pickle.load(f)  # noqa: S301
         task_types = (list, WorkflowRunResult, Mapping) if WorkflowRunResult is not None else (list, Mapping)
         if isinstance(script_tasks, task_types):
-            script_metrics.update(TaskPerfUtils.aggregate_task_metrics(script_tasks, prefix="task"))
+            # Fallback to the local copy of aggregate_task_metrics if the method is not available in the TaskPerfUtils class.
+            # This should provide some amount of backwards compatibility with older versions of nemo-curator, but has the disadvantage of possibly being out of date with the latest changes.
+            aggregate_task_metrics = getattr(TaskPerfUtils, "aggregate_task_metrics", _aggregate_task_metrics)
+            script_metrics.update(aggregate_task_metrics(script_tasks, prefix="task"))
         else:
             msg = f"Invalid tasks type loaded from {tasks_pkl}: {type(script_tasks)}"
             raise TypeError(msg)
