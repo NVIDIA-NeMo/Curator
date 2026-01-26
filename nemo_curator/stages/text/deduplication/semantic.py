@@ -41,7 +41,7 @@ from nemo_curator.stages.deduplication.id_generator import (
 from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
 from nemo_curator.stages.deduplication.semantic.workflow import SemanticDeduplicationWorkflow
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
-from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
+from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.tasks import Task
@@ -70,12 +70,11 @@ class TextSemanticDeduplicationWorkflow:
     # Embedding generation parameters
     text_field: str = "text"
     embedding_field: str = "embeddings"
-    model_identifier: str = "sentence-transformers/all-MiniLM-L6-v2"
-    embedding_max_seq_length: int = 512
+    model_identifier: str = "google/embeddinggemma-300m"
+    vllm_init_kwargs: dict[str, Any] | None = None
+    embedding_pretokenize: bool = False
     embedding_max_chars: int | None = None
-    embedding_padding_side: Literal["left", "right"] = "right"
-    embedding_pooling: Literal["mean_pooling", "last_token"] = "mean_pooling"
-    embedding_model_inference_batch_size: int = 256
+    embedding_model_cache_dir: str | None = None
     hf_token: str | None = None
     # Semantic deduplication parameters
     n_clusters: int = 100
@@ -127,11 +126,10 @@ class TextSemanticDeduplicationWorkflow:
         text_field: Name of the text field in input data
         embedding_field: Name of the embedding field to create
         model_identifier: HuggingFace model identifier for embeddings
-        embedding_max_seq_length: Maximum sequence length for tokenization
+        vllm_init_kwargs: Keyword arguments for initializing the vLLM model
+        embedding_pretokenize: Whether to pretokenize the text before feeding to the vLLM
         embedding_max_chars: Maximum number of characters for tokenization
-        embedding_padding_side: Padding side for tokenization
-        embedding_pooling: Pooling strategy for embeddings
-        embedding_model_inference_batch_size: Batch size for model inference
+        embedding_model_cache_dir: Directory where we want to download the model
         hf_token: HuggingFace token for private models
 
         # Semantic deduplication parameters
@@ -270,16 +268,16 @@ class TextSemanticDeduplicationWorkflow:
         pipeline.add_stage(reader)
 
         # Embedding generation stage
-        embedding_stage = EmbeddingCreatorStage(
+        embedding_stage = VLLMEmbeddingModelStage(
             model_identifier=self.model_identifier,
+            vllm_init_kwargs=self.vllm_init_kwargs,
             text_field=self.text_field,
+            pretokenize=self.embedding_pretokenize,
             embedding_field=self.embedding_field,
             max_chars=self.embedding_max_chars,
-            max_seq_length=self.embedding_max_seq_length,
-            padding_side=self.embedding_padding_side,
-            embedding_pooling=self.embedding_pooling,
-            model_inference_batch_size=self.embedding_model_inference_batch_size,
             hf_token=self.hf_token,
+            cache_dir=self.embedding_model_cache_dir,
+            verbose=self.verbose,
         )
         pipeline.add_stage(embedding_stage)
 
@@ -386,9 +384,10 @@ class TextSemanticDeduplicationWorkflow:
         logger.info(f"  - Model: {self.model_identifier}")
         logger.info(f"  - Text field: {self.text_field}")
         logger.info(f"  - Embedding field: {self.embedding_field}")
-        logger.info(f"  - Max sequence length: {self.embedding_max_seq_length}")
-        logger.info(f"  - Batch size: {self.embedding_model_inference_batch_size}")
         logger.info(f"  - Executor: {type(self.embedding_executor).__name__}")
+        logger.info(f"  - VLLM init kwargs: {self.vllm_init_kwargs}")
+        logger.info(f"  - Max chars: {self.embedding_max_chars}")
+        logger.info(f"  - Cache dir: {self.embedding_model_cache_dir}")
 
         logger.info("Semantic deduplication:")
         logger.info(f"  - Number of clusters: {self.n_clusters}")

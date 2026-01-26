@@ -15,6 +15,7 @@
 import json
 import pickle
 from pathlib import Path
+from typing import Any
 
 from nemo_curator.backends.experimental.ray_actor_pool.executor import RayActorPoolExecutor
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
@@ -32,6 +33,22 @@ def setup_executor(executor_name: str) -> RayDataExecutor | XennaExecutor | RayA
         msg = f"Executor {executor_name} not supported"
         raise ValueError(msg) from None
     return executor
+
+
+def parse_partition_size(partition_size: str) -> dict[str, Any]:
+    """Parse partition size string into ParquetReader kwargs.
+
+    Args:
+        partition_size: Either ends with 'fpp' for files_per_partition (e.g., '1fpp')
+                       or a number for blocksize in MB (e.g., '128').
+
+    Returns:
+        Dictionary with either files_per_partition or blocksize kwarg.
+    """
+    if partition_size.endswith("fpp"):
+        return {"files_per_partition": int(partition_size[:-3]), "blocksize": None}
+    else:
+        return {"files_per_partition": None, "blocksize": f"{partition_size}MB"}
 
 
 def load_dataset_files(dataset_path: Path, dataset_size_gb: float, keep_extensions: str = "parquet") -> list[str]:
