@@ -122,15 +122,12 @@ text_cpu = [
     "peft",
     # Modifiers
     "ftfy",
-    # Embedders
-    "sentence-transformers"
 ]
 
 text_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
     "nemo_curator[text_cpu]",
-    "nemo_curator[vllm]",
 ]
 
 # Video Curation Dependencies
