@@ -54,10 +54,10 @@ sinks: []
 #    enabled: false
 #    tracking_uri: ${MLFLOW_TRACKING_URI}
 #    experiment: ray-curator-common-crawl
- - name: slack
-   enabled: false
-   webhook_url: ${SLACK_WEBHOOK_URL}
-   default_metrics: ["exec_time_s"]
+  - name: slack
+    enabled: true
+    webhook_url: ${SLACK_WEBHOOK_URL}
+    default_metrics: ["exec_time_s"]
 #  - name: gdrive
 #    enabled: false
 #    drive_folder_id: ${GDRIVE_FOLDER_ID}
