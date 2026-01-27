@@ -54,10 +54,7 @@ from nemo_curator.tasks import AudioBatch
 
 def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
     """Create pipeline by instantiating stages from YAML config."""
-    pipeline = Pipeline(
-        name="alm_yaml_pipeline",
-        description="ALM Pipeline created from YAML config"
-    )
+    pipeline = Pipeline(name="alm_yaml_pipeline", description="ALM Pipeline created from YAML config")
     for processor_cfg in cfg.processors:
         stage = hydra.utils.instantiate(processor_cfg)
         pipeline.add_stage(stage)
@@ -67,7 +64,7 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
 def load_manifest(manifest_path: str) -> list[dict]:
     """Load entries from a JSONL manifest file."""
     entries = []
-    with open(manifest_path, encoding='utf-8') as f:
+    with open(manifest_path, encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 entries.append(json.loads(line.strip()))
@@ -77,9 +74,9 @@ def load_manifest(manifest_path: str) -> list[dict]:
 def save_manifest(entries: list[dict], output_path: str) -> None:
     """Save entries to a JSONL manifest file."""
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         for entry in entries:
-            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 @hydra.main(version_base=None)
@@ -92,7 +89,8 @@ def main(cfg: DictConfig) -> None:
     # Get paths from config
     input_manifest = cfg.get("input_manifest")
     if not input_manifest:
-        raise ValueError("input_manifest must be specified in config")
+        msg = "input_manifest must be specified in config"
+        raise ValueError(msg)
 
     output_dir = cfg.get("output_dir", "./alm_output")
     os.makedirs(output_dir, exist_ok=True)
@@ -127,11 +125,11 @@ def main(cfg: DictConfig) -> None:
 
     # Calculate statistics
     # Stage 1 output: total_dur_list_window contains the original window count
-    stage1_windows = sum(len(e.get('total_dur_list_window', e.get('windows', []))) for e in output_entries)
+    stage1_windows = sum(len(e.get("total_dur_list_window", e.get("windows", []))) for e in output_entries)
     # Stage 2 output: filtered_windows contains windows after overlap filtering
-    stage2_windows = sum(len(e.get('filtered_windows', [])) for e in output_entries)
-    total_filtered_dur = sum(e.get('filtered_dur', 0) for e in output_entries)
-    entries_with_windows = sum(1 for e in output_entries if e.get('filtered_windows') or e.get('windows'))
+    stage2_windows = sum(len(e.get("filtered_windows", [])) for e in output_entries)
+    total_filtered_dur = sum(e.get("filtered_dur", 0) for e in output_entries)
+    entries_with_windows = sum(1 for e in output_entries if e.get("filtered_windows") or e.get("windows"))
 
     logger.info("\n" + "=" * 50)
     logger.info("PIPELINE COMPLETE")
@@ -141,7 +139,7 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"  Entries with windows: {entries_with_windows}")
     logger.info(f"  Stage 1 (Builder) windows: {stage1_windows}")
     logger.info(f"  Stage 2 (Overlap) windows: {stage2_windows}")
-    logger.info(f"  Total filtered duration: {total_filtered_dur:.2f}s ({total_filtered_dur/60:.2f} min)")
+    logger.info(f"  Total filtered duration: {total_filtered_dur:.2f}s ({total_filtered_dur / 60:.2f} min)")
 
     # Save results
     output_path = os.path.join(output_dir, "alm_output.jsonl")
