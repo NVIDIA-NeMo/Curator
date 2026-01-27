@@ -24,6 +24,8 @@ class AudioToDocumentStage(ProcessingStage[AudioBatch, DocumentBatch]):
 
     """
 
+    name = "AudioToDocumentStage"
+
     def process(self, task: AudioBatch) -> list[DocumentBatch]:
         return [
             DocumentBatch(

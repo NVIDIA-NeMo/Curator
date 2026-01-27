@@ -29,6 +29,10 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
 
     """
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.name = self.__class__.__name__
+
     def process(self, task: AudioBatch) -> list[Task]:
         result = []
         for entry in task.data:
