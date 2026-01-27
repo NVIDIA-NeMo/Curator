@@ -437,13 +437,14 @@ entries:
       --model-dir={dataset:videos_model_weights,files}
       --generate-captions
       --no-generate-embeddings
+      --enhance_captions
     timeout_s: 1800
     ray:
       num_cpus: 64
-      num_gpus: 2
+      num_gpus: 4
       enable_object_spilling: false
 
-  - name: video_transnetv2_splitting
+  - name: video_transnetv2_motion_aesthetic_filter_embeddings
     enabled: true
     script: video_pipeline_benchmark.py
     args: >-
@@ -453,7 +454,8 @@ entries:
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --splitting-algorithm=transnetv2
-      --no-generate-embeddings
+      --motion_filter=enable
+      --aesthetic-threshold=3.5
     timeout_s: 1800
     ray:
       num_cpus: 64
