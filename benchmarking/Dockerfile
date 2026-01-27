@@ -38,8 +38,19 @@ RUN cd /opt/Curator \
     rich \
   && uv cache prune
 
+# Copy the nemo_curator/config directory only if it does not already exist in the image.
+# This is not in pre-26.02 images and some newer benchmark scripts require it.
+COPY nemo_curator/config /tmp/config
+RUN if [ ! -d /opt/Curator/nemo_curator/config ]; then \
+      echo "Copying nemo_curator/config directory to /opt/Curator..."; \
+      mv /tmp/config /opt/Curator/nemo_curator; \
+    else \
+      echo "nemo_curator/config already exists in image, skipping copy"; \
+      rm -rf /tmp/config; \
+    fi
+
 # Copy the benchmarking directory only if it does not already exist in the image.
-# This is useful for benchmarking pre-26.02 Curator releases which did not contain
+# This is needed for benchmarking pre-26.02 Curator releases which did not contain
 # the benchmarking tools.
 COPY benchmarking /tmp/benchmarking
 RUN if [ ! -d /opt/Curator/benchmarking ]; then \
@@ -50,8 +61,8 @@ RUN if [ ! -d /opt/Curator/benchmarking ]; then \
       rm -rf /tmp/benchmarking; \
     fi
 
-# Add the Curator repo to the safe.directory list to avoid GitPython warnings
+# Add the Curator repo to the safe.directory list to avoid git warnings
 RUN git config --global --add safe.directory /opt/Curator
 
- # Set the entrypoint to the main benchmarking runner script
+# Set the entrypoint to the main benchmarking runner script
 ENTRYPOINT ["python", "/opt/Curator/benchmarking/run.py"]
