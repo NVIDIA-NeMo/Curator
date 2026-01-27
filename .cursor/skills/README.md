@@ -128,82 +128,61 @@ Intelligent command interface for NeMo Curator data curation pipelines, built on
 
 ### 1. Install NeMo Curator
 
-Use the `/setup` skill for guided installation:
-
 ```
 /setup
 ```
 
-Or install manually:
-
-```bash
-uv pip install nemo-curator[all]
-```
+The setup skill detects your environment, recommends installation options, and verifies everything works.
 
 ### 2. Process Data by Modality
 
+Invoke the skill for your data type and describe what you want:
+
 **Video:**
-```bash
-python .cursor/skills/video/scripts/generate_video_config.py \
-  --input-path /data/videos \
-  --output-path /data/clips \
-  --caption --embed
+```
+/video
+
+I have videos in /data/videos. Generate clips with captions and embeddings.
 ```
 
 **Image:**
-```bash
-python .cursor/skills/image/scripts/generate_image_config.py \
-  --input-path /data/images \
-  --output-path /data/curated \
-  --aesthetic-threshold 0.5
+```
+/image
+
+Filter images in /data/images for quality (aesthetic > 0.5) and safety.
 ```
 
 **Audio:**
-```bash
-python .cursor/skills/audio/scripts/generate_audio_config.py \
-  --input-path /data/audio \
-  --output-path /data/transcribed \
-  --model-name nvidia/stt_en_fastconformer_hybrid_large_pc
+```
+/audio
+
+Transcribe audio files in /data/audio using FastConformer.
 ```
 
 **Text:**
-```bash
-python .cursor/skills/curate/scripts/generate_yaml.py \
-  --modality text \
-  --input-path /data/text \
-  --output-path /data/curated
+```
+/curate
+
+Deduplicate and filter text in /data/text for LLM training.
 ```
 
-### 3. Run Pipeline
+### 3. Get Help
 
-```bash
-python -m nemo_curator.config.run --config-path=. --config-name=pipeline
+```
+/help
 ```
 
-## Scripts
+Context-aware help based on your current task.
 
-All scripts support `--help`:
+## How Skills Work
 
-```bash
-# Video
-python .cursor/skills/video/scripts/list_video_stages.py --verbose
-python .cursor/skills/video/scripts/estimate_video_resources.py --input-path /data/videos
-python .cursor/skills/video/scripts/generate_video_config.py --help
+Skills are **not** scripts you run manually. When you invoke a skill:
 
-# Image
-python .cursor/skills/image/scripts/list_image_stages.py --verbose
-python .cursor/skills/image/scripts/generate_image_config.py --help
+1. The agent reads the `SKILL.md` instructions
+2. Uses bundled `scripts/` and `references/` as needed
+3. Generates configs, estimates resources, or runs pipelines for you
 
-# Audio
-python .cursor/skills/audio/scripts/list_asr_models.py
-python .cursor/skills/audio/scripts/list_audio_stages.py --verbose
-python .cursor/skills/audio/scripts/generate_audio_config.py --help
-
-# Text/General
-python .cursor/skills/filter/scripts/list_filters.py --verbose
-python .cursor/skills/stages/scripts/search_stages.py --modality video
-python .cursor/skills/dedup-fuzzy/scripts/estimate_resources.py --input-path /data/text
-```
+The `scripts/` directories contain utilities the agent executes on your behalf.
 
 ## Requirements
 
