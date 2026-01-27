@@ -25,6 +25,7 @@ CONTAINER_CURATOR_DIR = "/opt/Curator"
 CONTAINER_CONFIG_DIR_ROOT = "/MOUNT"
 CONTAINER_RESULTS_DIR_ROOT = "/MOUNT"
 CONTAINER_DATASETS_DIR_ROOT = "/MOUNT"
+CONTAINER_MODEL_DIR_ROOT = "/MOUNT"
 
 
 class PathResolver:
@@ -39,10 +40,11 @@ class PathResolver:
         """
         # TODO: Is this the best way to determine if running inside a Docker container?
         in_docker = Path("/.dockerenv").exists()
-        (rp, dp) = (Path(data["results_path"]), Path(data["datasets_path"]))
+        (rp, dp, mp) = (Path(data["results_path"]), Path(data["datasets_path"]), Path(data["model_path"]))
         self.path_map = {
             "results_path": Path(f"{CONTAINER_RESULTS_DIR_ROOT}/{rp}") if in_docker else rp,
             "datasets_path": Path(f"{CONTAINER_DATASETS_DIR_ROOT}/{dp}") if in_docker else dp,
+            "model_path": Path(f"{CONTAINER_MODEL_DIR_ROOT}/{mp}") if in_docker else mp,
         }
 
     def resolve(self, dir_type: str) -> Path:

@@ -8,6 +8,7 @@
 # appropriate path at runtime.
 results_path: /path/where/results/are/stored
 datasets_path: /path/to/datasets
+model_path: /path/to/models
 
 datasets:
   - name: "tinystories"
@@ -43,7 +44,7 @@ datasets:
   - name: "videos_model_weights"
     formats:
     - type: "files"
-      path: "{datasets_path}/video_model_weights"
+      path: "{model_path}/video_model_weights"
       
 
 default_timeout_s: 7200
@@ -454,10 +455,11 @@ entries:
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --splitting-algorithm=transnetv2
-      --motion_filter=enable
+      --motion-filter=enable
       --aesthetic-threshold=3.5
+      --transnetv2-frame-decoder-mode ffmpeg_cpu
     timeout_s: 1800
     ray:
       num_cpus: 64
-      num_gpus: 1
+      num_gpus: 4
       enable_object_spilling: false
