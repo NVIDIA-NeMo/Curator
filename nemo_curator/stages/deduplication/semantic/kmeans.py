@@ -186,6 +186,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             embeddings_arrays.append(embeddings_array)
 
         t1 = time.perf_counter()
+        self._log_metrics({"kmeans_read_time": t1 - t0, "num_rows": sum(len(df) for df in all_dfs)})
         logger.debug(f"Read time: {(t1 - t0):.2f} seconds")
         # Fit the model cooperatively across actors, then predict on local data
         concatenated_embeddings = cp.concatenate(embeddings_arrays, axis=0)
@@ -193,6 +194,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         labels = self.kmeans.predict(concatenated_embeddings, convert_dtype=False).astype(cp.int32)
 
         t2 = time.perf_counter()
+        self._log_metric("kmeans_fit_predict_time", t2 - t1)
         logger.info(f"KMeans fit+predict time: {(t2 - t1):.2f} seconds")
 
         results = []
@@ -228,6 +230,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
                 )
             )
         t3 = time.perf_counter()
+        self._log_metric("kmeans_write_time", t3 - t2)
         logger.info(f"Write time: {(t3 - t2):.2f} seconds")
 
         return results
