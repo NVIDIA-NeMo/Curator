@@ -175,5 +175,5 @@ docker run --gpus all -it --rm \
 After fixing issues, verify installation:
 
 ```bash
-python skills/setup/scripts/verify_installation.py --all
+python .cursor/skills/setup/scripts/verify_installation.py --all
 ```
