@@ -144,12 +144,12 @@ def generate_text_config(
         filter_list = FILTER_PRESETS.get(filters, FILTER_PRESETS["standard"])
         lines.append(f"  # 2. Heuristic Filtering ({len(filter_list)} filters)")
         for filter_name, params in filter_list:
-            lines.append(f"  - _target_: nemo_curator.stages.text.modules.ScoreFilter")
-            lines.append(f"    filter_obj:")
+            lines.append("  - _target_: nemo_curator.stages.text.modules.ScoreFilter")
+            lines.append("    filter_obj:")
             lines.append(f"      _target_: nemo_curator.stages.text.filters.{filter_name}")
             for k, v in params.items():
                 lines.append(f"      {k}: {v}")
-            lines.append(f"    text_field: ${{text_field}}")
+            lines.append("    text_field: ${text_field}")
             lines.append("")
 
     # Add classifiers

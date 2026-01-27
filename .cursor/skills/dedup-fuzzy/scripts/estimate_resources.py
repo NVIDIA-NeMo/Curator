@@ -251,14 +251,14 @@ def main():
         print(json.dumps(result, indent=2))
     else:
         # Human-readable output
-        print(f"📊 Dataset Analysis")
+        print("📊 Dataset Analysis")
         print(f"   Path: {size_info['path']}")
         print(f"   Files: {size_info['file_count']} {size_info['format']} files")
         print(f"   Size: {size_info['total_gb']:.2f} GB")
         print(f"   Est. Documents: {result['dataset']['estimated_documents_formatted']}")
         print()
 
-        print(f"💾 Memory Estimate")
+        print("💾 Memory Estimate")
         print(f"   MinHash signatures: {result['memory_estimate']['minhash_memory_gb']:.1f} GB")
         print(f"   With shuffle overhead: {result['memory_estimate']['total_with_shuffle_gb']:.1f} GB")
         print(f"   Per band iteration: {result['memory_estimate']['per_band_iteration_gb']:.1f} GB")
@@ -271,12 +271,12 @@ def main():
         print(f"   Memory per node: {rec['memory_per_node_gb']} GB")
         print(f"   bands_per_iteration: {rec['bands_per_iteration']}")
         if rec.get("use_64_bit_hash"):
-            print(f"   use_64_bit_hash: true (dataset > 2TB)")
+            print("   use_64_bit_hash: true (dataset > 2TB)")
         print(f"   Estimated time: {rec['estimated_time']}")
         print()
 
         params = result["parameters"]
-        print(f"⚙️  Parameters")
+        print("⚙️  Parameters")
         print(f"   Total hashes: {params['total_hashes']}")
         print(f"   Similarity threshold: {params['similarity_threshold']:.2f} ({params['similarity_threshold']*100:.0f}%)")
 

@@ -209,7 +209,7 @@ def verify_video() -> list[VerificationResult]:
 
     # FFmpeg
     try:
-        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(["ffmpeg", "-version"], check=False, capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
             version_line = result.stdout.split("\n")[0]
             results.append(VerificationResult("FFmpeg", True, version_line[:50]))
@@ -263,7 +263,7 @@ def verify_image() -> list[VerificationResult]:
 
     # NVIDIA DALI
     try:
-        import nvidia.dali as dali
+        from nvidia import dali
 
         results.append(VerificationResult("NVIDIA DALI", True, f"DALI version: {dali.__version__}"))
     except ImportError:

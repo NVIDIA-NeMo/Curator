@@ -42,8 +42,8 @@ from typing import Any, get_type_hints
 
 # Try to import NeMo Curator - if not available, we'll use static fallback
 try:
-    from nemo_curator.stages.text.filters import __all__ as FILTER_NAMES
     from nemo_curator.stages.text.filters import DocumentFilter
+    from nemo_curator.stages.text.filters import __all__ as FILTER_NAMES
 
     NEMO_CURATOR_AVAILABLE = True
 except ImportError:

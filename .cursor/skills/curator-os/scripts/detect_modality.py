@@ -189,30 +189,29 @@ def main():
 
     if args.json:
         print(json.dumps(result, indent=2))
-    else:
-        # Human-readable output
-        if result["status"] == "success":
-            print(f"📁 Modality: {result['modality'].upper()}")
-            print(f"   Task Type: {result['task_type']}")
-            print(f"   Extensions: {', '.join(result['extensions'])}")
-            print(f"   Files: {result['file_count']}")
-            print()
-            print("📋 Recommended Stages:")
-            for stage in result["recommended_stages"]:
-                print(f"   • {stage}")
+    # Human-readable output
+    elif result["status"] == "success":
+        print(f"📁 Modality: {result['modality'].upper()}")
+        print(f"   Task Type: {result['task_type']}")
+        print(f"   Extensions: {', '.join(result['extensions'])}")
+        print(f"   Files: {result['file_count']}")
+        print()
+        print("📋 Recommended Stages:")
+        for stage in result["recommended_stages"]:
+            print(f"   • {stage}")
 
-            if "warning" in result:
-                print()
-                print(f"⚠️  {result['warning']}")
-                for m, info in result.get("all_modalities", {}).items():
-                    print(f"   - {m}: {info['count']} files")
-        elif result["status"] == "error":
-            print(f"❌ Error: {result['error']}", file=sys.stderr)
-            sys.exit(1)
-        else:
-            print(f"❓ {result.get('message', 'Unknown modality')}")
-            if "extensions" in result:
-                print(f"   Found extensions: {', '.join(result['extensions'][:10])}")
+        if "warning" in result:
+            print()
+            print(f"⚠️  {result['warning']}")
+            for m, info in result.get("all_modalities", {}).items():
+                print(f"   - {m}: {info['count']} files")
+    elif result["status"] == "error":
+        print(f"❌ Error: {result['error']}", file=sys.stderr)
+        sys.exit(1)
+    else:
+        print(f"❓ {result.get('message', 'Unknown modality')}")
+        if "extensions" in result:
+            print(f"   Found extensions: {', '.join(result['extensions'][:10])}")
 
 
 if __name__ == "__main__":

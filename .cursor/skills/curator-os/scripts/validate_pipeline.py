@@ -212,7 +212,7 @@ def validate_config(config: dict, strict: bool = False) -> dict:
                     if field not in d and f"${{{field}}}" not in str(d.values()):
                         # Check if it's a Hydra interpolation
                         has_interpolation = any(
-                            f"${{{field}}}" in str(v) or f"${{" in str(v) for v in d.values()
+                            f"${{{field}}}" in str(v) or "${" in str(v) for v in d.values()
                         )
                         if not has_interpolation:
                             warnings.append(

@@ -38,39 +38,39 @@ def check_platform():
 
 def run_simple_filter(input_path: str, output_path: str, min_words: int = 50, max_non_alpha: float = 0.25):
     """Run a simple text filtering pipeline without NeMo Curator (for demo/testing).
-    
+
     This is a standalone implementation that mimics the NeMo Curator filters
     for testing purposes when NeMo Curator isn't available.
     """
     import re
-    
+
     input_file = Path(input_path)
     output_dir = Path(output_path)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Read input
     documents = []
     with open(input_file) as f:
         for line in f:
             documents.append(json.loads(line))
-    
+
     print(f"Loaded {len(documents)} documents from {input_file}")
-    
+
     # Apply filters
     passed = []
     filtered_reasons = {"word_count": 0, "non_alpha": 0}
-    
-    alphanum_pattern = re.compile(r'[a-zA-Z0-9]')
-    
+
+    alphanum_pattern = re.compile(r"[a-zA-Z0-9]")
+
     for doc in documents:
         text = doc.get("text", "")
-        
+
         # Word count filter
         words = text.split()
         if len(words) < min_words:
             filtered_reasons["word_count"] += 1
             continue
-        
+
         # Non-alphanumeric filter
         if len(text) > 0:
             alpha_count = len(alphanum_pattern.findall(text))
@@ -78,16 +78,16 @@ def run_simple_filter(input_path: str, output_path: str, min_words: int = 50, ma
             if non_alpha_ratio > max_non_alpha:
                 filtered_reasons["non_alpha"] += 1
                 continue
-        
+
         passed.append(doc)
-    
+
     # Write output
     output_file = output_dir / "filtered.jsonl"
     with open(output_file, "w") as f:
         for doc in passed:
             f.write(json.dumps(doc) + "\n")
-    
-    print(f"\n=== Filtering Results ===")
+
+    print("\n=== Filtering Results ===")
     print(f"Input:  {len(documents)} documents")
     print(f"Output: {len(passed)} documents")
     print(f"Filtered: {len(documents) - len(passed)} documents")
@@ -100,17 +100,17 @@ def run_nemo_curator_pipeline(input_path: str, output_path: str):
     """Run the full NeMo Curator pipeline."""
     try:
         # Import NeMo Curator (will fail on non-Linux)
+        from nemo_curator.pipeline import Pipeline
         from nemo_curator.stages.text.filters import NonAlphaNumericFilter, WordCountFilter
         from nemo_curator.stages.text.io.reader import JsonlReader
         from nemo_curator.stages.text.io.writer import ParquetWriter
         from nemo_curator.stages.text.modules import ScoreFilter
-        from nemo_curator.pipeline import Pipeline
-        
+
         print("NeMo Curator loaded successfully!")
-        
+
         # Ensure output directory exists
         Path(output_path).mkdir(parents=True, exist_ok=True)
-        
+
         # Build pipeline
         pipeline = Pipeline(
             name="text_quick_pass",
@@ -127,12 +127,12 @@ def run_nemo_curator_pipeline(input_path: str, output_path: str):
                 ParquetWriter(path=output_path),  # Use 'path' not 'output_path'
             ]
         )
-        
+
         # Run
         print("Running pipeline...")
         pipeline.run()
         print(f"Pipeline complete! Output written to: {output_path}")
-        
+
     except ImportError as e:
         print(f"NeMo Curator import failed: {e}")
         print("Falling back to simple filter implementation...")
@@ -152,14 +152,14 @@ def main():
     parser.add_argument("--output", type=str, default="sample_data/output", help="Output directory")
     parser.add_argument("--simple", action="store_true", help="Use simple filter (no NeMo Curator)")
     args = parser.parse_args()
-    
+
     print("=" * 50)
     print("NeMo Curator - Text Quick Pass Pipeline")
     print("=" * 50)
     print()
-    
+
     check_platform()
-    
+
     if args.simple:
         run_simple_filter(args.input, args.output)
     else:

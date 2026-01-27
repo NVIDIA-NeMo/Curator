@@ -125,8 +125,7 @@ def save_jsonl(documents: list[dict], output_path: Path) -> None:
     """Save documents as JSONL."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
-        for doc in documents:
-            f.write(json.dumps(doc) + "\n")
+        f.writelines(json.dumps(doc) + "\n" for doc in documents)
     print(f"Saved {len(documents)} documents to {output_path}")
 
 
@@ -164,7 +163,7 @@ def main():
         save_parquet(documents, output_dir / "input.parquet")
 
     # Print summary
-    print(f"\nDataset summary:")
+    print("\nDataset summary:")
     print(f"  Total documents: {len(documents)}")
     print(f"  Expected to pass: ~{int(args.num_docs * args.good_ratio)}")
     print(f"  Expected to filter: ~{int(args.num_docs * (1 - args.good_ratio))}")
