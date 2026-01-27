@@ -7,7 +7,7 @@ description: |
 license: Apache-2.0
 metadata:
   author: nvidia
-  version: "3.0"
+  version: "3.1"
   category: setup
   aliases: ["/setup", "install nemo curator", "setup environment", "how do I run"]
 allowed-tools: Bash(python:*) Bash(uv:*) Bash(nvidia-smi) Bash(docker:*) Bash(curl) Read
@@ -15,175 +15,195 @@ allowed-tools: Bash(python:*) Bash(uv:*) Bash(nvidia-smi) Bash(docker:*) Bash(cu
 
 # NeMo Curator Setup
 
-Intelligent setup that detects your environment and recommends the best path.
+Intelligent setup that detects your environment and gets NeMo Curator running.
 
-## Quick Start (Run This First!)
+## Agent Instructions
 
-```bash
-python scripts/detect_environment.py --quick
-```
+Follow this workflow. Execute automated steps immediately. For manual steps, clearly tell the user what to do and wait for confirmation before proceeding.
 
-This will:
-1. Check your platform (Linux/macOS/Windows)
-2. Find existing Docker images
-3. Check for GPU/CUDA
-4. **Recommend the best way to run NeMo Curator**
+### Step 1: Detect Environment (Automated)
 
-### Example Output
-
-```
-============================================================
-🎯 RECOMMENDATION
-============================================================
-
-Use your existing Docker image: nemo-curator-local:latest
-
-Command:
-  docker run --rm -v $(pwd):/workspace -w /workspace nemo-curator-local:latest python your_script.py
-
-⚠️  Warnings:
-   - Platform 'darwin' not supported. Use Docker.
-```
-
-## Scenarios
-
-The script detects one of these scenarios:
-
-| Scenario | Detection | Recommendation |
-|----------|-----------|----------------|
-| `native_existing` | Linux + NeMo Curator installed | Run directly |
-| `native_install` | Linux, no install | `uv pip install nemo-curator[...]` |
-| `docker_existing` | Non-Linux + Docker image found | Use existing image |
-| `docker_pull` | Non-Linux + Docker running, no image | `docker pull nvcr.io/nvidia/nemo-curator` |
-| `docker_start` | Docker installed but not running | Start Docker Desktop |
-| `docker_install` | No Docker | Install Docker Desktop |
-
-## Full Workflow
-
-### Step 1: Detect Environment
+Run the detection script:
 
 ```bash
-python scripts/detect_environment.py
+python .cursor/skills/setup/scripts/detect_environment.py --quick
 ```
 
-This outputs:
-- Platform support status
-- Python version
-- GPU/CUDA info
-- FFmpeg status
-- **Docker images found** (with age and size)
-- **Recommended scenario and command**
+Parse the output to determine the scenario.
 
-### Step 2: Follow the Recommendation
+### Step 2: Execute Based on Scenario
 
-The script tells you exactly what to do. Common paths:
+The script outputs a `scenario` field. Follow the appropriate path:
 
-#### Path A: You Have a Docker Image
+---
+
+#### Scenario: `native_existing`
+
+**Condition**: Linux + NeMo Curator already installed
+
+**Automated**: Verify installation works:
 
 ```bash
-# Use your existing image
-docker run --rm -v $(pwd):/workspace -w /workspace nemo-curator-local:latest python your_script.py
+python -c "import nemo_curator; print(f'NeMo Curator {nemo_curator.__version__} ready')"
 ```
 
-#### Path B: Docker Running, No Image
+**Done**: Tell user they're ready to go.
+
+---
+
+#### Scenario: `native_install`
+
+**Condition**: Linux, NeMo Curator not installed
+
+**Automated**: Install NeMo Curator:
 
 ```bash
-# Pull official image
-docker pull nvcr.io/nvidia/nemo-curator:latest
-
-# Then run
-docker run --rm -v $(pwd):/workspace -w /workspace nvcr.io/nvidia/nemo-curator:latest python your_script.py
-```
-
-#### Path C: On Linux
-
-```bash
-# Install directly
 uv pip install nemo-curator[text_cuda12]
-
-# Run
-python your_script.py
 ```
 
-
-## Image Age Warnings
-
-The detection script warns if images are old:
-
-| Age | Status | Action |
-|-----|--------|--------|
-| < 30 days | ✅ Recent | Good to use |
-| 30-90 days | ⚠️ Aging | Consider updating |
-| > 90 days | ⚠️ Old | Recommend: `docker pull ...` |
-
-## Quick Install (Skip Detection)
-
-For users who know what they want:
-
-### Docker (Recommended for macOS/Windows)
+Then verify:
 
 ```bash
-# Pull official image
+python -c "import nemo_curator; print(f'NeMo Curator {nemo_curator.__version__} installed')"
+```
+
+**Done**: Tell user installation complete.
+
+---
+
+#### Scenario: `docker_existing`
+
+**Condition**: Docker running + NeMo Curator image found
+
+**Automated**: Verify image works:
+
+```bash
+docker run --rm <IMAGE_NAME> python -c "import nemo_curator; print(f'NeMo Curator {nemo_curator.__version__} ready')"
+```
+
+**Done**: Tell user which image to use and provide the run command.
+
+---
+
+#### Scenario: `docker_pull`
+
+**Condition**: Docker running, no NeMo Curator image
+
+**Automated**: Pull the official image:
+
+```bash
 docker pull nvcr.io/nvidia/nemo-curator:latest
-
-# Run with GPU
-docker run --gpus all -it --rm \
-  -v $(pwd):/workspace \
-  nvcr.io/nvidia/nemo-curator:latest
-
-# Run without GPU
-docker run -it --rm \
-  -v $(pwd):/workspace \
-  nvcr.io/nvidia/nemo-curator:latest
 ```
 
-### PyPI with uv (Linux Only)
+Then verify:
 
 ```bash
-# Text curation (GPU)
-uv pip install torch wheel_stub psutil setuptools
-uv pip install nemo-curator[text_cuda12]
-
-# Video curation (GPU)
-uv pip install torch wheel_stub psutil setuptools
-uv pip install --no-build-isolation nemo-curator[video_cuda12]
-
-# Everything
-echo "transformers==4.55.2" > override.txt
-uv pip install --no-build-isolation nemo-curator[all] --override override.txt
+docker run --rm nvcr.io/nvidia/nemo-curator:latest python -c "import nemo_curator; print('Ready')"
 ```
 
-### Source
+**Done**: Tell user the image is ready.
+
+---
+
+#### Scenario: `docker_start`
+
+**Condition**: Docker installed but not running
+
+**⚠️ MANUAL STEP REQUIRED**: The agent cannot start Docker Desktop programmatically.
+
+Tell the user:
+
+> **Action Required**: Start Docker Desktop
+>
+> 1. Open Docker Desktop from your Applications folder
+> 2. Wait for the whale icon in the menu bar to stop animating
+> 3. Reply "ready" when Docker is running
+
+**Wait for user confirmation**, then re-run detection:
 
 ```bash
-git clone https://github.com/NVIDIA-NeMo/Curator.git
-cd Curator
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync --all-extras --all-groups
+python .cursor/skills/setup/scripts/detect_environment.py --quick
+```
+
+Continue with the new scenario (should be `docker_pull` or `docker_existing`).
+
+---
+
+#### Scenario: `docker_install`
+
+**Condition**: Docker not installed
+
+**⚠️ MANUAL STEP REQUIRED**: The agent cannot install Docker.
+
+Tell the user:
+
+> **Action Required**: Install Docker Desktop
+>
+> 1. Download from: https://www.docker.com/products/docker-desktop/
+> 2. Install and start Docker Desktop
+> 3. Reply "ready" when Docker is running
+
+**Wait for user confirmation**, then re-run detection.
+
+---
+
+### Step 3: Verify Setup (Automated)
+
+After any successful path, provide:
+
+1. **The run command** for their environment
+2. **A test command** they can try
+
+Example output:
+
+```
+✅ NeMo Curator is ready!
+
+Run command:
+  docker run --rm -v $(pwd):/workspace -w /workspace nvcr.io/nvidia/nemo-curator:latest python your_script.py
+
+Test it:
+  docker run --rm nvcr.io/nvidia/nemo-curator:latest python -c "import nemo_curator; print('Works!')"
 ```
 
 ---
 
-## Troubleshooting
+## Automation Summary
 
-### "Platform not supported"
+| Scenario | Automated? | Agent Action |
+|----------|------------|--------------|
+| `native_existing` | ✅ Yes | Verify and confirm |
+| `native_install` | ✅ Yes | Install via uv, verify |
+| `docker_existing` | ✅ Yes | Verify and provide command |
+| `docker_pull` | ✅ Yes | Pull image, verify |
+| `docker_start` | ❌ No | Prompt user, wait, retry |
+| `docker_install` | ❌ No | Prompt user, wait, retry |
 
-NeMo Curator only runs on Linux. Use Docker on macOS/Windows.
+---
 
-### "Docker not running"
+## Quick Reference
 
-Start Docker Desktop from your Applications folder.
-
-### "No images found"
+### Docker Run Commands
 
 ```bash
-docker pull nvcr.io/nvidia/nemo-curator:latest
+# Without GPU (macOS/Windows)
+docker run -it --rm -v $(pwd):/workspace -w /workspace nvcr.io/nvidia/nemo-curator:latest
+
+# With GPU (Linux)
+docker run --gpus all -it --rm -v $(pwd):/workspace -w /workspace nvcr.io/nvidia/nemo-curator:latest
 ```
 
-### "Image is old"
+### PyPI Install (Linux Only)
 
 ```bash
-docker pull nvcr.io/nvidia/nemo-curator:latest
+# Text curation
+uv pip install nemo-curator[text_cuda12]
+
+# Video curation
+uv pip install --no-build-isolation nemo-curator[video_cuda12]
+
+# Everything
+uv pip install --no-build-isolation nemo-curator[all]
 ```
 
 ---

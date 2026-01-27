@@ -384,6 +384,5 @@ executor = XennaExecutor(config={
 ## Related Skills
 
 - `/setup` - General installation
-- `/setup-verify` - Verify installation
 - `/curate` - Run pipelines
 - `/dedup-fuzzy` - Deduplication settings

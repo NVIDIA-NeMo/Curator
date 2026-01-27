@@ -10,7 +10,7 @@ Intelligent command interface for NeMo Curator data curation pipelines, built on
 | Skill | Description | Invocation |
 |-------|-------------|------------|
 | `setup` | Install with environment detection + verification | `/setup` |
-| `setup-ray` | Ray cluster configuration | `/setup-ray` |
+| `setup-ray` | Multi-node Ray cluster configuration | `/setup-ray` |
 
 ### Curation Workflows
 
@@ -32,12 +32,17 @@ Intelligent command interface for NeMo Curator data curation pipelines, built on
 ## Directory Structure
 
 ```
-skills/
+.cursor/skills/
 ├── README.md                            # This file
 │
+├── # Shared Utilities
+├── shared/                              # Shared Python utilities
+│   ├── __init__.py
+│   └── introspect.py                    # Stage discovery & introspection
+│
 ├── # Setup Skills
-├── setup/                               # Main installation (consolidated)
-│   ├── SKILL.md                         # Action-oriented workflow
+├── setup/                               # Installation + verification
+│   ├── SKILL.md
 │   ├── scripts/
 │   │   ├── detect_environment.py        # CUDA/GPU/FFmpeg detection
 │   │   └── verify_installation.py       # Comprehensive verification
@@ -47,9 +52,7 @@ skills/
 │       ├── AUDIO_PACKAGES.md            # Audio + NeMo ASR deps
 │       ├── IMAGE_PACKAGES.md            # Image + DALI deps
 │       └── TROUBLESHOOTING.md           # Common issues & fixes
-├── setup-ray/                           # Ray cluster setup
-│   └── SKILL.md
-├── setup-verify/                        # Redirects to /setup
+├── setup-ray/                           # Multi-node cluster configuration
 │   └── SKILL.md
 │
 ├── # Curation Skills
@@ -59,7 +62,7 @@ skills/
 │   │   ├── detect_modality.py           # Detect text/video/image/audio
 │   │   └── validate_pipeline.py         # Validate YAML configs
 │   └── references/
-│       ├── STAGE_REFERENCE.md           # Complete stage catalog (80+ stages)
+│       ├── STAGE_REFERENCE.md           # Complete stage catalog
 │       ├── RESOURCE_GUIDE.md            # GPU/memory optimization
 │       └── MODALITY_PATTERNS.md         # Pipeline patterns by modality
 ├── curate/                              # Full curation workflow
@@ -106,20 +109,18 @@ Or install manually:
 
 ```bash
 # Install uv (recommended)
-curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env
 
 # Create environment and install
 uv venv && source .venv/bin/activate
-uv pip install torch wheel_stub psutil setuptools
-echo "transformers==4.55.2" > override.txt
-uv pip install --no-build-isolation "nemo-curator[all]" --override override.txt
+uv pip install nemo-curator[text_cuda12]
 ```
 
 ### 2. Verify Installation
 
 ```bash
-python dori/setup/scripts/verify_installation.py
+python .cursor/skills/setup/scripts/verify_installation.py
 ```
 
 ### 3. Start Curating
@@ -130,7 +131,7 @@ User: I want to curate my text dataset at /data/raw
 Agent: [Activates curator-os, detects text modality]
 
 Recommended workflow:
-1. Heuristic filtering (25 filters)
+1. Heuristic filtering
 2. Quality classification
 3. Fuzzy deduplication
 
@@ -143,97 +144,58 @@ Or explicitly invoke:
 /curate --modality text --input-path /data/raw --output-path /data/curated
 ```
 
-### Fuzzy Deduplication
-
-```
-/dedup-fuzzy
-
-Input path: /data/text
-Output path: /data/deduped
-Cache path: /data/cache
-```
-
-### Stage Lookup
-
-```
-/stages --modality text --category filters
-
-📁 text/filters
---------------------------------------------------
-  • WordCountFilter: Filter by word count (50-100000)
-  • NonAlphaNumericFilter: Filter by non-alphanumeric ratio
-  ... (33 filters total)
-```
-
 ## Scripts
 
-All scripts are executable Python with `--help` support:
+All scripts support `--help`:
 
 ```bash
-# Detect environment (CUDA, GPU, FFmpeg)
-python dori/setup/scripts/detect_environment.py
-python dori/setup/scripts/detect_environment.py --modality video --human
+# Environment detection
+python .cursor/skills/setup/scripts/detect_environment.py --quick
 
-# Verify installation
-python dori/setup/scripts/verify_installation.py
-python dori/setup/scripts/verify_installation.py --text  # Text only
-python dori/setup/scripts/verify_installation.py --video # Video only
+# Installation verification
+python .cursor/skills/setup/scripts/verify_installation.py
+python .cursor/skills/setup/scripts/verify_installation.py --text
+python .cursor/skills/setup/scripts/verify_installation.py --video
 
-# Detect data modality
-python dori/curator-os/scripts/detect_modality.py /path/to/data
+# Modality detection
+python .cursor/skills/curator-os/scripts/detect_modality.py /path/to/data
 
-# Validate pipeline config
-python dori/curator-os/scripts/validate_pipeline.py config.yaml
+# Pipeline validation
+python .cursor/skills/curator-os/scripts/validate_pipeline.py config.yaml
 
-# Generate fuzzy dedup config
-python dori/dedup-fuzzy/scripts/generate_fuzzy_config.py \
+# Fuzzy dedup config generation
+python .cursor/skills/dedup-fuzzy/scripts/generate_fuzzy_config.py \
   --input-path /data/text \
   --output-path /data/deduped \
-  --cache-path /data/cache \
-  --output-file fuzzy_dedup.yaml
+  --cache-path /data/cache
 
-# Estimate resources for dedup
-python dori/dedup-fuzzy/scripts/estimate_resources.py \
+# Resource estimation
+python .cursor/skills/dedup-fuzzy/scripts/estimate_resources.py \
   --input-path /data/text
 
-# Generate curation pipeline
-python dori/curate/scripts/generate_yaml.py \
+# Pipeline generation
+python .cursor/skills/curate/scripts/generate_yaml.py \
   --modality text \
   --input-path /data/raw \
-  --output-path /data/curated \
-  --output-file pipeline.yaml
+  --output-path /data/curated
 
-# Search stages
-python dori/stages/scripts/search_stages.py --modality video --category embedding
-python dori/stages/scripts/search_stages.py --search "caption"
+# Stage search
+python .cursor/skills/stages/scripts/search_stages.py --modality video
+python .cursor/skills/stages/scripts/search_stages.py --search "caption"
 
-# List filters
-python dori/filter/scripts/list_filters.py --verbose
-python dori/filter/scripts/list_filters.py --category repetition
-```
-
-## Running Generated Configs
-
-After generating a YAML configuration:
-
-```bash
-python -m nemo_curator.config.run \
-  --config-path=. \
-  --config-name=<config-file-stem> \
-  input_path=/data/raw \
-  output_path=/data/curated
+# Filter listing
+python .cursor/skills/filter/scripts/list_filters.py --verbose
 ```
 
 ## Requirements
 
 - Python 3.10+
 - NeMo Curator >= 0.5.0
-- Ray cluster for distributed execution
 - GPU with 16GB+ memory for ML stages
+- Ray cluster for distributed execution (optional, see `/setup-ray`)
 
 ## Related Documentation
 
-- [RFC-001: CURATOR-OS](../docs/rfc/rfc-001-curator-os.md) - Design document
 - [NeMo Curator Documentation](https://docs.nvidia.com/nemo-curator)
 - [Agent Skills Specification](https://agentskills.io/specification)
 
