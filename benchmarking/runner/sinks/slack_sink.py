@@ -204,6 +204,11 @@ class SlackSink(Sink):
         )
         if not response.ok:
             logger.error(f"SlackSink: Failed to send Slack message (status={response.status_code}): {response.text}")
+            # Dump the payload to a file for debugging
+            payload_dump_path = self.matrix_config.output_path / "slack_payload.json"
+            with open(payload_dump_path, "w") as f:
+                f.write(payload)
+            logger.info(f"SlackSink: Payload dumped to {payload_dump_path} for debugging")
 
     @staticmethod
     def substitute_template_placeholders(template_str: str, values: dict[str, str]) -> str:
