@@ -307,3 +307,212 @@ def discover_all_stages() -> list[StageInfo]:
                 all_stages[key] = stage
 
     return list(all_stages.values())
+
+
+# GPU memory estimates for known stages (in GB)
+GPU_MEMORY_ESTIMATES: dict[str, float] = {
+    # Video stages
+    "TransNetV2ClipExtractionStage": 16.0,
+    "ClipTranscodingStage": 0.0,  # CPU-only
+    "FixedStrideExtractorStage": 0.0,  # CPU-only
+    "VideoFrameExtractionStage": 0.0,  # CPU (or minimal GPU)
+    "ClipFrameExtractionStage": 0.0,
+    "MotionVectorDecodeStage": 0.0,  # CPU-only
+    "MotionFilterStage": 4.0,
+    "ClipAestheticFilterStage": 4.0,
+    "CaptionPreparationStage": 0.0,
+    "CaptionGenerationStage": 24.0,
+    "CaptionEnhancementStage": 16.0,
+    "CosmosEmbed1FrameCreationStage": 0.0,
+    "CosmosEmbed1EmbeddingStage": 20.0,
+    "InternVideo2FrameCreationStage": 0.0,
+    "InternVideo2EmbeddingStage": 16.0,
+    "VideoReader": 0.0,
+    "VideoReaderStage": 0.0,
+    "ClipWriterStage": 0.0,
+    "PreviewStage": 0.0,
+    # Image stages
+    "ImageReaderStage": 0.0,
+    "ImageWriterStage": 0.0,
+    "ImageEmbeddingStage": 4.0,
+    "ImageAestheticFilterStage": 4.0,
+    "ImageNSFWFilterStage": 4.0,
+    "ImageDuplicatesRemovalStage": 0.0,
+    "ConvertImageBatchToDocumentBatchStage": 0.0,
+    # Audio stages
+    "InferenceAsrNemoStage": 16.0,
+    "GetPairwiseWerStage": 0.0,
+    "GetAudioDurationStage": 0.0,
+    "PreserveByValueStage": 0.0,
+    "AudioToDocumentStage": 0.0,
+    "CreateInitialManifestFleursStage": 0.0,
+    # Text stages (common ones)
+    "QualityClassifier": 8.0,
+    "FineWebEduClassifier": 12.0,
+    "DomainClassifier": 8.0,
+    "AegisClassifier": 16.0,
+}
+
+# Processing throughput estimates (items per second per worker)
+THROUGHPUT_ESTIMATES: dict[str, float] = {
+    # Video (clips per second)
+    "TransNetV2ClipExtractionStage": 0.017,  # ~1 video/min
+    "FixedStrideExtractorStage": 1.0,
+    "ClipTranscodingStage": 0.5,
+    "MotionFilterStage": 2.0,
+    "ClipAestheticFilterStage": 2.0,
+    "CaptionGenerationStage": 0.5,
+    "CosmosEmbed1EmbeddingStage": 2.0,
+    "InternVideo2EmbeddingStage": 2.0,
+    "ClipWriterStage": 5.0,
+    # Image (images per second)
+    "ImageReaderStage": 100.0,
+    "ImageEmbeddingStage": 100.0,
+    "ImageAestheticFilterStage": 100.0,
+    "ImageNSFWFilterStage": 100.0,
+    "ImageDuplicatesRemovalStage": 1000.0,
+    "ImageWriterStage": 100.0,
+    # Audio (relative to realtime, 10x means 10 seconds audio per 1 second processing)
+    "InferenceAsrNemoStage": 10.0,
+    "GetPairwiseWerStage": 1000.0,
+}
+
+
+# Modality to module path mapping
+MODALITY_MODULES: dict[str, list[str]] = {
+    "video": [
+        "nemo_curator.stages.video.io",
+        "nemo_curator.stages.video.io.video_reader",
+        "nemo_curator.stages.video.io.clip_writer",
+        "nemo_curator.stages.video.clipping",
+        "nemo_curator.stages.video.clipping.transnetv2_extraction",
+        "nemo_curator.stages.video.clipping.clip_extraction_stages",
+        "nemo_curator.stages.video.clipping.video_frame_extraction",
+        "nemo_curator.stages.video.clipping.clip_frame_extraction",
+        "nemo_curator.stages.video.caption",
+        "nemo_curator.stages.video.caption.caption_preparation",
+        "nemo_curator.stages.video.caption.caption_generation",
+        "nemo_curator.stages.video.caption.caption_enhancement",
+        "nemo_curator.stages.video.embedding",
+        "nemo_curator.stages.video.embedding.cosmos_embed1",
+        "nemo_curator.stages.video.embedding.internvideo2",
+        "nemo_curator.stages.video.filtering",
+        "nemo_curator.stages.video.filtering.motion_filter",
+        "nemo_curator.stages.video.filtering.clip_aesthetic_filter",
+        "nemo_curator.stages.video.preview",
+        "nemo_curator.stages.video.preview.preview",
+    ],
+    "image": [
+        "nemo_curator.stages.image.io",
+        "nemo_curator.stages.image.io.image_reader",
+        "nemo_curator.stages.image.io.image_writer",
+        "nemo_curator.stages.image.io.convert",
+        "nemo_curator.stages.image.embedders",
+        "nemo_curator.stages.image.embedders.clip_embedder",
+        "nemo_curator.stages.image.filters",
+        "nemo_curator.stages.image.filters.aesthetic_filter",
+        "nemo_curator.stages.image.filters.nsfw_filter",
+        "nemo_curator.stages.image.deduplication",
+        "nemo_curator.stages.image.deduplication.removal",
+    ],
+    "audio": [
+        "nemo_curator.stages.audio.io",
+        "nemo_curator.stages.audio.io.convert",
+        "nemo_curator.stages.audio.inference",
+        "nemo_curator.stages.audio.inference.asr_nemo",
+        "nemo_curator.stages.audio.metrics",
+        "nemo_curator.stages.audio.metrics.get_wer",
+        "nemo_curator.stages.audio.common",
+        "nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest",
+    ],
+    "text": [
+        "nemo_curator.stages.text.io.reader",
+        "nemo_curator.stages.text.io.writer",
+        "nemo_curator.stages.text.filters",
+        "nemo_curator.stages.text.filters.heuristic_filter",
+        "nemo_curator.stages.text.filters.code",
+        "nemo_curator.stages.text.classifiers",
+        "nemo_curator.stages.text.modifiers",
+        "nemo_curator.stages.text.modules",
+        "nemo_curator.stages.text.embedders",
+    ],
+}
+
+
+def get_stages_by_modality(modality: str) -> list[StageInfo]:
+    """Get all stages for a specific modality.
+
+    Args:
+        modality: One of "video", "image", "audio", "text"
+
+    Returns:
+        List of StageInfo objects for the specified modality
+    """
+    modality = modality.lower()
+    if modality not in MODALITY_MODULES:
+        return []
+
+    all_stages: dict[str, StageInfo] = {}
+
+    for module_path in MODALITY_MODULES[modality]:
+        for stage in discover_stages_in_module(module_path):
+            key = stage.full_target
+            if key not in all_stages:
+                all_stages[key] = stage
+
+    return list(all_stages.values())
+
+
+def estimate_gpu_memory(stage_name: str) -> float:
+    """Estimate GPU memory required for a stage.
+
+    Args:
+        stage_name: Name of the stage class (e.g., "TransNetV2ClipExtractionStage")
+
+    Returns:
+        Estimated GPU memory in GB, or 0.0 if unknown/CPU-only
+    """
+    return GPU_MEMORY_ESTIMATES.get(stage_name, 0.0)
+
+
+def estimate_throughput(stage_name: str) -> float:
+    """Estimate processing throughput for a stage.
+
+    Args:
+        stage_name: Name of the stage class
+
+    Returns:
+        Estimated items per second per worker, or 1.0 if unknown
+    """
+    return THROUGHPUT_ESTIMATES.get(stage_name, 1.0)
+
+
+def get_stage_by_name(stage_name: str) -> StageInfo | None:
+    """Get StageInfo for a specific stage by name.
+
+    Args:
+        stage_name: Name of the stage class
+
+    Returns:
+        StageInfo if found, None otherwise
+    """
+    all_stages = discover_all_stages()
+    for stage in all_stages:
+        if stage.name == stage_name:
+            return stage
+    return None
+
+
+def get_stage_parameters(stage_name: str) -> dict[str, dict[str, Any]]:
+    """Get parameters for a specific stage.
+
+    Args:
+        stage_name: Name of the stage class
+
+    Returns:
+        Dictionary of parameter info, or empty dict if not found
+    """
+    stage = get_stage_by_name(stage_name)
+    if stage:
+        return stage.parameters
+    return {}
