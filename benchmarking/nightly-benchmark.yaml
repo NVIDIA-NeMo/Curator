@@ -407,10 +407,10 @@ entries:
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
-    timeout_s: 1800
+    timeout_s: 400
     ray:
       num_cpus: 64
-      num_gpus: 1
+      num_gpus: 4
       enable_object_spilling: false
     requirements:
       # ensure the total number of documents processed is correct
@@ -429,7 +429,7 @@ entries:
       --no-generate-embeddings
       --video-dir={dataset:videos,mp4}
       --video-limit=1000
-    timeout_s: 1800
+    timeout_s: 400
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -453,7 +453,7 @@ entries:
       --generate-captions
       --no-generate-embeddings
       --enhance-captions
-      --video-limit=100
+      --video-limit=256
     timeout_s: 1800
     ray:
       num_cpus: 64
@@ -462,7 +462,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 1400
+        exact_value: 300 # TODO: update this value after benchmarking
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
@@ -480,7 +480,7 @@ entries:
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=1000
-    timeout_s: 1800
+    timeout_s: 500
     ray:
       num_cpus: 64
       num_gpus: 4

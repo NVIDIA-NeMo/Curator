@@ -29,7 +29,6 @@ from runner.path_resolver import (
     CONTAINER_CURATOR_DIR,
     CONTAINER_DATASETS_DIR_ROOT,
     CONTAINER_RESULTS_DIR_ROOT,
-    CONTAINER_MODEL_DIR_ROOT,
 )
 from runner.utils import get_total_memory_bytes
 
@@ -150,7 +149,6 @@ def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0
         for path_type, container_dir in [
             ("results_path", CONTAINER_RESULTS_DIR_ROOT),
             ("datasets_path", CONTAINER_DATASETS_DIR_ROOT),
-            ("model_path", CONTAINER_MODEL_DIR_ROOT),
         ]:
             if path_type in config_data:
                 path_value = config_data[path_type]
