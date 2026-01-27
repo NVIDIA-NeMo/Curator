@@ -82,7 +82,7 @@ def main() -> None:
     parser.add_argument(
         "--category",
         "-c",
-        choices=list(VIDEO_CATEGORIES.keys()) + ["all"],
+        choices=[*list(VIDEO_CATEGORIES.keys()), "all"],
         default="all",
         help="Filter by category",
     )

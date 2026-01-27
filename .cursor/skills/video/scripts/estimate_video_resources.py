@@ -126,7 +126,7 @@ def estimate_pipeline_resources(
             bottleneck_stage = stage
 
     # Calculate time based on bottleneck
-    if bottleneck_stage and "Video" in bottleneck_stage or "TransNet" in str(bottleneck_stage):
+    if (bottleneck_stage and "Video" in bottleneck_stage) or "TransNet" in str(bottleneck_stage):
         # Video-level processing
         processing_time_hours = video_count / (min_throughput * 3600)
     else:

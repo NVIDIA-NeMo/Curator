@@ -26,18 +26,50 @@ This skill activates automatically when users:
 - Need to build NeMo Curator pipelines
 - Ask about available stages or processing options
 
+## Skill Routing
+
+Route user requests to the appropriate skill based on intent and modality:
+
+| User Intent | Skill | When to Use |
+|-------------|-------|-------------|
+| "process videos" / "video dataset" | `/video` | Video clipping, captioning, embedding |
+| "curate images" / "filter images" | `/image` | Image quality filtering, NSFW, dedup |
+| "transcribe audio" / "ASR" | `/audio` | Audio transcription, WER filtering |
+| "filter text" / "clean text" | `/filter` | Heuristic text filtering |
+| "classify documents" / "quality score" | `/classify` | ML-based classification |
+| "deduplicate" / "remove duplicates" | `/dedup-fuzzy` | Near-duplicate removal |
+| "full curation" / "end-to-end" | `/curate` | Complete pipeline |
+| "what stages are available" | `/stages` | Stage discovery |
+| "help with setup" | `/setup` | Installation and config |
+
 ## Available Skills
 
-| Skill | Purpose | Invoke |
-|-------|---------|--------|
-| `/curate` | Full curation workflow | Multi-stage pipeline |
-| `/dedup-fuzzy` | MinHash + LSH deduplication | Near-duplicate removal |
-| `/dedup-exact` | Hash-based deduplication | Exact duplicate removal |
-| `/dedup-semantic` | Embedding-based deduplication | Semantic similarity |
-| `/filter` | Heuristic text filtering | Rule-based quality filters |
-| `/classify` | ML classification | Quality, domain, safety |
-| `/stages` | Stage reference lookup | Find processing stages |
-| `/help` | Context-aware help | Get guidance |
+### Modality-Specific Skills
+
+| Skill | Modality | Purpose |
+|-------|----------|---------|
+| `/video` | Video | Clipping, captioning, embeddings, filtering |
+| `/image` | Image | CLIP embedding, aesthetic/NSFW filtering, dedup |
+| `/audio` | Audio | ASR transcription, WER filtering |
+
+### Text Processing Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `/filter` | Heuristic text filtering (33+ filters) |
+| `/classify` | ML classification (quality, domain, safety) |
+| `/dedup-fuzzy` | MinHash + LSH deduplication |
+| `/dedup-exact` | Hash-based exact deduplication |
+| `/dedup-semantic` | Embedding-based semantic deduplication |
+
+### Utility Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `/curate` | Full curation workflow (all modalities) |
+| `/stages` | Stage reference and discovery |
+| `/setup` | Environment detection and installation |
+| `/help` | Context-aware help |
 
 ## Modality Detection
 
@@ -47,43 +79,14 @@ Before recommending a workflow, detect the data modality:
 python scripts/detect_modality.py /path/to/data
 ```
 
-### Modality → Task Type Mapping
+### Modality Detection Patterns
 
-| Modality | Task Type | Common Stages |
-|----------|-----------|---------------|
-| Text | `DocumentBatch` | Filters, Classifiers, Deduplication |
-| Video | `VideoTask` | Clipping, Captioning, Embedding |
-| Image | `ImageBatch` | CLIP Embedding, Aesthetic Filter |
-| Audio | `AudioBatch` | ASR, WER Calculation |
-
-## Routing Logic
-
-### Text Data Requests
-
-If user mentions text, documents, JSONL, Parquet, Common Crawl:
-1. Check for deduplication need → `/dedup-fuzzy` or `/dedup-exact`
-2. Check for filtering need → `/filter`
-3. Check for classification need → `/classify`
-4. Full pipeline → `/curate`
-
-### Video Data Requests
-
-If user mentions video, MP4, clips, scenes:
-1. Scene detection → TransNetV2ClipExtractionStage
-2. Captioning → CaptionGenerationStage
-3. Embedding → CosmosEmbed1 or InternVideo2
-
-### Image Data Requests
-
-If user mentions images, photos, PNG, JPEG:
-1. Embedding → ImageEmbeddingStage (CLIP)
-2. Filtering → AestheticFilterStage, NSFWFilterStage
-
-### Audio Data Requests
-
-If user mentions audio, speech, WAV, transcription:
-1. ASR → InferenceAsrNemoStage
-2. Quality → WERCalculationStage
+| Pattern | Modality | Route To |
+|---------|----------|----------|
+| `.mp4`, `.avi`, `.mov`, `.mkv` | Video | `/video` |
+| `.jpg`, `.png`, `.webp`, `.tar` (WebDataset) | Image | `/image` |
+| `.wav`, `.mp3`, `.flac` | Audio | `/audio` |
+| `.jsonl`, `.parquet`, `.txt` | Text | `/filter`, `/classify`, `/curate` |
 
 ## Pipeline Validation
 
@@ -112,27 +115,49 @@ For large datasets, estimate resources before execution:
 
 ## Common Workflows
 
+### Video Processing
+
+```
+User: "Process my video dataset"
+
+1. Route to /video skill
+2. Ask about scene detection vs fixed stride
+3. Ask about captioning and embedding
+4. Generate pipeline config with generate_video_config.py
+```
+
+### Image Curation
+
+```
+User: "Filter my image dataset for quality"
+
+1. Route to /image skill
+2. Configure aesthetic and NSFW thresholds
+3. Ask about deduplication
+4. Generate pipeline config with generate_image_config.py
+```
+
+### Audio Transcription
+
+```
+User: "Transcribe and filter audio"
+
+1. Route to /audio skill
+2. Select ASR model based on language
+3. Set WER threshold
+4. Generate pipeline config with generate_audio_config.py
+```
+
 ### Text Curation (Most Common)
 
 ```
 User: "I want to curate my text dataset"
 
 1. Detect modality (text)
-2. Ask about deduplication preference
-3. Ask about quality filtering
+2. Ask about deduplication preference → /dedup-fuzzy
+3. Ask about quality filtering → /filter
 4. Generate pipeline config
 5. Validate configuration
-```
-
-### Video Processing
-
-```
-User: "Process my video dataset"
-
-1. Detect modality (video)
-2. Ask about scene detection vs fixed stride
-3. Ask about captioning and embedding
-4. Generate pipeline config
 ```
 
 ## Error Handling
@@ -142,10 +167,10 @@ User: "Process my video dataset"
 If modality cannot be detected:
 ```
 I couldn't automatically detect the data type. What kind of data are you working with?
-- Text (JSONL, Parquet, TXT)
-- Video (MP4, AVI, MOV)
-- Image (PNG, JPEG, WebP)
-- Audio (WAV, MP3, FLAC)
+- Text (JSONL, Parquet, TXT) → /filter, /classify, /curate
+- Video (MP4, AVI, MOV) → /video
+- Image (PNG, JPEG, WebDataset) → /image
+- Audio (WAV, MP3, FLAC) → /audio
 ```
 
 ### Missing Dependencies
@@ -154,7 +179,7 @@ If NeMo Curator is not installed:
 ```
 NeMo Curator doesn't appear to be installed. 
 
-Use `/setup` for guided installation with environment detection,
+Use /setup for guided installation with environment detection,
 or install manually:
   uv pip install nemo-curator[all]
 ```

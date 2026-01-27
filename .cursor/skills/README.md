@@ -12,15 +12,28 @@ Intelligent command interface for NeMo Curator data curation pipelines, built on
 | `setup` | Install with environment detection + verification | `/setup` |
 | `setup-ray` | Multi-node Ray cluster configuration | `/setup-ray` |
 
-### Curation Workflows
+### Modality-Specific Skills
+
+| Skill | Modality | Description | Invocation |
+|-------|----------|-------------|------------|
+| `video` | Video | Clipping, captioning, embeddings, filtering | `/video` |
+| `image` | Image | CLIP embedding, aesthetic/NSFW filtering, dedup | `/image` |
+| `audio` | Audio | ASR transcription, WER filtering | `/audio` |
+
+### Text Processing Skills
 
 | Skill | Description | Invocation |
 |-------|-------------|------------|
-| `curator-os` | Main orchestrator - routes requests to appropriate skills | Auto (agent decides) |
-| `curate` | Full curation workflow for any modality | `/curate` |
-| `dedup-fuzzy` | MinHash + LSH fuzzy deduplication | `/dedup-fuzzy` |
-| `filter` | Heuristic text filtering | `/filter` |
+| `filter` | Heuristic text filtering (33+ filters) | `/filter` |
 | `classify` | ML classification (quality, domain, safety) | `/classify` |
+| `dedup-fuzzy` | MinHash + LSH fuzzy deduplication | `/dedup-fuzzy` |
+
+### Full Workflow Skills
+
+| Skill | Description | Invocation |
+|-------|-------------|------------|
+| `curator-os` | Main orchestrator - routes requests to skills | Auto (agent decides) |
+| `curate` | Full curation workflow for any modality | `/curate` |
 
 ### Reference & Help
 
@@ -44,41 +57,57 @@ Intelligent command interface for NeMo Curator data curation pipelines, built on
 ├── setup/                               # Installation + verification
 │   ├── SKILL.md
 │   ├── scripts/
-│   │   ├── detect_environment.py        # CUDA/GPU/FFmpeg detection
-│   │   └── verify_installation.py       # Comprehensive verification
+│   │   ├── detect_environment.py
+│   │   └── verify_installation.py
 │   └── references/
-│       ├── TEXT_PACKAGES.md             # Text dependencies
-│       ├── VIDEO_PACKAGES.md            # Video + FFmpeg deps
-│       ├── AUDIO_PACKAGES.md            # Audio + NeMo ASR deps
-│       ├── IMAGE_PACKAGES.md            # Image + DALI deps
-│       └── TROUBLESHOOTING.md           # Common issues & fixes
 ├── setup-ray/                           # Multi-node cluster configuration
 │   └── SKILL.md
 │
-├── # Curation Skills
-├── curator-os/                          # Main orchestrator (auto-invoked)
+├── # Modality Skills
+├── video/                               # Video processing
 │   ├── SKILL.md
 │   ├── scripts/
-│   │   ├── detect_modality.py           # Detect text/video/image/audio
-│   │   └── validate_pipeline.py         # Validate YAML configs
+│   │   ├── generate_video_config.py
+│   │   ├── estimate_video_resources.py
+│   │   └── list_video_stages.py
 │   └── references/
-│       ├── STAGE_REFERENCE.md           # Complete stage catalog
-│       ├── RESOURCE_GUIDE.md            # GPU/memory optimization
-│       └── MODALITY_PATTERNS.md         # Pipeline patterns by modality
+│       ├── CLIPPING_OPTIONS.md
+│       └── CAPTIONING_GUIDE.md
+├── image/                               # Image processing
+│   ├── SKILL.md
+│   ├── scripts/
+│   │   ├── generate_image_config.py
+│   │   ├── estimate_image_resources.py
+│   │   └── list_image_stages.py
+│   └── references/
+│       └── FILTERING_THRESHOLDS.md
+├── audio/                               # Audio processing
+│   ├── SKILL.md
+│   ├── scripts/
+│   │   ├── generate_audio_config.py
+│   │   ├── list_audio_stages.py
+│   │   └── list_asr_models.py
+│   └── references/
+│       └── ASR_MODELS.md
+│
+├── # Curation Skills
+├── curator-os/                          # Main orchestrator
+│   ├── SKILL.md
+│   ├── scripts/
+│   │   ├── detect_modality.py
+│   │   └── validate_pipeline.py
+│   └── references/
 ├── curate/                              # Full curation workflow
 │   ├── SKILL.md
 │   ├── scripts/
-│   │   └── generate_yaml.py             # Generate pipeline configs
+│   │   └── generate_yaml.py
 │   └── assets/
-│       ├── text_curation_template.yaml
-│       └── video_curation_template.yaml
 ├── dedup-fuzzy/                         # Fuzzy deduplication
 │   ├── SKILL.md
 │   ├── scripts/
 │   │   ├── generate_fuzzy_config.py
 │   │   └── estimate_resources.py
 │   └── references/
-│       └── FUZZY_DEDUP_PARAMS.md
 ├── filter/                              # Heuristic filtering
 │   ├── SKILL.md
 │   └── scripts/
@@ -99,7 +128,7 @@ Intelligent command interface for NeMo Curator data curation pipelines, built on
 
 ### 1. Install NeMo Curator
 
-Use the `/setup` skill for guided installation with automatic environment detection:
+Use the `/setup` skill for guided installation:
 
 ```
 /setup
@@ -108,40 +137,47 @@ Use the `/setup` skill for guided installation with automatic environment detect
 Or install manually:
 
 ```bash
-# Install uv (recommended)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env
-
-# Create environment and install
-uv venv && source .venv/bin/activate
-uv pip install nemo-curator[text_cuda12]
+uv pip install nemo-curator[all]
 ```
 
-### 2. Verify Installation
+### 2. Process Data by Modality
+
+**Video:**
+```bash
+python .cursor/skills/video/scripts/generate_video_config.py \
+  --input-path /data/videos \
+  --output-path /data/clips \
+  --caption --embed
+```
+
+**Image:**
+```bash
+python .cursor/skills/image/scripts/generate_image_config.py \
+  --input-path /data/images \
+  --output-path /data/curated \
+  --aesthetic-threshold 0.5
+```
+
+**Audio:**
+```bash
+python .cursor/skills/audio/scripts/generate_audio_config.py \
+  --input-path /data/audio \
+  --output-path /data/transcribed \
+  --model-name nvidia/stt_en_fastconformer_hybrid_large_pc
+```
+
+**Text:**
+```bash
+python .cursor/skills/curate/scripts/generate_yaml.py \
+  --modality text \
+  --input-path /data/text \
+  --output-path /data/curated
+```
+
+### 3. Run Pipeline
 
 ```bash
-python .cursor/skills/setup/scripts/verify_installation.py
-```
-
-### 3. Start Curating
-
-```
-User: I want to curate my text dataset at /data/raw
-
-Agent: [Activates curator-os, detects text modality]
-
-Recommended workflow:
-1. Heuristic filtering
-2. Quality classification
-3. Fuzzy deduplication
-
-Generate pipeline config? [y/n]
-```
-
-Or explicitly invoke:
-
-```
-/curate --modality text --input-path /data/raw --output-path /data/curated
+python -m nemo_curator.config.run --config-path=. --config-name=pipeline
 ```
 
 ## Scripts
@@ -149,55 +185,32 @@ Or explicitly invoke:
 All scripts support `--help`:
 
 ```bash
-# Environment detection
-python .cursor/skills/setup/scripts/detect_environment.py --quick
+# Video
+python .cursor/skills/video/scripts/list_video_stages.py --verbose
+python .cursor/skills/video/scripts/estimate_video_resources.py --input-path /data/videos
+python .cursor/skills/video/scripts/generate_video_config.py --help
 
-# Installation verification
-python .cursor/skills/setup/scripts/verify_installation.py
-python .cursor/skills/setup/scripts/verify_installation.py --text
-python .cursor/skills/setup/scripts/verify_installation.py --video
+# Image
+python .cursor/skills/image/scripts/list_image_stages.py --verbose
+python .cursor/skills/image/scripts/generate_image_config.py --help
 
-# Modality detection
-python .cursor/skills/curator-os/scripts/detect_modality.py /path/to/data
+# Audio
+python .cursor/skills/audio/scripts/list_asr_models.py
+python .cursor/skills/audio/scripts/list_audio_stages.py --verbose
+python .cursor/skills/audio/scripts/generate_audio_config.py --help
 
-# Pipeline validation
-python .cursor/skills/curator-os/scripts/validate_pipeline.py config.yaml
-
-# Fuzzy dedup config generation
-python .cursor/skills/dedup-fuzzy/scripts/generate_fuzzy_config.py \
-  --input-path /data/text \
-  --output-path /data/deduped \
-  --cache-path /data/cache
-
-# Resource estimation
-python .cursor/skills/dedup-fuzzy/scripts/estimate_resources.py \
-  --input-path /data/text
-
-# Pipeline generation
-python .cursor/skills/curate/scripts/generate_yaml.py \
-  --modality text \
-  --input-path /data/raw \
-  --output-path /data/curated
-
-# Stage search
-python .cursor/skills/stages/scripts/search_stages.py --modality video
-python .cursor/skills/stages/scripts/search_stages.py --search "caption"
-
-# Filter listing
+# Text/General
 python .cursor/skills/filter/scripts/list_filters.py --verbose
+python .cursor/skills/stages/scripts/search_stages.py --modality video
+python .cursor/skills/dedup-fuzzy/scripts/estimate_resources.py --input-path /data/text
 ```
 
 ## Requirements
 
 - Python 3.10+
 - NeMo Curator >= 0.5.0
-- GPU with 16GB+ memory for ML stages
-- Ray cluster for distributed execution (optional, see `/setup-ray`)
-
-## Related Documentation
-
-- [NeMo Curator Documentation](https://docs.nvidia.com/nemo-curator)
-- [Agent Skills Specification](https://agentskills.io/specification)
+- Linux (required)
+- GPU with 4-24GB memory depending on stages
 
 ## License
 
