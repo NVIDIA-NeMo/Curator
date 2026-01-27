@@ -211,7 +211,7 @@ entries:
       --bands-per-iteration=20
       --text-field=text
       --input-blocksize=1.5GiB
-    timeout_s: 800
+    timeout_s: 900
     sink_data:
       - name: slack
         additional_metrics:
@@ -285,7 +285,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1200
+    timeout_s: 1300
     sink_data:
       - name: slack
         additional_metrics:
@@ -339,7 +339,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
       --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
-    timeout_s: 300
+    timeout_s: 400
     sink_data:
       - name: slack
         additional_metrics:
