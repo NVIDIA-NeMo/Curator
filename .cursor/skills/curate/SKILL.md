@@ -16,7 +16,21 @@ disable-model-invocation: true
 
 # Full Curation Workflow
 
-Build complete data curation pipelines for any modality.
+## Platform Requirements
+
+> **IMPORTANT**: NeMo Curator only runs on **Linux**. macOS and Windows are not supported.
+>
+> **On macOS/Windows, use Docker:**
+> ```bash
+> docker run --rm -v $(pwd):/workspace -w /workspace python:3.11-slim \
+>   bash -c "pip install nemo-curator && python your_script.py"
+> ```
+
+| Platform | Support | Solution |
+|----------|---------|----------|
+| Linux | ✅ Native | Install directly with pip/uv |
+| macOS | ❌ Not supported | Use Docker |
+| Windows | ❌ Not supported | Use Docker or WSL2 |
 
 ## When to Use
 
@@ -24,6 +38,18 @@ Build complete data curation pipelines for any modality.
 - User says "curate my data" or "prepare training data"
 - Need filtering + classification + deduplication combined
 - Processing large datasets for LLM training
+
+## Quick Start
+
+### 0. Check Platform
+
+Before running, verify you're on Linux or have Docker available:
+
+```python
+import sys
+if sys.platform != "linux":
+    print("WARNING: NeMo Curator requires Linux. Use Docker on macOS/Windows.")
+```
 
 ## Quick Start
 
