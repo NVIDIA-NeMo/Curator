@@ -452,7 +452,7 @@ entries:
       --model-dir={dataset:videos_model_weights,files}
       --generate-captions
       --no-generate-embeddings
-      --enhance_captions
+      --enhance-captions
       --video-limit=100
     timeout_s: 1800
     ray:
