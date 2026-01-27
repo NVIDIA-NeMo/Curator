@@ -13,26 +13,16 @@
 # limitations under the License.
 
 """
-Audio curation stages for NeMo Curator.
+ALM (Audio Language Model) data curation stages.
 
-This module provides stages for processing and curating audio data,
-including ASR inference, quality assessment, and ALM data preparation.
+Stages for building and filtering training windows from audio segments
+for Audio Language Model training.
 """
 
-from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
-from nemo_curator.stages.audio.common import (
-    GetAudioDurationStage,
-    LegacySpeechStage,
-    PreserveByValueStage,
-)
+from nemo_curator.stages.audio.alm.alm_data_builder import ALMDataBuilderStage
+from nemo_curator.stages.audio.alm.alm_data_overlap import ALMDataOverlapStage
 
 __all__ = [
-    # Base classes
-    "LegacySpeechStage",
-    # Common stages
-    "GetAudioDurationStage",
-    "PreserveByValueStage",
-    # ALM stages
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
 ]
