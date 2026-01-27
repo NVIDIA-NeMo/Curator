@@ -45,6 +45,7 @@ This pulls the image specified by `CURATOR_IMAGE` and uses it as the base for th
 Additional options:
 - `--tag-as-latest`: Tag the built images with `:latest` in addition to the timestamped tag
 - `--skip-curator-image-build`: Skip building the base Curator image and pull `CURATOR_IMAGE` instead
+- `--skip-curator-image-build-and-pull`: Skip both building and pulling, use existing local `CURATOR_IMAGE`
 
 Note: you may only need to do this periodically when the environment needs to be updated. See the `--use-host-curator` example below.
 

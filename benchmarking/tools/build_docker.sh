@@ -20,6 +20,7 @@ set -euo pipefail
 # Parse command-line arguments
 TAG_AS_LATEST=false
 SKIP_CURATOR_BUILD=false
+SKIP_CURATOR_BUILD_AND_PULL=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,9 +32,13 @@ while [[ $# -gt 0 ]]; do
       SKIP_CURATOR_BUILD=true
       shift
       ;;
+    --skip-curator-image-build-and-pull)
+      SKIP_CURATOR_BUILD_AND_PULL=true
+      shift
+      ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--tag-as-latest] [--skip-curator-image-build]"
+      echo "Usage: $0 [--tag-as-latest] [--skip-curator-image-build] [--skip-curator-image-build-and-pull]"
       exit 1
       ;;
   esac
@@ -47,8 +52,10 @@ CURATOR_BENCHMARKING_IMAGE=${CURATOR_BENCHMARKING_IMAGE:-"nemo_curator_benchmark
 THIS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CURATOR_DIR="$(cd ${THIS_SCRIPT_DIR}/../.. && pwd)"
 
-# Either pull or build the standard NeMo Curator image
-if ${SKIP_CURATOR_BUILD}; then
+# Either pull, build, or skip the standard NeMo Curator image
+if ${SKIP_CURATOR_BUILD_AND_PULL}; then
+  echo "Skipping build and pull, using existing NeMo Curator image: ${CURATOR_IMAGE}"
+elif ${SKIP_CURATOR_BUILD}; then
   echo "Skipping build, pulling NeMo Curator image: ${CURATOR_IMAGE}"
   docker pull "${CURATOR_IMAGE}"
 else
