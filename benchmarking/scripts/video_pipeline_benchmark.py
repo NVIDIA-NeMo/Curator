@@ -75,9 +75,9 @@ def run_video_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
 
         # Calculate metrics from output tasks
         # Count unique videos by their input_video path
-        unique_videos = {task.data.input_video for task in output_tasks if task.data and hasattr(task.data, 'input_video') and task.data.input_video}
+        unique_videos = {task.data.input_video for task in output_tasks if task.data and hasattr(task.data, "input_video") and task.data.input_video}
         num_videos_processed = len(unique_videos)
-        num_clips_generated = sum(len(task.data.clips) for task in output_tasks if task.data and hasattr(task.data, 'clips') and task.data.clips)
+        num_clips_generated = sum(len(task.data.clips) for task in output_tasks if task.data and hasattr(task.data, "clips") and task.data.clips)
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_videos_processed} videos")
