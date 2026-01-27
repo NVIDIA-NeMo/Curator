@@ -30,7 +30,7 @@ from runner.utils import get_obj_for_json, get_total_memory_bytes, run_shm_size_
 
 def dump_env(session_obj: Session, output_path: Path) -> dict[str, Any]:
     env_data = get_env()
-    env_data["default_object_store_size_bytes"] = session_obj.default_object_store_size_bytes
+    env_data["object_store_size"] = session_obj.object_store_size
 
     # Try package managers in order of preference for capturing the environment
     # package_managers = [("uv", "pip freeze"), ("pip", "freeze"), ("micromamba", "list --explicit"), ("conda", "list --explicit")]  # noqa: ERA001
