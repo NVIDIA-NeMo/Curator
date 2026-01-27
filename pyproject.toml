@@ -257,6 +257,7 @@ ignore = [
     "EXE002", # don't require for a shebang to be present if it's executable
     "COM812", # disable the trailing comma in linter, because ruff formatter ensures it
     "SLF001", # allow accessing private attributes
+    "PD901", # allow df as DataFrame variable name
 ]
 fixable = ["ALL"]
 
@@ -285,7 +286,7 @@ fixable = ["ALL"]
     "PLR0913",  # config generators need many params
     "PLR2004",  # domain thresholds as literals
     "PLW0603",  # global caching
-    "S607",     # system commands by name
+    "S603", "S607",  # subprocess calls with trusted input
     "S112",     # try-except-continue for robustness
     "BLE001",   # broad except for probing features
     "ANN401",   # Any for introspection
@@ -306,7 +307,7 @@ fixable = ["ALL"]
     "INP001",   # standalone scripts
     "PLC0415",  # lazy imports
     "S311",     # random for test data
-    "S607",     # system commands by name
+    "S603", "S607",  # subprocess calls with trusted input
     "C901", "PLR0911", "PLR0912", "PLR0915",  # CLI complexity
     "PLR2004",  # thresholds as literals
     "ANN201",   # return types on CLI funcs

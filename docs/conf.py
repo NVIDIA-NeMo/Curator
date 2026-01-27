@@ -320,8 +320,12 @@ html_extra_path = ["project.json", "versions1.json"]
 # json_output_settings dictionary above for better organization and new features!
 
 # Github and K8s links are now getting rate limited from the Github Actions
+# Cursor docs use client-side rendering that breaks anchor detection
+# GitLab private repos require authentication
 linkcheck_ignore = [
     ".*github\\.com.*",
     ".*githubusercontent\\.com.*",
     ".*kubernetes\\.io*",
+    ".*cursor\\.com/docs.*#.*",  # Client-side rendered anchors
+    ".*gitlab\\.com/tech-docs/.*",  # Private repo
 ]
