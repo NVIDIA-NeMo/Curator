@@ -27,6 +27,8 @@ from typing import Any
 import yaml
 from loguru import logger
 
+import nemo_curator
+
 try:
     from nemo_curator.pipeline.workflow import WorkflowRunResult
 except ModuleNotFoundError:
@@ -330,6 +332,8 @@ def run_entry(
 
 
 def main() -> int:  # noqa: C901
+    logger.info(f"Using nemo-curator version: {nemo_curator.__version__}\n")
+
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
