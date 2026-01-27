@@ -37,41 +37,23 @@ env:
 
 jobs:
   pre-flight:
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v0.69.1
+    with:
+      default_runner_prefix: ${{ vars.DEFAULT_RUNNER_PREFIX }}
+      non_nvidia_runner_prefix: ${{ vars.NON_NVIDIA_RUNNER_PREFIX }}
+      default_test_data_path: ${{ vars.DEFAULT_TEST_DATA_PATH }}
+      non_nvidia_test_data_path: ${{ vars.NON_NVIDIA_TEST_DATA_PATH }}
+    secrets:
+      NVIDIA_MANAGEMENT_ORG_PAT: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+
+  cuda-pre-flight:
     runs-on: ubuntu-latest
     outputs:
-      docs_only: ${{ steps.docs_only.outputs.result }}
       cuda_base_image: ${{ steps.cuda_config.outputs.base_image }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Get PR info
-        id: get-pr-info
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/pull-request/')
-        uses: nv-gha-runners/get-pr-info@main
-
-      - name: Determine base reference
-        id: base-ref
-        run: |
-          echo "base=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}" >> $GITHUB_OUTPUT
-
-      - name: Get changed files
-        id: changed-files
-        uses: step-security/changed-files@v45.0.1
-        with:
-          files: |
-            nemo_curator/**
-            .github/**
-            pyproject.toml
-            uv.lock
-            docker/**
-          base_sha: ${{ steps.base-ref.outputs.base }}
-
-      - name: Check if docs only
-        id: docs_only
-        run: echo "result=${{ steps.changed-files.outputs.any_changed == 'false' }}" >> $GITHUB_OUTPUT
-
       - name: Extract CUDA config
         id: cuda_config
         run: |
@@ -119,10 +101,10 @@ jobs:
           CPU_EXTRAS=("audio_cpu" "image_cpu" "text_cpu" "video_cpu")
           RESULTS=""
           FAILED=0
-          
+
           for extra in "${CPU_EXTRAS[@]}"; do
             echo "::group::📦 Testing: $extra ($INSTALLER)"
-            
+
             # Setup environment
             if [ "$INSTALLER" == "pip" ]; then
               python -m venv "venv_$extra"
@@ -132,28 +114,28 @@ jobs:
               rm -rf .venv
               uv cache clean
             fi
-            
+
             INSTALL_OK=false
             IMPORT_OK=false
-            
+
             # Install
             if [ "$INSTALLER" == "pip" ]; then
               INSTALL_CMD="pip install '.[$extra]'"
             else
               INSTALL_CMD="uv sync --locked --link-mode copy --extra $extra"
             fi
-            
+
             if eval "$INSTALL_CMD" 2>&1 | tee "install-$extra.log"; then
               echo "✅ $extra: INSTALL SUCCESS"
               INSTALL_OK=true
-              
+
               # Import test
               if [ "$INSTALLER" == "pip" ]; then
                 RUN_CMD="python"
               else
                 RUN_CMD="uv run python"
               fi
-              
+
               if $RUN_CMD -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')" 2>&1 | tee -a "install-$extra.log"; then
                 echo "✅ $extra: IMPORT SUCCESS"
                 IMPORT_OK=true
@@ -167,14 +149,14 @@ jobs:
               grep -E "(ERROR:|error:|Cannot install|conflicting dependencies|ResolutionImpossible|No space left|Failed to install)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
               echo "========================="
             fi
-            
+
             if [ "$INSTALL_OK" = "true" ] && [ "$IMPORT_OK" = "true" ]; then
               RESULTS="$RESULTS\n| $extra | ✅ | ✅ |"
             else
               RESULTS="$RESULTS\n| $extra | $( [ "$INSTALL_OK" = "true" ] && echo '✅' || echo '❌') | $( [ "$IMPORT_OK" = "true" ] && echo '✅' || echo '❌') |"
               FAILED=$((FAILED + 1))
             fi
-            
+
             # Cleanup
             rm -f "install-$extra.log"
             if [ "$INSTALLER" == "pip" ]; then
@@ -186,13 +168,13 @@ jobs:
             fi
             echo "::endgroup::"
           done
-          
+
           echo ""
           echo "## CPU Installation Results ($INSTALLER)"
           echo "| Extra | Install | Import |"
           echo "|-------|---------|--------|"
           echo -e "$RESULTS"
-          
+
           if [ $FAILED -gt 0 ]; then
             echo "test_status=failure" >> $GITHUB_OUTPUT
             exit 1
@@ -218,11 +200,11 @@ jobs:
   # GPU Extras - Install Only (pip=required, uv=Required)
   # ============================================================================
   gpu-install-test:
-    needs: [pre-flight]
+    needs: [pre-flight, cuda-pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: linux-amd64-cpu16
     container:
-      image: ${{ needs.pre-flight.outputs.cuda_base_image }}
+      image: ${{ needs.cuda-pre-flight.outputs.cuda_base_image }}
     strategy:
       fail-fast: false
       matrix:
@@ -256,10 +238,10 @@ jobs:
           GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12")
           RESULTS=""
           FAILED=0
-          
+
           for extra in "${GPU_EXTRAS[@]}"; do
             echo "::group::🎮 Testing: $extra ($INSTALLER) - Install Only"
-            
+
             # Setup isolated environment
             if [ "$INSTALLER" = "pip" ]; then
               python -m venv "venv_$extra"
@@ -269,14 +251,14 @@ jobs:
               rm -rf .venv
               uv cache clean
             fi
-            
+
             # Install
             if [ "$INSTALLER" = "pip" ]; then
               INSTALL_CMD="pip install --no-cache-dir '.[$extra]'"
             else
               INSTALL_CMD="uv sync --locked --link-mode copy --extra $extra"
             fi
-            
+
             if eval "$INSTALL_CMD" 2>&1 | tee "install-$extra.log"; then
               echo "✅ $extra: INSTALL SUCCESS"
               RESULTS="$RESULTS\n| $extra | ✅ |"
@@ -293,7 +275,7 @@ jobs:
               RESULTS="$RESULTS\n| $extra | ❌ |"
               FAILED=$((FAILED + 1))
             fi
-            
+
             # Cleanup
             rm -f "install-$extra.log"
             if [ "$INSTALLER" = "pip" ]; then
@@ -305,13 +287,13 @@ jobs:
             fi
             echo "::endgroup::"
           done
-          
+
           echo ""
           echo "## GPU Installation Results ($INSTALLER)"
           echo "| Extra | Status |"
           echo "|-------|--------|"
           echo -e "$RESULTS"
-          
+
           if [ $FAILED -gt 0 ]; then
             echo "test_status=failure" >> $GITHUB_OUTPUT
             exit 1
@@ -340,11 +322,11 @@ jobs:
   # ALL Extras - Install Only (CPU Runner)
   # ============================================================================
   # all-install-only-test:
-  #   needs: [pre-flight]
+  #   needs: [pre-flight, cuda-pre-flight]
   #   if: needs.pre-flight.outputs.docs_only != 'true'
   #   runs-on: linux-amd64-cpu16
   #   container:
-  #     image: ${{ needs.pre-flight.outputs.cuda_base_image }}
+  #     image: ${{ needs.cuda-pre-flight.outputs.cuda_base_image }}
   #   name: "ALL Extras - Install Only (${{ matrix.installer }}) - Py${{ matrix.python-version }}"
   #   strategy:
   #     fail-fast: false
@@ -425,29 +407,14 @@ jobs:
   # ALL Extras - Install + Import (GPU Runner, uv Py3.12 only)
   # ============================================================================
   all-install-import-test:
-    needs: [pre-flight]
+    needs: [pre-flight, cuda-pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
-    runs-on: self-hosted-nemo
-    container:
-      image: ${{ needs.pre-flight.outputs.cuda_base_image }}
-      options: --gpus all
+    runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
     name: "ALL Extras - Install + Import (uv) - Py3.12"
     steps:
-      - name: Install dependencies for setup-python
-        run: apt-get update && apt-get install -y --no-install-recommends git curl
-
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
-          enable-cache: false
 
       - name: Install ALL extras (uv)
         id: install
@@ -455,66 +422,41 @@ jobs:
         run: |
           set -o pipefail
           echo "🚀 Installing ALL extras (uv, Py3.12) - Install + Import"
+
+          cat > ${{ github.workspace }}/.run_install.sh << 'SCRIPT'
+          set -e
+          apt-get update && apt-get install -y --no-install-recommends git curl
+          curl -LsSf https://astral.sh/uv/install.sh | sh
           export PATH="/root/.local/bin:$PATH"
-          if uv sync --locked --link-mode copy --extra all 2>&1 | tee install.log; then
+          uv sync --locked --link-mode copy --extra all --python 3.12 2>&1 | tee install.log
+
+          echo "::group::Import Verification"
+          uv run python -c "import sys; print('Python:', sys.version);"
+          uv run python -c "from nemo_curator import package_info; print(f'nemo_curator v{package_info.__version__}')"
+          uv run python -c "import cudf, cuml; print('cudf, cuml');"
+          uv run python -c "import torch; print(f'torch {torch.__version__} (CUDA: {torch.cuda.is_available()})');"
+          uv run python -c "import torchvision; print(f'torchvision {torchvision.__version__}')"
+          echo "::endgroup::"
+          SCRIPT
+
+          if docker run --rm --gpus all \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            -e UV_HTTP_TIMEOUT=300 \
+            ${{ needs.cuda-pre-flight.outputs.cuda_base_image }} \
+            bash /workspace/.run_install.sh; then
             echo "install_status=success" >> $GITHUB_OUTPUT
             echo "✅ INSTALL SUCCESS"
           else
             echo "install_status=failure" >> $GITHUB_OUTPUT
             echo "❌ INSTALL FAILED"
-            grep -E "(ERROR|error:|failed|conflict)" install.log | head -20 || true
-            exit 1
-          fi
-        env:
-          UV_HTTP_TIMEOUT: 300
-
-      - name: Verify imports
-        if: steps.install.outputs.install_status == 'success'
-        shell: bash
-        run: |
-          echo "::group::🔍 Import Verification"
-          export PATH="/root/.local/bin:$PATH"
-          uv run python -c "
-          import sys
-          print('Python:', sys.version)
-          
-          from nemo_curator import package_info
-          print(f'✅ nemo_curator v{package_info.__version__}')
-          
-          try:
-              import torch
-              print(f'✅ torch {torch.__version__} (CUDA: {torch.cuda.is_available()})')
-          except Exception as e:
-              print(f'⚠️ torch: {e}')
-          
-          try:
-              import cudf, cuml
-              print('✅ cudf, cuml')
-          except Exception as e:
-              print(f'⚠️ cudf/cuml: {e}')
-          
-          try:
-              import torchvision
-              print(f'✅ torchvision {torchvision.__version__}')
-          except Exception as e:
-              print(f'⚠️ torchvision: {e}')
-          "
-          echo "::endgroup::"
-
-      - name: Report
-        if: always()
-        run: |
-          echo "📊 ALL EXTRAS (uv, Py3.12) - Install + Import"
-          if [ "${{ steps.install.outputs.install_status }}" = "success" ]; then
-            echo "✅ Install: SUCCESS"
-          else
-            echo "❌ Install: FAILED"
             echo ""
             echo "Known conflicts that may cause this:"
             echo "  - nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
             echo ""
             echo "Install log errors:"
-            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" install.log 2>/dev/null | head -20 || echo "Install log not available or no errors found"
+            cat ${{ github.workspace }}/install.log 2>/dev/null | grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" | head -20 || true
+            exit 1
           fi
 
   # ============================================================================
@@ -550,7 +492,7 @@ jobs:
           CPU_UV=$(read_status "${{ needs.cpu-install-test.result }}" cpu-status/uv_status.txt)
           GPU_PIP=$(read_status "${{ needs.gpu-install-test.result }}" gpu-status/pip_status.txt)
           GPU_UV=$(read_status "${{ needs.gpu-install-test.result }}" gpu-status/uv_status.txt)
-          
+
           echo "# 📊 Installation Test Summary"
           echo ""
           echo "## Individual Extras"
@@ -567,7 +509,7 @@ jobs:
           # echo "| ALL (pip/uv, Py3.10/3.12) | CPU | Install Only | ${{ needs.all-install-only-test.result == 'success' && '✅' || '⚠️ (expected)' }} |"
           echo "| ALL (uv, Py3.12) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '❌' }} |"
           echo ""
-          
+
           # Core tests: CPU extras (both), GPU extras (uv), and ALL extras (uv) must pass
           if [ "$CPU_PIP" = "success" ] && [ "$CPU_UV" = "success" ] && \
              [ "$GPU_UV" = "success" ] && [ "${{ needs.all-install-import-test.result }}" = "success" ]; then

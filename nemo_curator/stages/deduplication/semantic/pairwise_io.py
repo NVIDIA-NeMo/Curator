@@ -71,6 +71,11 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
             RayStageSpecKeys.IS_FANOUT_STAGE: True,
         }
 
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {
+            "num_workers_per_node": 1,
+        }
+
     def process(self, _: _EmptyTask) -> list[FileGroupTask]:
         """Process the EmptyTask to create PairwiseFileGroupTasks.
 
