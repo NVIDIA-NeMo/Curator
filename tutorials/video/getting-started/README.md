@@ -17,7 +17,7 @@ The Python script in this directory contains examples for how to run video curat
    ```bash
    LOGURU_LEVEL="ERROR" python video_split_clip_example.py \
      --video-dir "$VIDEO_DIR" \
-     --output-clip-path "$OUTPUT_DIR" \
+     --output-path "$OUTPUT_DIR" \
      --splitting-algorithm fixed_stride \
      --fixed-stride-split-duration 10.0
    ```
@@ -33,7 +33,7 @@ The `--verbose` boolean argument allows the user to enable stage-specific verbos
 ```bash
 python video_split_clip_example.py \
   --video-dir "$VIDEO_DIR" \
-  --output-clip-path "$OUTPUT_DIR" \
+  --output-path "$OUTPUT_DIR" \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
   --embedding-algorithm cosmos-embed1-224p
@@ -44,7 +44,7 @@ This example extends from the above example and adds an additional embedding sta
 ```bash
 python video_split_clip_example.py \
   --video-dir "$VIDEO_DIR" \
-  --output-clip-path "$OUTPUT_DIR" \
+  --output-path "$OUTPUT_DIR" \
   --splitting-algorithm transnetv2 \
   --transnetv2-threshold 0.4 \
   --transnetv2-min-length-s 2.0 \
@@ -77,7 +77,7 @@ After running this script, InternVideo2 will be available when you use `--embedd
 ```bash
 python video_split_clip_example.py \
   --video-dir "$VIDEO_DIR" \
-  --output-clip-path "$OUTPUT_DIR" \
+  --output-path "$OUTPUT_DIR" \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
   --embedding-algorithm cosmos-embed1-224p \
