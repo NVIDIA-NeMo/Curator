@@ -27,35 +27,51 @@ Run ML classifiers on text datasets for quality assessment.
 
 ## Available Classifiers
 
+All classifiers below are **CompositeStages** that decompose into tokenizer and model stages.
+
 ### Quality Classifiers
 
-| Classifier | Purpose | GPU Memory |
-|------------|---------|------------|
-| `QualityClassifier` | General quality scoring | ~8 GB |
-| `FineWebEduClassifier` | Educational quality (1-5 scale) | ~12 GB |
-| `FineWebMixtralEduClassifier` | Edu quality (Mixtral-based) | ~16 GB |
-| `FineWebNemotronEduClassifier` | Edu quality (Nemotron-based) | ~16 GB |
+| Classifier | Purpose | Output |
+|------------|---------|--------|
+| `QualityClassifier` | General quality scoring | "High", "Medium", "Low" |
+| `FineWebEduClassifier` | Educational quality (0-5 scale) | Binary label + float (0-5) + int (0-5) scores |
+| `FineWebMixtralEduClassifier` | Edu quality (Mixtral-based) | Binary label + float (0-5) + int (0-5) scores |
+| `FineWebNemotronEduClassifier` | Edu quality (Nemotron-based) | Binary label + float (0-5) + int (0-5) scores |
 
 ### Domain Classifiers
 
-| Classifier | Purpose | GPU Memory |
-|------------|---------|------------|
-| `DomainClassifier` | Categorize by domain | ~8 GB |
-| `MultilingualDomainClassifier` | Multi-language domains | ~12 GB |
-| `ContentTypeClassifier` | Content type detection | ~8 GB |
+| Classifier | Purpose | Output |
+|------------|---------|--------|
+| `DomainClassifier` | Categorize by domain | Domain category string |
+| `MultilingualDomainClassifier` | Multi-language domains | Domain category string |
+| `ContentTypeClassifier` | Content type detection | Content type string |
 
 ### Safety Classifiers
 
-| Classifier | Purpose | GPU Memory |
-|------------|---------|------------|
-| `AegisClassifier` | Content safety scoring | ~16 GB |
-| `InstructionDataGuardClassifier` | Instruction safety | ~12 GB |
+| Classifier | Purpose | Output |
+|------------|---------|--------|
+| `AegisClassifier` | Content safety classification | "safe", "O1"-"O13", or "unknown" |
+| `InstructionDataGuardClassifier` | Instruction safety | Safety category |
 
 ### Complexity Classifiers
 
-| Classifier | Purpose | GPU Memory |
-|------------|---------|------------|
-| `PromptTaskComplexityClassifier` | Prompt complexity | ~8 GB |
+| Classifier | Purpose | Output |
+|------------|---------|--------|
+| `PromptTaskComplexityClassifier` | Prompt complexity | Complexity scores |
+
+## Classifier Output Fields
+
+Each classifier adds specific fields to the data (defaults shown):
+
+| Classifier | Output Field(s) | Type |
+|------------|-----------------|------|
+| `QualityClassifier` | `quality_pred` | string ("High", "Medium", "Low") |
+| `FineWebEduClassifier` | `fineweb-edu-score-label`, `fineweb-edu-score-float`, `fineweb-edu-score-int` | string ("high_quality" or "low_quality"), float (0.0-5.0), int (0-5) |
+| `DomainClassifier` | `domain_pred` | string |
+| `AegisClassifier` | `aegis_pred` | string ("safe", "O1"-"O13", or "unknown") |
+| `ContentTypeClassifier` | `content_pred` | string |
+
+**Note**: Field names are configurable via `label_field` parameter.
 
 ## Quick Start
 
@@ -64,7 +80,17 @@ Run ML classifiers on text datasets for quality assessment.
 ```yaml
 stages:
   - _target_: nemo_curator.stages.text.classifiers.QualityClassifier
-    batch_size: 64
+    model_inference_batch_size: 256  # Default, adjust based on GPU memory
+    # Output: "quality_pred" column with "High", "Medium", or "Low"
+```
+
+To keep only high-quality documents, use the built-in `filter_by` parameter:
+
+```yaml
+stages:
+  - _target_: nemo_curator.stages.text.classifiers.QualityClassifier
+    model_inference_batch_size: 256
+    filter_by: ["High", "Medium"]  # Keep High and Medium quality
 ```
 
 ### Educational Content Scoring
@@ -72,39 +98,74 @@ stages:
 ```yaml
 stages:
   - _target_: nemo_curator.stages.text.classifiers.FineWebEduClassifier
-    batch_size: 32
-
-  # Filter by edu score >= 3 (out of 5)
-  - _target_: nemo_curator.stages.text.modules.ScoreFilter
-    score_field: "edu_score"
-    threshold: 3
+    model_inference_batch_size: 256
+    # Outputs:
+    #   - "fineweb-edu-score-label": string label
+    #   - "fineweb-edu-score-float": float score (0.0-5.0)
+    #   - "fineweb-edu-score-int": integer score (0-5)
 ```
+
+To filter by educational quality, use the label field (binary: "high_quality" or "low_quality"):
+
+```yaml
+stages:
+  - _target_: nemo_curator.stages.text.classifiers.FineWebEduClassifier
+    model_inference_batch_size: 256
+    filter_by: ["high_quality"]  # Keep only high quality (score >= 2.5)
+```
+
+**Note**: The `filter_by` parameter filters on `label_field`, which contains `"high_quality"` (score >= 2.5) or `"low_quality"` (score < 2.5). To filter by specific integer scores, add a separate filter stage after classification.
 
 ### Domain Classification
 
 ```yaml
 stages:
   - _target_: nemo_curator.stages.text.classifiers.DomainClassifier
-    batch_size: 64
-
-  # Optional: Filter by specific domains
-  # - _target_: nemo_curator.stages.text.modules.Filter
-  #   filter_field: "domain"
-  #   keep_values: ["science", "technology", "education"]
+    model_inference_batch_size: 256
+    # Output: "domain_pred" column with domain category
 ```
 
-### Safety Filtering
+To keep specific domains:
+
+```yaml
+stages:
+  - _target_: nemo_curator.stages.text.classifiers.DomainClassifier
+    model_inference_batch_size: 256
+    filter_by: ["Science", "Computers_and_Electronics", "Jobs_and_Education"]
+```
+
+### Safety Filtering with Aegis
+
+The `AegisClassifier` outputs "safe", category codes "O1" through "O13" representing different unsafe content types, or "unknown" if the response cannot be parsed.
 
 ```yaml
 stages:
   - _target_: nemo_curator.stages.text.classifiers.AegisClassifier
-    batch_size: 16
-
-  # Remove unsafe content
-  - _target_: nemo_curator.stages.text.modules.ScoreFilter
-    score_field: "safety_score"
-    threshold: 0.5  # Adjust based on requirements
+    aegis_variant: "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0"
+    model_inference_batch_size: 64
+    filter_by: ["safe"]  # Keep only safe content
 ```
+
+**Aegis Categories** (from [HuggingFace](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0)):
+- `safe`: Content is safe
+- `O1`-`O13`: Various unsafe content categories (Violence, Sexual, Criminal Planning, etc.)
+- `unknown`: Response could not be parsed
+
+**Note**: Aegis requires HuggingFace access to `meta-llama/LlamaGuard-7b`. Set `hf_token` parameter.
+
+## Common Parameters
+
+All classifiers share these parameters:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `model_inference_batch_size` | 256 | Batch size for model inference |
+| `label_field` | varies | Column name for predictions |
+| `text_field` | "text" | Input text column name |
+| `filter_by` | None | List of labels to keep |
+| `max_chars` | varies | Max characters to process |
+| `sort_by_length` | True | Sort by length for efficiency |
+| `autocast` | True | Use mixed precision |
 
 ## Educational Score Guide (FineWebEdu)
 
@@ -129,7 +190,7 @@ The FineWebEdu classifiers produce scores from 0-5:
 
 ## Domain Categories
 
-The `DomainClassifier` produces categories including:
+The `DomainClassifier` produces these categories:
 
 - `Arts_and_Entertainment`
 - `Autos_and_Vehicles`
@@ -155,30 +216,7 @@ The `DomainClassifier` produces categories including:
 - `Science`
 - `Shopping`
 - `Sports`
-- `Travel`
-
-## Batch Size Tuning
-
-| GPU Memory | Recommended Batch Size |
-|------------|------------------------|
-| 8 GB | 16-32 |
-| 16 GB | 32-64 |
-| 24 GB | 64-128 |
-| 40 GB | 128-256 |
-
-Larger batch sizes improve throughput but require more memory.
-
-## Classifier Output Fields
-
-Each classifier adds fields to the data:
-
-| Classifier | Output Field | Type |
-|------------|--------------|------|
-| QualityClassifier | `quality_score` | float |
-| FineWebEduClassifier | `edu_score` | float (0-5) |
-| DomainClassifier | `domain` | string |
-| AegisClassifier | `safety_score` | float |
-| ContentTypeClassifier | `content_type` | string |
+- `Travel_and_Transportation`
 
 ## Pipeline Ordering
 
@@ -199,26 +237,24 @@ Running expensive classifiers after filtering reduces compute costs.
 
 ```yaml
 stages:
-  # Quality scoring
+  # Quality scoring and filtering
   - _target_: nemo_curator.stages.text.classifiers.QualityClassifier
-    batch_size: 64
-
-  # Filter low quality
-  - _target_: nemo_curator.stages.text.modules.ScoreFilter
-    score_field: "quality_score"
-    threshold: 0.5
+    model_inference_batch_size: 256
+    filter_by: ["High", "Medium"]
 
   # Domain classification
   - _target_: nemo_curator.stages.text.classifiers.DomainClassifier
-    batch_size: 64
+    model_inference_batch_size: 256
 
   # Educational scoring
   - _target_: nemo_curator.stages.text.classifiers.FineWebEduClassifier
-    batch_size: 32
+    model_inference_batch_size: 256
 
-  # Safety check
+  # Safety check - keep only safe content
   - _target_: nemo_curator.stages.text.classifiers.AegisClassifier
-    batch_size: 16
+    aegis_variant: "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0"
+    model_inference_batch_size: 64
+    filter_by: ["safe"]
 ```
 
 ## Related Skills

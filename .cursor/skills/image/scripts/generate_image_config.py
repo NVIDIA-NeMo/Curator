@@ -78,10 +78,14 @@ def generate_image_yaml(args: argparse.Namespace) -> str:
         lines.append(f"    num_gpus_per_worker: {args.filter_gpus}")
         lines.append("")
 
-    # Deduplication
+    # Deduplication (Note: requires pre-computed parquet files with duplicate IDs)
     if args.dedup:
         lines.append("  # Stage 6: Deduplication")
+        lines.append("  # NOTE: This stage requires a directory containing parquet files with duplicate image IDs.")
+        lines.append("  # You must first run a deduplication pipeline (e.g., semantic dedup) to generate these files.")
         lines.append("  - _target_: nemo_curator.stages.image.deduplication.removal.ImageDuplicatesRemovalStage")
+        lines.append(f"    removal_parquets_dir: {args.dedup_parquets_dir or '${output_path}/duplicates'}")
+        lines.append(f"    duplicate_id_field: {args.dedup_id_field}")
         lines.append("")
 
     # Writer
@@ -105,7 +109,12 @@ def main() -> None:
     parser.add_argument("--no-aesthetic", action="store_const", const=None, dest="aesthetic_threshold")
     parser.add_argument("--nsfw-threshold", type=float, default=0.5)
     parser.add_argument("--no-nsfw", action="store_const", const=None, dest="nsfw_threshold")
-    parser.add_argument("--dedup", action="store_true", default=False)
+    parser.add_argument("--dedup", action="store_true", default=False,
+                        help="Enable deduplication (requires pre-computed duplicate ID parquets)")
+    parser.add_argument("--dedup-parquets-dir", type=str, default=None,
+                        help="Directory containing parquet files with duplicate image IDs")
+    parser.add_argument("--dedup-id-field", type=str, default="id",
+                        help="Column name in parquet files containing image IDs to remove")
     parser.add_argument("--embedding-gpus", type=float, default=0.25)
     parser.add_argument("--filter-gpus", type=float, default=0.25)
     parser.add_argument("--images-per-tar", type=int, default=100)

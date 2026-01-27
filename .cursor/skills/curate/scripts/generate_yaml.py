@@ -153,35 +153,42 @@ def generate_text_config(
             lines.append("")
 
     # Add classifiers
+    # Note: Classifiers output categorical labels. Use filter_by parameter to filter.
+    # Output fields:
+    #   - QualityClassifier: "quality_pred" with "high", "medium", "low"
+    #   - FineWebEduClassifier: "fineweb-edu-score-label", "fineweb-edu-score-float", "fineweb-edu-score-int"
+    #   - DomainClassifier: "domain_pred" with domain category strings
     if classify:
         lines.append("  # 3. Quality Classification")
         for classifier in classify:
             if classifier == "quality":
                 lines.append("  - _target_: nemo_curator.stages.text.classifiers.QualityClassifier")
-                lines.append("    batch_size: 64")
+                lines.append("    model_inference_batch_size: 256")
+                lines.append('    filter_by: ["high", "medium"]  # Keep high and medium quality')
+                lines.append("    # Output: quality_pred column with 'high', 'medium', or 'low'")
                 lines.append("")
             elif classifier == "edu":
                 lines.append("  - _target_: nemo_curator.stages.text.classifiers.FineWebEduClassifier")
-                lines.append("    batch_size: 32")
+                lines.append("    model_inference_batch_size: 256")
+                if edu_filter is not None:
+                    # FineWebEdu uses label strings like "0", "1", "2", "3", "4", "5"
+                    filter_labels = [str(i) for i in range(edu_filter, 6)]
+                    lines.append(f'    filter_by: {filter_labels}  # Keep scores >= {edu_filter}')
+                lines.append("    # Output: fineweb-edu-score-label, fineweb-edu-score-float, fineweb-edu-score-int")
                 lines.append("")
             elif classifier == "domain":
                 lines.append("  - _target_: nemo_curator.stages.text.classifiers.DomainClassifier")
-                lines.append("    batch_size: 64")
+                lines.append("    model_inference_batch_size: 256")
+                lines.append("    # Output: domain_pred column with domain category")
                 lines.append("")
 
-    # Add edu filter if specified
-    if edu_filter is not None:
-        lines.append(f"  # Filter by educational score >= {edu_filter}")
-        lines.append("  - _target_: nemo_curator.stages.text.modules.ScoreFilter")
-        lines.append("    score_field: edu_score")
-        lines.append(f"    threshold: {edu_filter}")
-        lines.append("")
+    # Note: edu_filter is now handled inline with the FineWebEduClassifier above
 
     # Add deduplication as a separate workflow
     if dedup and dedup != "none":
         lines.append("  # 4. Write intermediate (before dedup)")
         lines.append("  - _target_: nemo_curator.stages.text.io.writer.ParquetWriter")
-        lines.append('    output_path: "${output_path}/pre_dedup"')
+        lines.append('    path: "${output_path}/pre_dedup"')
         lines.append("")
         lines.append("# Deduplication (run separately)")
         lines.append("# See /dedup-fuzzy skill for FuzzyDeduplicationWorkflow configuration")
@@ -191,7 +198,7 @@ def generate_text_config(
     # Final write
     lines.append("  # Final Write")
     lines.append("  - _target_: nemo_curator.stages.text.io.writer.ParquetWriter")
-    lines.append("    output_path: ${output_path}")
+    lines.append("    path: ${output_path}")
     lines.append("")
 
     return "\n".join(lines)
@@ -219,7 +226,7 @@ def generate_video_config(
         "    dir: .",
         "  output_subdir: null",
         "",
-        f'input_path: "{input_path}"',
+        f'input_video_path: "{input_path}"',
         f'output_path: "{output_path}"',
         "",
         "ray_client:",
@@ -231,7 +238,7 @@ def generate_video_config(
         "",
         "  # 1. Read Videos",
         "  - _target_: nemo_curator.stages.video.io.video_reader.VideoReader",
-        "    input_path: ${input_path}",
+        "    input_video_path: ${input_video_path}",
         "",
     ]
 
@@ -239,16 +246,18 @@ def generate_video_config(
     if clip_method == "transnetv2":
         lines.extend([
             "  # 2. Scene Detection (GPU)",
-            "  - _target_: nemo_curator.stages.video.clipping.TransNetV2ClipExtractionStage",
+            "  - _target_: nemo_curator.stages.video.clipping.transnetv2_extraction.TransNetV2ClipExtractionStage",
             "    # GPU memory: ~16GB",
             "",
         ])
     else:
         lines.extend([
             "  # 2. Fixed Stride Clipping (CPU)",
-            "  - _target_: nemo_curator.stages.video.clipping.FixedStrideExtractorStage",
-            "    clip_duration: 10.0",
-            "    stride: 10.0",
+            "  - _target_: nemo_curator.stages.video.clipping.clip_extraction_stages.FixedStrideExtractorStage",
+            "    clip_len_s: 10.0",
+            "    clip_stride_s: 10.0",
+            "    min_clip_length_s: 1.0",
+            "    limit_clips: 0  # 0 = no limit",
             "",
         ])
 
@@ -256,9 +265,9 @@ def generate_video_config(
     if filter_motion:
         lines.extend([
             "  # 3. Motion Filtering",
-            "  - _target_: nemo_curator.stages.video.filtering.MotionVectorDecodeStage",
+            "  - _target_: nemo_curator.stages.video.filtering.motion_filter.MotionVectorDecodeStage",
             "",
-            "  - _target_: nemo_curator.stages.video.filtering.MotionFilterStage",
+            "  - _target_: nemo_curator.stages.video.filtering.motion_filter.MotionFilterStage",
             "    min_motion_threshold: 0.1",
             "",
         ])
@@ -267,9 +276,9 @@ def generate_video_config(
     if caption:
         lines.extend([
             "  # 4. Captioning (GPU)",
-            "  - _target_: nemo_curator.stages.video.caption.CaptionPreparationStage",
+            "  - _target_: nemo_curator.stages.video.caption.caption_preparation.CaptionPreparationStage",
             "",
-            "  - _target_: nemo_curator.stages.video.caption.CaptionGenerationStage",
+            "  - _target_: nemo_curator.stages.video.caption.caption_generation.CaptionGenerationStage",
             "    # Requires: 1 GPU, ~24GB memory",
             "",
         ])
@@ -278,18 +287,28 @@ def generate_video_config(
     if embed:
         lines.extend([
             "  # 5. Embedding (GPU)",
-            "  - _target_: nemo_curator.stages.video.embedding.CosmosEmbed1FrameCreationStage",
+            "  - _target_: nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1FrameCreationStage",
             "",
-            "  - _target_: nemo_curator.stages.video.embedding.CosmosEmbed1EmbeddingStage",
+            "  - _target_: nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1EmbeddingStage",
             "    # GPU memory: ~16GB",
             "",
         ])
 
-    # Write
+    # Note: ClipWriterStage has many required parameters.
+    # For a minimal config, users should customize based on their needs.
+    # See video_curation_template.yaml for full parameter reference.
     lines.extend([
         "  # Write Clips",
-        "  - _target_: nemo_curator.stages.video.io.ClipWriterStage",
+        "  # NOTE: ClipWriterStage requires additional parameters.",
+        "  # Customize these based on your workflow needs:",
+        "  - _target_: nemo_curator.stages.video.io.clip_writer.ClipWriterStage",
         "    output_path: ${output_path}",
+        "    input_path: ${input_video_path}",
+        "    upload_clips: false",
+        "    dry_run: false",
+        "    generate_embeddings: " + ("true" if embed else "false"),
+        "    generate_previews: false",
+        "    generate_captions: " + ("true" if caption else "false"),
         "",
     ])
 

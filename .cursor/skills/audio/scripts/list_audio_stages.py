@@ -20,16 +20,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from shared.introspect import estimate_gpu_memory, get_stages_by_modality
 
+# Categories matching the actual nemo_curator.stages.audio module structure
 AUDIO_CATEGORIES = {
     "io": ["AudioToDocumentStage"],
     "inference": ["InferenceAsrNemoStage"],
-    "metrics": ["GetPairwiseWerStage", "GetAudioDurationStage"],
-    "filtering": ["PreserveByValueStage"],
+    "metrics": ["GetPairwiseWerStage"],
+    "common": ["GetAudioDurationStage", "PreserveByValueStage"],
     "datasets": ["CreateInitialManifestFleursStage"],
 }
 
 
 def get_category(stage_name: str) -> str:
+    """Get the category for a stage based on its module location."""
     for category, stages in AUDIO_CATEGORIES.items():
         if stage_name in stages:
             return category
@@ -38,8 +40,8 @@ def get_category(stage_name: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="List available audio stages")
-    parser.add_argument("--verbose", "-v", action="store_true")
-    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show stage descriptions")
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
     args = parser.parse_args()
 
     stages = get_stages_by_modality("audio")
@@ -48,6 +50,7 @@ def main() -> None:
     if args.json:
         import json
         output = [{"name": s.name, "category": get_category(s.name),
+                   "module_path": s.module_path,
                    "gpu_memory_gb": estimate_gpu_memory(s.name)} for s in stages]
         print(json.dumps(output, indent=2))
         return
@@ -71,6 +74,7 @@ def main() -> None:
 
         if args.verbose:
             print(f"    {stage.description}")
+            print(f"    Module: {stage.module_path}")
 
 
 if __name__ == "__main__":

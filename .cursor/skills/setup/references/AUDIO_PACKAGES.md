@@ -30,7 +30,7 @@ uv pip install nemo-curator[audio_cuda12] --override override.txt
 | Stage | Purpose | GPU Memory |
 |-------|---------|------------|
 | `InferenceAsrNemoStage` | Speech-to-text | 8-16 GB |
-| `WERCalculationStage` | Word Error Rate | CPU |
+| `GetPairwiseWerStage` | Word Error Rate | CPU |
 
 ## Supported Formats
 
@@ -56,7 +56,7 @@ uv pip install nemo-curator[audio_cuda12] --override override.txt
 
 ```yaml
 stages:
-  - _target_: nemo_curator.stages.audio.inference.InferenceAsrNemoStage
+  - _target_: nemo_curator.stages.audio.inference.asr_nemo.InferenceAsrNemoStage
     model_name: "nvidia/parakeet-tdt-0.6b"
 ```
 
@@ -64,9 +64,10 @@ stages:
 
 ```yaml
 stages:
-  - _target_: nemo_curator.stages.audio.inference.InferenceAsrNemoStage
-  - _target_: nemo_curator.stages.audio.wer.WERCalculationStage
-    max_wer: 0.1  # Filter out high-error transcriptions
+  - _target_: nemo_curator.stages.audio.inference.asr_nemo.InferenceAsrNemoStage
+  - _target_: nemo_curator.stages.audio.metrics.get_wer.GetPairwiseWerStage
+    text_key: "text"
+    pred_text_key: "pred_text"
 ```
 
 ## Common Issues

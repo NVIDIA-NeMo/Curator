@@ -312,19 +312,19 @@ def discover_all_stages() -> list[StageInfo]:
 # GPU memory estimates for known stages (in GB)
 GPU_MEMORY_ESTIMATES: dict[str, float] = {
     # Video stages
-    "TransNetV2ClipExtractionStage": 16.0,
-    "ClipTranscodingStage": 0.0,  # CPU-only
+    "TransNetV2ClipExtractionStage": 10.0,  # Default gpu_memory_gb=10
+    "ClipTranscodingStage": 0.0,  # CPU-only (or GPU with h264_nvenc)
     "FixedStrideExtractorStage": 0.0,  # CPU-only
-    "VideoFrameExtractionStage": 0.0,  # CPU (or minimal GPU)
-    "ClipFrameExtractionStage": 0.0,
+    "VideoFrameExtractionStage": 10.0,  # 10GB with pynvc decoder, 0 with ffmpeg_cpu
+    "ClipFrameExtractionStage": 0.0,  # CPU-only
     "MotionVectorDecodeStage": 0.0,  # CPU-only
-    "MotionFilterStage": 4.0,
+    "MotionFilterStage": 0.0,  # CPU by default (num_gpus_per_worker=0)
     "ClipAestheticFilterStage": 4.0,
     "CaptionPreparationStage": 0.0,
-    "CaptionGenerationStage": 24.0,
+    "CaptionGenerationStage": 0.0,  # Uses gpus=1 (full GPU)
     "CaptionEnhancementStage": 16.0,
     "CosmosEmbed1FrameCreationStage": 0.0,
-    "CosmosEmbed1EmbeddingStage": 20.0,
+    "CosmosEmbed1EmbeddingStage": 20.0,  # Default gpu_memory_gb=20
     "InternVideo2FrameCreationStage": 0.0,
     "InternVideo2EmbeddingStage": 16.0,
     "VideoReader": 0.0,
@@ -403,16 +403,19 @@ MODALITY_MODULES: dict[str, list[str]] = {
         "nemo_curator.stages.video.preview.preview",
     ],
     "image": [
+        # Use package-level imports (now that __init__.py exports are populated)
+        "nemo_curator.stages.image",
         "nemo_curator.stages.image.io",
+        "nemo_curator.stages.image.embedders",
+        "nemo_curator.stages.image.filters",
+        "nemo_curator.stages.image.deduplication",
+        # Also include direct module paths for fallback
         "nemo_curator.stages.image.io.image_reader",
         "nemo_curator.stages.image.io.image_writer",
         "nemo_curator.stages.image.io.convert",
-        "nemo_curator.stages.image.embedders",
         "nemo_curator.stages.image.embedders.clip_embedder",
-        "nemo_curator.stages.image.filters",
         "nemo_curator.stages.image.filters.aesthetic_filter",
         "nemo_curator.stages.image.filters.nsfw_filter",
-        "nemo_curator.stages.image.deduplication",
         "nemo_curator.stages.image.deduplication.removal",
     ],
     "audio": [

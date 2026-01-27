@@ -10,7 +10,7 @@
 #
 # Usage:
 #   python -m nemo_curator.config.run --config-path=. --config-name=video_curation_template \
-#     input_path=/data/videos output_path=/data/clips
+#     input_video_path=/data/videos output_path=/data/clips
 
 defaults:
   - _self_
@@ -23,7 +23,7 @@ hydra:
   output_subdir: null
 
 # Configuration (override on command line)
-input_path: ???  # Required: path to input videos
+input_video_path: ???  # Required: path to input videos
 output_path: ???  # Required: path for output clips
 
 # Ray Client Configuration
@@ -39,32 +39,34 @@ stages:
   # Stage 1: Read Videos
   # ========================================
   - _target_: nemo_curator.stages.video.io.video_reader.VideoReader
-    input_path: ${input_path}
+    input_video_path: ${input_video_path}
 
   # ========================================
   # Stage 2: Scene Detection / Clipping
   # ========================================
   
   # Option A: ML-based scene detection (GPU, ~16GB)
-  - _target_: nemo_curator.stages.video.clipping.TransNetV2ClipExtractionStage
+  - _target_: nemo_curator.stages.video.clipping.transnetv2_extraction.TransNetV2ClipExtractionStage
     # GPU memory: ~16GB
     # Detects scene boundaries using ML model
 
   # Option B: Fixed-duration clips (CPU)
   # Uncomment to use instead of TransNetV2
-  # - _target_: nemo_curator.stages.video.clipping.FixedStrideExtractorStage
-  #   clip_duration: 10.0  # seconds
-  #   stride: 10.0  # seconds (non-overlapping)
+  # - _target_: nemo_curator.stages.video.clipping.clip_extraction_stages.FixedStrideExtractorStage
+  #   clip_len_s: 10.0  # clip duration in seconds
+  #   clip_stride_s: 10.0  # stride between clips in seconds (non-overlapping)
+  #   min_clip_length_s: 1.0  # minimum clip length
+  #   limit_clips: 0  # max clips per video (0 = no limit)
 
   # ========================================
   # Stage 3: Motion Filtering (Optional)
   # ========================================
   # Remove static or low-motion clips
   
-  - _target_: nemo_curator.stages.video.filtering.MotionVectorDecodeStage
+  - _target_: nemo_curator.stages.video.filtering.motion_filter.MotionVectorDecodeStage
     # Decodes motion vectors from video (CPU)
 
-  - _target_: nemo_curator.stages.video.filtering.MotionFilterStage
+  - _target_: nemo_curator.stages.video.filtering.motion_filter.MotionFilterStage
     min_motion_threshold: 0.1
     # Filters out clips with motion below threshold
 
@@ -74,14 +76,14 @@ stages:
   # Uncomment to generate video captions
   # Requires: 1 GPU with ~24GB memory
 
-  # - _target_: nemo_curator.stages.video.caption.CaptionPreparationStage
+  # - _target_: nemo_curator.stages.video.caption.caption_preparation.CaptionPreparationStage
   #   # Prepares video windows for caption model
 
-  # - _target_: nemo_curator.stages.video.caption.CaptionGenerationStage
+  # - _target_: nemo_curator.stages.video.caption.caption_generation.CaptionGenerationStage
   #   # Generates captions using Qwen VL
   #   # GPU: 1 full GPU (~24GB)
 
-  # - _target_: nemo_curator.stages.video.caption.CaptionEnhancementStage
+  # - _target_: nemo_curator.stages.video.caption.caption_enhancement.CaptionEnhancementStage
   #   # Optional: Refine captions with Qwen LM
 
   # ========================================
@@ -90,15 +92,15 @@ stages:
   # Uncomment to generate video embeddings
   
   # Option A: NVIDIA Cosmos Embed1 (recommended)
-  # - _target_: nemo_curator.stages.video.embedding.CosmosEmbed1FrameCreationStage
+  # - _target_: nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1FrameCreationStage
   #   # Prepares frames for embedding
 
-  # - _target_: nemo_curator.stages.video.embedding.CosmosEmbed1EmbeddingStage
+  # - _target_: nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1EmbeddingStage
   #   # GPU memory: ~16GB
   #   # Supports 224p, 336p, 448p resolutions
 
   # Option B: InternVideo2
-  # - _target_: nemo_curator.stages.video.embedding.InternVideo2EmbeddingStage
+  # - _target_: nemo_curator.stages.video.embedding.internvideo2.InternVideo2EmbeddingStage
   #   # Alternative embedding model
 
   # ========================================
@@ -106,11 +108,19 @@ stages:
   # ========================================
   # Uncomment to filter by visual quality
   
-  # - _target_: nemo_curator.stages.video.filtering.ClipAestheticFilterStage
-  #   min_aesthetic_score: 0.5
+  # - _target_: nemo_curator.stages.video.filtering.clip_aesthetic_filter.ClipAestheticFilterStage
+  #   score_threshold: 0.5  # minimum aesthetic score to keep
 
   # ========================================
   # Stage 7: Write Clips
   # ========================================
-  - _target_: nemo_curator.stages.video.io.ClipWriterStage
+  # NOTE: ClipWriterStage requires several parameters.
+  # Customize based on your workflow needs.
+  - _target_: nemo_curator.stages.video.io.clip_writer.ClipWriterStage
     output_path: ${output_path}
+    input_path: ${input_video_path}
+    upload_clips: false  # Upload clips to remote storage
+    dry_run: false  # If true, skip actual writes
+    generate_embeddings: false  # Generate embeddings during write
+    generate_previews: false  # Generate preview images
+    generate_captions: false  # Generate captions during write

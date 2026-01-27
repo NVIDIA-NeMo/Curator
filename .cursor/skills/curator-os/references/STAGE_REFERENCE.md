@@ -29,23 +29,35 @@ WorkflowBase (orchestrates multiple pipelines)
 
 ### Classifiers
 
+All classifiers are **CompositeStages** that decompose into tokenizer and model inference stages.
+
 | Stage | Type | Purpose | GPU |
 |-------|------|---------|-----|
-| `QualityClassifier` | ProcessingStage | General quality scoring | Yes |
-| `DomainClassifier` | ProcessingStage | Domain classification | Yes |
-| `MultilingualDomainClassifier` | ProcessingStage | Multi-language domains | Yes |
-| `ContentTypeClassifier` | ProcessingStage | Content type detection | Yes |
-| `FineWebEduClassifier` | ProcessingStage | Educational quality | Yes |
-| `FineWebMixtralEduClassifier` | ProcessingStage | Mixtral-based edu quality | Yes |
-| `FineWebNemotronEduClassifier` | ProcessingStage | Nemotron-based edu quality | Yes |
-| `AegisClassifier` | ProcessingStage | Safety classification | Yes |
-| `PromptTaskComplexityClassifier` | ProcessingStage | Prompt complexity | Yes |
-| `InstructionDataGuardClassifier` | ProcessingStage | Instruction safety | Yes |
+| `QualityClassifier` | **CompositeStage** | General quality scoring | Yes |
+| `DomainClassifier` | **CompositeStage** | Domain classification | Yes |
+| `MultilingualDomainClassifier` | **CompositeStage** | Multi-language domains | Yes |
+| `ContentTypeClassifier` | **CompositeStage** | Content type detection | Yes |
+| `FineWebEduClassifier` | **CompositeStage** | Educational quality | Yes |
+| `FineWebMixtralEduClassifier` | **CompositeStage** | Mixtral-based edu quality | Yes |
+| `FineWebNemotronEduClassifier` | **CompositeStage** | Nemotron-based edu quality | Yes |
+| `AegisClassifier` | **CompositeStage** | Safety classification (LlamaGuard) | Yes |
+| `PromptTaskComplexityClassifier` | **CompositeStage** | Prompt complexity | Yes |
+| `InstructionDataGuardClassifier` | **CompositeStage** | Instruction safety | Yes |
+
+**Classifier Output Fields** (defaults):
+
+| Classifier | Output Field | Output Type |
+|------------|--------------|-------------|
+| `QualityClassifier` | `quality_pred` | "high", "medium", "low" |
+| `FineWebEduClassifier` | `fineweb-edu-score-label`, `-float`, `-int` | label, float, int |
+| `DomainClassifier` | `domain_pred` | Domain category string |
+| `AegisClassifier` | `aegis_pred` | "safe" or "O1"-"O13" |
 
 ### Heuristic Filters
 
 | Filter | Purpose | Default Threshold |
 |--------|---------|-------------------|
+| `BoilerPlateStringFilter` | Remove boilerplate strings | - |
 | `WordCountFilter` | Filter by word count | 50-100000 |
 | `NonAlphaNumericFilter` | Non-alphanumeric ratio | max 0.25 |
 | `SymbolsToWordsFilter` | Symbol to word ratio | max 0.1 |
@@ -189,8 +201,8 @@ WorkflowBase (orchestrates multiple pipelines)
 
 | Stage | Type | GPU | Purpose |
 |-------|------|-----|---------|
-| `AestheticFilterStage` | ProcessingStage | Yes | Aesthetic quality |
-| `NSFWFilterStage` | ProcessingStage | Yes | NSFW detection |
+| `ImageAestheticFilterStage` | ProcessingStage | Yes | Aesthetic quality |
+| `ImageNSFWFilterStage` | ProcessingStage | Yes | NSFW detection |
 
 ---
 
@@ -206,7 +218,7 @@ WorkflowBase (orchestrates multiple pipelines)
 
 | Stage | Type | GPU | Purpose |
 |-------|------|-----|---------|
-| `WERCalculationStage` | ProcessingStage | No | Word Error Rate |
+| `GetPairwiseWerStage` | ProcessingStage | No | Word Error Rate |
 
 ---
 

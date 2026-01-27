@@ -26,7 +26,7 @@ Follow this workflow. Execute automated steps immediately. For manual steps, cle
 Run the detection script:
 
 ```bash
-python .cursor/skills/setup/scripts/detect_environment.py --quick
+python skills/setup/scripts/detect_environment.py --quick
 ```
 
 Parse the output to determine the scenario.
@@ -122,7 +122,7 @@ Tell the user:
 **Wait for user confirmation**, then re-run detection:
 
 ```bash
-python .cursor/skills/setup/scripts/detect_environment.py --quick
+python skills/setup/scripts/detect_environment.py --quick
 ```
 
 Continue with the new scenario (should be `docker_pull` or `docker_existing`).

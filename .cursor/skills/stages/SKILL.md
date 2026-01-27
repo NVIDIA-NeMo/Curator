@@ -121,15 +121,18 @@ Understanding the execution hierarchy is crucial:
 
 | Category | Description | Example Stages |
 |----------|-------------|----------------|
+| `io` | Read/write images | ImageReaderStage, ImageWriterStage |
 | `embedding` | Image embeddings | ImageEmbeddingStage (CLIP) |
-| `filtering` | Quality/safety | AestheticFilterStage, NSFWFilterStage |
+| `filtering` | Quality/safety | ImageAestheticFilterStage, ImageNSFWFilterStage |
+| `deduplication` | Duplicate removal | ImageDuplicatesRemovalStage |
 
 ### Audio
 
 | Category | Description | Example Stages |
 |----------|-------------|----------------|
+| `io` | Convert audio data | AudioToDocumentStage |
 | `inference` | ASR models | InferenceAsrNemoStage |
-| `metrics` | Quality metrics | WERCalculationStage |
+| `metrics` | Quality metrics | GetPairwiseWerStage |
 
 ## Common Lookups
 
@@ -173,9 +176,13 @@ Image: ImageEmbeddingStage (CLIP)
 |-------|------------|-------|
 | TransNetV2ClipExtractionStage | 16 GB | Scene detection |
 | CaptionGenerationStage | 24 GB | Full GPU |
-| CosmosEmbed1EmbeddingStage | 16 GB | Shared |
-| ImageEmbeddingStage | ~4 GB | 0.25 GPU |
+| CosmosEmbed1EmbeddingStage | 20 GB | NVIDIA Cosmos |
+| InternVideo2EmbeddingStage | 16 GB | Video embeddings |
+| ImageEmbeddingStage | ~4 GB | CLIP embeddings |
+| ImageAestheticFilterStage | ~4 GB | Aesthetic scoring |
+| ImageNSFWFilterStage | ~4 GB | Safety filtering |
 | QualityClassifier | ~8 GB | Varies by model |
+| InferenceAsrNemoStage | 16 GB | NeMo ASR |
 
 ### CPU-Only Stages
 

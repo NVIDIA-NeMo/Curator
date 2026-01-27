@@ -123,18 +123,22 @@ stages:
   # Stage 3: Quality Classification (Optional)
   # ========================================
   # Uncomment to enable quality classification
+  # Note: Classifiers output categorical labels, use filter_by to keep specific categories
   
   # - _target_: nemo_curator.stages.text.classifiers.QualityClassifier
-  #   batch_size: 64
+  #   model_inference_batch_size: 256
+  #   filter_by: ["high", "medium"]  # Keep high and medium quality
+  #   # Output field: "quality_pred" with values "high", "medium", "low"
 
   # - _target_: nemo_curator.stages.text.classifiers.FineWebEduClassifier
-  #   batch_size: 32
+  #   model_inference_batch_size: 256
+  #   # Output fields: "fineweb-edu-score-label", "fineweb-edu-score-float", "fineweb-edu-score-int"
 
   # ========================================
   # Stage 4: Write Output
   # ========================================
   - _target_: nemo_curator.stages.text.io.writer.ParquetWriter
-    output_path: ${output_path}
+    path: ${output_path}
 
 # ========================================
 # Deduplication (Run Separately)

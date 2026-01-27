@@ -24,8 +24,8 @@ Uses a neural network to detect scene boundaries based on visual transitions.
 
 ### GPU Requirements
 
-- **Minimum**: 10GB GPU memory
-- **Recommended**: 16GB GPU memory
+- **Default**: 10GB GPU memory (configurable via `gpu_memory_gb` parameter)
+- **Note**: VideoFrameExtractionStage (runs before TransNetV2) also requires 10GB with pynvc decoder
 
 ## Fixed Stride (Duration-based)
 
@@ -53,7 +53,7 @@ Splits videos at fixed time intervals regardless of content.
 
 | Feature | TransNetV2 | Fixed Stride |
 |---------|------------|--------------|
-| GPU Required | Yes (16GB) | No |
+| GPU Required | Yes (10GB default) | No |
 | Processing Speed | ~1 video/min | ~10 videos/min |
 | Clip Boundaries | Scene-based | Time-based |
 | Best For | Edited content | Continuous content |

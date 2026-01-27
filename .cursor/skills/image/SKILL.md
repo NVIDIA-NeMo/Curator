@@ -84,8 +84,8 @@ python -m nemo_curator.config.run \
 |     - ImageAestheticFilterStage (quality scoring, GPU 4GB)       |
 |     - ImageNSFWFilterStage (safety filtering, GPU 4GB)           |
 |                                                                   |
-|  4. DEDUPLICATION (optional)                                     |
-|     - ImageDuplicatesRemovalStage (embedding-based)              |
+|  4. DEDUPLICATION (optional, requires pre-computed IDs)          |
+|     - ImageDuplicatesRemovalStage (filters IDs from parquet)     |
 |                                                                   |
 |  5. WRITE IMAGES                                                 |
 |     - ImageWriterStage (WebDataset tar files)                    |
@@ -101,8 +101,10 @@ python -m nemo_curator.config.run \
 | ImageEmbeddingStage | 4GB | Generate CLIP embeddings |
 | ImageAestheticFilterStage | 4GB | Filter by visual quality |
 | ImageNSFWFilterStage | 4GB | Filter unsafe content |
-| ImageDuplicatesRemovalStage | 0 | Remove duplicate images |
+| ImageDuplicatesRemovalStage | 0 | Remove images by ID from parquet |
 | ImageWriterStage | 0 | Write to WebDataset |
+
+> **Note on Deduplication**: `ImageDuplicatesRemovalStage` filters images whose IDs appear in pre-computed parquet files. You must first run a deduplication workflow (e.g., semantic dedup with embeddings) to generate these parquet files containing duplicate image IDs.
 
 ## Input Format
 

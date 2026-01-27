@@ -36,6 +36,7 @@ def generate_audio_yaml(args: argparse.Namespace) -> str:
     lines.append(f"output_path: {args.output_path}")
     lines.append(f"model_name: {args.model_name}")
     lines.append(f"wer_threshold: {args.wer_threshold}")
+    lines.append(f"gpu_memory_gb: {args.gpu_memory_gb}")
     lines.append("")
     lines.append("stages:")
     lines.append("")
@@ -44,6 +45,11 @@ def generate_audio_yaml(args: argparse.Namespace) -> str:
     lines.append("  # Stage 1: ASR Inference")
     lines.append("  - _target_: nemo_curator.stages.audio.inference.asr_nemo.InferenceAsrNemoStage")
     lines.append("    model_name: ${model_name}")
+    if args.gpu_memory_gb > 0:
+        lines.append("    resources:")
+        lines.append("      _target_: nemo_curator.stages.resources.Resources")
+        lines.append("      cpus: 1.0")
+        lines.append("      gpu_memory_gb: ${gpu_memory_gb}")
     lines.append("")
 
     # WER Calculation
@@ -76,7 +82,7 @@ def generate_audio_yaml(args: argparse.Namespace) -> str:
 
     # Writer
     lines.append("  # Stage 6: Write output")
-    lines.append("  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter")
+    lines.append("  - _target_: nemo_curator.stages.text.io.writer.jsonl.JsonlWriter")
     lines.append("    path: ${output_path}")
 
     return "\n".join(lines)
@@ -84,13 +90,12 @@ def generate_audio_yaml(args: argparse.Namespace) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate audio pipeline config")
-    parser.add_argument("--input-path", "-i", required=True)
-    parser.add_argument("--output-path", "-o", required=True)
-    parser.add_argument("--output-file", "-f", default="audio_pipeline.yaml")
-    parser.add_argument("--model-name", required=True, help="NeMo ASR model name")
-    parser.add_argument("--wer-threshold", type=float, default=75.0, help="Max WER to keep")
-    parser.add_argument("--lang", default="en", help="Language code")
-    parser.add_argument("--gpus", type=float, default=1.0, help="GPUs for ASR")
+    parser.add_argument("--input-path", "-i", required=True, help="Path to input audio manifest or directory")
+    parser.add_argument("--output-path", "-o", required=True, help="Path for output JSONL files")
+    parser.add_argument("--output-file", "-f", default="audio_pipeline.yaml", help="Output YAML config filename")
+    parser.add_argument("--model-name", required=True, help="NeMo ASR model name (e.g., nvidia/stt_en_fastconformer_hybrid_large_pc)")
+    parser.add_argument("--wer-threshold", type=float, default=75.0, help="Max WER percentage to keep (0-100)")
+    parser.add_argument("--gpu-memory-gb", type=float, default=16.0, help="GPU memory in GB for ASR (0 for CPU-only)")
     args = parser.parse_args()
 
     yaml_content = generate_audio_yaml(args)

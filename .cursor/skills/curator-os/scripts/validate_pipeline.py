@@ -45,7 +45,7 @@ except ImportError:
 
 # Try to import shared introspection utilities
 try:
-    sys.path.insert(0, str(__file__).rsplit("/", 3)[0])  # Add dori/ to path
+    sys.path.insert(0, str(__file__).rsplit("/", 3)[0])  # Add skills/ to path
     from shared.introspect import NEMO_CURATOR_AVAILABLE, discover_all_stages
 except ImportError:
     NEMO_CURATOR_AVAILABLE = False
@@ -128,8 +128,8 @@ def _get_valid_targets() -> set[str]:
         "nemo_curator.stages.video.embedding.CosmosEmbed1EmbeddingStage",
         # Image
         "nemo_curator.stages.image.embedders.ImageEmbeddingStage",
-        "nemo_curator.stages.image.filters.AestheticFilterStage",
-        "nemo_curator.stages.image.filters.NSFWFilterStage",
+        "nemo_curator.stages.image.filters.ImageAestheticFilterStage",
+        "nemo_curator.stages.image.filters.ImageNSFWFilterStage",
         # Audio
         "nemo_curator.stages.audio.inference.InferenceAsrNemoStage",
         # Client

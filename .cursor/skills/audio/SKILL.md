@@ -9,9 +9,9 @@ metadata:
   author: nvidia
   version: "1.0"
   modality: audio
-  gpu-required: true
+  gpu-required: false
   nemo-curator-version: ">=0.5.0"
-compatibility: Requires Python 3.10+, Linux, GPU with 16GB memory, NeMo Framework
+compatibility: Requires Python 3.10+, Linux, NeMo Framework. GPU recommended for ASR inference.
 disable-model-invocation: true
 ---
 
@@ -55,6 +55,7 @@ python scripts/generate_audio_config.py \
   --output-path /data/filtered \
   --model-name nvidia/stt_en_fastconformer_hybrid_large_pc \
   --wer-threshold 50 \
+  --gpu-memory-gb 16 \
   --output-file audio_pipeline.yaml
 ```
 
@@ -78,7 +79,8 @@ python -m nemo_curator.config.run \
 |     - OR provide custom manifest                                 |
 |                                                                   |
 |  2. ASR INFERENCE                                                |
-|     - InferenceAsrNemoStage (NeMo ASR, GPU 16GB)                 |
+|     - InferenceAsrNemoStage (NeMo ASR)                           |
+|       Configurable: GPU (recommended) or CPU                     |
 |                                                                   |
 |  3. QUALITY METRICS                                              |
 |     - GetPairwiseWerStage (calculate WER)                        |
@@ -96,14 +98,14 @@ python -m nemo_curator.config.run \
 
 ## Available Stages
 
-| Stage | GPU | Description |
-|-------|-----|-------------|
-| CreateInitialManifestFleursStage | No | Prepare FLEURS dataset |
-| InferenceAsrNemoStage | 16GB | Run ASR transcription |
-| GetPairwiseWerStage | No | Calculate Word Error Rate |
-| GetAudioDurationStage | No | Extract audio duration |
-| PreserveByValueStage | No | Filter by field value |
-| AudioToDocumentStage | No | Convert to document format |
+| Stage | Module Path | GPU | Description |
+|-------|-------------|-----|-------------|
+| `CreateInitialManifestFleursStage` | `nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest` | No | Prepare FLEURS dataset |
+| `InferenceAsrNemoStage` | `nemo_curator.stages.audio.inference.asr_nemo` | Optional | Run ASR transcription |
+| `GetPairwiseWerStage` | `nemo_curator.stages.audio.metrics.get_wer` | No | Calculate Word Error Rate |
+| `GetAudioDurationStage` | `nemo_curator.stages.audio.common` | No | Extract audio duration |
+| `PreserveByValueStage` | `nemo_curator.stages.audio.common` | No | Filter by field value |
+| `AudioToDocumentStage` | `nemo_curator.stages.audio.io.convert` | No | Convert to document format |
 
 ## WER Threshold Guide
 
@@ -130,13 +132,15 @@ Word Error Rate (WER) measures transcription accuracy:
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--model-name` | NeMo ASR model | Required |
-| `--wer-threshold` | Max WER to keep | 75 |
-| `--lang` | Language code | en |
-| `--gpus` | GPUs for ASR | 1.0 |
+| `--wer-threshold` | Max WER to keep (0-100) | 75 |
+| `--gpu-memory-gb` | GPU memory for ASR (0 for CPU) | 16 |
+| `--input-path` | Path to audio manifest | Required |
+| `--output-path` | Path for output JSONL | Required |
+| `--output-file` | Output YAML config name | audio_pipeline.yaml |
 
 ## Common Workflows
 
-### Basic ASR + Filtering
+### Basic ASR + Filtering (GPU)
 
 ```bash
 python scripts/generate_audio_config.py \
@@ -144,7 +148,20 @@ python scripts/generate_audio_config.py \
   --output-path /data/transcribed \
   --model-name nvidia/stt_en_fastconformer_hybrid_large_pc \
   --wer-threshold 50 \
+  --gpu-memory-gb 16 \
   --output-file asr_pipeline.yaml
+```
+
+### CPU-Only Processing
+
+```bash
+python scripts/generate_audio_config.py \
+  --input-path /data/audio \
+  --output-path /data/transcribed \
+  --model-name nvidia/stt_en_fastconformer_hybrid_large_pc \
+  --wer-threshold 50 \
+  --gpu-memory-gb 0 \
+  --output-file asr_cpu_pipeline.yaml
 ```
 
 ### High-Quality Dataset
@@ -160,10 +177,11 @@ python scripts/generate_audio_config.py \
 
 ## GPU Requirements
 
-| Configuration | GPU Memory |
-|---------------|------------|
-| ASR Inference | 16GB |
-| Full Pipeline | 16GB |
+| Configuration | GPU Memory | Notes |
+|---------------|------------|-------|
+| ASR Inference (GPU) | 16GB recommended | Faster processing, ~10x realtime |
+| ASR Inference (CPU) | N/A | Slower but works without GPU |
+| Other stages | N/A | All run on CPU |
 
 ## References
 
@@ -171,6 +189,6 @@ python scripts/generate_audio_config.py \
 
 ## Related Skills
 
-- `/curate` - Full curation workflow
-- `/stages` - All available stages
-- `/setup` - Environment setup
+- `curate` - Full curation workflow
+- `stages` - All available stages
+- `setup` - Environment setup

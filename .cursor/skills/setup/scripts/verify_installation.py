@@ -227,13 +227,21 @@ def verify_audio() -> list[VerificationResult]:
     """Verify audio curation modules."""
     results = []
 
-    # Audio stages
+    # Audio stages - ASR
     try:
-        from nemo_curator.stages.audio.inference import InferenceAsrNemoStage
+        from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 
-        results.append(VerificationResult("Audio stages", True, "ASR stage available"))
+        results.append(VerificationResult("Audio ASR stage", True, "InferenceAsrNemoStage available"))
     except ImportError as e:
-        results.append(VerificationResult("Audio stages", False, "Not available", str(e)))
+        results.append(VerificationResult("Audio ASR stage", False, "Not available", str(e)))
+
+    # Audio stages - WER
+    try:
+        from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
+
+        results.append(VerificationResult("Audio WER stage", True, "GetPairwiseWerStage available"))
+    except ImportError as e:
+        results.append(VerificationResult("Audio WER stage", False, "Not available", str(e)))
 
     # NeMo Toolkit
     try:
@@ -252,9 +260,9 @@ def verify_image() -> list[VerificationResult]:
 
     # Image stages
     try:
-        from nemo_curator.stages.image.embedders import ImageEmbeddingStage
+        from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
 
-        results.append(VerificationResult("Image stages", True, "Embedding stage available"))
+        results.append(VerificationResult("Image stages", True, "ImageEmbeddingStage available"))
     except ImportError as e:
         results.append(VerificationResult("Image stages", False, "Not available", str(e)))
 

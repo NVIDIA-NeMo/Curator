@@ -123,6 +123,6 @@ nvidia-smi
 Use CPU clipping instead of TransNetV2:
 
 ```yaml
-- _target_: nemo_curator.stages.video.clipping.FixedStrideExtractorStage
+- _target_: nemo_curator.stages.video.clipping.clip_extraction_stages.FixedStrideExtractorStage
   clip_duration: 10.0
 ```

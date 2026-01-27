@@ -43,7 +43,7 @@ from typing import Any
 
 # Try to import shared introspection utilities
 try:
-    sys.path.insert(0, str(__file__).rsplit("/", 3)[0])  # Add dori/ to path
+    sys.path.insert(0, str(__file__).rsplit("/", 3)[0])  # Add skills/ to path
     from shared.introspect import NEMO_CURATOR_AVAILABLE, StageInfo, discover_all_stages
 except ImportError:
     NEMO_CURATOR_AVAILABLE = False
@@ -151,6 +151,12 @@ CATEGORY_MAP: dict[str, str] = {
     "ArxivDownloadExtractStage": "download",
     # Text Embedders
     "EmbeddingCreatorStage": "embedders",
+    # Text Deduplication (internal stages)
+    "MinHashStage": "deduplication",
+    "LSHStage": "deduplication",
+    "BucketsToEdgesStage": "deduplication",
+    "ConnectedComponentsStage": "deduplication",
+    "IdentifyDuplicatesStage": "deduplication",
     # Video IO
     "VideoReader": "io",
     "VideoReaderStage": "io",
@@ -173,11 +179,15 @@ CATEGORY_MAP: dict[str, str] = {
     "ClipAestheticFilterStage": "filtering",
     # Image
     "ImageEmbeddingStage": "embedding",
-    "AestheticFilterStage": "filtering",
-    "NSFWFilterStage": "filtering",
+    "ImageAestheticFilterStage": "filtering",
+    "ImageNSFWFilterStage": "filtering",
+    "ImageReaderStage": "io",
+    "ImageWriterStage": "io",
+    "ConvertImageBatchToDocumentBatchStage": "io",
+    "ImageDuplicatesRemovalStage": "deduplication",
     # Audio
     "InferenceAsrNemoStage": "inference",
-    "WERCalculationStage": "metrics",
+    "GetPairwiseWerStage": "metrics",
 }
 
 
@@ -292,27 +302,45 @@ def _get_static_stages() -> list[Stage]:
         ("AddId", "text", "modules", "ProcessingStage", False, "Add document IDs"),
         ("ScoreFilter", "text", "modules", "ProcessingStage", False, "Score and filter"),
         # Text Deduplication
-        ("ExactDuplicateIdentification", "text", "deduplication", "ProcessingStage", False, "Hash-based exact matching"),
+        ("ExactDuplicateIdentification", "text", "deduplication", "ProcessingStage", False, "Exact dedup via hash matching"),
         ("FuzzyDeduplicationWorkflow", "text", "deduplication", "WorkflowBase", True, "MinHash + LSH fuzzy dedup"),
         ("SemanticDeduplicationWorkflow", "text", "deduplication", "WorkflowBase", True, "Embedding-based semantic dedup"),
         # Text Download
         ("CommonCrawlDownloadExtractStage", "text", "download", "CompositeStage", False, "Download Common Crawl"),
         ("WikipediaDownloadExtractStage", "text", "download", "CompositeStage", False, "Download Wikipedia"),
+        ("ArxivDownloadExtractStage", "text", "download", "CompositeStage", False, "Download ArXiv papers"),
         # Text Embedders
-        ("EmbeddingCreatorStage", "text", "embedders", "ProcessingStage", True, "Generate text embeddings"),
-        # Video
+        ("EmbeddingCreatorStage", "text", "embedders", "CompositeStage", True, "Generate text embeddings"),
+        # Video IO
         ("VideoReader", "video", "io", "CompositeStage", False, "Read videos from path"),
+        ("VideoReaderStage", "video", "io", "ProcessingStage", False, "Read video files and metadata"),
+        ("ClipWriterStage", "video", "io", "ProcessingStage", False, "Write video clips to disk"),
+        # Video Clipping
         ("TransNetV2ClipExtractionStage", "video", "clipping", "ProcessingStage", True, "ML-based scene detection"),
+        ("FixedStrideExtractorStage", "video", "clipping", "ProcessingStage", False, "Fixed-length clip extraction"),
+        ("ClipTranscodingStage", "video", "clipping", "ProcessingStage", False, "Transcode video clips"),
+        # Video Captioning
+        ("CaptionPreparationStage", "video", "captioning", "ProcessingStage", False, "Prepare video for captioning"),
         ("CaptionGenerationStage", "video", "captioning", "ProcessingStage", True, "Qwen VL captioning"),
+        ("CaptionEnhancementStage", "video", "captioning", "ProcessingStage", True, "Enhance generated captions"),
+        # Video Embedding
         ("CosmosEmbed1EmbeddingStage", "video", "embedding", "ProcessingStage", True, "NVIDIA Cosmos embeddings"),
+        ("InternVideo2EmbeddingStage", "video", "embedding", "ProcessingStage", True, "InternVideo2 embeddings"),
+        # Video Filtering
+        ("MotionVectorDecodeStage", "video", "filtering", "ProcessingStage", False, "Decode motion vectors"),
         ("MotionFilterStage", "video", "filtering", "ProcessingStage", False, "Filter static/low-motion clips"),
+        ("ClipAestheticFilterStage", "video", "filtering", "ProcessingStage", True, "Aesthetic quality filtering"),
         # Image
+        ("ImageReaderStage", "image", "io", "ProcessingStage", False, "Read images from path"),
+        ("ImageWriterStage", "image", "io", "ProcessingStage", False, "Write images to disk"),
         ("ImageEmbeddingStage", "image", "embedding", "ProcessingStage", True, "CLIP embeddings for images"),
-        ("AestheticFilterStage", "image", "filtering", "ProcessingStage", True, "Aesthetic quality scoring"),
-        ("NSFWFilterStage", "image", "filtering", "ProcessingStage", True, "NSFW content detection"),
+        ("ImageAestheticFilterStage", "image", "filtering", "ProcessingStage", True, "Aesthetic quality scoring"),
+        ("ImageNSFWFilterStage", "image", "filtering", "ProcessingStage", True, "NSFW content detection"),
+        ("ImageDuplicatesRemovalStage", "image", "deduplication", "ProcessingStage", False, "Remove duplicate images"),
+        ("ConvertImageBatchToDocumentBatchStage", "image", "io", "ProcessingStage", False, "Convert images to documents"),
         # Audio
         ("InferenceAsrNemoStage", "audio", "inference", "ProcessingStage", True, "NeMo ASR transcription"),
-        ("WERCalculationStage", "audio", "metrics", "ProcessingStage", False, "Word Error Rate calculation"),
+        ("GetPairwiseWerStage", "audio", "metrics", "ProcessingStage", False, "Word Error Rate calculation"),
     ]
     return [
         Stage(

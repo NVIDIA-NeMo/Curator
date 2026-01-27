@@ -30,8 +30,9 @@ Reference for image-specific NeMo Curator dependencies.
 | Stage | Purpose | GPU Memory |
 |-------|---------|------------|
 | `ImageEmbeddingStage` | CLIP embeddings | ~4 GB (0.25 GPU) |
-| `AestheticFilterStage` | Quality scoring | ~4 GB |
-| `NSFWFilterStage` | Content safety | ~4 GB |
+| `ImageAestheticFilterStage` | Quality scoring | ~4 GB |
+| `ImageNSFWFilterStage` | Content safety | ~4 GB |
+| `ImageDuplicatesRemovalStage` | Deduplication | Varies |
 
 ## Supported Formats
 
@@ -57,7 +58,7 @@ Image processing is relatively lightweight:
 
 ```yaml
 stages:
-  - _target_: nemo_curator.stages.image.embedders.ImageEmbeddingStage
+  - _target_: nemo_curator.stages.image.embedders.clip_embedder.ImageEmbeddingStage
     model_name: "openai/clip-vit-large-patch14"
     batch_size: 32
 ```
@@ -66,8 +67,8 @@ stages:
 
 ```yaml
 stages:
-  - _target_: nemo_curator.stages.image.embedders.ImageEmbeddingStage
-  - _target_: nemo_curator.stages.image.filtering.AestheticFilterStage
+  - _target_: nemo_curator.stages.image.embedders.clip_embedder.ImageEmbeddingStage
+  - _target_: nemo_curator.stages.image.filters.aesthetic_filter.ImageAestheticFilterStage
     min_aesthetic_score: 0.5
 ```
 
@@ -75,7 +76,7 @@ stages:
 
 ```yaml
 stages:
-  - _target_: nemo_curator.stages.image.filtering.NSFWFilterStage
+  - _target_: nemo_curator.stages.image.filters.nsfw_filter.ImageNSFWFilterStage
     threshold: 0.5
 ```
 
@@ -104,6 +105,6 @@ uv pip install torch torchvision --force-reinstall
 Reduce batch size:
 
 ```yaml
-- _target_: nemo_curator.stages.image.embedders.ImageEmbeddingStage
+- _target_: nemo_curator.stages.image.embedders.clip_embedder.ImageEmbeddingStage
   batch_size: 16  # Reduce from 32
 ```

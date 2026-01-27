@@ -107,6 +107,7 @@ def generate_video_yaml(args: argparse.Namespace) -> str:
         lines.append(f"    clip_len_s: {args.fixed_stride_duration}")
         lines.append(f"    clip_stride_s: {args.fixed_stride_duration}")
         lines.append(f"    min_clip_length_s: {args.fixed_stride_min_length}")
+        lines.append("    limit_clips: -1")
 
     lines.append("")
 
@@ -126,9 +127,11 @@ def generate_video_yaml(args: argparse.Namespace) -> str:
         lines.append("  # ========================================")
         lines.append("  - _target_: nemo_curator.stages.video.filtering.motion_filter.MotionVectorDecodeStage")
         lines.append("    target_fps: 2.0")
+        lines.append("    target_duration_ratio: 0.5")
         lines.append("")
         lines.append("  - _target_: nemo_curator.stages.video.filtering.motion_filter.MotionFilterStage")
         lines.append(f"    global_mean_threshold: {args.motion_threshold}")
+        lines.append("    score_only: false")
         lines.append("")
 
     # Stage 5: Aesthetic Filtering (optional)
@@ -169,6 +172,11 @@ def generate_video_yaml(args: argparse.Namespace) -> str:
         lines.append("  # ========================================")
         lines.append("  # Stage 7: Video Embedding")
         lines.append("  # ========================================")
+        lines.append("  # Frame extraction required before embedding")
+        lines.append("  - _target_: nemo_curator.stages.video.clipping.clip_frame_extraction.ClipFrameExtractionStage")
+        lines.append("    target_fps:")
+        lines.append("      - 2.0")
+        lines.append("")
 
         if args.embed_model.startswith("cosmos"):
             variant = args.embed_model.split("-")[-1]
@@ -201,6 +209,18 @@ def generate_video_yaml(args: argparse.Namespace) -> str:
     lines.append("    input_path: ${input_path}")
     lines.append(f"    generate_embeddings: {str(args.embed).lower()}")
     lines.append(f"    generate_captions: {str(args.caption).lower()}")
+    lines.append(f"    generate_previews: {str(args.caption).lower()}")
+    lines.append("    upload_clips: true")
+    lines.append("    dry_run: false")
+    if args.embed:
+        if args.embed_model.startswith("cosmos"):
+            lines.append("    embedding_algorithm: cosmos-embed1")
+        else:
+            lines.append("    embedding_algorithm: internvideo2")
+    if args.caption:
+        lines.append("    caption_models:")
+        lines.append(f"      - {args.caption_model}")
+        lines.append("    enhanced_caption_models: []")
 
     return "\n".join(lines)
 
@@ -248,7 +268,7 @@ def main() -> None:
         "--transnetv2-max-length", type=float, default=10.0, help="Maximum clip length (seconds)"
     )
     parser.add_argument(
-        "--transnetv2-gpu-memory", type=float, default=16.0, help="GPU memory for TransNetV2"
+        "--transnetv2-gpu-memory", type=float, default=10.0, help="GPU memory for TransNetV2"
     )
     parser.add_argument(
         "--transnetv2-decoder",

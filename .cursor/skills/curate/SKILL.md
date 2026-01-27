@@ -100,12 +100,12 @@ Standard text curation includes:
 │  1. READ DATA                                                    │
 │     └── ParquetReader / JsonlReader                              │
 │                                                                   │
-│  2. HEURISTIC FILTERING (25 filters)                             │
+│  2. HEURISTIC FILTERING (30+ filters available)                  │
 │     ├── WordCountFilter (50-100000 words)                        │
 │     ├── NonAlphaNumericFilter (< 25%)                            │
 │     ├── SymbolsToWordsFilter (< 10%)                             │
 │     ├── RepeatedLinesFilter (< 30%)                              │
-│     └── ... (21 more filters)                                    │
+│     └── ... (see /filter skill for full list)                    │
 │                                                                   │
 │  3. QUALITY CLASSIFICATION                                       │
 │     ├── QualityClassifier (general quality)                      │
@@ -146,25 +146,30 @@ Standard text curation includes:
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │  1. READ VIDEOS                                                  │
-│     └── VideoReader                                              │
+│     └── VideoReader (stages.video.io.video_reader)               │
 │                                                                   │
 │  2. SCENE DETECTION / CLIPPING                                   │
 │     ├── TransNetV2ClipExtractionStage (ML-based, GPU)            │
 │     └── OR FixedStrideExtractorStage (fixed duration, CPU)       │
 │                                                                   │
-│  3. FILTERING (optional)                                         │
-│     ├── MotionFilterStage (remove static clips)                  │
-│     └── ClipAestheticFilterStage (quality filter)                │
+│  3. MOTION FILTERING (optional)                                  │
+│     ├── MotionVectorDecodeStage (decode motion vectors)          │
+│     └── MotionFilterStage (filter by motion threshold)           │
 │                                                                   │
-│  4. CAPTIONING (optional)                                        │
+│  4. AESTHETIC FILTERING (optional)                               │
+│     └── ClipAestheticFilterStage (CLIP aesthetic score)          │
+│                                                                   │
+│  5. CAPTIONING (optional)                                        │
 │     ├── CaptionPreparationStage                                  │
-│     └── CaptionGenerationStage (Qwen VL, GPU)                    │
+│     ├── CaptionGenerationStage (Qwen VL, GPU)                    │
+│     └── CaptionEnhancementStage (optional refinement)            │
 │                                                                   │
-│  5. EMBEDDING (optional)                                         │
-│     └── CosmosEmbed1EmbeddingStage / InternVideo2EmbeddingStage  │
+│  6. EMBEDDING (optional)                                         │
+│     ├── CosmosEmbed1FrameCreationStage + EmbeddingStage          │
+│     └── OR InternVideo2FrameCreationStage + EmbeddingStage       │
 │                                                                   │
-│  6. WRITE CLIPS                                                  │
-│     └── ClipWriterStage                                          │
+│  7. WRITE CLIPS                                                  │
+│     └── ClipWriterStage (stages.video.io.clip_writer)            │
 │                                                                   │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -208,17 +213,17 @@ Standard text curation includes:
 │                    Audio Curation Pipeline                        │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
-│  1. READ AUDIO                                                   │
-│     └── AudioReader                                              │
+│  1. CREATE MANIFEST                                              │
+│     └── CreateInitialManifestFleursStage (or custom manifest)    │
 │                                                                   │
 │  2. TRANSCRIPTION                                                │
 │     └── InferenceAsrNemoStage (NeMo ASR, GPU)                    │
 │                                                                   │
 │  3. QUALITY METRICS                                              │
-│     └── WERCalculationStage (Word Error Rate)                    │
+│     └── GetPairwiseWerStage (Word Error Rate)                    │
 │                                                                   │
 │  4. FILTERING                                                    │
-│     └── Filter by WER threshold                                  │
+│     └── PreserveByValueStage (filter by WER threshold)           │
 │                                                                   │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -229,10 +234,10 @@ Pre-configured YAML templates are available in `assets/`:
 
 | Template | Description |
 |----------|-------------|
-| `text_curation_template.yaml` | Standard text curation |
-| `text_curation_full.yaml` | Full text curation with all filters |
-| `video_curation_template.yaml` | Video with captioning |
-| `common_crawl_template.yaml` | Common Crawl processing |
+| `text_curation_template.yaml` | Standard text curation with 10 heuristic filters |
+| `video_curation_template.yaml` | Video curation with scene detection and motion filtering |
+
+Use `generate_yaml.py` with `--filters full` to generate a text config with all 21 filters.
 
 ## Customization
 
@@ -246,7 +251,7 @@ stages:
   
   # Add new stage
   - _target_: nemo_curator.stages.text.classifiers.DomainClassifier
-    batch_size: 64
+    model_inference_batch_size: 256
 ```
 
 ### Removing Stages
@@ -258,10 +263,13 @@ Comment out or delete unwanted stages from the generated YAML.
 Edit the stage configuration directly:
 
 ```yaml
-# Change filter threshold
-- _target_: nemo_curator.stages.text.filters.WordCountFilter
-  min_words: 100  # Changed from 50
-  max_words: 50000  # Changed from 100000
+# Change filter threshold (note: filters are wrapped in ScoreFilter)
+- _target_: nemo_curator.stages.text.modules.ScoreFilter
+  filter_obj:
+    _target_: nemo_curator.stages.text.filters.WordCountFilter
+    min_words: 100  # Changed from 50
+    max_words: 50000  # Changed from 100000
+  text_field: ${text_field}
 ```
 
 ## Common Workflows

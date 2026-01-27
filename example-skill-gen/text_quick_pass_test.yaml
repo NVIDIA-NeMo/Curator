@@ -52,4 +52,4 @@ stages:
 
   # Stage 3: Write Output
   - _target_: nemo_curator.stages.text.io.writer.ParquetWriter
-    output_path: ${output_path}
+    path: ${output_path}

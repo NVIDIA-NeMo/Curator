@@ -2,63 +2,66 @@
 
 Common pipeline patterns for each data modality in NeMo Curator.
 
+**Note**: The diagrams below show conceptual pipeline flows. For actual YAML configurations, use the `/curate` skill or see the template files in `skills/curate/assets/`.
+
 ---
 
 ## Text Curation Patterns
 
 ### Pattern 1: Basic Quality Filtering
 
-```yaml
-stages:
-  - reader: ParquetReader
-  - filters:
-      - WordCountFilter: {min: 50, max: 100000}
-      - NonAlphaNumericFilter: {max: 0.25}
-      - SymbolsToWordsFilter: {max: 0.1}
-  - writer: ParquetWriter
+```
+Read → Heuristic Filters → Write
+       (WordCount, NonAlphaNumeric, etc.)
 ```
 
 **Use when**: Quick quality pass on web-scraped text
 
+**Key stages**:
+- `ParquetReader` / `JsonlReader`
+- `ScoreFilter` with heuristic filters (CPU)
+- `ParquetWriter` / `JsonlWriter`
+
 ### Pattern 2: Full Text Curation
 
-```yaml
-stages:
-  - reader: ParquetReader
-  - filters: [25 heuristic filters]
-  - classifier: QualityClassifier
-  - dedup: FuzzyDeduplicationWorkflow
-  - writer: ParquetWriter
+```
+Read → Filters → Classify → Deduplicate → Write
+       (25+)     (Quality)   (Fuzzy)
 ```
 
 **Use when**: Training data preparation for LLMs
 
+**Key stages**:
+- Heuristic filters (CPU-only)
+- `QualityClassifier` (GPU) - outputs "high"/"medium"/"low" in `quality_pred`
+- `FuzzyDeduplicationWorkflow` (run separately)
+
 ### Pattern 3: Domain-Specific Filtering
 
-```yaml
-stages:
-  - reader: JsonlReader
-  - classifier: DomainClassifier
-  - filter: ScoreFilter (by domain)
-  - classifier: FineWebEduClassifier
-  - filter: ScoreFilter (by edu_score >= 3)
-  - writer: ParquetWriter
+```
+Read → Domain Classify → Filter → Edu Score → Write
+                         (by domain)
 ```
 
 **Use when**: Creating domain-specific training sets
 
+**Key stages**:
+- `DomainClassifier` - outputs category in `domain_pred`
+- Use `filter_by` parameter to keep specific domains
+- `FineWebEduClassifier` - outputs scores in `fineweb-edu-score-*` fields
+
 ### Pattern 4: Safety Filtering
 
-```yaml
-stages:
-  - reader: ParquetReader
-  - classifier: AegisClassifier
-  - filter: Remove unsafe content
-  - classifier: InstructionDataGuardClassifier  
-  - writer: ParquetWriter
+```
+Read → Aegis Classify → Filter Safe → Write
+                        (keep "safe")
 ```
 
 **Use when**: Filtering for safety-critical applications
+
+**Key stages**:
+- `AegisClassifier` - outputs "safe" or "O1"-"O13" in `aegis_pred`
+- Use `filter_by: ["safe"]` to keep only safe content
 
 ---
 
@@ -66,42 +69,37 @@ stages:
 
 ### Pattern 1: Scene Detection + Captioning
 
-```yaml
-stages:
-  - reader: VideoReader
-  - clipping: TransNetV2ClipExtractionStage  # GPU
-  - caption_prep: CaptionPreparationStage
-  - captioning: CaptionGenerationStage  # GPU
-  - writer: ClipWriterStage
+```
+Read → Scene Detect → Caption Prep → Caption Gen → Write
+       (TransNetV2)                   (Qwen VL)
 ```
 
 **Use when**: Creating captioned video datasets
 
+**Key stages**:
+- `VideoReader` (CompositeStage)
+- `TransNetV2ClipExtractionStage` (GPU)
+- `CaptionPreparationStage` (CPU)
+- `CaptionGenerationStage` (GPU)
+- `ClipWriterStage`
+
 ### Pattern 2: Fixed-Stride Embedding
 
-```yaml
-stages:
-  - reader: VideoReader
-  - clipping: FixedStrideExtractorStage  # CPU
-  - embedding: CosmosEmbed1EmbeddingStage  # GPU
-  - writer: ClipWriterStage
+```
+Read → Fixed Clips → Embed → Write
+       (uniform)     (Cosmos)
 ```
 
 **Use when**: Uniform sampling for embedding generation
 
+**Key stages**:
+- `FixedStrideExtractorStage` (CPU)
+- `CosmosEmbed1EmbeddingStage` (GPU)
+
 ### Pattern 3: Full Video Pipeline
 
-```yaml
-stages:
-  - reader: VideoReader
-  - clipping: TransNetV2ClipExtractionStage
-  - motion_decode: MotionVectorDecodeStage
-  - motion_filter: MotionFilterStage
-  - caption_prep: CaptionPreparationStage
-  - captioning: CaptionGenerationStage
-  - embedding: CosmosEmbed1EmbeddingStage
-  - aesthetic_filter: ClipAestheticFilterStage
-  - writer: ClipWriterStage
+```
+Read → Clip → Motion Filter → Caption → Embed → Aesthetic Filter → Write
 ```
 
 **Use when**: High-quality video training data
@@ -112,28 +110,27 @@ stages:
 
 ### Pattern 1: CLIP Embedding + Dedup
 
-```yaml
-stages:
-  - reader: ImageReader
-  - embedding: ImageEmbeddingStage  # CLIP
-  - dedup: SemanticDeduplicationWorkflow
-  - writer: ImageWriter
+```
+Read → CLIP Embed → Semantic Dedup → Write
 ```
 
 **Use when**: Removing duplicate/near-duplicate images
 
+**Key stages**:
+- `ImageEmbeddingStage` (GPU, CLIP-based)
+- `SemanticDeduplicationWorkflow`
+
 ### Pattern 2: Quality Filtering
 
-```yaml
-stages:
-  - reader: ImageReader
-  - embedding: ImageEmbeddingStage
-  - aesthetic_filter: AestheticFilterStage
-  - nsfw_filter: NSFWFilterStage
-  - writer: ImageWriter
+```
+Read → Embed → Aesthetic Filter → NSFW Filter → Write
 ```
 
 **Use when**: Filtering for quality and safety
+
+**Key stages**:
+- `ImageAestheticFilterStage` (GPU)
+- `ImageNSFWFilterStage` (GPU)
 
 ---
 
@@ -141,58 +138,27 @@ stages:
 
 ### Pattern 1: ASR Transcription
 
-```yaml
-stages:
-  - reader: AudioReader
-  - asr: InferenceAsrNemoStage  # GPU
-  - writer: AudioWriter (with transcripts)
+```
+Read → ASR Transcribe → Write (with transcripts)
+       (NeMo ASR)
 ```
 
 **Use when**: Converting speech to text
 
+**Key stages**:
+- `InferenceAsrNemoStage` (GPU)
+
 ### Pattern 2: Quality Assessment
 
-```yaml
-stages:
-  - reader: AudioReader
-  - asr: InferenceAsrNemoStage
-  - wer: WERCalculationStage
-  - filter: WER threshold filter
-  - writer: AudioWriter
+```
+Read → ASR → WER Calculate → Filter by WER → Write
 ```
 
 **Use when**: Filtering by transcription quality
 
----
-
-## Common Crawl Patterns
-
-### Pattern 1: Full CC Pipeline
-
-```yaml
-workflow:
-  - download: CommonCrawlDownloadExtractStage
-  - filter: [All 25 heuristic filters]
-  - classifier: QualityClassifier
-  - classifier: FineWebEduClassifier
-  - dedup: FuzzyDeduplicationWorkflow
-  - writer: ParquetWriter
-```
-
-**Estimated reduction**: 70-90% (raw CC → curated)
-
-### Pattern 2: Language-Specific CC
-
-```yaml
-workflow:
-  - download: CommonCrawlDownloadExtractStage
-  - lang_filter: FastTextLangId (keep target language)
-  - filter: Language-specific heuristics
-  - dedup: FuzzyDeduplicationWorkflow
-  - writer: ParquetWriter
-```
-
-**Use when**: Building non-English datasets
+**Key stages**:
+- `InferenceAsrNemoStage` (GPU)
+- `WERCalculationStage` (CPU)
 
 ---
 
@@ -201,7 +167,6 @@ workflow:
 ### Exact Deduplication
 
 ```python
-# Fast, low memory, catches exact matches only
 ExactDuplicateIdentification(
     input_path=input_path,
     output_path=output_path,
@@ -214,7 +179,6 @@ ExactDuplicateIdentification(
 ### Fuzzy Deduplication
 
 ```python
-# MinHash + LSH, catches near-duplicates
 FuzzyDeduplicationWorkflow(
     input_path=input_path,
     output_path=output_path,
@@ -230,7 +194,6 @@ FuzzyDeduplicationWorkflow(
 ### Semantic Deduplication
 
 ```python
-# Embedding-based, catches paraphrases
 SemanticDeduplicationWorkflow(
     input_path=input_path,
     output_path=output_path,
@@ -253,31 +216,23 @@ Cheap filters first → Expensive classifiers → Deduplication last
 
 This reduces data volume before expensive operations.
 
-### 2. Batch Appropriately
+### 2. Use Built-in Filtering
 
-| Stage Type | Recommended Batch |
-|------------|-------------------|
-| Filters | 1000+ documents |
-| Classifiers | 32-128 documents |
-| Dedup | Full dataset |
+Classifiers have a `filter_by` parameter for filtering by output labels:
+
+```yaml
+- _target_: nemo_curator.stages.text.classifiers.QualityClassifier
+  model_inference_batch_size: 256
+  filter_by: ["high", "medium"]  # Keep only these labels
+```
 
 ### 3. Checkpoint Frequently
 
-For long pipelines, write intermediate outputs:
-
-```yaml
-pipeline:
-  - stage: filters
-    checkpoint: /data/checkpoint/filtered
-  - stage: classifiers
-    checkpoint: /data/checkpoint/classified
-  - stage: dedup
-    output: /data/final
-```
+For long pipelines, write intermediate outputs after each major step.
 
 ### 4. Monitor GPU Utilization
 
-If GPU stages are <80% utilized:
-- Increase batch size
+If GPU stages are underutilized:
+- Increase `model_inference_batch_size`
 - Add more CPU workers feeding GPU stages
-- Check for IO bottlenecks
+- Check for I/O bottlenecks

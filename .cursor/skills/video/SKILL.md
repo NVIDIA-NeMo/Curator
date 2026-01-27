@@ -91,24 +91,27 @@ python -m nemo_curator.config.run \
 │     └── VideoReader                                              │
 │                                                                   │
 │  2. SCENE DETECTION / CLIPPING                                   │
-│     ├── TransNetV2ClipExtractionStage (ML-based, GPU 16GB)       │
+│     ├── VideoFrameExtractionStage (GPU 10GB with pynvc)          │
+│     ├── TransNetV2ClipExtractionStage (ML-based, GPU 10GB)       │
 │     └── OR FixedStrideExtractorStage (fixed duration, CPU)       │
 │                                                                   │
 │  3. TRANSCODING                                                  │
 │     └── ClipTranscodingStage (H.264 encoding)                    │
 │                                                                   │
 │  4. FILTERING (optional)                                         │
-│     ├── MotionFilterStage (remove static clips)                  │
-│     └── ClipAestheticFilterStage (quality scoring)               │
+│     ├── MotionVectorDecodeStage (decode motion data, CPU)        │
+│     ├── MotionFilterStage (remove static clips, CPU)             │
+│     └── ClipAestheticFilterStage (quality scoring, GPU 4GB)      │
 │                                                                   │
 │  5. CAPTIONING (optional)                                        │
 │     ├── CaptionPreparationStage                                  │
-│     ├── CaptionGenerationStage (Qwen VL, GPU 24GB)               │
+│     ├── CaptionGenerationStage (Qwen VL, GPU)                    │
 │     └── CaptionEnhancementStage (optional refinement)            │
 │                                                                   │
 │  6. EMBEDDING (optional)                                         │
-│     ├── CosmosEmbed1EmbeddingStage (NVIDIA, GPU 20GB)            │
-│     └── OR InternVideo2EmbeddingStage (GPU 16GB)                 │
+│     ├── ClipFrameExtractionStage (required before embedding)     │
+│     ├── CosmosEmbed1FrameCreationStage + EmbeddingStage (20GB)   │
+│     └── OR InternVideo2FrameCreationStage + EmbeddingStage       │
 │                                                                   │
 │  7. WRITE CLIPS                                                  │
 │     └── ClipWriterStage                                          │
@@ -139,7 +142,7 @@ python scripts/generate_video_config.py \
 | `threshold` | 0.4 | Scene detection sensitivity (0-1) |
 | `min_length_s` | 2.0 | Minimum clip length in seconds |
 | `max_length_s` | 10.0 | Maximum clip length in seconds |
-| `gpu_memory_gb` | 16.0 | GPU memory requirement |
+| `gpu_memory_gb` | 10.0 | GPU memory requirement |
 
 ### Fixed Stride (Duration-based)
 
@@ -157,9 +160,10 @@ python scripts/generate_video_config.py \
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `clip_duration` | 10.0 | Clip length in seconds |
-| `stride` | 10.0 | Interval between clip starts |
-| `min_clip_length` | 2.0 | Minimum clip length |
+| `clip_len_s` | 10.0 | Clip length in seconds |
+| `clip_stride_s` | 10.0 | Interval between clip starts |
+| `min_clip_length_s` | 2.0 | Minimum clip length |
+| `limit_clips` | -1 | Maximum clips per video (-1 = unlimited) |
 
 ## Embedding Options
 
@@ -187,14 +191,17 @@ Open-source alternative with competitive quality.
 | Stage | GPU Memory | Notes |
 |-------|------------|-------|
 | VideoReader | 0 | CPU-only |
-| TransNetV2 | 16GB | Scene detection |
+| VideoFrameExtraction | 10GB | With pynvc decoder (or 0 with ffmpeg_cpu) |
+| TransNetV2 | 10GB | Scene detection |
 | FixedStride | 0 | CPU-only |
 | ClipTranscoding | 0-4GB | Optional GPU acceleration |
-| MotionFilter | 4GB | Motion scoring |
+| MotionVectorDecode | 0 | CPU-only |
+| MotionFilter | 0 | CPU by default (optional GPU) |
 | AestheticFilter | 4GB | Quality scoring |
-| CaptionGeneration | 24GB | Qwen VL model |
+| CaptionGeneration | 1 GPU | Qwen VL model (requires full GPU) |
 | CaptionEnhancement | 16GB | Qwen LM model |
-| CosmosEmbed1 | 16-20GB | Depends on variant |
+| ClipFrameExtraction | 0 | CPU-only (required before embedding) |
+| CosmosEmbed1 | 20GB | Default variant |
 | InternVideo2 | 16GB | Alternative embedder |
 
 ## Pipeline Options
@@ -207,19 +214,19 @@ Open-source alternative with competitive quality.
 | `--embed-model` | Embedding model variant | `cosmos-embed1-224p` |
 | `--filter-motion` | Filter static clips | `true` |
 | `--aesthetic-threshold` | Minimum aesthetic score | `None` (disabled) |
-| `--motion-threshold` | Minimum motion score | `0.1` |
+| `--motion-threshold` | Minimum motion score | `0.00098` |
 
 ## Common Workflows
 
 ### Basic Clip Extraction
 
 ```bash
+# Caption and embed are disabled by default (caption) or can be disabled (embed)
 python scripts/generate_video_config.py \
   --input-path /data/videos \
   --output-path /data/clips \
   --clip-method fixed_stride \
   --fixed-stride-duration 10.0 \
-  --no-caption \
   --no-embed \
   --output-file basic_clips.yaml
 ```
@@ -242,6 +249,7 @@ python scripts/generate_video_config.py \
 ### Caption-Only Pipeline
 
 ```bash
+# Enable captions, disable embeddings
 python scripts/generate_video_config.py \
   --input-path /data/videos \
   --output-path /data/clips \

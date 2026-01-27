@@ -141,19 +141,32 @@ ray.init(
 
 ### Classifiers
 
-| Classifier | Batch Size | GPU Memory | Throughput |
-|------------|------------|------------|------------|
-| QualityClassifier | 64 | ~8GB | ~1000 docs/s |
-| FineWebEduClassifier | 32 | ~12GB | ~500 docs/s |
-| AegisClassifier | 16 | ~16GB | ~200 docs/s |
+All classifiers use `model_inference_batch_size` parameter (default: 256).
+
+| Classifier | Default Batch | Notes |
+|------------|---------------|-------|
+| QualityClassifier | 256 | DeBERTa-based, moderate GPU memory |
+| FineWebEduClassifier | 256 | Regression model |
+| DomainClassifier | 256 | DeBERTa-based |
+| AegisClassifier | 64 | LLM-based (LlamaGuard), higher memory |
+
+**Note**: Actual throughput and memory usage varies significantly based on:
+- Input text length (`max_chars` parameter)
+- GPU model and memory
+- Whether `autocast` is enabled (default: True)
+- `sort_by_length` optimization (default: True)
+
+Adjust `model_inference_batch_size` based on your GPU memory. Start with the default and reduce if OOM errors occur.
 
 ### Video Stages
 
-| Stage | Batch Size | GPU Memory | Throughput |
-|-------|------------|------------|------------|
-| TransNetV2 | 1 | ~8GB | ~2 clips/s |
-| CaptionGeneration | 1 | ~24GB | ~0.5 clips/s |
-| CosmosEmbed1 | 4 | ~12GB | ~4 clips/s |
+| Stage | Notes |
+|-------|-------|
+| TransNetV2ClipExtractionStage | GPU-based scene detection |
+| CaptionGenerationStage | Qwen VL model, requires significant GPU memory |
+| CosmosEmbed1EmbeddingStage | NVIDIA Cosmos embeddings |
+
+**Note**: Video stage throughput depends heavily on video resolution, duration, and GPU model.
 
 ---
 
@@ -195,7 +208,7 @@ executor = XennaExecutor(config={
 
 | Symptom | Cause | Solution |
 |---------|-------|----------|
-| Low GPU util | Small batches | Increase batch_size |
+| Low GPU util | Small batches | Increase `model_inference_batch_size` |
 | High memory | Large bands_per_iteration | Reduce parameter |
 | Slow IO | Network bottleneck | Use local storage |
-| Task failures | OOM | Add more workers |
+| Task failures | OOM | Reduce batch size or add workers |

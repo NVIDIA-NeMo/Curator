@@ -37,12 +37,14 @@ from shared.introspect import estimate_gpu_memory, get_stages_by_modality
 # Category mappings for video stages
 VIDEO_CATEGORIES = {
     "io": ["VideoReader", "VideoReaderStage", "ClipWriterStage"],
+    "frame_extraction": [
+        "VideoFrameExtractionStage",
+        "ClipFrameExtractionStage",
+    ],
     "clipping": [
         "TransNetV2ClipExtractionStage",
         "FixedStrideExtractorStage",
         "ClipTranscodingStage",
-        "VideoFrameExtractionStage",
-        "ClipFrameExtractionStage",
     ],
     "filtering": [
         "MotionVectorDecodeStage",

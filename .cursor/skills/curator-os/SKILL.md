@@ -59,8 +59,8 @@ Route user requests to the appropriate skill based on intent and modality:
 | `/filter` | Heuristic text filtering (33+ filters) |
 | `/classify` | ML classification (quality, domain, safety) |
 | `/dedup-fuzzy` | MinHash + LSH deduplication |
-| `/dedup-exact` | Hash-based exact deduplication |
-| `/dedup-semantic` | Embedding-based semantic deduplication |
+
+**Note**: For exact deduplication (`ExactDuplicateIdentification`) and semantic deduplication (`SemanticDeduplicationWorkflow`), see `/stages` or the MODALITY_PATTERNS reference.
 
 ### Utility Skills
 
