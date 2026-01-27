@@ -34,16 +34,17 @@ This builds the `curator_benchmarking` image with:
 Instead of building the NeMo Curator image from source, you can pull an existing image and build the benchmarking image on top of it:
 
 ```bash
-./benchmarking/tools/build_docker.sh --curator-image nvcr.io/nvidia/nemo:25.01
+CURATOR_IMAGE=nvcr.io/nvidia/nemo:25.01 ./benchmarking/tools/build_docker.sh --skip-curator-image-build
 ```
 
-This pulls the specified image and uses it as the base for the benchmarking image, which is useful for:
+This pulls the image specified by `CURATOR_IMAGE` and uses it as the base for the benchmarking image, which is useful for:
 - Using official NeMo releases
 - Testing against specific versions
 - Avoiding the base image build step
 
 Additional options:
 - `--tag-as-latest`: Tag the built images with `:latest` in addition to the timestamped tag
+- `--skip-curator-image-build`: Skip building the base Curator image and pull `CURATOR_IMAGE` instead
 
 Note: you may only need to do this periodically when the environment needs to be updated. See the `--use-host-curator` example below.
 
