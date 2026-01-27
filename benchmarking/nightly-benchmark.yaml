@@ -1,14 +1,13 @@
-# These three paths must be defined and are used to resolve the results,
-# datasets, and model paths. These must be existing paths on the host.
+# These two paths must be defined and are used to resolve the results and
+# datasets paths. These must be existing paths on the host.
 # If running inside a Docker container started with tools/run.sh, the paths
 # will automatically be mapped to the appropriate volume mount.
 # If running on the host, the paths will remain as defined below.
 # Paths can be used in other values in this file by using their placeholder
-# (e.g. {datasets_path}/my/test/dataset.parquet, {model_path}/model_weights)
-# and will be resolved to the appropriate path at runtime.
+# (e.g. {datasets_path}/my/test/dataset.parquet) and will be resolved to the
+# appropriate path at runtime.
 results_path: /path/where/results/are/stored
 datasets_path: /path/to/datasets
-model_path: /path/to/models
 
 datasets:
   - name: "tinystories"
@@ -44,7 +43,7 @@ datasets:
   - name: "videos_model_weights"
     formats:
     - type: "files"
-      path: "{model_path}/video_model_weights"
+      path: "{datasets_path}/video_model_weights"
       
 
 default_timeout_s: 7200
