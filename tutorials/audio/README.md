@@ -11,6 +11,7 @@ Hands-on tutorials for curating audio data with NeMo Curator. Complete working e
 | Tutorial | Description | Files |
 |----------|-------------|-------|
 | **[FLEURS Dataset](fleurs/)** | Complete pipeline for multilingual speech data | `pipeline.py`, `run.py`, `pipeline.yaml` |
+| **[ALM Data Pipeline](alm/)** | Create training windows for Audio Language Models | `main.py`, `pipeline.yaml` |
 
 ## Documentation Links
 
