@@ -1,0 +1,50 @@
+---
+title: Video Curation Concepts
+description: "Essential concepts for video data curation including distributed processing, pipeline stages, and execution modes"
+---
+
+This document covers the essential concepts for video data curation in NVIDIA NeMo Curator. These concepts assume basic familiarity with data science and machine learning principles.
+
+## Core Concept Areas
+
+Video curation in NVIDIA NeMo Curator focuses on these key areas:
+
+<Cards>
+
+<Card title="Architecture" href="/about/concepts/video/architecture">
+Core concepts for distributed processing, Ray foundation, and auto-scaling
+</Card>
+
+<Card title="Key Abstractions" href="/about/concepts/video/abstractions">
+Stages, pipelines, and execution modes in video curation workflows
+</Card>
+
+<Card title="Data Flow" href="/about/concepts/video/data-flow">
+How data moves through the system from ingestion to output
+</Card>
+
+</Cards>
+## Notes on Modalities and Backends
+
+Video pipelines in Curator run on Ray with the `XennaExecutor` integration for streaming and batch execution. Other modalities, such as text and image, also use RAPIDS and Curator’s distributed backends in parts of their workflows. Refer to the modality-specific guides for details.
+
+## Infrastructure Components
+
+The video curation concepts build on NVIDIA NeMo Curator's core infrastructure components. All modalities (text, image, video, and audio) use these components. These components include:
+
+<Cards>
+
+<Card title="Memory Management" href="/reference/infrastructure/memory-management">
+Optimize memory usage for large datasets
+</Card>
+
+<Card title="GPU Acceleration" href="/reference/infrastructure/gpu-processing">
+Leverage NVIDIA GPU acceleration for faster data processing
+</Card>
+
+<Card title="Resumable Processing" href="/reference/infrastructure/resumable-processing">
+Continue interrupted operations on large datasets
+</Card>
+
+</Cards>
+
