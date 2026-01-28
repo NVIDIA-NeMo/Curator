@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .convert import ConvertImageBatchToDocumentBatchStage
 from .image_reader import ImageReaderStage
+from .image_writer import ImageWriterStage
 
-__all__ = ["ImageReaderStage"]
+__all__ = ["ConvertImageBatchToDocumentBatchStage", "ImageReaderStage", "ImageWriterStage"]
