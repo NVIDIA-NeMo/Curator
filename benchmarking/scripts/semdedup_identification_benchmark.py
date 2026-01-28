@@ -100,23 +100,23 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
 
     run_time_taken = time.perf_counter() - run_start_time
 
-    # Normalize to a map here for backwards-compatibility with the legacy Curator
-    pipeline_task_map = normalize_pipeline_tasks(workflow_run_result)
-
-    aggregate_task_metrics = getattr(TaskPerfUtils, "aggregate_task_metrics", aggregate_task_metrics_for_legacy)
-    task_metrics = aggregate_task_metrics(pipeline_task_map)
-
-    # Extract metrics from workflow result
-    if hasattr(workflow_run_result, "metadata"):
-        workflow_total_time = workflow_run_result.metadata.get("total_time")
-        kmeans_time = workflow_run_result.metadata.get("kmeans_time")
-        pairwise_time = workflow_run_result.metadata.get("pairwise_time")
-        num_duplicates = workflow_run_result.metadata.get("num_duplicates")
-    elif isinstance(workflow_run_result, dict):
+    # Legacy
+    if isinstance(workflow_run_result, dict):
         workflow_total_time = workflow_run_result.get("total_execution_time")
         kmeans_time = workflow_run_result.get("kmeans_execution_time")
         pairwise_time = workflow_run_result.get("pairwise_execution_time")
         num_duplicates = workflow_run_result.get("total_duplicates_identified")
+
+        pipeline_task_map = normalize_pipeline_tasks(workflow_run_result)
+        task_metrics = aggregate_task_metrics_for_legacy(pipeline_task_map)
+    # Modern
+    elif hasattr(TaskPerfUtils, "aggregate_task_metrics"):
+        workflow_total_time = workflow_run_result.metadata.get("total_time")
+        kmeans_time = workflow_run_result.metadata.get("kmeans_time")
+        pairwise_time = workflow_run_result.metadata.get("pairwise_time")
+        num_duplicates = workflow_run_result.metadata.get("num_duplicates")
+
+        task_metrics = TaskPerfUtils.aggregate_task_metrics(workflow_run_result)
     else:
         workflow_total_time = None
         kmeans_time = None

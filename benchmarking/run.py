@@ -20,7 +20,6 @@ import shutil
 import sys
 import time
 import traceback
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -89,14 +88,15 @@ def get_entry_script_persisted_data(session_entry_path: Path) -> dict[str, Any]:
     else:
         with open(tasks_pkl, "rb") as f:
             script_tasks = pickle.load(f)  # noqa: S301
-        task_types = (list, WorkflowRunResult, Mapping) if WorkflowRunResult is not None else (list, Mapping)
-        if isinstance(script_tasks, task_types):
-            # Fallback to the local copy of aggregate_task_metrics if the method is not available in the TaskPerfUtils class.
+
+        # Legacy
+        if isinstance(script_tasks, dict):
+            # Fallback to the local copy of aggregate_task_metrics
             # This should provide some amount of backwards compatibility with older versions of nemo-curator, but has the disadvantage of possibly being out of date with the latest changes.
-            aggregate_task_metrics = getattr(
-                TaskPerfUtils, "aggregate_task_metrics", aggregate_task_metrics_for_legacy
-            )
-            script_metrics.update(aggregate_task_metrics(script_tasks, prefix="task"))
+            script_metrics.update(aggregate_task_metrics_for_legacy(script_tasks, prefix="task"))
+        # Modern
+        elif hasattr(TaskPerfUtils, "aggregate_task_metrics"):
+            script_metrics.update(TaskPerfUtils.aggregate_task_metrics(script_tasks, prefix="task"))
         else:
             msg = f"Invalid tasks type loaded from {tasks_pkl}: {type(script_tasks)}"
             raise TypeError(msg)
