@@ -81,7 +81,6 @@ COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_cur
 # Install Curator
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    --mount=type=cache,target=/root/.cache/uv \
     uv sync --link-mode copy --locked --extra all --all-groups --no-cache && \
     uv add /opt/InternVideo/InternVideo2/multi_modality
 
