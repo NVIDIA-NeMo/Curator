@@ -57,6 +57,9 @@ inputs:
   runner:
     description: "Runner to use"
     required: true
+  container-image:
+    description: "Container image to use for test"
+    required: true
 runs:
   using: "composite"
   steps:
