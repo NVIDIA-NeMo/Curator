@@ -70,9 +70,9 @@ runs:
     - name: Azure Login
       uses: azure/login@v2
       with:
-        client-id: ${{ inputs.AZURE_CLIENT_ID }}
-        tenant-id: ${{ inputs.AZURE_TENANT_ID }}
-        subscription-id: ${{ inputs.AZURE_SUBSCRIPTION_ID }}
+        client-id: ${{ inputs.azure-client-id }}
+        tenant-id: ${{ inputs.azure-tenant-id }}
+        subscription-id: ${{ inputs.azure-subscription-id }}
 
     - name: Azure ACR Login
       shell: bash
@@ -138,4 +138,4 @@ runs:
           ${{ env.container-registry }}/${{ env.REPO_LOWER }}:${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').number || 0 }}
           ${{ env.container-registry }}/${{ env.REPO_LOWER }}:${{ github.sha }}
         secrets: |
-          GH_TOKEN=${{ secrets.PAT }}
+          GH_TOKEN=${{ inputs.PAT }}
