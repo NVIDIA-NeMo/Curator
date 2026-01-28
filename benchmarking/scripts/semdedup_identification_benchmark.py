@@ -28,7 +28,8 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from utils import load_dataset_files, setup_executor, write_benchmark_results
+from utils import aggregate_task_metrics as aggregate_task_metrics_for_legacy
+from utils import load_dataset_files, normalize_pipeline_tasks, setup_executor, write_benchmark_results
 
 from nemo_curator.stages.deduplication.semantic.workflow import SemanticDeduplicationWorkflow
 from nemo_curator.tasks.utils import TaskPerfUtils
@@ -98,13 +99,29 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     workflow_run_result = workflow.run(pairwise_executor=executor_obj)
 
     run_time_taken = time.perf_counter() - run_start_time
-    task_metrics = TaskPerfUtils.aggregate_task_metrics(workflow_run_result)
+
+    # Normalize to a map here for backwards-compatibility with the legacy Curator
+    pipeline_task_map = normalize_pipeline_tasks(workflow_run_result)
+
+    aggregate_task_metrics = getattr(TaskPerfUtils, "aggregate_task_metrics", aggregate_task_metrics_for_legacy)
+    task_metrics = aggregate_task_metrics(pipeline_task_map)
 
     # Extract metrics from workflow result
-    workflow_total_time = workflow_run_result.metadata.get("total_time")
-    kmeans_time = workflow_run_result.metadata.get("kmeans_time")
-    pairwise_time = workflow_run_result.metadata.get("pairwise_time")
-    num_duplicates = workflow_run_result.metadata.get("num_duplicates")
+    if hasattr(workflow_run_result, "metadata"):
+        workflow_total_time = workflow_run_result.metadata.get("total_time")
+        kmeans_time = workflow_run_result.metadata.get("kmeans_time")
+        pairwise_time = workflow_run_result.metadata.get("pairwise_time")
+        num_duplicates = workflow_run_result.metadata.get("num_duplicates")
+    elif isinstance(workflow_run_result, dict):
+        workflow_total_time = workflow_run_result.get("total_execution_time")
+        kmeans_time = workflow_run_result.get("kmeans_execution_time")
+        pairwise_time = workflow_run_result.get("pairwise_execution_time")
+        num_duplicates = workflow_run_result.get("total_duplicates_identified")
+    else:
+        workflow_total_time = None
+        kmeans_time = None
+        pairwise_time = None
+        num_duplicates = None
 
     # Calculate percentage times
     pairwise_percent_time = None
@@ -116,6 +133,7 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         # this is different than kmeans_time because kmeans_time also includes setting up actors
         # while this is just sum of mean time taken across actors across the three steps
         _kmeans_time_taken = kmeans_read_time + kmeans_write_time + kmeans_fit_predict_time
+        _kmeans_time_taken = 1 if _kmeans_time_taken == 0 else _kmeans_time_taken  # avoid division by zero
 
         kmeans_read_percent_time = round((kmeans_read_time / _kmeans_time_taken) * 100, 2)
         kmeans_write_percent_time = round((kmeans_write_time / _kmeans_time_taken) * 100, 2)
@@ -123,6 +141,15 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
 
         kmeans_percent_time = round((kmeans_time / workflow_total_time) * 100, 2)
         pairwise_percent_time = round((pairwise_time / workflow_total_time) * 100, 2)
+    else:
+        kmeans_read_time = None
+        kmeans_write_time = None
+        kmeans_fit_predict_time = None
+        kmeans_read_percent_time = None
+        kmeans_write_percent_time = None
+        kmeans_fit_predict_percent_time = None
+        kmeans_percent_time = None
+        pairwise_percent_time = None
 
     logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
 
