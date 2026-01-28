@@ -63,6 +63,12 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        path: NeMo-Curator
+        submodules: recursive
+
     - name: Install Azure CLI
       if: ${{ inputs.has-azure-credentials == 'true' }}
       shell: bash
@@ -77,6 +83,12 @@ runs:
         tenant-id: ${{ inputs.azure-tenant-id }}
         subscription-id: ${{ inputs.azure-subscription-id }}
 
+    - name: Azure ACR Login
+      if: ${{ inputs.has-azure-credentials == 'true' }}
+      shell: bash
+      run: |
+        az acr login --name nemoci
+
     - name: Install uuidgen
       shell: bash -x -e -u -o pipefail {0}
       if: ${{ contains(inputs.runner, 'aws') }}
@@ -84,18 +96,6 @@ runs:
         apt-get update
         apt-get install -y uuid-runtime
 
-    - name: Checkout repository
-      uses: actions/checkout@v2
-      with:
-        path: NeMo-Curator
-        submodules: recursive
-
-    - name: Build container
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.PAT }}
-      run: |
-        docker build -f docker/Dockerfile -t ray-curator .
 
     - name: Start container
       shell: bash
@@ -119,7 +119,7 @@ runs:
           --volume $(pwd)/NeMo-Curator:/workspace \
           --workdir /workspace \
           --volume ${{ inputs.test-data-path }}:/home/TestData \
-          ray-curator \
+          ${{ inputs.container-image }} \
           bash -c "sleep $(( ${{ inputs.timeout }} * 60 + 60 ))"
         RUN_TEST_EOF
         )
