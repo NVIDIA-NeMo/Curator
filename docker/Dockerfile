@@ -79,7 +79,8 @@ RUN cd /opt/Curator && \
   uv sync --link-mode copy --locked --extra all --all-groups && \
   uv add /opt/InternVideo/InternVideo2/multi_modality && \
   uv cache prune && \
-  uv cache clean distance
+  uv cache clean distance && \
+  find /opt/uv_cache/ -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} +
 
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv
