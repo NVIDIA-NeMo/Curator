@@ -31,6 +31,7 @@ permissions:
   actions: write  # Required for gh run cancel
 
 env:
+  container-registry: nemoci.azurecr.io
   UV_HTTP_TIMEOUT: 60
 
 jobs:
@@ -138,6 +139,31 @@ jobs:
             ./.coverage
           include-hidden-files: true
 
+  cicd-container-build:
+    needs: [pre-flight, cicd-wait-in-queue]
+    if: |
+      (
+        success()
+        || needs.pre-flight.outputs.is_ci_workload == 'true'
+        || needs.pre-flight.outputs.force_run_all == 'true'
+      )
+      && !cancelled()
+    runs-on: self-hosted-nemo
+    environment: nemo-ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: main
+        uses: ./.github/actions/build-container
+        with:
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          dockerfile-path: "./docker/Dockerfile"
+          has-azure-credentials: "true"
+          PAT: ${{ secrets.PAT }}
+          repo-name: "Curator"
+
   cicd-gpu-tests:
     strategy:
       fail-fast: false
@@ -145,7 +171,7 @@ jobs:
         include:
           - script: L0_Unit_Test_GPU
             runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
-    needs: [pre-flight, cicd-wait-in-queue]
+    needs: [pre-flight, cicd-wait-in-queue, cicd-container-build]
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.script }}
     environment: nemo-ci
@@ -174,6 +200,7 @@ jobs:
           timeout: 20
           test-data-path: ${{ needs.pre-flight.outputs.test_data_path }}
           runner: ${{ matrix.runner }}
+          container-image: ${{ env.container-registry }}/curator:${{ github.sha }}
 
   Nemo_CICD_Test:
     needs:

@@ -1,0 +1,140 @@
+# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Build container
+
+inputs:
+  azure-client-id:
+    description: "Azure Client ID"
+    required: true
+  azure-tenant-id:
+    description: "Azure Tenant ID"
+    required: true
+  azure-subscription-id:
+    description: "Azure Subscription ID"
+    required: true
+  dockerfile-path:
+    description: "Path to dockerfile to build"
+    required: true
+  has-azure-credentials:
+    description: "Has Azure credentials"
+    required: false
+    default: "false"
+  PAT:
+    description: "GitHub Personal Access Token"
+    required: true
+  repo-name:
+    description: "The name of the repo to build container"
+    required: true
+    type: string
+
+env:
+  container-registry: nemoci.azurecr.io
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.12
+
+    - name: Get PR info
+      id: get-pr-info
+      if: startsWith(github.ref, 'refs/heads/pull-request/')
+      uses: nv-gha-runners/get-pr-info@main
+
+    - name: Install Azure CLI
+      shell: bash
+      run: |
+        echo "::group::Install Azure CLI"
+        # Create systemd override for proper dependencies
+        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+        echo "::endgroup::"
+
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        client-id: ${{ inputs.azure-client-id }}
+        tenant-id: ${{ inputs.azure-tenant-id }}
+        subscription-id: ${{ inputs.azure-subscription-id }}
+
+    - name: Azure ACR Login
+      shell: bash
+      run: |
+        az acr login --name nemoci
+
+    - name: Install GH CLI
+      shell: bash
+      run: |
+        apt-get update
+        apt-get install -y gh
+
+    - name: Normalize repo name to lowercase
+      shell: bash
+      env:
+        REPO: ${{ inputs.repo-name }}
+      run: |
+        echo "REPO_LOWER=${REPO,,}" >> "$GITHUB_ENV"
+
+    - name: Get last merged PR
+      shell: bash
+      id: cache_from
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        LAST_PRS=$(gh api graphql \
+          -F owner="NVIDIA-NeMo" \
+          -F name=${{ inputs.repo-name }} \
+          -f query='
+            query($owner: String!, $name: String!) {
+              repository(owner: $owner, name: $name) {
+                pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
+                  nodes {
+                    number
+                  }
+                }
+              }
+            }' | jq -r '.data.repository.pullRequests.nodes[].number' | while read -r number; do
+            echo "type=registry,ref=${{ env.container-registry }}/${{ env.REPO_LOWER }}:$number-buildcache,mode=max"
+          done)
+
+        echo "LAST_PRS<<EOF" | tee -a $GITHUB_OUTPUT
+        echo "$LAST_PRS" | tee -a $GITHUB_OUTPUT
+        echo "EOF" | tee -a $GITHUB_OUTPUT
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and push
+      uses: docker/build-push-action@v5
+      with:
+        file: ${{ inputs.dockerfile-path }}
+        push: true
+        context: .
+        cache-from: |
+          type=registry,ref=${{ env.container-registry }}/${{ env.REPO_LOWER }}:${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').number || 0 }}-buildcache,mode=max
+          type=registry,ref=${{ env.container-registry }}/${{ env.REPO_LOWER }}:main-buildcache,mode=max
+          ${{ steps.cache_from.outputs.LAST_PRS }}
+        cache-to: |
+          type=registry,ref=${{ env.container-registry }}/${{ env.REPO_LOWER }}:${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').number || 0 }}-buildcache,mode=max
+        no-cache: false
+        tags: |
+          ${{ env.container-registry }}/${{ env.REPO_LOWER }}:${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').number || 0 }}
+          ${{ env.container-registry }}/${{ env.REPO_LOWER }}:${{ github.sha }}
+        secrets: |
+          GH_TOKEN=${{ inputs.PAT }}
