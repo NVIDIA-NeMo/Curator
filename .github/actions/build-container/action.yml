@@ -47,7 +47,6 @@ runs:
   steps:
     - name: Checkout
       uses: actions/checkout@v4
-      with:
 
     - name: Setup python
       uses: actions/setup-python@v5
