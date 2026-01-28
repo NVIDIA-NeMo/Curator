@@ -215,6 +215,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 )
             )
 
+        # All models now use the standard model_dir (auto-downloaded from HuggingFace)
         pipeline.add_stage(
             CaptionGenerationStage(
                 model_dir=args.model_dir,
@@ -297,16 +298,17 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         default="./models",
         help=(
             "Path to model directory containing required model weights. "
-            "Models will be automatically downloaded on first use if not present. "
+            "Models will be automatically downloaded from HuggingFace on first use if not present. "
             "Required models depend on selected algorithms:\n"
             "  - TransNetV2: For scene detection (--splitting-algorithm transnetv2)\n"
             "  - InternVideo2: For embeddings (--embedding-algorithm internvideo2)\n"
             "  - Cosmos-Embed1: For embeddings (--embedding-algorithm cosmos-embed1-*)\n"
-            "  - Qwen: For captioning (--generate-captions)\n"
+            "  - Qwen2.5-VL: For captioning (--captioning-algorithm qwen)\n"
+            "  - Nemotron Nano VL: For captioning (--captioning-algorithm nemotron[-bf16|-fp8|-nvfp4])\n"
             "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
             "Default: ./models\n"
             "Example: --model-dir /path/to/models or --model-dir ./models"
-        )
+        ),
     )
     parser.add_argument("--video-limit", type=int, default=None, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
@@ -586,8 +588,14 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         "--captioning-algorithm",
         type=str,
         default="qwen",
-        choices=["qwen"],
-        help="Captioning algorithm to use in annotation pipeline.",
+        choices=["qwen", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"],
+        help=(
+            "Captioning algorithm to use. Options:\n"
+            "  - qwen: Qwen2.5-VL-7B-Instruct (default)\n"
+            "  - nemotron / nemotron-bf16: Nemotron Nano 12B v2 VL BF16 (auto-downloaded from HF)\n"
+            "  - nemotron-fp8: Nemotron Nano 12B v2 VL FP8 quantized\n"
+            "  - nemotron-nvfp4: Nemotron Nano 12B v2 VL NVFP4-QAD quantized"
+        ),
     )
     parser.add_argument(
         "--captioning-window-size",
@@ -648,25 +656,28 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         dest="captioning_stage2_caption",
         action="store_true",
         default=False,
-        help="If set, generated captions are used as input prompts again into QwenVL to refine them",
+        help="If set, generated captions are refined with a second model pass (works for both Qwen and Nemotron)",
     )
     parser.add_argument(
         "--captioning-stage2-prompt-text",
         type=str,
         default=None,
-        help="Specify the input prompt used to generate stage2 Qwen captions",
+        help="Specify the prompt used for stage2 caption refinement.",
     )
     parser.add_argument(
         "--captioning-batch-size",
         type=int,
         default=8,
-        help="Batch size for Qwen captioning stage.",
+        help="Batch size for captioning stage (applies to both Qwen and Nemotron).",
     )
     parser.add_argument(
         "--captioning-use-fp8-weights",
         action="store_true",
         default=False,
-        help="Whether to use fp8 weights for Qwen VL model or not.",
+        help=(
+            "Whether to use fp8 weights for Qwen VL model. "
+            "Note: For Nemotron, use --captioning-algorithm nemotron-fp8 instead."
+        ),
     )
     parser.add_argument(
         "--captioning-max-output-tokens",

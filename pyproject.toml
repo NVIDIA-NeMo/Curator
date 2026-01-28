@@ -152,6 +152,9 @@ video_cuda12 = [
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.9.1",
     "torchaudio",
+    # Nemotron VL support
+    "transformers>=4.56.0",
+    "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # All dependencies

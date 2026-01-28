@@ -188,7 +188,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
                 clip.cosmos_embed1_embedding = None
                 for window in clip.windows:
                     window.mp4_bytes = None
-                    window.qwen_llm_input = None
+                    window.llm_inputs.clear()
                     window.caption.clear()
                     window.enhanced_caption.clear()
                     window.webp_bytes = None
