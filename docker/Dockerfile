@@ -84,9 +84,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/root/.cache/uv \
     uv sync --link-mode copy --locked --extra all --all-groups && \
     uv add /opt/InternVideo/InternVideo2/multi_modality && \
-    uv cache prune && \
-    uv cache clean distance && \
-    find /opt/uv_cache/ -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} +
+    find /opt/uv_cache/ -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
+    uv cache prune --ci && \
+    uv cache clean distance
 
 COPY . /opt/Curator
 
