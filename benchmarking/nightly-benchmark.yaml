@@ -33,7 +33,7 @@ datasets:
   - name: "mscoco"
     formats:
     - type: "wds"
-      path: "{datasets_path}/mscoco/wds/truncated_100K_mscoco_benchmarking"
+      path: "{datasets_path}/mscoco/wds/full_mscoco_benchmarking"
   - name: "mscoco_model_weights"
     formats:
     - type: "files"
@@ -437,15 +437,15 @@ entries:
 
   - name: image_curation
     enabled: true
-    script: "{curator_repo_dir}/tutorials/image/getting-started/image_curation_example.py"
+    script: image_pipeline_benchmark.py
     args: >-
       --input-wds-dataset-dir {dataset:mscoco,wds}
       --output-dataset-dir {session_entry_dir}/scratch/output
       --model-dir {dataset:mscoco_model_weights,files}
-      --batch-size 100
-      --embedding-batch-size 100
-      --aesthetic-batch-size 100
-      --nsfw-batch-size 100
+      --batch-size 1000
+      --embedding-batch-size 500
+      --aesthetic-batch-size 500
+      --nsfw-batch-size 500
       --tar-files-per-partition 10
       --aesthetic-threshold 0.9
       --nsfw-threshold 0.9
