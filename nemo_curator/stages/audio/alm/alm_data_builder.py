@@ -362,7 +362,9 @@ class ALMDataBuilderStage(LegacySpeechStage):
             if not (self.min_duration <= window_dur <= self.max_duration):
                 stat["lost_win"] += 1
                 stat["dur_lost_win"] += seg["end"] - seg["start"]
-                next_segment = segments[curr_idx]
+                # Bounds check: curr_idx may equal len(segments) if loop completed without break
+                next_seg_idx = min(curr_idx, len(segments) - 1)
+                next_segment = segments[next_seg_idx]
                 if next_segment.get("speaker", "no-speaker") == "no-speaker":
                     stat["lost_no_spkr"] += 1
                     stat["dur_lost_no_spkr"] += seg["end"] - seg["start"]
@@ -386,7 +388,9 @@ class ALMDataBuilderStage(LegacySpeechStage):
             ):
                 stat["lost_win"] += 1
                 stat["dur_lost_win"] += seg["end"] - seg["start"]
-                next_segment = segments[curr_idx]
+                # Bounds check: curr_idx may equal len(segments) if loop completed without break
+                next_seg_idx = min(curr_idx, len(segments) - 1)
+                next_segment = segments[next_seg_idx]
                 if next_segment.get("speaker", "no-speaker") == "no-speaker":
                     stat["lost_no_spkr"] += 1
                     stat["dur_lost_no_spkr"] += seg["end"] - seg["start"]
