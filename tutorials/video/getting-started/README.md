@@ -145,7 +145,7 @@ pipeline.add_stage(
         generate_embeddings=True,
         generate_previews=False,
         generate_captions=False,
-        embedding_algorithm="cosmos-embed1",
+        embedding_algorithm="cosmos-embed1-336p",
     )
 )
 
