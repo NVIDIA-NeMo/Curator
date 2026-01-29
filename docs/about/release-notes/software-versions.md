@@ -23,7 +23,7 @@ This page lists software component versions bundled with each NeMo Curator relea
 * - Software Component
   - Version
 * - NeMo Curator
-  - 1.1.0rc0
+  - 1.1.0
 * - Python
   - 3.10, 3.11, 3.12
 * - PyTorch
@@ -152,9 +152,6 @@ NeMo Curator supports modular installation through pip extras. Choose based on y
 * - Video (GPU)
   - `nemo-curator[video_cuda12]`
   - Video clipping, scene detection, GPU encoding/decoding
-* - Base GPU
-  - `nemo-curator[cuda12]`
-  - GPU utilities only (for custom setups)
 * - Text (CPU)
   - `nemo-curator[text_cpu]`
   - CPU-only text processing (limited features)
@@ -181,43 +178,9 @@ uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[EXTRA]
 * - Linux
   - aarch64
   - CPU support only
-* - macOS
-  - ARM/Intel
-  - CPU support (development only)
 * - Windows
   - x86_64
   - Not supported
-```
-
-## Security Constraints
-
-NeMo Curator enforces minimum versions for dependencies with known security vulnerabilities:
-
-```{list-table}
-:header-rows: 1
-:widths: 30 25 45
-
-* - Package
-  - Minimum Version
-  - CVE Addressed
-* - aiohttp
-  - ≥3.13.3
-  - GHSA-6mq8-rvhq-8wgg
-* - protobuf
-  - ≥4.25.8
-  - GHSA-8qvm-5x2c-j2w7
-* - xgrammar
-  - ≥0.1.21
-  - GHSA-5cmr-4px5-23pc
-* - starlette
-  - ≥0.49.1
-  - GHSA-7f5h-v6xp-fcq8
-* - Ray
-  - ≥2.52
-  - GHSA-q279-jhrf-cc6v
-* - urllib3
-  - ≥2.6.3
-  - GHSA-38jv-5279-wg99
 ```
 
 ## Verify Installed Versions
