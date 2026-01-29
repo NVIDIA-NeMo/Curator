@@ -102,7 +102,8 @@ def main(args: argparse.Namespace) -> None:
 
     # Step 1: Download and prepare webdataset from parquet file
     if not args.skip_download:
-        raise AssertionError("Downloading is not supported in pipeline benchmark.")
+        msg = "Downloading is not supported in pipeline benchmark."
+        raise AssertionError(msg)
     else:
         print("Step 1: Skipping download (using existing dataset)")
         print(f"Using existing dataset at: {args.input_wds_dataset_dir}")
