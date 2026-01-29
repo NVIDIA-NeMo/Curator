@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import argparse
-import os
 import time
 
 from nemo_curator.backends.xenna import XennaExecutor
@@ -103,7 +102,7 @@ def main(args: argparse.Namespace) -> None:
 
     # Step 1: Download and prepare webdataset from parquet file
     if not args.skip_download:
-        assert False, "Downloading is not supported in pipeline benchmark."
+        raise AssertionError("Downloading is not supported in pipeline benchmark.")
     else:
         print("Step 1: Skipping download (using existing dataset)")
         print(f"Using existing dataset at: {args.input_wds_dataset_dir}")
