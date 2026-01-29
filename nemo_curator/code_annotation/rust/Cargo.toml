@@ -1,0 +1,35 @@
+[package]
+name = "code_annotation"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal code annotation library for NeMo Curator"
+
+[lib]
+name = "_code_annotation"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[build-dependencies]
+cc = "*"
+
+[dependencies]
+lazy-regex = "3.3.0"
+pyo3 = { version = "0.22.4", features = ["extension-module"] }
+regex = { version = "1.10.6", features = ["perf"] }
+tiktoken-rs = "0.6.0"
+bpe-openai = "0.2.1"
+bpe = { version = "0.2.0", features = ["tiktoken"] }
+smallvec = { version = "1.13", features = ["const_generics"] }
+
+# External dependencies - copied from nvdata/codedata
+hyperpolyglot = { path = "../external/hyperpolyglot" }
+software-metrics = { path = "../external/software_metrics" }
+
+# tree-sitter version must match software-metrics
+tree-sitter = "=0.22.6"
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+incremental = true
