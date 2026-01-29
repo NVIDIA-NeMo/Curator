@@ -463,25 +463,17 @@ results = pipeline.run(executor)
 If no executor is specified, `pipeline.run()` uses `XennaExecutor` with default settings.
 :::
 
-:::{tab-item} Ray Executors (Experimental)
-```python
-# Ray executors for distributed processing (experimental)
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+:::{tab-item} RayDataExecutor (Experimental)
+`RayDataExecutor` provides distributed processing using Ray Data. It has shown performance improvements for filtering workloads compared to the default executor.
 
-# Option 1: RayDataExecutor - uses Ray Data for streaming
-ray_data_executor = RayDataExecutor(
+```python
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+
+executor = RayDataExecutor(
     config={"ignore_failures": False},
     ignore_head_node=True  # Exclude head node from computation
 )
-results = pipeline.run(ray_data_executor)
-
-# Option 2: RayActorPoolExecutor - uses Ray Actor Pools
-ray_actor_executor = RayActorPoolExecutor(
-    config={"ignore_failures": False},
-    ignore_head_node=True
-)
-results = pipeline.run(ray_actor_executor)
+results = pipeline.run(executor)
 ```
 :::
 
