@@ -90,7 +90,7 @@ def get_entry_script_persisted_data(session_entry_path: Path) -> dict[str, Any]:
             script_tasks = pickle.load(f)  # noqa: S301
 
         # Legacy
-        if isinstance(script_tasks, dict):
+        if isinstance(script_tasks, (dict, list)):
             # Fallback to the local copy of aggregate_task_metrics
             # This should provide some amount of backwards compatibility with older versions of nemo-curator, but has the disadvantage of possibly being out of date with the latest changes.
             script_metrics.update(aggregate_task_metrics_for_legacy(script_tasks, prefix="task"))
@@ -207,6 +207,7 @@ def run_entry(
         # Execute command with timeout
         logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
+
         run_data = run_command_with_timeout(
             command=cmd,
             timeout=entry.timeout_s,
