@@ -20,6 +20,8 @@ datasets:
     formats:
     - type: "jsonl"
       path: "{datasets_path}/commoncrawl/jsonl_data"
+    - type: "parquet_gemma_embeddings"
+      path: "{datasets_path}/cleaned_exact_dedup_all_cc_gemma_embeddings"
   - name: "commoncrawl_id_map"
     formats:
     - type: "json"
@@ -36,6 +38,18 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/mscoco/model_weights"
+  - name: "videos"
+    formats:
+    - type: "mp4"
+      path: "{datasets_path}/videos"
+  - name: "videos_model_weights"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/video_model_weights"
+  - name: "rpv2-2023-14-en"
+    formats:
+    - type: "parquet"
+      path: "{datasets_path}/rpv2_2023-14_en"
 
 default_timeout_s: 7200
 
@@ -170,6 +184,29 @@ entries:
       - metric: throughput_docs_per_sec
         min_value: 8170
 
+  - name: exact_dedup_identification
+    enabled: true
+    script: exact_dedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --input-filetype=parquet
+      --text-field=raw_content
+      --input-blocksize=3GiB
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - "num_duplicates"
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      - metric: num_duplicates
+        exact_value: 64292856
+
   - name: fuzzy_dedup_identification
     enabled: true
     script: fuzzy_dedup_identification_benchmark.py
@@ -190,7 +227,6 @@ entries:
           - minhash_percent_time
           - lsh_percent_time
           - connected_components_percent_time
-          - workflow_total_time
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -200,6 +236,47 @@ entries:
         # 59,226,133 is expected, ensure +/- 1%
         min_value: 58633871
         max_value: 59818394
+
+  - name: semdedup_identification_xenna
+    enabled: true
+    script: semdedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:commoncrawl,parquet_gemma_embeddings}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --n-clusters=1000
+      --id-field=_curator_dedup_id
+      --embedding-field=embeddings
+      --embedding-dim=1536
+      --input-filetype=parquet
+      --eps=0.01
+      --which-to-keep=hard
+      --pairwise-batch-size=1024
+      --dataset-size-ratio=0.10
+    timeout_s: 450
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - num_duplicates
+          # %percent time taken
+          - kmeans_read_percent_time
+          - kmeans_write_percent_time
+          - kmeans_fit_predict_percent_time
+          - pairwise_percent_time
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 312458951
+      - metric: num_duplicates
+        # 494,297 is expected, ensure +/- 1%
+        min_value: 489354
+        max_value: 499240
 
   - name: dedup_removal_raydata
     enabled: true
@@ -386,3 +463,98 @@ entries:
       --split=dev
       --wer-threshold=5.5
       --gpus=1
+
+  - name: video_embedding
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --video-dir={dataset:videos,mp4}
+      --model-dir={dataset:videos_model_weights,files}
+      --video-limit=1000
+    timeout_s: 400
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_clips_generated
+        exact_value: 1400
+      - metric: throughput_clips_per_sec
+        min_value: 4.0
+  
+  - name: video_transcoding
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --no-generate-embeddings
+      --video-dir={dataset:videos,mp4}
+      --video-limit=1000
+    timeout_s: 400
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_clips_generated
+        exact_value: 1400
+      - metric: throughput_clips_per_sec
+        min_value: 5.0
+
+  - name: video_captioning
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --video-dir={dataset:videos,mp4}
+      --model-dir={dataset:videos_model_weights,files}
+      --generate-captions
+      --no-generate-embeddings
+      --enhance-captions
+      --video-limit=256
+    timeout_s: 1800
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_clips_generated
+        exact_value: 300 # TODO: update this value after benchmarking
+      - metric: throughput_clips_per_sec
+        min_value: 0.25
+
+  - name: video_transnetv2_motion_aesthetic_filter_embeddings
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --video-dir={dataset:videos,mp4}
+      --model-dir={dataset:videos_model_weights,files}
+      --splitting-algorithm=transnetv2
+      --motion-filter=enable
+      --aesthetic-threshold=3.5
+      --transnetv2-frame-decoder-mode ffmpeg_cpu
+      --video-limit=1000
+    timeout_s: 500
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_clips_generated
+        exact_value: 113
+      - metric: throughput_clips_per_sec
+        min_value: 0.25

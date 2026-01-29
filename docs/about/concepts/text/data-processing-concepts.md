@@ -70,7 +70,7 @@ NeMo Curator uses these fundamental building blocks that users combine into pipe
 :header-rows: 1
 
 * - Component
-  - Purpose  
+  - Purpose
   - Usage Pattern
 * - **`Pipeline`**
   - Orchestrate processing stages
@@ -317,7 +317,7 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     output_path="/path/to/deduplicated/output",
     input_filetype="parquet",  # Same as identification workflow
     input_blocksize="1.5GiB",  # Same as identification workflow
-    ids_to_remove_duplicate_id_field="_curator_dedup_id",
+    duplicate_id_field="_curator_dedup_id",
     id_generator_path="/path/to/output/fuzzy_id_generator.json",
 )
 
