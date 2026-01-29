@@ -40,7 +40,7 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
     # input args
     input_filetype: Literal["parquet", "jsonl"] = "parquet"
     input_fields: list[str] | None = None
-    input_id_field: str | None = CURATOR_DEDUP_ID_STR
+    id_field: str | None = CURATOR_DEDUP_ID_STR
     input_files_per_partition: int | None = None
     input_blocksize: str | None = None
     input_file_extensions: list[str] | None = None
@@ -48,8 +48,8 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
     input_kwargs: dict[str, Any] | None = None
 
     # ids_to_remove args
-    ids_to_remove_duplicate_id_field: str = "id"
-    ids_to_remove_read_kwargs: dict[str, Any] | None = None
+    duplicate_id_field: str = "id"
+    duplicate_id_read_kwargs: dict[str, Any] | None = None
 
     # id generator args
     id_generator_path: str | None = None
@@ -64,9 +64,9 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
 
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
-        if self.id_generator_path is None and self.input_id_field == CURATOR_DEDUP_ID_STR:
+        if self.id_generator_path is None and self.id_field == CURATOR_DEDUP_ID_STR:
             logger.warning(
-                f"Using {CURATOR_DEDUP_ID_STR} as input_id_field for removal stage, even though we are not using id generator."
+                f"Using {CURATOR_DEDUP_ID_STR} as id_field for removal stage, even though we are not using id generator."
             )
 
     def _generate_stages(self, initial_tasks: list[FileGroupTask] | None = None) -> list[ProcessingStage]:
@@ -117,9 +117,9 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
         stages.append(
             TextDuplicatesRemovalStage(
                 ids_to_remove_path=self.ids_to_remove_path,
-                id_field=self.input_id_field,
-                duplicate_id_field=self.ids_to_remove_duplicate_id_field,
-                read_kwargs=self.ids_to_remove_read_kwargs,
+                id_field=self.id_field,
+                duplicate_id_field=self.duplicate_id_field,
+                read_kwargs=self.duplicate_id_read_kwargs,
             )
         )
 
