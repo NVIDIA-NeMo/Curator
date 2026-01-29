@@ -28,13 +28,13 @@ from typing import Any
 
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
+from video_utils import create_video_splitting_argparser
 
 # Add tutorials directory to path to import the pipeline creation function
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tutorials" / "video" / "getting-started"))
 
 from video_split_clip_example import (  # noqa: E402
-    create_video_splitting_argparser,
     create_video_splitting_pipeline,
 )
 
@@ -75,9 +75,17 @@ def run_video_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
 
         # Calculate metrics from output tasks
         # Count unique videos by their input_video path
-        unique_videos = {task.data.input_video for task in output_tasks if task.data and hasattr(task.data, "input_video") and task.data.input_video}
+        unique_videos = {
+            task.data.input_video
+            for task in output_tasks
+            if task.data and hasattr(task.data, "input_video") and task.data.input_video
+        }
         num_videos_processed = len(unique_videos)
-        num_clips_generated = sum(len(task.data.clips) for task in output_tasks if task.data and hasattr(task.data, "clips") and task.data.clips)
+        num_clips_generated = sum(
+            len(task.data.clips)
+            for task in output_tasks
+            if task.data and hasattr(task.data, "clips") and task.data.clips
+        )
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_videos_processed} videos")
@@ -146,6 +154,9 @@ def main() -> int:
 
     logger.info("=== Video Pipeline Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
+
+    # For backwards-compatibility with the legacy tutorial
+    args.output_clip_path = args.output_path
 
     try:
         results = run_video_pipeline_benchmark(args)

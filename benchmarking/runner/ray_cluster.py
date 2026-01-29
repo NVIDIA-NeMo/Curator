@@ -26,7 +26,10 @@ import ray
 from loguru import logger
 from runner.utils import run_shm_size_check
 
+import nemo_curator
 from nemo_curator.core.client import RayClient
+
+_curator_version = tuple(int(x) for x in nemo_curator.__version__.split(".")[:2])
 
 ray_client_start_timeout_s = 30
 ray_client_start_poll_interval_s = 0.5
@@ -64,16 +67,26 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
             ray_stdouterr_capture_file = f"{ray_log_path!s}-{retries + 1}"
 
         # Create and start the Ray client
-        client = RayClient(
-            ray_temp_dir=str(short_temp_path),
-            include_dashboard=include_dashboard,
-            num_gpus=num_gpus,
-            num_cpus=num_cpus,
-            enable_object_spilling=enable_object_spilling,
-            ray_dashboard_host="0.0.0.0",  # noqa: S104
-            ray_stdouterr_capture_file=ray_stdouterr_capture_file,
-            object_store_memory=object_store_size,
-        )
+        if _curator_version > (1, 0):
+            client = RayClient(
+                ray_temp_dir=str(short_temp_path),
+                include_dashboard=include_dashboard,
+                num_gpus=num_gpus,
+                num_cpus=num_cpus,
+                enable_object_spilling=enable_object_spilling,
+                ray_dashboard_host="0.0.0.0",  # noqa: S104
+                ray_stdouterr_capture_file=ray_stdouterr_capture_file,
+                object_store_memory=object_store_size,
+            )
+        else:
+            client = RayClient(
+                ray_temp_dir=str(short_temp_path),
+                include_dashboard=include_dashboard,
+                num_gpus=num_gpus,
+                num_cpus=num_cpus,
+                enable_object_spilling=enable_object_spilling,
+                ray_dashboard_host="0.0.0.0",  # noqa: S104
+            )
         client.start()
 
         _ensure_ray_client_process_started(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)

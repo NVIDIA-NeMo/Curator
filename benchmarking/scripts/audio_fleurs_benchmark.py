@@ -101,7 +101,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
     pipeline.add_stage(
         JsonlWriter(
-            path=results_dir,
+            path=str(results_dir),
             write_kwargs={"force_ascii": False},
         )
     )
