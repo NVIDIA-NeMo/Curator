@@ -66,8 +66,8 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_path="./results/FuzzyDuplicateIds",
     output_path="./deduplicated",
     input_filetype="parquet",
-    input_id_field="_curator_dedup_id",
-    ids_to_remove_duplicate_id_field="_curator_dedup_id",
+    id_field="_curator_dedup_id",
+    duplicate_id_field="_curator_dedup_id",
     id_generator_path="./results/fuzzy_id_generator.json"
 )
 removal_workflow.run()
@@ -179,8 +179,8 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_path="/path/to/output/FuzzyDuplicateIds",
     output_path="/path/to/deduplicated",
     input_filetype="parquet",
-    input_id_field="_curator_dedup_id",
-    ids_to_remove_duplicate_id_field="_curator_dedup_id",
+    id_field="_curator_dedup_id",
+    duplicate_id_field="_curator_dedup_id",
     id_generator_path="/path/to/output/fuzzy_id_generator.json"  # Required if IDs were auto-assigned
 )
 removal_workflow.run()

@@ -245,7 +245,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
 
     pipeline.add_stage(
         ClipWriterStage(
-            output_path=args.output_clip_path,
+            output_path=args.output_path,
             input_path=args.video_dir,
             upload_clips=args.upload_clips,
             dry_run=args.dry_run,
@@ -280,8 +280,15 @@ def main(args: argparse.Namespace) -> None:
     print("\nPipeline completed!")
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0915
+    """Create and return the argument parser for video splitting pipeline.
+
+    This function is extracted to allow reuse by other scripts (e.g., benchmarks).
+    """
+    parser = argparse.ArgumentParser(
+        description="Split videos into clips with optional embeddings, captions, and filtering.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     # General arguments
     parser.add_argument("--video-dir", type=str, required=True, help="Path to input video directory")
     parser.add_argument(
@@ -303,7 +310,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--video-limit", type=int, default=None, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
-    parser.add_argument("--output-clip-path", type=str, help="Path to output clips", required=True)
+    parser.add_argument("--output-path", type=str, help="Path to output clips", required=True)
 
     parser.add_argument(
         "--no-upload-clips",
@@ -730,5 +737,10 @@ if __name__ == "__main__":
         choices=["qwen_lm"],
         help="Enhanced LLM models to use to improve captions",
     )
+    return parser
+
+
+if __name__ == "__main__":
+    parser = create_video_splitting_argparser()
     args = parser.parse_args()
     main(args)
