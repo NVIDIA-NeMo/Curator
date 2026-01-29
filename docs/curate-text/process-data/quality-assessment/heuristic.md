@@ -147,6 +147,8 @@ NeMo Curator includes more than 30 heuristic filters for assessing document qual
 |--------|-------------|----------------|---------------|
 | **RepeatedLinesFilter** | Detects repeated lines | `max_repeated_line_fraction` | 0.7 |
 | **RepeatedParagraphsFilter** | Detects repeated paragraphs | `max_repeated_paragraphs_ratio` | 0.7 |
+| **RepeatedLinesByCharFilter** | Detects repeated lines by character count | `max_repeated_lines_char_ratio` | 0.8 |
+| **RepeatedParagraphsByCharFilter** | Detects repeated paragraphs by character count | `max_repeated_paragraphs_char_ratio` | 0.8 |
 | **RepeatingTopNGramsFilter** | Detects excessive repetition of n-grams | `n`, `max_repeating_ngram_ratio` | n=2, ratio=0.2 |
 | **RepeatingDuplicateNGramsFilter** | Detects duplicate n-grams | `n`, `max_repeating_duplicate_ngram_ratio` | n=2, ratio=0.2 |
 
@@ -425,7 +427,13 @@ pipeline.add_stage(ScoreFilter(
 ))
 
 pipeline.add_stage(JsonlWriter(path="filtered_output/"))
+
+# Run with default XennaExecutor
 pipeline.run()
+
+# Or use Ray for distributed processing (see Performance Tuning section)
+# from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+# pipeline.run(RayDataExecutor(ignore_head_node=True))
 ```
 :::
 
@@ -438,23 +446,21 @@ For large datasets, consider these performance optimizations:
 ::::{tab-set}
 
 :::{tab-item} XennaExecutor (Default)
+`XennaExecutor` is the default executor, optimized for streaming workloads. You can customize its configuration or use the defaults:
+
 ```python
-# Xenna is the default executor - optimized for streaming workloads
 from nemo_curator.backends.xenna import XennaExecutor
 
-# Configure for streaming processing
-executor_config = {
+# Custom configuration for streaming processing
+executor = XennaExecutor(config={
     "execution_mode": "streaming",
     "cpu_allocation_percentage": 0.95,
     "logging_interval": 60
-}
-
-executor = XennaExecutor(config=executor_config)
+})
 results = pipeline.run(executor)
-
-# Or use default configuration
-# results = pipeline.run()
 ```
+
+If no executor is specified, `pipeline.run()` uses `XennaExecutor` with default settings.
 :::
 
 :::{tab-item} Ray Executors (Experimental)
