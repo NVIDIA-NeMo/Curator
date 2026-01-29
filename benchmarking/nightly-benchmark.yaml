@@ -457,7 +457,7 @@ entries:
       enable_object_spilling: false
     requirements:
       # ensure the total number of documents processed is correct
-      - metric: num_images_generated
+      - metric: num_images_processed
         exact_value: 11836
       - metric: throughput_images_per_sec
         min_value: 8.0
