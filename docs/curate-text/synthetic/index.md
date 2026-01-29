@@ -32,7 +32,7 @@ Create new data from scratch without requiring input documents. The `QAMultiling
 
 ### Transformation Mode
 
-Improve or restructure existing data using LLM capabilities. The NemotronCC stages exemplify this approach, taking input documents and producing:
+Improve or restructure existing data using LLM capabilities. The Nemotron-CC stages exemplify this approach, taking input documents and producing:
 
 - Paraphrased text in Wikipedia style
 - Diverse Q&A pairs derived from document content
@@ -76,7 +76,7 @@ Before using synthetic data generation, ensure you have:
    ```
 
    :::{note}
-   NemotronCC pipelines use the `transformers` library for tokenization, which is included in NeMo Curator's core dependencies.
+   Nemotron-CC pipelines use the `transformers` library for tokenization, which is included in NeMo Curator's core dependencies.
    :::
 
 ## Available SDG Stages
@@ -133,7 +133,7 @@ Generate synthetic Q&A pairs across multiple languages
 {bdg-secondary}`tutorial`
 :::
 
-:::{grid-item-card} {octicon}`rocket;1.5em;sd-mr-1` NemotronCC Pipelines
+:::{grid-item-card} {octicon}`rocket;1.5em;sd-mr-1` Nemotron-CC Pipelines
 :link: nemotron-cc/index
 :link-type: doc
 Advanced text transformation and knowledge extraction workflows

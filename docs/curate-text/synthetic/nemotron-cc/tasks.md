@@ -1,5 +1,5 @@
 ---
-description: "Reference documentation for NemotronCC synthetic data generation tasks and stages"
+description: "Reference documentation for Nemotron-CC synthetic data generation tasks and stages"
 categories: ["reference"]
 tags: ["nemotron-cc", "stages", "api-reference"]
 personas: ["data-scientist-focused", "mle-focused"]
@@ -9,9 +9,9 @@ modality: "text-only"
 ---
 
 (nemotron-cc-tasks)=
-# NemotronCC Task Reference
+# Nemotron-CC Task Reference
 
-This reference documents each NemotronCC synthetic data generation stage, including prompt templates, configuration options, and post-processing details.
+This reference documents each Nemotron-CC synthetic data generation stage, including prompt templates, configuration options, and post-processing details.
 
 :::{note}
 **System Prompt Usage**: Not all stages use a system prompt.
@@ -306,7 +306,7 @@ post_stage = KnowledgeListPostProcessingStage(
 
 ## Customizing Prompts
 
-To use custom prompts while maintaining NemotronCC infrastructure, subclass `BaseSyntheticStage`:
+To use custom prompts while maintaining Nemotron-CC infrastructure, subclass `BaseSyntheticStage`:
 
 ```python
 from dataclasses import dataclass
@@ -335,7 +335,7 @@ The `{document}` placeholder is replaced with the content from `input_field`.
 
 ## Complete Configuration Example
 
-The following example shows the conceptual configuration structure for NemotronCC tasks. For production pipelines, see the [tutorial examples](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/synthetic/nemotron_cc).
+The following example shows the conceptual configuration structure for Nemotron-CC tasks. For production pipelines, see the [tutorial examples](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/synthetic/nemotron_cc).
 
 ```python
 TASK_CONFIG = {

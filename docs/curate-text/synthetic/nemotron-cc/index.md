@@ -1,5 +1,5 @@
 ---
-description: "Advanced synthetic data generation using NemotronCC pipelines for text transformation and knowledge extraction"
+description: "Advanced synthetic data generation using Nemotron-CC pipelines for text transformation and knowledge extraction"
 categories: ["workflows"]
 tags: ["nemotron-cc", "paraphrasing", "knowledge-extraction", "distillation"]
 personas: ["data-scientist-focused", "mle-focused"]
@@ -9,13 +9,13 @@ modality: "text-only"
 ---
 
 (nemotron-cc-overview)=
-# NemotronCC Pipelines
+# Nemotron-CC Pipelines
 
-NemotronCC provides advanced synthetic data generation workflows for transforming and extracting knowledge from existing text documents. Unlike simple generation, these pipelines use sophisticated preprocessing, LLM-based transformation, and postprocessing to create high-quality training data.
+Nemotron-CC provides advanced synthetic data generation workflows for transforming and extracting knowledge from existing text documents. Unlike simple generation, these pipelines use sophisticated preprocessing, LLM-based transformation, and postprocessing to create high-quality training data.
 
 ## The Composable Pipeline Pattern
 
-NemotronCC stages follow a composable pattern with three distinct phases:
+Nemotron-CC stages follow a composable pattern with three distinct phases:
 
 1. **Preprocessing**: Segment documents, filter by length, and prepare inputs for the LLM
 2. **Generation**: Apply task-specific prompts to transform text using the LLM
@@ -50,7 +50,7 @@ flowchart TB
 
 ## Input Data Requirements
 
-Before running a NemotronCC pipeline, prepare your input data as Parquet files with the required schema.
+Before running a Nemotron-CC pipeline, prepare your input data as Parquet files with the required schema.
 
 ### Required Schema
 
@@ -66,7 +66,7 @@ Before running a NemotronCC pipeline, prepare your input data as Parquet files w
   - Unique document identifier. Required by the preprocessing pipeline to reassemble document segments after splitting.
 * - `text`
   - `string`
-  - Document content to transform. This is the primary input field for all NemotronCC stages.
+  - Document content to transform. This is the primary input field for all Nemotron-CC stages.
 * - `bucketed_results`
   - `int64`
   - Quality score used to route documents to appropriate pipelines. Values typically range from 0-20, where higher scores indicate higher quality content.
@@ -113,7 +113,7 @@ results = pipeline.run()
 ```
 
 :::{tip}
-The example above uses `FineWebEduClassifier` which outputs scores 0-5. For the NemotronCC threshold of 11, you can either:
+The example above uses `FineWebEduClassifier` which outputs scores 0-5. For the Nemotron-CC threshold of 11, you can either:
 - Scale the scores (e.g., multiply by 4)
 - Adjust the filter threshold in your SDG pipeline
 - Use a different classifier that outputs scores in the 0-20 range
@@ -145,9 +145,9 @@ print(df.head(2))
 
 ## Available Tasks
 
-NemotronCC provides five specialized generation tasks, each designed for specific data transformation needs:
+Nemotron-CC provides five specialized generation tasks, each designed for specific data transformation needs:
 
-```{list-table} NemotronCC Task Types
+```{list-table} Nemotron-CC Task Types
 :header-rows: 1
 :widths: 20 25 30 25
 
@@ -179,7 +179,7 @@ NemotronCC provides five specialized generation tasks, each designed for specifi
 
 ## Quality-Based Processing Strategy
 
-NemotronCC pipelines are designed to process data based on quality scores. The typical approach:
+Nemotron-CC pipelines are designed to process data based on quality scores. The typical approach:
 
 ### High-Quality Data Pipeline
 
@@ -370,7 +370,7 @@ client.stop()
 :::{grid-item-card} {octicon}`book;1.5em;sd-mr-1` Task Reference
 :link: tasks
 :link-type: doc
-Detailed reference for each NemotronCC stage, prompts, and post-processing
+Detailed reference for each Nemotron-CC stage, prompts, and post-processing
 +++
 {bdg-secondary}`reference`
 {bdg-secondary}`api`

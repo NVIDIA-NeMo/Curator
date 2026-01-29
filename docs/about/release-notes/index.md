@@ -18,7 +18,7 @@ New Ray-based synthetic data generation capabilities for creating and augmenting
 
 - **LLM Client Infrastructure**: OpenAI-compatible async/sync clients with automatic rate limiting, retry logic, and exponential backoff
 - **Multilingual Q&A Generation**: Generate synthetic Q&A pairs across multiple languages using customizable prompts
-- **NemotronCC Pipelines**: Advanced text transformation and knowledge extraction workflows:
+- **Nemotron-CC Pipelines**: Advanced text transformation and knowledge extraction workflows:
   - **Wikipedia Paraphrasing**: Improve low-quality text by rewriting in Wikipedia-style prose
   - **Diverse QA**: Generate diverse question-answer pairs for reading comprehension training
   - **Distill**: Create condensed, information-dense paraphrases preserving key concepts
@@ -220,7 +220,7 @@ For all tutorial content, refer to the [tutorials directory](https://github.com/
 
 ## What's Next
 
-The next release will focus on ...
+The next release will focus on code curation and math curation.
 
 ```{toctree}
 :hidden:

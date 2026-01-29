@@ -24,8 +24,8 @@ export NVIDIA_API_KEY="your-api-key-here"
 | Tutorial | Description | Difficulty |
 |----------|-------------|------------|
 | [Multilingual Q&A](synthetic_data_generation_example.py) | Generate Q&A pairs in multiple languages | Beginner |
-| [NemotronCC High-Quality](nemotron_cc/nemotron_cc_sdg_high_quality_example_pipeline.py) | Advanced SDG for high-quality data (DiverseQA, Distill, ExtractKnowledge, KnowledgeList) | Advanced |
-| [NemotronCC Low-Quality](nemotron_cc/nemotron_cc_sdg_low_quality_example_pipeline.py) | Improve low-quality data via Wikipedia-style paraphrasing | Advanced |
+| [Nemotron-CC High-Quality](nemotron_cc/nemotron_cc_sdg_high_quality_example_pipeline.py) | Advanced SDG for high-quality data (DiverseQA, Distill, ExtractKnowledge, KnowledgeList) | Advanced |
+| [Nemotron-CC Low-Quality](nemotron_cc/nemotron_cc_sdg_low_quality_example_pipeline.py) | Improve low-quality data via Wikipedia-style paraphrasing | Advanced |
 
 ## Quick Examples
 
@@ -42,7 +42,7 @@ python synthetic_data_generation_example.py \
     --no-filter-languages
 ```
 
-### NemotronCC Pipelines
+### Nemotron-CC Pipelines
 
 ```bash
 # High-quality processing: Run any task (diverse_qa, distill, extract_knowledge, knowledge_list)
@@ -80,7 +80,7 @@ Refer to each script's `--help` output for the complete list of available argume
 | `--model-name` | meta/llama-3.3-70b-instruct | Model to use for generation |
 | `--output-path` | ./synthetic_output | Output directory |
 | `--max-concurrent-requests` | 3 | Concurrent API requests |
-| `--temperature` | 0.9 (QA) / 0.5 (NemotronCC) | Sampling temperature |
+| `--temperature` | 0.9 (QA) / 0.5 (Nemotron-CC) | Sampling temperature |
 
 ## Example Output
 
@@ -91,14 +91,14 @@ Refer to each script's `--help` output for the complete list of available argume
 {"text": "[FR] Question: Qu'est-ce que la photosynthèse? Answer: La photosynthèse est le processus par lequel les plantes convertissent la lumière du soleil en énergie."}
 ```
 
-### NemotronCC
+### Nemotron-CC
 
-See the [NemotronCC documentation](../../docs/curate-text/synthetic/nemotron-cc/index.md) for output format details for each task type.
+See the [Nemotron-CC documentation](../../docs/curate-text/synthetic/nemotron-cc/index.md) for output format details for each task type.
 
 ---
 
 ## Additional Resources
 
 - [LLM Client Configuration](../../docs/curate-text/synthetic/llm-client.md)
-- [NemotronCC Pipeline Documentation](../../docs/curate-text/synthetic/nemotron-cc/index.md)
+- [Nemotron-CC Pipeline Documentation](../../docs/curate-text/synthetic/nemotron-cc/index.md)
 - [Task Reference](../../docs/curate-text/synthetic/nemotron-cc/tasks.md)
