@@ -13,199 +13,15 @@ Note: Run these examples on GPUs for best performance.
 
 1. **Set up directories**:
 
-```bash
-export VIDEO_DIR="/path/to/your/videos"  # Video data to be processed
-export OUTPUT_DIR="/path/to/output"
-export MODEL_DIR="./models"  # Will download models if not exist
-```
-
-2. **Run a minimal pipeline** (command line):
-
-```bash
-python video_split_clip_example.py \
-  --video-dir "$VIDEO_DIR" \
-  --output-clip-path "$OUTPUT_DIR" \
-  --splitting-algorithm fixed_stride \
-  --fixed-stride-split-duration 10.0
-```
-
-This processes all videos in `VIDEO_DIR`, splits each into 10-second clips, and saves them to `OUTPUT_DIR`.
-
-## Programmatic API Usage
-
-The examples above use the CLI script, but you can also build video curation pipelines programmatically using NeMo Curator's Python API. This gives you full control over stage configuration and is the recommended approach for custom workflows.
-
-### Basic Video Splitting Pipeline
-
-```python
-from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.video.io.video_reader import VideoReader
-from nemo_curator.stages.video.clipping.clip_extraction_stages import (
-    FixedStrideExtractorStage,
-    ClipTranscodingStage,
-)
-from nemo_curator.stages.video.io.clip_writer import ClipWriterStage
-
-# Create pipeline
-pipeline = Pipeline(
-    name="video_splitting",
-    description="Split videos into fixed-length clips"
-)
-
-# Stage 1: Read videos from directory
-pipeline.add_stage(
-    VideoReader(
-        input_video_path="/path/to/videos",
-        video_limit=None,  # Process all videos (or set a limit)
-    )
-)
-
-# Stage 2: Split into fixed-length clips
-pipeline.add_stage(
-    FixedStrideExtractorStage(
-        clip_len_s=10.0,       # 10-second clips
-        clip_stride_s=10.0,    # No overlap
-        min_clip_length_s=2.0, # Discard clips shorter than 2s
-        limit_clips=0,         # 0 = no limit on clips per video
-    )
-)
-
-# Stage 3: Transcode clips
-pipeline.add_stage(
-    ClipTranscodingStage(
-        encoder="libopenh264",  # Options: libopenh264, h264_nvenc, libx264
-    )
-)
-
-# Stage 4: Write output
-pipeline.add_stage(
-    ClipWriterStage(
-        output_path="/path/to/output",
-        input_path="/path/to/videos",
-        upload_clips=True,
-        dry_run=False,
-        generate_embeddings=False,
-        generate_previews=False,
-        generate_captions=False,
-    )
-)
-
-# Execute pipeline
-executor = XennaExecutor()
-pipeline.run(executor)
-```
-
-### Scene-Aware Splitting with TransNetV2
-
-Use TransNetV2 for intelligent scene boundary detection instead of fixed intervals:
-
-```python
-from nemo_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
-from nemo_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
-
-# Replace FixedStrideExtractorStage with:
-
-# Extract frames for scene detection
-pipeline.add_stage(
-    VideoFrameExtractionStage(
-        decoder_mode="pynvc",  # Options: pynvc, ffmpeg_gpu, ffmpeg_cpu
-    )
-)
-
-# Detect scene boundaries and create clips
-pipeline.add_stage(
-    TransNetV2ClipExtractionStage(
-        model_dir="./models",
-        threshold=0.4,           # Scene detection sensitivity
-        min_length_s=2.0,        # Minimum clip length
-        max_length_s=10.0,       # Maximum clip length
-        gpu_memory_gb=10.0,
-    )
-)
-```
-
-### Adding Video Embeddings
-
-Generate embeddings for downstream tasks like similarity search or clustering:
-
-```python
-from nemo_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
-from nemo_curator.stages.video.embedding.cosmos_embed1 import (
-    CosmosEmbed1FrameCreationStage,
-    CosmosEmbed1EmbeddingStage,
-)
-from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
-
-# Extract frames for embedding
-pipeline.add_stage(
-    ClipFrameExtractionStage(
-        extraction_policies=(FrameExtractionPolicy.sequence,),
-        extract_purposes=[FramePurpose.EMBEDDINGS],
-    )
-)
-
-# Prepare frames for Cosmos-Embed1
-pipeline.add_stage(
-    CosmosEmbed1FrameCreationStage(
-        model_dir="./models",
-        variant="224p",  # Options: 224p, 336p, 448p
-        target_fps=2.0,
-    )
-)
-
-# Generate embeddings
-pipeline.add_stage(
-    CosmosEmbed1EmbeddingStage(
-        model_dir="./models",
-        variant="224p",
-        gpu_memory_gb=20.0,
-    )
-)
-```
-
-**Note:** Cosmos-Embed1 is recommended over InternVideo2 for most use cases.
-
-### Adding Quality Filters
-
-Filter clips by aesthetic quality and motion scores:
-
-```python
-from nemo_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
-from nemo_curator.stages.video.filtering.motion_filter import (
-    MotionVectorDecodeStage,
-    MotionFilterStage,
-)
-
-# Motion filtering
-pipeline.add_stage(
-    MotionVectorDecodeStage(
-        target_fps=2.0,
-        target_duration_ratio=0.5,
-    )
-)
-
-pipeline.add_stage(
-    MotionFilterStage(
-        score_only=False,  # Set True to score without filtering
-        global_mean_threshold=0.00098,
-        per_patch_min_256_threshold=0.000001,
-    )
-)
-
-# Aesthetic filtering (requires frame extraction first)
-pipeline.add_stage(
-    ClipAestheticFilterStage(
-        model_dir="./models",
-        score_threshold=3.5,  # Filter clips below this score
-        reduction="min",      # Options: min, mean
-    )
-)
-```
-
-### Adding Caption Generation
-
-Generate descriptive captions for video clips:
+2. **Minimal working example**:
+   ```bash
+   LOGURU_LEVEL="ERROR" python video_split_clip_example.py \
+     --video-dir "$VIDEO_DIR" \
+     --output-path "$OUTPUT_DIR" \
+     --splitting-algorithm fixed_stride \
+     --fixed-stride-split-duration 10.0
+   ```
+The example above demonstrates how to run a minimal video curation pipeline using NeMo Curator. It processes all videos in the specified `VIDEO_DIR`, splits each video into fixed-length clips (10 seconds each, as set by `--fixed-stride-split-duration 10.0`), and saves the resulting clips to `OUTPUT_DIR`. This is a basic workflow to get started with automated video splitting and curation, and can be extended with additional options for embedding, captioning, filtering, and transcoding as shown in later sections.
 
 ```python
 from nemo_curator.stages.video.caption.caption_preparation import CaptionPreparationStage
@@ -325,7 +141,7 @@ The `video_split_clip_example.py` script provides a convenient CLI for common wo
 ```bash
 python video_split_clip_example.py \
   --video-dir "$VIDEO_DIR" \
-  --output-clip-path "$OUTPUT_DIR" \
+  --output-path "$OUTPUT_DIR" \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
   --embedding-algorithm cosmos-embed1-224p
@@ -336,7 +152,7 @@ python video_split_clip_example.py \
 ```bash
 python video_split_clip_example.py \
   --video-dir "$VIDEO_DIR" \
-  --output-clip-path "$OUTPUT_DIR" \
+  --output-path "$OUTPUT_DIR" \
   --splitting-algorithm transnetv2 \
   --transnetv2-threshold 0.4 \
   --transnetv2-min-length-s 2.0 \
@@ -349,7 +165,7 @@ python video_split_clip_example.py \
 ```bash
 python video_split_clip_example.py \
   --video-dir "$VIDEO_DIR" \
-  --output-clip-path "$OUTPUT_DIR" \
+  --output-path "$OUTPUT_DIR" \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
   --embedding-algorithm cosmos-embed1-224p \

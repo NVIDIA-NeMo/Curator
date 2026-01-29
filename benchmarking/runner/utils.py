@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,34 +26,28 @@ try:
 except ImportError:
     import logging as logger
 
+_env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
 
-def get_obj_for_json(obj: object) -> str | int | float | bool | list | dict:
+
+# TODO: This utility contains some special cases for Slack JSON messages used in the Slack sink.
+# Consider moving these special cases to the Slack sink itself.
+def get_obj_for_json(obj: object) -> object:
     """
-    Recursively convert objects to Python primitives for JSON serialization.
-    Useful for objects like Path, sets, bytes, etc.
+    Convert common objects used in the benchmark framework to JSON-friendly primitives.
     """
     if isinstance(obj, dict):
         retval = {get_obj_for_json(k): get_obj_for_json(v) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple, set)):
         retval = [get_obj_for_json(item) for item in obj]
-    elif hasattr(obj, "as_posix"):  # Path objects
-        retval = obj.as_posix()
-    elif isinstance(obj, bytes):
-        retval = obj.decode("utf-8", errors="replace")
-    elif hasattr(obj, "to_json") and callable(obj.to_json):
-        retval = obj.to_json()
-    elif hasattr(obj, "__dict__"):
-        retval = get_obj_for_json(vars(obj))
-    elif obj is None:
+    elif isinstance(obj, Path):
+        retval = str(obj)
+    elif obj is None:  # special case for Slack: JSON null not allowed, convert to string
         retval = "null"
-    elif isinstance(obj, str) and len(obj) == 0:  # special case for Slack, empty strings not allowed
+    elif isinstance(obj, str) and len(obj) == 0:  # special case for Slack: empty strings not allowed
         retval = " "
     else:
         retval = obj
     return retval
-
-
-_env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
 
 
 def _replace_env_var(match: re.Match[str]) -> str:
@@ -64,6 +58,34 @@ def _replace_env_var(match: re.Match[str]) -> str:
     else:
         msg = f"Environment variable {env_var_name} not found in the environment or is empty"
         raise ValueError(msg)
+
+
+def remove_disabled_blocks(obj: object) -> object:
+    """
+    Recursively remove dictionary blocks that contain "enabled": False.
+    Processes dicts and lists; other types are returned unchanged.
+    """
+    if isinstance(obj, dict):
+        # If this block explicitly disables itself, remove it
+        if obj.get("enabled", True) is False:
+            return None
+        # Else process all values
+        result = {}
+        for k, v in obj.items():
+            filtered = remove_disabled_blocks(v)
+            if filtered is not None:
+                result[k] = filtered
+        return result
+    elif isinstance(obj, list):
+        # Process each item; skip any that are removed
+        result = []
+        for item in obj:
+            filtered = remove_disabled_blocks(item)
+            if filtered is not None:
+                result.append(filtered)
+        return result
+    else:
+        return obj
 
 
 def resolve_env_vars(data: dict | list | str | object) -> dict | list | str | object:

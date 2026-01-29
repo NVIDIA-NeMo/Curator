@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,14 +19,13 @@ benchmark results directory, compatible with the nightly driver.
 """
 
 import argparse
-import json
 import os
-import pickle
 import time
 from pathlib import Path
 from typing import Literal
 
 from loguru import logger
+from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline.pipeline import Pipeline
 from nemo_curator.stages.text.download.common_crawl.stage import CommonCrawlDownloadExtractStage
@@ -104,21 +103,7 @@ def run_benchmark(args: argparse.Namespace) -> dict:
         ray_data_cast_as_actor=args.ray_data_cast_as_actor,
     )
 
-    if args.executor == "xenna":
-        from nemo_curator.backends.xenna.executor import XennaExecutor
-
-        executor = XennaExecutor()
-    elif args.executor == "ray_data":
-        from nemo_curator.backends.experimental.ray_data.executor import RayDataExecutor
-
-        executor = RayDataExecutor()
-    elif args.executor == "ray_actors":
-        from nemo_curator.backends.experimental.ray_actor_pool.executor import RayActorPoolExecutor
-
-        executor = RayActorPoolExecutor()
-    else:
-        msg = f"Invalid executor type: {args.executor}"
-        raise ValueError(msg)
+    executor = setup_executor(args.executor)
 
     logger.info("Starting Common Crawl pipeline execution...")
     start = time.perf_counter()
@@ -161,17 +146,6 @@ def run_benchmark(args: argparse.Namespace) -> dict:
     }
 
 
-def write_results(benchmark_results_path: str, results: dict) -> None:
-    out = Path(benchmark_results_path)
-    out.mkdir(parents=True, exist_ok=True)
-    with open(out / "params.json", "w") as f:
-        json.dump(results["params"], f, indent=2)
-    with open(out / "metrics.json", "w") as f:
-        json.dump(results["metrics"], f, indent=2)
-    with open(out / "tasks.pkl", "wb") as f:
-        pickle.dump(results["tasks"], f)
-
-
 def main() -> int:
     p = argparse.ArgumentParser(description="Common Crawl download/extract benchmark")
     # Contract arg for nightly driver
@@ -195,7 +169,7 @@ def main() -> int:
 
     args = p.parse_args()
     results = run_benchmark(args)
-    write_results(args.benchmark_results_path, results)
+    write_benchmark_results(results, args.benchmark_results_path)
     return 0 if results["metrics"]["is_success"] else 1
 
 

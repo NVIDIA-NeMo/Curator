@@ -94,7 +94,7 @@ class QwenVL(ModelInterface):
             max_model_len=32768,
             gpu_memory_utilization=0.85,
             mm_processor_kwargs=mm_processor_kwargs,
-            disable_mm_preprocessor_cache=self.disable_mmcache,
+            mm_processor_cache_gb=0 if self.disable_mmcache else 4,
             max_num_batched_tokens=32768,
         )
         self.sampling_params = SamplingParams(
