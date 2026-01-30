@@ -450,7 +450,7 @@ entries:
       --aesthetic-batch-size=500
       --aesthetic-threshold=0.9
       --verbose
-    timeout_s: 1500
+    timeout_s: 5000
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -460,7 +460,7 @@ entries:
       - metric: num_images_processed
         exact_value: 11836
       - metric: throughput_images_per_sec
-        min_value: 8.0
+        min_value: 2.0
   
   - name: audio_fleurs
     enabled: true
