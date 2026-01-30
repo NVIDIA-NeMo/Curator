@@ -1,0 +1,24 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "software_metrics"
+version = "0.2.1"
+requires-python = ">=3.8"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+
+[tool.ruff]
+exclude = [
+  'rust-code-analysis',
+]
+
+[tool.black]
+force-exclude = '''rust-code-analysis'''
+
+[tool.isort]
+skip= [
+  'rust-code-analysis',
+]

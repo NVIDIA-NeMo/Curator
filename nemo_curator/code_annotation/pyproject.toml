@@ -1,0 +1,26 @@
+[project]
+name = "code_annotation"
+version = "0.1.0"
+description = "Minimal code annotation library for NeMo Curator"
+authors = [
+    {name = "NVIDIA Corporation"},
+]
+dependencies = [
+    "pandas>=2.0.0",
+    "pyarrow>=14.0.0",
+]
+readme = "README.md"
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+# Build in the rust directory
+manifest-path = "rust/Cargo.toml"
+# Python source is in python/
+python-source = "python"
+# Module name matches the Rust lib name
+module-name = "code_annotation._code_annotation"
+features = ["pyo3/extension-module"]

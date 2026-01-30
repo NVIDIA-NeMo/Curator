@@ -1,0 +1,25 @@
+[package]
+name = "software-metrics"
+version = "0.1.1"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "software_metrics"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+pyo3 = "0.22.0"
+lazy-regex = "*"
+rust-code-analysis = { path = "./rust-code-analysis"}
+tree-sitter = "=0.22.6"
+tree-sitter-mozcpp = { path="./rust-code-analysis/tree-sitter-mozcpp", version="=0.20.3"}
+tree-sitter-python = "=0.21.0"
+tree-sitter-rust = "=0.21.2"
+tree-sitter-java = "=0.21.0"
+tree-sitter-javascript = "=0.21.4"
+tree-sitter-typescript = "=0.21.2"
+
+
+[build]
+rustflags = ["-Z", "threads=8"]

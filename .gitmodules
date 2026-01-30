@@ -1,0 +1,7 @@
+[submodule "nemo_curator/code_annotation/external/hyperpolyglot"]
+	path = nemo_curator/code_annotation/external/hyperpolyglot
+	url = https://github.com/VibhuJawa/hyperpolyglot.git
+	branch = vjawa/add_hyperglot
+[submodule "nemo_curator/code_annotation/external/software_metrics/rust-code-analysis"]
+	path = nemo_curator/code_annotation/external/software_metrics/rust-code-analysis
+	url = https://github.com/mozilla/rust-code-analysis.git

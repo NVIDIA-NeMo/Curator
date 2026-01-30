@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,7 +41,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python-is-python3\
     curl \
     git \
-    vim && \
+    vim \
+    build-essential \
+    pkg-config \
+    libpcre2-dev && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
@@ -55,18 +59,20 @@ ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
 RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
 
-FROM build AS nemo_curator_dep
+# Install Rust for code_annotation
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:$PATH"
+ENV CARGO_HOME="/root/.cargo"
 
-# Install FFmpeg
+FROM build AS nemo_curator
+
+# Install FFmpeg (Video curation dependency)
 COPY docker/common/install_ffmpeg.sh .
-RUN bash install_ffmpeg.sh && \
-    rm install_ffmpeg.sh
+RUN bash install_ffmpeg.sh && rm install_ffmpeg.sh
 
-FROM nemo_curator_dep AS nemo_curator
-
+# Clone InternVideo (Video curation dependency)
 ARG INTERN_VIDEO_COMMIT=09d872e5093296c6f36b8b3a91fc511b76433bf7
 COPY external/intern_video2_multimodal.patch .
-# Clone InternVideo (Video curation dependency)
 RUN git clone https://github.com/OpenGVLab/InternVideo.git && \
     cd InternVideo && \
     git checkout ${INTERN_VIDEO_COMMIT} && \
@@ -75,12 +81,30 @@ RUN git clone https://github.com/OpenGVLab/InternVideo.git && \
 
 # Install Curator
 COPY . /opt/Curator
+
+# Ensure code_annotation submodules are present (clone if not copied)
+ARG HYPERPOLYGLOT_COMMIT=515af8f43a7e865408daf5b8578e7e880a3894ac
+ARG RUST_CODE_ANALYSIS_COMMIT=efe98948323d4965348559ca607838746e6d7e4c
 RUN cd /opt/Curator && \
-  uv sync --link-mode copy --locked --extra all --all-groups && \
-  uv add /opt/InternVideo/InternVideo2/multi_modality && \
-  uv cache prune && \
-  uv cache clean distance && \
-  find /opt/uv_cache/ -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} +
+    if [ ! -f "nemo_curator/code_annotation/external/hyperpolyglot/Cargo.toml" ]; then \
+        rm -rf nemo_curator/code_annotation/external/hyperpolyglot && \
+        git clone https://github.com/VibhuJawa/hyperpolyglot.git nemo_curator/code_annotation/external/hyperpolyglot && \
+        cd nemo_curator/code_annotation/external/hyperpolyglot && git checkout ${HYPERPOLYGLOT_COMMIT}; \
+    fi && \
+    cd /opt/Curator && \
+    if [ ! -f "nemo_curator/code_annotation/external/software_metrics/rust-code-analysis/Cargo.toml" ]; then \
+        rm -rf nemo_curator/code_annotation/external/software_metrics/rust-code-analysis && \
+        git clone https://github.com/mozilla/rust-code-analysis.git nemo_curator/code_annotation/external/software_metrics/rust-code-analysis && \
+        cd nemo_curator/code_annotation/external/software_metrics/rust-code-analysis && git checkout ${RUST_CODE_ANALYSIS_COMMIT}; \
+    fi
+
+# Install Python dependencies (code_annotation Rust extension is built automatically via --extra code)
+RUN --mount=type=cache,target=/opt/uv_cache \
+    --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/opt/Curator/nemo_curator/code_annotation/rust/target \
+    cd /opt/Curator && \
+    uv sync --link-mode copy --locked --extra all --all-groups && \
+    uv add /opt/InternVideo/InternVideo2/multi_modality
 
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv

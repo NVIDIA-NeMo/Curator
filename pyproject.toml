@@ -154,9 +154,16 @@ video_cuda12 = [
     "torchaudio",
 ]
 
+# Code Curation Dependencies
+code = [
+    "code_annotation",
+    "scancode-toolkit",
+]
+
 # All dependencies
 all = [
     "nemo_curator[audio_cuda12]",
+    "nemo_curator[code]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[video_cuda12]",
@@ -219,6 +226,7 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
+code_annotation = { path = "nemo_curator/code_annotation", editable = true }
 torch = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
