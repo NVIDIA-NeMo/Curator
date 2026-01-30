@@ -528,7 +528,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 300 # TODO: update this value after benchmarking
+        exact_value: 377
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
