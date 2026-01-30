@@ -76,7 +76,7 @@ FROM nemo_curator_dep AS nemo_curator
 
 WORKDIR /opt/Curator
 COPY pyproject.toml uv.lock /opt/Curator/
-COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator
+COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
 # Install Curator
 RUN uv sync --link-mode copy --locked --extra all --all-groups --no-cache && \
