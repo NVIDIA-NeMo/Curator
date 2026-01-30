@@ -194,7 +194,7 @@ entries:
       --input-filetype=parquet
       --text-field=raw_content
       --input-blocksize=3GiB
-    timeout_s: 500
+    timeout_s: 1000
     sink_data:
       - name: slack
         additional_metrics:
@@ -219,7 +219,7 @@ entries:
       --bands-per-iteration=20
       --text-field=text
       --input-blocksize=1.5GiB
-    timeout_s: 900
+    timeout_s: 1400
     sink_data:
       - name: slack
         additional_metrics:
@@ -255,7 +255,7 @@ entries:
       --which-to-keep=hard
       --pairwise-batch-size=1024
       --dataset-size-ratio=0.10
-    timeout_s: 450
+    timeout_s: 900
     sink_data:
       - name: slack
         additional_metrics:
@@ -293,7 +293,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1300
+    timeout_s: 3600
     sink_data:
       - name: slack
         additional_metrics:
@@ -321,7 +321,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1000
+    timeout_s: 3600
     sink_data:
       - name: slack
         additional_metrics:
