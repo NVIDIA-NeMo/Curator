@@ -75,6 +75,8 @@ RUN git clone https://github.com/OpenGVLab/InternVideo.git && \
 FROM nemo_curator_dep AS nemo_curator
 
 WORKDIR /opt/Curator
+
+# Selective file copying before dependency installation for better layer caching
 COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
