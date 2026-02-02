@@ -51,10 +51,10 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
 
     # Stage 1: Read images from webdataset tar files (now runs in parallel)
     pipeline.add_stage(ImageReaderStage(
-        batch_size=args.batch_size,
+        dali_batch_size=args.batch_size,
         verbose=args.verbose,  # Force verbose to see debug info
-        num_threads=16,  # More threads for I/O
-        num_gpus_per_worker=0.25,
+        num_threads=args.reader_num_threads,  # More threads for I/O
+        num_gpus_per_worker=args.reader_gpus_per_worker,
     ))
 
     # Stage 2: Generate CLIP embeddings for images
@@ -225,6 +225,20 @@ def main() -> int:
         action="store_true",
         default=False,
         help="Enable verbose logging for all stages"
+    )
+
+    # Image reader arguments
+    parser.add_argument(
+        "--reader-num-threads",
+        type=int,
+        default=16,
+        help="Number of threads for image reading"
+    )
+    parser.add_argument(
+        "--reader-gpus-per-worker",
+        type=float,
+        default=0.25,
+        help="GPU allocation per worker for image reading"
     )
 
     # Embedding stage arguments
