@@ -62,7 +62,6 @@ COPY docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
 
-FROM nemo_curator_dep AS nemo_curator
 
 ARG INTERN_VIDEO_COMMIT=09d872e5093296c6f36b8b3a91fc511b76433bf7
 COPY external/intern_video2_multimodal.patch .
@@ -73,13 +72,19 @@ RUN git clone https://github.com/OpenGVLab/InternVideo.git && \
     patch -p1 < /opt/intern_video2_multimodal.patch && \
     rm /opt/intern_video2_multimodal.patch
 
+FROM nemo_curator_dep AS nemo_curator
+
+WORKDIR /opt/Curator
+
+# Selective file copying before dependency installation for better layer caching
+COPY pyproject.toml uv.lock /opt/Curator/
+COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
+
 # Install Curator
+RUN uv sync --link-mode copy --locked --extra all --all-groups --no-cache && \
+  uv add /opt/InternVideo/InternVideo2/multi_modality
+
 COPY . /opt/Curator
-RUN cd /opt/Curator && \
-  uv sync --link-mode copy --locked --extra all --all-groups && \
-  uv add /opt/InternVideo/InternVideo2/multi_modality && \
-  uv cache prune && \
-  uv cache clean distance
 
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv
