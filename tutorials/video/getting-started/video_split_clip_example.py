@@ -27,18 +27,6 @@ from nemo_curator.stages.video.embedding.cosmos_embed1 import (
     CosmosEmbed1EmbeddingStage,
     CosmosEmbed1FrameCreationStage,
 )
-
-try:
-    from nemo_curator.stages.video.embedding.internvideo2 import (
-        InternVideo2EmbeddingStage,
-        InternVideo2FrameCreationStage,
-    )
-except ImportError:
-    print("InternVideo2 is not installed")
-    InternVideo2EmbeddingStage = None
-    InternVideo2FrameCreationStage = None
-
-
 from nemo_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
 from nemo_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from nemo_curator.stages.video.io.clip_writer import ClipWriterStage
@@ -169,24 +157,6 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                     verbose=args.verbose,
                 )
             )
-        elif args.embedding_algorithm.startswith("internvideo2"):
-            if InternVideo2FrameCreationStage is None:
-                msg = "InternVideo2 is not installed, please consider installing it or using cosmos-embed1 instead."
-                raise ValueError(msg)
-            pipeline.add_stage(
-                InternVideo2FrameCreationStage(
-                    model_dir=args.model_dir,
-                    target_fps=2.0,
-                    verbose=args.verbose,
-                )
-            )
-            pipeline.add_stage(
-                InternVideo2EmbeddingStage(
-                    model_dir=args.model_dir,
-                    gpu_memory_gb=args.embedding_gpu_memory_gb,
-                    verbose=args.verbose,
-                )
-            )
         else:
             msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
             raise ValueError(msg)
@@ -300,7 +270,6 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
             "Models will be automatically downloaded on first use if not present. "
             "Required models depend on selected algorithms:\n"
             "  - TransNetV2: For scene detection (--splitting-algorithm transnetv2)\n"
-            "  - InternVideo2: For embeddings (--embedding-algorithm internvideo2)\n"
             "  - Cosmos-Embed1: For embeddings (--embedding-algorithm cosmos-embed1-*)\n"
             "  - Qwen: For captioning (--generate-captions)\n"
             "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
@@ -540,7 +509,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         "--embedding-algorithm",
         type=str,
         default="cosmos-embed1-224p",
-        choices=["cosmos-embed1-224p", "cosmos-embed1-336p", "cosmos-embed1-448p", "internvideo2"],
+        choices=["cosmos-embed1-224p", "cosmos-embed1-336p", "cosmos-embed1-448p"],
         help="Embedding algorithm to use.",
     )
     parser.add_argument(

@@ -87,13 +87,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --all-extras --all-groups
 ```
 
-Optional InternVideo2 installation steps:
-
-```bash
-bash external/intern_video2_installation.sh
-uv add InternVideo/InternVideo2/multi_modality
-```
-
 :::
 
 :::{tab-item} Container Installation
@@ -160,40 +153,6 @@ ffmpeg -encoders | grep -E "h264_nvenc|libopenh264|libx264" | cat
 ```
 
 If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
-
-:::
-::::
-
-### InternVideo2 Support (Optional for Video)
-
-Video processing includes optional support for InternVideo2. To install InternVideo2, run these commands before installing NeMo Curator based on whether you install via PyPI or from source:
-
-::::{tab-set}
-
-:::{tab-item} PyPI Installation
-```bash
-# Clone and set up InternVideo2
-git clone https://github.com/OpenGVLab/InternVideo.git
-cd InternVideo
-git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7
-
-# Download and apply NeMo Curator patch
-curl -fsSL https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/external/intern_video2_multimodal.patch -o intern_video2_multimodal.patch
-patch -p1 < intern_video2_multimodal.patch
-cd ..
-
-# Add InternVideo2 to the environment
-uv add InternVideo/InternVideo2/multi_modality
-```
-
-:::
-
-:::{tab-item} Source Installation
-```bash
-# Inside the NeMo Curator folder
-bash external/intern_video2_installation.sh
-uv add InternVideo/InternVideo2/multi_modality
-```
 
 :::
 ::::

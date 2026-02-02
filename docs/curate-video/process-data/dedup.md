@@ -113,7 +113,7 @@ Embeddings are written by the [`ClipWriterStage`](video-save-export) under `iv2_
 * - `input_filetype`
   - Use `"parquet"` for video embeddings.
 * - `embedding_dim`
-  - Embedding dimension (InternVideo2: 512; Cosmos‑Embed1 varies by variant).
+  - Embedding dimension (Cosmos‑Embed1 varies by variant: 768 for most).
 ```
 
 :::
