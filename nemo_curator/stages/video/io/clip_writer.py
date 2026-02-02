@@ -183,7 +183,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
             # clean up intermediate data
             for clip in video.clips:
                 clip.buffer = None
-                clip.intern_video_2_embedding = None
                 clip.cosmos_embed1_embedding = None
                 for window in clip.windows:
                     window.mp4_bytes = None
