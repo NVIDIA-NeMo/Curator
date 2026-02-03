@@ -171,8 +171,8 @@ class TestDocumentIterateExtractStage:
 
         # Check filename preservation
         assert df.loc[0, "file_name"] == "file1.txt"
-        assert df.loc[2, "file_name"] == "file2.txt"
-        assert df.loc[3, "file_name"] == "file3.txt"
+        assert df.loc[1, "file_name"] == "file2.txt"
+        assert df.loc[2, "file_name"] == "file3.txt"
 
     def test_process_with_record_limit(self, tmp_path: Path) -> None:
         """Test iteration with record limit."""

@@ -179,7 +179,7 @@ class TestWikipediaDownloadExtractStage:
         assert download_stage.downloader._verbose is True
 
         # Check iterate-extract stage
-        iterate_stage = stages[2]
+        iterate_extract_stage = stages[2]
         assert isinstance(iterate_extract_stage, DocumentIterateExtractStage)
         assert isinstance(iterate_extract_stage.iterator, WikipediaIterator)
         assert isinstance(iterate_extract_stage.extractor, WikipediaExtractor)
