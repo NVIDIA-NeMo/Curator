@@ -149,6 +149,10 @@ class Clip:
                 total_size += x.nbytes
         if self.decoded_motion_data is not None:
             total_size += self.decoded_motion_data.get_major_size()
+        if self.cosmos_embed1_frames is not None:
+            total_size += self.cosmos_embed1_frames.nbytes
+        if self.cosmos_embed1_embedding is not None:
+            total_size += self.cosmos_embed1_embedding.nbytes
         for window in self.windows:
             total_size += window.get_major_size()
         return total_size
