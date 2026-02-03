@@ -13,10 +13,8 @@
 # limitations under the License.
 
 from pathlib import Path
-from typing import Any
 from unittest import mock
 
-import pandas as pd
 import pytest
 
 from nemo_curator.stages.resources import Resources
