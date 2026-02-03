@@ -45,9 +45,10 @@ class DocumentIterateExtractStage(ProcessingStage[FileGroupTask, DocumentBatch])
     def __post_init__(self):
         """Initialize the stage."""
         self.filename_col = resolve_filename_column(self.add_filename_column)
-        self.name = (
-            f"iterate_extract_{self.iterator.__class__.__name__.lower()}_{self.extractor.__class__.__name__.lower()}"
-        )
+        if self.extractor:
+            self.name = f"iterate_extract_{self.iterator.__class__.__name__.lower()}_{self.extractor.__class__.__name__.lower()}"
+        else:
+            self.name = f"iterate_{self.iterator.__class__.__name__.lower()}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define input requirements - expects FileGroupTask with local file paths."""
