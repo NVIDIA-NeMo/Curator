@@ -99,16 +99,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         return ClipWriterStage._get_output_path(output_path, f"metas/{version}")
 
     @staticmethod
-    def get_output_path_iv2_embd(output_path: str) -> str:
-        """Get path to store generated clips."""
-        return ClipWriterStage._get_output_path(output_path, "iv2_embd")
-
-    @staticmethod
-    def get_output_path_iv2_embd_parquet(output_path: str) -> str:
-        """Get path to store generated clip embeddings in a parquet file."""
-        return ClipWriterStage._get_output_path(output_path, "iv2_embd_parquet")
-
-    @staticmethod
     def get_output_path_ce1_embd(output_path: str) -> str:
         """Get path to store generated clip embeddings of Cosmos-Embed1."""
         return ClipWriterStage._get_output_path(output_path, "ce1_embd")
