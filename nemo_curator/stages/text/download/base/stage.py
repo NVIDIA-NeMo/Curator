@@ -60,7 +60,7 @@ class DocumentIterateExtractStage(ProcessingStage[FileGroupTask, DocumentBatch])
         else:
             return (["data"], self.iterator.output_columns() + ([self.filename_col] if self.add_filename_column else []))
 
-    def process(self, task: FileGroupTask) -> DocumentBatch:  # noqa: C901
+    def process(self, task: FileGroupTask) -> DocumentBatch:
         """Iterate through files and extract structured content.
 
         Args:
@@ -88,10 +88,7 @@ class DocumentIterateExtractStage(ProcessingStage[FileGroupTask, DocumentBatch])
                         record_dict[self.filename_col] = os.path.basename(file_path)
 
                     # Extract structured content
-                    if self.extractor:
-                        extracted = self.extractor.extract(record_dict)
-                    else:
-                        extracted = record_dict
+                    extracted = self.extractor.extract(record_dict) if self.extractor else record_dict
 
                     if extracted is None:
                         continue
