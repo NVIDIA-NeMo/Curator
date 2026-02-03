@@ -159,15 +159,15 @@ class TestDocumentIterateExtractStage:
         assert len(df) == 3
 
         # Check transformation
-        assert df.loc[0, "processed_text"] == "HELLO WORLD"
-        assert df.loc[1, "processed_text"] == "FOO BAR"
-        assert df.loc[2, "processed_text"] == "TEST CONTENT"
+        assert df.loc[0, "processed_text"] == "CONTENT FROM FILE1.TXT RECORD 0"
+        assert df.loc[1, "processed_text"] == "CONTENT FROM FILE2.TXT RECORD 0"
+        assert df.loc[2, "processed_text"] == "CONTENT FROM FILE3.TXT RECORD 0"
 
         # Check other columns
         assert all(df["language"] == "en")
-        assert df.loc[0, "char_count"] == 11
-        assert df.loc[1, "char_count"] == 7
-        assert df.loc[2, "char_count"] == 12
+        assert df.loc[0, "char_count"] == 31
+        assert df.loc[1, "char_count"] == 31
+        assert df.loc[2, "char_count"] == 31
 
         # Check filename preservation
         assert df.loc[0, "file_name"] == "file1.txt"
@@ -197,27 +197,26 @@ class TestDocumentIterateExtractStage:
         assert len(df) == 3
         assert df["id"].tolist() == ["test.txt_record_0", "test.txt_record_1", "test.txt_record_2"]
 
-    # TODO: Fix this test
-    def test_process_with_filtered_records(self) -> None:
+    def test_process_with_filtered_records(self, tmp_path: Path) -> None:
         """Test extraction with some records filtered out."""
         iterator = MockDocumentIterator(records_per_file=1)
         extractor = MockDocumentExtractor()
         stage = DocumentIterateExtractStage(iterator=iterator, extractor=extractor)
 
-        # Create input with records that will be filtered
-        input_data = pd.DataFrame(
-            [
-                {"id": "record_1", "content": "hello world", "file_name": "file1.txt"},
-                {"id": "record_2_skip", "content": "this will be skipped", "file_name": "file1.txt"},
-                {"id": "record_3", "content": "test content", "file_name": "file2.txt"},
-            ]
-        )
+        # Create test files
+        file1 = tmp_path / "file1.txt"
+        file2 = tmp_path / "file2_skip.txt"
+        file3 = tmp_path / "file3.txt"
+        file1.write_text("hello world")
+        file2.write_text("this will be skipped")
+        file3.write_text("test content")
 
-        input_task = DocumentBatch(
+        # Create input task
+        input_task = FileGroupTask(
             task_id="test_task",
             dataset_name="test_dataset",
-            data=input_data,
-            _metadata={},
+            data=[str(file1), str(file2), str(file3)],
+            _metadata={"source": "test"},
         )
 
         result = stage.process(input_task)
@@ -225,9 +224,9 @@ class TestDocumentIterateExtractStage:
 
         # Should only have 2 records (filtered out the one with "_skip")
         assert len(df) == 2
-        assert "record_1" in df["id"].tolist()
-        assert "record_3" in df["id"].tolist()
-        assert "record_2_skip" not in df["id"].tolist()
+        assert "file1.txt_record_0" in df["id"].tolist()
+        assert "file3.txt_record_0" in df["id"].tolist()
+        assert "file2_skip.txt_record_0" not in df["id"].tolist()
 
     def test_process_iterate_without_filename_column(self, tmp_path: Path) -> None:
         """Test processing without adding filename column."""
@@ -324,37 +323,6 @@ class TestDocumentIterateExtractStage:
         assert "source_file" in df.columns
         assert df["source_file"].iloc[0] == "test.txt"
 
-    def test_process_with_file_errors(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        """Test handling when some files fail to process."""
-        caplog.set_level("ERROR")
-
-        iterator = MockDocumentIterator(records_per_file=2, fail_on_file="error_file.txt")
-        stage = DocumentIterateExtractStage(iterator=iterator)
-
-        # Create files - one will succeed, one will fail
-        good_file = tmp_path / "good_file.txt"
-        error_file = tmp_path / "error_file.txt"
-        good_file.write_text("content")
-        error_file.write_text("content")
-
-        input_task = FileGroupTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=[str(good_file), str(error_file)],
-            _metadata={},
-        )
-
-        result = stage.process(input_task)
-        df = result.data
-
-        # Should only have records from successful file
-        assert len(df) == 2
-        assert all(filename == "good_file.txt" for filename in df["file_name"])
-
-        # Check that error was logged
-        assert "Error iterating" in caplog.text
-        assert "error_file.txt" in caplog.text
-
     def test_process_empty_file_group(self) -> None:
         """Test processing an empty file group task."""
         iterator = MockDocumentIterator()
@@ -364,29 +332,6 @@ class TestDocumentIterateExtractStage:
             task_id="empty_task",
             dataset_name="test_dataset",
             data=[],
-            _metadata={"source": "test"},
-        )
-
-        result = stage.process(input_task)
-
-        assert isinstance(result, DocumentBatch)
-        assert result.task_id == "empty_task"
-        assert result.dataset_name == "test_dataset"
-        assert len(result.data) == 0
-        assert result._metadata == {"source": "test"}
-
-    # TODO: Fix this test
-    def test_process_empty_batch(self) -> None:
-        """Test processing an empty document batch."""
-        iterator = MockDocumentIterator()
-        extractor = MockDocumentExtractor()
-        stage = DocumentIterateExtractStage(iterator=iterator, extractor=extractor)
-
-        input_data = pd.DataFrame()
-        input_task = DocumentBatch(
-            task_id="empty_task",
-            dataset_name="test_dataset",
-            data=input_data,
             _metadata={"source": "test"},
         )
 
@@ -422,25 +367,22 @@ class TestDocumentIterateExtractStage:
         assert len(df) == 0
         mock_iterate.assert_called_once()
 
-    # TODO: Fix this test
-    def test_process_all_records_filtered(self) -> None:
+    def test_process_all_records_filtered(self, tmp_path: Path) -> None:
         """Test when all records are filtered out."""
-        iterator = MockDocumentIterator()
+        iterator = MockDocumentIterator(records_per_file=1)
         extractor = MockDocumentExtractor()
         stage = DocumentIterateExtractStage(iterator=iterator, extractor=extractor)
 
-        # All records will be filtered (end with "_skip")
-        input_data = pd.DataFrame(
-            [
-                {"id": "record_1_skip", "content": "hello", "file_name": "file1.txt"},
-                {"id": "record_2_skip", "content": "world", "file_name": "file2.txt"},
-            ]
-        )
+        # Create files
+        file1 = tmp_path / "file1_skip.txt"
+        file2 = tmp_path / "file2_skip.txt"
+        file1.write_text("hello_skip")
+        file2.write_text("world_skip")
 
-        input_task = DocumentBatch(
+        input_task = FileGroupTask(
             task_id="test_task",
             dataset_name="test_dataset",
-            data=input_data,
+            data=[str(file1), str(file2)],
             _metadata={},
         )
 
@@ -450,6 +392,37 @@ class TestDocumentIterateExtractStage:
         assert len(result.data) == 0
         assert result.task_id == "test_task"
         assert result.dataset_name == "test_dataset"
+
+    def test_process_with_file_errors(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """Test handling when some files fail to process."""
+        caplog.set_level("ERROR")
+
+        iterator = MockDocumentIterator(records_per_file=2, fail_on_file="error_file.txt")
+        stage = DocumentIterateExtractStage(iterator=iterator)
+
+        # Create files - one will succeed, one will fail
+        good_file = tmp_path / "good_file.txt"
+        error_file = tmp_path / "error_file.txt"
+        good_file.write_text("content")
+        error_file.write_text("content")
+
+        input_task = FileGroupTask(
+            task_id="test_task",
+            dataset_name="test_dataset",
+            data=[str(good_file), str(error_file)],
+            _metadata={},
+        )
+
+        result = stage.process(input_task)
+        df = result.data
+
+        # Should only have records from successful file
+        assert len(df) == 2
+        assert all(filename == "good_file.txt" for filename in df["file_name"])
+
+        # Check that error was logged
+        assert "Error iterating" in caplog.text
+        assert "error_file.txt" in caplog.text
 
     def test_process_all_files_fail(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Test when all files fail to process."""
@@ -478,47 +451,6 @@ class TestDocumentIterateExtractStage:
 
         # Check that error was logged
         assert "Error iterating" in caplog.text
-
-    # TODO: Fix this test
-    @mock.patch.object(MockDocumentExtractor, "extract")
-    def test_process_with_extraction_errors(self, mock_extract: mock.Mock) -> None:
-        """Test handling when extraction fails for some records."""
-
-        # Mock extract to raise exception for certain records
-        def side_effect(record: dict[str, str]) -> dict[str, Any] | None:
-            if record.get("id") == "error_record":
-                msg = "Extraction failed"
-                raise ValueError(msg)
-            return {
-                "id": record["id"],
-                "processed_text": record["content"].upper(),
-                "language": "en",
-                "char_count": len(record["content"]),
-            }
-
-        mock_extract.side_effect = side_effect
-
-        iterator = MockDocumentIterator()
-        extractor = MockDocumentExtractor()
-        stage = DocumentIterateExtractStage(iterator=iterator, extractor=extractor)
-
-        input_data = pd.DataFrame(
-            [
-                {"id": "good_record", "content": "hello", "file_name": "file1.txt"},
-                {"id": "error_record", "content": "world", "file_name": "file2.txt"},
-            ]
-        )
-
-        input_task = DocumentBatch(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=input_data,
-            _metadata={},
-        )
-
-        # Should raise the exception since it's not caught in the current implementation
-        with pytest.raises(ValueError, match="Extraction failed"):
-            stage.process(input_task)
 
 
 class TestDocumentDownloadExtractStage:

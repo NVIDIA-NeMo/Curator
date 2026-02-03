@@ -29,22 +29,23 @@ class MockDocumentExtractor(DocumentExtractor):
     def extract(self, record: dict[str, str]) -> dict[str, Any] | None:
         """Mock extraction implementation - will be patched in some tests."""
         record_id = record.get("id", "")
+        record_content = record.get("content", "")
 
         # Simulate failure for specific records
-        if self.fail_on_record and record_id == self.fail_on_record:
+        if self.fail_on_record and record_content == self.fail_on_record:
             msg = f"Mock error processing record {record_id}"
             raise ValueError(msg)
 
         # Simulate filtering out certain records
-        if record_id.endswith("_skip"):
+        if "skip" in record_content.lower():
             return None
 
         # Transform the record
         return {
             "id": record_id,
-            "processed_text": record.get("content", "").upper() if self.transform_text else record.get("content", ""),
+            "processed_text": record_content.upper() if self.transform_text else record_content,
             "language": "en",
-            "char_count": len(record.get("content", "")),
+            "char_count": len(record_content),
         }
 
     def input_columns(self) -> list[str]:
@@ -79,7 +80,7 @@ class TestBaseDocumentExtractor:
 
         record = {
             "id": "test_record_skip",
-            "content": "this should be skipped",
+            "content": "this should be skipped_skip",
         }
 
         result = extractor.extract(record)
@@ -87,11 +88,11 @@ class TestBaseDocumentExtractor:
 
     def test_extractor_with_error(self) -> None:
         """Test extractor behavior when processing fails."""
-        extractor = MockDocumentExtractor(fail_on_record="error_record")
+        extractor = MockDocumentExtractor(fail_on_record="test_content_error")
 
         record = {
             "id": "error_record",
-            "content": "test content",
+            "content": "test_content_error",
         }
 
         with pytest.raises(ValueError, match="Mock error processing record error_record"):
