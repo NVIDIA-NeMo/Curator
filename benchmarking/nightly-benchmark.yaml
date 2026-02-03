@@ -33,7 +33,7 @@ datasets:
   - name: "mscoco"
     formats:
     - type: "wds"
-      path: "{datasets_path}/mscoco/wds/full_mscoco_benchmarking"
+      path: "{datasets_path}/mscoco/wds/truncated_100K_mscoco_benchmarking"
   - name: "mscoco_model_weights"
     formats:
     - type: "files"
