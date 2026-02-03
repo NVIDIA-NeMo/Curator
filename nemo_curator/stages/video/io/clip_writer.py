@@ -204,7 +204,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
                     "embedding": clip.cosmos_embed1_embedding.reshape(-1).tolist(),
                 },
             )
-        elif self.generate_embeddings and self.embedding_algorithm == "cosmos-embed1":
+        elif self.generate_embeddings and self.embedding_algorithm.startswith("cosmos-embed1"):
             logger.error(
                 f"Clip {clip.uuid} from {clip.source_video} has no Cosmos-Embed1 embedding, skip adding to buffer"
             )
@@ -319,7 +319,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
             if not self.dry_run:
                 self._write_data(buffer.getvalue(), dest, f"embedding {clip.uuid}", clip.source_video)
             clip_stats.num_with_embeddings += 1
-        elif self.generate_embeddings and self.embedding_algorithm == "cosmos-embed1":
+        elif self.generate_embeddings and self.embedding_algorithm.startswith("cosmos-embed1"):
             logger.error(
                 f"Clip {clip.uuid} from {clip.source_video} has no Cosmos-Embed1 embedding, skip uploading to s3"
             )
