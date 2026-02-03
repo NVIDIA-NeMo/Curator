@@ -13,14 +13,10 @@
 # limitations under the License.
 
 from typing import Any
-from unittest import mock
 
-import pandas as pd
 import pytest
 
-from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.base.extract import DocumentExtractor
-from nemo_curator.tasks import DocumentBatch
 
 
 class MockDocumentExtractor(DocumentExtractor):

@@ -13,12 +13,17 @@
 # limitations under the License.
 
 from pathlib import Path
+from typing import Any
 from unittest import mock
+
+import pandas as pd
+import pytest
 
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.base.download import DocumentDownloadStage
 from nemo_curator.stages.text.download.base.stage import DocumentDownloadExtractStage, DocumentIterateExtractStage
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
+from nemo_curator.tasks import DocumentBatch, FileGroupTask
 
 from .test_download import MockDocumentDownloader
 from .test_extract import MockDocumentExtractor
@@ -192,7 +197,7 @@ class TestDocumentIterateExtractStage:
         assert len(df) == 3
         assert df["id"].tolist() == ["test.txt_record_0", "test.txt_record_1", "test.txt_record_2"]
 
-    # TODO
+    # TODO: Fix this test
     def test_process_with_filtered_records(self) -> None:
         """Test extraction with some records filtered out."""
         iterator = MockDocumentIterator(records_per_file=1)
@@ -370,7 +375,7 @@ class TestDocumentIterateExtractStage:
         assert len(result.data) == 0
         assert result._metadata == {"source": "test"}
 
-    # TODO
+    # TODO: Fix this test
     def test_process_empty_batch(self) -> None:
         """Test processing an empty document batch."""
         iterator = MockDocumentIterator()
@@ -417,7 +422,7 @@ class TestDocumentIterateExtractStage:
         assert len(df) == 0
         mock_iterate.assert_called_once()
 
-    # TODO
+    # TODO: Fix this test
     def test_process_all_records_filtered(self) -> None:
         """Test when all records are filtered out."""
         iterator = MockDocumentIterator()
@@ -474,7 +479,7 @@ class TestDocumentIterateExtractStage:
         # Check that error was logged
         assert "Error iterating" in caplog.text
 
-    # TODO
+    # TODO: Fix this test
     @mock.patch.object(MockDocumentExtractor, "extract")
     def test_process_with_extraction_errors(self, mock_extract: mock.Mock) -> None:
         """Test handling when extraction fails for some records."""
