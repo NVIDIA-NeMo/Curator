@@ -437,21 +437,31 @@ entries:
 
   - name: image_curation
     enabled: true
-    script: "{curator_repo_dir}/tutorials/image/getting-started/image_curation_example.py"
+    script: image_pipeline_benchmark.py
     args: >-
-      --input-wds-dataset-dir {dataset:mscoco,wds}
-      --output-dataset-dir {session_entry_dir}/scratch/output
-      --model-dir {dataset:mscoco_model_weights,files}
-      --batch-size 100
-      --embedding-batch-size 100
-      --aesthetic-batch-size 100
-      --nsfw-batch-size 100
-      --tar-files-per-partition 10
-      --aesthetic-threshold 0.9
-      --nsfw-threshold 0.9
-      --skip-download
+      --benchmark-results-path={session_entry_dir}
+      --input-wds-dataset-dir={dataset:mscoco,wds}
+      --output-dataset-dir={session_entry_dir}/scratch/output
+      --model-dir={dataset:mscoco_model_weights,files}
+      --executor=xenna
+      --tar-files-per-partition=1
+      --batch-size=1000
+      --embedding-batch-size=500
+      --aesthetic-batch-size=500
+      --aesthetic-threshold=0.9
       --verbose
-
+    timeout_s: 1500
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_images_processed
+        exact_value: 3800
+      - metric: throughput_images_per_sec
+        min_value: 3.0
+  
   - name: audio_fleurs
     enabled: true
     script: audio_fleurs_benchmark.py
