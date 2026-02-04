@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ from nemo_curator.stages.text.download.arxiv.iterator import ArxivIterator
 from nemo_curator.stages.text.download.arxiv.stage import ArxivDownloadExtractStage
 from nemo_curator.stages.text.download.arxiv.url_generation import ArxivUrlGenerator
 from nemo_curator.stages.text.download.base.download import DocumentDownloadStage
-from nemo_curator.stages.text.download.base.stage import DocumentIterateExtractStage
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
 
 

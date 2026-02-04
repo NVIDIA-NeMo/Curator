@@ -47,7 +47,7 @@ from nemo_curator.stages.text.download.arxiv import ArxivDownloadExtractStage
 from nemo_curator.stages.text.download.arxiv.extract import ArxivExtractor
 from nemo_curator.stages.text.download.arxiv.iterator import ArxivIterator
 from nemo_curator.stages.text.download.base import URLGenerator
-from nemo_curator.stages.text.download.base.stage import DocumentIterateExtractStage
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
 from nemo_curator.stages.text.filters import (
     FastTextLangId,
