@@ -58,7 +58,7 @@ Common operations:
 - Clip extraction
 - GPU H.264 encoding/decoding
 - Motion and aesthetic filtering
-- Embeddings (InternVideo2, Cosmos-Embed1)
+- Embeddings (Cosmos-Embed1)
 
 Task type: `VideoTask`
 

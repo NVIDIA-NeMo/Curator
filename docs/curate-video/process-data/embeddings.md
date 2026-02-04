@@ -1,7 +1,7 @@
 ---
-description: "Generate clip-level embeddings using Cosmos-Embed1 or InternVideo2"
+description: "Generate clip-level embeddings using Cosmos-Embed1"
 categories: ["video-curation"]
-tags: ["embeddings", "cosmos-embed1", "internvideo2", "video"]
+tags: ["embeddings", "cosmos-embed1", "video"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "howto"
@@ -40,9 +40,9 @@ Use the pipeline stages or the example script flags to generate clip-level embed
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
 from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
-from nemo_curator.stages.video.embedding.internvideo2 import (
-    InternVideo2FrameCreationStage,
-    InternVideo2EmbeddingStage,
+from nemo_curator.stages.video.embedding.cosmos_embed1 import (
+    CosmosEmbed1FrameCreationStage,
+    CosmosEmbed1EmbeddingStage,
 )
 
 pipe = Pipeline(name="video_embeddings_example")
@@ -54,8 +54,8 @@ pipe.add_stage(
         verbose=True,
     )
 )
-pipe.add_stage(InternVideo2FrameCreationStage(model_dir="/models", target_fps=2.0, verbose=True))
-pipe.add_stage(InternVideo2EmbeddingStage(model_dir="/models", gpu_memory_gb=20.0, verbose=True))
+pipe.add_stage(CosmosEmbed1FrameCreationStage(model_dir="/models", variant="224p", target_fps=2.0, verbose=True))
+pipe.add_stage(CosmosEmbed1EmbeddingStage(model_dir="/models", variant="224p", gpu_memory_gb=20.0, verbose=True))
 pipe.run()
 ```
 
@@ -64,13 +64,6 @@ pipe.run()
 :::{tab-item} Script Flags
 
 ```bash
-# InternVideo2
-python -m nemo_curator.examples.video.video_split_clip_example \
-  ... \
-  --generate-embeddings \
-  --embedding-algorithm internvideo2 \
-  --embedding-gpu-memory-gb 20.0
-
 # Cosmos-Embed1 (224p)
 python -m nemo_curator.examples.video.video_split_clip_example \
   ... \
@@ -192,106 +185,6 @@ python -m nemo_curator.examples.video.video_split_clip_example \
 - `clip.cosmos_embed1_frames` → temporary tensors used by the embedding stage
 - `clip.cosmos_embed1_embedding` → final clip-level vector (NumPy array)
 - Optional: `clip.cosmos_embed1_text_match`
-
-### InternVideo2
-
-1. Add `InternVideo2FrameCreationStage` to transform extracted frames into model-ready tensors.
-
-   ```python
-   from nemo_curator.stages.video.embedding.internvideo2 import (
-       InternVideo2FrameCreationStage,
-       InternVideo2EmbeddingStage,
-   )
-
-   frames = InternVideo2FrameCreationStage(
-       model_dir="/models",
-       target_fps=2.0,
-       verbose=True,
-   )
-
-   ```
-
-2. Add `InternVideo2EmbeddingStage` to generate `clip.intern_video_2_embedding` and optional `clip.intern_video_2_text_match`.
-
-   ```python
-   embed = InternVideo2EmbeddingStage(
-       model_dir="/models",
-       gpu_memory_gb=20.0,
-       verbose=True,
-   )
-   ```
-
-#### Parameters
-
-::::{tab-set}
-
-:::{tab-item} InternVideo2FrameCreationStage
-
-```{list-table} InternVideo2 frame creation parameters
-:header-rows: 1
-:widths: 22 12 12 54
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `model_dir`
-  - str
-  - `"InternVideo2"`
-  - Directory for model utilities used to format input frames.
-* - `target_fps`
-  - float
-  - 2.0
-  - Source sampling rate used to select frames; may re-extract at higher FPS if needed.
-* - `verbose`
-  - bool
-  - `False`
-  - Log re-extraction and per-clip messages.
-```
-
-:::
-
-:::{tab-item} InternVideo2EmbeddingStage
-
-```{list-table} InternVideo2 embedding parameters
-:header-rows: 1
-:widths: 22 12 12 54
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `model_dir`
-  - str
-  - `"InternVideo2"`
-  - Directory for model weights; downloaded on each node if missing.
-* - `gpu_memory_gb`
-  - float
-  - 10.0
-  - Approximate GPU memory reservation per worker.
-* - `num_gpus_per_worker`
-  - float
-  - 1.0
-  - GPUs reserved per worker for embedding.
-* - `texts_to_verify`
-  - list[str] | None
-  - `None`
-  - Optional text prompts to score against the clip embedding.
-* - `verbose`
-  - bool
-  - `False`
-  - Log setup and per-clip outcomes.
-```
-
-:::
-
-::::
-
-#### Outputs
-
-- `clip.intern_video_2_frames` → temporary tensors used by the embedding stage
-- `clip.intern_video_2_embedding` → final clip-level vector (NumPy array)
-- Optional: `clip.intern_video_2_text_match`
 
 ## Troubleshooting
 
