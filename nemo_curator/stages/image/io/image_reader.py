@@ -33,7 +33,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
     otherwise falls back to CPU decoding.
     """
 
-    batch_size: int = 100
+    dali_batch_size: int = 100
     verbose: bool = True
     num_threads: int = 8
     num_gpus_per_worker: float = 0.25
@@ -68,7 +68,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             raise RuntimeError(msg) from exc
 
         @pipeline_def(
-            batch_size=self.batch_size,
+            batch_size=self.dali_batch_size,
             num_threads=self.num_threads,
             device_id=0,  # First device; unused for CPU-only DALI builds
         )
