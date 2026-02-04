@@ -33,7 +33,7 @@ Understand how components work together so you can plan, scale, and troubleshoot
 ```
 
 ```{note}
-Video pipelines use the `XennaExecutor` backend by default, which provides optimized support for GPU-accelerated video processing including hardware decoders (`nvdecs`) and encoders (`nvencs`). You do not need to import or configure the executor unless you want to use an alternative backend. For more information about customizing backends, refer to [Add a Custom Stage](video-tutorials-pipeline-cust-add-stage).
+Video pipelines use the `XennaExecutor` backend by default, which provides optimized support for GPU-accelerated video processing including hardware decoders and encoders. You do not need to import or configure the executor unless you want to use an alternative backend. For more information about customizing backends, refer to [Pipeline Execution Backends](reference-execution-backends).
 ```
 
 ---

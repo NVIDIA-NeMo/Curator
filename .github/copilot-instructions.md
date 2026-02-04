@@ -361,8 +361,6 @@ class Resources:
     cpus: float = 1.0 # Number of CPU cores
     gpu_memory_gb: float = 0.0 # Number of GPU memory in GB (Only for single GPU)
     gpus: float = 0.0 # Number of GPUs (Only for multi-GPU)
-    nvdecs: int = 0 # Number of NVDEC decoders
-    nvencs: int = 0 # Number of NVENC encoders
     entire_gpu: bool = False # Whether to use the entire GPU
 ```
 
