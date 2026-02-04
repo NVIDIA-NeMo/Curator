@@ -69,10 +69,9 @@ Extract frames from clips or full videos for embeddings, filtering, and analysis
 :::{grid-item-card} {octicon}`graph;1.5em;sd-mr-1` Create Embeddings
 :link: video-process-embeddings
 :link-type: ref
-Generate clip-level embeddings with InternVideo2 or Cosmos-Embed1 for search and duplicate removal.
+Generate clip-level embeddings with Cosmos-Embed1 for search and duplicate removal.
 +++
 {bdg-primary}`clips`
-{bdg-secondary}`internvideo2`
 {bdg-secondary}`cosmos-embed1`
 :::
 
@@ -117,7 +116,7 @@ pipeline.add_stage(
         generate_embeddings=True,
         generate_previews=False,
         generate_captions=False,
-        embedding_algorithm="internvideo2",
+        embedding_algorithm="cosmos-embed1-224p",
         caption_models=[],
         enhanced_caption_models=[],
         verbose=True,
