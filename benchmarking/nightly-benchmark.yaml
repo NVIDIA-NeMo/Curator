@@ -8,6 +8,7 @@
 # appropriate path at runtime.
 results_path: /path/where/results/are/stored
 datasets_path: /path/to/datasets
+model_weights_path: /path/to/model_weights
 
 datasets:
   - name: "tinystories"
@@ -50,6 +51,14 @@ datasets:
     formats:
     - type: "parquet"
       path: "{datasets_path}/rpv2_2023-14_en"
+  - name: "arxiv_downloads"
+    formats:
+    - type: "tar"
+      path: "{datasets_path}/arxiv_downloads"
+  - name: "fasttext_model"
+    formats:
+    - type: "bin"
+      path: "{model_weights_path}/fasttext/lid.176.bin"
 
 default_timeout_s: 7200
 
@@ -474,6 +483,63 @@ entries:
       --wer-threshold=5.5
       --gpus=1
 
+  - name: arxiv_e2e_pipeline_raydata
+    enabled: true
+    script: arxiv_e2e_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --tar-input-path={dataset:arxiv_downloads,tar}
+      --output-path={session_entry_dir}/scratch/output
+      --fasttext-model-path={dataset:fasttext_model,bin}
+      --executor=ray_data
+    timeout_s: 3600
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+          - num_output_documents
+          - num_input_documents
+    ray:
+      num_cpus: 16
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      # Data integrity checks
+      - metric: num_tar_files
+        exact_value: 45
+      - metric: num_input_documents
+        exact_value: 116383
+      - metric: num_output_documents
+        exact_value: 61474
+
+  - name: arxiv_e2e_pipeline_xenna
+    enabled: true
+    script: arxiv_e2e_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --tar-input-path={dataset:arxiv_downloads,tar}
+      --output-path={session_entry_dir}/scratch/output
+      --fasttext-model-path={dataset:fasttext_model,bin}
+      --executor=xenna
+    timeout_s: 3600
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+          - num_output_documents
+          - num_input_documents
+    ray:
+      num_cpus: 16
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      # Data integrity checks
+      - metric: num_tar_files
+        exact_value: 45
+      - metric: num_input_documents
+        exact_value: 116383
+      - metric: num_output_documents
+        exact_value: 61474
   - name: video_embedding
     enabled: true
     script: video_pipeline_benchmark.py
