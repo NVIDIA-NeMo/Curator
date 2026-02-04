@@ -19,7 +19,7 @@ from nemo_curator.tasks import DocumentBatch, _EmptyTask
 
 from .download import DocumentDownloader, DocumentDownloadStage
 from .extract import DocumentExtractor
-from .iterator import DocumentIterator
+from .iterator import DocumentIterateExtractStage, DocumentIterator
 from .url_generation import URLGenerationStage, URLGenerator
 
 
