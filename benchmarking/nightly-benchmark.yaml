@@ -55,10 +55,14 @@ datasets:
     formats:
     - type: "tar"
       path: "{datasets_path}/arxiv_downloads"
-  - name: "fasttext_model"
+  - name: "fasttext_langid_model"
     formats:
     - type: "bin"
       path: "{model_weights_path}/fasttext/lid.176.bin"
+  - name: "fasttext_quality_model"
+    formats:
+    - type: "bin"
+      path: "{model_weights_path}/fasttext/quality.bin"
 
 default_timeout_s: 7200
 
@@ -470,7 +474,7 @@ entries:
         exact_value: 3800
       - metric: throughput_images_per_sec
         min_value: 3.0
-  
+
   - name: audio_fleurs
     enabled: true
     script: audio_fleurs_benchmark.py
@@ -490,7 +494,7 @@ entries:
       --benchmark-results-path={session_entry_dir}
       --tar-input-path={dataset:arxiv_downloads,tar}
       --output-path={session_entry_dir}/scratch/output
-      --fasttext-model-path={dataset:fasttext_model,bin}
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
       --executor=ray_data
     timeout_s: 3600
     sink_data:
@@ -519,7 +523,7 @@ entries:
       --benchmark-results-path={session_entry_dir}
       --tar-input-path={dataset:arxiv_downloads,tar}
       --output-path={session_entry_dir}/scratch/output
-      --fasttext-model-path={dataset:fasttext_model,bin}
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
       --executor=xenna
     timeout_s: 3600
     sink_data:
@@ -644,11 +648,9 @@ entries:
       --executor=ray_data
       --input-path={dataset:tinystories,parquet}
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/fasttext_filter_pipeline.yaml
-      --overrides="
-        stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader,
-        fasttext_langid_model_path={datasets_path}/models/fasttext/lid.176.bin,
-        fasttext_quality_model_path={datasets_path}/models/fasttext/quality.bin
-      "
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --fasttext-quality-model-path={dataset:fasttext_quality_model,bin}
+      --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
     timeout_s: 400
     sink_data:
       - name: slack
@@ -669,11 +671,9 @@ entries:
       --executor=xenna
       --input-path={dataset:tinystories,parquet}
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/fasttext_filter_pipeline.yaml
-      --overrides="
-        stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader,
-        fasttext_langid_model_path={datasets_path}/models/fasttext/lid.176.bin,
-        fasttext_quality_model_path={datasets_path}/models/fasttext/quality.bin
-      "
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --fasttext-quality-model-path={dataset:fasttext_quality_model,bin}
+      --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
     timeout_s: 600
     sink_data:
       - name: slack

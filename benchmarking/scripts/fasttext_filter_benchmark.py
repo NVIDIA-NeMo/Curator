@@ -57,6 +57,8 @@ def run_fasttext_filter_benchmark(  # noqa: PLR0913
     executor_name: str,
     benchmark_results_path: Path,
     yaml_config: Path,
+    fasttext_langid_model_path: Path,
+    fasttext_quality_model_path: Path,
     overrides: str | None = None,
 ) -> dict[str, Any]:
     executor = setup_executor(executor_name)
@@ -69,10 +71,14 @@ def run_fasttext_filter_benchmark(  # noqa: PLR0913
     logger.info(f"Output path: {output_path}")
     logger.info(f"Executor: {executor_name}")
     logger.info(f"FastText pipeline config: {yaml_config}")
+    logger.info(f"FastText language ID model: {fasttext_langid_model_path}")
+    logger.info(f"FastText quality model: {fasttext_quality_model_path}")
 
     overrides_list = [
         f"input_path={input_path}",
         f"output_path={output_path}",
+        f"fasttext_langid_model_path={fasttext_langid_model_path}",
+        f"fasttext_quality_model_path={fasttext_quality_model_path}",
     ]
     if overrides:
         overrides_list.extend(overrides.split(","))
@@ -116,6 +122,8 @@ def run_fasttext_filter_benchmark(  # noqa: PLR0913
             "output_path": str(output_path),
             "benchmark_results_path": str(benchmark_results_path),
             "yaml_config": str(yaml_config),
+            "fasttext_langid_model_path": str(fasttext_langid_model_path),
+            "fasttext_quality_model_path": str(fasttext_quality_model_path),
         },
         "metrics": {
             "is_success": success,
@@ -144,6 +152,12 @@ def main() -> int:
         choices=["ray_data", "xenna"],
     )
     parser.add_argument("--yaml-config", type=Path, required=True)
+    parser.add_argument(
+        "--fasttext-langid-model-path", type=Path, required=True, help="Path to FastText language ID model"
+    )
+    parser.add_argument(
+        "--fasttext-quality-model-path", type=Path, required=True, help="Path to FastText quality model"
+    )
     parser.add_argument("--overrides", type=str)
 
     args = parser.parse_args()
@@ -158,6 +172,8 @@ def main() -> int:
             executor_name=args.executor,
             benchmark_results_path=args.benchmark_results_path,
             yaml_config=args.yaml_config,
+            fasttext_langid_model_path=args.fasttext_langid_model_path,
+            fasttext_quality_model_path=args.fasttext_quality_model_path,
             overrides=args.overrides,
         )
     except Exception:  # noqa: BLE001
