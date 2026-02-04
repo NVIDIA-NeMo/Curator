@@ -65,7 +65,6 @@ class TestClipWriterStage:
             source_video="/test/input/video.mp4",
             span=(0.0, 5.0),
             buffer=b"mock_video_data",
-            intern_video_2_embedding=np.array([1.0, 2.0, 3.0]),
             cosmos_embed1_embedding=np.array([4.0, 5.0, 6.0]),
             motion_score_global_mean=0.5,
             motion_score_per_patch_min_256=0.3,
@@ -170,7 +169,6 @@ class TestClipWriterStage:
     def test_setup_method(self):
         """Test setup method."""
         self.stage.setup()
-        assert self.stage._iv2_embedding_buffer == []
         assert self.stage._ce1_embedding_buffer == []
 
     def test_static_output_path_methods(self):
@@ -191,8 +189,6 @@ class TestClipWriterStage:
         assert ClipWriterStage.get_output_path_clips(base_path, filtered=True) == "/test/output/filtered_clips"
         assert ClipWriterStage.get_output_path_previews(base_path) == "/test/output/previews"
         assert ClipWriterStage.get_output_path_metas(base_path, "v1") == "/test/output/metas/v1"
-        assert ClipWriterStage.get_output_path_iv2_embd(base_path) == "/test/output/iv2_embd"
-        assert ClipWriterStage.get_output_path_iv2_embd_parquet(base_path) == "/test/output/iv2_embd_parquet"
         assert ClipWriterStage.get_output_path_ce1_embd(base_path) == "/test/output/ce1_embd"
         assert ClipWriterStage.get_output_path_ce1_embd_parquet(base_path) == "/test/output/ce1_embd_parquet"
 
@@ -328,13 +324,7 @@ class TestClipWriterStage:
         result = self.stage._write_clip_embedding_to_buffer(clip)
 
         assert isinstance(result, ClipStats)
-        assert len(self.stage._iv2_embedding_buffer) == 1
         assert len(self.stage._ce1_embedding_buffer) == 1
-
-        # Check IV2 embedding
-        iv2_entry = self.stage._iv2_embedding_buffer[0]
-        assert iv2_entry["id"] == str(clip.uuid)
-        assert iv2_entry["embedding"] == [1.0, 2.0, 3.0]
 
         # Check CE1 embedding
         ce1_entry = self.stage._ce1_embedding_buffer[0]
@@ -350,23 +340,10 @@ class TestClipWriterStage:
             result = self.stage._write_clip_embedding_to_buffer(clip)
 
             assert isinstance(result, ClipStats)
-            assert len(self.stage._iv2_embedding_buffer) == 0
             assert len(self.stage._ce1_embedding_buffer) == 0
 
             # Should log error for missing embeddings (only for the configured algorithm)
             assert mock_logger.error.call_count == 1
-
-    def test_write_clip_embedding_to_buffer_internvideo2_algorithm(self):
-        """Test _write_clip_embedding_to_buffer with internvideo2 algorithm."""
-        self.stage.embedding_algorithm = "internvideo2"
-        self.stage.setup()
-        clip = self.mock_clip_no_buffer
-
-        with patch("nemo_curator.stages.video.io.clip_writer.logger") as mock_logger:
-            result = self.stage._write_clip_embedding_to_buffer(clip)
-
-            assert isinstance(result, ClipStats)
-            mock_logger.error.assert_called()
 
     @patch("nemo_curator.stages.video.io.clip_writer.write_parquet")
     def test_write_video_embeddings_to_parquet(self, mock_write_parquet: MagicMock):
@@ -374,7 +351,6 @@ class TestClipWriterStage:
         self.stage.setup()
 
         # Add test data to buffers
-        self.stage._iv2_embedding_buffer = [{"id": "test1", "embedding": [1, 2, 3]}]
         self.stage._ce1_embedding_buffer = [{"id": "test2", "embedding": [4, 5, 6]}]
 
         with patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri:
@@ -382,8 +358,7 @@ class TestClipWriterStage:
 
             self.stage._write_video_embeddings_to_parquet(self.mock_video)
 
-            assert mock_write_parquet.call_count == 2
-            assert len(self.stage._iv2_embedding_buffer) == 0
+            assert mock_write_parquet.call_count == 1
             assert len(self.stage._ce1_embedding_buffer) == 0
 
     @patch("nemo_curator.stages.video.io.clip_writer.write_parquet")
@@ -393,7 +368,6 @@ class TestClipWriterStage:
         self.stage.setup()
 
         # Add test data to buffers
-        self.stage._iv2_embedding_buffer = [{"id": "test1", "embedding": [1, 2, 3]}]
         self.stage._ce1_embedding_buffer = [{"id": "test2", "embedding": [4, 5, 6]}]
 
         self.stage._write_video_embeddings_to_parquet(self.mock_video)
@@ -494,8 +468,8 @@ class TestClipWriterStage:
             result = self.stage._write_clip_embedding(self.mock_clip_with_buffer)
 
             assert isinstance(result, ClipStats)
-            assert result.num_with_embeddings == 2  # Both IV2 and CE1 embeddings
-            assert mock_write_data.call_count == 2
+            assert result.num_with_embeddings == 1  # CE1 embeddings
+            assert mock_write_data.call_count == 1
 
     def test_write_clip_embedding_no_embeddings(self):
         """Test _write_clip_embedding without embeddings."""
@@ -517,7 +491,7 @@ class TestClipWriterStage:
             result = self.stage._write_clip_embedding(self.mock_clip_with_buffer)
 
             assert isinstance(result, ClipStats)
-            assert result.num_with_embeddings == 2
+            assert result.num_with_embeddings == 1
             mock_write_data.assert_not_called()
 
     def test_write_clip_metadata_full(self):
@@ -719,7 +693,6 @@ class TestClipWriterStage:
             # Verify cleanup was performed
             for clip in result.data.clips:
                 assert clip.buffer is None
-                assert clip.intern_video_2_embedding is None
                 assert clip.cosmos_embed1_embedding is None
                 for window in clip.windows:
                     assert window.mp4_bytes is None
@@ -876,7 +849,7 @@ class TestClipWriterStage:
 
     def test_multiple_embedding_algorithms(self):
         """Test with different embedding algorithms."""
-        algorithms = ["cosmos-embed1", "internvideo2"]
+        algorithms = ["cosmos-embed1-224p", "cosmos-embed1-336p", "cosmos-embed1-448p"]
 
         for algorithm in algorithms:
             self.stage.embedding_algorithm = algorithm

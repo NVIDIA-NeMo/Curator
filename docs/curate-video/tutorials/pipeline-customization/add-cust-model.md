@@ -105,7 +105,7 @@ class MyCore(torch.nn.Module):
         # Initialize network and load weights from a local path derived from model_dir and WEIGHTS_MODEL_ID
 ```
 
-Provide a model ID (for example, a HuggingFace ID) if you plan to cache or fetch weights. The pipeline can download weights prior to `setup()` via your model class method if you provide one (see `InternVideo2MultiModality.download_weights_on_node`).
+Provide a model ID (for example, a HuggingFace ID) if you plan to cache or fetch weights. The pipeline can download weights prior to `setup()` via your model class method if you provide one.
 
 #### Implement the Model Interface
 
@@ -135,7 +135,7 @@ If your stage requires a specific environment, manage that in the stage’s `res
 
 ### Manage model weights
 
-Provide your model with a `model_dir` where weights are stored. Your stage should ensure that any required weights are available at runtime (for example, by mounting them into the container or downloading them prior to execution). See existing models such as `InternVideo2MultiModality` for reference: `nemo_curator/models/internvideo2_mm.py`.
+Provide your model with a `model_dir` where weights are stored. Your stage should ensure that any required weights are available at runtime (for example, by mounting them into the container or downloading them prior to execution).
 
 ## Next Steps
 

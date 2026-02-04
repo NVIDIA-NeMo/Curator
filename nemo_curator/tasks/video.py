@@ -90,15 +90,12 @@ class Clip:
     # embedding
     cosmos_embed1_frames: npt.NDArray[np.float32] | None = None
     cosmos_embed1_embedding: npt.NDArray[np.float32] | None = None
-    intern_video_2_frames: npt.NDArray[np.float32] | None = None
-    intern_video_2_embedding: npt.NDArray[np.float32] | None = None
     # captioning
     windows: list[_Window] = field(default_factory=list)
     # egomotion
     egomotion: dict[str, bytes] = field(default_factory=dict)
     # for testing
     cosmos_embed1_text_match: tuple[str, float] | None = None
-    intern_video_2_text_match: tuple[str, float] | None = None
     # for debugging
     errors: dict[str, str] = field(default_factory=dict)
 
@@ -152,10 +149,10 @@ class Clip:
                 total_size += x.nbytes
         if self.decoded_motion_data is not None:
             total_size += self.decoded_motion_data.get_major_size()
-        if self.intern_video_2_frames is not None:
-            total_size += self.intern_video_2_frames.nbytes
-        if self.intern_video_2_embedding is not None:
-            total_size += self.intern_video_2_embedding.nbytes
+        if self.cosmos_embed1_frames is not None:
+            total_size += self.cosmos_embed1_frames.nbytes
+        if self.cosmos_embed1_embedding is not None:
+            total_size += self.cosmos_embed1_embedding.nbytes
         for window in self.windows:
             total_size += window.get_major_size()
         return total_size

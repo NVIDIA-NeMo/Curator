@@ -37,7 +37,7 @@ python -m nemo_curator.examples.video.video_split_clip_example \
   --output-clip-path "$OUT_DIR" \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
-  --embedding-algorithm internvideo2 \
+  --embedding-algorithm cosmos-embed1-224p \
   --transcode-encoder libopenh264 \
   --verbose
 ```
@@ -56,7 +56,7 @@ The pipeline writes embeddings under `$OUT_DIR/iv2_embd_parquet/` (or `ce1_embd_
 The pipeline writes embeddings to Parquet with two columns:
 
 - **id**: String UUID for the clip
-- **embedding**: List of float values with length equal to the model’s embedding dimension (for InternVideo2, 512)
+- **embedding**: List of float values with length equal to the model's embedding dimension (for Cosmos-Embed1, 768)
 
 ::::{tab-set}
 
@@ -75,7 +75,7 @@ $OUT_DIR/
 
 ```text
 id: string
-embedding: list<float32>  # length = 512 for InternVideo2
+embedding: list<float32>  # length = 768 for Cosmos-Embed1
 ```
 
 :::
