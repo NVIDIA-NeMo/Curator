@@ -96,6 +96,7 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
         return [], []
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        # PromptFormatter uses AutoProcessor from HuggingFace (auto-downloads/caches)
         self.prompt_formatter = PromptFormatter(self.model_variant)
 
     def process(self, task: VideoTask) -> VideoTask:
@@ -127,19 +128,20 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     llm_input = self.prompt_formatter.generate_inputs(
                         prompt=prompt,
                         video_inputs=window_frames,
+                        fps=self.sampling_fps,
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.error(f"Error in Caption preparation: {e}")
                     clip.errors[f"{self.model_variant}_input"] = str(e)
                     continue
 
-                clip.windows.append(
-                    _Window(
-                        window_frame_info.start,
-                        window_frame_info.end,
-                        mp4_bytes=window_bytes,
-                        qwen_llm_input=llm_input,
-                    ),
+                window = _Window(
+                    window_frame_info.start,
+                    window_frame_info.end,
+                    mp4_bytes=window_bytes,
                 )
+                window.llm_inputs[self.model_variant] = llm_input
+
+                clip.windows.append(window)
 
         return task
