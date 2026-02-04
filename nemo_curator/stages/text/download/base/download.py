@@ -13,11 +13,13 @@
 # limitations under the License.
 
 import os
+import posixpath
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+import fsspec
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
@@ -37,12 +39,14 @@ class DocumentDownloader(ABC):
         """
         self._download_dir = download_dir
         self._verbose = verbose
-        os.makedirs(download_dir, exist_ok=True)
+        # Use fsspec for cloud-compatible directory creation
+        fs, _ = fsspec.core.url_to_fs(download_dir)
+        fs.makedirs(download_dir, exist_ok=True)
 
     def _check_s5cmd_installed(self) -> bool:
         """Check if s5cmd is installed."""
         try:
-            subprocess.run(["s5cmd", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S603, S607
+            subprocess.run(["s5cmd", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S607
         except FileNotFoundError:
             return False
         else:
@@ -87,14 +91,20 @@ class DocumentDownloader(ABC):
         """
         # Generate output filename
         output_name = self._get_output_filename(url)
-        output_file = os.path.join(self._download_dir, output_name)
+        output_file = posixpath.join(self._download_dir, output_name)
         temp_file = output_file + ".tmp"
 
+        # Use fsspec for cloud-compatible file operations
+        fs, _ = fsspec.core.url_to_fs(output_file)
+
         # If final file exists and is non-empty, assume it's complete
-        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-            if self._verbose:
-                logger.info(f"File: {output_file} exists. Not downloading")
-            return output_file
+        if fs.exists(output_file):
+            file_info = fs.info(output_file)
+            file_size = file_info.get("size", 0)
+            if file_size > 0:
+                if self._verbose:
+                    logger.info(f"File: {output_file} exists. Not downloading")
+                return output_file
 
         # Download to temporary file
         success, error_message = self._download_to_path(url, temp_file)
@@ -103,8 +113,16 @@ class DocumentDownloader(ABC):
             # Download successful, atomically move temp file to final location
             os.rename(temp_file, output_file)
             if self._verbose:
-                file_size = os.path.getsize(output_file)
-                logger.info(f"Successfully downloaded to {output_file} ({file_size} bytes)")
+                # Try to get file size for logging, but don't fail if we can't
+                try:
+                    fs, _ = fsspec.core.url_to_fs(output_file)
+                    file_info = fs.info(output_file)
+                    file_size = file_info.get("size", 0)
+                    logger.info(f"Successfully downloaded to {output_file} ({file_size} bytes)")
+                except (OSError, KeyError, ValueError):
+                    # If we can't get file size, just log without size
+                    logger.info(f"Successfully downloaded to {output_file}")
+                    logger.debug(f"Could not retrieve file size for {output_file}")
             return output_file
         else:
             # Download failed
