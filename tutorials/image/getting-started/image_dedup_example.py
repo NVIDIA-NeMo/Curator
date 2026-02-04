@@ -45,7 +45,7 @@ def create_image_embedding_pipeline(args: argparse.Namespace) -> Pipeline:
 
     # Stage 1: Read images from webdataset tar files (now runs in parallel)
     pipeline.add_stage(ImageReaderStage(
-        batch_size=args.batch_size,
+        dali_batch_size=args.batch_size,
         verbose=args.verbose,
         num_threads=16,  # More threads for I/O
         num_gpus_per_worker=0.25,
@@ -97,7 +97,7 @@ def create_image_deduplication_pipeline(args: argparse.Namespace) -> Pipeline:
 
     # Stage 1: Read images from webdataset tar files (now runs in parallel)
     pipeline.add_stage(ImageReaderStage(
-        batch_size=args.batch_size,
+        dali_batch_size=args.batch_size,
         verbose=args.verbose,
         num_threads=16,  # More threads for I/O
         num_gpus_per_worker=0.25,

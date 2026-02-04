@@ -64,7 +64,7 @@ NeMo Curator now supports comprehensive [video data curation](../../curate-video
 - **Video splitting**: [Fixed-stride](../../curate-video/process-data/clipping.md) and [scene-change detection (TransNetV2)](../../curate-video/process-data/clipping.md) for clip extraction
 - **Semantic deduplication**: [K-means clustering and pairwise similarity](../../curate-video/process-data/dedup.md) for near-duplicate clip removal
 - **Content filtering**: [Motion-based filtering](../../curate-video/process-data/filtering.md) and [aesthetic filtering](../../curate-video/process-data/filtering.md) for quality improvement
-- **Embedding generation**: InternVideo2 and Cosmos-Embed1 models for clip-level embeddings
+- **Embedding generation**: Cosmos-Embed1 models for clip-level embeddings
 - **Enhanced captioning**: [VL-based caption generation with optional LLM-based rewriting](../../curate-video/process-data/captions-preview.md) (Qwen-VL and Qwen-LM supported) for detailed video descriptions
 - **Ray-based distributed architecture**: Scalable video processing with [autoscaling support](../concepts/video/architecture.md)
 
@@ -123,9 +123,9 @@ graph LR
     end
     
     subgraph "Backend Layer"
-        XE[XennaExecutor<br/>Production Ready]
-        RAP[RayActorPoolExecutor<br/>Experimental]
-        RDE[RayDataExecutor<br/>Experimental]
+        XE[XennaExecutor]
+        RAP[RayActorPoolExecutor]
+        RDE[RayDataExecutor]
     end
     
     subgraph "Adaptation Layer"
@@ -160,9 +160,6 @@ graph LR
     RAPA --> RAY1
     RDA --> RAY2
     
-    style XE fill:#90EE90
-    style RAP fill:#FFE4B5
-    style RDE fill:#FFE4B5
     style P fill:#E6F3FF
     style BE fill:#F0F8FF
 ```

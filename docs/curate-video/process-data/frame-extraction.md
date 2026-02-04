@@ -12,7 +12,7 @@ modality: "video-only"
 
 # Frame Extraction
 
-Extract frames from clips or full videos at target rates and resolutions. Use frames for embeddings (such as InternVideo2 and Cosmos‑Embed1), aesthetic filtering, previews, and custom analysis.
+Extract frames from clips or full videos at target rates and resolutions. Use frames for embeddings (such as Cosmos‑Embed1), aesthetic filtering, previews, and custom analysis.
 
 ## Use Cases
 
@@ -40,9 +40,9 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorStage
 from nemo_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
 from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
-from nemo_curator.stages.video.embedding.internvideo2 import (
-    InternVideo2FrameCreationStage,
-    InternVideo2EmbeddingStage,
+from nemo_curator.stages.video.embedding.cosmos_embed1 import (
+    CosmosEmbed1FrameCreationStage,
+    CosmosEmbed1EmbeddingStage,
 )
 
 pipe = Pipeline(name="clip_frames_embeddings")
@@ -55,8 +55,8 @@ pipe.add_stage(
         verbose=True,
     )
 )
-pipe.add_stage(InternVideo2FrameCreationStage(model_dir="/models", target_fps=2.0, verbose=True))
-pipe.add_stage(InternVideo2EmbeddingStage(model_dir="/models", gpu_memory_gb=20.0, verbose=True))
+pipe.add_stage(CosmosEmbed1FrameCreationStage(model_dir="/models", variant="224p", target_fps=2.0, verbose=True))
+pipe.add_stage(CosmosEmbed1EmbeddingStage(model_dir="/models", variant="224p", gpu_memory_gb=20.0, verbose=True))
 pipe.run()
 ```
 
@@ -169,7 +169,7 @@ ClipFrameExtractionStage(
 
 ## Downstream Dependencies
 
-- **Embeddings**: InternVideo2 and Cosmos‑Embed1 expect frames at specific rates. Refer to [Embeddings](video-process-embeddings).
+- **Embeddings**: Cosmos‑Embed1 expects frames at specific rates. Refer to [Embeddings](video-process-embeddings).
 - **Aesthetic Filtering**: Requires frames extracted earlier. Refer to [Filtering](video-process-filtering).
 - **Clipping with TransNetV2**: Uses full‑video frame extraction before scene‑change detection. Refer to [Clipping](video-process-clipping).
 

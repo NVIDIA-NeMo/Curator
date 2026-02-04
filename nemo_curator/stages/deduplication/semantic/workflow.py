@@ -41,6 +41,9 @@ from nemo_curator.stages.deduplication.semantic.pairwise import PairwiseStage
 from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
+# Minimum recommended n_clusters to avoid OOM for large datasets
+MIN_RECOMMENDED_N_CLUSTERS = 1000
+
 
 class SemanticDeduplicationWorkflow(WorkflowBase):
     """
@@ -194,6 +197,14 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         """Validate the configuration."""
         # Note: Input path validation is handled by KMeansStage and FilePartitioningStage
         # Note: duplicates_path is now automatically created, no validation needed
+
+        # Warn if n_clusters is too small for large datasets
+        if self.n_clusters < MIN_RECOMMENDED_N_CLUSTERS:
+            logger.warning(
+                f"n_clusters={self.n_clusters} is less than {MIN_RECOMMENDED_N_CLUSTERS}. "
+                "For large datasets, this may result in out-of-memory errors since "
+                f"each cluster must fit in memory. Consider using n_clusters >= {MIN_RECOMMENDED_N_CLUSTERS} for large datasets."
+            )
 
         # Validate distance_metric
         if self.ranking_strategy is None:

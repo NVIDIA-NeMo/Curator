@@ -206,8 +206,8 @@ class TestClip:
         """Test get_major_size with data."""
         buffer_data = b"fake_video_data"
         frames = {"frame1": np.zeros((100, 100, 3), dtype=np.uint8)}
-        intern_frames = np.zeros((10, 100, 100, 3), dtype=np.float32)
-        intern_embedding = np.zeros((512,), dtype=np.float32)
+        cosmos_frames = np.zeros((10, 100, 100, 3), dtype=np.float32)
+        cosmos_embedding = np.zeros((768,), dtype=np.float32)
 
         clip = Clip(
             uuid=uuid4(),
@@ -215,8 +215,8 @@ class TestClip:
             span=(0.0, 10.0),
             buffer=buffer_data,
             extracted_frames=frames,
-            intern_video_2_frames=intern_frames,
-            intern_video_2_embedding=intern_embedding,
+            cosmos_embed1_frames=cosmos_frames,
+            cosmos_embed1_embedding=cosmos_embedding,
         )
 
         size = clip.get_major_size()
@@ -225,8 +225,8 @@ class TestClip:
             16  # UUID bytes
             + len(buffer_data)
             + frames["frame1"].nbytes
-            + intern_frames.nbytes
-            + intern_embedding.nbytes
+            + cosmos_frames.nbytes
+            + cosmos_embedding.nbytes
         )
 
         assert size >= expected_size

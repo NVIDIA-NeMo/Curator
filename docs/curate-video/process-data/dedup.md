@@ -218,7 +218,7 @@ The metadata columns must be present in your embedding Parquet files and will be
 * - `input_filetype`
   - Use `"parquet"` for video embeddings.
 * - `embedding_dim`
-  - Embedding dimension (InternVideo2: 512; Cosmos‑Embed1 varies by variant).
+  - Embedding dimension (Cosmos‑Embed1 varies by variant: 768 for most).
 ```
 
 ::::
