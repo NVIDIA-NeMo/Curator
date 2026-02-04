@@ -123,9 +123,9 @@ class DocumentIterateExtractStage(ProcessingStage[FileGroupTask, DocumentBatch])
                 logger.error(f"Error iterating {file_path}: {e}")
                 continue
 
+        # Convert to DataFrame
         df = pd.DataFrame(records)
 
-        # Return
         return DocumentBatch(
             task_id=task.task_id,
             dataset_name=task.dataset_name,
