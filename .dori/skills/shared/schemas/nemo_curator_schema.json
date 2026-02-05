@@ -1,0 +1,3698 @@
+{
+  "$schema": "https://nvidia.github.io/agent-tool-schema/v1",
+  "schema_version": "1.0.0",
+  "tool": {
+    "name": "NeMo Curator",
+    "package": "nemo_curator",
+    "version": "unknown",
+    "description": "Scalable data curation library for training large language models",
+    "install": "pip install nemo-curator"
+  },
+  "metadata": {
+    "generated_at": "2026-02-03T15:19:56.255507+00:00",
+    "generator": "generate_agent_tool_schema.py",
+    "generator_version": "1.0.0"
+  },
+  "types": {
+    "DocumentBatch": {
+      "description": "Batch of text documents",
+      "runtime_type": "nemo_curator.tasks.DocumentBatch",
+      "data_format": "pd.DataFrame | pa.Table",
+      "common_columns": [
+        "text",
+        "id",
+        "url"
+      ]
+    },
+    "VideoTask": {
+      "description": "Video processing task",
+      "runtime_type": "nemo_curator.tasks.video.VideoTask",
+      "data_format": "Video object"
+    },
+    "ImageBatch": {
+      "description": "Batch of images",
+      "runtime_type": "nemo_curator.tasks.image.ImageBatch",
+      "data_format": "list[ImageObject]"
+    },
+    "AudioBatch": {
+      "description": "Batch of audio files",
+      "runtime_type": "nemo_curator.tasks.audio.AudioBatch",
+      "data_format": "dict | list[dict]"
+    },
+    "FileGroupTask": {
+      "description": "Group of file paths",
+      "runtime_type": "nemo_curator.tasks.FileGroupTask",
+      "data_format": "list[str]"
+    },
+    "Task": {
+      "description": "Generic task",
+      "runtime_type": "nemo_curator.tasks.Task",
+      "data_format": "varies"
+    }
+  },
+  "operations": {
+    "AddId": {
+      "import": "from nemo_curator.stages.text.modules.add_id import AddId",
+      "description": "The module responsible for adding unique IDs to each document record.",
+      "category": [
+        "text",
+        "module"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "AegisClassifier": {
+      "import": "from nemo_curator.stages.text.classifiers.aegis import AegisClassifier",
+      "description": "NVIDIA's AEGIS safety classifier is a LLM content safety model.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 16.0,
+        "requires_credentials": [
+          "HF_TOKEN"
+        ]
+      },
+      "hints": {
+        "purpose": "Detect harmful content",
+        "output_values": [
+          "safe",
+          "O1",
+          "O2",
+          "O3",
+          "O4",
+          "O5",
+          "O6",
+          "O7",
+          "O8",
+          "O9",
+          "O10",
+          "O11",
+          "O12",
+          "O13"
+        ],
+        "when_to_use": "Safety filtering before release"
+      }
+    },
+    "AegisModelStage": {
+      "import": "from nemo_curator.stages.text.classifiers.aegis import AegisModelStage",
+      "description": "See ModelStage for more information.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "model_identifier": {
+          "type": "string"
+        },
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "hf_token": {
+          "type": "string",
+          "required": false
+        },
+        "label_field": {
+          "type": "string",
+          "default": "preds",
+          "required": false
+        },
+        "score_field": {
+          "type": "string",
+          "default": "probs",
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 256,
+          "required": false
+        },
+        "has_seq_order": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "add_instruction_data_guard": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "AlphaFilter": {
+      "import": "from nemo_curator.stages.text.filters.code import AlphaFilter",
+      "description": "This filter tries to identify files that have large tensors, or tables stored as raw text within code files.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "min_alpha_ratio": {
+          "type": "number",
+          "default": 0.25,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ArxivDownloadExtractStage": {
+      "import": "from nemo_curator.stages.text.download.arxiv.stage import ArxivDownloadExtractStage",
+      "description": "Composite stage for downloading and processing Arxiv data.",
+      "category": [
+        "text",
+        "download"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "download_dir": {
+          "type": "string",
+          "default": "./arxiv_downloads",
+          "required": false
+        },
+        "url_limit": {
+          "type": "integer",
+          "required": false
+        },
+        "record_limit": {
+          "type": "integer",
+          "required": false
+        },
+        "add_filename_column": {
+          "type": "boolean | string",
+          "default": true,
+          "required": false
+        },
+        "log_frequency": {
+          "type": "integer",
+          "default": 1000,
+          "required": false
+        },
+        "verbose": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "AudioToDocumentStage": {
+      "import": "from nemo_curator.stages.audio.io.convert import AudioToDocumentStage",
+      "description": "Stage to conver DocumentObject to DocumentBatch",
+      "category": [
+        "audio",
+        "io"
+      ],
+      "input_type": "AudioBatch",
+      "output_type": "AudioBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "BoilerPlateStringFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import BoilerPlateStringFilter",
+      "description": "If more than 40% of paragraphs contain boilerplate strings, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "remove_if_at_top_or_bottom": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "max_boilerplate_string_ratio": {
+          "type": "number",
+          "default": 0.4,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "BoilerPlateStringModifier": {
+      "import": "from nemo_curator.stages.text.modifiers.c4 import BoilerPlateStringModifier",
+      "description": "If the sentence contains any of the boilerplate strings then discard.",
+      "category": [
+        "text",
+        "modifier"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "remove_if_at_top_or_bottom": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "BucketsToEdgesStage": {
+      "import": "from nemo_curator.stages.deduplication.fuzzy.buckets_to_edges import BucketsToEdgesStage",
+      "description": "Stage that takes in a file consiting of LSH bucket ids and document ids belonging to the bucket and outputs a file consisting of edges between documents with the same bucket id.",
+      "category": [
+        "deduplication",
+        "fuzzy"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "parameters": {
+        "output_path": {
+          "type": "string"
+        },
+        "document_id_field": {
+          "type": "string",
+          "default": "<CURATOR_DEDUP_ID_STR>",
+          "required": false
+        },
+        "read_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "write_kwargs": {
+          "type": "object",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "BulletsFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import BulletsFilter",
+      "description": "If more than 90% of the lines start with a bullet, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_bullet_lines_ratio": {
+          "type": "number",
+          "default": 0.9,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "CaptionEnhancementStage": {
+      "import": "from nemo_curator.stages.video.caption.caption_enhancement import CaptionEnhancementStage",
+      "description": "Stage that enhances video captions using language models.",
+      "category": [
+        "video",
+        "captioning",
+        "ml"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 16.0
+      }
+    },
+    "CaptionGenerationStage": {
+      "import": "from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage",
+      "description": "Stage that generates captions for video windows using specified VL model.",
+      "category": [
+        "video",
+        "captioning",
+        "ml"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 16.0
+      }
+    },
+    "CaptionPreparationStage": {
+      "import": "from nemo_curator.stages.video.caption.caption_preparation import CaptionPreparationStage",
+      "description": "Stage that prepares captions for video processing.",
+      "category": [
+        "video",
+        "captioning",
+        "ml"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "ClassifierModelStage": {
+      "import": "from nemo_curator.stages.text.classifiers.base import ClassifierModelStage",
+      "description": "Stage for Hugging Face model inference.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "model_identifier": {
+          "type": "string"
+        },
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "label_field": {
+          "type": "string",
+          "default": "preds",
+          "required": false
+        },
+        "score_field": {
+          "type": "string",
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 256,
+          "required": false
+        },
+        "has_seq_order": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "padding_side": {
+          "type": "Literal",
+          "default": "right",
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "ClipAestheticFilterStage": {
+      "import": "from nemo_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage",
+      "description": "Stage for filtering video clips based on CLIP aesthetic score.",
+      "category": [
+        "video",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 4.0
+      }
+    },
+    "ClipFrameExtractionStage": {
+      "import": "from nemo_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage",
+      "description": "Stage for extracting frames from video clips.",
+      "category": [
+        "video",
+        "clipping"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ClipTranscodingStage": {
+      "import": "from nemo_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage",
+      "description": "Stage that transcodes video clips into a standardized format.",
+      "category": [
+        "video",
+        "clipping"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ClipWriterStage": {
+      "import": "from nemo_curator.stages.video.io.clip_writer import ClipWriterStage",
+      "description": "Stage that writes clips and metadata for clip transcoding.",
+      "category": [
+        "video",
+        "io"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ClusterWiseFilePartitioningStage": {
+      "import": "from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage",
+      "description": "Stage that partitions input files into PairwiseFileGroupTasks for deduplication.",
+      "category": [
+        "deduplication",
+        "semantic",
+        "ml"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "parameters": {
+        "input_path": {
+          "type": "string"
+        },
+        "storage_options": {
+          "type": "object",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "CommonCrawlDownloadExtractStage": {
+      "import": "from nemo_curator.stages.text.download.common_crawl.stage import CommonCrawlDownloadExtractStage",
+      "description": "Composite stage for downloading and processing Common Crawl data.",
+      "category": [
+        "text",
+        "download"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "start_snapshot": {
+          "type": "string"
+        },
+        "end_snapshot": {
+          "type": "string"
+        },
+        "download_dir": {
+          "type": "string"
+        },
+        "crawl_type": {
+          "type": "Literal",
+          "default": "main",
+          "required": false
+        },
+        "html_extraction": {
+          "type": "HTMLExtractorAlgorithm | string",
+          "required": false
+        },
+        "html_extraction_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "stop_lists": {
+          "type": "object",
+          "required": false
+        },
+        "use_aws_to_download": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        },
+        "verbose": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        },
+        "url_limit": {
+          "type": "integer",
+          "required": false
+        },
+        "record_limit": {
+          "type": "integer",
+          "required": false
+        },
+        "add_filename_column": {
+          "type": "boolean | string",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "CommonEnglishWordsFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import CommonEnglishWordsFilter",
+      "description": "If the sentence contains at least 2 common English words, then keep it.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "min_num_common_words": {
+          "type": "integer",
+          "default": 2,
+          "required": false
+        },
+        "stop_at_false": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ConnectedComponentsStage": {
+      "import": "from nemo_curator.stages.deduplication.fuzzy.connected_components import ConnectedComponentsStage",
+      "description": "",
+      "category": [
+        "deduplication",
+        "fuzzy"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "parameters": {
+        "output_path": {
+          "type": "string"
+        },
+        "source_field": {
+          "type": "string",
+          "required": false
+        },
+        "destination_field": {
+          "type": "string",
+          "required": false
+        },
+        "read_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "write_kwargs": {
+          "type": "object",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ContentTypeClassifier": {
+      "import": "from nemo_curator.stages.text.classifiers.content_type import ContentTypeClassifier",
+      "description": "ContentTypeClassifier is a text classification model designed to categorize documents into one of 11 distinct speech types based on their content.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "label_field": {
+          "type": "string",
+          "default": "content_pred",
+          "required": false
+        },
+        "score_field": {
+          "type": "string",
+          "required": false
+        },
+        "text_field": {
+          "type": "string",
+          "default": "text",
+          "required": false
+        },
+        "filter_by": {
+          "type": "array",
+          "required": false
+        },
+        "max_chars": {
+          "type": "integer",
+          "default": 5000,
+          "required": false
+        },
+        "sort_by_length": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 256,
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 4.0
+      }
+    },
+    "ConvertImageBatchToDocumentBatchStage": {
+      "import": "from nemo_curator.stages.image.io.convert import ConvertImageBatchToDocumentBatchStage",
+      "description": "Convert image batch to DocumentBatch",
+      "category": [
+        "image",
+        "io"
+      ],
+      "input_type": "ImageBatch",
+      "output_type": "ImageBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "CosmosEmbed1EmbeddingStage": {
+      "import": "from nemo_curator.stages.video.embedding.cosmos_embed1 import CosmosEmbed1EmbeddingStage",
+      "description": "Stage for embedding Cosmos-Embed1 frames into a vector space.",
+      "category": [
+        "video",
+        "embedding",
+        "ml"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 20.0
+      }
+    },
+    "CosmosEmbed1FrameCreationStage": {
+      "import": "from nemo_curator.stages.video.embedding.cosmos_embed1 import CosmosEmbed1FrameCreationStage",
+      "description": "Stage for creating Cosmos-Embed1 input frames from video clips.",
+      "category": [
+        "video",
+        "embedding",
+        "ml"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "DistributedDataClassifier": {
+      "import": "from nemo_curator.stages.text.classifiers.base import DistributedDataClassifier",
+      "description": "Base composite stage for distributed data classification.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "DocumentDownloadExtractStage": {
+      "import": "from nemo_curator.stages.text.download.base.stage import DocumentDownloadExtractStage",
+      "description": "Composite stage that combines URL generation, download, iterate, and extract stages.",
+      "category": [
+        "text",
+        "download"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "DocumentDownloadStage": {
+      "import": "from nemo_curator.stages.text.download.base.download import DocumentDownloadStage",
+      "description": "Stage that downloads files from URLs to local storage.",
+      "category": [
+        "text",
+        "download"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "DocumentExtractStage": {
+      "import": "from nemo_curator.stages.text.download.base.extract import DocumentExtractStage",
+      "description": "Stage that extracts structured content from raw records.",
+      "category": [
+        "text",
+        "download"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "DocumentFilter": {
+      "import": "from nemo_curator.stages.text.filters.doc_filter import DocumentFilter",
+      "description": "An abstract base class for text-based document filters.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "DocumentIterateStage": {
+      "import": "from nemo_curator.stages.text.download.base.iterator import DocumentIterateStage",
+      "description": "Stage that iterates through downloaded files and extracts records.",
+      "category": [
+        "text",
+        "download"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "DocumentJoiner": {
+      "import": "from nemo_curator.stages.text.modules.joiner import DocumentJoiner",
+      "description": "Joins documents that have a common id back into a single document.",
+      "category": [
+        "text",
+        "module"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "DocumentModifier": {
+      "import": "from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier",
+      "description": "Abstract base class for text-based document modifiers.",
+      "category": [
+        "text",
+        "modifier"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "DocumentSplitter": {
+      "import": "from nemo_curator.stages.text.modules.splitter import DocumentSplitter",
+      "description": "Splits documents into segments based on a separator.",
+      "category": [
+        "text",
+        "module"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "DomainClassifier": {
+      "import": "from nemo_curator.stages.text.classifiers.domain import DomainClassifier",
+      "description": "DomainClassifier is a specialized classifier designed for English text domain classification tasks, utilizing the NemoCurator Domain Classifier (https://huggingface.co/nvidia/domain-classifier) model.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "label_field": {
+          "type": "string",
+          "default": "domain_pred",
+          "required": false
+        },
+        "score_field": {
+          "type": "string",
+          "required": false
+        },
+        "text_field": {
+          "type": "string",
+          "default": "text",
+          "required": false
+        },
+        "filter_by": {
+          "type": "array",
+          "required": false
+        },
+        "max_chars": {
+          "type": "integer",
+          "default": 2000,
+          "required": false
+        },
+        "sort_by_length": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 256,
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 4.0
+      }
+    },
+    "EllipsisFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import EllipsisFilter",
+      "description": "If more than 30% of the sentences end with an elipsis, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_num_lines_ending_with_ellipsis_ratio": {
+          "type": "number",
+          "default": 0.3,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "EmbeddingCreatorStage": {
+      "import": "from nemo_curator.stages.text.embedders.base import EmbeddingCreatorStage",
+      "description": "",
+      "category": [
+        "text",
+        "embedder",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "EmbeddingModelStage": {
+      "import": "from nemo_curator.stages.text.embedders.base import EmbeddingModelStage",
+      "description": "HuggingFace model stage that produces embeddings with pooling.",
+      "category": [
+        "text",
+        "embedder",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "model_identifier": {
+          "type": "string"
+        },
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "embedding_field": {
+          "type": "string",
+          "default": "embeddings",
+          "required": false
+        },
+        "pooling": {
+          "type": "Literal",
+          "default": "mean_pooling",
+          "required": false
+        },
+        "hf_token": {
+          "type": "string",
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 1024,
+          "required": false
+        },
+        "has_seq_order": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "padding_side": {
+          "type": "Literal",
+          "default": "right",
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "ExactDeduplicationWorkflow": {
+      "import": "from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow",
+      "description": "A pipeline that performs exact deduplication of a dataset.",
+      "category": [
+        "deduplication",
+        "exact"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "parameters": {
+        "output_path": {
+          "type": "string"
+        },
+        "input_path": {
+          "type": "string | array",
+          "required": false
+        },
+        "input_filetype": {
+          "type": "Literal",
+          "default": "parquet",
+          "required": false
+        },
+        "input_blocksize": {
+          "type": "string | integer",
+          "default": "2GiB",
+          "required": false
+        },
+        "input_file_extensions": {
+          "type": "array",
+          "required": false
+        },
+        "read_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "write_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "assign_id": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "id_field": {
+          "type": "string",
+          "required": false
+        },
+        "text_field": {
+          "type": "string",
+          "default": "text",
+          "required": false
+        },
+        "perform_removal": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        },
+        "env_vars": {
+          "type": "object",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "FastTextLabelModifier": {
+      "import": "from nemo_curator.stages.text.modifiers.fasttext import FastTextLabelModifier",
+      "description": "",
+      "category": [
+        "text",
+        "modifier"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "label": {
+          "type": "string"
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "FastTextQualityFilter": {
+      "import": "from nemo_curator.stages.text.filters.fasttext_filter import FastTextQualityFilter",
+      "description": "",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "model_path": {
+          "type": "string",
+          "required": false
+        },
+        "label": {
+          "type": "string",
+          "default": "__label__hq",
+          "required": false
+        },
+        "alpha": {
+          "type": "number",
+          "default": 3,
+          "required": false
+        },
+        "seed": {
+          "type": "integer",
+          "default": 42,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "Filter": {
+      "import": "from nemo_curator.stages.text.modules.score_filter import Filter",
+      "description": "The module responsible for filtering records based on a metadata field.",
+      "category": [
+        "text",
+        "module"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "FineWebEduClassifier": {
+      "import": "from nemo_curator.stages.text.classifiers.fineweb_edu import FineWebEduClassifier",
+      "description": "FineWebEduClassifier is a specialized classifier designed for educational content assessment, utilizing the Hugging Face FineWeb EDU Classifier model (https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier).",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "label_field": {
+          "type": "string",
+          "default": "fineweb-edu-score-label",
+          "required": false
+        },
+        "float_score_field": {
+          "type": "string",
+          "default": "fineweb-edu-score-float",
+          "required": false
+        },
+        "int_score_field": {
+          "type": "string",
+          "default": "fineweb-edu-score-int",
+          "required": false
+        },
+        "text_field": {
+          "type": "string",
+          "default": "text",
+          "required": false
+        },
+        "filter_by": {
+          "type": "array",
+          "required": false
+        },
+        "max_chars": {
+          "type": "integer",
+          "required": false
+        },
+        "sort_by_length": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 256,
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      },
+      "hints": {
+        "purpose": "Score educational content quality 0-5",
+        "output_values": [
+          "0",
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "typical_retention": "20-40% if keeping score >= 3"
+      }
+    },
+    "FineWebMixtralEduClassifier": {
+      "import": "from nemo_curator.stages.text.classifiers.fineweb_edu import FineWebMixtralEduClassifier",
+      "description": "FineWebMixtralEduClassifier is a specialized classifier designed for educational content assessment, utilizing the NemoCurator FineWeb Mixtral Edu Classifier model (https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier).",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "label_field": {
+          "type": "string",
+          "default": "fineweb-mixtral-edu-score-label",
+          "required": false
+        },
+        "float_score_field": {
+          "type": "string",
+          "default": "fineweb-mixtral-edu-score-float",
+          "required": false
+        },
+        "int_score_field": {
+          "type": "string",
+          "default": "fineweb-mixtral-edu-score-int",
+          "required": false
+        },
+        "text_field": {
+          "type": "string",
+          "default": "text",
+          "required": false
+        },
+        "filter_by": {
+          "type": "array",
+          "required": false
+        },
+        "max_chars": {
+          "type": "integer",
+          "required": false
+        },
+        "sort_by_length": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 1024,
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 12.0
+      }
+    },
+    "FineWebModelStage": {
+      "import": "from nemo_curator.stages.text.classifiers.fineweb_edu import FineWebModelStage",
+      "description": "Stage for Hugging Face model inference.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "model_identifier": {
+          "type": "string"
+        },
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "label_field": {
+          "type": "string",
+          "default": "preds",
+          "required": false
+        },
+        "float_score_field": {
+          "type": "string",
+          "default": "float_score",
+          "required": false
+        },
+        "int_score_field": {
+          "type": "string",
+          "default": "int_score",
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 256,
+          "required": false
+        },
+        "has_seq_order": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "FineWebNemotronEduClassifier": {
+      "import": "from nemo_curator.stages.text.classifiers.fineweb_edu import FineWebNemotronEduClassifier",
+      "description": "FineWebNemotronEduClassifier is a specialized classifier designed for educational content assessment, utilizing the NemoCurator FineWeb Nemotron-4 Edu Classifier model (https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier).",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "label_field": {
+          "type": "string",
+          "default": "fineweb-nemotron-edu-score-label",
+          "required": false
+        },
+        "float_score_field": {
+          "type": "string",
+          "default": "fineweb-nemotron-edu-score-float",
+          "required": false
+        },
+        "int_score_field": {
+          "type": "string",
+          "default": "fineweb-nemotron-edu-score-int",
+          "required": false
+        },
+        "text_field": {
+          "type": "string",
+          "default": "text",
+          "required": false
+        },
+        "filter_by": {
+          "type": "array",
+          "required": false
+        },
+        "max_chars": {
+          "type": "integer",
+          "required": false
+        },
+        "sort_by_length": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 1024,
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 12.0
+      }
+    },
+    "FixedStrideExtractorStage": {
+      "import": "from nemo_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorStage",
+      "description": "Stage that extracts video clips using fixed-length intervals.",
+      "category": [
+        "video",
+        "clipping"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "FormatAegisPromptStage": {
+      "import": "from nemo_curator.stages.text.classifiers.aegis import FormatAegisPromptStage",
+      "description": "FormatAegisPromptStage is a stage that truncates and wraps the input text in a prompt for the AEGIS model.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "FuzzyDeduplicationWorkflow": {
+      "import": "from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow",
+      "description": "A pipeline that performs fuzzy deduplication of a dataset.",
+      "category": [
+        "deduplication",
+        "fuzzy"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "parameters": {
+        "cache_path": {
+          "type": "string"
+        },
+        "output_path": {
+          "type": "string"
+        },
+        "input_path": {
+          "type": "string | array",
+          "required": false
+        },
+        "input_filetype": {
+          "type": "Literal",
+          "default": "parquet",
+          "required": false
+        },
+        "input_blocksize": {
+          "type": "string | integer",
+          "default": "1GiB",
+          "required": false
+        },
+        "input_file_extensions": {
+          "type": "array",
+          "required": false
+        },
+        "read_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "cache_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "write_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "text_field": {
+          "type": "string",
+          "default": "text",
+          "required": false
+        },
+        "perform_removal": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        },
+        "seed": {
+          "type": "integer",
+          "default": 42,
+          "required": false
+        },
+        "char_ngrams": {
+          "type": "integer",
+          "default": 24,
+          "required": false
+        },
+        "num_bands": {
+          "type": "integer",
+          "default": 20,
+          "required": false
+        },
+        "minhashes_per_band": {
+          "type": "integer",
+          "default": 13,
+          "required": false
+        },
+        "use_64_bit_hash": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        },
+        "bands_per_iteration": {
+          "type": "integer",
+          "default": 5,
+          "required": false
+        },
+        "env_vars": {
+          "type": "object",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "GeneralCommentToCodeFilter": {
+      "import": "from nemo_curator.stages.text.filters.code import GeneralCommentToCodeFilter",
+      "description": "",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "language": {
+          "type": "string"
+        },
+        "min_comment_to_code_ratio": {
+          "type": "number",
+          "default": 0.01,
+          "required": false
+        },
+        "max_comment_to_code_ratio": {
+          "type": "number",
+          "default": 0.85,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "GetPairwiseWerStage": {
+      "import": "from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage",
+      "description": "Count pairwise word-error-rate (WER) * 100% for each pair of text and pred_text.",
+      "category": [
+        "audio",
+        "metrics"
+      ],
+      "input_type": "AudioBatch",
+      "output_type": "AudioBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "HTMLBoilerplateFilter": {
+      "import": "from nemo_curator.stages.text.filters.code import HTMLBoilerplateFilter",
+      "description": "This filter tries to identify HTML that is largely boilerplate.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "min_lang_content_ratio": {
+          "type": "number",
+          "default": 0.2,
+          "required": false
+        },
+        "min_lang_content_num_chars": {
+          "type": "integer",
+          "default": 100,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "HistogramFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import HistogramFilter",
+      "description": "Histogram filter used by the NLLB paper (https://arxiv.org/pdf/2207.04672).",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "lang": {
+          "type": "string",
+          "default": "en",
+          "required": false
+        },
+        "threshold": {
+          "type": "number",
+          "default": 0.8,
+          "required": false
+        },
+        "cache_dir": {
+          "type": "string",
+          "default": "",
+          "required": false
+        },
+        "threshold_char": {
+          "type": "string",
+          "default": "]",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "IdentifyDuplicatesStage": {
+      "import": "from nemo_curator.stages.deduplication.fuzzy.identify_duplicates import IdentifyDuplicatesStage",
+      "description": "Stage that generates removal IDs for fuzzy deduplication.",
+      "category": [
+        "deduplication",
+        "fuzzy"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "parameters": {
+        "duplicate_group_field": {
+          "type": "string",
+          "default": "<CURATOR_FUZZY_DUPLICATE_GROUP_FIELD>",
+          "required": false
+        },
+        "document_id_field": {
+          "type": "string",
+          "default": "<CURATOR_DEDUP_ID_STR>",
+          "required": false
+        },
+        "total_nparts": {
+          "type": "integer",
+          "required": false
+        },
+        "output_path": {
+          "type": "string",
+          "default": "./",
+          "required": false
+        },
+        "read_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "write_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "rmm_pool_size": {
+          "type": "integer | Literal",
+          "default": "auto",
+          "required": false
+        },
+        "spill_memory_limit": {
+          "type": "integer | Literal",
+          "default": "auto",
+          "required": false
+        },
+        "enable_statistics": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ImageAestheticFilterStage": {
+      "import": "from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage",
+      "description": "Stage for filtering out images based on aesthetic scores.",
+      "category": [
+        "image",
+        "filter",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 4.0
+      }
+    },
+    "ImageDuplicatesRemovalStage": {
+      "import": "from nemo_curator.stages.image.deduplication.removal import ImageDuplicatesRemovalStage",
+      "description": "Filter stage that removes images whose IDs appear in a Parquet file.",
+      "category": [
+        "image",
+        "deduplication"
+      ],
+      "input_type": "ImageBatch",
+      "output_type": "ImageBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ImageEmbeddingStage": {
+      "import": "from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage",
+      "description": "Stage for generating image embeddings using CLIP model.",
+      "category": [
+        "image",
+        "embedding",
+        "ml"
+      ],
+      "input_type": "ImageBatch",
+      "output_type": "ImageBatch",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 4.0
+      }
+    },
+    "ImageNSFWFilterStage": {
+      "import": "from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage",
+      "description": "Stage for filtering out NSFW images using NSFWScorer model.",
+      "category": [
+        "image",
+        "filter",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 4.0
+      }
+    },
+    "ImageReaderStage": {
+      "import": "from nemo_curator.stages.image.io.image_reader import ImageReaderStage",
+      "description": "DALI-based reader that loads images from WebDataset tar shards.",
+      "category": [
+        "image",
+        "io"
+      ],
+      "input_type": "ImageBatch",
+      "output_type": "ImageBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ImageWriterStage": {
+      "import": "from nemo_curator.stages.image.io.image_writer import ImageWriterStage",
+      "description": "Write images to tar files and corresponding metadata to a Parquet file.",
+      "category": [
+        "image",
+        "io"
+      ],
+      "input_type": "ImageBatch",
+      "output_type": "ImageBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "InferenceAsrNemoStage": {
+      "import": "from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage",
+      "description": "Stage that do speech recognition inference using NeMo model.",
+      "category": [
+        "audio",
+        "inference",
+        "ml"
+      ],
+      "input_type": "AudioBatch",
+      "output_type": "AudioBatch",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 16.0
+      }
+    },
+    "InstructionDataGuardClassifier": {
+      "import": "from nemo_curator.stages.text.classifiers.aegis import InstructionDataGuardClassifier",
+      "description": "Instruction Data Guard is a classification model designed to detect LLM poisoning trigger attacks.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0,
+        "requires_credentials": [
+          "HF_TOKEN"
+        ]
+      }
+    },
+    "InternVideo2EmbeddingStage": {
+      "import": "from nemo_curator.stages.video.embedding.internvideo2 import InternVideo2EmbeddingStage",
+      "description": "Stage for generating embeddings from InternVideo2 input frames.",
+      "category": [
+        "video",
+        "embedding",
+        "ml"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 16.0
+      }
+    },
+    "InternVideo2FrameCreationStage": {
+      "import": "from nemo_curator.stages.video.embedding.internvideo2 import InternVideo2FrameCreationStage",
+      "description": "Stage for creating InternVideo2 input frames from video clips.",
+      "category": [
+        "video",
+        "embedding",
+        "ml"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "JsonlReader": {
+      "import": "from nemo_curator.stages.text.io.reader.jsonl import JsonlReader",
+      "description": "Composite stage for reading JSONL files.",
+      "category": [
+        "text",
+        "io",
+        "reader"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "JsonlReaderStage": {
+      "import": "from nemo_curator.stages.text.io.reader.jsonl import JsonlReaderStage",
+      "description": "Stage that processes a group of JSONL files into a DocumentBatch.",
+      "category": [
+        "text",
+        "io",
+        "reader"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "JsonlWriter": {
+      "import": "from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter",
+      "description": "Writer that writes a DocumentBatch to a JSONL file.",
+      "category": [
+        "text",
+        "io",
+        "writer"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "KMeansReadFitWriteStage": {
+      "import": "from nemo_curator.stages.deduplication.semantic.kmeans import KMeansReadFitWriteStage",
+      "description": "KMeans clustering stage that requires RAFT for distributed processing.",
+      "category": [
+        "deduplication",
+        "semantic",
+        "ml"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "parameters": {
+        "id_field": {
+          "type": "string"
+        },
+        "embedding_field": {
+          "type": "string"
+        },
+        "output_path": {
+          "type": "string"
+        },
+        "filetype": {
+          "type": "Literal"
+        },
+        "n_clusters": {
+          "type": "integer"
+        },
+        "metadata_fields": {
+          "type": "array",
+          "required": false
+        },
+        "embedding_dim": {
+          "type": "integer",
+          "required": false
+        },
+        "verbose": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        },
+        "max_iter": {
+          "type": "integer",
+          "default": 300,
+          "required": false
+        },
+        "tol": {
+          "type": "number",
+          "default": 0.0001,
+          "required": false
+        },
+        "random_state": {
+          "type": "integer",
+          "default": 42,
+          "required": false
+        },
+        "init": {
+          "type": "Literal | ndarray",
+          "default": "k-means||",
+          "required": false
+        },
+        "n_init": {
+          "type": "integer | Literal",
+          "default": 1,
+          "required": false
+        },
+        "oversampling_factor": {
+          "type": "number",
+          "default": 2.0,
+          "required": false
+        },
+        "max_samples_per_batch": {
+          "type": "integer",
+          "required": false
+        },
+        "read_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "write_kwargs": {
+          "type": "object",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "KMeansStage": {
+      "import": "from nemo_curator.stages.deduplication.semantic.kmeans import KMeansStage",
+      "description": "KMeans clustering stage that requires RAFT for distributed processing.",
+      "category": [
+        "deduplication",
+        "semantic",
+        "ml"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "LSHStage": {
+      "import": "from nemo_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage",
+      "description": "Stage that performs LSH on a FileGroupTask containing minhash data.",
+      "category": [
+        "deduplication",
+        "fuzzy"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "LongWordFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import LongWordFilter",
+      "description": "If the document contains a word longer than 1000 characters, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_word_length": {
+          "type": "integer",
+          "default": 1000,
+          "required": false
+        },
+        "lang": {
+          "type": "string",
+          "default": "en",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "MeanWordLengthFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import MeanWordLengthFilter",
+      "description": "If the mean word length is not in a specified range, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "min_mean_word_length": {
+          "type": "integer",
+          "default": 3,
+          "required": false
+        },
+        "max_mean_word_length": {
+          "type": "integer",
+          "default": 10,
+          "required": false
+        },
+        "lang": {
+          "type": "string",
+          "default": "en",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "MegatronTokenizerWriter": {
+      "import": "from nemo_curator.stages.text.io.writer.megatron_tokenizer import MegatronTokenizerWriter",
+      "description": "Writer that writes a DocumentBatch to Megatron ready tokenized files.",
+      "category": [
+        "text",
+        "io",
+        "writer"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "MinHashStage": {
+      "import": "from nemo_curator.stages.deduplication.fuzzy.minhash import MinHashStage",
+      "description": "ProcessingStage for computing MinHash signatures on documents for fuzzy deduplication.",
+      "category": [
+        "deduplication",
+        "fuzzy"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "parameters": {
+        "output_path": {
+          "type": "string"
+        },
+        "text_field": {
+          "type": "string",
+          "default": "text",
+          "required": false
+        },
+        "minhash_field": {
+          "type": "string",
+          "default": "<CURATOR_DEFAULT_MINHASH_FIELD>",
+          "required": false
+        },
+        "char_ngrams": {
+          "type": "integer",
+          "default": 24,
+          "required": false
+        },
+        "num_hashes": {
+          "type": "integer",
+          "default": 260,
+          "required": false
+        },
+        "seed": {
+          "type": "integer",
+          "default": 42,
+          "required": false
+        },
+        "use_64bit_hash": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        },
+        "read_format": {
+          "type": "Literal",
+          "default": "jsonl",
+          "required": false
+        },
+        "read_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "write_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "pool": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "Modify": {
+      "import": "from nemo_curator.stages.text.modules.modifier import Modify",
+      "description": "Modify fields of dataset records.",
+      "category": [
+        "text",
+        "module"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "MotionFilterStage": {
+      "import": "from nemo_curator.stages.video.filtering.motion_filter import MotionFilterStage",
+      "description": "Stage for filtering video clips based on motion score.",
+      "category": [
+        "video",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "MotionVectorDecodeStage": {
+      "import": "from nemo_curator.stages.video.filtering.motion_filter import MotionVectorDecodeStage",
+      "description": "Stage for decoding motion vector information from video files.",
+      "category": [
+        "video",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "MultilingualDomainClassifier": {
+      "import": "from nemo_curator.stages.text.classifiers.domain import MultilingualDomainClassifier",
+      "description": "MultilingualDomainClassifier is a specialized classifier designed for domain classification tasks, utilizing the NemoCurator Multilingual Domain Classifier (https://huggingface.co/nvidia/multilingual-domain-classifier) model.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "label_field": {
+          "type": "string",
+          "default": "multilingual_domain_pred",
+          "required": false
+        },
+        "score_field": {
+          "type": "string",
+          "required": false
+        },
+        "text_field": {
+          "type": "string",
+          "default": "text",
+          "required": false
+        },
+        "filter_by": {
+          "type": "array",
+          "required": false
+        },
+        "max_chars": {
+          "type": "integer",
+          "default": 2000,
+          "required": false
+        },
+        "sort_by_length": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 256,
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 4.0
+      }
+    },
+    "NonAlphaNumericFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import NonAlphaNumericFilter",
+      "description": "If more than 25% of the document is non-alphanumeric, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_non_alpha_numeric_to_text_ratio": {
+          "type": "number",
+          "default": 0.25,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "NumberOfLinesOfCodeFilter": {
+      "import": "from nemo_curator.stages.text.filters.code import NumberOfLinesOfCodeFilter",
+      "description": "",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "min_lines": {
+          "type": "integer",
+          "default": 10,
+          "required": false
+        },
+        "max_lines": {
+          "type": "integer",
+          "default": 20000,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "NumbersFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import NumbersFilter",
+      "description": "If more than 15% of the document contains numbers, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_number_to_text_ratio": {
+          "type": "number",
+          "default": 0.15,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "PairwiseCosineSimilarityStage": {
+      "import": "from nemo_curator.stages.deduplication.semantic.pairwise import PairwiseCosineSimilarityStage",
+      "description": "Pairwise cosine similarity stage that computes similarity within clusters.",
+      "category": [
+        "deduplication",
+        "semantic",
+        "ml"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "parameters": {
+        "id_field": {
+          "type": "string"
+        },
+        "embedding_field": {
+          "type": "string"
+        },
+        "output_path": {
+          "type": "string"
+        },
+        "ranking_strategy": {
+          "type": "RankingStrategy"
+        },
+        "pairwise_batch_size": {
+          "type": "integer",
+          "default": 1024,
+          "required": false
+        },
+        "verbose": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        },
+        "embedding_dim": {
+          "type": "integer",
+          "required": false
+        },
+        "read_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "write_kwargs": {
+          "type": "object",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "PairwiseStage": {
+      "import": "from nemo_curator.stages.deduplication.semantic.pairwise import PairwiseStage",
+      "description": "Pairwise similarity stage for semantic deduplication.",
+      "category": [
+        "deduplication",
+        "semantic",
+        "ml"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "ParenthesesFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import ParenthesesFilter",
+      "description": "If more than 10% of the sentence is in parentheses, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_parentheses_ratio": {
+          "type": "number",
+          "default": 0.1,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ParquetReader": {
+      "import": "from nemo_curator.stages.text.io.reader.parquet import ParquetReader",
+      "description": "Composite stage for reading Parquet files.",
+      "category": [
+        "text",
+        "io",
+        "reader"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ParquetReaderStage": {
+      "import": "from nemo_curator.stages.text.io.reader.parquet import ParquetReaderStage",
+      "description": "Stage that processes a group of Parquet files into a DocumentBatch.",
+      "category": [
+        "text",
+        "io",
+        "reader"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ParquetWriter": {
+      "import": "from nemo_curator.stages.text.io.writer.parquet import ParquetWriter",
+      "description": "Writer that writes a DocumentBatch to a Parquet file using pandas.",
+      "category": [
+        "text",
+        "io",
+        "writer"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "PerExtensionFilter": {
+      "import": "from nemo_curator.stages.text.filters.code import PerExtensionFilter",
+      "description": "This filter that has specific conditions depending on the file extension.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "lang": {
+          "type": "string"
+        },
+        "extension": {
+          "type": "string"
+        },
+        "metadata_file": {
+          "type": "string",
+          "default": "code_meta.csv",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "PornographicUrlsFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import PornographicUrlsFilter",
+      "description": "Check if any of the URLs within the document point to pornography.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "PostProcessAegisResponsesStage": {
+      "import": "from nemo_curator.stages.text.classifiers.aegis import PostProcessAegisResponsesStage",
+      "description": "PostProcessAegisResponsesStage is a stage that post-processes the responses from the AEGIS model.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "PreviewStage": {
+      "import": "from nemo_curator.stages.video.preview.preview import PreviewStage",
+      "description": "Stage that generates webp previews from video clips.",
+      "category": [
+        "video",
+        "preview"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "PromptTaskComplexityClassifier": {
+      "import": "from nemo_curator.stages.text.classifiers.prompt_task_complexity import PromptTaskComplexityClassifier",
+      "description": "PromptTaskComplexityClassifier is a multi-headed model which classifies English text prompts across task types and complexity dimensions.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "PromptTaskComplexityModelStage": {
+      "import": "from nemo_curator.stages.text.classifiers.prompt_task_complexity import PromptTaskComplexityModelStage",
+      "description": "Stage for Hugging Face model inference.",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 256,
+          "required": false
+        },
+        "has_seq_order": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "PunctuationFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import PunctuationFilter",
+      "description": "If more than 85% of the sentences do not end with a punctuation mark, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_num_sentences_without_endmark_ratio": {
+          "type": "number",
+          "default": 0.85,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "PythonCommentToCodeFilter": {
+      "import": "from nemo_curator.stages.text.filters.code import PythonCommentToCodeFilter",
+      "description": "",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "min_comment_to_code_ratio": {
+          "type": "number",
+          "default": 0.01,
+          "required": false
+        },
+        "max_comment_to_code_ratio": {
+          "type": "number",
+          "default": 0.85,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "QualityClassifier": {
+      "import": "from nemo_curator.stages.text.classifiers.quality import QualityClassifier",
+      "description": "QualityClassifier is a specialized classifier designed for quality assessment tasks, utilizing the NemoCurator Quality Classifier DeBERTa model (https://huggingface.co/nvidia/quality-classifier-deberta).",
+      "category": [
+        "text",
+        "classifier",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "label_field": {
+          "type": "string",
+          "default": "quality_pred",
+          "required": false
+        },
+        "score_field": {
+          "type": "string",
+          "required": false
+        },
+        "text_field": {
+          "type": "string",
+          "default": "text",
+          "required": false
+        },
+        "filter_by": {
+          "type": "array",
+          "required": false
+        },
+        "max_chars": {
+          "type": "integer",
+          "default": 6000,
+          "required": false
+        },
+        "sort_by_length": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 256,
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 4.0
+      },
+      "hints": {
+        "purpose": "Score document quality as High/Medium/Low",
+        "output_values": [
+          "High",
+          "Medium",
+          "Low"
+        ],
+        "typical_retention": "30-50% if keeping High only",
+        "order_preference": "After heuristic filters, before deduplication"
+      }
+    },
+    "RepeatedLinesByCharFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import RepeatedLinesByCharFilter",
+      "description": "If the document shrinks by > 20% in terms of number of lines after removing duplicate lines, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_repeated_lines_char_ratio": {
+          "type": "number",
+          "default": 0.8,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "RepeatedLinesFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import RepeatedLinesFilter",
+      "description": "If the document shrinks by > 30% in terms of number of lines after removing duplicate lines, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_repeated_line_fraction": {
+          "type": "number",
+          "default": 0.7,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "RepeatedParagraphsByCharFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import RepeatedParagraphsByCharFilter",
+      "description": "If the document shrinks by > 10% in terms of number of lines after removing duplicate paragraphs, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_repeated_paragraphs_char_ratio": {
+          "type": "number",
+          "default": 0.8,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "RepeatedParagraphsFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import RepeatedParagraphsFilter",
+      "description": "If the document shrinks by > 30% in terms of number of lines after removing duplicate paragraphs, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_repeated_paragraphs_ratio": {
+          "type": "number",
+          "default": 0.7,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "RepeatingDuplicateNGramsFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import RepeatingDuplicateNGramsFilter",
+      "description": "If the document shrinks by > x% in terms of number of characters after removing all duplicate n-grams, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "n": {
+          "type": "integer",
+          "default": 2,
+          "required": false
+        },
+        "max_repeating_duplicate_ngram_ratio": {
+          "type": "number",
+          "default": 0.2,
+          "required": false
+        },
+        "lang": {
+          "type": "string",
+          "default": "en",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "RepeatingTopNGramsFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import RepeatingTopNGramsFilter",
+      "description": "If the document shrinks by > x% in terms of number of characters after removing the top n-grams, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "n": {
+          "type": "integer",
+          "default": 2,
+          "required": false
+        },
+        "max_repeating_ngram_ratio": {
+          "type": "number",
+          "default": 0.2,
+          "required": false
+        },
+        "lang": {
+          "type": "string",
+          "default": "en",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "Score": {
+      "import": "from nemo_curator.stages.text.modules.score_filter import Score",
+      "description": "The module responsible for adding metadata to records based on statistics about the text.",
+      "category": [
+        "text",
+        "module"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "ScoreFilter": {
+      "import": "from nemo_curator.stages.text.modules.score_filter import ScoreFilter",
+      "description": "The module responsible for applying a filter (or chain of filters) to all documents in a dataset.",
+      "category": [
+        "text",
+        "module"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "SemanticDeduplicationWorkflow": {
+      "import": "from nemo_curator.stages.deduplication.semantic.workflow import SemanticDeduplicationWorkflow",
+      "description": "End-to-End Semantic Deduplication Workflow.",
+      "category": [
+        "deduplication",
+        "semantic",
+        "ml"
+      ],
+      "input_type": "Task",
+      "output_type": "Task",
+      "parameters": {
+        "input_path": {
+          "type": "string | array"
+        },
+        "output_path": {
+          "type": "string"
+        },
+        "n_clusters": {
+          "type": "integer"
+        },
+        "cache_path": {
+          "type": "string",
+          "required": false
+        },
+        "id_field": {
+          "type": "string",
+          "default": "id",
+          "required": false
+        },
+        "embedding_field": {
+          "type": "string",
+          "default": "embeddings",
+          "required": false
+        },
+        "embedding_dim": {
+          "type": "integer",
+          "required": false
+        },
+        "metadata_fields": {
+          "type": "array",
+          "required": false
+        },
+        "input_filetype": {
+          "type": "Literal",
+          "default": "parquet",
+          "required": false
+        },
+        "input_file_extensions": {
+          "type": "array",
+          "required": false
+        },
+        "max_iter": {
+          "type": "integer",
+          "default": 300,
+          "required": false
+        },
+        "tol": {
+          "type": "number",
+          "default": 0.0001,
+          "required": false
+        },
+        "random_state": {
+          "type": "integer",
+          "default": 42,
+          "required": false
+        },
+        "init": {
+          "type": "Literal | ndarray",
+          "default": "k-means||",
+          "required": false
+        },
+        "n_init": {
+          "type": "integer | Literal",
+          "default": 1,
+          "required": false
+        },
+        "oversampling_factor": {
+          "type": "number",
+          "default": 2.0,
+          "required": false
+        },
+        "max_samples_per_batch": {
+          "type": "integer",
+          "required": false
+        },
+        "distance_metric": {
+          "type": "Literal",
+          "default": "cosine",
+          "required": false
+        },
+        "which_to_keep": {
+          "type": "Literal",
+          "default": "hard",
+          "required": false
+        },
+        "ranking_strategy": {
+          "type": "RankingStrategy",
+          "required": false
+        },
+        "pairwise_batch_size": {
+          "type": "integer",
+          "default": 1024,
+          "required": false
+        },
+        "eps": {
+          "type": "number",
+          "required": false
+        },
+        "_duplicates_num_row_groups_hint": {
+          "type": "integer",
+          "required": false
+        },
+        "read_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "cache_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "write_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "clear_output": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "verbose": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "SentenceTransformerEmbeddingModelStage": {
+      "import": "from nemo_curator.stages.text.embedders.base import SentenceTransformerEmbeddingModelStage",
+      "description": "",
+      "category": [
+        "text",
+        "embedder",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "model_identifier": {
+          "type": "string"
+        },
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "embedding_field": {
+          "type": "string",
+          "default": "embeddings",
+          "required": false
+        },
+        "hf_token": {
+          "type": "string",
+          "required": false
+        },
+        "model_inference_batch_size": {
+          "type": "integer",
+          "default": 1024,
+          "required": false
+        },
+        "has_seq_order": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "padding_side": {
+          "type": "Literal",
+          "default": "right",
+          "required": false
+        },
+        "autocast": {
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "SubstringFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import SubstringFilter",
+      "description": "Keeps documents that contain a substring in a given position.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "substring": {
+          "type": "string"
+        },
+        "position": {
+          "type": "Literal"
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "SymbolsToWordsFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import SymbolsToWordsFilter",
+      "description": "Remove any document with a symbol-to-word ratio greater than 0.1 for either the hash symbol or the elipsis.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_symbol_to_word_ratio": {
+          "type": "number",
+          "default": 0.1,
+          "required": false
+        },
+        "lang": {
+          "type": "string",
+          "default": "en",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "TokenCountFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import TokenCountFilter",
+      "description": "If the document contains more or less than a specified number of tokens, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "tokenizer": {
+          "type": "AutoTokenizer",
+          "required": false
+        },
+        "hf_model_name": {
+          "type": "string",
+          "required": false
+        },
+        "hf_token": {
+          "type": "string",
+          "required": false
+        },
+        "min_tokens": {
+          "type": "integer",
+          "default": 0,
+          "required": false
+        },
+        "max_tokens": {
+          "type": "integer",
+          "default": "<float()>",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "TokenizerFertilityFilter": {
+      "import": "from nemo_curator.stages.text.filters.code import TokenizerFertilityFilter",
+      "description": "",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "path_to_tokenizer": {
+          "type": "string",
+          "required": false
+        },
+        "min_char_to_token_ratio": {
+          "type": "number",
+          "default": 2.5,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "TransNetV2ClipExtractionStage": {
+      "import": "from nemo_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage",
+      "description": "Stage for extracting video clips using TransNetV2.",
+      "category": [
+        "video",
+        "clipping"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 10.0
+      }
+    },
+    "URLGenerationStage": {
+      "import": "from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage",
+      "description": "Stage that generates URLs from minimal input parameters.",
+      "category": [
+        "text",
+        "download"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "UrlsFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import UrlsFilter",
+      "description": "If more than 20% of the document is comprised of URLs, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_url_to_text_ratio": {
+          "type": "number",
+          "default": 0.2,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "VLLMEmbeddingModelStage": {
+      "import": "from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage",
+      "description": "",
+      "category": [
+        "text",
+        "embedder",
+        "ml"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "model_identifier": {
+          "type": "string"
+        },
+        "vllm_init_kwargs": {
+          "type": "object",
+          "required": false
+        },
+        "text_field": {
+          "type": "string",
+          "default": "text",
+          "required": false
+        },
+        "pretokenize": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        },
+        "embedding_field": {
+          "type": "string",
+          "default": "embeddings",
+          "required": false
+        },
+        "max_chars": {
+          "type": "integer",
+          "required": false
+        },
+        "cache_dir": {
+          "type": "string",
+          "required": false
+        },
+        "hf_token": {
+          "type": "string",
+          "required": false
+        },
+        "verbose": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 8.0
+      }
+    },
+    "VideoFrameExtractionStage": {
+      "import": "from nemo_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage",
+      "description": "Stage that extracts frames from videos into numpy arrays.",
+      "category": [
+        "video",
+        "clipping"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": true,
+        "gpu_memory_gb": 10.0
+      }
+    },
+    "VideoReader": {
+      "import": "from nemo_curator.stages.video.io.video_reader import VideoReader",
+      "description": "Composite stage that reads video files from storage and downloads/processes them.",
+      "category": [
+        "video",
+        "io"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "VideoReaderStage": {
+      "import": "from nemo_curator.stages.video.io.video_reader import VideoReaderStage",
+      "description": "Stage that reads video files from local filesystem and extracts metadata.",
+      "category": [
+        "video",
+        "io"
+      ],
+      "input_type": "VideoTask",
+      "output_type": "VideoTask",
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "WhiteSpaceFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import WhiteSpaceFilter",
+      "description": "If the document contains a significant number of white space characters, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "max_white_space_ratio": {
+          "type": "number",
+          "default": 0.25,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "WikipediaDownloadExtractStage": {
+      "import": "from nemo_curator.stages.text.download.wikipedia.stage import WikipediaDownloadExtractStage",
+      "description": "Composite stage for downloading and processing Wikipedia data.",
+      "category": [
+        "text",
+        "download"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "language": {
+          "type": "string",
+          "default": "en",
+          "required": false
+        },
+        "download_dir": {
+          "type": "string",
+          "default": "./wikipedia_downloads",
+          "required": false
+        },
+        "dump_date": {
+          "type": "string",
+          "required": false
+        },
+        "wikidumps_index_prefix": {
+          "type": "string",
+          "default": "https://dumps.wikimedia.org",
+          "required": false
+        },
+        "verbose": {
+          "type": "boolean",
+          "default": false,
+          "required": false
+        },
+        "url_limit": {
+          "type": "integer",
+          "required": false
+        },
+        "record_limit": {
+          "type": "integer",
+          "required": false
+        },
+        "add_filename_column": {
+          "type": "boolean | string",
+          "default": true,
+          "required": false
+        },
+        "log_frequency": {
+          "type": "integer",
+          "default": 1000,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "WordCountFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import WordCountFilter",
+      "description": "If a document contains a number of words not within a specified range, then discard.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "min_words": {
+          "type": "integer",
+          "default": 50,
+          "required": false
+        },
+        "max_words": {
+          "type": "integer",
+          "default": 100000,
+          "required": false
+        },
+        "lang": {
+          "type": "string",
+          "default": "en",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      },
+      "hints": {
+        "purpose": "Remove very short or very long documents",
+        "when_to_use": "Early in pipeline to reduce data volume",
+        "typical_retention": "80-95%"
+      }
+    },
+    "WordsWithoutAlphabetsFilter": {
+      "import": "from nemo_curator.stages.text.filters.heuristic_filter import WordsWithoutAlphabetsFilter",
+      "description": "80% of words in a document must contain at least one alphabetic character.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "min_words_with_alphabets": {
+          "type": "number",
+          "default": 0.8,
+          "required": false
+        },
+        "lang": {
+          "type": "string",
+          "default": "en",
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    },
+    "XMLHeaderFilter": {
+      "import": "from nemo_curator.stages.text.filters.code import XMLHeaderFilter",
+      "description": "This filter tries to identify files that have incorrect file extensions.",
+      "category": [
+        "text",
+        "filter"
+      ],
+      "input_type": "DocumentBatch",
+      "output_type": "DocumentBatch",
+      "parameters": {
+        "char_prefix_search_length": {
+          "type": "integer",
+          "default": 100,
+          "required": false
+        }
+      },
+      "resources": {
+        "requires_gpu": false
+      }
+    }
+  },
+  "composition": {
+    "type_flow": {
+      "AudioBatch": {
+        "producers": [
+          "AudioToDocumentStage",
+          "GetPairwiseWerStage",
+          "InferenceAsrNemoStage"
+        ],
+        "consumers": [
+          "AudioToDocumentStage",
+          "GetPairwiseWerStage",
+          "InferenceAsrNemoStage"
+        ]
+      },
+      "DocumentBatch": {
+        "producers": [
+          "AddId",
+          "AegisClassifier",
+          "AegisModelStage",
+          "AlphaFilter",
+          "ArxivDownloadExtractStage",
+          "BoilerPlateStringFilter",
+          "BoilerPlateStringModifier",
+          "BulletsFilter",
+          "ClassifierModelStage",
+          "ClipAestheticFilterStage",
+          "CommonCrawlDownloadExtractStage",
+          "CommonEnglishWordsFilter",
+          "ContentTypeClassifier",
+          "DistributedDataClassifier",
+          "DocumentDownloadExtractStage",
+          "DocumentDownloadStage",
+          "DocumentExtractStage",
+          "DocumentFilter",
+          "DocumentIterateStage",
+          "DocumentJoiner",
+          "DocumentModifier",
+          "DocumentSplitter",
+          "DomainClassifier",
+          "EllipsisFilter",
+          "EmbeddingCreatorStage",
+          "EmbeddingModelStage",
+          "FastTextLabelModifier",
+          "FastTextQualityFilter",
+          "Filter",
+          "FineWebEduClassifier",
+          "FineWebMixtralEduClassifier",
+          "FineWebModelStage",
+          "FineWebNemotronEduClassifier",
+          "FormatAegisPromptStage",
+          "GeneralCommentToCodeFilter",
+          "HTMLBoilerplateFilter",
+          "HistogramFilter",
+          "ImageAestheticFilterStage",
+          "ImageNSFWFilterStage",
+          "InstructionDataGuardClassifier",
+          "JsonlReader",
+          "JsonlReaderStage",
+          "JsonlWriter",
+          "LongWordFilter",
+          "MeanWordLengthFilter",
+          "MegatronTokenizerWriter",
+          "Modify",
+          "MotionFilterStage",
+          "MotionVectorDecodeStage",
+          "MultilingualDomainClassifier",
+          "NonAlphaNumericFilter",
+          "NumberOfLinesOfCodeFilter",
+          "NumbersFilter",
+          "ParenthesesFilter",
+          "ParquetReader",
+          "ParquetReaderStage",
+          "ParquetWriter",
+          "PerExtensionFilter",
+          "PornographicUrlsFilter",
+          "PostProcessAegisResponsesStage",
+          "PromptTaskComplexityClassifier",
+          "PromptTaskComplexityModelStage",
+          "PunctuationFilter",
+          "PythonCommentToCodeFilter",
+          "QualityClassifier",
+          "RepeatedLinesByCharFilter",
+          "RepeatedLinesFilter",
+          "RepeatedParagraphsByCharFilter",
+          "RepeatedParagraphsFilter",
+          "RepeatingDuplicateNGramsFilter",
+          "RepeatingTopNGramsFilter",
+          "Score",
+          "ScoreFilter",
+          "SentenceTransformerEmbeddingModelStage",
+          "SubstringFilter",
+          "SymbolsToWordsFilter",
+          "TokenCountFilter",
+          "TokenizerFertilityFilter",
+          "URLGenerationStage",
+          "UrlsFilter",
+          "VLLMEmbeddingModelStage",
+          "WhiteSpaceFilter",
+          "WikipediaDownloadExtractStage",
+          "WordCountFilter",
+          "WordsWithoutAlphabetsFilter",
+          "XMLHeaderFilter"
+        ],
+        "consumers": [
+          "AddId",
+          "AegisClassifier",
+          "AegisModelStage",
+          "AlphaFilter",
+          "ArxivDownloadExtractStage",
+          "BoilerPlateStringFilter",
+          "BoilerPlateStringModifier",
+          "BulletsFilter",
+          "ClassifierModelStage",
+          "ClipAestheticFilterStage",
+          "CommonCrawlDownloadExtractStage",
+          "CommonEnglishWordsFilter",
+          "ContentTypeClassifier",
+          "DistributedDataClassifier",
+          "DocumentDownloadExtractStage",
+          "DocumentDownloadStage",
+          "DocumentExtractStage",
+          "DocumentFilter",
+          "DocumentIterateStage",
+          "DocumentJoiner",
+          "DocumentModifier",
+          "DocumentSplitter",
+          "DomainClassifier",
+          "EllipsisFilter",
+          "EmbeddingCreatorStage",
+          "EmbeddingModelStage",
+          "FastTextLabelModifier",
+          "FastTextQualityFilter",
+          "Filter",
+          "FineWebEduClassifier",
+          "FineWebMixtralEduClassifier",
+          "FineWebModelStage",
+          "FineWebNemotronEduClassifier",
+          "FormatAegisPromptStage",
+          "GeneralCommentToCodeFilter",
+          "HTMLBoilerplateFilter",
+          "HistogramFilter",
+          "ImageAestheticFilterStage",
+          "ImageNSFWFilterStage",
+          "InstructionDataGuardClassifier",
+          "JsonlReader",
+          "JsonlReaderStage",
+          "JsonlWriter",
+          "LongWordFilter",
+          "MeanWordLengthFilter",
+          "MegatronTokenizerWriter",
+          "Modify",
+          "MotionFilterStage",
+          "MotionVectorDecodeStage",
+          "MultilingualDomainClassifier",
+          "NonAlphaNumericFilter",
+          "NumberOfLinesOfCodeFilter",
+          "NumbersFilter",
+          "ParenthesesFilter",
+          "ParquetReader",
+          "ParquetReaderStage",
+          "ParquetWriter",
+          "PerExtensionFilter",
+          "PornographicUrlsFilter",
+          "PostProcessAegisResponsesStage",
+          "PromptTaskComplexityClassifier",
+          "PromptTaskComplexityModelStage",
+          "PunctuationFilter",
+          "PythonCommentToCodeFilter",
+          "QualityClassifier",
+          "RepeatedLinesByCharFilter",
+          "RepeatedLinesFilter",
+          "RepeatedParagraphsByCharFilter",
+          "RepeatedParagraphsFilter",
+          "RepeatingDuplicateNGramsFilter",
+          "RepeatingTopNGramsFilter",
+          "Score",
+          "ScoreFilter",
+          "SentenceTransformerEmbeddingModelStage",
+          "SubstringFilter",
+          "SymbolsToWordsFilter",
+          "TokenCountFilter",
+          "TokenizerFertilityFilter",
+          "URLGenerationStage",
+          "UrlsFilter",
+          "VLLMEmbeddingModelStage",
+          "WhiteSpaceFilter",
+          "WikipediaDownloadExtractStage",
+          "WordCountFilter",
+          "WordsWithoutAlphabetsFilter",
+          "XMLHeaderFilter"
+        ]
+      },
+      "ImageBatch": {
+        "producers": [
+          "ConvertImageBatchToDocumentBatchStage",
+          "ImageDuplicatesRemovalStage",
+          "ImageEmbeddingStage",
+          "ImageReaderStage",
+          "ImageWriterStage"
+        ],
+        "consumers": [
+          "ConvertImageBatchToDocumentBatchStage",
+          "ImageDuplicatesRemovalStage",
+          "ImageEmbeddingStage",
+          "ImageReaderStage",
+          "ImageWriterStage"
+        ]
+      },
+      "Task": {
+        "producers": [
+          "BucketsToEdgesStage",
+          "ClusterWiseFilePartitioningStage",
+          "ConnectedComponentsStage",
+          "ExactDeduplicationWorkflow",
+          "FuzzyDeduplicationWorkflow",
+          "IdentifyDuplicatesStage",
+          "KMeansReadFitWriteStage",
+          "KMeansStage",
+          "LSHStage",
+          "MinHashStage",
+          "PairwiseCosineSimilarityStage",
+          "PairwiseStage",
+          "SemanticDeduplicationWorkflow"
+        ],
+        "consumers": [
+          "BucketsToEdgesStage",
+          "ClusterWiseFilePartitioningStage",
+          "ConnectedComponentsStage",
+          "ExactDeduplicationWorkflow",
+          "FuzzyDeduplicationWorkflow",
+          "IdentifyDuplicatesStage",
+          "KMeansReadFitWriteStage",
+          "KMeansStage",
+          "LSHStage",
+          "MinHashStage",
+          "PairwiseCosineSimilarityStage",
+          "PairwiseStage",
+          "SemanticDeduplicationWorkflow"
+        ]
+      },
+      "VideoTask": {
+        "producers": [
+          "CaptionEnhancementStage",
+          "CaptionGenerationStage",
+          "CaptionPreparationStage",
+          "ClipFrameExtractionStage",
+          "ClipTranscodingStage",
+          "ClipWriterStage",
+          "CosmosEmbed1EmbeddingStage",
+          "CosmosEmbed1FrameCreationStage",
+          "FixedStrideExtractorStage",
+          "InternVideo2EmbeddingStage",
+          "InternVideo2FrameCreationStage",
+          "PreviewStage",
+          "TransNetV2ClipExtractionStage",
+          "VideoFrameExtractionStage",
+          "VideoReader",
+          "VideoReaderStage"
+        ],
+        "consumers": [
+          "CaptionEnhancementStage",
+          "CaptionGenerationStage",
+          "CaptionPreparationStage",
+          "ClipFrameExtractionStage",
+          "ClipTranscodingStage",
+          "ClipWriterStage",
+          "CosmosEmbed1EmbeddingStage",
+          "CosmosEmbed1FrameCreationStage",
+          "FixedStrideExtractorStage",
+          "InternVideo2EmbeddingStage",
+          "InternVideo2FrameCreationStage",
+          "PreviewStage",
+          "TransNetV2ClipExtractionStage",
+          "VideoFrameExtractionStage",
+          "VideoReader",
+          "VideoReaderStage"
+        ]
+      }
+    }
+  },
+  "execution": {
+    "environments": {
+      "docker": {
+        "image": "nvcr.io/nvidia/nemo-curator:latest",
+        "gpu_flag": "--gpus all"
+      },
+      "native": {
+        "python_version": ">=3.10",
+        "cuda_version": ">=12.0"
+      }
+    }
+  }
+}

@@ -1,0 +1,3 @@
+# DORI local files - user-specific, not shared with team
+# See: https://github.com/your-org/dori#storage-architecture
+local/

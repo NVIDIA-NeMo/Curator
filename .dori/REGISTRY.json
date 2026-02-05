@@ -1,0 +1,252 @@
+{
+  "registry": "nemo-curator-local",
+  "version": "0.1.0",
+  "description": "Custom skills for nemo curator local",
+  "skills": [
+    {
+      "name": "aud-asr",
+      "path": "skills/aud-asr",
+      "category": "custom",
+      "aliases": [],
+      "description": "Transcribe audio using NeMo ASR models (Parakeet, FastConformer). GPU recommended.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "aud-wer",
+      "path": "skills/aud-wer",
+      "category": "custom",
+      "aliases": [],
+      "description": "Calculate Word Error Rate (WER) to assess transcription quality. Filter low-quality audio-transcript pairs.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "audio",
+      "path": "skills/audio",
+      "category": "custom",
+      "aliases": [],
+      "description": "Process audio and speech data including ASR transcription, Word Error Rate calculation, and quality filtering. Use when the user wants to transcribe audio, assess speech quality, or filter audio data.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "curator",
+      "path": "skills/curator",
+      "category": "custom",
+      "aliases": [],
+      "description": "Main entry point for NeMo Curator data curation. Use when the user mentions data curation, deduplication, filtering, classification, video/text/image/audio processing, pipeline building, or working wi",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "help",
+      "path": "skills/help",
+      "category": "custom",
+      "aliases": [],
+      "description": "Command reference and guidance for NeMo Curator agent skills. Use when the user asks for help, wants to see available commands, or needs guidance on which skill to use.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "image",
+      "path": "skills/image",
+      "category": "custom",
+      "aliases": [],
+      "description": "Process image datasets including CLIP embedding, aesthetic filtering, NSFW detection, and deduplication. Use when the user wants to filter images, generate embeddings, or remove inappropriate content.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "img-aesthetic",
+      "path": "skills/img-aesthetic",
+      "category": "custom",
+      "aliases": [],
+      "description": "Score and filter images by aesthetic quality using LAION aesthetic predictor. GPU required.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "img-embed",
+      "path": "skills/img-embed",
+      "category": "custom",
+      "aliases": [],
+      "description": "Generate CLIP embeddings for images for search, similarity, and deduplication. GPU required.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "img-nsfw",
+      "path": "skills/img-nsfw",
+      "category": "custom",
+      "aliases": [],
+      "description": "Detect and filter NSFW/inappropriate image content. GPU required.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "project",
+      "path": "skills/project",
+      "category": "custom",
+      "aliases": [],
+      "description": "Set up and organize a data curation project. Use when the user is starting a new curation project, asks about directory structure, file organization, naming conventions, or how to organize their data ",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "schema",
+      "path": "skills/schema",
+      "category": "custom",
+      "aliases": [],
+      "description": "Query NeMo Curator's Agent Tool Schema to discover available operations, their parameters, GPU requirements, and composition rules. Use when the user asks what operations exist, what parameters a stag",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "schema-update",
+      "path": "skills/schema-update",
+      "category": "custom",
+      "aliases": [],
+      "description": "Regenerate and validate the Agent Tool Schema after NeMo Curator changes. Use when NeMo Curator has been updated and the schema needs to be refreshed, or when contributing new stages.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "setup",
+      "path": "skills/setup",
+      "category": "custom",
+      "aliases": [],
+      "description": "Install and configure NeMo Curator with automatic environment detection.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "setup-ray",
+      "path": "skills/setup-ray",
+      "category": "custom",
+      "aliases": [],
+      "description": "Configure Ray clusters for distributed NeMo Curator execution.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "stages",
+      "path": "skills/stages",
+      "category": "custom",
+      "aliases": [],
+      "description": "Look up NeMo Curator processing stages by modality and category.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "text",
+      "path": "skills/text",
+      "category": "custom",
+      "aliases": [],
+      "description": "Curate text/document data with filtering, classification, and deduplication. Use when the user wants to process text, clean documents, or build text datasets. Entry point for all text curation.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "txt-classify",
+      "path": "skills/txt-classify",
+      "category": "custom",
+      "aliases": [],
+      "description": "Classify text documents using ML models for quality scoring, domain detection, educational content, and safety filtering. GPU required.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "txt-dedup",
+      "path": "skills/txt-dedup",
+      "category": "custom",
+      "aliases": [],
+      "description": "Remove near-duplicate documents using MinHash and LSH. GPU recommended for large datasets.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "txt-filter",
+      "path": "skills/txt-filter",
+      "category": "custom",
+      "aliases": [],
+      "description": "Filter text documents using heuristic rules (word count, URLs, repetition, punctuation). CPU-only, no GPU required. Entry point for text curation.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "validate",
+      "path": "skills/validate",
+      "category": "custom",
+      "aliases": [],
+      "description": "Validate generated NeMo Curator code against the Agent Tool Schema. Use when the user wants to check if their pipeline code is correct, uses valid operations, or has correct parameters.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "vid-caption",
+      "path": "skills/vid-caption",
+      "category": "custom",
+      "aliases": [],
+      "description": "Generate text captions for video clips using Qwen VL vision-language model. Requires full GPU.",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "vid-clip",
+      "path": "skills/vid-clip",
+      "category": "custom",
+      "aliases": [],
+      "description": "Extract video clips using scene detection (TransNetV2, 10GB GPU) or fixed intervals (CPU only).",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "vid-embed",
+      "path": "skills/vid-embed",
+      "category": "custom",
+      "aliases": [],
+      "description": "Generate video embeddings for search and similarity using Cosmos-Embed1 or InternVideo2. GPU required (20GB for Cosmos, 10GB for InternVideo2).",
+      "time_estimate": "varies",
+      "deterministic": false
+    },
+    {
+      "name": "video",
+      "path": "skills/video",
+      "category": "custom",
+      "aliases": [],
+      "description": "Process video data including clip extraction, scene detection, captioning, and embedding generation. Use when the user wants to process videos, extract clips, generate captions, or create video embedd",
+      "time_estimate": "varies",
+      "deterministic": false
+    }
+  ],
+  "categories": {
+    "custom": [
+      "aud-asr",
+      "aud-wer",
+      "audio",
+      "curator",
+      "help",
+      "image",
+      "img-aesthetic",
+      "img-embed",
+      "img-nsfw",
+      "project",
+      "schema",
+      "schema-update",
+      "setup",
+      "setup-ray",
+      "stages",
+      "text",
+      "txt-classify",
+      "txt-dedup",
+      "txt-filter",
+      "validate",
+      "vid-caption",
+      "vid-clip",
+      "vid-embed",
+      "video"
+    ]
+  },
+  "shortcuts": {}
+}
