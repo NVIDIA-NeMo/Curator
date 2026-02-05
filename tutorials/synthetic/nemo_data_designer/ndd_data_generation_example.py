@@ -17,11 +17,10 @@ Quick synthetic data generation example for Nemo Data Designer
 """
 
 import argparse
-import os
 import time
 
-import pandas as pd
 import data_designer.config as dd
+import pandas as pd
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.nemo_data_designer.base import BaseDataDesignerStage
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
@@ -59,6 +58,109 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _build_config_manually() -> dd.DataDesignerConfigBuilder:
+    """Build the default Data Designer config with medical notes generation."""
+    model_provider = "nvidia"
+    model_id = "meta/llama-3.3-70b-instruct"
+    model_alias = "llama-3.3-70b"
+    model_configs = [
+        dd.ModelConfig(
+            alias=model_alias,
+            model=model_id,
+            provider=model_provider,
+            inference_parameters=dd.ChatCompletionInferenceParams(
+                temperature=1.0,
+                top_p=1.0,
+                max_tokens=2048,
+            ),
+        )
+    ]
+
+    config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
+
+    config_builder.add_column(
+        name="patient_sampler",
+        column_type="sampler",
+        sampler_type="person_from_faker",
+    )
+
+    config_builder.add_column(
+        name="doctor_sampler",
+        column_type="sampler",
+        sampler_type="person_from_faker",
+    )
+
+    config_builder.add_column(
+        name="patient_id",
+        column_type="sampler",
+        sampler_type="uuid",
+        params={
+            "prefix": "PT-",
+            "short_form": True,
+            "uppercase": True,
+        },
+    )
+
+    config_builder.add_column(
+        name="first_name",
+        column_type="expression",
+        expr="{{ patient_sampler.first_name}}",
+    )
+
+    config_builder.add_column(
+        name="last_name",
+        column_type="expression",
+        expr="{{ patient_sampler.last_name }}",
+    )
+
+    config_builder.add_column(
+        name="dob",
+        column_type="expression",
+        expr="{{ patient_sampler.birth_date }}",
+    )
+
+    config_builder.add_column(
+        name="symptom_onset_date",
+        column_type="sampler",
+        sampler_type="datetime",
+        params={"start": "2024-01-01", "end": "2024-12-31"},
+    )
+
+    config_builder.add_column(
+        name="date_of_visit",
+        column_type="sampler",
+        sampler_type="timedelta",
+        params={"dt_min": 1, "dt_max": 30, "reference_column_name": "symptom_onset_date"},
+    )
+
+    config_builder.add_column(
+        name="physician",
+        column_type="expression",
+        expr="Dr. {{ doctor_sampler.last_name }}",
+    )
+
+    config_builder.add_column(
+        name="physician_notes",
+        column_type="llm-text",
+        prompt="""\
+    You are a primary-care physician who just had an appointment with {{ first_name }} {{ last_name }},
+    who has been struggling with symptoms from {{ diagnosis }} since {{ symptom_onset_date }}.
+    The date of today's visit is {{ date_of_visit }}.
+
+    {{ patient_summary }}
+
+    Write careful notes about your visit with {{ first_name }},
+    as Dr. {{ doctor_sampler.first_name }} {{ doctor_sampler.last_name }}.
+
+    Format the notes as a busy doctor might.
+    Respond with only the notes, no other text.
+    """,
+        model_alias=model_alias,
+    )
+
+    return config_builder
+
+
 def main() -> None:
     """Main function to run the synthetic data generation pipeline."""
     args = parse_args()
@@ -79,103 +181,7 @@ def main() -> None:
         config_builder = dd.DataDesignerConfigBuilder.from_config(args.data_designer_config_file)
     # Manually define the config builder
     else:
-        MODEL_PROVIDER = "nvidia"
-        MODEL_ID = "meta/llama-3.3-70b-instruct"
-        MODEL_ALIAS = "llama-3.3-70b"
-        model_configs = [
-            dd.ModelConfig(
-                alias=MODEL_ALIAS,
-                model=MODEL_ID,
-                provider=MODEL_PROVIDER,
-                inference_parameters=dd.ChatCompletionInferenceParams(
-                    temperature=1.0,
-                    top_p=1.0,
-                    max_tokens=2048,
-                ),
-            )
-        ]
-
-        config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
-
-        config_builder.add_column(
-            name="patient_sampler",
-            column_type="sampler",
-            sampler_type="person_from_faker",
-        )
-
-        config_builder.add_column(
-            name="doctor_sampler",
-            column_type="sampler",
-            sampler_type="person_from_faker",
-        )
-
-        config_builder.add_column(
-            name="patient_id",
-            column_type="sampler",
-            sampler_type="uuid",
-            params={
-                "prefix": "PT-",
-                "short_form": True,
-                "uppercase": True,
-            },
-        )
-
-        config_builder.add_column(
-            name="first_name",
-            column_type="expression",
-            expr="{{ patient_sampler.first_name}}",
-        )
-
-        config_builder.add_column(
-            name="last_name",
-            column_type="expression",
-            expr="{{ patient_sampler.last_name }}",
-        )
-
-        config_builder.add_column(
-            name="dob",
-            column_type="expression",
-            expr="{{ patient_sampler.birth_date }}",
-        )
-
-        config_builder.add_column(
-            name="symptom_onset_date",
-            column_type="sampler",
-            sampler_type="datetime",
-            params={"start": "2024-01-01", "end": "2024-12-31"},
-        )
-
-        config_builder.add_column(
-            name="date_of_visit",
-            column_type="sampler",
-            sampler_type="timedelta",
-            params={"dt_min": 1, "dt_max": 30, "reference_column_name": "symptom_onset_date"},
-        )
-
-        config_builder.add_column(
-            name="physician",
-            column_type="expression",
-            expr="Dr. {{ doctor_sampler.last_name }}",
-        )
-
-        config_builder.add_column(
-            name="physician_notes",
-            column_type="llm-text",
-            prompt="""\
-        You are a primary-care physician who just had an appointment with {{ first_name }} {{ last_name }},
-        who has been struggling with symptoms from {{ diagnosis }} since {{ symptom_onset_date }}.
-        The date of today's visit is {{ date_of_visit }}.
-
-        {{ patient_summary }}
-
-        Write careful notes about your visit with {{ first_name }},
-        as Dr. {{ doctor_sampler.first_name }} {{ doctor_sampler.last_name }}.
-
-        Format the notes as a busy doctor might.
-        Respond with only the notes, no other text.
-        """,
-            model_alias=MODEL_ALIAS,
-        )
+        config_builder = _build_config_manually()
 
 
     # Add the Nemo Data Designer stage

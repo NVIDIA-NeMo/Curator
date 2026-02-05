@@ -12,21 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Generator
-from dataclasses import dataclass
+import logging
 import uuid
+from dataclasses import dataclass
 
 import torch
 
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import ImageBatch, ImageObject
-
-import data_designer.config as dd
-from data_designer.interface import DataDesigner
-
 from nemo_curator.tasks import DocumentBatch
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class BaseDataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -51,9 +50,11 @@ class BaseDataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         # check config_builder and data_designer_config_file
         if self.config_builder is None and self.data_designer_config_file is None:
-            raise ValueError("Either 'config_builder' or 'data_designer_config_file' must be set.")
+            msg = "Either 'config_builder' or 'data_designer_config_file' must be set."
+            raise ValueError(msg)
         if self.config_builder is not None and self.data_designer_config_file is not None:
-            raise ValueError("Only one of 'config_builder' or 'data_designer_config_file' can be set, not both.")
+            msg = "Only one of 'config_builder' or 'data_designer_config_file' can be set, not both."
+            raise ValueError(msg)
 
         # read config from file if config_builder is not set
         if self.config_builder is None:
@@ -81,7 +82,7 @@ class BaseDataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         # set seed dataframe from batch
         self.config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=batch.data))
-        
+
         # Generate a unique dataset_name for this batch to avoid race conditions
         # when multiple workers run in parallel (each writes to its own artifact directory)
         unique_dataset_name = f"dataset_{batch.task_id}_{uuid.uuid4().hex[:8]}"
