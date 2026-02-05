@@ -21,6 +21,7 @@ import time
 
 import data_designer.config as dd
 import pandas as pd
+
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.nemo_data_designer.base import BaseDataDesignerStage
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader

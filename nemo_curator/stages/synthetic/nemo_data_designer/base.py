@@ -16,10 +16,10 @@ import logging
 import uuid
 from dataclasses import dataclass
 
-import torch
-
 import data_designer.config as dd
+import torch
 from data_designer.interface import DataDesigner
+
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
