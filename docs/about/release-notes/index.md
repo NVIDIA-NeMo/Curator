@@ -56,7 +56,7 @@ Learn more in the [Synthetic Data Generation documentation](../../curate-text/sy
 
   All GPU installations require the NVIDIA PyPI index:
   ```bash
-  uv pip install https://pypi.nvidia.com nemo-curator[EXTRA]
+  uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[EXTRA]
   ```
 
 ## New Modalities

@@ -16,6 +16,8 @@ This page lists software component versions bundled with each NeMo Curator relea
 
 ## Core Components
 
+These are the base dependencies installed with every NeMo Curator installation.
+
 ```{list-table}
 :header-rows: 1
 :widths: 40 30
@@ -27,18 +29,25 @@ This page lists software component versions bundled with each NeMo Curator relea
 * - Python
   - 3.10, 3.11, 3.12
 * - PyTorch
-  - ≤2.9.1
+  - (latest)
 * - Transformers
-  - ≥4.55.2
+  - (latest)
 * - Ray
-  - ≥2.52
+  - ≥2.50
 * - Cosmos-Xenna
   - 0.1.2
 * - Pandas
   - ≥2.1.0
 * - PyArrow
-  - 22.0.0
+  - (latest)
 ```
+
+:::{note}
+Some extras impose additional version constraints on core dependencies:
+- **PyTorch**: The `video_cuda12` extra requires `torch<=2.9.1`.
+- **Transformers**: An override dependency pins `transformers>=4.55.2` when NeMo Toolkit is installed (audio extras).
+- **Ray**: A constraint dependency raises the minimum to `>=2.52` for CVE mitigation (GHSA-q279-jhrf-cc6v).
+:::
 
 ## GPU-Accelerated Components (CUDA 12)
 
@@ -59,7 +68,7 @@ These components are included when you install with `[cuda12]` or modality-speci
 * - RAPIDS MPF
   - 25.10.0
 * - vLLM
-  - ≥0.14.0
+  - ≥0.14.1
 * - Flash Attention
   - ≤2.8.3
 ```
@@ -75,9 +84,9 @@ These components are included when you install with `[cuda12]` or modality-speci
 * - NeMo Toolkit (Audio)
   - 2.4.0
 * - TorchVision (Image/Video)
-  - 0.24.0
+  - (latest)
 * - TorchAudio (Audio/Video)
-  - 2.9.0
+  - (latest)
 * - NVIDIA DALI (Image)
   - nvidia-dali-cuda120
 * - PyNvVideoCodec (Video)
@@ -178,8 +187,11 @@ uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[EXTRA]
 * - Linux
   - aarch64
   - CPU support only
+* - macOS
+  - --
+  - Not supported
 * - Windows
-  - x86_64
+  - --
   - Not supported
 ```
 
