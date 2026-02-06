@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,8 +20,10 @@ from unittest import mock
 import pytest
 
 from nemo_curator.stages.resources import Resources
-from nemo_curator.stages.text.download.base.iterator import DocumentIterateStage, DocumentIterator
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage, DocumentIterator
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
+
+from .test_extract import MockDocumentExtractor
 
 
 class MockDocumentIterator(DocumentIterator):
@@ -98,13 +100,13 @@ class TestBaseDocumentIterator:
         assert len(records) == 0
 
 
-class TestDocumentIterateStage:
-    """Test class for DocumentIterateStage functionality."""
+class TestDocumentIterateExtractStage:
+    """Test class for DocumentIterateExtractStage functionality."""
 
-    def test_stage_properties(self) -> None:
+    def test_stage_properties_without_extractor(self) -> None:
         """Test that stage properties are correctly defined."""
         iterator = MockDocumentIterator()
-        stage = DocumentIterateStage(iterator=iterator)
+        stage = DocumentIterateExtractStage(iterator=iterator)
 
         # Test stage name
         assert stage.name == "iterate_mockdocumentiterator"
@@ -116,24 +118,42 @@ class TestDocumentIterateStage:
         # Test resources (should use default)
         assert isinstance(stage.resources, Resources)
 
+    def test_stage_properties_with_extractor(self) -> None:
+        """Test that stage properties are correctly defined."""
+        iterator = MockDocumentIterator()
+        extractor = MockDocumentExtractor()
+        stage = DocumentIterateExtractStage(iterator=iterator, extractor=extractor)
+
+        # Test stage name
+        assert stage.name == "iterate_extract_mockdocumentiterator_mockdocumentextractor"
+
+        # Test inputs and outputs
+        assert stage.inputs() == (["data"], [])
+        assert stage.outputs() == (["data"], ["id", "processed_text", "language", "char_count", "file_name"])
+
+        # Test resources (should use default)
+        assert isinstance(stage.resources, Resources)
+
     def test_stage_properties_without_filename_column(self) -> None:
         """Test stage properties when filename column is disabled."""
         iterator = MockDocumentIterator()
-        stage = DocumentIterateStage(iterator=iterator, add_filename_column=False)
+        extractor = MockDocumentExtractor()
+        stage = DocumentIterateExtractStage(iterator=iterator, extractor=extractor, add_filename_column=False)
 
-        assert stage.outputs() == (["data"], ["id", "content", "metadata"])
+        assert stage.outputs() == (["data"], ["id", "processed_text", "language", "char_count"])
 
     def test_stage_properties_custom_filename_column(self) -> None:
         """Test stage properties with custom filename column name."""
         iterator = MockDocumentIterator()
-        stage = DocumentIterateStage(iterator=iterator, add_filename_column="source_file")
+        extractor = MockDocumentExtractor()
+        stage = DocumentIterateExtractStage(iterator=iterator, extractor=extractor, add_filename_column="source_file")
 
-        assert stage.outputs() == (["data"], ["id", "content", "metadata", "source_file"])
+        assert stage.outputs() == (["data"], ["id", "processed_text", "language", "char_count", "source_file"])
 
     def test_process_successful_iteration(self, tmp_path: Path) -> None:
         """Test successful iteration of multiple files."""
         iterator = MockDocumentIterator(records_per_file=2)
-        stage = DocumentIterateStage(iterator=iterator)
+        stage = DocumentIterateExtractStage(iterator=iterator)
 
         # Create test files
         file1 = tmp_path / "file1.txt"
@@ -173,10 +193,60 @@ class TestDocumentIterateStage:
         assert "file2.txt_record_0" in file2_records["id"].tolist()
         assert "file2.txt_record_1" in file2_records["id"].tolist()
 
+    def test_process_successful_extraction(self, tmp_path: Path) -> None:
+        """Test successful extraction of multiple records."""
+        iterator = MockDocumentIterator(records_per_file=1)
+        extractor = MockDocumentExtractor()
+        stage = DocumentIterateExtractStage(iterator=iterator, extractor=extractor)
+
+        # Create test files
+        file1 = tmp_path / "file1.txt"
+        file2 = tmp_path / "file2.txt"
+        file3 = tmp_path / "file3.txt"
+        file1.write_text("hello world")
+        file2.write_text("foo bar")
+        file3.write_text("test content")
+
+        # Create input task
+        input_task = FileGroupTask(
+            task_id="test_task",
+            dataset_name="test_dataset",
+            data=[str(file1), str(file2), str(file3)],
+            _metadata={"source": "test"},
+        )
+
+        result = stage.process(input_task)
+
+        # Verify result structure
+        assert isinstance(result, DocumentBatch)
+        assert result.task_id == "test_task"
+        assert result.dataset_name == "test_dataset"
+        assert result._metadata == {"source": "test"}
+
+        # Verify DataFrame content
+        df = result.data
+        assert len(df) == 3
+
+        # Check transformation
+        assert df.loc[0, "processed_text"] == "CONTENT FROM FILE1.TXT RECORD 0"
+        assert df.loc[1, "processed_text"] == "CONTENT FROM FILE2.TXT RECORD 0"
+        assert df.loc[2, "processed_text"] == "CONTENT FROM FILE3.TXT RECORD 0"
+
+        # Check other columns
+        assert all(df["language"] == "en")
+        assert df.loc[0, "char_count"] == 31
+        assert df.loc[1, "char_count"] == 31
+        assert df.loc[2, "char_count"] == 31
+
+        # Check filename preservation
+        assert df.loc[0, "file_name"] == "file1.txt"
+        assert df.loc[1, "file_name"] == "file2.txt"
+        assert df.loc[2, "file_name"] == "file3.txt"
+
     def test_process_with_record_limit(self, tmp_path: Path) -> None:
         """Test iteration with record limit."""
         iterator = MockDocumentIterator(records_per_file=5)
-        stage = DocumentIterateStage(iterator=iterator, record_limit=3)
+        stage = DocumentIterateExtractStage(iterator=iterator, record_limit=3)
 
         # Create test file
         test_file = tmp_path / "test.txt"
@@ -196,10 +266,41 @@ class TestDocumentIterateStage:
         assert len(df) == 3
         assert df["id"].tolist() == ["test.txt_record_0", "test.txt_record_1", "test.txt_record_2"]
 
-    def test_process_without_filename_column(self, tmp_path: Path) -> None:
+    def test_process_with_filtered_records(self, tmp_path: Path) -> None:
+        """Test extraction with some records filtered out."""
+        iterator = MockDocumentIterator(records_per_file=1)
+        extractor = MockDocumentExtractor()
+        stage = DocumentIterateExtractStage(iterator=iterator, extractor=extractor)
+
+        # Create test files
+        file1 = tmp_path / "file1.txt"
+        file2 = tmp_path / "file2_skip.txt"
+        file3 = tmp_path / "file3.txt"
+        file1.write_text("hello world")
+        file2.write_text("this will be skipped")
+        file3.write_text("test content")
+
+        # Create input task
+        input_task = FileGroupTask(
+            task_id="test_task",
+            dataset_name="test_dataset",
+            data=[str(file1), str(file2), str(file3)],
+            _metadata={"source": "test"},
+        )
+
+        result = stage.process(input_task)
+        df = result.data
+
+        # Should only have 2 records (filtered out the one with "_skip")
+        assert len(df) == 2
+        assert "file1.txt_record_0" in df["id"].tolist()
+        assert "file3.txt_record_0" in df["id"].tolist()
+        assert "file2_skip.txt_record_0" not in df["id"].tolist()
+
+    def test_process_iterate_without_filename_column(self, tmp_path: Path) -> None:
         """Test processing without adding filename column."""
         iterator = MockDocumentIterator(records_per_file=1)
-        stage = DocumentIterateStage(iterator=iterator, add_filename_column=False)
+        stage = DocumentIterateExtractStage(iterator=iterator, add_filename_column=False)
 
         # Create test file
         test_file = tmp_path / "test.txt"
@@ -219,10 +320,35 @@ class TestDocumentIterateStage:
         assert "file_name" not in df.columns
         assert list(df.columns) == ["id", "content", "metadata"]
 
-    def test_process_with_custom_filename_column(self, tmp_path: Path) -> None:
+    def test_process_extract_without_filename_column(self, tmp_path: Path) -> None:
+        """Test processing without filename column."""
+        iterator = MockDocumentIterator(records_per_file=1)
+        extractor = MockDocumentExtractor()
+        stage = DocumentIterateExtractStage(iterator=iterator, extractor=extractor, add_filename_column=False)
+
+        # Create test file
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("content")
+
+        input_task = FileGroupTask(
+            task_id="test_task",
+            dataset_name="test_dataset",
+            data=[str(test_file)],
+            _metadata={},
+        )
+
+        result = stage.process(input_task)
+        df = result.data
+
+        # Should not have filename column
+        assert "file_name" not in df.columns
+        expected_columns = ["id", "processed_text", "language", "char_count"]
+        assert list(df.columns) == expected_columns
+
+    def test_process_iterate_with_custom_filename_column(self, tmp_path: Path) -> None:
         """Test processing with custom filename column name."""
         iterator = MockDocumentIterator(records_per_file=1)
-        stage = DocumentIterateStage(iterator=iterator, add_filename_column="source_file")
+        stage = DocumentIterateExtractStage(iterator=iterator, add_filename_column="source_file")
 
         # Create test file
         test_file = tmp_path / "test.txt"
@@ -242,12 +368,106 @@ class TestDocumentIterateStage:
         assert "source_file" in df.columns
         assert df["source_file"].iloc[0] == "test.txt"
 
+    def test_process_extract_with_custom_filename_column(self, tmp_path: Path) -> None:
+        """Test processing with custom filename column name."""
+        iterator = MockDocumentIterator(records_per_file=1)
+        extractor = MockDocumentExtractor()
+        stage = DocumentIterateExtractStage(iterator=iterator, extractor=extractor, add_filename_column="source_file")
+
+        # Create test file
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("content")
+
+        input_task = FileGroupTask(
+            task_id="test_task",
+            dataset_name="test_dataset",
+            data=[str(test_file)],
+            _metadata={},
+        )
+
+        result = stage.process(input_task)
+        df = result.data
+
+        # Should preserve custom filename column
+        assert "source_file" in df.columns
+        assert df["source_file"].iloc[0] == "test.txt"
+
+    def test_process_empty_file_group(self) -> None:
+        """Test processing an empty file group task."""
+        iterator = MockDocumentIterator()
+        stage = DocumentIterateExtractStage(iterator=iterator)
+
+        input_task = FileGroupTask(
+            task_id="empty_task",
+            dataset_name="test_dataset",
+            data=[],
+            _metadata={"source": "test"},
+        )
+
+        result = stage.process(input_task)
+
+        assert isinstance(result, DocumentBatch)
+        assert result.task_id == "empty_task"
+        assert result.dataset_name == "test_dataset"
+        assert len(result.data) == 0
+        assert result._metadata == {"source": "test"}
+
+    @mock.patch.object(MockDocumentIterator, "iterate", return_value=None)
+    def test_process_iterator_returns_none(self, mock_iterate: mock.Mock, tmp_path: Path) -> None:
+        """Test handling when iterator returns None."""
+        iterator = MockDocumentIterator()
+        stage = DocumentIterateExtractStage(iterator=iterator)
+
+        # Create test file
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("content")
+
+        input_task = FileGroupTask(
+            task_id="test_task",
+            dataset_name="test_dataset",
+            data=[str(test_file)],
+            _metadata={},
+        )
+
+        result = stage.process(input_task)
+        df = result.data
+
+        # Should return empty DataFrame when iterator returns None
+        assert len(df) == 0
+        mock_iterate.assert_called_once()
+
+    def test_process_all_records_filtered(self, tmp_path: Path) -> None:
+        """Test when all records are filtered out."""
+        iterator = MockDocumentIterator(records_per_file=1)
+        extractor = MockDocumentExtractor()
+        stage = DocumentIterateExtractStage(iterator=iterator, extractor=extractor)
+
+        # Create files
+        file1 = tmp_path / "file1_skip.txt"
+        file2 = tmp_path / "file2_skip.txt"
+        file1.write_text("hello_skip")
+        file2.write_text("world_skip")
+
+        input_task = FileGroupTask(
+            task_id="test_task",
+            dataset_name="test_dataset",
+            data=[str(file1), str(file2)],
+            _metadata={},
+        )
+
+        result = stage.process(input_task)
+
+        # Should return empty DataFrame when all records are filtered
+        assert len(result.data) == 0
+        assert result.task_id == "test_task"
+        assert result.dataset_name == "test_dataset"
+
     def test_process_with_file_errors(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Test handling when some files fail to process."""
         caplog.set_level("ERROR")
 
         iterator = MockDocumentIterator(records_per_file=2, fail_on_file="error_file.txt")
-        stage = DocumentIterateStage(iterator=iterator)
+        stage = DocumentIterateExtractStage(iterator=iterator)
 
         # Create files - one will succeed, one will fail
         good_file = tmp_path / "good_file.txt"
@@ -273,56 +493,12 @@ class TestDocumentIterateStage:
         assert "Error iterating" in caplog.text
         assert "error_file.txt" in caplog.text
 
-    def test_process_empty_file_group(self) -> None:
-        """Test processing an empty file group task."""
-        iterator = MockDocumentIterator()
-        stage = DocumentIterateStage(iterator=iterator)
-
-        input_task = FileGroupTask(
-            task_id="empty_task",
-            dataset_name="test_dataset",
-            data=[],
-            _metadata={"source": "test"},
-        )
-
-        result = stage.process(input_task)
-
-        assert isinstance(result, DocumentBatch)
-        assert result.task_id == "empty_task"
-        assert result.dataset_name == "test_dataset"
-        assert len(result.data) == 0
-        assert result._metadata == {"source": "test"}
-
-    @mock.patch.object(MockDocumentIterator, "iterate", return_value=None)
-    def test_process_iterator_returns_none(self, mock_iterate: mock.Mock, tmp_path: Path) -> None:
-        """Test handling when iterator returns None."""
-        iterator = MockDocumentIterator()
-        stage = DocumentIterateStage(iterator=iterator)
-
-        # Create test file
-        test_file = tmp_path / "test.txt"
-        test_file.write_text("content")
-
-        input_task = FileGroupTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=[str(test_file)],
-            _metadata={},
-        )
-
-        result = stage.process(input_task)
-        df = result.data
-
-        # Should return empty DataFrame when iterator returns None
-        assert len(df) == 0
-        mock_iterate.assert_called_once()
-
     def test_process_all_files_fail(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Test when all files fail to process."""
         caplog.set_level("ERROR")
 
         iterator = MockDocumentIterator(fail_on_file="error_file.txt")
-        stage = DocumentIterateStage(iterator=iterator)
+        stage = DocumentIterateExtractStage(iterator=iterator)
 
         # Create file that will fail
         error_file = tmp_path / "error_file.txt"

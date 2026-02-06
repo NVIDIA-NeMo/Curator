@@ -47,8 +47,7 @@ from nemo_curator.stages.text.download.arxiv import ArxivDownloadExtractStage
 from nemo_curator.stages.text.download.arxiv.extract import ArxivExtractor
 from nemo_curator.stages.text.download.arxiv.iterator import ArxivIterator
 from nemo_curator.stages.text.download.base import URLGenerator
-from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
-from nemo_curator.stages.text.download.base.iterator import DocumentIterateStage
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
 from nemo_curator.stages.text.filters import (
     FastTextLangId,
@@ -119,20 +118,15 @@ class LocalArxivExtractStage(CompositeStage[_EmptyTask, DocumentBatch]):
             limit=self.url_limit,
         )
 
-        # Iterate stage (extracts records from tar files)
-        iterate_stage = DocumentIterateStage(
+        # Iterate-extract stage (extracts records from tar files and cleans LaTeX to text)
+        iterate_extract_stage = DocumentIterateExtractStage(
             iterator=ArxivIterator(log_frequency=self.log_frequency),
+            extractor=ArxivExtractor(),
             record_limit=self.record_limit,
             add_filename_column=self.add_filename_column,
         )
 
-        # Extract stage (cleans LaTeX to text)
-        extract_stage = DocumentExtractStage(
-            extractor=ArxivExtractor(),
-            add_filename_column=self.add_filename_column,
-        )
-
-        self.stages = [url_stage, iterate_stage, extract_stage]
+        self.stages = [url_stage, iterate_extract_stage]
         self.name = "local_arxiv_extract"
         super().__init__()
 
