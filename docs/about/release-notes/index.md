@@ -12,16 +12,20 @@ modality: "universal"
 
 # NeMo Curator Release Notes: {{ current_release }}
 
-This major release represents a fundamental architecture shift from [Dask](https://www.dask.org/) to [Ray](https://www.ray.io/), expanding NeMo Curator to support multimodal data curation with new [video](../../curate-video/index.md) and [audio](../../curate-audio/index.md) capabilities. This refactor enables unified backend processing, better heterogeneous computing support, and enhanced autoscaling for dynamic workloads.
+## Synthetic Data Generation
 
-**Migrating from a previous version of NeMo Curator?** Refer to the {ref}`Migration Guide <migration-guide>` for step-by-step instructions and the {ref}`Migration FAQ <migration-faq>` for common questions.
+New Ray-based synthetic data generation capabilities for creating and augmenting training data using LLMs:
 
-## Installation Updates
+- **LLM Client Infrastructure**: OpenAI-compatible async/sync clients with automatic rate limiting, retry logic, and exponential backoff
+- **Multilingual Q&A Generation**: Generate synthetic Q&A pairs across multiple languages using customizable prompts
+- **Nemotron-CC Pipelines**: Advanced text transformation and knowledge extraction workflows:
+  - **Wikipedia Paraphrasing**: Improve low-quality text by rewriting in Wikipedia-style prose
+  - **Diverse QA**: Generate diverse question-answer pairs for reading comprehension training
+  - **Distill**: Create condensed, information-dense paraphrases preserving key concepts
+  - **Extract Knowledge**: Extract factual content as textbook-style passages
+  - **Knowledge List**: Extract structured fact lists from documents
 
-- **New Docker container**: Updated Docker infrastructure with CUDA 12.8.1 and Ubuntu 24.04 base; obtainable through the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) (`nvcr.io/nvidia/nemo-curator:{{ container_version }}`)
-- **Docker file to build own image**: Simplified [Dockerfile](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/Dockerfile) structure for custom container builds with FFmpeg support
-- **UV source installations**: Integrated UV package manager (v0.8.22) for faster dependency management
-- **PyPI improvements**: Enhanced PyPI installation with modular extras for targeted functionality:
+Learn more in the [Synthetic Data Generation documentation](../../curate-text/synthetic/index.md).
 
   ```{list-table} Available Installation Extras
   :header-rows: 1
@@ -216,7 +220,7 @@ For all tutorial content, refer to the [tutorials directory](https://github.com/
 
 ## What's Next
 
-The next release will focus on completing the refactor of Synthetic Data Generation, PII, and Blending & Shuffling features, along with additional performance optimizations and new modality support.
+The next release will focus on code curation and math curation.
 
 ```{toctree}
 :hidden:
