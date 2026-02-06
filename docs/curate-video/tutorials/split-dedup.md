@@ -31,10 +31,10 @@ Learn how to run the splitting pipeline to generate clips and embeddings, then r
 Run the splitting example. Set `VIDEO_DIR`, `OUT_DIR`, and `MODEL_DIR` first.
 
 ```bash
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   --video-dir "$VIDEO_DIR" \
   --model-dir "$MODEL_DIR" \
-  --output-clip-path "$OUT_DIR" \
+  --output-path "$OUT_DIR" \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
   --embedding-algorithm internvideo2 \

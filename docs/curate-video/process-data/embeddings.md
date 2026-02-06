@@ -65,14 +65,14 @@ pipe.run()
 
 ```bash
 # InternVideo2
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --generate-embeddings \
   --embedding-algorithm internvideo2 \
   --embedding-gpu-memory-gb 20.0
 
 # Cosmos-Embed1 (224p)
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --generate-embeddings \
   --embedding-algorithm cosmos-embed1-224p \
