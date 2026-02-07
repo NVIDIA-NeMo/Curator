@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,9 +37,8 @@ from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.qa_multilingual_synthetic import QAMultilingualSyntheticStage
-from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
+from nemo_curator.stages.text.filters import DocumentFilter, ScoreFilter
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
-from nemo_curator.stages.text.modules.score_filter import ScoreFilter
 
 
 class BeginsWithLanguageFilter(DocumentFilter):

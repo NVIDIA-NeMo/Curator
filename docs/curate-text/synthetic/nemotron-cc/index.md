@@ -33,18 +33,18 @@ flowchart TB
         C --> D[Segment Filter]
         D --> E[Document Joiner]
     end
-    
+
     subgraph "LLM Generation"
         E --> F[Task-Specific Stage<br/>WikiPara/DiverseQA/Distill/etc.]
     end
-    
+
     subgraph "Postprocessing"
         F --> G[Token Count Filter]
         G --> H[Markdown Remover]
         H --> I[Task-Specific Cleanup]
         I --> J[Quality Filter]
     end
-    
+
     J --> K[Output Dataset]
 ```
 
@@ -190,7 +190,7 @@ For documents with high quality scores, use tasks that leverage the existing qua
 - **KnowledgeList**: Extract structured facts
 
 ```python
-from nemo_curator.stages.text.modules.score_filter import Filter
+from nemo_curator.stages.text.filters import Filter
 
 # Filter for high-quality documents (score > 11)
 pipeline.add_stage(

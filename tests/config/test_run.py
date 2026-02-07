@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -147,8 +147,8 @@ def test_pipeline_with_parquet_writer_stage():
 
 
 def test_pipeline_with_hydra_instantiated_stage():
-    from nemo_curator.stages.text.filters.heuristic_filter import NonAlphaNumericFilter
-    from nemo_curator.stages.text.modules.score_filter import ScoreFilter
+    from nemo_curator.stages.text.filters import ScoreFilter
+    from nemo_curator.stages.text.filters.heuristic import NonAlphaNumericFilter
 
     cfg = OmegaConf.create(
         {

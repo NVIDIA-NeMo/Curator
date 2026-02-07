@@ -37,11 +37,11 @@ Audio-text integration in NeMo Curator operates on several levels:
 
 ```{mermaid}
 flowchart LR
-    A[Audio Files] --> B[InferenceAsrNemoStage] 
+    A[Audio Files] --> B[InferenceAsrNemoStage]
     B --> C[AudioToDocumentStage]
     C --> D[ScoreFilter<br/>Text Processing]
     D --> E[Integrated Output]
-    
+
     style A fill:#e1f5fe
     style C fill:#ffcc02
     style E fill:#fff3e0
@@ -58,7 +58,7 @@ flowchart LR
     B --> E[Cross-Modal<br/>Quality Assessment]
     D --> E
     E --> F[Filtered Output]
-    
+
     style A fill:#e1f5fe
     style C fill:#e8f5e8
     style F fill:#fff3e0
@@ -110,15 +110,15 @@ flowchart TD
     F --> G[Filter<br/>Metadata-based Filtering]
     G --> H[Text Enhancement Stages]
     H --> I[Processed Dataset]
-    
+
     style A fill:#e1f5fe
     style E fill:#fff3e0
     style I fill:#e8f5e8
-    
+
     classDef audioStage fill:#bbdefb
     classDef conversionStage fill:#ffcc02
     classDef textStage fill:#c8e6c9
-    
+
     class B,C,D audioStage
     class E conversionStage
     class F,G,H textStage
@@ -143,15 +143,15 @@ flowchart TD
     E --> F[GetPairwiseWerStage<br/>Cross-Modal Metrics]
     F --> G[ScoreFilter<br/>Consistency Filtering]
     G --> H[Validated Dataset]
-    
+
     style A fill:#e8f5e8
     style D fill:#fff3e0
     style H fill:#e1f5fe
-    
+
     classDef textStage fill:#c8e6c9
     classDef matchingStage fill:#ffcc02
     classDef audioStage fill:#bbdefb
-    
+
     class B,C textStage
     class D matchingStage
     class E,F,G audioStage
@@ -180,7 +180,7 @@ converter = AudioToDocumentStage()
 # Example input AudioBatch data
 audio_data = {
     "audio_filepath": "/audio.wav",
-    "text": "ground truth", 
+    "text": "ground truth",
     "pred_text": "asr prediction",
     "wer": 15.2,
     "duration": 3.4
@@ -207,7 +207,7 @@ For practical usage examples and step-by-step implementation, refer to {doc}`/cu
 # Stage 1: Initial loading
 stage1_output = {"audio_filepath": "/audio.wav", "text": "transcription"}
 
-# Stage 2: ASR inference  
+# Stage 2: ASR inference
 stage2_output = {**stage1_output, "pred_text": "asr result"}
 
 # Stage 3: Quality assessment
@@ -231,7 +231,7 @@ NeMo Curator provides these audio quality assessment capabilities:
 
 **Duration and Speech Rate Analysis**:
 
-- Duration validation using `GetAudioDurationStage`  
+- Duration validation using `GetAudioDurationStage`
 - Speech rate calculation using `get_wordrate()` function
 - Character rate calculation using `get_charrate()` function
 
@@ -267,8 +267,8 @@ NeMo Curator provides these audio quality assessment capabilities:
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
-from nemo_curator.stages.text.modules.score_filter import ScoreFilter
-from nemo_curator.filters import WordCountFilter  # Example filter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter  # Example filter
 
 # Define a text quality filter
 text_quality_filter = WordCountFilter(min_words=10)
@@ -285,7 +285,7 @@ audio_results = audio_pipeline.run(executor)
 
 # Then process text
 text_pipeline = Pipeline(
-    name="text_processing", 
+    name="text_processing",
     stages=[
         ScoreFilter(filter_obj=text_quality_filter)
     ]

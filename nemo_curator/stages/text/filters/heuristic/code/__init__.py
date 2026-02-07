@@ -12,12 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .doc_filter import DocumentFilter
-from .score_filter import Filter, Score, ScoreFilter
+from .code import (
+    AlphaFilter,
+    GeneralCommentToCodeFilter,
+    HTMLBoilerplateFilter,
+    NumberOfLinesOfCodeFilter,
+    PerExtensionFilter,
+    PythonCommentToCodeFilter,
+    TokenizerFertilityFilter,
+    XMLHeaderFilter,
+)
 
 __all__ = [
-    "DocumentFilter",
-    "Filter",
-    "Score",
-    "ScoreFilter",
+    "AlphaFilter",
+    "GeneralCommentToCodeFilter",
+    "HTMLBoilerplateFilter",
+    "NumberOfLinesOfCodeFilter",
+    "PerExtensionFilter",
+    "PythonCommentToCodeFilter",
+    "TokenizerFertilityFilter",
+    "XMLHeaderFilter",
 ]

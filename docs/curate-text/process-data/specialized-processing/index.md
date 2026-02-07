@@ -54,8 +54,8 @@ Specialized filters for programming content and source code
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import PythonCommentToCodeFilter, NumberOfLinesOfCodeFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic.code import PythonCommentToCodeFilter, NumberOfLinesOfCodeFilter
 from nemo_curator.stages.text.io.reader import JsonlReader
 
 # Filter Python code based on quality metrics
@@ -76,7 +76,7 @@ code_pipeline = Pipeline(
     ),
     ScoreFilter(
         filter_obj=NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
-        text_field="content", 
+        text_field="content",
         score_field="line_count"
     )
 ])
