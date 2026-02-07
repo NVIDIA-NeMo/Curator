@@ -180,6 +180,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
                 raise ValueError(msg)
 
             result = self.process(task)
+            if result is None:
+                continue
             if isinstance(result, list):
                 for r in result:
                     if r is not task and hasattr(r, "_stage_perf") and not r._stage_perf:
