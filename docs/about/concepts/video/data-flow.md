@@ -29,8 +29,6 @@ Writer stages produce the following directories under the configured output path
 - `filtered_clips/`: MP4 files for filtered clips
 - `previews/`: WebP preview images for windows
 - `metas/v0/`: Per-clip JSON metadata files
-- `iv2_embd/`: Per-clip embeddings (pickle) for InternVideo2
-- `iv2_embd_parquet/`: Aggregated per-video embeddings (parquet) for InternVideo2
 - `ce1_embd/`: Per-clip embeddings (pickle) for Cosmos-Embed1
 - `ce1_embd_parquet/`: Aggregated per-video embeddings (parquet) for Cosmos-Embed1
 - `processed_videos/`: Per-video JSON metadata files

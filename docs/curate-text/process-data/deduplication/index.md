@@ -126,7 +126,7 @@ text_workflow.run()
 - `TextSemanticDeduplicationWorkflow`: For raw text with automatic embedding generation
 - `SemanticDeduplicationWorkflow`: For pre-computed embeddings
 
-See {ref}`Semantic Deduplication <text-process-data-dedup-semdedup>` for details.
+See {ref}`Semantic Deduplication <text-process-data-format-sem-dedup>` for details.
 :::
 
 :::{dropdown} Advanced: Step-by-Step Semantic Deduplication
@@ -378,7 +378,7 @@ For detailed implementation guides, see:
 
 - {ref}`Exact Duplicate Removal <text-process-data-dedup-exact>`
 - {ref}`Fuzzy Duplicate Removal <text-process-data-dedup-fuzzy>`
-- {ref}`Semantic Deduplication <text-process-data-dedup-semdedup>`
+- {ref}`Semantic Deduplication <text-process-data-format-sem-dedup>`
 
 :::{dropdown} Performance Considerations
 :icon: zap
@@ -455,7 +455,7 @@ The ID Generator ensures consistent IDs across workflow stages.
 
 - **New to deduplication**: Start with {ref}`Exact Duplicate Removal <text-process-data-dedup-exact>` for the fastest approach
 - **Need near-duplicate detection**: See {ref}`Fuzzy Duplicate Removal <text-process-data-dedup-fuzzy>` for MinHash-based matching
-- **Require semantic matching**: Explore {ref}`Semantic Deduplication <text-process-data-dedup-semdedup>` for meaning-based deduplication
+- **Require semantic matching**: Explore {ref}`Semantic Deduplication <text-process-data-format-sem-dedup>` for meaning-based deduplication
 
 **For hands-on guidance**: See {ref}`Text Curation Tutorials <text-tutorials>` for step-by-step examples.
 
