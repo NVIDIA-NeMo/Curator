@@ -103,11 +103,11 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import (
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic.repetition RepeatedLinesFilter
+from nemo_curator.stages.text.filters.heuristic import (
     WordCountFilter,
     NonAlphaNumericFilter,
-    RepeatedLinesFilter,
     PunctuationFilter,
     BoilerPlateStringFilter
 )

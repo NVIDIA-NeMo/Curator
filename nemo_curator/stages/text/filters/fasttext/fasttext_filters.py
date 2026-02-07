@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ import os
 import fasttext
 import numpy as np
 
-from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
+from nemo_curator.stages.text.filters import DocumentFilter
 
 
 class FastTextQualityFilter(DocumentFilter):
