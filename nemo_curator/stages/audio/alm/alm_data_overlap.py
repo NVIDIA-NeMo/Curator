@@ -245,18 +245,16 @@ class ALMDataOverlapStage(LegacySpeechStage):
         manifest_filepath = self.get_manifest_filepath(stats)
         swift_filepath = self.get_swift_filepath(stats)
 
-        if filtered_windows:
-            filtered_metadata = actual_data.copy()
-            filtered_metadata["windows"] = filtered_windows
-            filtered_metadata["total_dur_window"] = total_dur_window
-            filtered_metadata["total_dur_list_window"] = total_dur_list_window
-            filtered_metadata["total_dur_list_window_timestamps"] = total_dur_list_window_timestamps
-            filtered_metadata["filtered"] = filtered_timestamps
-            filtered_metadata["filtered_windows"] = filtered_windows
-            filtered_metadata["filtered_dur"] = filtered_dur
-            filtered_metadata["filtered_dur_list"] = filtered_dur_list
-            filtered_metadata["manifest_filepath"] = manifest_filepath
-            filtered_metadata["swift_filepath"] = swift_filepath
-            return filtered_metadata
-        else:
-            return actual_data
+        # Always return consistent schema when input has windows
+        filtered_metadata = actual_data.copy()
+        filtered_metadata["windows"] = filtered_windows
+        filtered_metadata["total_dur_window"] = total_dur_window
+        filtered_metadata["total_dur_list_window"] = total_dur_list_window
+        filtered_metadata["total_dur_list_window_timestamps"] = total_dur_list_window_timestamps
+        filtered_metadata["filtered"] = filtered_timestamps
+        filtered_metadata["filtered_windows"] = filtered_windows
+        filtered_metadata["filtered_dur"] = filtered_dur
+        filtered_metadata["filtered_dur_list"] = filtered_dur_list
+        filtered_metadata["manifest_filepath"] = manifest_filepath
+        filtered_metadata["swift_filepath"] = swift_filepath
+        return filtered_metadata
