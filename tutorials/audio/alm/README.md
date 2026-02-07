@@ -258,7 +258,7 @@ For shorter windows (e.g., 60 seconds):
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  input_manifest=tutorials/audio/alm/sample_data/sample_input.jsonl \
+  input_manifest=tests/fixtures/audio/alm/sample_input.jsonl \
   processors.0.target_window_duration=60 \
   processors.0.tolerance=0.15
 ```
@@ -271,7 +271,7 @@ For exactly 2-3 speakers:
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  input_manifest=tutorials/audio/alm/sample_data/sample_input.jsonl \
+  input_manifest=tests/fixtures/audio/alm/sample_input.jsonl \
   processors.0.min_speakers=2 \
   processors.0.max_speakers=3
 ```
@@ -284,7 +284,7 @@ Remove all overlapping windows:
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  input_manifest=tutorials/audio/alm/sample_data/sample_input.jsonl \
+  input_manifest=tests/fixtures/audio/alm/sample_input.jsonl \
   processors.1.overlap_percentage=0
 ```
 
