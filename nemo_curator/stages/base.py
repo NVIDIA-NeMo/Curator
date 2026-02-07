@@ -181,8 +181,13 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
             result = self.process(task)
             if isinstance(result, list):
+                for r in result:
+                    if r is not task and hasattr(r, "_stage_perf") and not r._stage_perf:
+                        r._stage_perf = list(task._stage_perf)
                 results.extend(result)
             else:
+                if result is not task and hasattr(result, "_stage_perf") and not result._stage_perf:
+                    result._stage_perf = list(task._stage_perf)
                 results.append(result)
         return results
 

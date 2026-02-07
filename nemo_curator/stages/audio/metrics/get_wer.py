@@ -65,6 +65,7 @@ class GetPairwiseWerStage(LegacySpeechStage):
     text_key: str = "text"
     pred_text_key: str = "pred_text"
     wer_key: str = "wer"
+    name: str = "GetPairwiseWerStage"
 
     def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
         wer = get_wer(data_entry[self.text_key], data_entry[self.pred_text_key])
