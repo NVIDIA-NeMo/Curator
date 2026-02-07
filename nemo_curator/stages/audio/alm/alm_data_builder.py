@@ -24,130 +24,15 @@ Produces identical output to SDP implementation.
 
 from __future__ import annotations
 
-import json
-import os
+import time
 from dataclasses import dataclass
 from typing import Any
-
-from loguru import logger
 
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.tasks import AudioBatch
 
 # Constants for validation
 MIN_SEGMENTS_PER_WINDOW = 2
-MAX_OVERLAP_PERCENTAGE = 100
-
-
-def _aggregate_entry_stats(stats: dict[str, Any], entry: dict[str, Any]) -> None:
-    """Aggregate loss statistics from a single entry into cumulative stats."""
-    entry_stats = entry.get("stats", {})
-    stats["total_lost_bw"] += entry_stats.get("lost_bw", 0)
-    stats["total_dur_lost_bw"] += entry_stats.get("dur_lost_bw", 0.0)
-    stats["total_lost_sr"] += entry_stats.get("lost_sr", 0)
-    stats["total_dur_lost_sr"] += entry_stats.get("dur_lost_sr", 0.0)
-    stats["total_lost_spk"] += entry_stats.get("lost_spk", 0)
-    stats["total_dur_lost_spk"] += entry_stats.get("dur_lost_spk", 0.0)
-    stats["total_lost_win"] += entry_stats.get("lost_win", 0)
-    stats["total_dur_lost_win"] += entry_stats.get("dur_lost_win", 0.0)
-    stats["total_lost_no_spkr"] += entry_stats.get("lost_no_spkr", 0)
-    stats["total_dur_lost_no_spkr"] += entry_stats.get("dur_lost_no_spkr", 0.0)
-    stats["total_lost_next_seg_bm"] += entry_stats.get("lost_next_seg_bm", 0)
-    stats["total_dur_lost_next_seg_bm"] += entry_stats.get("dur_lost_next_seg_bm", 0.0)
-    stats["total_truncation_events"] += entry.get("truncation_events", 0)
-
-
-def _log_statistics(stats: dict[str, Any]) -> None:
-    """Log comprehensive statistics to the module logger."""
-    logger.info("=" * 80)
-    logger.info("ALM DATA BUILDER - PROCESSING STATISTICS")
-    logger.info("=" * 80)
-    logger.info(f"  Total entries processed: {stats['total_entries']:,}")
-    logger.info(f"  Entries with windows: {stats['entries_with_windows']:,}")
-    logger.info(f"  Total windows generated: {stats['total_windows_output']:,}")
-    logger.info(f"  Total duration: {stats['total_duration_seconds']:.2f} seconds")
-    if stats["total_entries"] > 0:
-        avg_windows = stats["total_windows_output"] / stats["total_entries"]
-        logger.info(f"  Average windows per entry: {avg_windows:.2f}")
-    logger.info(f"  Min/Max windows: {stats['min_windows_per_entry']}/{stats['max_windows_per_entry']}")
-    logger.info("  LOSS STATISTICS:")
-    logger.info(f"    - Lost to bandwidth: {stats['total_lost_bw']:,} segs")
-    logger.info(f"    - Lost to sample rate: {stats['total_lost_sr']:,} segs")
-    logger.info(f"    - Lost to speaker count: {stats['total_lost_spk']:,} segs")
-    logger.info(f"    - Truncation events: {stats['total_truncation_events']:,}")
-    logger.info("=" * 80)
-
-
-def log_output_statistics(output_file: str) -> dict[str, Any]:
-    """
-    Log cumulative statistics by reading the output file.
-
-    This follows the SDP pattern where finalize() reads
-    the output manifest to calculate and log comprehensive statistics.
-
-    Args:
-        output_file: Path to the output JSONL file
-
-    Returns:
-        dict with statistics
-    """
-    stats: dict[str, Any] = {
-        "total_entries": 0,
-        "entries_with_windows": 0,
-        "total_windows_output": 0,
-        "total_duration_seconds": 0.0,
-        "min_windows_per_entry": 0,
-        "max_windows_per_entry": 0,
-        "total_lost_bw": 0,
-        "total_dur_lost_bw": 0.0,
-        "total_lost_sr": 0,
-        "total_dur_lost_sr": 0.0,
-        "total_lost_spk": 0,
-        "total_dur_lost_spk": 0.0,
-        "total_lost_win": 0,
-        "total_dur_lost_win": 0.0,
-        "total_lost_no_spkr": 0,
-        "total_dur_lost_no_spkr": 0.0,
-        "total_lost_next_seg_bm": 0,
-        "total_dur_lost_next_seg_bm": 0.0,
-        "total_truncation_events": 0,
-    }
-
-    if not os.path.exists(output_file):
-        logger.error(f"Output file not found: {output_file}")
-        return stats
-
-    windows_per_entry: list[int] = []
-    total_duration = 0.0
-
-    with open(output_file, encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line.strip())
-                stats["total_entries"] += 1
-                windows = entry.get("windows", [])
-                stats["entries_with_windows"] += 1 if windows else 0
-                stats["total_windows_output"] += len(windows)
-                windows_per_entry.append(len(windows))
-                for w in windows:
-                    segs = w.get("segments", [])
-                    if segs:
-                        total_duration += segs[-1]["end"] - segs[0]["start"]
-                _aggregate_entry_stats(stats, entry)
-            except json.JSONDecodeError as e:
-                logger.warning(f"Skipping malformed JSON line in {output_file}: {e}")
-            except (KeyError, TypeError) as e:
-                logger.warning(f"Skipping entry with missing/invalid fields: {e}")
-
-    stats["total_duration_seconds"] = total_duration
-    if windows_per_entry:
-        stats["min_windows_per_entry"] = min(windows_per_entry)
-        stats["max_windows_per_entry"] = max(windows_per_entry)
-
-    _log_statistics(stats)
-    return stats
 
 
 @dataclass
@@ -185,16 +70,11 @@ class ALMDataBuilderStage(LegacySpeechStage):
     # Parallelism (used by runner, passed via config)
     max_workers: int = -1
 
-    # Stage metadata (derived from class name if not set)
-    name: str | None = None
-
-    # Output directory for intermediate results (optional)
-    output_dir: str | None = None
+    # Stage metadata
+    name: str = "alm_data_builder"
 
     def __post_init__(self) -> None:
         """Compute derived parameters - EXACT match to SDP."""
-        if self.name is None:
-            self.name = self.__class__.__name__.replace("Stage", "")
 
         tol = self.target_window_duration * self.tolerance
         self.min_duration = self.target_window_duration - tol
@@ -212,19 +92,20 @@ class ALMDataBuilderStage(LegacySpeechStage):
         Returns:
             list[AudioBatch] - Always returns entry (even with empty windows, matching SDP)
         """
+        t0 = time.perf_counter()
         result = self._process_single_entry(data_entry)
+        process_time = time.perf_counter() - t0
 
-        if self.output_dir:
-            import fcntl
-
-            os.makedirs(self.output_dir, exist_ok=True)
-            output_file = os.path.join(self.output_dir, f"{self.name}_output.jsonl")
-            with open(output_file, "a") as f:
-                fcntl.flock(f, fcntl.LOCK_EX)
-                try:
-                    f.write(json.dumps(result, ensure_ascii=False) + "\n")
-                finally:
-                    fcntl.flock(f, fcntl.LOCK_UN)
+        # Log timing metrics for regression tracking
+        num_segments = len(data_entry.get("segments", []))
+        num_windows = len(result.get("windows", []))
+        self._log_metrics(
+            {
+                "process_entry_time": process_time,
+                "segments_processed": num_segments,
+                "windows_created": num_windows,
+            }
+        )
 
         return [AudioBatch(data=[result])]
 

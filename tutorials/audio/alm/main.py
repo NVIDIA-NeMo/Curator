@@ -41,9 +41,9 @@ Usage:
 """
 
 import json
-import os
 
 import hydra
+from fsspec.core import url_to_fs
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
@@ -62,9 +62,10 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
 
 
 def load_manifest(manifest_path: str) -> list[dict]:
-    """Load entries from a JSONL manifest file."""
+    """Load entries from a JSONL manifest file. Supports local and cloud paths."""
+    fs, path = url_to_fs(manifest_path)
     entries = []
-    with open(manifest_path, encoding="utf-8") as f:
+    with fs.open(path, "r", encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 entries.append(json.loads(line.strip()))
@@ -72,9 +73,13 @@ def load_manifest(manifest_path: str) -> list[dict]:
 
 
 def save_manifest(entries: list[dict], output_path: str) -> None:
-    """Save entries to a JSONL manifest file."""
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
+    """Save entries to a JSONL manifest file. Supports local and cloud paths."""
+    fs, path = url_to_fs(output_path)
+    # Create parent directory if it doesn't exist
+    parent_dir = "/".join(path.split("/")[:-1])
+    if parent_dir:
+        fs.makedirs(parent_dir, exist_ok=True)
+    with fs.open(path, "w", encoding="utf-8") as f:
         for entry in entries:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
@@ -93,7 +98,8 @@ def main(cfg: DictConfig) -> None:
         raise ValueError(msg)
 
     output_dir = cfg.get("output_dir", "./alm_output")
-    os.makedirs(output_dir, exist_ok=True)
+    fs, output_dir_path = url_to_fs(output_dir)
+    fs.makedirs(output_dir_path, exist_ok=True)
 
     # Load input manifest
     logger.info(f"Loading input manifest: {input_manifest}")
@@ -142,7 +148,7 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"  Total filtered duration: {total_filtered_dur:.2f}s ({total_filtered_dur / 60:.2f} min)")
 
     # Save results
-    output_path = os.path.join(output_dir, "alm_output.jsonl")
+    output_path = f"{output_dir.rstrip('/')}/alm_output.jsonl"
     save_manifest(output_entries, output_path)
     logger.info(f"Results saved to: {output_path}")
 

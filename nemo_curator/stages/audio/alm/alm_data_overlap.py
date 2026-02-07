@@ -13,85 +13,15 @@ Produces identical output to SDP implementation.
 
 from __future__ import annotations
 
-import json
-import os
+import time
 from dataclasses import dataclass
 from typing import Any
-
-from loguru import logger
 
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.tasks import AudioBatch
 
 # Constants for validation
 MAX_OVERLAP_PERCENTAGE = 100
-
-
-def log_output_statistics(output_file: str) -> dict[str, Any]:
-    """
-    Log cumulative statistics by reading the output file.
-
-    Args:
-        output_file: Path to the output JSONL file
-
-    Returns:
-        dict with statistics
-    """
-    stats: dict[str, Any] = {
-        "total_entries": 0,
-        "entries_with_windows": 0,
-        "entries_filtered": 0,
-        "total_windows_input": 0,
-        "total_windows_output": 0,
-        "total_duration_seconds": 0.0,
-        "processing_errors": 0,
-    }
-
-    if not os.path.exists(output_file):
-        logger.error(f"Output file not found: {output_file}")
-        return stats
-
-    total_duration = 0.0
-
-    with open(output_file, encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line.strip())
-                stats["total_entries"] += 1
-                windows = entry.get("windows", [])
-                filtered_windows = entry.get("filtered_windows", [])
-                filtered_dur = entry.get("filtered_dur", 0)
-                if windows:
-                    stats["entries_with_windows"] += 1
-                    total_dur_list = entry.get("total_dur_list_window", [])
-                    stats["total_windows_input"] += len(total_dur_list) if total_dur_list else len(windows)
-                if filtered_windows:
-                    stats["entries_filtered"] += 1
-                    stats["total_windows_output"] += len(filtered_windows)
-                    total_duration += filtered_dur
-            except json.JSONDecodeError:
-                stats["processing_errors"] += 1
-
-    stats["total_duration_seconds"] = total_duration
-    filter_rate = (stats["entries_filtered"] / max(stats["entries_with_windows"], 1)) * 100
-    window_reduction = stats["total_windows_input"] - stats["total_windows_output"]
-
-    logger.info("=" * 80)
-    logger.info("ALM DATA OVERLAP - PROCESSING STATISTICS")
-    logger.info("=" * 80)
-    logger.info(f"  Total entries processed: {stats['total_entries']}")
-    logger.info(f"  Entries with windows: {stats['entries_with_windows']}")
-    logger.info(f"  Entries filtered: {stats['entries_filtered']} ({filter_rate:.1f}%)")
-    logger.info(f"  Input windows: {stats['total_windows_input']}")
-    logger.info(f"  Output windows: {stats['total_windows_output']}")
-    logger.info(f"  Windows removed: {window_reduction}")
-    logger.info(f"  Total duration: {stats['total_duration_seconds']:.2f} seconds")
-    logger.info(f"  Processing errors: {stats['processing_errors']}")
-    logger.info("=" * 80)
-
-    return stats
 
 
 @dataclass
@@ -118,16 +48,11 @@ class ALMDataOverlapStage(LegacySpeechStage):
     # Parallelism (used by runner, passed via config)
     max_workers: int = -1
 
-    # Stage metadata (derived from class name if not set)
-    name: str | None = None
-
-    # Output directory for intermediate results (optional)
-    output_dir: str | None = None
+    # Stage metadata
+    name: str = "alm_data_overlap"
 
     def __post_init__(self) -> None:
-        """Validate parameters and derive name."""
-        if self.name is None:
-            self.name = self.__class__.__name__.replace("Stage", "")
+        """Validate parameters."""
 
         if not (0 <= self.overlap_percentage <= MAX_OVERLAP_PERCENTAGE):
             msg = f"overlap_percentage must be 0-100, got {self.overlap_percentage}"
@@ -279,19 +204,20 @@ class ALMDataOverlapStage(LegacySpeechStage):
         Returns:
             list[AudioBatch] - Always returns entry (matching SDP behavior)
         """
+        t0 = time.perf_counter()
+        input_windows = len(data_entry.get("windows", []))
         result = self._filter_overlaps(data_entry)
+        filter_time = time.perf_counter() - t0
 
-        if self.output_dir:
-            import fcntl
-
-            os.makedirs(self.output_dir, exist_ok=True)
-            output_file = os.path.join(self.output_dir, f"{self.name}_output.jsonl")
-            with open(output_file, "a") as f:
-                fcntl.flock(f, fcntl.LOCK_EX)
-                try:
-                    f.write(json.dumps(result, ensure_ascii=False) + "\n")
-                finally:
-                    fcntl.flock(f, fcntl.LOCK_UN)
+        # Log timing metrics for regression tracking
+        output_windows = len(result.get("filtered_windows", []))
+        self._log_metrics(
+            {
+                "filter_time": filter_time,
+                "input_windows": input_windows,
+                "output_windows": output_windows,
+            }
+        )
 
         return [AudioBatch(data=[result])]
 
