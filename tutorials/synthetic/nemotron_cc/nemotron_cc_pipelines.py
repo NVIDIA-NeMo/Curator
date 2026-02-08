@@ -24,10 +24,12 @@ from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import (
 from nemo_curator.stages.text.filters import Filter, ScoreFilter
 from nemo_curator.stages.text.filters.heuristic import SubstringFilter
 from nemo_curator.stages.text.filters.token import TokenCountFilter
-from nemo_curator.stages.text.modifiers.line_remover import LineRemover
-from nemo_curator.stages.text.modifiers.markdown_remover import MarkdownRemover
-from nemo_curator.stages.text.modifiers.quotation_remover import QuotationRemover
-from nemo_curator.stages.text.modifiers.slicer import Slicer
+from nemo_curator.stages.text.modifiers.heuristic import (
+    LineRemover,
+    MarkdownRemover,
+    QuotationRemover,
+    Slicer,
+)
 from nemo_curator.stages.text.modules.joiner import DocumentJoiner
 from nemo_curator.stages.text.modules.modifier import Modify
 from nemo_curator.stages.text.modules.splitter import DocumentSplitter

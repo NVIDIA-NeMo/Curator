@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
+from nemo_curator.stages.text.modifiers import DocumentModifier
 from nemo_curator.tasks import DocumentBatch
 
 

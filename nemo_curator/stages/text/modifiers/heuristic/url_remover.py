@@ -12,24 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .doc_modifier import DocumentModifier
-from .heuristic import (
-    BoilerPlateStringModifier,
-    LineRemover,
-    MarkdownRemover,
-    NewlineNormalizer,
-    QuotationRemover,
-    Slicer,
-    UrlRemover,
-)
+import re
 
-__all__ = [
-    "BoilerPlateStringModifier",
-    "DocumentModifier",
-    "LineRemover",
-    "MarkdownRemover",
-    "NewlineNormalizer",
-    "QuotationRemover",
-    "Slicer",
-    "UrlRemover",
-]
+from nemo_curator.stages.text.modifiers import DocumentModifier
+
+URL_REGEX = re.compile(r"https?://\S+|www\.\S+", flags=re.IGNORECASE)
+
+
+class UrlRemover(DocumentModifier):
+    """
+    Removes all URLs in a document.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def modify_document(self, text: str) -> str:
+        return URL_REGEX.sub("", text)

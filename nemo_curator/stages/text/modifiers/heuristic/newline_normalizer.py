@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 import re
 
-from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
+from nemo_curator.stages.text.modifiers import DocumentModifier
 
 THREE_OR_MORE_NEWLINES_REGEX = re.compile(r"(\n){3,}")
 THREE_OR_MORE_WINDOWS_NEWLINES_REGEX = re.compile(r"(\r\n){3,}")
