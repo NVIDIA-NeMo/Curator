@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,20 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
+from .reformatter import UnicodeReformatter
 
-from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
-
-URL_REGEX = re.compile(r"https?://\S+|www\.\S+", flags=re.IGNORECASE)
-
-
-class UrlRemover(DocumentModifier):
-    """
-    Removes all URLs in a document.
-    """
-
-    def __init__(self):
-        super().__init__()
-
-    def modify_document(self, text: str) -> str:
-        return URL_REGEX.sub("", text)
+__all__ = [
+    "UnicodeReformatter",
+]

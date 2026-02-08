@@ -12,24 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .doc_modifier import DocumentModifier
-from .heuristic import (
-    BoilerPlateStringModifier,
-    LineRemover,
-    MarkdownRemover,
-    NewlineNormalizer,
-    QuotationRemover,
-    Slicer,
-    UrlRemover,
-)
+from nemo_curator.stages.text.modifiers import DocumentModifier
 
-__all__ = [
-    "BoilerPlateStringModifier",
-    "DocumentModifier",
-    "LineRemover",
-    "MarkdownRemover",
-    "NewlineNormalizer",
-    "QuotationRemover",
-    "Slicer",
-    "UrlRemover",
-]
+
+class FastTextLabelModifier(DocumentModifier):
+    def __init__(self, label: str):
+        super().__init__()
+        self.label = label
+
+    def modify_document(self, text: str) -> str:
+        text = text.replace("\n", " ").replace("__label__", " ")
+        return f"{self.label} {text}"

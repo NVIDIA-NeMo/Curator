@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,14 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
+from .c4 import BoilerPlateStringModifier
+from .line_remover import LineRemover
+from .markdown_remover import MarkdownRemover
+from .newline_normalizer import NewlineNormalizer
+from .quotation_remover import QuotationRemover
+from .slicer import Slicer
+from .url_remover import UrlRemover
 
-
-class FastTextLabelModifier(DocumentModifier):
-    def __init__(self, label: str):
-        super().__init__()
-        self.label = label
-
-    def modify_document(self, text: str) -> str:
-        text = text.replace("\n", " ").replace("__label__", " ")
-        return f"{self.label} {text}"
+__all__ = [
+    "BoilerPlateStringModifier",
+    "LineRemover",
+    "MarkdownRemover",
+    "NewlineNormalizer",
+    "QuotationRemover",
+    "Slicer",
+    "UrlRemover",
+]

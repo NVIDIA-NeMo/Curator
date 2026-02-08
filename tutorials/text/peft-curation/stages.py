@@ -29,7 +29,7 @@ from nemo_curator.stages.text.download.base import (
     URLGenerator,
 )
 from nemo_curator.stages.text.filters import DocumentFilter
-from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
+from nemo_curator.stages.text.modifiers import DocumentModifier
 
 
 class EnronEmailsURLGenerator(URLGenerator):

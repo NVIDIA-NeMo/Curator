@@ -12,24 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .doc_modifier import DocumentModifier
-from .heuristic import (
-    BoilerPlateStringModifier,
-    LineRemover,
-    MarkdownRemover,
-    NewlineNormalizer,
-    QuotationRemover,
-    Slicer,
-    UrlRemover,
-)
+from .label import FastTextLabelModifier
 
 __all__ = [
-    "BoilerPlateStringModifier",
-    "DocumentModifier",
-    "LineRemover",
-    "MarkdownRemover",
-    "NewlineNormalizer",
-    "QuotationRemover",
-    "Slicer",
-    "UrlRemover",
+    "FastTextLabelModifier",
 ]
