@@ -22,12 +22,14 @@ from .heuristic import (
     Slicer,
     UrlRemover,
 )
+from .modifier import Modify
 
 __all__ = [
     "BoilerPlateStringModifier",
     "DocumentModifier",
     "LineRemover",
     "MarkdownRemover",
+    "Modify",
     "NewlineNormalizer",
     "QuotationRemover",
     "Slicer",
