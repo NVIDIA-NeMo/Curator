@@ -15,7 +15,7 @@
 import pandas as pd
 import pytest
 
-from nemo_curator.stages.text.modifiers import DocumentModifier
+from nemo_curator.stages.text.modifiers import DocumentModifier, Modify
 from nemo_curator.stages.text.modifiers.heuristic import (
     LineRemover,
     MarkdownRemover,
@@ -24,9 +24,8 @@ from nemo_curator.stages.text.modifiers.heuristic import (
     Slicer,
     UrlRemover,
 )
+from nemo_curator.stages.text.modifiers.modifier import _normalize_input_fields, _normalize_output_fields
 from nemo_curator.stages.text.modifiers.unicode import UnicodeReformatter
-from nemo_curator.stages.text.modules import Modify
-from nemo_curator.stages.text.modules.modifier import _normalize_input_fields, _normalize_output_fields
 from nemo_curator.tasks import DocumentBatch
 
 

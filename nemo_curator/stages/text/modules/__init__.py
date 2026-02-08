@@ -14,12 +14,10 @@
 
 from .add_id import AddId
 from .joiner import DocumentJoiner
-from .modifier import Modify
 from .splitter import DocumentSplitter
 
 __all__ = [
     "AddId",
     "DocumentJoiner",
     "DocumentSplitter",
-    "Modify",
 ]

@@ -179,8 +179,8 @@ def test_pipeline_with_hydra_instantiated_stage():
 
 
 def test_pipeline_with_multiple_stages():
+    from nemo_curator.stages.text.modifiers import Modify
     from nemo_curator.stages.text.modifiers.heuristic import UrlRemover
-    from nemo_curator.stages.text.modules import Modify
 
     cfg = OmegaConf.create(
         {
@@ -193,8 +193,8 @@ def test_pipeline_with_multiple_stages():
                     "fields": None,
                 },
                 {
-                    "_target_": "nemo_curator.stages.text.modules.modifier.Modify",
-                    "modifier_fn": {"_target_": "nemo_curator.stages.text.modifiers.url_remover.UrlRemover"},
+                    "_target_": "nemo_curator.stages.text.modifiers.modifier.Modify",
+                    "modifier_fn": {"_target_": "nemo_curator.stages.text.modifiers.heuristic.url_remover.UrlRemover"},
                     "input_fields": "text",
                 },
                 {
