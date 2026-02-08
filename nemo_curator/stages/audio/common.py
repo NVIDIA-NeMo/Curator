@@ -29,6 +29,10 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
 
     """
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.name = self.__class__.__name__
+
     def process(self, task: AudioBatch) -> list[Task]:
         result = []
         for entry in task.data:
@@ -56,7 +60,6 @@ class GetAudioDurationStage(LegacySpeechStage):
 
     audio_filepath_key: str
     duration_key: str
-    name: str = "GetAudioDurationStage"
 
     def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
         audio_filepath = data_entry[self.audio_filepath_key]
@@ -80,8 +83,6 @@ class PreserveByValueStage(LegacySpeechStage):
         **kwargs: Additional keyword arguments to be passed to the base class `BaseParallelProcessor`.
 
     """
-
-    name: str = "PreserveByValueStage"
 
     def __init__(
         self,
