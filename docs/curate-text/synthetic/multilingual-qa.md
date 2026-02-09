@@ -147,8 +147,7 @@ pipeline.add_stage(
 If your prompt includes language prefixes, you can filter to keep only specific languages:
 
 ```python
-from nemo_curator.stages.text.filters import DocumentFilter
-from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters import DocumentFilter, ScoreFilter
 
 
 class BeginsWithLanguageFilter(DocumentFilter):

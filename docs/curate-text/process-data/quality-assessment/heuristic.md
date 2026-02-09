@@ -197,17 +197,17 @@ stages:
     file_paths: ${input_path}
     fields: null
 
-  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+  - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic_filter.WordCountFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.WordCountFilter
       min_words: 50
       max_words: 100000
     text_field: ${text_field}
     score_field: word_count
 
-  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+  - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic_filter.PunctuationFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.PunctuationFilter
       max_num_sentences_without_endmark_ratio: 0.85
     text_field: ${text_field}
     score_field: null
