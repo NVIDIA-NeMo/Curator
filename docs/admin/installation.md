@@ -128,7 +128,7 @@ docker run --gpus all -it --rm nemo-curator:latest
 
 **Benefits:**
 
-- Pre-configured environment with all dependencies (FFmpeg, InternVideo2, CUDA libraries)
+- Pre-configured environment with all dependencies (FFmpeg, CUDA libraries)
 - Consistent runtime across different systems
 - Ideal for production deployments
 
