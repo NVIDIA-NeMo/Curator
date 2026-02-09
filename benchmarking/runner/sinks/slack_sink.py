@@ -14,9 +14,8 @@
 import json
 import os
 import random
-import traceback
 from collections.abc import Generator
-from typing import Any
+from typing import Any, ClassVar
 
 from loguru import logger
 from runner.entry import Entry
@@ -26,73 +25,21 @@ from runner.utils import find_result, human_readable_bytes_repr
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-_blank_row = [
-    {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}]},
-    {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}]},
-]
-
-
-def _two_column_row(left_text: str, right_text: str) -> list[dict[str, Any]]:
-    return [
-        {
-            "type": "rich_text",
-            "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": left_text}]}],
-        },
-        {
-            "type": "rich_text",
-            "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": right_text}]}],
-        },
-    ]
-
-
-def _two_column_row_bold(left_text: str, right_text: str) -> list[dict[str, Any]]:
-    return [
-        {
-            "type": "rich_text",
-            "elements": [
-                {
-                    "type": "rich_text_section",
-                    "elements": [{"type": "text", "text": left_text, "style": {"bold": True}}],
-                }
-            ],
-        },
-        {
-            "type": "rich_text",
-            "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": right_text}]}],
-        },
-    ]
-
-
-def _get_formatted_metric_value_tuple(metric: str, result: Any) -> tuple[str, str]:  # noqa: ANN401
-    # time metrics
-    if metric.endswith("_s"):
-        try:
-            hours = int(result // 3600)
-            minutes = int((result % 3600) // 60)
-            seconds = result % 60
-        except (ValueError, TypeError):
-            return (metric, str(result))
-        else:
-            formatted_str = f"{result:.2f}s"
-            if hours > 0 or minutes > 0:
-                formatted_str += " ("
-                if hours > 0:
-                    formatted_str += f"{hours:02}h : "
-                formatted_str += f"{minutes:02}m : {seconds:05.2f}s)"
-            return (metric, formatted_str)
-    # memory metrics
-    elif metric.endswith("_bytes"):
-        try:
-            return (metric, f"{human_readable_bytes_repr(int(result))}  ({result} bytes)")
-        except (ValueError, TypeError):
-            return (metric, str(result))
-    # all other metrics
-    else:
-        return (metric, str(result))
-
 
 class SlackMessageBase:
-    """Base class for Slack messages with common response management functionality."""
+    """Base class for Slack messages."""
+
+    # Constant for creating blank rows in Slack rich text tables
+    _BLANK_ROW: ClassVar[list[dict[str, Any]]] = [
+        {
+            "type": "rich_text",
+            "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}],
+        },
+        {
+            "type": "rich_text",
+            "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}],
+        },
+    ]
 
     def __init__(self):
         """Initialize the base message."""
@@ -105,6 +52,15 @@ class SlackMessageBase:
             List of Slack block dictionaries for use with chat_postMessage API.
         """
         msg = "SlackMessageBase: Subclasses must implement to_slack_blocks()"
+        raise NotImplementedError(msg)
+
+    def to_fallback_text(self) -> str:
+        """Convert the message data to a fallback text string.
+
+        Returns:
+            Fallback text string for use with chat_postMessage API.
+        """
+        msg = "SlackMessageBase: Subclasses must implement to_fallback_text()"
         raise NotImplementedError(msg)
 
     def set_response(self, response: dict[str, Any]) -> None:
@@ -124,7 +80,7 @@ class SlackMessageBase:
         return self.response is not None
 
     def get_timestamp(self) -> str | None:
-        """Get the message timestamp from the response.
+        """Get the message timestamp from the response, which is needed for threaded replies and message updates.
 
         Returns:
             Message timestamp string or None if not available.
@@ -132,6 +88,94 @@ class SlackMessageBase:
         if self.response:
             return self.response.get("ts")
         return None
+
+    ####################################################################################################################
+    # Helper methods for creating Slack rich text tables
+    @staticmethod
+    def _get_two_column_row(left_text: str, right_text: str) -> list[dict[str, Any]]:
+        """Create a two-column row for Slack rich text tables.
+
+        Args:
+            left_text: Text for the left column.
+            right_text: Text for the right column.
+
+        Returns:
+            List of Slack block dictionaries representing a two-column row.
+        """
+        return [
+            {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": left_text}]}],
+            },
+            {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": right_text}]}],
+            },
+        ]
+
+    @staticmethod
+    def _get_two_column_row_bold(left_text: str, right_text: str) -> list[dict[str, Any]]:
+        """Create a two-column row with bold left column for Slack rich text tables.
+
+        Args:
+            left_text: Text for the left column (will be bold).
+            right_text: Text for the right column.
+
+        Returns:
+            List of Slack block dictionaries representing a two-column row with bold left text.
+        """
+        return [
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "text", "text": left_text, "style": {"bold": True}}],
+                    }
+                ],
+            },
+            {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": right_text}]}],
+            },
+        ]
+
+    @staticmethod
+    def _get_formatted_metric_value_tuple(metric: str, result: Any) -> tuple[str, str]:  # noqa: ANN401
+        """Format a metric value for display in Slack.
+
+        Args:
+            metric: The metric name.
+            result: The metric value.
+
+        Returns:
+            Tuple of (metric_name, formatted_value).
+        """
+        # time metrics
+        if metric.endswith("_s"):
+            try:
+                hours = int(result // 3600)
+                minutes = int((result % 3600) // 60)
+                seconds = result % 60
+            except (ValueError, TypeError):
+                return (metric, str(result))
+            else:
+                formatted_str = f"{result:.2f}s"
+                if hours > 0 or minutes > 0:
+                    formatted_str += " ("
+                    if hours > 0:
+                        formatted_str += f"{hours:02}h : "
+                    formatted_str += f"{minutes:02}m : {seconds:05.2f}s)"
+                return (metric, formatted_str)
+        # memory metrics
+        elif metric.endswith("_bytes"):
+            try:
+                return (metric, f"{human_readable_bytes_repr(int(result))}  ({result} bytes)")
+            except (ValueError, TypeError):
+                return (metric, str(result))
+        # all other metrics
+        else:
+            return (metric, str(result))
 
 
 class SlackParentMessage(SlackMessageBase):
@@ -159,7 +203,7 @@ class SlackParentMessage(SlackMessageBase):
 
         Args:
             entry_name: Name of the benchmark entry.
-            status: Status string (e.g., "✅ success", "❌ FAILED", "⏳ running").
+            status: Status string (e.g., "✅ success", "❌ FAILED", "▶️ running", "⏳ waiting to start").
         """
         # Check if this is actually a change
         if entry_name not in self.entries or self.entries[entry_name] != status:
@@ -185,7 +229,7 @@ class SlackParentMessage(SlackMessageBase):
 
         # Overall status
         all_statuses = self.entries.values()
-        if any("⏳" in status for status in all_statuses):
+        if any("⏳" in status or "▶️" in status for status in all_statuses):
             overall_status = "⏳ In progress"
         elif any("❌" in status for status in all_statuses):
             overall_status = "❌ one or more FAILED"
@@ -206,15 +250,15 @@ class SlackParentMessage(SlackMessageBase):
         rows = []
         indent = "-    "  # start with a dash since leading whitespace is stripped
         for entry_name, status in self.entries.items():
-            rows.append(_two_column_row_bold(entry_name, status))
-        rows.append(_blank_row)
-        rows.append(_two_column_row_bold("ENVIRONMENT", " "))
+            rows.append(self._get_two_column_row_bold(entry_name, status))
+        rows.append(self._BLANK_ROW)
+        rows.append(self._get_two_column_row_bold("ENVIRONMENT", " "))
         for var, val in self.env_dict.items():
             if var in {"pip_freeze_txt", "conda_explicit_txt"}:
                 continue
-            (fvar, fval) = _get_formatted_metric_value_tuple(var, val)
-            rows.append(_two_column_row(f"{indent}{fvar}", fval))
-        rows.append(_blank_row)
+            (fvar, fval) = self._get_formatted_metric_value_tuple(var, val)
+            rows.append(self._get_two_column_row(f"{indent}{fvar}", fval))
+        rows.append(self._BLANK_ROW)
 
         blocks.append(
             {
@@ -225,13 +269,18 @@ class SlackParentMessage(SlackMessageBase):
 
         return blocks
 
-    def get_thread_ts(self) -> str | None:
-        """Get the thread timestamp from the response for threading replies.
+    def to_fallback_text(self) -> str:
+        """Convert the message data to a fallback text string.
 
         Returns:
-            Thread timestamp string or None if not available.
+            Fallback text string for use with chat_postMessage API.
         """
-        return self.get_timestamp()
+        lines = [f"Curator Benchmark Summary - {self.session_name}"]
+        if self.entries:
+            lines.append("\nBenchmark Entries:")
+            for entry_name, status in self.entries.items():
+                lines.append(f"  • {entry_name}: {status}")
+        return "\n".join(lines)
 
     def get_channel_id(self) -> str | None:
         """Get the channel ID from the response for posting threaded replies.
@@ -305,39 +354,59 @@ class SlackMessage(SlackMessageBase):
         rows = []
         for metric in self.metrics:
             result = find_result(self.result_dict, metric, 0)
-            m, v = _get_formatted_metric_value_tuple(metric, result)
-            rows.append(_two_column_row(m, str(v)))
+            m, v = self._get_formatted_metric_value_tuple(metric, result)
+            rows.append(self._get_two_column_row(m, str(v)))
 
         # Requirements checks - add a row for each requirement that was not met
         if "requirements_not_met" in self.result_dict:
             all_requirements_met = True
             for metric_name, reason_not_met in self.result_dict["requirements_not_met"].items():
-                rows.append(_two_column_row(f"Requirement for {metric_name} was not met", f"{reason_not_met}"))
+                rows.append(
+                    self._get_two_column_row(f"Requirement for {metric_name} was not met", f"{reason_not_met}")
+                )
                 all_requirements_met = False
             if all_requirements_met:
-                rows.append(_two_column_row("All requirements met", "✅"))
+                rows.append(self._get_two_column_row("All requirements met", "✅"))
             else:
-                rows.append(_two_column_row("All requirements met", "❌"))
+                rows.append(self._get_two_column_row("All requirements met", "❌"))
         blocks.append({"type": "table", "rows": rows})
         blocks.append({"type": "divider"})
         return blocks
 
-    def get_message_ts(self) -> str | None:
-        """Get the message timestamp from the response.
+    def to_fallback_text(self) -> str:
+        """Convert the message data to a fallback text string.
 
         Returns:
-            Message timestamp string or None if not available.
+            Fallback text string for use with chat_postMessage API.
         """
-        return self.get_timestamp()
+        success = find_result(self.result_dict, "success")
+        status_text = "Success" if success else "Failed"
+        lines = [f"{self.entry_name}: {status_text}"]
+
+        if self.metrics:
+            lines.append("\nMetrics:")
+            for metric in self.metrics:
+                value = find_result(self.result_dict, metric, "N/A")
+                lines.append(f"  • {metric}: {value}")
+
+        if "requirements_not_met" in self.result_dict:
+            requirements_not_met = self.result_dict["requirements_not_met"]
+            if requirements_not_met:
+                lines.append("\nRequirements Not Met:")
+                for metric_name, reason in requirements_not_met.items():
+                    lines.append(f"  • {metric_name}: {reason}")
+            else:
+                lines.append("\nAll Requirements Met ✅")
+
+        return "\n".join(lines)
 
 
 class SlackSink(Sink):
     name: str = "slack"
 
-    def __init__(self, sink_config: dict[str, Any], live_mode: bool = False):
+    def __init__(self, sink_config: dict[str, Any]):
         super().__init__(sink_config)
         self.sink_config = sink_config
-        self.live_mode = live_mode
         self.session_name: str | None = None
         self.session: Session = None
         self.env_dict: dict[str, Any] = None
@@ -345,17 +414,19 @@ class SlackSink(Sink):
         self._parent_message: SlackParentMessage = None
         self._child_messages: list[SlackMessage] = []
 
-        self.default_metrics = sink_config.get("default_metrics", [])
+        self.live_updates: bool = sink_config.get("live_updates", False)
+
+        self.default_metrics: list[str] = sink_config.get("default_metrics", [])
         if not self.default_metrics:
             msg = "SlackSink: No default metrics configured"
             raise ValueError(msg)
 
         # needed by Slack API
-        self.channel_id = sink_config.get("channel_id", os.environ.get("SLACK_CHANNEL_ID"))
+        self.channel_id: str | None = sink_config.get("channel_id", os.environ.get("SLACK_CHANNEL_ID"))
         if self.channel_id is None:
             msg = "SlackSink: No channel ID configured"
             raise ValueError(msg)
-        self._slack_bot_token = os.environ.get("SLACK_BOT_TOKEN")
+        self._slack_bot_token: str | None = os.environ.get("SLACK_BOT_TOKEN")
         if self._slack_bot_token is None:
             msg = "SlackSink: SLACK_BOT_TOKEN environment variable is not set"
             raise ValueError(msg)
@@ -367,15 +438,15 @@ class SlackSink(Sink):
         self.session = session
         self._parent_message = self._create_session_summary_message(env_dict)
         self._child_messages = []
-        if self.live_mode:
+        if self.live_updates:
             self._post_updates()
 
     def register_benchmark_entry_starting(self, result_dict: dict[str, Any], benchmark_entry: Entry) -> None:  # noqa: ARG002
         # Register that a benchmark entry is starting.
         # In live mode, this could be used to post an initial status message.
         # For now, this is a no-op as we only post when the entry finishes.
-        if self.live_mode:
-            self._parent_message.update_entry(benchmark_entry.name, "⏳ running")
+        if self.live_updates:
+            self._parent_message.update_entry(benchmark_entry.name, "▶️ running")
             self._post_updates()
 
     def register_benchmark_entry_finished(self, result_dict: dict[str, Any], benchmark_entry: Entry) -> None:
@@ -391,7 +462,7 @@ class SlackSink(Sink):
         self._parent_message.update_entry(
             benchmark_entry.name, "✅ success" if result_dict["success"] else "❌ FAILED"
         )
-        if self.live_mode:
+        if self.live_updates:
             self._post_updates()
 
     def finalize(self) -> None:
@@ -432,10 +503,20 @@ class SlackSink(Sink):
 
     def _finalize_session_summary_message(self) -> None:
         """Finalize the session summary message with overall status."""
-        # Check if any entries are still in "running" status and mark them as errored
+        # Check if any entries are still in "running" or "waiting to start" status and mark them as errored
         for entry_name, status in self._parent_message.entries.items():
-            if "⏳" in status or status.lower() in ["running", "waiting to start"]:
+            if "⏳" in status or "▶️" in status:
                 self._parent_message.update_entry(entry_name, "❌ ERROR")
+
+    def _post_updates(self) -> None:
+        if not self._parent_message.was_posted():
+            self._post_message(self._parent_message)
+        elif self._parent_message.has_updates():
+            self._update_message(self._parent_message)
+        for msg in self._child_messages:
+            if not msg.was_posted():
+                self._post_message(msg)
+            # Future enhancement: support updating child messages
 
     def _post_message(self, message: SlackMessageBase) -> None:
         """Post a message to Slack.
@@ -446,23 +527,31 @@ class SlackSink(Sink):
         try:
             client = WebClient(token=self._slack_bot_token)
 
-            # Determine the channel ID and thread timestamp for the message based on the message type.
+            # Determine the channel ID and thread timestamp based on if the parent message
+            # has been posted. All posts will be threaded replies if the parent was posted.
             thread_ts = None
             channel_id = self.channel_id
             if self._parent_message.was_posted():
                 if isinstance(message, SlackParentMessage):
                     msg = "SlackSink: ERROR: Attempt to post a parent message more than once"
                     raise ValueError(msg)
-                # Best practice states to always use the channel ID from the parent message if available.
+                # Best practice states to always use the channel ID from the parent message if available,
+                # even if the original intended channel is the same as the parent. While the parent was
+                # originally posted to self.channel_id, the response from that post will include the channel
+                # to post threaded replies and message updates to. This is often different if the channel is
+                # a user ID (starting with 'U'); slack will require followups post to a DM channel ID
+                # (starting with 'D') and will provide that in the parent message post response.
                 channel_id = self._parent_message.get_channel_id()
-                thread_ts = self._parent_message.get_thread_ts()
+                thread_ts = self._parent_message.get_timestamp()
 
             response = client.chat_postMessage(
                 channel=channel_id,
                 blocks=message.to_slack_blocks(),
-                text="Benchmark Results",  # Fallback text
+                text=message.to_fallback_text(),
                 thread_ts=thread_ts,
             )
+            # Save the response for future updates and/or threaded replies (only SlackParentMessage types can
+            # have threaded replies). This also sets was_posted to return True for the message.
             message.set_response(response.data)
             logger.debug(f"Posted message to Slack: {response.data.get('ts')}")
         except SlackApiError as e:
@@ -478,9 +567,9 @@ class SlackSink(Sink):
         client = WebClient(token=self._slack_bot_token)
 
         # Get the channel ID from the parent message.
-        # This is often updated as part of the initial parent message post response
-        # and may differ from the original, esp. if the channel is a user ID.
-        # This applies to both parent and child messages when calling chat_update.
+        # This is often updated as part of the initial parent message post response and
+        # may differ from the original self.channel_id, esp. if the original channel is a
+        # user ID. This applies to both parent and child messages when calling chat_update.
         channel_id = self._parent_message.get_channel_id()
 
         if not message.was_posted() or channel_id is None:
@@ -491,29 +580,15 @@ class SlackSink(Sink):
                 channel=channel_id,
                 ts=message.get_timestamp(),
                 blocks=message.to_slack_blocks(),
-                text="Benchmark Results",  # Fallback text
+                text=message.to_fallback_text(),
             )
             logger.debug(f"Updated message in Slack: {response.data.get('ts')}")
         except SlackApiError as e:
             logger.error(f"Error updating message in Slack: {e.response['error']}")
             raise
 
-    def _post_updates(self) -> None:
-        try:
-            if not self._parent_message.was_posted():
-                self._post_message(self._parent_message)
-            elif self._parent_message.has_updates():
-                self._update_message(self._parent_message)
-            for msg in self._child_messages:
-                if not msg.was_posted():
-                    self._post_message(msg)
-        except Exception as e:  # noqa: BLE001
-            # Optionally, log or handle posting errors
-            tb = traceback.format_exc()
-            logger.error(f"SlackSink: Error posting to Slack: {e}\n{tb}")
 
-
-# Run SlackSink from the command line to post a summary of the results to Slack.
+# Run SlackSink from the command line to post a report for existing results.
 if __name__ == "__main__":
     import argparse
     import os
@@ -529,9 +604,9 @@ if __name__ == "__main__":
     parser.add_argument("--webhook-url", default=os.getenv("SLACK_WEBHOOK_URL"), help="Slack webhook URL")
     parser.add_argument("--add-additional-metrics", action="store_true", help="Add additional metrics to the report")
     parser.add_argument(
-        "--test-live-mode",
+        "--test-live-updates",
         action="store_true",
-        help="Simulates 'live mode' which will post results in a thread as benchmarks are running",
+        help="Simulates 'live updates' which will post results in a thread as benchmarks are running",
     )
     args = parser.parse_args()
 
@@ -563,7 +638,11 @@ if __name__ == "__main__":
         entry.result_dict = result
         entries.append(entry)
 
-    sink_config = {"webhook_url": webhook_url, "default_metrics": ["exec_time_s"]}
+    sink_config = {
+        "webhook_url": webhook_url,
+        "default_metrics": ["exec_time_s"],
+        "live_updates": args.test_live_updates,
+    }
     session = Session(results_path=results_root_path, entries=entries)
 
     env_json_path = results_root_path / "env.json"
@@ -571,13 +650,13 @@ if __name__ == "__main__":
         env_data = json.load(f)
 
     # Create a standalone Slack sink to post the results to Slack.
-    slack_sink = SlackSink(sink_config=sink_config, live_mode=args.test_live_mode)
+    slack_sink = SlackSink(sink_config=sink_config)
     slack_sink.initialize(session_name="test", session=session, env_dict=env_data)
 
     # Simulate a run.py process running the entries and posting the results to Slack.
     for entry in entries:
         slack_sink.register_benchmark_entry_starting(result_dict=entry.result_dict, benchmark_entry=entry)
-        if args.test_live_mode:
+        if args.test_live_updates:
             time.sleep(3)  # simulate a delay between benchmark runs
         slack_sink.register_benchmark_entry_finished(result_dict=entry.result_dict, benchmark_entry=entry)
     slack_sink.finalize()

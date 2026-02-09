@@ -70,7 +70,8 @@ sinks:
 #    experiment: ray-curator-common-crawl
   - name: slack
     enabled: true
-    webhook_url: ${SLACK_WEBHOOK_URL}
+    live_updates: true
+    channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
 #  - name: gdrive
 #    enabled: false
@@ -470,7 +471,7 @@ entries:
         exact_value: 3800
       - metric: throughput_images_per_sec
         min_value: 3.0
-  
+
   - name: audio_fleurs
     enabled: true
     script: audio_fleurs_benchmark.py
@@ -561,7 +562,7 @@ entries:
         exact_value: 1400
       - metric: throughput_clips_per_sec
         min_value: 4.0
-  
+
   - name: video_transcoding
     enabled: true
     script: video_pipeline_benchmark.py
