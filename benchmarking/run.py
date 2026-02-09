@@ -255,7 +255,7 @@ def run_entry(
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> int:  # noqa: C901
+def main() -> int:  # noqa: C901, PLR0912
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
@@ -263,7 +263,7 @@ def main() -> int:  # noqa: C901
         action="append",
         required=True,
         help=(
-            "Path to YAML config for benchmark matrix, machine paths, etc. Can be "
+            "Path to YAML config for the benchmark entries, machine paths, etc. Can be "
             "specified multiple times to merge configs."
         ),
     )
@@ -322,7 +322,7 @@ def main() -> int:  # noqa: C901
     env_dict = dump_env(session_obj=session, output_path=session_path)
 
     for sink in session.sinks:
-        sink.initialize(session_name=session_name, matrix_config=session, env_dict=env_dict)
+        sink.initialize(session_name=session_name, session=session, env_dict=env_dict)
 
     # Print a summary of the entries that will be run in the for loop below
     # Disabled entries will not be printed
@@ -339,6 +339,10 @@ def main() -> int:  # noqa: C901
             "success": run_success,
         }
         logger.info(f"🚀 Running {entry.name} (run ID: {run_id})")
+
+        for sink in session.sinks:
+            sink.register_benchmark_entry_starting(result_dict=result_data, benchmark_entry=entry)
+
         try:
             run_success = run_entry(
                 entry=entry,
@@ -364,7 +368,7 @@ def main() -> int:  # noqa: C901
         finally:
             session_overall_success &= run_success
             for sink in session.sinks:
-                sink.process_result(result_dict=result_data, matrix_entry=entry)
+                sink.register_benchmark_entry_finished(result_dict=result_data, benchmark_entry=entry)
 
     for sink in session.sinks:
         sink.finalize()
