@@ -51,7 +51,7 @@ overrides = [
     { name = "numpy", specifier = ">=2.0.0,<=2.2.0" },
     { name = "protobuf", specifier = ">=5.29.5" },
     { name = "setuptools", specifier = ">=80.10.1" },
-    { name = "transformers", specifier = "==4.55.2" },
+    { name = "transformers", specifier = "<=4.55.2" },
 ]
 
 [[package]]
