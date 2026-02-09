@@ -20,7 +20,7 @@ The distributed data classification in NeMo Curator works by:
 
 1. **Parallel Processing**: Chunking datasets across multiple computing nodes and GPUs to accelerate classification
 2. **Pre-trained Models**: Using specialized models for different classification tasks
-3. **Batched Inference**: Optimizing throughput with intelligent batching through CrossFit integration
+3. **Batched Inference**: Optimizing throughput with intelligent batching
 4. **Consistent API**: Providing a unified interface through the `DistributedDataClassifier` base class
 
 The `DistributedDataClassifier` is designed to run on GPU clusters with minimal code changes regardless of which specific classifier you're using. All classifiers support filtering based on classification results and storing prediction scores as metadata.
