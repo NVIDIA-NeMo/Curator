@@ -170,6 +170,10 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 :::
 ::::
 
+```{note}
+**FFmpeg build requires CUDA toolkit (nvcc):** If you encounter `ERROR: failed checking for nvcc` during FFmpeg installation, ensure that the CUDA toolkit is installed and `nvcc` is available on your `PATH`. You can verify with `nvcc --version`. If using the NeMo Curator container, FFmpeg is pre-installed with NVENC support.
+```
+
 ---
 
 ## Package Extras

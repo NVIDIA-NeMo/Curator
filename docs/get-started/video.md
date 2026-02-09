@@ -183,7 +183,7 @@ NeMo Curator supports two embedding model families:
 - [cosmos-embed1-336p on Hugging Face](https://huggingface.co/nvidia/cosmos-embed1-336p)
 - [cosmos-embed1-448p on Hugging Face](https://huggingface.co/nvidia/cosmos-embed1-448p)
 
-For this quickstart, we're going to set up support for **Cosmos-Embed1-224p**.
+For this quickstart, the following steps set up support for **Cosmos-Embed1-224p**.
 
 ### Prepare Model Weights
 

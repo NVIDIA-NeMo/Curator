@@ -30,9 +30,9 @@ Distributed classification requires GPU acceleration and is not supported for CP
 :::
 
 ```{tip}
-**Running the tutorial notebooks**: The classification tutorial notebooks in `tutorials/text/distributed-data-classification/` require additional packages (such as `pandas`) that may not be included in all installation configurations. If you encounter `ModuleNotFoundError`, install the missing packages:
+**Running the tutorial notebooks**: The classification tutorial notebooks require the `text_cuda12` or `all` installation extra to include all relevant dependencies. If you encounter `ModuleNotFoundError`, reinstall with the appropriate extra:
 
-    uv pip install pandas
+    uv pip install "nemo-curator[text_cuda12]"
 
 When using classifiers that download from Hugging Face (such as Aegis and InstructionDataGuard), set your `HF_TOKEN` environment variable to avoid rate limiting:
 
@@ -377,23 +377,7 @@ results = pipeline.run()  # Uses XennaExecutor by default
 
 ## Custom Model Integration
 
-You can integrate your own classification models by extending `DistributedDataClassifier`. The only requirement is that the model can fit on a single GPU. Create a subclass that implements the classification logic:
-
-```python
-from nemo_curator.stages.text.classifiers.base import DistributedDataClassifier
-
-class MyCustomClassifier(DistributedDataClassifier):
-    """Custom classifier using your own model."""
-
-    def __init__(self, model_path: str, filter_by: list[str] | None = None, **kwargs):
-        super().__init__(
-            model_path=model_path,
-            filter_by=filter_by,
-            **kwargs
-        )
-```
-
-All built-in classifiers follow this same pattern. Refer to an existing classifier implementation (such as `DomainClassifier`) as a template.
+You can integrate your own classification models by extending `DistributedDataClassifier`. Refer to the [Text Classifiers README](https://github.com/NVIDIA-NeMo/Curator/tree/main/nemo_curator/stages/text/classifiers#text-classifiers) for implementation details and examples.
 
 ## Performance Optimization
 
