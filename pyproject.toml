@@ -84,7 +84,7 @@ deduplication_cuda12 = [
 ]
 
 
-audio_cpu = [
+audio_common = [
     "nemo_toolkit[asr]==2.4.0",
     # ADV (Audio DataVerse) Dependencies
     "Cython",
@@ -92,15 +92,18 @@ audio_cpu = [
     "torchaudio",
     "seaborn==0.11.2",
     "onnx==1.19.0",
-    "onnxruntime==1.20.1",
     "torchcodec",
     "silero-vad",
 ]
+audio_cpu = [
+    "nemo_curator[audio_common]",
+    "onnxruntime==1.20.1",
+]
 audio_cuda12 = [
-    "nemo_curator[audio_cpu]",
+    "nemo_curator[audio_common]",
     "nemo_curator[cuda12]",
     "nvidia-cudnn-cu12",
-    "onnxruntime-gpu==1.20.1" ,
+    "onnxruntime-gpu==1.20.1",
 ]
 
 image_cpu = [
