@@ -38,7 +38,7 @@ A stage represents a single step in your data curation workflow. Video stages ar
 - **Input/Output**: Read video files and write processed outputs to storage ([Save & Export Documentation](video-save-export))
 - **Video Clipping**: Split videos into clips using fixed stride or scene-change detection ([Video Clipping Documentation](video-process-clipping))
 - **Frame Extraction**: Extract frames from videos or clips for analysis and embeddings ([Frame Extraction Documentation](video-process-frame-extraction))
-- **Embedding Generation**: Generate clip-level embeddings using InternVideo2 or Cosmos-Embed1 models ([Embeddings Documentation](video-process-embeddings))
+- **Embedding Generation**: Generate clip-level embeddings using Cosmos-Embed1 models ([Embeddings Documentation](video-process-embeddings))
 - **Filtering**: Filter clips based on motion analysis and aesthetic quality scores ([Filtering Documentation](video-process-filtering))
 - **Caption and Preview**: Generate captions and preview images from video clips ([Captions & Preview Documentation](video-process-captions-preview))
 - **Deduplication**: Remove near-duplicate clips using embedding-based clustering ([Duplicate Removal Documentation](video-process-dedup))
@@ -48,7 +48,7 @@ A stage represents a single step in your data curation workflow. Video stages ar
 Each processing stage:
 
 1. Inherits from `ProcessingStage`
-2. Declares a stable `name` and `resources: Resources` (CPU cores, GPU memory, optional NVDEC/NVENC, or more than one GPU)
+2. Declares a stable `name` and `resources: Resources` (CPU cores, GPU memory, entire GPU flag, or multiple GPUs)
 3. Defines `inputs()`/`outputs()` to document required attributes and produced attributes on tasks
 4. Implements `setup(worker_metadata)` for model initialization and `process(task)` to transform tasks
 
@@ -75,9 +75,8 @@ Refer to the stage base and resources definitions in Curator for full details.
 `Resources` support both fractional and whole‑GPU semantics:
 
 - `gpu_memory_gb`: Request a fraction of a single GPU by memory; Curator rounds to a fractional GPU share and enforces that `gpu_memory_gb` stays within one device.
-- `entire_gpu`: Request an entire GPU regardless of memory (also implies access to NVDEC/NVENC on that device).
+- `entire_gpu`: Request an entire GPU regardless of memory (also implies access to hardware decoders and encoders on that device).
 - `gpus`: Request more than one GPU for a stage that is multi‑GPU aware.
-- `nvdecs` / `nvencs`: Request hardware decode/encode units when needed.
 
 Choose one of `gpu_memory_gb` (single‑GPU fractional) or `gpus` (multi‑GPU). Combining both is not allowed.
 

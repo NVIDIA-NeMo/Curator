@@ -92,7 +92,6 @@ The main container accepts these build-time arguments for environment customizat
 | `CUDA_VER` | `12.8.1` | CUDA version |
 | `LINUX_VER` | `ubuntu24.04` | Base OS version |
 | `CURATOR_ENV` | `ci` | Curator environment type |
-| `INTERN_VIDEO_COMMIT` | `09d872e5...` | InternVideo commit hash for video curation |
 | `NVIDIA_BUILD_ID` | `<unknown>` | NVIDIA build identifier |
 | `NVIDIA_BUILD_REF` | - | NVIDIA build reference |
 

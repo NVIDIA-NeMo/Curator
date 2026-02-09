@@ -47,7 +47,7 @@ flowchart LR
 - **Common choices**:
   - **Splitting**: fixed stride vs. scene-change (TransNetV2)
   - **Encoding**: `libopenh264`, `h264_nvenc`, or `libx264`
-  - **Embeddings**: InternVideo2 or Cosmos-Embed1
+  - **Embeddings**: Cosmos-Embed1
 - **Outputs**: Clips (mp4), previews (optional), and parquet embeddings for downstream tasks (such as semantic duplicate removal).
 
 For more information, refer to the [Video Concepts](about-concepts-video) section.
