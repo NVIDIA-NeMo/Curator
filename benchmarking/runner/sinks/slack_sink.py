@@ -422,7 +422,7 @@ class SlackSink(Sink):
             raise ValueError(msg)
 
         # needed by Slack API
-        self.channel_id: str | None = sink_config.get("channel_id", os.environ.get("SLACK_CHANNEL_ID"))
+        self.channel_id: str | None = sink_config.get("channel_id")
         if self.channel_id is None:
             msg = "SlackSink: No channel ID configured"
             raise ValueError(msg)
@@ -595,13 +595,13 @@ if __name__ == "__main__":
     import time
     from pathlib import Path
 
-    parser = argparse.ArgumentParser(description="Post benchmark results to Slack via webhook.")
+    parser = argparse.ArgumentParser(description="Post benchmark results to Slack.")
     parser.add_argument(
         "--benchmark-run-results-dir",
         required=True,
         help="Path to the directory containing results from a benchmark run",
     )
-    parser.add_argument("--webhook-url", default=os.getenv("SLACK_WEBHOOK_URL"), help="Slack webhook URL")
+    parser.add_argument("--channel-id", default=os.getenv("SLACK_CHANNEL_ID"), help="Slack channel ID")
     parser.add_argument("--add-additional-metrics", action="store_true", help="Add additional metrics to the report")
     parser.add_argument(
         "--test-live-updates",
@@ -610,7 +610,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    webhook_url = args.webhook_url
+    channel_id = args.channel_id
     results_root_path = Path(args.benchmark_run_results_dir)
 
     def collect_results_from_dir(results_root_path: Path) -> Generator[dict[str, Any], None, None]:
@@ -639,7 +639,7 @@ if __name__ == "__main__":
         entries.append(entry)
 
     sink_config = {
-        "webhook_url": webhook_url,
+        "channel_id": channel_id,
         "default_metrics": ["exec_time_s"],
         "live_updates": args.test_live_updates,
     }
