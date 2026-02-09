@@ -96,7 +96,7 @@ uv sync --all-extras --all-groups
 
 :::{tab-item} Container Installation (Recommended for Video/Audio)
 
-NeMo Curator is available as a standalone container on NGC: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator. The container includes NeMo Curator with all dependencies pre-installed, including FFmpeg with NVENC support and InternVideo2.
+NeMo Curator is available as a standalone container on NGC: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator. The container includes NeMo Curator with all dependencies pre-installed, including FFmpeg with NVENC support.
 
 ```bash
 # Pull the container from NGC
