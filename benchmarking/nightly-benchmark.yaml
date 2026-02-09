@@ -46,7 +46,7 @@ datasets:
   - name: "videos_model_weights"
     formats:
     - type: "files"
-      path: "{datasets_path}/video_model_weights"
+      path: "{datasets_path}/video_model_weights_123"
   - name: "rpv2-2023-14-en"
     formats:
     - type: "parquet"
