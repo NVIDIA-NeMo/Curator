@@ -154,9 +154,9 @@ def test_pipeline_with_hydra_instantiated_stage():
         {
             "stages": [
                 {
-                    "_target_": "nemo_curator.stages.text.modules.score_filter.ScoreFilter",
+                    "_target_": "nemo_curator.stages.text.filters.score_filter.ScoreFilter",
                     "filter_obj": {
-                        "_target_": "nemo_curator.stages.text.filters.heuristic_filter.NonAlphaNumericFilter",
+                        "_target_": "nemo_curator.stages.text.filters.heuristic.NonAlphaNumericFilter",
                         "max_non_alpha_numeric_to_text_ratio": 0.25,
                     },
                     "text_field": "text",

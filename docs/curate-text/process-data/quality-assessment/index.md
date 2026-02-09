@@ -81,7 +81,7 @@ For more specific use cases, NeMo Curator provides two specialized modules:
 
 ```python
 # Example: Score documents without filtering
-from nemo_curator.stages.text.modules import Score
+from nemo_curator.stages.text.filters import Score
 
 scoring_step = Score(
     WordCountFilter().score_document,  # Use just the scoring part
@@ -98,7 +98,7 @@ scored_dataset = scoring_step.process(dataset)
 
 ```python
 # Example: Filter using pre-computed scores
-from nemo_curator.stages.text.modules import Filter
+from nemo_curator.stages.text.filters import Filter
 
 filter_step = Filter(
     lambda score: score >= 100,  # Keep documents with score >= 100
@@ -111,7 +111,7 @@ You can combine these modules in pipelines:
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.modules import Score, Filter
+from nemo_curator.stages.text.filters import Score, Filter
 # Assume `word_counter` and `symbol_counter` are callables that return numeric scores
 pipeline = Pipeline(name="multi_stage_filtering")
 pipeline.add_stage(Score(word_counter, score_field="word_count"))
