@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,8 +21,7 @@ from nemo_curator.stages.text.download.arxiv.iterator import ArxivIterator
 from nemo_curator.stages.text.download.arxiv.stage import ArxivDownloadExtractStage
 from nemo_curator.stages.text.download.arxiv.url_generation import ArxivUrlGenerator
 from nemo_curator.stages.text.download.base.download import DocumentDownloadStage
-from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
-from nemo_curator.stages.text.download.base.iterator import DocumentIterateStage
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
 
 
@@ -38,14 +37,13 @@ class TestArxivDownloadExtractStage:
         # Decompose the stage
         stages = stage.decompose()
 
-        # Should have 4 stages: URL generation, download, iterate, extract
-        assert len(stages) == 4
+        # Should have 3 stages: URL generation, download, iterate-extract
+        assert len(stages) == 3
 
         # Check stage types
         assert isinstance(stages[0], URLGenerationStage)
         assert isinstance(stages[1], DocumentDownloadStage)
-        assert isinstance(stages[2], DocumentIterateStage)
-        assert isinstance(stages[3], DocumentExtractStage)
+        assert isinstance(stages[2], DocumentIterateExtractStage)
 
         # Verify the correct URL generator is used based on crawl_type
         url_gen_stage = stages[0]
@@ -55,13 +53,10 @@ class TestArxivDownloadExtractStage:
         download_stage = stages[1]
         assert isinstance(download_stage.downloader, ArxivDownloader)
 
-        # Verify iterator stage
-        iterate_stage = stages[2]
-        assert isinstance(iterate_stage.iterator, ArxivIterator)
-
-        # Verify extractor stage
-        extract_stage = stages[3]
-        assert isinstance(extract_stage.extractor, ArxivExtractor)
+        # Verify iterate-extract stage
+        iterate_extract_stage = stages[2]
+        assert isinstance(iterate_extract_stage.iterator, ArxivIterator)
+        assert isinstance(iterate_extract_stage.extractor, ArxivExtractor)
 
     @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
     def test_arxiv_stage_name(self, tmp_path: Path) -> None:
@@ -107,16 +102,11 @@ class TestArxivDownloadExtractStage:
         assert download_stage.downloader._download_dir == download_dir
         assert download_stage.downloader._verbose is True
 
-        # Check iterate stage
-        iterate_stage = stages[2]
-        assert isinstance(iterate_stage, DocumentIterateStage)
-        assert iterate_stage.record_limit == 100
-        assert iterate_stage.filename_col == "custom_filename"
-
-        # Check extract stage
-        extract_stage = stages[3]
-        assert isinstance(extract_stage, DocumentExtractStage)
-        assert extract_stage.filename_col == "custom_filename"
+        # Check iterate-extract stage
+        iterate_extract_stage = stages[2]
+        assert isinstance(iterate_extract_stage, DocumentIterateExtractStage)
+        assert iterate_extract_stage.record_limit == 100
+        assert iterate_extract_stage.filename_col == "custom_filename"
 
     @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
     def test_arxiv_stage_inputs_outputs(self, tmp_path: Path) -> None:

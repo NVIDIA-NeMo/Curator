@@ -20,6 +20,7 @@ import numpy as np
 import ray
 from loguru import logger
 from ray.util.actor_pool import ActorPool
+from tqdm import tqdm
 
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys, execute_setup_on_node
@@ -59,8 +60,24 @@ class RayActorPoolExecutor(BaseExecutor):
     4. Provides better backpressure management through ActorPool
     """
 
-    def __init__(self, config: dict | None = None, ignore_head_node: bool = False):
+    def __init__(
+        self,
+        config: dict | None = None,
+        ignore_head_node: bool = False,
+        show_progress: bool = True,
+        progress_interval: float = 10.0,
+    ):
+        """Initialize the Ray Actor Pool executor.
+
+        Args:
+            config: Configuration dictionary for the executor.
+            ignore_head_node: If True, don't schedule tasks on the head node.
+            show_progress: If True, display tqdm progress bars during execution.
+            progress_interval: Minimum interval in seconds between progress bar updates.
+        """
         super().__init__(config, ignore_head_node)
+        self.show_progress = show_progress
+        self.progress_interval = progress_interval
 
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:  # noqa: PLR0912
         """Execute the pipeline stages using ActorPool.
@@ -293,8 +310,12 @@ class RayActorPoolExecutor(BaseExecutor):
 
         # Process each task and flatten the results since each task can produce multiple output tasks
         all_results = []
-        for result_batch in actor_pool.map_unordered(
-            lambda actor, batch: actor.process_batch.remote(batch), task_batches
+        for result_batch in tqdm(
+            actor_pool.map_unordered(lambda actor, batch: actor.process_batch.remote(batch), task_batches),
+            total=len(task_batches),
+            desc=f"Processing {_stage.name}",
+            mininterval=self.progress_interval,
+            disable=not self.show_progress,
         ):
             # result_batch is a list of tasks from processing a single input task
             all_results.extend(result_batch)
@@ -322,8 +343,14 @@ class RayActorPoolExecutor(BaseExecutor):
 
         # Step 1: Insert tasks into shuffler
         _ = list(
-            actor_pool.map_unordered(
-                lambda actor, batch: actor.read_and_insert.remote(tasks=batch, **insert_kwargs), task_batches
+            tqdm(
+                actor_pool.map_unordered(
+                    lambda actor, batch: actor.read_and_insert.remote(tasks=batch, **insert_kwargs), task_batches
+                ),
+                total=len(task_batches),
+                desc="Inserting into shuffler",
+                mininterval=self.progress_interval,
+                disable=not self.show_progress,
             )
         )
 

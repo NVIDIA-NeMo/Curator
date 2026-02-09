@@ -85,7 +85,7 @@ docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version 
 ```
 
 ```{seealso}
-For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments-main).
+For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments).
 ```
 
 :::

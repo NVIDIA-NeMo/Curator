@@ -147,6 +147,8 @@ NeMo Curator includes more than 30 heuristic filters for assessing document qual
 |--------|-------------|----------------|---------------|
 | **RepeatedLinesFilter** | Detects repeated lines | `max_repeated_line_fraction` | 0.7 |
 | **RepeatedParagraphsFilter** | Detects repeated paragraphs | `max_repeated_paragraphs_ratio` | 0.7 |
+| **RepeatedLinesByCharFilter** | Detects repeated lines by character count | `max_repeated_lines_char_ratio` | 0.8 |
+| **RepeatedParagraphsByCharFilter** | Detects repeated paragraphs by character count | `max_repeated_paragraphs_char_ratio` | 0.8 |
 | **RepeatingTopNGramsFilter** | Detects excessive repetition of n-grams | `n`, `max_repeating_ngram_ratio` | n=2, ratio=0.2 |
 | **RepeatingDuplicateNGramsFilter** | Detects duplicate n-grams | `n`, `max_repeating_duplicate_ngram_ratio` | n=2, ratio=0.2 |
 
@@ -178,39 +180,46 @@ NeMo Curator includes more than 30 heuristic filters for assessing document qual
 | **PornographicUrlsFilter** | Detects URLs containing "porn" substring | None | N/A |
 | **EllipsisFilter** | Limits excessive ellipses | `max_num_lines_ending_with_ellipsis_ratio` | 0.3 |
 | **HistogramFilter** | Filters based on character distribution | `threshold` | 0.8 |
-| **SubstringFilter** | Filters based on presence of specific substring in a position | `substring`, `position` | "", "any" |
+| **SubstringFilter** | Filters based on presence of specific substring in a position | `substring`, `position` | N/A (required) |
 
 ## Configuration
 
+NeMo Curator pipelines can be configured using YAML files with [Hydra](https://hydra.cc/). The configuration uses `_target_` to specify class paths:
+
 ::::{tab-set}
 
-:::{tab-item} Example Configuration
+:::{tab-item} Hydra Configuration
 ```yaml
-# Sample filter configuration (simplified)
-filters:
-  - name: ScoreFilter
-    filter:
-      name: WordCountFilter
+# Hydra-based pipeline configuration
+input_path: /path/to/input
+output_path: /path/to/output
+text_field: text
+
+stages:
+  - _target_: nemo_curator.stages.text.io.reader.JsonlReader
+    file_paths: ${input_path}
+    fields: null
+
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.WordCountFilter
       min_words: 50
       max_words: 100000
-    text_field: text
+    text_field: ${text_field}
     score_field: word_count
 
-  - name: ScoreFilter
-    filter:
-      name: PunctuationFilter
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.PunctuationFilter
       max_num_sentences_without_endmark_ratio: 0.85
-    text_field: text
-    score_field: punctuation_ratio
+    text_field: ${text_field}
+    score_field: null
 
-  - name: ScoreFilter
-    filter:
-      name: RepeatingTopNGramsFilter
-      n: 2
-      max_repeating_ngram_ratio: 0.18
-    text_field: text
-    score_field: ngram_repetition
+  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
+    path: ${output_path}
 ```
+
+See `nemo_curator/config/text/` for complete pipeline examples.
 :::
 
 ::::
@@ -241,23 +250,7 @@ pipeline.add_stage(ScoreFilter(filter_obj=RepeatingTopNGramsFilter(), text_field
 :::
 
 :::{tab-item} Performance Tuning
-```python
-# Optimize filter performance with proper configuration
-
-# Configure executor for better performance
-executor_config = {
-    "execution_mode": "streaming",
-    "cpu_allocation_percentage": 0.95,
-    "logging_interval": 30
-}
-
-# Use custom executor configuration when needed
-executor = XennaExecutor(config=executor_config)
-results = pipeline.run(executor)
-
-# Or use default configuration
-# results = pipeline.run()
-```
+See the [Performance Tuning](#performance-tuning) section below for executor configuration examples using Xenna or Ray backends.
 :::
 
 :::{tab-item} Precision vs. Recall
@@ -321,26 +314,126 @@ quality_pipeline.add_stage(ScoreFilter(
 
 ## Analyzing Filter Results
 
-When working with non-English data or tuning your filtering pipeline, it's valuable to examine which filters are removing documents:
+When tuning filter thresholds, analyze score distributions before applying filters. NeMo Curator provides two modules for this workflow:
+
+- **`Score`**: Computes scores and adds them as columns without removing documents
+- **`ScoreFilter`**: Computes scores, filters based on thresholds, and optionally retains scores in output
+
+Use `Score` first to understand your data distribution, then apply `ScoreFilter` with tuned thresholds.
 
 ::::{tab-set}
 
-:::{tab-item} Filter Analysis
+:::{tab-item} Score Without Filtering
+Use `Score` to add score columns to your data without removing any documents:
+
 ```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modules import Score
+from nemo_curator.stages.text.filters import WordCountFilter, RepeatingTopNGramsFilter
+
+# Create scoring pipeline (no filtering)
+pipeline = Pipeline(name="score_analysis")
+
+# Load data
+pipeline.add_stage(JsonlReader(file_paths="input_data/", fields=["text", "id"]))
+
+# Add scores without filtering
+pipeline.add_stage(Score(
+    score_fn=WordCountFilter(min_words=80),
+    text_field="text",
+    score_field="word_count"
+))
+pipeline.add_stage(Score(
+    score_fn=RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18),
+    text_field="text",
+    score_field="ngram_ratio"
+))
+
+# Write scored data (all documents preserved)
+pipeline.add_stage(JsonlWriter(path="scored_output/"))
+
+pipeline.run()
+```
+
+Output files are written to the `scored_output/` directory with one file per input partition.
+:::
+
+:::{tab-item} Analyze Score Distribution
+Load the scored output and analyze distributions to tune filter thresholds:
+
+```python
+import glob
 import pandas as pd
+import matplotlib.pyplot as plt
 
-# Load scores from filter run
-scores = pd.read_json("output/scores/scores.jsonl", lines=True)
-
-# Analyze rejection reasons
-rejection_counts = scores[scores["rejected"] == True].groupby("rejected_by").size()
-print(f"Documents rejected by filter:\n{rejection_counts}")
+# Load all scored output files
+files = glob.glob("scored_output/*.jsonl")
+scored_data = pd.concat([pd.read_json(f, lines=True) for f in files], ignore_index=True)
 
 # Analyze score distributions
-import matplotlib.pyplot as plt
-scores.hist(column="word_count", bins=50)
-plt.title("Word Count Distribution")
-plt.savefig("word_count_hist.png")
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+# Word count distribution
+axes[0].hist(scored_data["word_count"], bins=50, edgecolor="black")
+axes[0].axvline(x=80, color="red", linestyle="--", label="Threshold (80)")
+axes[0].set_title("Word Count Distribution")
+axes[0].set_xlabel("Word Count")
+axes[0].legend()
+
+# N-gram ratio distribution
+axes[1].hist(scored_data["ngram_ratio"], bins=50, edgecolor="black")
+axes[1].axvline(x=0.18, color="red", linestyle="--", label="Threshold (0.18)")
+axes[1].set_title("3-gram Repetition Ratio")
+axes[1].set_xlabel("Ratio")
+axes[1].legend()
+
+plt.tight_layout()
+plt.savefig("score_distributions.png")
+
+# Print statistics
+print(f"Total documents: {len(scored_data)}")
+print(f"Documents below word count threshold: {(scored_data['word_count'] < 80).sum()}")
+print(f"Documents above ngram threshold: {(scored_data['ngram_ratio'] > 0.18).sum()}")
+```
+
+For large datasets, consider sampling or using Ray, Dask, or Polars for memory-efficient analysis.
+:::
+
+:::{tab-item} Apply Tuned Filters
+After analyzing distributions, apply filters with your chosen thresholds:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import WordCountFilter, RepeatingTopNGramsFilter
+
+pipeline = Pipeline(name="filtering_pipeline")
+pipeline.add_stage(JsonlReader(file_paths="input_data/", fields=["text", "id"]))
+
+# Filter with tuned thresholds (scores retained in output)
+pipeline.add_stage(ScoreFilter(
+    filter_obj=WordCountFilter(min_words=80),
+    text_field="text",
+    score_field="word_count"
+))
+pipeline.add_stage(ScoreFilter(
+    filter_obj=RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18),
+    text_field="text",
+    score_field="ngram_ratio"
+))
+
+pipeline.add_stage(JsonlWriter(path="filtered_output/"))
+
+# Run with default XennaExecutor
+pipeline.run()
+
+# Or use Ray for distributed processing (see Performance Tuning section)
+# from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+# pipeline.run(RayDataExecutor(ignore_head_node=True))
 ```
 :::
 
@@ -352,43 +445,35 @@ For large datasets, consider these performance optimizations:
 
 ::::{tab-set}
 
-:::{tab-item} Memory Efficient Processing
+:::{tab-item} XennaExecutor (Default)
+`XennaExecutor` is the default executor, optimized for streaming workloads. You can customize its configuration or use the defaults:
+
 ```python
-# Process large datasets efficiently using pipeline streaming
+from nemo_curator.backends.xenna import XennaExecutor
 
-# Configure for streaming processing
-executor_config = {
-    "execution_mode": "streaming",
-    "cpu_allocation_percentage": 0.8,
-    "logging_interval": 60
-}
-
-# Use custom configuration for large datasets
-executor = XennaExecutor(config=executor_config)
-results = pipeline.run(executor)
-
-# Default configuration works for most cases
-# results = pipeline.run()
-```
-:::
-
-:::{tab-item} Distributed Processing
-```python
-# Scale processing across multiple workers
-
-# Configure for distributed processing
-executor_config = {
+# Custom configuration for streaming processing
+executor = XennaExecutor(config={
     "execution_mode": "streaming",
     "cpu_allocation_percentage": 0.95,
-    "max_workers_per_stage": 8
-}
-
-# Use custom configuration for distributed processing
-executor = XennaExecutor(config=executor_config)
+    "logging_interval": 60
+})
 results = pipeline.run(executor)
+```
 
-# Default configuration uses single worker
-# results = pipeline.run()
+If no executor is specified, `pipeline.run()` uses `XennaExecutor` with default settings.
+:::
+
+:::{tab-item} RayDataExecutor (Experimental)
+`RayDataExecutor` provides distributed processing using Ray Data. It has shown performance improvements for filtering workloads compared to the default executor.
+
+```python
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+
+executor = RayDataExecutor(
+    config={"ignore_failures": False},
+    ignore_head_node=True  # Exclude head node from computation
+)
+results = pipeline.run(executor)
 ```
 :::
 
