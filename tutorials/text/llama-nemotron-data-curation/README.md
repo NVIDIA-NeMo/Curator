@@ -119,7 +119,7 @@ LOGURU_LEVEL="ERROR" python main.py \
     --num-cpus 16
 ```
 
-Setting `LOGURU_LEVEL="ERROR"` helps minimize long logs. Removing it can be helpful for debugging.
+Setting `LOGURU_LEVEL="ERROR"` helps minimize long logs. Removing it can be helpful for debugging. See the **Debugging Out of Memory Errors** section for help (most likely, the answer is to reduce `--num-cpus`).
 
 The user may set `--hf-token` as needed for the tokenizer.
 
@@ -138,9 +138,9 @@ After filtering, it sorts all samples by completion (output response) length, th
 
 ## Debugging Out of Memory Errors
 
-If you are running into out of memory (OOM) errors, there are a couple of approaches you can try. One is to avoid very large partitions of data. By default, the JSONL data is read with a blocksize of 100 MB per partition. To customize the file reading logic, the user may specify `--json-blocksize "100mb"` with any string representation for the partition size in MB (e.g., "100mb", "256mb").
+If you are running into out of memory (OOM) errors, there are a couple of approaches you can try. The first thing the user should try is reducing the `--num-cpus` parameter. The goal is to maximize it for improved performance without oversubscribing your available hardware.
 
-It can be useful to play around with the `--num-cpus` parameter as well. The goal is to maximize it for improved performance without oversubscribing your available hardware.
+It is recommended to avoid very large partitions of data. By default, the JSONL data is read with a blocksize of 100 MB per partition. To customize the file reading logic, the user may specify `--json-blocksize "100mb"` with any string representation for the partition size in MB (e.g., "100mb", "256mb").
 
 ## Next Steps
 
