@@ -43,7 +43,7 @@ For comprehensive system requirements and production deployment specifications, 
 Choose one of the following installation methods based on your needs:
 
 :::{tip}
-**Docker is the recommended installation method** for video and audio workflows. The NeMo Curator container includes FFmpeg (with NVENC support) and InternVideo2 pre-configured, avoiding manual dependency setup. Refer to the [Container Installation](#container-installation) tab below.
+**Docker is the recommended installation method** for video and audio workflows. The NeMo Curator container includes FFmpeg (with NVENC support) pre-configured, avoiding manual dependency setup. Refer to the [Container Installation](#container-installation) tab below.
 :::
 
 ::::{tab-set}
