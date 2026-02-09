@@ -207,7 +207,11 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         return os.path.join(module_dir, self.model_path)
     
     def _process_single_item(self, item: Dict[str, Any], task_id: str) -> Optional[Dict[str, Any]]:
-        """Process a single audio item and return it with SIGMOS scores if it passes thresholds."""
+        """Process a single audio item and return it with SIGMOS scores if it passes thresholds.
+        
+        Returns the item with scores on success, None if it fails thresholds
+        or on infrastructure errors (rejected).
+        """
         audio = item.get('audio')
         
         # Auto-load from file if audio not provided (standalone usage)
@@ -339,7 +343,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         if self._predict_function is None:
             logger.error("SIGMOS prediction function not available")
-            return None
+            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
         
         total_items = len(task.data)
         
@@ -399,8 +403,5 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         mode = "CPU parallel" if use_cpu_parallel else ("GPU" if self._resources.gpus > 0 else "sequential")
         logger.info(f"[SIGMOSFilter] {task.task_id}: {passed_count}/{total_items} passed (thresholds: {threshold_str}) [{mode}]")
-        
-        if not results:
-            return None
         
         return AudioBatch(data=results, task_id=task.task_id, dataset_name=task.dataset_name)

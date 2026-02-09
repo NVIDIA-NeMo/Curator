@@ -318,7 +318,7 @@ class NISQAFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         if self._predict_function is None:
             logger.error("NISQA prediction function not available")
-            return None
+            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
         
         total_items = len(task.data)
         
@@ -374,8 +374,5 @@ class NISQAFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         mode = "CPU parallel" if use_cpu_parallel else ("GPU" if self._resources.gpus > 0 else "sequential")
         logger.info(f"[NISQAFilter] {task.task_id}: {passed_count}/{total_items} passed (thresholds: {threshold_str}) [{mode}]")
-        
-        if not results:
-            return None
         
         return AudioBatch(data=results, task_id=task.task_id, dataset_name=task.dataset_name)

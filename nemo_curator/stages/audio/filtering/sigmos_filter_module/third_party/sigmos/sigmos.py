@@ -58,13 +58,23 @@ class SigMOS:
             options.inter_op_num_threads = 1
             options.intra_op_num_threads = 1
 
-        ort_provider = ("CUDAExecutionProvider", {"device_id": str(self.device_id)}) if use_gpu else "CPUExecutionProvider"
         if use_gpu:
             print(f"ort inference on cuda device_id {self.device_id}")
-        self.session = ort.InferenceSession(model_file_path, options,
-                                            providers=[ort_provider])
-        if use_gpu:
-            assert self.session.get_provider_options()["CUDAExecutionProvider"]["device_id"] == str(self.device_id)
+            ort_provider = ("CUDAExecutionProvider", {"device_id": str(self.device_id)})
+            self.session = ort.InferenceSession(model_file_path, options,
+                                                providers=[ort_provider])
+            # Verify CUDA provider was actually loaded; fall back to CPU if not
+            provider_options = self.session.get_provider_options()
+            if "CUDAExecutionProvider" not in provider_options:
+                print(
+                    f"WARNING: CUDAExecutionProvider requested but not available at runtime "
+                    f"(missing cuDNN or CUDA libraries). Falling back to CPUExecutionProvider."
+                )
+                self.session = ort.InferenceSession(model_file_path, options,
+                                                    providers=["CPUExecutionProvider"])
+        else:
+            self.session = ort.InferenceSession(model_file_path, options,
+                                                providers=["CPUExecutionProvider"])
 
     def stft(self, signal):
         last_frame = len(signal) % self.frame_size

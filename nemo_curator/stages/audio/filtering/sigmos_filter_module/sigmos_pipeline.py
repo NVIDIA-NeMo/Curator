@@ -13,6 +13,7 @@ import copy
 from pathlib import Path
 import librosa
 import numpy as np
+from loguru import logger
 
 # Import from third_party SIGMOS
 try:
@@ -231,7 +232,7 @@ class SIGMOSPipeline:
                 # Use the individual file prediction method
                 results[wav_path] = self.predict_file(wav_path)
             except Exception as e:
-                print(f"Error processing file {wav_path}: {e}")
+                logger.error(f"Error processing file {wav_path}: {e}")
                 continue
         
         return results

@@ -395,8 +395,11 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 if result is None:
                     continue
                 if isinstance(result, list):
-                    results.extend([r for r in result if r is not None])
+                    results.extend([r for r in result if r is not None and hasattr(r, 'data') and len(r.data) > 0])
                 else:
+                    # Skip results with empty data (e.g., all items filtered by thresholds)
+                    if hasattr(result, 'data') and len(result.data) == 0:
+                        continue
                     results.append(result)
             except Exception as e:
                 logger.error(f"Error in {name}: {e}")
@@ -498,7 +501,7 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             original_file = task.data.get('audio_filepath', 'unknown')
         else:
             logger.error("Invalid task data format")
-            return None
+            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
         
         file_name = os.path.basename(original_file)
         
@@ -508,14 +511,14 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         mono_results = self._run_stage(self._mono_stage, [task], "MonoConversion")
         if not mono_results:
             logger.warning(f"Mono conversion failed for {file_name}")
-            return None
+            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
         
         # Stage 2: VAD segmentation (only if enabled)
         if self._vad_stage:
             vad_results = self._run_stage(self._vad_stage, mono_results, "VAD")
             if not vad_results:
                 logger.warning(f"No VAD segments for {file_name}")
-                return None
+                return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
             logger.info(f"VAD segments: {len(vad_results)}")
             quality_segments = vad_results
         else:
@@ -530,9 +533,17 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             quality_segments = self._run_stage(self._band_stage, quality_segments, "BandFilter")
             logger.info(f"After BandFilter: {len(quality_segments)} segments")
         
+        if not quality_segments:
+            logger.warning(f"No segments passed BandFilter for {file_name}, skipping remaining filters")
+            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
+        
         if self._nisqa_stage:
             quality_segments = self._run_stage(self._nisqa_stage, quality_segments, "NISQA")
             logger.info(f"After NISQA: {len(quality_segments)} segments")
+        
+        if not quality_segments:
+            logger.warning(f"No segments passed NISQA for {file_name}, skipping remaining filters")
+            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
         
         if self._sigmos_stage:
             quality_segments = self._run_stage(self._sigmos_stage, quality_segments, "SIGMOS")
@@ -540,7 +551,7 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         if not quality_segments:
             logger.warning(f"No segments passed quality filters for {file_name}")
-            return None
+            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
         
         # If no speaker separation, return quality segments directly
         if not self._speaker_stage:
@@ -571,7 +582,7 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         speaker_results = self._run_stage(self._speaker_stage, [concat_task], "SpeakerSep")
         if not speaker_results:
             logger.warning(f"Speaker separation failed for {file_name}")
-            return None
+            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
         
         num_speakers = len(speaker_results)
         logger.info(f"Speakers detected: {num_speakers}")
@@ -605,19 +616,26 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 logger.info(f"    No VAD segments for {speaker_id}")
                 continue
             
-            # Quality filters
+            # Quality filters (early exit if any stage filters out everything)
             speaker_quality = speaker_vad
             
             if self._band_stage:
                 speaker_quality = self._run_stage(self._band_stage, speaker_quality, f"Band_{speaker_id}")
+                if not speaker_quality:
+                    logger.info(f"    No segments passed BandFilter for {speaker_id}, skipping remaining filters")
+                    continue
+            
             if self._nisqa_stage:
                 speaker_quality = self._run_stage(self._nisqa_stage, speaker_quality, f"NISQA_{speaker_id}")
+                if not speaker_quality:
+                    logger.info(f"    No segments passed NISQA for {speaker_id}, skipping remaining filters")
+                    continue
+            
             if self._sigmos_stage:
                 speaker_quality = self._run_stage(self._sigmos_stage, speaker_quality, f"SIGMOS_{speaker_id}")
-            
-            if not speaker_quality:
-                logger.info(f"    No segments passed filters for {speaker_id}")
-                continue
+                if not speaker_quality:
+                    logger.info(f"    No segments passed SIGMOS for {speaker_id}")
+                    continue
             
             logger.info(f"    {speaker_id}: {len(speaker_quality)} segments passed")
             
@@ -660,7 +678,7 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         if not final_results:
             logger.warning(f"No final results for {file_name}")
-            return None
+            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
         
         logger.info(f"Total output segments: {len(final_results)}")
         

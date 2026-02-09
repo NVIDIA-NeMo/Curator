@@ -277,7 +277,7 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         if self._predictor is None:
             logger.error("Band predictor not available")
-            return None
+            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
         
         total_items = len(task.data)
         
@@ -319,8 +319,5 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         mode = "CPU parallel" if use_cpu_parallel else ("GPU" if self._resources.gpus > 0 else "sequential")
         logger.info(f"[BandFilter] {task.task_id}: {passed_count}/{total_items} passed ({self.band_value}) [{mode}]")
-        
-        if not results:
-            return None
         
         return AudioBatch(data=results, task_id=task.task_id, dataset_name=task.dataset_name)
