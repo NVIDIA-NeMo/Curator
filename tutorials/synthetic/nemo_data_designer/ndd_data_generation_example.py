@@ -20,6 +20,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import data_designer.config as dd
 import pandas as pd
@@ -180,24 +181,61 @@ def _build_config_manually() -> dd.DataDesignerConfigBuilder:
     return config_builder
 
 
+def _validate_seed_path(args: argparse.Namespace) -> None:
+    """Validate seed dataset path is a directory; exit on error."""
+    if args.seed_dataset_path is None:
+        return
+    seed_path = Path(args.seed_dataset_path)
+    if not seed_path.exists():
+        print(f"Error: Seed dataset path does not exist: {args.seed_dataset_path}", file=sys.stderr)
+        sys.exit(1)
+    if not seed_path.is_dir():
+        print(
+            f"Error: Seed dataset path must be a directory containing JSONL files: {args.seed_dataset_path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def _collect_output_info(results: list[Any], output_path: str) -> tuple[list, list]:
+    """Collect output file paths and dataframes from pipeline results."""
+    output_files = []
+    all_data_frames = []
+    if not results:
+        return output_files, all_data_frames
+    print(f"\nGenerated data saved to: {output_path}")
+    for result in results:
+        if not (hasattr(result, "data") and result.data):
+            continue
+        for file_path in result.data:
+            print(f"  - {file_path}")
+            output_files.append(file_path)
+            all_data_frames.append(pd.read_json(file_path, lines=True))
+    return output_files, all_data_frames
+
+
+def _print_sample_documents(output_files: list, all_data_frames: list) -> None:
+    """Print a sample of generated documents."""
+    print("\n" + "=" * 50)
+    print("Sample of generated documents:")
+    print("=" * 50)
+    for i, df in enumerate(all_data_frames):
+        print(f"\nFile {i + 1}: {output_files[i]}")
+        print(f"Number of documents: {len(df)}")
+        print("\nGenerated text (showing first 5):")
+        for j, row in enumerate(df.head(5).to_dict(orient="records")):
+            print(f"Document {j + 1}:")
+            for key, value in row.items():
+                print(f"[{key}]:")
+                print(f"{value}")
+            print("-" * 40)
+
+
 def main() -> None:
     """Main function to run the synthetic data generation pipeline."""
     args = parse_args()
+    _validate_seed_path(args)
 
-    # Validate seed dataset path is a directory (reader uses path + "/*.jsonl")
-    if args.seed_dataset_path is not None:
-        seed_path = Path(args.seed_dataset_path)
-        if not seed_path.exists():
-            print(f"Error: Seed dataset path does not exist: {args.seed_dataset_path}", file=sys.stderr)
-            sys.exit(1)
-        if not seed_path.is_dir():
-            print(
-                f"Error: Seed dataset path must be a directory containing JSONL files: {args.seed_dataset_path}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-    # Create pipeline
     pipeline = Pipeline(name="ndd_data_generation", description="Generate synthetic text data using Nemo Data Designer")
 
     # Add reader stage to read the seed dataset
@@ -246,35 +284,8 @@ def main() -> None:
     # Print results
     print("\nPipeline completed!")
     print(f"Total execution time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
-
-    # Collect output file paths and read generated data
-    output_files = []
-    all_data_frames = []
-    if results:
-        print(f"\nGenerated data saved to: {args.output_path}")
-        for result in results:
-            if hasattr(result, "data") and result.data:
-                for file_path in result.data:
-                    print(f"  - {file_path}")
-                    output_files.append(file_path)
-                    # Read the JSONL file to get the actual data
-                    df = pd.read_json(file_path, lines=True)
-                    all_data_frames.append(df)
-
-    # Display sample of generated documents
-    print("\n" + "=" * 50)
-    print("Sample of generated documents:")
-    print("=" * 50)
-    for i, df in enumerate(all_data_frames):
-        print(f"\nFile {i + 1}: {output_files[i]}")
-        print(f"Number of documents: {len(df)}")
-        print("\nGenerated text (showing first 5):")
-        for j, row in enumerate(df.head(5).to_dict(orient="records")):
-            print(f"Document {j + 1}:")
-            for key, value in row.items():
-                print(f"[{key}]:")
-                print(f"{value}")
-            print("-" * 40)
+    output_files, all_data_frames = _collect_output_info(results, args.output_path)
+    _print_sample_documents(output_files, all_data_frames)
 
 if __name__ == "__main__":
     main()

@@ -60,12 +60,7 @@ class BaseDataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         # read config from file if config_builder is not set
         if self.config_builder is None:
             self.config_builder = dd.DataDesignerConfigBuilder.from_config(self.data_designer_config_file)
-
-        # validate config builder
         self.data_designer = DataDesigner()
-        # DEBUGGING
-        # not validate here because we haven't load the seed dataset yet
-        # self.data_designer.validate(self.config_builder)
 
         if self.verbose:
             logger.debug("Initialized data designer stage.")
