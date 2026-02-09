@@ -75,7 +75,7 @@ class BaseDataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         num_input_records = len(batch.data)
 
         # set seed dataframe from batch
-        self.config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=batch.data))
+        self.config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=batch.to_pandas()))
 
         # run preview to get the results
         t1 = time.perf_counter()

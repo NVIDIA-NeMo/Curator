@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--seed-dataset-path",
         type=str,
+        required=True,
         default=None,
         help="Path to directory containing seed JSONL files",
     )
@@ -256,10 +257,7 @@ def main() -> None:
 
     # Add the Nemo Data Designer stage
     pipeline.add_stage(
-        BaseDataDesignerStage(
-            config_builder=config_builder,
-            data_designer_config_file=args.data_designer_config_file,
-        )
+        BaseDataDesignerStage(config_builder=config_builder)
     )
 
     # Add JSONL writer to save the generated data
