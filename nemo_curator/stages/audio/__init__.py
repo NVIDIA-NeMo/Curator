@@ -58,6 +58,12 @@ Example:
     stage = AudioDataFilterStage(config=config)
 """
 
+# Ensure pip-installed cuDNN is visible to onnxruntime before any audio
+# stage is imported (several stages depend on onnxruntime-gpu for inference).
+from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
+
+ensure_cudnn_loaded()
+
 # Preprocessing stages
 from nemo_curator.stages.audio.preprocessing import (
     MonoConversionStage,
