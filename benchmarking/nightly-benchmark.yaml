@@ -46,7 +46,7 @@ datasets:
   - name: "videos_model_weights"
     formats:
     - type: "files"
-      path: "{datasets_path}/video_model_weights_123"
+      path: "{datasets_path}/video_model_weights"
   - name: "rpv2-2023-14-en"
     formats:
     - type: "parquet"
@@ -94,7 +94,6 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --video-dir={dataset:videos,mp4}
-      --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
     timeout_s: 400
     ray:
@@ -138,7 +137,6 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --video-dir={dataset:videos,mp4}
-      --model-dir={dataset:videos_model_weights,files}
       --generate-captions
       --no-generate-embeddings
       --enhance-captions
@@ -163,7 +161,6 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --video-dir={dataset:videos,mp4}
-      --model-dir={dataset:videos_model_weights,files}
       --splitting-algorithm=transnetv2
       --motion-filter=enable
       --aesthetic-threshold=3.5
