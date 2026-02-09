@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,9 @@ Quick synthetic data generation example for Nemo Data Designer
 """
 
 import argparse
+import sys
 import time
+from pathlib import Path
 
 import data_designer.config as dd
 import pandas as pd
@@ -39,7 +41,7 @@ def parse_args() -> argparse.Namespace:
         "--seed-dataset-path",
         type=str,
         default=None,
-        help="Path to the seed dataset in JSONL format",
+        help="Path to directory containing seed JSONL files",
     )
 
     parser.add_argument(
@@ -80,70 +82,85 @@ def _build_config_manually() -> dd.DataDesignerConfigBuilder:
     config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
 
     config_builder.add_column(
-        name="patient_sampler",
-        column_type="sampler",
-        sampler_type="person_from_faker",
+        dd.SamplerColumnConfig(
+            name="patient_sampler",
+            sampler_type=dd.SamplerType.PERSON_FROM_FAKER,
+            params=dd.PersonFromFakerSamplerParams(),
+        )
     )
 
     config_builder.add_column(
-        name="doctor_sampler",
-        column_type="sampler",
-        sampler_type="person_from_faker",
+        dd.SamplerColumnConfig(
+            name="doctor_sampler",
+            sampler_type=dd.SamplerType.PERSON_FROM_FAKER,
+            params=dd.PersonFromFakerSamplerParams(),
+        )
     )
 
     config_builder.add_column(
-        name="patient_id",
-        column_type="sampler",
-        sampler_type="uuid",
-        params={
-            "prefix": "PT-",
-            "short_form": True,
-            "uppercase": True,
-        },
+        dd.SamplerColumnConfig(
+            name="patient_id",
+            sampler_type=dd.SamplerType.UUID,
+            params=dd.UUIDSamplerParams(
+                prefix="PT-",
+                short_form=True,
+                uppercase=True,
+            ),
+        )
     )
 
     config_builder.add_column(
-        name="first_name",
-        column_type="expression",
-        expr="{{ patient_sampler.first_name}}",
+        dd.ExpressionColumnConfig(
+            name="first_name",
+            expr="{{ patient_sampler.first_name}}",
+        )
     )
 
     config_builder.add_column(
-        name="last_name",
-        column_type="expression",
-        expr="{{ patient_sampler.last_name }}",
+        dd.ExpressionColumnConfig(
+            name="last_name",
+            expr="{{ patient_sampler.last_name }}",
+        )
     )
 
     config_builder.add_column(
-        name="dob",
-        column_type="expression",
-        expr="{{ patient_sampler.birth_date }}",
+        dd.ExpressionColumnConfig(
+            name="dob",
+            expr="{{ patient_sampler.birth_date }}",
+        )
     )
 
     config_builder.add_column(
-        name="symptom_onset_date",
-        column_type="sampler",
-        sampler_type="datetime",
-        params={"start": "2024-01-01", "end": "2024-12-31"},
+        dd.SamplerColumnConfig(
+            name="symptom_onset_date",
+            sampler_type=dd.SamplerType.DATETIME,
+            params=dd.DatetimeSamplerParams(start="2024-01-01", end="2024-12-31"),
+        )
     )
 
     config_builder.add_column(
-        name="date_of_visit",
-        column_type="sampler",
-        sampler_type="timedelta",
-        params={"dt_min": 1, "dt_max": 30, "reference_column_name": "symptom_onset_date"},
+        dd.SamplerColumnConfig(
+            name="date_of_visit",
+            sampler_type=dd.SamplerType.TIMEDELTA,
+            params=dd.TimeDeltaSamplerParams(
+                dt_min=1,
+                dt_max=30,
+                reference_column_name="symptom_onset_date",
+            ),
+        )
     )
 
     config_builder.add_column(
-        name="physician",
-        column_type="expression",
-        expr="Dr. {{ doctor_sampler.last_name }}",
+        dd.ExpressionColumnConfig(
+            name="physician",
+            expr="Dr. {{ doctor_sampler.last_name }}",
+        )
     )
 
     config_builder.add_column(
-        name="physician_notes",
-        column_type="llm-text",
-        prompt="""\
+        dd.LLMTextColumnConfig(
+            name="physician_notes",
+            prompt="""\
     You are a primary-care physician who just had an appointment with {{ first_name }} {{ last_name }},
     who has been struggling with symptoms from {{ diagnosis }} since {{ symptom_onset_date }}.
     The date of today's visit is {{ date_of_visit }}.
@@ -156,7 +173,8 @@ def _build_config_manually() -> dd.DataDesignerConfigBuilder:
     Format the notes as a busy doctor might.
     Respond with only the notes, no other text.
     """,
-        model_alias=model_alias,
+            model_alias=model_alias,
+        )
     )
 
     return config_builder
@@ -165,6 +183,19 @@ def _build_config_manually() -> dd.DataDesignerConfigBuilder:
 def main() -> None:
     """Main function to run the synthetic data generation pipeline."""
     args = parse_args()
+
+    # Validate seed dataset path is a directory (reader uses path + "/*.jsonl")
+    if args.seed_dataset_path is not None:
+        seed_path = Path(args.seed_dataset_path)
+        if not seed_path.exists():
+            print(f"Error: Seed dataset path does not exist: {args.seed_dataset_path}", file=sys.stderr)
+            sys.exit(1)
+        if not seed_path.is_dir():
+            print(
+                f"Error: Seed dataset path must be a directory containing JSONL files: {args.seed_dataset_path}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     # Create pipeline
     pipeline = Pipeline(name="ndd_data_generation", description="Generate synthetic text data using Nemo Data Designer")

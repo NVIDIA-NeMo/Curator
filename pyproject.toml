@@ -54,6 +54,7 @@ dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
     "cosmos-xenna==0.1.2",
+    "data-designer==0.4.0",
     "fsspec",
     "hydra-core",
     "jieba==0.42.1",
