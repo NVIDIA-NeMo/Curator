@@ -166,7 +166,7 @@ all = [
 [dependency-groups]
 build = ["setuptools", "torch<=2.9.1"]
 dev = ["jupyter"]
-linting = ["pre-commit", "ruff==0.11.4"]
+linting = ["pre-commit", "ruff==0.14.10"]
 test = [
     "coverage",
     "debugpy",
