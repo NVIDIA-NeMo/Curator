@@ -29,3 +29,7 @@ For more information about the classifiers, refer to our [Distributed Data Class
 | `QualityClassifier` | [quality-classifier-deberta](https://huggingface.co/nvidia/quality-classifier-deberta) |
 
 </div>
+
+## Bring Your Own Classifier
+
+Advanced users may want to integrate their own Hugging Face classifier(s) into NeMo Curator. Broadly, this requires creating a `CompositeStage` consisting of a CPU-based tokenizer stage and a GPU-based model inference stage. Refer to the [Text Classifiers README](https://github.com/NVIDIA-NeMo/Curator/tree/main/nemo_curator/stages/text/classifiers#text-classifiers) for details about how to do this.
