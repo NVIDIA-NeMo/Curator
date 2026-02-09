@@ -71,7 +71,8 @@ COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
 # Install Curator
-RUN uv sync --link-mode copy --locked --extra all --all-groups --no-cache
+RUN uv sync --link-mode copy --locked --extra all --all-groups --no-cache && \
+    find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} +
 
 COPY . /opt/Curator
 
