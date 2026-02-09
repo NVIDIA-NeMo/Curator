@@ -30,7 +30,7 @@ class SlackMessageBase:
     """Base class for Slack messages."""
 
     # Constant for creating blank rows in Slack rich text tables
-    _BLANK_ROW: ClassVar[list[dict[str, Any]]] = [
+    _TWO_COL_BLANK_ROW: ClassVar[list[dict[str, Any]]] = [
         {
             "type": "rich_text",
             "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}],
@@ -251,14 +251,14 @@ class SlackParentMessage(SlackMessageBase):
         indent = "-    "  # start with a dash since leading whitespace is stripped
         for entry_name, status in self.entries.items():
             rows.append(self._get_two_column_row_bold(entry_name, status))
-        rows.append(self._BLANK_ROW)
+        rows.append(self._TWO_COL_BLANK_ROW)
         rows.append(self._get_two_column_row_bold("ENVIRONMENT", " "))
         for var, val in self.env_dict.items():
             if var in {"pip_freeze_txt", "conda_explicit_txt"}:
                 continue
             (fvar, fval) = self._get_formatted_metric_value_tuple(var, val)
             rows.append(self._get_two_column_row(f"{indent}{fvar}", fval))
-        rows.append(self._BLANK_ROW)
+        rows.append(self._TWO_COL_BLANK_ROW)
 
         blocks.append(
             {
