@@ -56,7 +56,7 @@ stages:
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.fasttext.FastTextQualityFilter
+      _target_: nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextQualityFilter
       model_path: ${fasttext_quality_model_path}
       # The label used for high-quality documents
       label: "__label__hq"
