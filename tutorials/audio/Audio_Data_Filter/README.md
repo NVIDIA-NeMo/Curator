@@ -8,12 +8,41 @@ The pipeline uses `AudioDataFilterStage` which maintains **consistent timestamp 
 
 | Feature | Description |
 |---------|-------------|
+| **Multi-Format Support** | Supports WAV, MP3, FLAC, OGG, M4A, AAC, WMA, OPUS, WebM |
 | **Timestamp Mapping** | All segments maintain original file positions via `TimestampTracker` |
 | **VAD Segmentation** | Voice Activity Detection to extract speech segments |
 | **NISQA Filter** | Non-Intrusive Speech Quality Assessment filtering |
 | **SIGMOS Filter** | Signal MOS quality filtering |
 | **Band Filter** | Bandwidth classification (full-band vs narrow-band) |
 | **Speaker Separation** | NeMo-based speaker diarization |
+
+## Supported Audio Formats
+
+The pipeline supports multiple audio input formats:
+
+| Format | Extension | Notes |
+|--------|-----------|-------|
+| WAV | `.wav` | Native support, no ffmpeg required |
+| MP3 | `.mp3` | Requires ffmpeg |
+| FLAC | `.flac` | Lossless, requires ffmpeg |
+| OGG | `.ogg` | Vorbis codec, requires ffmpeg |
+| M4A | `.m4a` | AAC codec, requires ffmpeg |
+| AAC | `.aac` | Requires ffmpeg |
+| WMA | `.wma` | Windows Media, requires ffmpeg |
+| OPUS | `.opus` | Requires ffmpeg |
+| WebM | `.webm` | Requires ffmpeg |
+
+**Note:** For non-WAV formats, ensure `ffmpeg` is installed:
+```bash
+# Ubuntu/Debian
+apt-get install ffmpeg
+
+# macOS
+brew install ffmpeg
+
+# Conda
+conda install -c conda-forge ffmpeg
+```
 
 ## Timestamp Mapping
 
@@ -180,7 +209,7 @@ export RAY_TMPDIR=/tmp
 
 | Argument | Description |
 |----------|-------------|
-| `--raw_data_dir` | Input directory containing .wav audio files |
+| `--raw_data_dir` | Input directory containing audio files (supports WAV, MP3, FLAC, OGG, M4A, etc.) |
 
 ### Optional
 
@@ -194,6 +223,13 @@ export RAY_TMPDIR=/tmp
 | `--recursive` | `false` | Search input directory recursively |
 | `--clean` | `false` | Clean output directory before processing |
 | `--verbose` | `false` | Enable DEBUG level logging (via loguru) |
+
+### Audio Format Settings
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--input-formats` | all | Audio formats to process (e.g., `wav mp3 flac`) |
+| `--output-format` | `wav` | Output format for extracted segments (`wav`, `mp3`, `flac`, `ogg`, `m4a`) |
 
 > **Note**: `--gpus` and `--cpus` are passed to `AudioDataFilterConfig` which propagates resources to all sub-stages.
 
@@ -235,6 +271,11 @@ Key settings in `pipeline.yaml`:
 # Input/Output
 raw_data_dir: ???  # Required - set via command line
 output_dir: ${raw_data_dir}/result
+
+# Audio format settings
+# Set to null to use all supported formats, or specify a list
+input_formats: null  # e.g., [".wav", ".mp3", ".flac"]
+output_format: wav   # Output format for extracted segments
 
 # Audio processing
 sample_rate: 48000
@@ -462,6 +503,7 @@ The extraction script:
 python extract_segments.py \
     --manifest /path/to/result/manifest.jsonl \
     --output-dir /path/to/extracted_segments \
+    --output-format wav \
     --verbose
 ```
 
@@ -471,6 +513,7 @@ python extract_segments.py \
 |----------|-------|----------|-------------|
 | `--manifest` | `-m` | Yes | Path to manifest.jsonl file from pipeline output |
 | `--output-dir` | `-o` | Yes | Directory to save extracted audio segments |
+| `--output-format` | `-f` | No | Output audio format: `wav`, `mp3`, `flac`, `ogg`, `m4a` (default: wav) |
 | `--verbose` | `-v` | No | Enable verbose logging with DEBUG level |
 
 ### Output File Naming Convention
@@ -478,20 +521,30 @@ python extract_segments.py \
 Extracted segments are named using the pattern:
 
 ```
-{original_filename}_speaker_{X}_segment_{YYY}.wav
+{original_filename}_speaker_{X}_segment_{YYY}.{format}
 ```
 
 Where:
 - `{original_filename}`: Original audio file name (without extension)
 - `{X}`: Speaker ID number (0, 1, 2, etc.)
 - `{YYY}`: Zero-padded segment number (000, 001, 002, etc.)
+- `{format}`: Output format (wav, mp3, flac, ogg, m4a)
 
-**Example output files:**
+**Example output files (default WAV format):**
 ```
 audio_001_speaker_0_segment_000.wav
 audio_001_speaker_0_segment_001.wav
 audio_001_speaker_1_segment_000.wav
 audio_001_speaker_1_segment_001.wav
+```
+
+**Example with FLAC output format:**
+```bash
+python extract_segments.py --manifest manifest.jsonl --output-dir out/ --output-format flac
+```
+```
+audio_001_speaker_0_segment_000.flac
+audio_001_speaker_0_segment_001.flac
 ```
 
 ### Output Structure

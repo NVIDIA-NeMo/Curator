@@ -53,8 +53,11 @@ def _load_audio_as_pydub(audio_path: str) -> AudioSegment:
     Load audio file as PyDub AudioSegment.
     
     Supports standalone usage of stages without requiring previous stages.
+    Supports multiple audio formats: wav, mp3, flac, ogg, m4a, aac, wma, opus, webm.
+    
+    Note: Non-wav formats require ffmpeg to be installed on the system.
     """
-    return AudioSegment.from_wav(audio_path)
+    return AudioSegment.from_file(audio_path)
 
 
 def _load_audio_as_tensor(audio_path: str):

@@ -34,14 +34,18 @@ class NISQAConfig:
     
     Resource Allocation:
         cpus: Number of CPU cores for parallel processing
-        gpus: Number of GPUs (0.0-1.0 for fractional)
+        gpus: Number of GPUs for parallel segment processing
         
-        When cpus > 1 and gpus == 0: Uses CPU parallel processing
-        When gpus > 0: Uses GPU for NISQA model inference
+        Processing Modes:
+        - gpus == 0, cpus > 1: CPU parallel processing (ThreadPoolExecutor)
+        - gpus > 0 and gpus < 1: Single GPU, sequential processing
+        - gpus >= 1: Single GPU, sequential processing
+        - gpus >= 2: Multi-GPU parallel processing (segments distributed across GPUs)
     
     Attributes:
         cpus: CPU cores for parallel processing (default: 1.0)
         gpus: GPU allocation for model inference (default: 0.3)
+              Set to N (integer >= 2) for multi-GPU parallel processing
         model_path: Path to NISQA model weights
         mos_threshold: Minimum MOS score (None to disable)
         noi_threshold: Minimum noisiness score (None to disable)
@@ -50,8 +54,11 @@ class NISQAConfig:
         loud_threshold: Minimum loudness score (None to disable)
     
     Example:
-        # GPU processing (default)
+        # Single GPU processing (default)
         config = NISQAConfig(mos_threshold=4.5, noi_threshold=4.3)
+        
+        # Multi-GPU parallel processing (8 GPUs)
+        config = NISQAConfig(gpus=8.0, mos_threshold=4.5)
         
         # CPU parallel processing with 4 workers
         config = NISQAConfig(cpus=4.0, gpus=0.0, mos_threshold=4.0)

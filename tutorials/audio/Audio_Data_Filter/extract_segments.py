@@ -6,10 +6,14 @@
 Segment Extraction Script
 
 Reads a manifest.jsonl file and extracts audio segments from original files.
-Each segment is saved with naming convention: {original_filename}_speaker_{x}_segment_{y}.wav
+Each segment is saved with naming convention: {original_filename}_speaker_{x}_segment_{y}.{format}
+
+Supports multiple input formats: wav, mp3, flac, ogg, m4a, aac, wma, opus, webm
+Supports configurable output format.
 
 Usage:
     python extract_segments.py --manifest manifest.jsonl --output-dir extracted_segments/
+    python extract_segments.py --manifest manifest.jsonl --output-dir out/ --output-format flac
 """
 
 import argparse
@@ -20,6 +24,9 @@ from pathlib import Path
 
 from loguru import logger
 from pydub import AudioSegment
+
+# Default output format
+DEFAULT_OUTPUT_FORMAT = "wav"
 
 
 def load_manifest(manifest_path: str) -> list:
@@ -38,13 +45,16 @@ def load_manifest(manifest_path: str) -> list:
     return segments
 
 
-def extract_segments(manifest_path: str, output_dir: str):
+def extract_segments(manifest_path: str, output_dir: str, output_format: str = DEFAULT_OUTPUT_FORMAT):
     """
     Extract segments from original audio files based on manifest.
     
     Args:
         manifest_path: Path to manifest.jsonl
         output_dir: Directory to save extracted segments
+        output_format: Output audio format (wav, mp3, flac, ogg, m4a). Default: wav
+    
+    Note: Non-wav output formats require ffmpeg to be installed on the system.
     """
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
@@ -111,17 +121,17 @@ def extract_segments(manifest_path: str, output_dir: str):
             speaker_segment_counts[speaker_id] += 1
             
             # Create output filename
-            # Format: originalfilename_speaker_0_segment_000.wav
+            # Format: originalfilename_speaker_0_segment_000.{format}
             speaker_num = speaker_id.replace('speaker_', '') if 'speaker_' in speaker_id else speaker_id
-            output_filename = f"{original_name}_speaker_{speaker_num}_segment_{segment_num:03d}.wav"
+            output_filename = f"{original_name}_speaker_{speaker_num}_segment_{segment_num:03d}.{output_format}"
             output_path = os.path.join(output_dir, output_filename)
             
             # Extract segment
             try:
                 segment_audio = audio[start_ms:end_ms]
                 
-                # Export segment
-                segment_audio.export(output_path, format="wav")
+                # Export segment with configurable format
+                segment_audio.export(output_path, format=output_format)
                 
                 total_extracted += 1
                 total_duration_sec += duration_sec
@@ -176,6 +186,13 @@ def main():
         help="Output directory for extracted segments"
     )
     parser.add_argument(
+        "--output-format", "-f",
+        type=str,
+        default=DEFAULT_OUTPUT_FORMAT,
+        choices=["wav", "mp3", "flac", "ogg", "m4a"],
+        help="Output audio format (default: wav). Note: non-wav formats require ffmpeg."
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose logging"
@@ -194,9 +211,11 @@ def main():
         return 1
     
     # Extract segments
+    logger.info(f"Output format: {args.output_format}")
     extract_segments(
         manifest_path=args.manifest,
-        output_dir=args.output_dir
+        output_dir=args.output_dir,
+        output_format=args.output_format
     )
     
     return 0

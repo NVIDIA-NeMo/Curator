@@ -54,6 +54,10 @@ from nemo_curator.stages.audio import (
     AudioDataFilterStage,
     AudioDataFilterConfig,
 )
+from nemo_curator.stages.audio.advance_pipelines.Audio_data_filter.config import (
+    SUPPORTED_AUDIO_FORMATS,
+    DEFAULT_OUTPUT_FORMAT,
+)
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
@@ -121,18 +125,51 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
     return pipeline
 
 
-def load_audio_tasks(input_dir: str, recursive: bool = False) -> list:
-    """Load audio files as AudioBatch tasks."""
-    if recursive:
-        audio_files = sorted(glob.glob(os.path.join(input_dir, "**", "*.wav"), recursive=True))
-    else:
-        audio_files = sorted(glob.glob(os.path.join(input_dir, "*.wav")))
+def load_audio_tasks(input_dir: str, recursive: bool = False, 
+                     formats: tuple = SUPPORTED_AUDIO_FORMATS) -> list:
+    """
+    Load audio files as AudioBatch tasks.
+    
+    Args:
+        input_dir: Directory containing audio files
+        recursive: Whether to search recursively in subdirectories
+        formats: Tuple of supported audio file extensions (e.g., (".wav", ".mp3", ".flac"))
+    
+    Returns:
+        List of AudioBatch tasks for processing
+    
+    Supported formats: wav, mp3, flac, ogg, m4a, aac, wma, opus, webm
+    Note: Non-wav formats require ffmpeg to be installed on the system.
+    """
+    audio_files = []
+    
+    for ext in formats:
+        # Ensure extension starts with a dot
+        ext = ext if ext.startswith('.') else f'.{ext}'
+        pattern = f"*{ext}"
+        
+        if recursive:
+            found = glob.glob(os.path.join(input_dir, "**", pattern), recursive=True)
+        else:
+            found = glob.glob(os.path.join(input_dir, pattern))
+        
+        audio_files.extend(found)
+    
+    # Remove duplicates and sort
+    audio_files = sorted(set(audio_files))
     
     if not audio_files:
-        logger.warning(f"No .wav files found in {input_dir}")
+        format_str = ", ".join(formats)
+        logger.warning(f"No audio files found in {input_dir} (searched for: {format_str})")
         return []
     
-    logger.info(f"Found {len(audio_files)} audio files")
+    # Log format breakdown
+    format_counts = {}
+    for f in audio_files:
+        ext = os.path.splitext(f)[1].lower()
+        format_counts[ext] = format_counts.get(ext, 0) + 1
+    format_summary = ", ".join(f"{ext}: {count}" for ext, count in sorted(format_counts.items()))
+    logger.info(f"Found {len(audio_files)} audio files ({format_summary})")
     
     tasks = []
     for i, audio_file in enumerate(audio_files):
@@ -213,6 +250,22 @@ Examples:
     parser.add_argument("--clean", action="store_true", help="Clean output directory")
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
     
+    # Audio format settings
+    parser.add_argument(
+        "--input-formats", 
+        type=str, 
+        nargs="+",
+        default=None,
+        help="Audio formats to process (e.g., wav mp3 flac). Default: all supported formats"
+    )
+    parser.add_argument(
+        "--output-format",
+        type=str,
+        default=DEFAULT_OUTPUT_FORMAT,
+        choices=["wav", "mp3", "flac", "ogg", "m4a"],
+        help="Output format for extracted segments (default: wav)"
+    )
+    
     # VAD settings
     parser.add_argument("--enable-vad", action="store_true", help="Enable VAD segmentation")
     parser.add_argument("--vad-min-duration", type=float, default=2.0, help="Min VAD segment (sec)")
@@ -288,8 +341,19 @@ Examples:
     pipeline = create_pipeline(args)
     logger.info(pipeline.describe())
     
+    # Determine input formats
+    if args.input_formats:
+        # Convert user input to tuple of extensions with dots
+        input_formats = tuple(
+            f".{fmt.lstrip('.')}" for fmt in args.input_formats
+        )
+        logger.info(f"Input formats: {', '.join(input_formats)}")
+    else:
+        input_formats = SUPPORTED_AUDIO_FORMATS
+        logger.info(f"Input formats: all supported ({', '.join(input_formats)})")
+    
     # Load input tasks
-    tasks = load_audio_tasks(args.raw_data_dir, args.recursive)
+    tasks = load_audio_tasks(args.raw_data_dir, args.recursive, input_formats)
     if not tasks:
         logger.error("No audio files to process")
         sys.exit(1)

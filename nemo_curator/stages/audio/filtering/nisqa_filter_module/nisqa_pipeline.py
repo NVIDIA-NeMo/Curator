@@ -11,6 +11,7 @@ import torch
 import pandas as pd
 import time
 import copy
+import threading
 from pathlib import Path
 from loguru import logger
 
@@ -19,7 +20,23 @@ from loguru import logger
 # We assume the third_party directory structure is preserved relative to this file
 
 # Model cache for storing initialized models by GPU ID
+# Thread-safe access via _MODEL_CACHE_LOCK
 _MODEL_CACHE = {}
+_MODEL_CACHE_LOCK = threading.Lock()
+
+# Per-model prediction locks to ensure thread-safe inference
+# Key: gpu_id, Value: threading.Lock()
+_PREDICTION_LOCKS = {}
+_PREDICTION_LOCKS_LOCK = threading.Lock()
+
+
+def _get_prediction_lock(gpu_id: int) -> threading.Lock:
+    """Get or create a prediction lock for a specific GPU."""
+    global _PREDICTION_LOCKS, _PREDICTION_LOCKS_LOCK
+    with _PREDICTION_LOCKS_LOCK:
+        if gpu_id not in _PREDICTION_LOCKS:
+            _PREDICTION_LOCKS[gpu_id] = threading.Lock()
+        return _PREDICTION_LOCKS[gpu_id]
 
 
 def build_nisqa_model(config=None, nisqa_base_path=None):
@@ -151,6 +168,7 @@ def get_wav_files_from_path(input_path):
 class NISQAPipeline:
     """
     A class for predicting MOS scores for audio files that can be used in pipelines.
+    Thread-safe for multi-GPU parallel processing.
     """
     def __init__(self, gpu_id=0, config=None, base_path=None):
         """
@@ -165,20 +183,28 @@ class NISQAPipeline:
         self.config = config
         self.base_path = base_path or os.path.dirname(os.path.abspath(__file__))
         
-        # Set device
+        # Set device for this thread
         if torch.cuda.is_available():
             torch.cuda.set_device(self.gpu_id)
         
-        # Initialize model or get from cache
-        global _MODEL_CACHE
-        if self.gpu_id not in _MODEL_CACHE:
-            _MODEL_CACHE[self.gpu_id] = build_nisqa_model(config, self.base_path)
+        # Initialize model or get from cache (thread-safe)
+        global _MODEL_CACHE, _MODEL_CACHE_LOCK
         
-        self.model = _MODEL_CACHE[self.gpu_id]
+        with _MODEL_CACHE_LOCK:
+            if self.gpu_id not in _MODEL_CACHE:
+                # Ensure we're on the correct GPU before loading
+                if torch.cuda.is_available():
+                    torch.cuda.set_device(self.gpu_id)
+                _MODEL_CACHE[self.gpu_id] = build_nisqa_model(config, self.base_path)
+            
+            self.model = _MODEL_CACHE[self.gpu_id]
     
     def predict_file(self, wav_file_path):
         """
         Predict NISQA scores for a single WAV file.
+        
+        Thread-safe: Uses per-GPU prediction locks to ensure the underlying
+        model is not accessed concurrently by multiple threads.
         
         Args:
             wav_file_path (str): Path to WAV file
@@ -193,12 +219,19 @@ class NISQAPipeline:
         if not wav_file_path.lower().endswith('.wav'):
             raise ValueError(f"File is not a WAV file: {wav_file_path}")
         
+        # Ensure we're on the correct GPU for this prediction
+        if torch.cuda.is_available():
+            torch.cuda.set_device(self.gpu_id)
+        
         # Get directory and filename
         dir_name = os.path.dirname(wav_file_path)
         file_name = os.path.basename(wav_file_path)
         
-        # Make prediction
-        df = self.model.predict_v3(data_dir=dir_name, file_list=[file_name])
+        # Use prediction lock to ensure thread-safe access to the model
+        # The NISQA model (predict_v3) is NOT thread-safe
+        prediction_lock = _get_prediction_lock(self.gpu_id)
+        with prediction_lock:
+            df = self.model.predict_v3(data_dir=dir_name, file_list=[file_name])
         
         if df.empty:
             raise RuntimeError(f"Failed to predict MOS for {wav_file_path}")

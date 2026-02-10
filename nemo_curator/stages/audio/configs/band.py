@@ -27,16 +27,24 @@ class BandFilterConfig:
     spectral characteristics. Useful for filtering low-quality
     telephone or compressed audio.
     
+    Note: The band classifier uses a scikit-learn model (RandomForest) which
+    runs on CPU. However, feature extraction uses PyTorch and can benefit
+    from GPU acceleration and multi-GPU parallelization.
+    
     Resource Allocation:
         cpus: Number of CPU cores for parallel processing
-        gpus: Number of GPUs (0.0-1.0 for fractional)
+        gpus: Number of GPUs for parallel feature extraction
         
-        When cpus > 1 and gpus == 0: Uses CPU parallel processing
-        When gpus > 0: Uses GPU for feature extraction
+        Processing Modes:
+        - gpus == 0, cpus > 1: CPU parallel processing (ThreadPoolExecutor)
+        - gpus > 0 and gpus < 1: Single GPU for feature extraction
+        - gpus >= 1: Single GPU for feature extraction
+        - gpus >= 2: Multi-GPU parallel processing (segments distributed across GPUs)
     
     Attributes:
         cpus: CPU cores for parallel processing (default: 1.0)
         gpus: GPU allocation (default: 0.0, CPU-only by default)
+              Set to N (integer >= 2) for multi-GPU parallel processing
         model_path: Path to band classifier model (.joblib)
         feature_group: Feature extraction group
         n_workers: Number of parallel workers for feature extraction
@@ -46,6 +54,9 @@ class BandFilterConfig:
     Example:
         # CPU processing (default)
         config = BandFilterConfig(band_value="full_band")
+        
+        # Multi-GPU parallel processing (8 GPUs)
+        config = BandFilterConfig(gpus=8.0, band_value="full_band")
         
         # CPU parallel processing with 4 workers
         config = BandFilterConfig(cpus=4.0, band_value="full_band")

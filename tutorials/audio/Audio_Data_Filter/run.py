@@ -35,6 +35,7 @@ Usage:
 import glob
 import json
 import os
+from typing import List, Tuple
 
 import hydra
 from loguru import logger
@@ -42,6 +43,9 @@ from omegaconf import DictConfig, OmegaConf
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.advance_pipelines.Audio_data_filter.config import (
+    SUPPORTED_AUDIO_FORMATS,
+)
 from nemo_curator.tasks import AudioBatch
 
 
@@ -87,28 +91,59 @@ def save_results(results: list, output_dir: str) -> str:
     return manifest_path
 
 
-def load_audio_tasks(raw_data_dir: str) -> list[AudioBatch]:
+def load_audio_tasks(
+    raw_data_dir: str, 
+    formats: Tuple[str, ...] = SUPPORTED_AUDIO_FORMATS,
+    recursive: bool = True
+) -> list[AudioBatch]:
     """
     Load audio files from directory and create AudioBatch tasks.
     
     Args:
-        raw_data_dir: Directory containing .wav audio files
+        raw_data_dir: Directory containing audio files
+        formats: Tuple of supported audio file extensions (e.g., (".wav", ".mp3", ".flac"))
+        recursive: Whether to search recursively in subdirectories
         
     Returns:
         List of AudioBatch tasks with audio_filepath set
+    
+    Supported formats: wav, mp3, flac, ogg, m4a, aac, wma, opus, webm
+    Note: Non-wav formats require ffmpeg to be installed on the system.
     """
-    # Find all .wav files
-    audio_files = sorted(glob.glob(os.path.join(raw_data_dir, "*.wav")))
+    audio_files = []
     
-    # Also search recursively
-    if not audio_files:
-        audio_files = sorted(glob.glob(os.path.join(raw_data_dir, "**", "*.wav"), recursive=True))
+    # Search for all supported formats
+    for ext in formats:
+        ext = ext if ext.startswith('.') else f'.{ext}'
+        pattern = f"*{ext}"
+        
+        # First try non-recursive
+        found = glob.glob(os.path.join(raw_data_dir, pattern))
+        audio_files.extend(found)
+        
+        # If recursive enabled and no files found in root, search recursively
+        if recursive:
+            found_recursive = glob.glob(os.path.join(raw_data_dir, "**", pattern), recursive=True)
+            # Add only files not already found
+            for f in found_recursive:
+                if f not in audio_files:
+                    audio_files.append(f)
+    
+    # Remove duplicates and sort
+    audio_files = sorted(set(audio_files))
     
     if not audio_files:
-        logger.warning(f"No .wav files found in {raw_data_dir}")
+        format_str = ", ".join(formats)
+        logger.warning(f"No audio files found in {raw_data_dir} (searched for: {format_str})")
         return []
     
-    logger.info(f"Found {len(audio_files)} audio files in {raw_data_dir}")
+    # Log format breakdown
+    format_counts = {}
+    for f in audio_files:
+        ext = os.path.splitext(f)[1].lower()
+        format_counts[ext] = format_counts.get(ext, 0) + 1
+    format_summary = ", ".join(f"{ext}: {count}" for ext, count in sorted(format_counts.items()))
+    logger.info(f"Found {len(audio_files)} audio files in {raw_data_dir} ({format_summary})")
     
     tasks = []
     for i, audio_file in enumerate(audio_files):
@@ -153,7 +188,17 @@ def main(cfg: DictConfig) -> None:
         logger.error(f"raw_data_dir does not exist: {raw_data_dir}")
         return
     
-    initial_tasks = load_audio_tasks(raw_data_dir)
+    # Get input formats from config (or use defaults)
+    input_formats = cfg.get("input_formats", None)
+    if input_formats:
+        # Convert from OmegaConf list to tuple
+        input_formats = tuple(input_formats)
+        logger.info(f"Input formats: {', '.join(input_formats)}")
+    else:
+        input_formats = SUPPORTED_AUDIO_FORMATS
+        logger.info(f"Input formats: all supported ({', '.join(input_formats)})")
+    
+    initial_tasks = load_audio_tasks(raw_data_dir, formats=input_formats)
     if not initial_tasks:
         logger.error("No audio files to process!")
         return

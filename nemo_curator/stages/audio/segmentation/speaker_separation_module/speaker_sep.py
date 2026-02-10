@@ -475,7 +475,8 @@ class SpeakerSeparator:
         # Check if input is a path or waveform
         if isinstance(audio_path_or_waveform, str):
             # Load the original audio file from path
-            original_audio = AudioSegment.from_wav(audio_path_or_waveform)
+            # Using from_file() to support multiple formats (wav, mp3, flac, ogg, etc.)
+            original_audio = AudioSegment.from_file(audio_path_or_waveform)
             # Process the audio to get speaker segments
             speaker_segments = self.process_audio(
                 audio_path_or_waveform, 
@@ -495,7 +496,8 @@ class SpeakerSeparator:
                 # Use soundfile instead of torchaudio to avoid FFmpeg dependency
                 wav = audio_path_or_waveform.squeeze(0) if audio_path_or_waveform.dim() > 1 else audio_path_or_waveform
                 sf.write(temp_audio_file.name, wav.cpu().numpy(), sample_rate)
-                original_audio = AudioSegment.from_wav(temp_audio_file.name)
+                # Using from_file() for consistency, though temp file is always wav
+                original_audio = AudioSegment.from_file(temp_audio_file.name)
                 os.unlink(temp_audio_file.name)  # Clean up temp file
             
             # Process the audio to get speaker segments

@@ -53,6 +53,13 @@ output_dir: ${raw_data_dir}/result
 cpus: 4.0
 gpus: 1.0
 
+# Audio format settings
+# Supported input formats: wav, mp3, flac, ogg, m4a, aac, wma, opus, webm
+# Note: Non-wav formats require ffmpeg to be installed
+# Set to null to use all supported formats, or specify a list like: [".wav", ".mp3", ".flac"]
+input_formats: null
+output_format: wav  # Output format for extracted segments
+
 # Audio processing settings
 sample_rate: 48000
 
@@ -91,6 +98,7 @@ processors:
       gpus: ${gpus}
       # General settings
       sample_rate: ${sample_rate}
+      output_format: ${output_format}
       # VAD settings
       enable_vad: ${enable_vad}
       vad_min_duration_sec: ${vad_min_duration_sec}

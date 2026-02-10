@@ -47,6 +47,81 @@ from nemo_curator.tasks import AudioBatch
 from ..configs import BandFilterConfig
 
 
+def _band_process_on_gpu(
+    item_data: Tuple[Dict[str, Any], str, str, str, str, int, int],
+    gpu_id: int,
+) -> Optional[Dict[str, Any]]:
+    """
+    Process a single item on a specific GPU for feature extraction.
+    
+    This function is designed to be called in a separate thread
+    with a specific GPU assignment for feature extraction parallelization.
+    """
+    item, task_id, model_path, feature_group, band_value, n_workers, cache_size = item_data
+    
+    try:
+        # Set GPU for this thread (for feature extraction)
+        if torch.cuda.is_available():
+            torch.cuda.set_device(gpu_id)
+        
+        # Import predictor
+        from nemo_curator.stages.audio.filtering.band_filter_module.predict import BandPredictor
+        
+        waveform = item.get('waveform')
+        sample_rate = item.get('sample_rate', 48000)
+        
+        # Auto-load from file if waveform not provided
+        if waveform is None:
+            audio_filepath = item.get('audio_filepath')
+            if audio_filepath and os.path.exists(audio_filepath):
+                data, sample_rate = sf.read(audio_filepath, dtype='float32')
+                waveform = torch.from_numpy(data)
+                if waveform.dim() == 1:
+                    waveform = waveform.unsqueeze(0)
+                else:
+                    waveform = waveform.T
+                if waveform.shape[0] > 1:
+                    waveform = waveform.mean(dim=0, keepdim=True)
+                item['waveform'] = waveform
+                item['sample_rate'] = sample_rate
+            else:
+                return None
+        
+        # Create predictor for this GPU
+        predictor = BandPredictor(
+            model_path=model_path,
+            feature_group=feature_group,
+            n_workers=1,  # Single worker within GPU thread
+            feature_cache_size=cache_size,
+            use_gpu=True,
+        )
+        
+        # Predict
+        audio_data = [(waveform, sample_rate)]
+        predictions = predictor.predict_audio_batch(audio_data, use_parallel=False)
+        
+        if predictions and len(predictions) > 0:
+            prediction = predictions[0]
+            
+            if isinstance(prediction, str) and prediction.startswith("Error"):
+                return None
+            
+            # Check if prediction matches the desired band_value
+            is_pass = prediction == band_value
+            
+            if is_pass:
+                item['band_prediction'] = prediction
+                return item
+            else:
+                return None
+        else:
+            return None
+            
+    except Exception as e:
+        logger.error(f"[{task_id}] Error in multi-GPU Band processing on GPU {gpu_id}: {e}")
+        return None
+
+
 def _load_audio_file(audio_path: str) -> Tuple[torch.Tensor, int]:
     """
     Load audio file and return waveform tensor and sample rate.
@@ -255,6 +330,54 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             traceback.print_exc()
             return None
 
+    def _process_multi_gpu(self, task: AudioBatch, num_gpus: int) -> List[Dict[str, Any]]:
+        """
+        Process items in parallel across multiple GPUs.
+        
+        Args:
+            task: AudioBatch with multiple items
+            num_gpus: Number of GPUs to use
+            
+        Returns:
+            List of processed items that passed the band filter
+        """
+        total_items = len(task.data)
+        model_path = self._resolve_model_path()
+        
+        # Prepare item data tuples for the worker function
+        item_data_list = [
+            (item, task.task_id, model_path, self.feature_group, 
+             self.band_value, self.n_workers, self.feature_cache_size)
+            for item in task.data
+        ]
+        
+        # Get available GPU IDs
+        available_gpus = list(range(num_gpus))
+        
+        results = []
+        
+        # Use ThreadPoolExecutor with GPU round-robin assignment
+        max_workers = min(num_gpus, total_items)
+        
+        logger.info(f"[BandFilter] Using multi-GPU parallel processing: {max_workers} GPUs for {total_items} items")
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for i, item_data in enumerate(item_data_list):
+                gpu_id = available_gpus[i % num_gpus]  # Round-robin GPU assignment
+                future = executor.submit(_band_process_on_gpu, item_data, gpu_id)
+                futures.append(future)
+            
+            for future in futures:
+                try:
+                    result = future.result()
+                    if result is not None:
+                        results.append(result)
+                except Exception as e:
+                    logger.error(f"[{task.task_id}] Error in multi-GPU Band processing: {e}")
+        
+        return results
+
     def process(self, task: AudioBatch) -> Optional[AudioBatch]:
         """
         Filter audio based on bandwidth classification.
@@ -262,7 +385,8 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         Automatically uses parallel processing when:
         - Multiple items in task.data (> 1)
         - Resources specify cpus > 1 (CPU parallelism via ThreadPoolExecutor)
-        - Resources specify gpus > 0 (GPU is used for feature extraction)
+        - Resources specify gpus > 1 (Multi-GPU parallelism for feature extraction)
+        - Resources specify gpus > 0 and gpus <= 1 (Single GPU for feature extraction)
         
         The stage discovers its allocated resources via self._resources
         (set via .with_(resources=Resources(...))) and optimizes accordingly.
@@ -282,13 +406,28 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         total_items = len(task.data)
         
         # Determine processing strategy based on resources and item count
+        num_gpus = int(self._resources.gpus) if self._resources.gpus >= 1 else (1 if self._resources.gpus > 0 else 0)
+        
+        # Multi-GPU parallel processing
+        use_multi_gpu = (
+            total_items > 1 and
+            num_gpus > 1 and
+            torch.cuda.is_available() and
+            torch.cuda.device_count() >= num_gpus
+        )
+        
+        # CPU parallel processing (only when no GPU)
         use_cpu_parallel = (
             total_items > 1 and 
             self._resources.cpus > 1 and 
-            self._resources.gpus == 0  # CPU parallelism only when not using GPU
+            self._resources.gpus == 0
         )
         
-        if use_cpu_parallel:
+        if use_multi_gpu:
+            # Multi-GPU parallel processing
+            results = self._process_multi_gpu(task, num_gpus)
+            mode = f"multi-GPU ({num_gpus} GPUs)"
+        elif use_cpu_parallel:
             # CPU parallel processing using ThreadPoolExecutor
             max_workers = min(int(self._resources.cpus), total_items)
             logger.debug(f"[BandFilter] Using CPU parallel processing with {max_workers} workers for {total_items} items")
@@ -306,18 +445,19 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                             results.append(result)
                     except Exception as e:
                         logger.error(f"[{task.task_id}] Error in parallel Band processing: {e}")
+            mode = "CPU parallel"
         else:
-            # Sequential processing (default, or when GPU is used)
+            # Sequential processing (default, or single GPU)
             results = []
             for item in task.data:
                 result = self._process_single_item(item, task.task_id)
                 if result is not None:
                     results.append(result)
+            mode = "GPU" if self._resources.gpus > 0 else "sequential"
         
         passed_count = len(results)
         rejected_count = total_items - passed_count
         
-        mode = "CPU parallel" if use_cpu_parallel else ("GPU" if self._resources.gpus > 0 else "sequential")
         logger.info(f"[BandFilter] {task.task_id}: {passed_count}/{total_items} passed ({self.band_value}) [{mode}]")
         
         return AudioBatch(data=results, task_id=task.task_id, dataset_name=task.dataset_name)

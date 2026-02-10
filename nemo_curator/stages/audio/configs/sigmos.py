@@ -36,14 +36,18 @@ class SIGMOSConfig:
     
     Resource Allocation:
         cpus: Number of CPU cores for parallel processing
-        gpus: Number of GPUs (0.0-1.0 for fractional)
+        gpus: Number of GPUs for parallel segment processing
         
-        When cpus > 1 and gpus == 0: Uses CPU parallel processing
-        When gpus > 0: Uses GPU for SIGMOS model inference
+        Processing Modes:
+        - gpus == 0, cpus > 1: CPU parallel processing (ThreadPoolExecutor)
+        - gpus > 0 and gpus < 1: Single GPU, sequential processing
+        - gpus >= 1: Single GPU, sequential processing
+        - gpus >= 2: Multi-GPU parallel processing (segments distributed across GPUs)
     
     Attributes:
         cpus: CPU cores for parallel processing (default: 1.0)
         gpus: GPU allocation for model inference (default: 0.3)
+              Set to N (integer >= 2) for multi-GPU parallel processing
         model_path: Path to SIGMOS ONNX model
         noise_threshold: Minimum noise score (None to disable)
         ovrl_threshold: Minimum overall score (None to disable)
@@ -54,8 +58,11 @@ class SIGMOSConfig:
         reverb_threshold: Minimum reverb score (None to disable)
     
     Example:
-        # GPU processing (default)
+        # Single GPU processing (default)
         config = SIGMOSConfig(noise_threshold=4.0, ovrl_threshold=3.5)
+        
+        # Multi-GPU parallel processing (8 GPUs)
+        config = SIGMOSConfig(gpus=8.0, noise_threshold=4.0)
         
         # CPU parallel processing with 4 workers
         config = SIGMOSConfig(cpus=4.0, gpus=0.0, noise_threshold=4.0)

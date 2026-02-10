@@ -4,7 +4,24 @@
 """Configuration for Audio Data Filter Stage."""
 
 from dataclasses import dataclass, asdict
-from typing import Dict, Any, List, Literal, Optional
+from typing import Dict, Any, List, Literal, Optional, Tuple
+
+# Supported audio formats for input file discovery
+# These formats are supported by soundfile/pydub/ffmpeg
+SUPPORTED_AUDIO_FORMATS: Tuple[str, ...] = (
+    ".wav",    # Waveform Audio
+    ".mp3",    # MPEG Audio Layer III
+    ".flac",   # Free Lossless Audio Codec
+    ".ogg",    # Ogg Vorbis
+    ".m4a",    # MPEG-4 Audio
+    ".aac",    # Advanced Audio Coding
+    ".wma",    # Windows Media Audio
+    ".opus",   # Opus Audio
+    ".webm",   # WebM Audio
+)
+
+# Default output format for exported audio segments
+DEFAULT_OUTPUT_FORMAT: str = "wav"
 
 
 @dataclass
@@ -42,6 +59,12 @@ class AudioDataFilterConfig:
     # General settings
     sample_rate: int = 48000
     strict_sample_rate: bool = True
+    
+    # Audio format settings
+    # Supported input formats: wav, mp3, flac, ogg, m4a, aac, wma, opus, webm
+    # Note: Non-wav formats require ffmpeg to be installed
+    input_formats: Tuple[str, ...] = SUPPORTED_AUDIO_FORMATS
+    output_format: str = DEFAULT_OUTPUT_FORMAT  # Format for exported audio segments
     
     # VAD settings
     enable_vad: bool = True
