@@ -135,14 +135,13 @@ class TestBaseDataDesignerStage:
             assert len(seed_arg.df) == 1
             pd.testing.assert_frame_equal(seed_arg.df, input_df)
 
-        stage.data_designer.preview.assert_called_once_with(real_builder, num_records=1)
-
-        assert isinstance(out_batch, DocumentBatch)
-        assert out_batch.task_id == "task-1"
-        assert out_batch.dataset_name == "ds1"
-        assert out_batch.data is output_df
-        assert out_batch._metadata == {"k": "v"}
-        assert out_batch._stage_perf == []
+            stage.data_designer.preview.assert_called_once_with(real_builder, num_records=1)
+            assert isinstance(out_batch, DocumentBatch)
+            assert out_batch.task_id == "task-1"
+            assert out_batch.dataset_name == "ds1"
+            assert out_batch.data is output_df
+            assert out_batch._metadata == {"k": "v"}
+            assert out_batch._stage_perf == []
 
     def test_process_empty_batch(self) -> None:
         """process handles empty dataframe."""
@@ -154,7 +153,7 @@ class TestBaseDataDesignerStage:
         stage.data_designer.preview = MagicMock(
             return_value=PreviewResults(config_builder=real_builder, dataset=output_df)
         )
-w
+
         batch = DocumentBatch(data=pd.DataFrame(), dataset_name="ds", task_id="t1")
         out_batch = stage.process(batch)
 
@@ -224,18 +223,18 @@ w
             stage = DataDesignerStage(config_builder=config_builder, verbose=False)
             stage.setup()
 
-        batch = DocumentBatch(
-            data=pd.DataFrame([{"x": 1}]),
-            dataset_name="ds",
-            task_id="t1",
-        )
-        out_batch = stage.process(batch)
+            batch = DocumentBatch(
+                data=pd.DataFrame([{"x": 1}]),
+                dataset_name="ds",
+                task_id="t1",
+            )
+            out_batch = stage.process(batch)
 
-        assert isinstance(out_batch, DocumentBatch)
-        assert out_batch.task_id == "t1"
-        assert out_batch.data is not None
-        assert hasattr(stage, "_custom_metrics")
-        assert "ndd_running_time" in stage._custom_metrics
+            assert isinstance(out_batch, DocumentBatch)
+            assert out_batch.task_id == "t1"
+            assert out_batch.data is not None
+            assert hasattr(stage, "_custom_metrics")
+            assert "ndd_running_time" in stage._custom_metrics
 
 
 class TestBaseDataDesignerStageIntegration:
@@ -292,9 +291,9 @@ class TestBaseDataDesignerStageIntegration:
             )
             result = stage.process(batch)
 
-        assert isinstance(result, DocumentBatch)
-        assert result.task_id == "e2e-1"
-        assert result.dataset_name == "integration"
-        assert result.data is not None
-        assert hasattr(stage, "_custom_metrics")
-        assert "ndd_running_time" in stage._custom_metrics
+            assert isinstance(result, DocumentBatch)
+            assert result.task_id == "e2e-1"
+            assert result.dataset_name == "integration"
+            assert result.data is not None
+            assert hasattr(stage, "_custom_metrics")
+            assert "ndd_running_time" in stage._custom_metrics
