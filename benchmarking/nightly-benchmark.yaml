@@ -43,7 +43,7 @@ datasets:
     formats:
     - type: "mp4"
       path: "{datasets_path}/videos"
-  - name: "videos_model_weights"
+  - name: " "
     formats:
     - type: "files"
       path: "{datasets_path}/video_model_weights"
@@ -86,72 +86,72 @@ delete_scratch: true
 object_store_size: 536870912000  # 500GB
 
 entries:
-  - name: video_embedding
-    enabled: true
-    script: video_pipeline_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --output-path={session_entry_dir}/scratch/output
-      --executor=xenna
-      --video-dir={dataset:videos,mp4}
-      --video-limit=1000
-    timeout_s: 400
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
-    requirements:
-      # ensure the total number of documents processed is correct
-      - metric: num_clips_generated
-        exact_value: 1400
-      - metric: throughput_clips_per_sec
-        min_value: 4.0
+  # - name: video_embedding
+  #   enabled: true
+  #   script: video_pipeline_benchmark.py
+  #   args: >-
+  #     --benchmark-results-path={session_entry_dir}
+  #     --output-path={session_entry_dir}/scratch/output
+  #     --executor=xenna
+  #     --video-dir={dataset:videos,mp4}
+  #     --video-limit=1000
+  #   timeout_s: 400
+  #   ray:
+  #     num_cpus: 64
+  #     num_gpus: 4
+  #     enable_object_spilling: false
+  #   requirements:
+  #     # ensure the total number of documents processed is correct
+  #     - metric: num_clips_generated
+  #       exact_value: 1400
+  #     - metric: throughput_clips_per_sec
+  #       min_value: 4.0
 
-  - name: video_transcoding
-    enabled: true
-    script: video_pipeline_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --output-path={session_entry_dir}/scratch/output
-      --executor=xenna
-      --no-generate-embeddings
-      --video-dir={dataset:videos,mp4}
-      --video-limit=1000
-    timeout_s: 400
-    ray:
-      num_cpus: 64
-      num_gpus: 0
-      enable_object_spilling: false
-    requirements:
-      # ensure the total number of documents processed is correct
-      - metric: num_clips_generated
-        exact_value: 1400
-      - metric: throughput_clips_per_sec
-        min_value: 5.0
+  # - name: video_transcoding
+  #   enabled: true
+  #   script: video_pipeline_benchmark.py
+  #   args: >-
+  #     --benchmark-results-path={session_entry_dir}
+  #     --output-path={session_entry_dir}/scratch/output
+  #     --executor=xenna
+  #     --no-generate-embeddings
+  #     --video-dir={dataset:videos,mp4}
+  #     --video-limit=1000
+  #   timeout_s: 400
+  #   ray:
+  #     num_cpus: 64
+  #     num_gpus: 0
+  #     enable_object_spilling: false
+  #   requirements:
+  #     # ensure the total number of documents processed is correct
+  #     - metric: num_clips_generated
+  #       exact_value: 1400
+  #     - metric: throughput_clips_per_sec
+  #       min_value: 5.0
 
-  - name: video_captioning
-    enabled: true
-    script: video_pipeline_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --output-path={session_entry_dir}/scratch/output
-      --executor=xenna
-      --video-dir={dataset:videos,mp4}
-      --generate-captions
-      --no-generate-embeddings
-      --enhance-captions
-      --video-limit=256
-    timeout_s: 1800
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
-    requirements:
-      # ensure the total number of documents processed is correct
-      - metric: num_clips_generated
-        exact_value: 300 # TODO: update this value after benchmarking
-      - metric: throughput_clips_per_sec
-        min_value: 0.25
+  # - name: video_captioning
+  #   enabled: true
+  #   script: video_pipeline_benchmark.py
+  #   args: >-
+  #     --benchmark-results-path={session_entry_dir}
+  #     --output-path={session_entry_dir}/scratch/output
+  #     --executor=xenna
+  #     --video-dir={dataset:videos,mp4}
+  #     --generate-captions
+  #     --no-generate-embeddings
+  #     --enhance-captions
+  #     --video-limit=256
+  #   timeout_s: 1800
+  #   ray:
+  #     num_cpus: 64
+  #     num_gpus: 4
+  #     enable_object_spilling: false
+  #   requirements:
+  #     # ensure the total number of documents processed is correct
+  #     - metric: num_clips_generated
+  #       exact_value: 300 # TODO: update this value after benchmarking
+  #     - metric: throughput_clips_per_sec
+  #       min_value: 0.25
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings
     enabled: true
