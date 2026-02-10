@@ -18,7 +18,7 @@ import tarfile
 import requests
 from platformdirs import user_cache_dir
 
-from nemo_curator.stages.text.filters import DocumentFilter
+from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
 
 
 class HistogramFilter(DocumentFilter):

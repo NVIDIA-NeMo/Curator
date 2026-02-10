@@ -16,9 +16,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
 from nemo_curator.tasks import DocumentBatch
-
-from .doc_modifier import DocumentModifier
 
 
 @dataclass

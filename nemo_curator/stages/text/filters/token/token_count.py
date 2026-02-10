@@ -15,7 +15,7 @@
 import huggingface_hub
 from transformers import AutoTokenizer
 
-from nemo_curator.stages.text.filters import DocumentFilter
+from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
 
 
 class TokenCountFilter(DocumentFilter):
