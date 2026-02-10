@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .reformatter import UnicodeReformatter
+from .unicode_reformatter import UnicodeReformatter
 
 __all__ = [
     "UnicodeReformatter",
