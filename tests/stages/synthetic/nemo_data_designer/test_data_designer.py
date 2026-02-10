@@ -154,7 +154,7 @@ class TestBaseDataDesignerStage:
         stage.data_designer.preview = MagicMock(
             return_value=PreviewResults(config_builder=real_builder, dataset=output_df)
         )
-
+w
         batch = DocumentBatch(data=pd.DataFrame(), dataset_name="ds", task_id="t1")
         out_batch = stage.process(batch)
 
@@ -206,7 +206,7 @@ class TestBaseDataDesignerStage:
             name="mock_llm",
             endpoint=base_url,
             provider_type="openai",
-            api_key="sk-test",
+            api_key="sk-test",  # pragma: allowlist secret
         )
         designer = DataDesigner(model_providers=[mock_provider])
 

@@ -42,7 +42,6 @@ def parse_args() -> argparse.Namespace:
         "--seed-dataset-path",
         type=str,
         required=True,
-        default=None,
         help="Path to directory containing seed JSONL files",
     )
 
@@ -184,8 +183,6 @@ def _build_config_manually() -> dd.DataDesignerConfigBuilder:
 
 def _validate_seed_path(args: argparse.Namespace) -> None:
     """Validate seed dataset path is a directory; exit on error."""
-    if args.seed_dataset_path is None:
-        return
     seed_path = Path(args.seed_dataset_path)
     if not seed_path.exists():
         print(f"Error: Seed dataset path does not exist: {args.seed_dataset_path}", file=sys.stderr)

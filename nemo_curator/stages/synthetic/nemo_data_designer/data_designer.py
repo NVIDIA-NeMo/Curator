@@ -14,7 +14,7 @@
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
@@ -42,6 +42,7 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     config_builder: dd.DataDesignerConfigBuilder | None = None
     data_designer_config_file: str | None = None
     verbose: bool = False
+    data_designer: DataDesigner = field(init=False)
 
     @property
     def name(self) -> str:
@@ -75,7 +76,7 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], []
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
-        num_input_records = len(batch.data)
+        num_input_records = batch.num_items
 
         # set seed dataframe from batch
         self.config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=batch.to_pandas()))
