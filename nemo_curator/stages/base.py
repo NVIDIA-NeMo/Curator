@@ -180,8 +180,6 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
                 raise ValueError(msg)
 
             result = self.process(task)
-            if result is None:
-                continue
             if isinstance(result, list):
                 results.extend(result)
             else:
