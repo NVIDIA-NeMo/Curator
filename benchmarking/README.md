@@ -148,7 +148,7 @@ sinks:
     experiment: my-experiment
   - name: slack
     enabled: true
-    webhook_url: ${SLACK_WEBHOOK_URL}
+    channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]  # Metrics to report by default for all entries
   - name: gdrive
     enabled: false
@@ -223,7 +223,7 @@ Configuration values can reference environment variables using `${VAR_NAME}` syn
 results_path: "${HOME}/benchmarks/results"
 sinks:
   - name: slack
-    webhook_url: ${SLACK_WEBHOOK_URL}
+    channel_id: ${SLACK_CHANNEL_ID}
   - name: mlflow
     tracking_uri: ${MLFLOW_TRACKING_URI}
 ```
@@ -311,7 +311,7 @@ This command:
 - Reads the configuration file and extracts `results_path` and `datasets_path`
 - Automatically creates volume mounts to map these paths into the container
 - Runs the benchmarking framework with the Curator code built into the Docker image
-- Passes environment variables like `SLACK_WEBHOOK_URL` and `MLFLOW_TRACKING_URI` to the container
+- Passes environment variables like `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `MLFLOW_TRACKING_URI` to the container
 
 ### Using Host Curator Sources
 
@@ -459,11 +459,13 @@ Posts results to Slack channels:
 ```yaml
 sinks:
   - name: slack
-    webhook_url: https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+    channel_id: C1234567890  # Your Slack channel ID
     enabled: true
 ```
 
-Results are formatted as interactive Slack messages with environment info and metrics.
+Results are posted as interactive Slack messages with environment info and metrics. Requires:
+- `SLACK_BOT_TOKEN` environment variable set to your Slack Bot User OAuth Token
+- `SLACK_CHANNEL_ID` in config or environment variable for the target channel
 
 #### Google Drive Sink
 
