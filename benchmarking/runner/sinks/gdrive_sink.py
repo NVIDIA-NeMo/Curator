@@ -33,11 +33,11 @@ class GdriveSink(Sink):
         super().__init__(sink_config)
         self.sink_config = sink_config
         self.results: list[dict[str, Any]] = []
-        self.session_name: str = None
-        self.session: Session = None
-        self.env_dict: dict[str, Any] = None
-        self.drive_folder_id: str = None
-        self.service_account_file: str = None
+        self.session_name: str | None = None
+        self.session: Session | None = None
+        self.env_dict: dict[str, Any] | None = None
+        self.drive_folder_id: str | None = None
+        self.service_account_file: str | None = None
 
     def initialize(self, session_name: str, session: Session, env_dict: dict[str, Any]) -> None:
         self.session_name = session_name

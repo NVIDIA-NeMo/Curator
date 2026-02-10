@@ -34,9 +34,9 @@ class MlflowSink(Sink):
             msg = "MlflowSink: No experiment configured"
             raise ValueError(msg)
         self.results: list[dict[str, Any]] = []
-        self.session_name: str = None
-        self.session: Session = None
-        self.env_dict: dict[str, Any] = None
+        self.session_name: str | None = None
+        self.session: Session | None = None
+        self.env_dict: dict[str, Any] | None = None
 
     def initialize(self, session_name: str, session: Session, env_dict: dict[str, Any]) -> None:
         self.session_name = session_name
