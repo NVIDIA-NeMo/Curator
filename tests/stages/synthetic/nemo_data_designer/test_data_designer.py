@@ -14,12 +14,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
-import pytest_httpserver
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest_httpserver
 
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch

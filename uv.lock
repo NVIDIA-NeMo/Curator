@@ -4501,7 +4501,6 @@ dependencies = [
     { name = "absl-py" },
     { name = "comment-parser" },
     { name = "cosmos-xenna" },
-    { name = "data-designer" },
     { name = "fsspec" },
     { name = "hydra-core" },
     { name = "jieba" },
@@ -4524,6 +4523,7 @@ all = [
     { name = "cudf-cu12" },
     { name = "cuml-cu12" },
     { name = "cvcuda-cu12" },
+    { name = "data-designer" },
     { name = "easydict" },
     { name = "einops" },
     { name = "fasttext" },
@@ -4598,6 +4598,14 @@ image-cuda12 = [
     { name = "scikit-learn" },
     { name = "torchvision", version = "0.24.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchvision", version = "0.24.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+]
+sdg-cpu = [
+    { name = "data-designer" },
+]
+sdg-cuda12 = [
+    { name = "data-designer" },
+    { name = "gpustat" },
+    { name = "nvidia-ml-py" },
 ]
 text-cpu = [
     { name = "beautifulsoup4" },
@@ -4706,7 +4714,7 @@ requires-dist = [
     { name = "cudf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "cuml-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "cvcuda-cu12", marker = "extra == 'video-cuda12'" },
-    { name = "data-designer", specifier = "==0.4.0" },
+    { name = "data-designer", marker = "extra == 'sdg-cpu'", specifier = "==0.4.0" },
     { name = "easydict", marker = "extra == 'video-cpu'" },
     { name = "einops", marker = "extra == 'video-cpu'" },
     { name = "fasttext", marker = "extra == 'text-cpu'", specifier = "==0.9.3" },
@@ -4725,12 +4733,15 @@ requires-dist = [
     { name = "nemo-curator", extras = ["audio-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'audio-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'image-cuda12'" },
+    { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'sdg-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'video-cuda12'" },
     { name = "nemo-curator", extras = ["deduplication-cuda12"], marker = "extra == 'image-cuda12'" },
     { name = "nemo-curator", extras = ["deduplication-cuda12"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["image-cpu"], marker = "extra == 'image-cuda12'" },
     { name = "nemo-curator", extras = ["image-cuda12"], marker = "extra == 'all'" },
+    { name = "nemo-curator", extras = ["sdg-cpu"], marker = "extra == 'sdg-cuda12'" },
+    { name = "nemo-curator", extras = ["sdg-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["text-cpu"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["text-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["video-cpu"], marker = "extra == 'video-cuda12'" },
@@ -4774,7 +4785,7 @@ requires-dist = [
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'vllm'", specifier = ">=0.14.1" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
 ]
-provides-extras = ["cuda12", "vllm", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "all"]
+provides-extras = ["cuda12", "vllm", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "sdg-cpu", "sdg-cuda12", "all"]
 
 [package.metadata.requires-dev]
 build = [
