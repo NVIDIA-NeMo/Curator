@@ -199,7 +199,7 @@ stages:
 
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.WordCountFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.WordCountFilter
       min_words: 50
       max_words: 100000
     text_field: ${text_field}
