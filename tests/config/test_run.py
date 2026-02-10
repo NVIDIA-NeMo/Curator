@@ -156,7 +156,7 @@ def test_pipeline_with_hydra_instantiated_stage():
                 {
                     "_target_": "nemo_curator.stages.text.filters.score_filter.ScoreFilter",
                     "filter_obj": {
-                        "_target_": "nemo_curator.stages.text.filters.heuristic.NonAlphaNumericFilter",
+                        "_target_": "nemo_curator.stages.text.filters.heuristic.string.NonAlphaNumericFilter",
                         "max_non_alpha_numeric_to_text_ratio": 0.25,
                     },
                     "text_field": "text",
@@ -180,7 +180,7 @@ def test_pipeline_with_hydra_instantiated_stage():
 
 def test_pipeline_with_multiple_stages():
     from nemo_curator.stages.text.modifiers import Modify
-    from nemo_curator.stages.text.modifiers.heuristic import UrlRemover
+    from nemo_curator.stages.text.modifiers.string import UrlRemover
 
     cfg = OmegaConf.create(
         {
@@ -194,7 +194,7 @@ def test_pipeline_with_multiple_stages():
                 },
                 {
                     "_target_": "nemo_curator.stages.text.modifiers.modifier.Modify",
-                    "modifier_fn": {"_target_": "nemo_curator.stages.text.modifiers.heuristic.url_remover.UrlRemover"},
+                    "modifier_fn": {"_target_": "nemo_curator.stages.text.modifiers.string.url_remover.UrlRemover"},
                     "input_fields": "text",
                 },
                 {

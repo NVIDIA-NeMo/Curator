@@ -13,7 +13,8 @@
 # limitations under the License.
 
 from .doc_modifier import DocumentModifier
-from .heuristic import (
+from .modifier import Modify
+from .string import (
     BoilerPlateStringModifier,
     LineRemover,
     MarkdownRemover,
@@ -22,7 +23,6 @@ from .heuristic import (
     Slicer,
     UrlRemover,
 )
-from .modifier import Modify
 
 __all__ = [
     "BoilerPlateStringModifier",

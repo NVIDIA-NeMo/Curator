@@ -25,7 +25,7 @@ from nemo_curator.stages.text.filters import Filter, ScoreFilter
 from nemo_curator.stages.text.filters.heuristic import SubstringFilter
 from nemo_curator.stages.text.filters.token import TokenCountFilter
 from nemo_curator.stages.text.modifiers import Modify
-from nemo_curator.stages.text.modifiers.heuristic import (
+from nemo_curator.stages.text.modifiers.string import (
     LineRemover,
     MarkdownRemover,
     QuotationRemover,
