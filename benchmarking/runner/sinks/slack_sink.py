@@ -408,10 +408,10 @@ class SlackSink(Sink):
         super().__init__(sink_config)
         self.sink_config = sink_config
         self.session_name: str | None = None
-        self.session: Session = None
-        self.env_dict: dict[str, Any] = None
+        self.session: Session | None = None
+        self.env_dict: dict[str, Any] | None = None
 
-        self._parent_message: SlackParentMessage = None
+        self._parent_message: SlackParentMessage | None = None
         self._child_messages: list[SlackMessage] = []
 
         self.live_updates: bool = sink_config.get("live_updates", False)
