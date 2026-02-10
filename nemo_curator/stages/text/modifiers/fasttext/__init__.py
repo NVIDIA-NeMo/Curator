@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .label import FastTextLabelModifier
+from .fasttext_label import FastTextLabelModifier
 
 __all__ = [
     "FastTextLabelModifier",
