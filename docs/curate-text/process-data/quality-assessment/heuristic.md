@@ -234,7 +234,7 @@ When building filter chains, follow these best practices:
 # Efficient ordering - place fast filters first
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.filters import ScoreFilter
-from nemo_curator.stages.text.filters.heuristic import WordCountFilter, UrlsFilter, RepeatingTopNGramsFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter, UrlsFilter
 from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
 
 pipeline = Pipeline(name="efficient_filtering")
