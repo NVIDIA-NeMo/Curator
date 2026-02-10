@@ -21,8 +21,9 @@ from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.text.filters import DocumentFilter
 from nemo_curator.tasks import DocumentBatch
+
+from .doc_filter import DocumentFilter
 
 
 @dataclass
