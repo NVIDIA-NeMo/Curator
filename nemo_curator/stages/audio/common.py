@@ -34,7 +34,7 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
         for entry in task.data:
             entries = self.process_dataset_entry(entry)
             for r in entries:
-                if r is not task:
+                if r is not task and not r._stage_perf:
                     r._stage_perf = list(task._stage_perf)
             result.extend(entries)
         return result
