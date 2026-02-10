@@ -49,7 +49,7 @@ stages:
 
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.fasttext.FastTextLangId
+      _target_: nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextLangId
       model_path: ${fasttext_langid_model_path}
       min_langid_score: 0.3
     text_field: ${text_field}
