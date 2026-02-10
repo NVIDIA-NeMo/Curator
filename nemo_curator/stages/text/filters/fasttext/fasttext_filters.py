@@ -17,7 +17,7 @@ import os
 import fasttext
 import numpy as np
 
-from nemo_curator.stages.text.filters import DocumentFilter
+from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
 
 
 class FastTextQualityFilter(DocumentFilter):

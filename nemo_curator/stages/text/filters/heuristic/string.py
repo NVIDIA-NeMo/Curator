@@ -14,7 +14,7 @@
 
 from typing import Literal
 
-from nemo_curator.stages.text.filters import DocumentFilter
+from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
 from nemo_curator.stages.text.utils.constants import (
     bullet_list,
     common_english_words,

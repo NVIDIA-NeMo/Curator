@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.text.filters import DocumentFilter
+from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
 from nemo_curator.stages.text.utils.text_utils import (
     get_ngrams,
     get_paragraphs,

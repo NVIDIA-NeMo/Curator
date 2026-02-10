@@ -14,7 +14,7 @@
 
 import re
 
-from nemo_curator.stages.text.modifiers import DocumentModifier
+from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
 
 URL_REGEX = re.compile(r"https?://\S+|www\.\S+", flags=re.IGNORECASE)
 
