@@ -49,43 +49,43 @@ stages:
 
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.NonAlphaNumericFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.NonAlphaNumericFilter
       max_non_alpha_numeric_to_text_ratio: 0.25
     text_field: ${text_field}
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.SymbolsToWordsFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.SymbolsToWordsFilter
       max_symbol_to_word_ratio: 0.1
     text_field: ${text_field}
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.NumbersFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.NumbersFilter
       max_number_to_text_ratio: 0.15
     text_field: ${text_field}
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.UrlsFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.UrlsFilter
       max_url_to_text_ratio: 0.2
     text_field: ${text_field}
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.WhiteSpaceFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.WhiteSpaceFilter
       max_white_space_ratio: 0.25
     text_field: ${text_field}
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.ParenthesesFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.ParenthesesFilter
       max_parentheses_ratio: 0.1
     text_field: ${text_field}
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.BoilerPlateStringFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.BoilerPlateStringFilter
       remove_if_at_top_or_bottom: True
       max_boilerplate_string_ratio: 0.4
     text_field: ${text_field}
@@ -116,46 +116,46 @@ stages:
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.WordCountFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.WordCountFilter
       min_words: 50
       max_words: 100000
     text_field: ${text_field}
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.PunctuationFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.PunctuationFilter
       max_num_sentences_without_endmark_ratio: 0.85
     text_field: ${text_field}
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.WordsWithoutAlphabetsFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.WordsWithoutAlphabetsFilter
       min_words_with_alphabets: 0.8
     text_field: ${text_field}
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.CommonEnglishWordsFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.CommonEnglishWordsFilter
       min_num_common_words: 2
       stop_at_false: True
     text_field: ${text_field}
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.MeanWordLengthFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.MeanWordLengthFilter
       max_mean_word_length: 10
       min_mean_word_length: 3
     text_field: ${text_field}
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.LongWordFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.LongWordFilter
       max_word_length: 1000
     text_field: ${text_field}
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.EllipsisFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.EllipsisFilter
       max_num_lines_ending_with_ellipsis_ratio: 0.3
     text_field: ${text_field}
     score_field: null
@@ -233,7 +233,7 @@ stages:
     score_field: null
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.BulletsFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.BulletsFilter
       max_bullet_lines_ratio: 0.9
     text_field: ${text_field}
     score_field: null
