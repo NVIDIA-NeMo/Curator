@@ -65,7 +65,7 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modifiers.heuristic import UrlRemover, NewlineNormalizer
+from nemo_curator.stages.text.modifiers.string import UrlRemover, NewlineNormalizer
 from nemo_curator.stages.text.modifiers.unicode import UnicodeReformatter
 from nemo_curator.stages.text.modifiers import Modify
 

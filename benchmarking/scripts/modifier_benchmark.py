@@ -31,7 +31,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.stages.text.modifiers import Modify
-from nemo_curator.stages.text.modifiers.heuristic import (
+from nemo_curator.stages.text.modifiers.string import (
     BoilerPlateStringModifier,
     MarkdownRemover,
     NewlineNormalizer,
