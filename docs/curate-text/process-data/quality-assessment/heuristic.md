@@ -207,7 +207,7 @@ stages:
 
   - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic.PunctuationFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.PunctuationFilter
       max_num_sentences_without_endmark_ratio: 0.85
     text_field: ${text_field}
     score_field: null
