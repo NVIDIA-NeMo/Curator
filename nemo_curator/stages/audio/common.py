@@ -29,15 +29,12 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
 
     """
 
-    def __init__(self, **kwargs):
-        super().__init__()
-
     def process(self, task: AudioBatch) -> list[Task]:
         result = []
         for entry in task.data:
             entries = self.process_dataset_entry(entry)
             for r in entries:
-                if r is not task and hasattr(r, "_stage_perf"):
+                if r is not task:
                     r._stage_perf = list(task._stage_perf)
             result.extend(entries)
         return result
@@ -64,9 +61,6 @@ class GetAudioDurationStage(LegacySpeechStage):
     name = "GetAudioDurationStage"
     audio_filepath_key: str
     duration_key: str
-
-    def __post_init__(self):
-        super().__init__()
 
     def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
         audio_filepath = data_entry[self.audio_filepath_key]
@@ -100,7 +94,6 @@ class PreserveByValueStage(LegacySpeechStage):
         operator: str = "eq",
         **kwargs,
     ):
-        super().__init__(**kwargs)
         self.input_value_key = input_value_key
         self.target_value = target_value
         if operator == "lt":
