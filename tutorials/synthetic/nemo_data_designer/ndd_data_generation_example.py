@@ -20,15 +20,15 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any
 
 import data_designer.config as dd
 import pandas as pd
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.synthetic.nemo_data_designer.base import BaseDataDesignerStage
+from nemo_curator.stages.synthetic.nemo_data_designer.data_designer import DataDesignerStage
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
+from nemo_curator.utils.file_utils import get_all_file_paths_under
 
 
 def parse_args() -> argparse.Namespace:
@@ -198,20 +198,15 @@ def _validate_seed_path(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def _collect_output_info(results: list[Any], output_path: str) -> tuple[list, list]:
-    """Collect output file paths and dataframes from pipeline results."""
-    output_files = []
-    all_data_frames = []
-    if not results:
-        return output_files, all_data_frames
+def _collect_output_info(output_path: str) -> tuple[list, list]:
+    """Collect output file paths and dataframes from files under output_path."""
+    output_files = get_all_file_paths_under(
+        output_path, recurse_subdirectories=True, keep_extensions=".jsonl"
+    )
     print(f"\nGenerated data saved to: {output_path}")
-    for result in results:
-        if not (hasattr(result, "data") and result.data):
-            continue
-        for file_path in result.data:
-            print(f"  - {file_path}")
-            output_files.append(file_path)
-            all_data_frames.append(pd.read_json(file_path, lines=True))
+    for file_path in output_files:
+        print(f"  - {file_path}")
+    all_data_frames = [pd.read_json(f, lines=True) for f in output_files]
     return output_files, all_data_frames
 
 
@@ -257,7 +252,7 @@ def main() -> None:
 
     # Add the Nemo Data Designer stage
     pipeline.add_stage(
-        BaseDataDesignerStage(config_builder=config_builder)
+        DataDesignerStage(config_builder=config_builder)
     )
 
     # Add JSONL writer to save the generated data
@@ -274,7 +269,7 @@ def main() -> None:
     # Execute pipeline with timing
     print("Starting synthetic data generation pipeline...")
     start_time = time.time()
-    results = pipeline.run()
+    pipeline.run()
     end_time = time.time()
 
     elapsed_time = end_time - start_time
@@ -282,7 +277,7 @@ def main() -> None:
     # Print results
     print("\nPipeline completed!")
     print(f"Total execution time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
-    output_files, all_data_frames = _collect_output_info(results, args.output_path)
+    output_files, all_data_frames = _collect_output_info(args.output_path)
     _print_sample_documents(output_files, all_data_frames)
 
 if __name__ == "__main__":

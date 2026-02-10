@@ -54,7 +54,6 @@ dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
     "cosmos-xenna==0.1.2",
-    "data-designer==0.4.0",
     "fsspec",
     "hydra-core",
     "jieba==0.42.1",
@@ -155,10 +154,20 @@ video_cuda12 = [
     "torchaudio",
 ]
 
+# Synthetic Data Generation (SDG) Dependencies
+sdg_cpu = [
+    "data-designer==0.4.0",
+]
+sdg_cuda12 = [
+    "nemo_curator[sdg_cpu]",
+    "nemo_curator[cuda12]",
+]
+
 # All dependencies
 all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
+    "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[video_cuda12]",
 ]

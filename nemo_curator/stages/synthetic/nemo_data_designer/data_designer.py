@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import time
 from dataclasses import dataclass
 
@@ -26,23 +27,25 @@ from nemo_curator.tasks import DocumentBatch
 
 
 @dataclass
-class BaseDataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
-    """Base class for Nemo Data Designer stage.
+class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Data Designer stage.
 
-    This class provides a base class for Nemo Data Designer stage.
+    This class provides a Data Designer stage.
+    To request GPUs, use: DataDesignerStage(...).with_(resources=Resources(gpus=X)).
+
+    When ``verbose`` is False (default), NeMo Data Designer (NDD) log output is suppressed
+    (e.g. "Preview generation in progress", "Preview complete!") so the stage is less verbose.
+    Set ``verbose=True`` to see full NDD logging.
     """
-    num_gpus_per_worker: float = 0.0
+
+    resources = Resources(gpus=0.0)
     config_builder: dd.DataDesignerConfigBuilder | None = None
     data_designer_config_file: str | None = None
     verbose: bool = False
 
     @property
     def name(self) -> str:
-        return "NemoDataDesignerBaseStage"
-
-    @property
-    def resources(self) -> Resources:
-        return Resources(gpus=self.num_gpus_per_worker)
+        return "DataDesignerStage"
 
     def __post_init__(self) -> None:
 
@@ -77,11 +80,20 @@ class BaseDataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         # set seed dataframe from batch
         self.config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=batch.to_pandas()))
 
-        # run preview to get the results
-        t1 = time.perf_counter()
-        results = self.data_designer.preview(self.config_builder, num_records=num_input_records)
-        df = results.dataset
-        ndd_running_time = time.perf_counter() - t1
+        # When verbose is False, suppress NDD's logging (it logs "Preview generation in progress", etc.)
+        ndd_logger = logging.getLogger("data_designer")
+        if not self.verbose:
+            _old_ndd_level = ndd_logger.level
+            ndd_logger.setLevel(logging.WARNING)
+
+        try:
+            t1 = time.perf_counter()
+            results = self.data_designer.preview(self.config_builder, num_records=num_input_records)
+            df = results.dataset
+            ndd_running_time = time.perf_counter() - t1
+        finally:
+            if not self.verbose:
+                ndd_logger.setLevel(_old_ndd_level)
 
         num_output_records = len(df)
         self._log_metrics(
@@ -101,4 +113,4 @@ class BaseDataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
 # Explicitly export the class
-__all__ = ["BaseDataDesignerStage"]
+__all__ = ["DataDesignerStage"]
