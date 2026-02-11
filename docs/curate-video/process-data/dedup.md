@@ -56,7 +56,7 @@ workflow = SemanticDeduplicationWorkflow(
     n_clusters=1000,
     id_field="id",
     embedding_field="embedding",
-    embedding_dim=512,  # 512 for InternVideo2, varies for Cosmos-Embed1
+    embedding_dim=768,  # Embedding dimension (768 for Cosmos-Embed1, varies by model)
     input_filetype="parquet",
     eps=0.1,  # Similarity threshold: cosine_sim >= 1.0 - eps identifies duplicates
     ranking_strategy=RankingStrategy.metadata_based(

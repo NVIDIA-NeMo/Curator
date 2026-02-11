@@ -120,8 +120,16 @@ Here's a simple example to get started with NeMo Curator's image curation pipeli
 Image loading and decoding happens in CPU memory before GPU processing. If you encounter out-of-memory errors during the `ImageReaderStage`, reduce:
 - `batch_size`: Number of images per batch (reduce to 32-50 for systems with limited RAM)
 - `num_threads`: Parallel decoding threads (reduce to 4 for systems with limited RAM)
+- `num_cpus`: Ray Client CPU allocation (reduce to 8-16 for systems with limited RAM)
 
 The example below uses conservative defaults suitable for most systems. For high-memory systems, you can increase these values for better performance.
+
+To configure Ray with limited CPU resources:
+```python
+from nemo_curator.core.client import RayClient
+ray_client = RayClient(num_cpus=8)  # Adjust based on available CPU cores
+ray_client.start()
+```
 :::
 
 ```python
