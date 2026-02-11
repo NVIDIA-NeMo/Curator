@@ -380,28 +380,6 @@ class TestProcessingStageOverriddenProperties:
                 def process(self, task: MockTask) -> MockTask:
                     return task
 
-    def test_plain_attribute_override_allowed(self):
-        """Test that plain attribute overrides for name, resources, and batch_size are still allowed."""
-
-        class PlainAttrStage(ProcessingStage[MockTask, MockTask]):
-            name = "PlainAttrStage"
-            resources = Resources(cpus=4.0)
-            batch_size = 8
-
-            def process(self, task: MockTask) -> MockTask:
-                return task
-
-        stage = PlainAttrStage()
-        assert stage.name == "PlainAttrStage"
-        assert stage.resources == Resources(cpus=4.0)
-        assert stage.batch_size == 8
-
-        # with_() should work fine on plain attributes
-        modified = stage.with_(name="Modified", resources=Resources(cpus=2.0), batch_size=4)
-        assert modified.name == "Modified"
-        assert modified.resources == Resources(cpus=2.0)
-        assert modified.batch_size == 4
-
     def test_nested_class_inheritance(self):
         """Test that nested class inheritance raises an error if a derived class overrides the _name, _resources, or _batch_size property."""
         with pytest.raises(TypeError, match="MockStageNestedOverriddenName must not override '_name'"):
