@@ -36,6 +36,7 @@ RUN cd /opt/Curator \
     pynvml \
     pyyaml \
     rich \
+    slack_sdk \
   && uv cache prune
 
 # Copy the nemo_curator/config directory only if it does not already exist in the image.
