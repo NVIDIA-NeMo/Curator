@@ -37,14 +37,6 @@ Enhanced features for the experimental Ray Actor Pool execution backend:
 
 Learn more in the [Execution Backends documentation](../../reference/infrastructure/execution-backends.md).
 
-### Enhanced Embedding Generation
-
-Expanded embedding support with new model integrations:
-
-- **vLLM Integration**: High-performance LLM-based embedding generation with automatic batching
-- **Sentence Transformers**: Support for popular sentence embedding models
-- **Unified API**: Consistent embedding interface across text, image, and video modalities
-
 ### YAML Configuration Support
 
 Declarative pipeline configuration for text curation workflows:
@@ -65,7 +57,6 @@ python -m nemo_curator.config.run --config_file heuristic_filter_english_pipelin
 
 New API for tracking and analyzing pipeline execution:
 
-- **WorkflowRunResult**: Structured results object capturing execution metrics
 - **Performance Metrics**: Automatic tracking of processing time, throughput, and resource usage
 - **Better Debugging**: Detailed logs and error reporting for failed stages
 
