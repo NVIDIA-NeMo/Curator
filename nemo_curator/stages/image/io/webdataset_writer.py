@@ -113,11 +113,11 @@ class WebDatasetWriterStage(ProcessingStage[WebDatasetBatch, FileGroupTask]):
         img = image
         if img.dtype != np.uint8:
             img = np.clip(img, 0, 255).astype(np.uint8)
-        channels_gray = 2
+        ndim_grayscale = 2
         channels_rgb = 3
         channels_rgba = 4
 
-        if img.ndim == channels_gray:
+        if img.ndim == ndim_grayscale:
             mode = "L"
         elif img.shape[2] == channels_rgb:
             mode = "RGB"

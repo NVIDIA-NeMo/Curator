@@ -145,7 +145,7 @@ class WebDatasetReaderStage(ProcessingStage[FileGroupTask, WebDatasetBatch]):
         while samples_completed < total_samples:
             raw_output = pipe.run()
 
-            # Normalise output to a tuple even when a single extension is used
+            # Normalize output to a tuple even when a single extension is used
             if not isinstance(raw_output, tuple):
                 raw_output = (raw_output,)
 
