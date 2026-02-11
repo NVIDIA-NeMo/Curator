@@ -114,6 +114,16 @@ For this example, you'll need:
 
 Here's a simple example to get started with NeMo Curator's image curation pipeline:
 
+:::{note}
+**CPU Memory Considerations**
+
+Image loading and decoding happens in CPU memory before GPU processing. If you encounter out-of-memory errors during the `ImageReaderStage`, reduce:
+- `batch_size`: Number of images per batch (reduce to 32-50 for systems with limited RAM)
+- `num_threads`: Parallel decoding threads (reduce to 4 for systems with limited RAM)
+
+The example below uses conservative defaults suitable for most systems. For high-memory systems, you can increase these values for better performance.
+:::
+
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
@@ -136,9 +146,9 @@ pipeline.add_stage(FilePartitioningStage(
 
 # Stage 2: Read images from tar files using DALI
 pipeline.add_stage(ImageReaderStage(
-    batch_size=100,
+    batch_size=50,
     verbose=True,
-    num_threads=8,
+    num_threads=4,
     num_gpus_per_worker=0.25,
 ))
 

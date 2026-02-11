@@ -37,7 +37,7 @@ NeMo Curator provides official Docker containers with all dependencies pre-insta
 
 The primary container includes comprehensive support for all curation modalities:
 
-**Container registry:** `nvcr.io/nvidia/nemo-curator:25.09`
+**Container registry:** `nvcr.io/nvidia/nemo-curator:26.02`
 
 **Supported modalities:**
 - ✅ Text curation (CPU/GPU)
