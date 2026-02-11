@@ -44,9 +44,9 @@ class FastTextQualityFilter(DocumentFilter):
         model = self._fasttext_quality_filter_model
 
         text = text.replace("\n", " ").replace("__label__", " ")
-        pred = model.predict(text)
-        document_score = pred[1][0]
-        if pred[0][0] != self._label:
+        label, score = model.predict([text])
+        document_score = score[0][0].item()
+        if label[0][0] != self._label:
             document_score = 1 - document_score
 
         return document_score
@@ -78,9 +78,9 @@ class FastTextLangId(DocumentFilter):
         model = self._fasttext_langid_model
 
         pp = text.strip().replace("\n", " ")
-        label, score = model.predict(pp, k=1)
-        score = score[0]
-        lang_code = label[0][-2:].upper()
+        label, score = model.predict([pp], k=1)
+        score = score[0][0].item()
+        lang_code = label[0][0][-2:].upper()
 
         # Need to convert it to a string to allow backend conversions
         return str([score, lang_code])
