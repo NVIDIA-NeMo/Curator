@@ -17,6 +17,7 @@ from .document import DocumentBatch
 from .file_group import FileGroupTask
 from .image import ImageBatch, ImageObject
 from .tasks import EmptyTask, Task, _EmptyTask
+from .webdataset import WebDatasetBatch, WebDatasetSample
 
 __all__ = [
     "AudioBatch",
@@ -26,5 +27,7 @@ __all__ = [
     "ImageBatch",
     "ImageObject",
     "Task",
+    "WebDatasetBatch",
+    "WebDatasetSample",
     "_EmptyTask",
 ]

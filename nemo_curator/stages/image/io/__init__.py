@@ -13,5 +13,7 @@
 # limitations under the License.
 
 from .image_reader import ImageReaderStage
+from .webdataset_reader import WebDatasetReaderStage
+from .webdataset_writer import WebDatasetWriterStage
 
-__all__ = ["ImageReaderStage"]
+__all__ = ["ImageReaderStage", "WebDatasetReaderStage", "WebDatasetWriterStage"]
