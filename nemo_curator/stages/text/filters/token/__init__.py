@@ -12,8 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .token_count import TokenCountFilter
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .token_count import TokenCountFilter
 
 __all__ = [
     "TokenCountFilter",
 ]
+
+
+def __getattr__(name: str) -> type["TokenCountFilter"]:
+    if name == "TokenCountFilter":
+        from .token_count import TokenCountFilter
+
+        return TokenCountFilter
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
