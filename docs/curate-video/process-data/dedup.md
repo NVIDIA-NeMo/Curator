@@ -15,7 +15,7 @@ modality: "video-only"
 Use clip-level embeddings to identify near-duplicate video clips so your dataset remains compact, diverse, and efficient to train on.
 
 ## Before You Start
-- Make sure you have embeddings which are written by the [`ClipWriterStage`](video-save-export) under `iv2_embd_parquet/` or `ce1_embd_parquet/`. For a runnable workflow, refer to the [Split and Remove Duplicates Workflow](video-tutorials-split-dedup). The embeddings must be in parquet files containing the columns `id` and `embedding`.
+- Make sure you have embeddings which are written by the [`ClipWriterStage`](video-save-export) under `ce1_embd_parquet/`. For a runnable workflow, refer to the [Split and Remove Duplicates Workflow](video-tutorials-split-dedup). The embeddings must be in parquet files containing the columns `id` and `embedding`.
 - Verify local paths or configure S3-compatible credentials. Provide `storage_options` in read/write keyword arguments when reading or writing cloud paths.
 
 
@@ -24,7 +24,7 @@ Use clip-level embeddings to identify near-duplicate video clips so your dataset
 Duplicate identification operates on clip-level embeddings produced during processing:
 
 1. **Inputs**
-   - Parquet batches from `ClipWriterStage` under `iv2_embd_parquet/` or `ce1_embd_parquet/`
+   - Parquet batches from `ClipWriterStage` under `ce1_embd_parquet/`
    - Columns: `id`, `embedding`
 
 2. **Outputs**
@@ -50,13 +50,13 @@ from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
 from nemo_curator.backends.xenna import XennaExecutor
 
 workflow = SemanticDeduplicationWorkflow(
-    input_path="/path/to/embeddings/",  # e.g., iv2_embd_parquet/ or ce1_embd_parquet/
+    input_path="/path/to/embeddings/",  # e.g., ce1_embd_parquet/
     output_path="/path/to/duplicates/",
     cache_path="/path/to/cache/",  # Optional: defaults to output_path
     n_clusters=1000,
     id_field="id",
     embedding_field="embedding",
-    embedding_dim=512,  # 512 for InternVideo2, varies for Cosmos-Embed1
+    embedding_dim=768,  # Embedding dimension (768 for Cosmos-Embed1, varies by model)
     input_filetype="parquet",
     eps=0.1,  # Similarity threshold: cosine_sim >= 1.0 - eps identifies duplicates
     ranking_strategy=RankingStrategy.metadata_based(
