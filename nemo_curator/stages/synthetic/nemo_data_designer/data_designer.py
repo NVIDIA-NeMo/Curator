@@ -18,9 +18,7 @@ from dataclasses import dataclass, field
 
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
-from loguru import logger
 
-from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
