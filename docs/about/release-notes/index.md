@@ -27,13 +27,13 @@ New comprehensive benchmarking framework for performance monitoring and optimiza
   - Audio ASR inference and quality assessment
 - **Grafana Dashboards**: Real-time monitoring of pipeline performance and resource utilization
 
-### Ray Actor Pool Executor (Experimental)
+### Ray Actor Pool Executor Improvements
 
-New execution backend offering an alternative to Xenna for distributed processing:
+Enhanced features for the experimental Ray Actor Pool execution backend:
 
-- **RayActorPoolExecutor**: Experimental executor with load balancing and progress tracking
-- **Progress Bars**: Visual feedback for long-running actor pool operations
-- **Flexible Resource Allocation**: Better control over worker distribution and task scheduling
+- **Progress Bars**: New visual feedback for long-running actor pool operations, making it easier to monitor pipeline execution
+- **Improved Load Balancing**: Better worker distribution and task scheduling
+- **Enhanced Stability**: Continued refinements to the experimental executor
 
 Learn more in the [Execution Backends documentation](../../reference/infrastructure/execution-backends.md).
 
