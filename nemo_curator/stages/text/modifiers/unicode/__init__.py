@@ -12,8 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .unicode_reformatter import UnicodeReformatter
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .unicode_reformatter import UnicodeReformatter
 
 __all__ = [
     "UnicodeReformatter",
 ]
+
+
+def __getattr__(name: str) -> type["UnicodeReformatter"]:
+    if name == "UnicodeReformatter":
+        from .unicode_reformatter import UnicodeReformatter
+
+        return UnicodeReformatter
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

@@ -12,8 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .fasttext_label import FastTextLabelModifier
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .fasttext_label import FastTextLabelModifier
 
 __all__ = [
     "FastTextLabelModifier",
 ]
+
+
+def __getattr__(name: str) -> type["FastTextLabelModifier"]:
+    if name == "FastTextLabelModifier":
+        from .fasttext_label import FastTextLabelModifier
+
+        return FastTextLabelModifier
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
