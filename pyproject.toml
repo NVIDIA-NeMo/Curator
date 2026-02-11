@@ -178,6 +178,7 @@ test = [
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
+    "pytest-httpserver",
     "pytest-loguru",
     "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
     "s3fs", # added for testing cloud fs

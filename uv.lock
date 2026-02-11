@@ -4694,6 +4694,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "pytest-httpserver" },
     { name = "pytest-loguru" },
     { name = "s3fs" },
     { name = "scikit-learn" },
@@ -4797,6 +4798,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "pytest-httpserver" },
     { name = "pytest-loguru" },
     { name = "s3fs" },
     { name = "scikit-learn", specifier = "<1.8.0" },
@@ -6568,6 +6570,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5e/f7/c933acc76f5208b3b00089573cf6a2bc26dc80a8aece8f52bb7d6b1855ca/pytest_cov-7.0.0.tar.gz", hash = "sha256:33c97eda2e049a0c5298e91f519302a1334c26ac65c1a483d6206fd458361af1", size = 54328, upload-time = "2025-09-09T10:57:02.113Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ee/49/1377b49de7d0c1ce41292161ea0f721913fa8722c19fb9c1e3aa0367eecb/pytest_cov-7.0.0-py3-none-any.whl", hash = "sha256:3b8e9558b16cc1479da72058bdecf8073661c7f57f7d3c5f22a1c23507f2d861", size = 22424, upload-time = "2025-09-09T10:57:00.695Z" },
+]
+
+[[package]]
+name = "pytest-httpserver"
+version = "1.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "werkzeug" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8a/1c/9d1a388fcd3898537b6c9ef06fdf9a42c9b9ffefdb8e3ce50174f4d0211d/pytest_httpserver-1.1.4.tar.gz", hash = "sha256:4d357402ae7e141f3914ed7cd25f3e24746ae928792dad60053daee4feae81fc", size = 8295814, upload-time = "2026-02-09T18:18:00.237Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/50/7ed2153872d593c14d3a5565f9744d603a3e23967ab3cea0cc1eeb51a1ff/pytest_httpserver-1.1.4-py3-none-any.whl", hash = "sha256:5dc73beae8cef139597cfdaab1b7f6bfe3551dd80965a6039e08498796053331", size = 21653, upload-time = "2026-02-09T18:17:54.772Z" },
 ]
 
 [[package]]
