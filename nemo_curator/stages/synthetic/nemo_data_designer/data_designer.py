@@ -36,17 +36,20 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     When ``verbose`` is False (default), NeMo Data Designer (NDD) log output is suppressed
     (e.g. "Preview generation in progress", "Preview complete!") so the stage is less verbose.
     Set ``verbose=True`` to see full NDD logging.
+
+    Optional ``model_providers``: pass a list of :class:`data_designer.config.models.ModelProvider`
+    to use custom or test endpoints (e.g. a mock LLM server). If None, the default DataDesigner
+    providers are used.
     """
 
     resources = Resources(gpus=0.0)
     config_builder: dd.DataDesignerConfigBuilder | None = None
     data_designer_config_file: str | None = None
+    model_providers: list | None = None
     verbose: bool = False
     data_designer: DataDesigner = field(init=False)
+    name: str = "DataDesignerStage"
 
-    @property
-    def name(self) -> str:
-        return "DataDesignerStage"
 
     def __post_init__(self) -> None:
 
@@ -58,16 +61,13 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             msg = "Only one of 'config_builder' or 'data_designer_config_file' can be set, not both."
             raise ValueError(msg)
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        """Initialize the data designer stage."""
-
         # read config from file if config_builder is not set
         if self.config_builder is None:
             self.config_builder = dd.DataDesignerConfigBuilder.from_config(self.data_designer_config_file)
-        self.data_designer = DataDesigner()
-
-        if self.verbose:
-            logger.debug("Initialized data designer stage.")
+        if self.model_providers is not None:
+            self.data_designer = DataDesigner(model_providers=self.model_providers)
+        else:
+            self.data_designer = DataDesigner()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

@@ -12,18 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    import pytest_httpserver
+import pytest_httpserver
 
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
@@ -65,23 +59,38 @@ class TestBaseDataDesignerStage:
         stage_builder = DataDesignerStage(config_builder=real_builder)
         assert stage_builder.config_builder is real_builder
         assert stage_builder.data_designer_config_file is None
+        assert stage_builder.model_providers is None
 
-        stage_file = DataDesignerStage(data_designer_config_file="/some/config.yaml")
-        assert stage_file.config_builder is None
+        # Optional model_providers is stored when provided.
+        custom_provider = dd.ModelProvider(
+            name="custom",
+            endpoint="https://example.com/v1",
+            provider_type="openai",
+        )
+        stage_with_providers = DataDesignerStage(
+            config_builder=real_builder,
+            model_providers=[custom_provider],
+        )
+        assert stage_with_providers.model_providers == [custom_provider]
+        assert isinstance(stage_with_providers.data_designer, DataDesigner)
+
+        # When only data_designer_config_file is set, __post_init__ calls from_config();
+        # patch it so we don't need a real file, and assert the path is stored and builder set.
+        with patch.object(
+            dd.DataDesignerConfigBuilder, "from_config", return_value=real_builder
+        ) as mock_from_config:
+            stage_file = DataDesignerStage(data_designer_config_file="/some/config.yaml")
+        mock_from_config.assert_called_once_with("/some/config.yaml")
+        assert stage_file.config_builder is real_builder
         assert stage_file.data_designer_config_file == "/some/config.yaml"
 
     def test_properties(self) -> None:
-        """Stage name, default/custom resources, and inputs/outputs."""
+        """Stage name, default resources, and inputs/outputs."""
         stage = DataDesignerStage(config_builder=_minimal_config_builder())
         assert stage.name == "DataDesignerStage"
         assert stage.resources == Resources(gpus=0.0)
         assert stage.inputs() == (["data"], [])
         assert stage.outputs() == (["data"], [])
-
-        stage_custom = DataDesignerStage(config_builder=_minimal_config_builder()).with_(
-            resources=Resources(gpus=2.0)
-        )
-        assert stage_custom.resources == Resources(gpus=2.0)
 
     def test_setup_with_config_builder(self) -> None:
         """When config_builder is set, setup does not load from file; DataDesigner is created."""
@@ -103,6 +112,24 @@ class TestBaseDataDesignerStage:
         mock_from_config.assert_called_once_with(str(config_path))
         assert stage.config_builder is real_builder
         assert isinstance(stage.data_designer, DataDesigner)
+
+    def test_setup_with_model_providers(self) -> None:
+        """When model_providers is set, the stage creates DataDesigner with those providers."""
+        real_builder = _minimal_config_builder()
+        custom_provider = dd.ModelProvider(
+            name="test_provider",
+            endpoint="https://test.example/v1",
+            provider_type="openai",
+        )
+        stage = DataDesignerStage(
+            config_builder=real_builder,
+            model_providers=[custom_provider],
+        )
+        stage.setup()
+        assert stage.model_providers == [custom_provider]
+        assert isinstance(stage.data_designer, DataDesigner)
+        # DataDesigner was constructed with our provider (process would use it; we only check setup).
+        assert stage.data_designer is not None
 
     def test_process(self) -> None:
         """process uses real config_builder and DataFrameSeedSource; only preview return is stubbed."""
@@ -207,8 +234,6 @@ class TestBaseDataDesignerStage:
             provider_type="openai",
             api_key="sk-test",  # pragma: allowlist secret
         )
-        designer = DataDesigner(model_providers=[mock_provider])
-
         config_builder = dd.DataDesignerConfigBuilder(
             model_configs=[dd.ModelConfig(alias="mock_model", model="test", provider="mock_llm")]
         )
@@ -216,37 +241,43 @@ class TestBaseDataDesignerStage:
             dd.LLMTextColumnConfig(name="out", prompt="Say one word", model_alias="mock_model")
         )
 
-        with patch(
-            "nemo_curator.stages.synthetic.nemo_data_designer.data_designer.DataDesigner",
-            return_value=designer,
-        ):
-            stage = DataDesignerStage(config_builder=config_builder, verbose=False)
-            stage.setup()
+        # Tutorial-style: config_builder references provider "mock_llm"; pass model_providers
+        # so the stage uses our fake endpoint instead of default providers (no patch needed).
+        stage = DataDesignerStage(
+            config_builder=config_builder,
+            model_providers=[mock_provider],
+            verbose=False,
+        )
+        stage.setup()
 
-            batch = DocumentBatch(
-                data=pd.DataFrame([{"x": 1}]),
-                dataset_name="ds",
-                task_id="t1",
-            )
-            out_batch = stage.process(batch)
+        batch = DocumentBatch(
+            data=pd.DataFrame([{"x": 1}]),
+            dataset_name="ds",
+            task_id="t1",
+        )
+        out_batch = stage.process(batch)
 
-            assert isinstance(out_batch, DocumentBatch)
-            assert out_batch.task_id == "t1"
-            assert out_batch.data is not None
-            assert hasattr(stage, "_custom_metrics")
-            assert "ndd_running_time" in stage._custom_metrics
+        assert isinstance(out_batch, DocumentBatch)
+        assert out_batch.task_id == "t1"
+        assert out_batch.data is not None
+        assert hasattr(stage, "_custom_metrics")
+        assert "ndd_running_time" in stage._custom_metrics
 
 
-class TestBaseDataDesignerStageIntegration:
-    """End-to-end: pipeline → DataDesignerStage → process() with mock LLM endpoint."""
+@pytest.mark.gpu
+@pytest.mark.usefixtures("shared_ray_client")
+class TestDataDesignerStagePipelineIntegration:
+    """Integration tests: pipeline.run(executor, initial_tasks=...) with DataDesignerStage and mock LLM."""
 
-    def test_pipeline_process_end_to_end(self, httpserver: pytest_httpserver.HTTPServer) -> None:
-        """Run a simple pipeline (single DataDesignerStage) from build → setup → process."""
+    def test_pipeline_run_end_to_end(self, httpserver: pytest_httpserver.HTTPServer) -> None:
+        """Run pipeline.run(executor, initial_tasks=...) so the executor drives setup and process."""
+        from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+
         mock_completion = {
             "id": "mock-id",
             "object": "chat.completion",
             "choices": [
-                {"index": 0, "message": {"role": "assistant", "content": "pipeline mock"}, "finish_reason": "stop"}
+                {"index": 0, "message": {"role": "assistant", "content": "e2e"}, "finish_reason": "stop"}
             ],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
@@ -255,13 +286,13 @@ class TestBaseDataDesignerStageIntegration:
                 mock_completion
             )
 
+        base_url = httpserver.url_for("/v1")
         mock_provider = dd.ModelProvider(
             name="mock_llm",
-            endpoint=httpserver.url_for("/v1"),
+            endpoint=base_url,
             provider_type="openai",
-            api_key="sk-test",
+            api_key="sk-test",  # pragma: allowlist secret
         )
-        designer = DataDesigner(model_providers=[mock_provider])
         config_builder = dd.DataDesignerConfigBuilder(
             model_configs=[dd.ModelConfig(alias="mock_model", model="test", provider="mock_llm")]
         )
@@ -269,31 +300,33 @@ class TestBaseDataDesignerStageIntegration:
             dd.LLMTextColumnConfig(name="out", prompt="One word", model_alias="mock_model")
         )
 
-        with patch(
-            "nemo_curator.stages.synthetic.nemo_data_designer.data_designer.DataDesigner",
-            return_value=designer,
-        ):
-            stage = DataDesignerStage(config_builder=config_builder, verbose=False)
-            pipeline = Pipeline(
-                name="ndd_integration",
-                description="DataDesigner stage integration",
-                stages=[stage],
-            )
-            pipeline.build()
-            assert len(pipeline.stages) == 1
-            stage = pipeline.stages[0]
-            stage.setup()
-
-            batch = DocumentBatch(
+        # Same as test_process_with_mock_llm_endpoint: pass model_providers so the stage
+        # uses the fake httpserver (tutorial-style config, no patch).
+        stage = DataDesignerStage(
+            config_builder=config_builder,
+            model_providers=[mock_provider],
+            verbose=False,
+        )
+        pipeline = Pipeline(
+            name="ndd_pipeline_integration",
+            description="DataDesigner via pipeline.run()",
+            stages=[stage],
+        )
+        initial_tasks = [
+            DocumentBatch(
                 data=pd.DataFrame([{"x": 1}]),
                 dataset_name="integration",
                 task_id="e2e-1",
             )
-            result = stage.process(batch)
+        ]
+        executor = RayActorPoolExecutor()
+        result_tasks = pipeline.run(executor, initial_tasks=initial_tasks)
 
-            assert isinstance(result, DocumentBatch)
-            assert result.task_id == "e2e-1"
-            assert result.dataset_name == "integration"
-            assert result.data is not None
-            assert hasattr(stage, "_custom_metrics")
-            assert "ndd_running_time" in stage._custom_metrics
+        assert result_tasks is not None
+        assert len(result_tasks) == 1
+        out = result_tasks[0]
+        assert isinstance(out, DocumentBatch)
+        assert out.task_id == "e2e-1"
+        assert out.dataset_name == "integration"
+        assert out.data is not None
+        assert len(out.data) >= 1

@@ -17,7 +17,6 @@ Quick synthetic data generation example for Nemo Data Designer
 """
 
 import argparse
-import sys
 import time
 from pathlib import Path
 
@@ -39,13 +38,6 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--seed-dataset-path",
-        type=str,
-        required=True,
-        help="Path to directory containing seed JSONL files",
-    )
-
-    parser.add_argument(
         "--data-designer-config-file",
         type=str,
         default=None,
@@ -61,6 +53,30 @@ def parse_args() -> argparse.Namespace:
 
     return parser.parse_args()
 
+
+SEED_CSV_URL = "https://raw.githubusercontent.com/NVIDIA/GenerativeAIExamples/refs/heads/main/nemo/NeMo-Data-Designer/data/gretelai_symptom_to_diagnosis.csv"
+
+
+def download_and_convert_seed_data(
+    output_dir: str | Path | None = None,
+    records_per_file: int = 100,
+) -> str:
+    """Download seed CSV from URL, convert to JSONL (chunked), return output dir path."""
+    if output_dir is None:
+        output_dir = Path(__file__).resolve().parent / "processed_seed_data"
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    df = pd.read_csv(SEED_CSV_URL, sep=",", encoding="utf-8")
+    for i, start in enumerate(range(0, len(df), records_per_file)):
+        chunk = df.iloc[start : start + records_per_file]
+        chunk.to_json(
+            output_dir / f"{i:06d}.jsonl",
+            orient="records",
+            lines=True,
+            force_ascii=False,
+            date_format="iso",
+        )
+    return str(output_dir)
 
 def _build_config_manually() -> dd.DataDesignerConfigBuilder:
     """Build the default Data Designer config with medical notes generation."""
@@ -181,20 +197,6 @@ def _build_config_manually() -> dd.DataDesignerConfigBuilder:
     return config_builder
 
 
-def _validate_seed_path(args: argparse.Namespace) -> None:
-    """Validate seed dataset path is a directory; exit on error."""
-    seed_path = Path(args.seed_dataset_path)
-    if not seed_path.exists():
-        print(f"Error: Seed dataset path does not exist: {args.seed_dataset_path}", file=sys.stderr)
-        sys.exit(1)
-    if not seed_path.is_dir():
-        print(
-            f"Error: Seed dataset path must be a directory containing JSONL files: {args.seed_dataset_path}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-
 def _collect_output_info(output_path: str) -> tuple[list, list]:
     """Collect output file paths and dataframes from files under output_path."""
     output_files = get_all_file_paths_under(
@@ -227,15 +229,17 @@ def _print_sample_documents(output_files: list, all_data_frames: list) -> None:
 def main() -> None:
     """Main function to run the synthetic data generation pipeline."""
     args = parse_args()
-    _validate_seed_path(args)
+    print("Preparing seed data (download + CSV→JSONL)...")
+    seed_dir = download_and_convert_seed_data()
+    print(f"Seed data ready: {seed_dir}")
 
     pipeline = Pipeline(name="ndd_data_generation", description="Generate synthetic text data using Nemo Data Designer")
 
     # Add reader stage to read the seed dataset
     pipeline.add_stage(
         JsonlReader(
-            file_paths=args.seed_dataset_path + "/*.jsonl",
-            fields=["diagnosis", "patient_summary"], # Specify fields to read
+            file_paths=seed_dir + "/*.jsonl",
+            fields=["diagnosis", "patient_summary"],
         )
     )
 

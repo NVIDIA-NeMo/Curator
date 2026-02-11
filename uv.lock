@@ -4602,11 +4602,6 @@ image-cuda12 = [
 sdg-cpu = [
     { name = "data-designer" },
 ]
-sdg-cuda12 = [
-    { name = "data-designer" },
-    { name = "gpustat" },
-    { name = "nvidia-ml-py" },
-]
 text-cpu = [
     { name = "beautifulsoup4" },
     { name = "fasttext" },
@@ -4733,15 +4728,13 @@ requires-dist = [
     { name = "nemo-curator", extras = ["audio-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'audio-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'image-cuda12'" },
-    { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'sdg-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'video-cuda12'" },
     { name = "nemo-curator", extras = ["deduplication-cuda12"], marker = "extra == 'image-cuda12'" },
     { name = "nemo-curator", extras = ["deduplication-cuda12"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["image-cpu"], marker = "extra == 'image-cuda12'" },
     { name = "nemo-curator", extras = ["image-cuda12"], marker = "extra == 'all'" },
-    { name = "nemo-curator", extras = ["sdg-cpu"], marker = "extra == 'sdg-cuda12'" },
-    { name = "nemo-curator", extras = ["sdg-cuda12"], marker = "extra == 'all'" },
+    { name = "nemo-curator", extras = ["sdg-cpu"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["text-cpu"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["text-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["video-cpu"], marker = "extra == 'video-cuda12'" },
@@ -4785,7 +4778,7 @@ requires-dist = [
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'vllm'", specifier = ">=0.14.1" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
 ]
-provides-extras = ["cuda12", "vllm", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "sdg-cpu", "sdg-cuda12", "all"]
+provides-extras = ["cuda12", "vllm", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "sdg-cpu", "all"]
 
 [package.metadata.requires-dev]
 build = [
