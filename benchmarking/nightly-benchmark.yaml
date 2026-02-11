@@ -43,10 +43,6 @@ datasets:
     formats:
     - type: "mp4"
       path: "{datasets_path}/videos"
-  - name: "videos_model_weights"
-    formats:
-    - type: "files"
-      path: "{datasets_path}/video_model_weights"
   - name: "rpv2-2023-14-en"
     formats:
     - type: "parquet"
@@ -470,7 +466,7 @@ entries:
         exact_value: 3800
       - metric: throughput_images_per_sec
         min_value: 3.0
-  
+
   - name: audio_fleurs
     enabled: true
     script: audio_fleurs_benchmark.py
@@ -548,7 +544,6 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --video-dir={dataset:videos,mp4}
-      --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
     timeout_s: 400
     ray:
@@ -561,7 +556,7 @@ entries:
         exact_value: 1400
       - metric: throughput_clips_per_sec
         min_value: 4.0
-  
+
   - name: video_transcoding
     enabled: true
     script: video_pipeline_benchmark.py
@@ -592,7 +587,6 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --video-dir={dataset:videos,mp4}
-      --model-dir={dataset:videos_model_weights,files}
       --generate-captions
       --no-generate-embeddings
       --enhance-captions
@@ -617,7 +611,6 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --video-dir={dataset:videos,mp4}
-      --model-dir={dataset:videos_model_weights,files}
       --splitting-algorithm=transnetv2
       --motion-filter=enable
       --aesthetic-threshold=3.5
