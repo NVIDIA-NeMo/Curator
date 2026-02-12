@@ -387,7 +387,7 @@ class TestDataDesignerStagePipelineIntegration:
         httpserver: pytest_httpserver.HTTPServer,
         tmp_path: Path,
     ) -> None:
-        """Realistic e2e: N rows × M files → JsonlReader(files_per_partition=1) → NDD → JsonlWriter.
+        """Realistic e2e: N rows x M files → JsonlReader(files_per_partition=1) → NDD → JsonlWriter.
 
         Asserts: M output files, each with same row count as input file and new column from NDD;
         for each output task, verifies _metadata (e.g. source_files) and _stage_perf for all stages.
@@ -396,8 +396,8 @@ class TestDataDesignerStagePipelineIntegration:
         """
         from nemo_curator.backends.xenna import XennaExecutor
 
-        N_ROWS_PER_FILE = 3
-        M_FILES = 4
+        n_rows_per_file = 3
+        m_files = 4
 
         input_dir = tmp_path / "input"
         output_dir = tmp_path / "output"
@@ -406,11 +406,11 @@ class TestDataDesignerStagePipelineIntegration:
 
         # 1. Create M JSONL files with N rows each
         input_files = []
-        for fi in range(M_FILES):
+        for fi in range(m_files):
             path = input_dir / f"doc_{fi}.jsonl"
             input_files.append(str(path))
             with open(path, "w") as f:
-                for ri in range(N_ROWS_PER_FILE):
+                for ri in range(n_rows_per_file):
                     rec = {"text": f"file{fi}_row{ri}"}
                     f.write(json.dumps(rec) + "\n")
 
@@ -459,8 +459,8 @@ class TestDataDesignerStagePipelineIntegration:
 
         # 4. Output is M tasks (FileGroupTask from writer), one per input file
         assert result_tasks is not None
-        assert len(result_tasks) == M_FILES, (
-            f"Expected {M_FILES} output tasks (one per file), got {len(result_tasks)}"
+        assert len(result_tasks) == m_files, (
+            f"Expected {m_files} output tasks (one per file), got {len(result_tasks)}"
         )
         assert all(isinstance(t, FileGroupTask) for t in result_tasks)
 
@@ -469,12 +469,12 @@ class TestDataDesignerStagePipelineIntegration:
         for task in result_tasks:
             assert task.data, f"Task {task.task_id} should have written file path(s)"
             output_paths.extend(task.data)
-        assert len(output_paths) == M_FILES
+        assert len(output_paths) == m_files
         for out_path in output_paths:
             with open(out_path) as f:
                 lines = f.readlines()
-            assert len(lines) == N_ROWS_PER_FILE, (
-                f"Output file {out_path} should have {N_ROWS_PER_FILE} rows, got {len(lines)}"
+            assert len(lines) == n_rows_per_file, (
+                f"Output file {out_path} should have {n_rows_per_file} rows, got {len(lines)}"
             )
             for line in lines:
                 obj = json.loads(line)
@@ -486,8 +486,8 @@ class TestDataDesignerStagePipelineIntegration:
         # jsonl_reader reports 1 item (one file-group task); NDD and writer report row count
         expected_items_per_stage = {
             "jsonl_reader": 1,
-            "DataDesignerStage": N_ROWS_PER_FILE,
-            "jsonl_writer": N_ROWS_PER_FILE,
+            "DataDesignerStage": n_rows_per_file,
+            "jsonl_writer": n_rows_per_file,
         }
         for task in result_tasks:
             assert task._metadata, "Output task should have _metadata"
