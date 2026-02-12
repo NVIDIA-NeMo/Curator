@@ -64,10 +64,7 @@ class DiverseQAPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBatch]
     tokenizer: AutoTokenizer | None = None
     prefix: str = "Here are the questions and answers based on the provided text:"
     max_num_pairs: int = 10
-
-    @property
-    def name(self) -> str:
-        return "DiverseQAPostProcessing"
+    name: str = "DiverseQAPostProcessing"
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
@@ -149,10 +146,7 @@ class KnowledgeListPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBa
     """
 
     input_field: str = "knowledge_list"
-
-    @property
-    def name(self) -> str:
-        return "KnowledgeListPostProcessing"
+    name: str = "KnowledgeListPostProcessing"
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
