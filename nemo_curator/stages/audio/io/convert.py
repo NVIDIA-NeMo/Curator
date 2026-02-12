@@ -24,11 +24,14 @@ class AudioToDocumentStage(ProcessingStage[AudioBatch, DocumentBatch]):
 
     """
 
+    name = "AudioToDocumentStage"
+
     def process(self, task: AudioBatch) -> list[DocumentBatch]:
         return [
             DocumentBatch(
                 data=pd.DataFrame(task.data),
                 task_id=task.task_id,
                 dataset_name=task.dataset_name,
+                _stage_perf=task._stage_perf,
             )
         ]
