@@ -124,7 +124,7 @@ pipeline.add_stage(
 )
 ```
 
-Path helpers are available to resolve common locations (such as `clips/`, `filtered_clips/`, `previews/`, `metas/v0/`, and `iv2_embd_parquet/`).
+Path helpers are available to resolve common locations (such as `clips/`, `filtered_clips/`, `previews/`, `metas/v0/`, and `ce1_embd_parquet/`).
 
 ```{toctree}
 :maxdepth: 2

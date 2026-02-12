@@ -4,7 +4,7 @@ The [Llama Nemotron Post-Training Dataset](https://huggingface.co/datasets/nvidi
 Organized into distinct subsets for supervised fine-tuning (SFT) or reinforcement learning (RL), it encompasses samples from various problem domains.
 All samples are in JSON lines (JSONL) format and contain metadata such as license type, source model, as well as the [Llama Nemotron](https://www.nvidia.com/en-us/ai-data-science/foundation-models/llama-nemotron/) model(s) trained with that sample.
 
-Each sample consists of a prompt, along with an expected response with detailed chain-of-thought (CoT) reasoning traces followed by responses (i.e., "reasoning on"), as well as samples with direct responses (i.e., "reasoning off").
+Each sample consists of a prompt, along with an expected response with detailed chain-of-thought (CoT) reasoning traces followed by responses (that is, "reasoning on"), as well as samples with direct responses (that is, "reasoning off").
 Here is an example of what a sample from the dataset may look like:
 
 ```bash
@@ -42,7 +42,7 @@ Setup requirements:
 - Hardware: This tutorial can be run entirely on CPU workers
 - Recommended environment: This tutorial was developed and tested with a Conda environment
 
-Please refer to NeMo Curator's [documentation](https://docs.nvidia.com/nemo/curator/latest/) for instructions on how to download NeMo Curator via PyPI, source, or Docker.
+Refer to the NeMo Curator [documentation](https://docs.nvidia.com/nemo/curator/latest/) for instructions on how to download NeMo Curator through PyPI, source, or Docker.
 
 ## Prerequisites
 
@@ -58,7 +58,7 @@ git lfs install
 git clone https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset
 ```
 
-Alternatively, the dataset can be downloaded via Python:
+Alternatively, the dataset can be downloaded using Python:
 
 ```python
 from huggingface_hub import snapshot_download
@@ -71,7 +71,7 @@ snapshot_download(
 )
 ```
 
-Please ensure that the above dataset was downloaded correctly. You can check:
+Ensure that the dataset was downloaded correctly. You can verify with the following commands:
 
 ```bash
 $ ls /path/to/Llama-Nemotron-Post-Training-Dataset/SFT
@@ -89,7 +89,7 @@ The tokenizer used by this tutorial is called [meta-llama/Llama-3.1-8B-Instruct]
 1. Visit https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct
 2. Click "Access request"
 3. Fill out the form and wait for approval
-4. Once approved, log in to your Hugging Face account via the Hugging Face CLI. In the terminal, this can be done via `huggingface-cli login`
+4. After approval, log in to your Hugging Face account using the Hugging Face CLI. In the terminal, run `huggingface-cli login`
 
 ### Download FastText language identification model
 
@@ -119,7 +119,7 @@ LOGURU_LEVEL="ERROR" python main.py \
     --num-cpus 16
 ```
 
-Setting `LOGURU_LEVEL="ERROR"` helps minimize long logs. Removing it can be helpful for debugging.
+Setting `LOGURU_LEVEL="ERROR"` helps minimize long logs. Removing it can be helpful for debugging. See the **Debugging Out of Memory Errors** section for help (most likely, the answer is to reduce `--num-cpus`).
 
 The user may set `--hf-token` as needed for the tokenizer.
 
@@ -130,20 +130,27 @@ The above script applies basic filtering to the input dataset:
 - Only take samples used for Nemotron Nano training
 - Remove empty and malformed samples
 - Remove non-English samples
-- Remove samples with total length (system prompt, input, and output responses) longer than 16k tokens (with chat template applied via the tokenizer)
-- Remove samples with output responses longer than 8k tokens (with chat template applied via the tokenizer)
+- Remove samples with total length (system prompt, input, and output responses) longer than 16k tokens (with chat template applied using the tokenizer)
+- Remove samples with output responses longer than 8k tokens (with chat template applied using the tokenizer)
 - Only keep columns specified by the `--keep-columns` parameter. We recommend keeping the "input", "output", and "completion_token_count" columns (the "completion_token_count" column always needs to be kept, so that we can sort the samples)
 
-After filtering, it sorts all samples by completion (output response) length, then "interleaves" thinking ON/thinking OFF for curriculum learning. The idea here is to sort the samples in increasing order of difficulty, using the completion token count as a measure of sample difficulty. By default, we interleave one record at a time (i.e., 1 thinking ON sample, then 1 thinking OFF sample, then 1 thinking ON sample, etc.). The user may pass `--chunk-size` followed by an integer to interleave 10 records at a time (10 thinking ON samples, then 10 thinking OFF samples, then 10 thinking ON samples, and so on), 100 records at a time, etc. as desired. We interleave samples from the "reasoning on" and "reasoning off" buckets to gradually introduce complexity.
+After filtering, it sorts all samples by completion (output response) length, then "interleaves" thinking ON/thinking OFF for curriculum learning. The idea here is to sort the samples in increasing order of difficulty, using the completion token count as a measure of sample difficulty. By default, we interleave one record at a time (that is, one thinking ON sample, then one thinking OFF sample, then one thinking ON sample, and so on). The user may pass `--chunk-size` followed by an integer to interleave 10 records at a time (10 thinking ON samples, then 10 thinking OFF samples, then 10 thinking ON samples, and so on), 100 records at a time, and so on as desired. We interleave samples from the "reasoning on" and "reasoning off" buckets to gradually introduce complexity.
+
+## System Requirements
+
+- **Memory**: This tutorial can be CPU-only but is memory-intensive. For smaller memory systems, use `--filename-filter` to select a subset of the data.
+- **CPU allocation**: The `--num-cpus` parameter controls parallelism. Each CPU worker processes data in parallel, so more CPUs means more memory usage. Start with a conservative value and increase gradually.
 
 ## Debugging Out of Memory Errors
 
-If you are running into out of memory (OOM) errors, there are a couple of approaches you can try. One is to avoid very large partitions of data. By default, the JSONL data is read with a blocksize of 100 MB per partition. To customize the file reading logic, the user may specify `--json-blocksize "100mb"` with any string representation for the partition size in MB (e.g., "100mb", "256mb").
+If you encounter out-of-memory (OOM) errors:
 
-It can be useful to play around with the `--num-cpus` parameter as well. The goal is to maximize it for improved performance without oversubscribing your available hardware.
+1. **Reduce partition size**: Lower the blocksize to reduce per-partition memory. Set `--json-blocksize "50mb"` (default is "100mb").
+2. **Reduce CPU count**: Lower `--num-cpus` to reduce parallel memory pressure rather than using all available cores.
+3. **Subset the data**: Use `--filename-filter` to process only specific subsets relevant to your use case (such as `--filename-filter "chat"`).
 
 ## Next Steps
 
-To see how to train a reasoning model with the resulting dataset, please refer to this NeMo tutorial: [Train Your Own Reasoning Model in 48 Hours on a Single GPU](https://github.com/NVIDIA/NeMo/tree/main/tutorials/llm/reasoning).
+To see how to train a reasoning model with the resulting dataset, refer to this NeMo tutorial: [Train Your Own Reasoning Model in 48 Hours on a Single GPU](https://github.com/NVIDIA/NeMo/tree/main/tutorials/llm/reasoning).
 
 The NeMo tutorial expects the `/path/to/curated-data/training.jsonl` file generated by this tutorial as input.
