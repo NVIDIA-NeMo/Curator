@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -19,8 +20,13 @@ import pandas as pd
 import pytest
 import pytest_httpserver
 
+from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import DocumentBatch
+from nemo_curator.stages.synthetic.nemo_data_designer.data_designer import DataDesignerStage
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.tasks import DocumentBatch, FileGroupTask
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 # Optional: skip entire module if data_designer not installed (e.g. optional dep)
 pytest.importorskip("data_designer")
@@ -28,9 +34,6 @@ pytest.importorskip("data_designer")
 import data_designer.config as dd
 from data_designer.config.preview_results import PreviewResults
 from data_designer.interface import DataDesigner
-
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.synthetic.nemo_data_designer.data_designer import DataDesignerStage
 
 
 def _minimal_config_builder() -> dd.DataDesignerConfigBuilder:
@@ -41,7 +44,13 @@ def _minimal_config_builder() -> dd.DataDesignerConfigBuilder:
 
 
 class TestBaseDataDesignerStage:
-    """Unit tests for DataDesignerStage using real data_designer objects; only preview() is mocked."""
+    """Unit tests for DataDesignerStage using real data_designer objects; only preview() is mocked.
+
+    Note: Verification of _metadata and _stage_perf for each output task is done in the
+    integration test (test_pipeline_e2e_reader_ndd_writer). That makes the mocked
+    preservation checks here (e.g. in test_process) somewhat redundant; we keep them
+    for fast unit-level feedback only.
+    """
 
     def test_post_init_validation(self) -> None:
         """Either config_builder or data_designer_config_file must be set; only one can be set."""
@@ -146,12 +155,21 @@ class TestBaseDataDesignerStage:
                 return_value=PreviewResults(config_builder=real_builder, dataset=output_df)
             )
 
+            # Use non-empty _metadata and _stage_perf like other stages (video reader, text writers)
+            original_metadata = {"k": "v"}
+            original_stage_perf = [
+                StagePerfStats(
+                    stage_name="jsonl_reader",
+                    process_time=0.1,
+                    num_items_processed=1,
+                ),
+            ]
             batch = DocumentBatch(
                 data=input_df,
                 dataset_name="ds1",
                 task_id="task-1",
-                _metadata={"k": "v"},
-                _stage_perf=[],
+                _metadata=original_metadata,
+                _stage_perf=original_stage_perf,
             )
             out_batch = stage.process(batch)
 
@@ -167,8 +185,37 @@ class TestBaseDataDesignerStage:
             assert out_batch.task_id == "task-1"
             assert out_batch.dataset_name == "ds1"
             assert out_batch.data is output_df
-            assert out_batch._metadata == {"k": "v"}
-            assert out_batch._stage_perf == []
+            # Preserve metadata and stage_perf (same assertion style as video reader, URL generation, image convert)
+            assert out_batch._metadata == original_metadata
+            assert out_batch._stage_perf == original_stage_perf
+
+    def test_process_preserves_metadata(self) -> None:
+        """Test process preserves task _metadata and _stage_perf (same pattern as VideoReaderStage.test_process_preserves_metadata)."""
+        real_builder = _minimal_config_builder()
+        stage = DataDesignerStage(config_builder=real_builder, verbose=False)
+        stage.setup()
+        stage.data_designer.preview = MagicMock(
+            return_value=PreviewResults(
+                config_builder=real_builder,
+                dataset=pd.DataFrame([{"text": "hi", "out": "generated"}]),
+            )
+        )
+
+        original_metadata = {"source": "test", "source_files": ["/path/to/file.jsonl"]}
+        original_stage_perf = [
+            StagePerfStats(stage_name="jsonl_reader", process_time=0.1, num_items_processed=1),
+        ]
+        batch = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}]),
+            dataset_name="ds1",
+            task_id="task-1",
+            _metadata=original_metadata,
+            _stage_perf=original_stage_perf,
+        )
+        result = stage.process(batch)
+
+        assert result._metadata == original_metadata
+        assert result._stage_perf == original_stage_perf
 
     def test_process_empty_batch(self) -> None:
         """process handles empty dataframe."""
@@ -221,11 +268,10 @@ class TestBaseDataDesignerStage:
             ],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
-        # Allow multiple completion requests (one per generated row).
-        for _ in range(10):
-            httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
-                mock_completion
-            )
+        # Permanent handler: respond to any number of /v1/chat/completions requests.
+        httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
+            mock_completion
+        )
 
         base_url = httpserver.url_for("/v1")
         mock_provider = dd.ModelProvider(
@@ -265,13 +311,12 @@ class TestBaseDataDesignerStage:
 
 
 @pytest.mark.gpu
-@pytest.mark.usefixtures("shared_ray_client")
 class TestDataDesignerStagePipelineIntegration:
     """Integration tests: pipeline.run(executor, initial_tasks=...) with DataDesignerStage and mock LLM."""
 
     def test_pipeline_run_end_to_end(self, httpserver: pytest_httpserver.HTTPServer) -> None:
-        """Run pipeline.run(executor, initial_tasks=...) so the executor drives setup and process."""
-        from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+        """Run pipeline with streaming executor so the executor drives setup and process."""
+        from nemo_curator.backends.xenna import XennaExecutor
 
         mock_completion = {
             "id": "mock-id",
@@ -281,10 +326,9 @@ class TestDataDesignerStagePipelineIntegration:
             ],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
-        for _ in range(10):
-            httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
-                mock_completion
-            )
+        httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
+            mock_completion
+        )
 
         base_url = httpserver.url_for("/v1")
         mock_provider = dd.ModelProvider(
@@ -319,7 +363,7 @@ class TestDataDesignerStagePipelineIntegration:
                 task_id="e2e-1",
             )
         ]
-        executor = RayActorPoolExecutor()
+        executor = XennaExecutor(config={"execution_mode": "streaming"})
         result_tasks = pipeline.run(executor, initial_tasks=initial_tasks)
 
         assert result_tasks is not None
@@ -329,4 +373,136 @@ class TestDataDesignerStagePipelineIntegration:
         assert out.task_id == "e2e-1"
         assert out.dataset_name == "integration"
         assert out.data is not None
-        assert len(out.data) >= 1
+        expected_rows = len(initial_tasks[0].data)
+        assert len(out.data) == expected_rows, (
+            f"Output row count {len(out.data)} should match input {expected_rows}"
+        )
+        expected_columns = {"x", "out"}
+        assert expected_columns.issubset(out.data.columns), (
+            f"Output should have columns {expected_columns}, got {list(out.data.columns)}"
+        )
+
+    def test_pipeline_e2e_reader_ndd_writer(
+        self,
+        httpserver: pytest_httpserver.HTTPServer,
+        tmp_path: Path,
+    ) -> None:
+        """Realistic e2e: N rows × M files → JsonlReader(files_per_partition=1) → NDD → JsonlWriter.
+
+        Asserts: M output files, each with same row count as input file and new column from NDD;
+        for each output task, verifies _metadata (e.g. source_files) and _stage_perf for all stages.
+        This is the canonical check for metadata/stage_perf; the mocked unit tests above are
+        redundant with it and kept only for fast unit-level feedback.
+        """
+        from nemo_curator.backends.xenna import XennaExecutor
+
+        N_ROWS_PER_FILE = 3
+        M_FILES = 4
+
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        # 1. Create M JSONL files with N rows each
+        input_files = []
+        for fi in range(M_FILES):
+            path = input_dir / f"doc_{fi}.jsonl"
+            input_files.append(str(path))
+            with open(path, "w") as f:
+                for ri in range(N_ROWS_PER_FILE):
+                    rec = {"text": f"file{fi}_row{ri}"}
+                    f.write(json.dumps(rec) + "\n")
+
+        # 2. Mock LLM
+        mock_completion = {
+            "id": "mock-id",
+            "object": "chat.completion",
+            "choices": [
+                {"index": 0, "message": {"role": "assistant", "content": "generated"}, "finish_reason": "stop"}
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+        httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
+            mock_completion
+        )
+        base_url = httpserver.url_for("/v1")
+        mock_provider = dd.ModelProvider(
+            name="mock_llm",
+            endpoint=base_url,
+            provider_type="openai",
+            api_key="sk-test",  # pragma: allowlist secret
+        )
+        config_builder = dd.DataDesignerConfigBuilder(
+            model_configs=[dd.ModelConfig(alias="mock_model", model="test", provider="mock_llm")]
+        )
+        config_builder.add_column(
+            dd.LLMTextColumnConfig(name="out", prompt="One word", model_alias="mock_model")
+        )
+
+        # 3. Three-stage pipeline: JsonlReader → NDD → JsonlWriter
+        pipeline = Pipeline(
+            name="ndd_e2e_reader_ndd_writer",
+            description="Reader → DataDesigner → Writer",
+            stages=[
+                JsonlReader(file_paths=str(input_dir), files_per_partition=1),
+                DataDesignerStage(
+                    config_builder=config_builder,
+                    model_providers=[mock_provider],
+                    verbose=False,
+                ),
+                JsonlWriter(path=str(output_dir)),
+            ],
+        )
+        executor = XennaExecutor(config={"execution_mode": "streaming"})
+        result_tasks = pipeline.run(executor)
+
+        # 4. Output is M tasks (FileGroupTask from writer), one per input file
+        assert result_tasks is not None
+        assert len(result_tasks) == M_FILES, (
+            f"Expected {M_FILES} output tasks (one per file), got {len(result_tasks)}"
+        )
+        assert all(isinstance(t, FileGroupTask) for t in result_tasks)
+
+        # 5. Verify output files: M files, each with N rows and column "out"
+        output_paths = []
+        for task in result_tasks:
+            assert task.data, f"Task {task.task_id} should have written file path(s)"
+            output_paths.extend(task.data)
+        assert len(output_paths) == M_FILES
+        for out_path in output_paths:
+            with open(out_path) as f:
+                lines = f.readlines()
+            assert len(lines) == N_ROWS_PER_FILE, (
+                f"Output file {out_path} should have {N_ROWS_PER_FILE} rows, got {len(lines)}"
+            )
+            for line in lines:
+                obj = json.loads(line)
+                assert "out" in obj, f"Output should have NDD column 'out', keys: {list(obj.keys())}"
+                assert "text" in obj
+
+        # 6. Verify metadata and stage_perf_stats for each output task
+        expected_stage_names = ["jsonl_reader", "DataDesignerStage", "jsonl_writer"]
+        # jsonl_reader reports 1 item (one file-group task); NDD and writer report row count
+        expected_items_per_stage = {
+            "jsonl_reader": 1,
+            "DataDesignerStage": N_ROWS_PER_FILE,
+            "jsonl_writer": N_ROWS_PER_FILE,
+        }
+        for task in result_tasks:
+            assert task._metadata, "Output task should have _metadata"
+            assert "source_files" in task._metadata, (
+                "Writer should preserve source_files from reader for deterministic naming"
+            )
+            assert len(task._stage_perf) == len(expected_stage_names), (
+                f"Expected {len(expected_stage_names)} stage perf entries, got {len(task._stage_perf)}"
+            )
+            for idx, perf in enumerate(task._stage_perf):
+                assert perf.stage_name == expected_stage_names[idx], (
+                    f"Stage {idx}: expected {expected_stage_names[idx]}, got {perf.stage_name}"
+                )
+                expected_items = expected_items_per_stage[perf.stage_name]
+                assert perf.num_items_processed == expected_items, (
+                    f"Stage {perf.stage_name}: expected {expected_items} items, got {perf.num_items_processed}"
+                )
+                assert perf.process_time >= 0

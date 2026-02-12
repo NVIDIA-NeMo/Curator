@@ -40,16 +40,16 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     providers are used.
     """
 
-    resources = Resources(gpus=0.0)
     config_builder: dd.DataDesignerConfigBuilder | None = None
     data_designer_config_file: str | None = None
     model_providers: list | None = None
     verbose: bool = False
     data_designer: DataDesigner = field(init=False)
-    name: str = "DataDesignerStage"
-
 
     def __post_init__(self) -> None:
+        # Set in __post_init__ so they are not constructor args; use .with_(resources=..., name=...) to customize.
+        self.resources = Resources(gpus=0.0)
+        self.name = "DataDesignerStage"
 
         # check config_builder and data_designer_config_file
         if self.config_builder is None and self.data_designer_config_file is None:
