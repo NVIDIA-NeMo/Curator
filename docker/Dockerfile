@@ -42,7 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     vim && \
-    apt install -y --only-upgrade gnupg && \
+    apt-get install -y --only-upgrade gnupg && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
