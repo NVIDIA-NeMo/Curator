@@ -27,7 +27,7 @@ A pipeline that:
 - **NeMo Curator**: Installed with text extras
 
 ```bash
-export NVIDIA_API_KEY="nvapi-..."
+export NVIDIA_API_KEY="<your-nvidia-api-key>"
 ```
 
 ## Quick Start
