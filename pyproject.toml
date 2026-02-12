@@ -202,7 +202,7 @@ override-dependencies = [
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
-    "transformers>=4.55.2",
+    "transformers<=4.55.2", # Else Cosmos Embed imports fail
 ]
 
 
