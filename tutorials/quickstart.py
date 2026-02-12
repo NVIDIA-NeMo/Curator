@@ -39,9 +39,9 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task, _EmptyTask
 
 SAMPLE_SENTENCES = [
-    "I love this product",
-    "I hate this product",
-    "I'm neutral about this product",
+    "I love this product, it works great",
+    "I hate this product, it broke immediately",
+    "This product is okay but nothing special",
 ]
 
 
