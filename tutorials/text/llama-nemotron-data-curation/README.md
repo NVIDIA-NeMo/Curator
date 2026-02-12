@@ -119,7 +119,7 @@ LOGURU_LEVEL="ERROR" python main.py \
     --num-cpus 16
 ```
 
-Setting `LOGURU_LEVEL="ERROR"` helps minimize long logs. Removing it can be helpful for debugging.
+Setting `LOGURU_LEVEL="ERROR"` helps minimize long logs. Removing it can be helpful for debugging. See the **Debugging Out of Memory Errors** section for help (most likely, the answer is to reduce `--num-cpus`).
 
 The user may set `--hf-token` as needed for the tokenizer.
 
@@ -147,7 +147,7 @@ If you encounter out-of-memory (OOM) errors:
 
 1. **Reduce partition size**: Lower the blocksize to reduce per-partition memory. Set `--json-blocksize "50mb"` (default is "100mb").
 2. **Reduce CPU count**: Lower `--num-cpus` to reduce parallel memory pressure rather than using all available cores.
-3. **Subset the data**: Use `--filename-filter` to process only specific subsets (such as `--filename-filter "chat"`).
+3. **Subset the data**: Use `--filename-filter` to process only specific subsets relevant to your use case (such as `--filename-filter "chat"`).
 
 ## Next Steps
 
