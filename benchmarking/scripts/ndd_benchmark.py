@@ -197,11 +197,15 @@ def run_ndd_benchmark(
     # -- Post-run: extract metrics from _stage_perf ----------------------
     input_row_count = int(TaskPerfUtils.get_aggregated_stage_stat(output_tasks, "DataDesignerStage", "custom.num_input_records"))
     output_row_count = int(TaskPerfUtils.get_aggregated_stage_stat(output_tasks, "DataDesignerStage", "custom.num_output_records"))
+    input_chars = int(TaskPerfUtils.get_aggregated_stage_stat(output_tasks, "DataDesignerStage", "custom.num_input_chars"))
+    output_chars = int(TaskPerfUtils.get_aggregated_stage_stat(output_tasks, "DataDesignerStage", "custom.num_output_chars"))
     throughput_rows_per_sec = output_row_count / run_time_taken if run_time_taken > 0 else 0
 
     logger.success(f"NDD benchmark completed in {run_time_taken:.2f}s")
     logger.success(f"Input:  {input_row_count} rows")
     logger.success(f"Output: {output_row_count} rows")
+    logger.success(f"Input chars: {input_chars:,}")
+    logger.success(f"Output chars: {output_chars:,}")
     logger.success(f"Throughput: {throughput_rows_per_sec:.2f} rows/sec")
 
     return {
@@ -212,6 +216,8 @@ def run_ndd_benchmark(
             "model_id": model_id,
             "input_row_count": input_row_count,
             "output_row_count": output_row_count,
+            "input_chars": input_chars,
+            "output_chars": output_chars,
             "throughput_rows_per_sec": throughput_rows_per_sec,
             "num_files": num_files or "all",
         },

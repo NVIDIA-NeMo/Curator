@@ -75,6 +75,7 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         num_input_records = batch.num_items
+        num_input_chars = sum(len(str(v)) for v in batch.data.values())
 
         # set seed dataframe from batch
         self.config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=batch.to_pandas()))
@@ -95,11 +96,14 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 ndd_logger.setLevel(_old_ndd_level)
 
         num_output_records = len(df)
+        num_output_chars = sum(len(str(v)) for v in df.values())
         self._log_metrics(
             {
                 "ndd_running_time": ndd_running_time,
                 "num_input_records": float(num_input_records),
                 "num_output_records": float(num_output_records),
+                "num_input_chars": float(num_input_chars),
+                "num_output_chars": float(num_output_chars),
             }
         )
 
