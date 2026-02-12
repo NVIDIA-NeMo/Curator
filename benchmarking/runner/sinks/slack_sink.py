@@ -448,7 +448,7 @@ class SlackSink(Sink):
         if self.live_updates:
             if self._parent_message is None:
                 logger.warning(
-                    "SlackSink: Warning: Ignoring attempt to post an entry starting message without a session summary message. Was iniatialize() called?"
+                    "SlackSink: Warning: Ignoring attempt to post an entry starting message without a session summary message. Was initialize() called?"
                 )
                 return
             self._parent_message.update_entry(benchmark_entry.name, "▶️ running")
@@ -457,7 +457,7 @@ class SlackSink(Sink):
     def register_benchmark_entry_finished(self, result_dict: dict[str, Any], benchmark_entry: Entry) -> None:
         if self._parent_message is None:
             logger.warning(
-                "SlackSink: Warning: Ignoring attempt to post an entry finished message without a session summary message. Was iniatialize() called?"
+                "SlackSink: Warning: Ignoring attempt to post an entry finished message without a session summary message. Was initialize() called?"
             )
             return
         # Use the benchmark_entry to get any entry-specific settings for the Slack report
@@ -478,7 +478,7 @@ class SlackSink(Sink):
     def finalize(self) -> None:
         if self._parent_message is None:
             logger.warning(
-                "SlackSink: Warning: Ignoring attempt to finalize without a session summary message. Was iniatialize() called?"
+                "SlackSink: Warning: Ignoring attempt to finalize without a session summary message. Was initialize() called?"
             )
             return
         # Unconditionally posts all unposted messages.
