@@ -632,8 +632,6 @@ entries:
         additional_metrics:
           - input_row_count
           - output_row_count
-          - input_total_chars
-          - output_total_chars
           - throughput_rows_per_sec
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings

@@ -121,10 +121,10 @@ def _build_config(model_id: str) -> dd.DataDesignerConfigBuilder:
             name="physician_notes",
             prompt="""\
 You are a primary-care physician who just had an appointment with {{ first_name }} {{ last_name }},
-who has been struggling with symptoms from {{ output_text }} since {{ symptom_onset_date }}.
+who has been struggling with symptoms from {{ diagnosis }} since {{ symptom_onset_date }}.
 The date of today's visit is {{ date_of_visit }}.
 
-{{ input_text }}
+{{ patient_summary }}
 
 Write careful notes about your visit with {{ first_name }},
 as Dr. {{ doctor_sampler.first_name }} {{ doctor_sampler.last_name }}.
@@ -183,7 +183,7 @@ def run_ndd_benchmark(
     pipeline = Pipeline(
         name="ndd_benchmark_pipeline",
         stages=[
-            JsonlReader(file_paths=input_files, fields=["output_text", "input_text"]),
+            JsonlReader(file_paths=input_files, fields=["diagnosis", "patient_summary"]),
             DataDesignerStage(config_builder=config_builder),
             JsonlWriter(path=str(output_path)),
         ],
@@ -195,17 +195,13 @@ def run_ndd_benchmark(
     run_time_taken = time.perf_counter() - run_start_time
 
     # -- Post-run: extract metrics from _stage_perf ----------------------
-    ndd_metrics = TaskPerfUtils.aggregate_task_metrics(output_tasks, prefix="custom")
-    input_row_count = int(ndd_metrics["num_input_records"])
-    input_total_chars = int(ndd_metrics["input_total_chars"])
-    # TODO: add this to data_designer.py
-    output_row_count = int(ndd_metrics["num_output_records"])
-    output_total_chars = int(ndd_metrics["output_total_chars"])
+    input_row_count = int(TaskPerfUtils.get_aggregated_stage_stat(output_tasks, "DataDesignerStage", "custom.num_input_records"))
+    output_row_count = int(TaskPerfUtils.get_aggregated_stage_stat(output_tasks, "DataDesignerStage", "custom.num_output_records"))
     throughput_rows_per_sec = output_row_count / run_time_taken if run_time_taken > 0 else 0
 
     logger.success(f"NDD benchmark completed in {run_time_taken:.2f}s")
-    logger.success(f"Input:  {input_row_count} rows, {input_total_chars:,} chars")
-    logger.success(f"Output: {output_row_count} rows, {output_total_chars:,} chars")
+    logger.success(f"Input:  {input_row_count} rows")
+    logger.success(f"Output: {output_row_count} rows")
     logger.success(f"Throughput: {throughput_rows_per_sec:.2f} rows/sec")
 
     return {
@@ -215,9 +211,7 @@ def run_ndd_benchmark(
             "model_type": model_type,
             "model_id": model_id,
             "input_row_count": input_row_count,
-            "input_total_chars": input_total_chars,
             "output_row_count": output_row_count,
-            "output_total_chars": output_total_chars,
             "throughput_rows_per_sec": throughput_rows_per_sec,
             "num_files": num_files or "all",
         },
