@@ -92,7 +92,6 @@ class PreserveByValueStage(LegacySpeechStage):
         input_value_key: str,
         target_value: int | str,
         operator: str = "eq",
-        **kwargs,
     ):
         self.input_value_key = input_value_key
         self.target_value = target_value
