@@ -230,7 +230,7 @@ pipeline.add_stage(
 When using the example pipeline module, configure the writer-related flags:
 
 ```bash
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   --video-dir "$VIDEO_DIR" \
   --model-dir "$MODEL_DIR" \
   --output-clip-path "$OUT_DIR" \

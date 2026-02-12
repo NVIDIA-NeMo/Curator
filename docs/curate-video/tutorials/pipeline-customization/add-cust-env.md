@@ -70,7 +70,3 @@ docker build -t my-ray-curator:latest .
 ## Next Steps
 
 Now that you have created a custom environment, you can [create custom code](video-tutorials-pipeline-cust-add-code) for that environment.
-
-```{note}
-Ray Data backends do not support `nvdecs`/`nvencs` resource keys. Xenna does. If you plan to use `nvdecs`/`nvencs`, prefer the default Xenna executor.
-```

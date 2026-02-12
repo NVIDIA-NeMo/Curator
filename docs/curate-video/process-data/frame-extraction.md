@@ -23,7 +23,7 @@ Extract frames from clips or full videos at target rates and resolutions. Use fr
 
 ## Before You Start
 
-[Embeddings](video-process-embeddings) and [aesthetic filtering](video-process-filtering-aesthetic) require frames. If you need saved media files, frame extraction is optional.
+If you need saved media files, frame extraction is optional. [Embeddings](video-process-embeddings) and [aesthetic filtering](video-process-filtering-aesthetic) require frames.
 
 ---
 
@@ -66,13 +66,13 @@ pipe.run()
 
 ```bash
 # Clip frames implicitly when generating embeddings or aesthetics
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --generate-embeddings \
   --clip-extraction-target-res -1
 
 # Full-video frames for TransNetV2 scene change
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --splitting-algorithm transnetv2 \
   --transnetv2-frame-decoder-mode pynvc

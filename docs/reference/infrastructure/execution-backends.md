@@ -53,7 +53,7 @@ results = pipeline.run(executor)
 
 ### `XennaExecutor` (recommended)
 
-`XennaExecutor` is the production-ready executor that uses Cosmos-Xenna, a Ray-based execution engine optimized for distributed data processing. Xenna provides native streaming support, automatic resource scaling, and built-in fault tolerance. It's the recommended choice for most production workloads, especially for video and multimodal pipelines.
+`XennaExecutor` uses Cosmos-Xenna, a Ray-based execution engine optimized for distributed data processing. Xenna provides native streaming support, automatic resource scaling, and built-in fault tolerance. This executor is the recommended choice for most workloads, especially for video and multimodal pipelines.
 
 **Key Features**:
 - **Streaming execution**: Process data incrementally as it arrives, reducing memory requirements
@@ -108,14 +108,46 @@ results = pipeline.run(executor)
 
 For more details, refer to the official [NVIDIA Cosmos-Xenna project](https://github.com/nvidia-cosmos/cosmos-xenna/tree/main).
 
+### `RayActorPoolExecutor`
+
+`RayActorPoolExecutor` uses Ray's ActorPool for efficient distributed processing with fine-grained resource management. This executor creates pools of Ray actors per stage, enabling better load balancing and fault tolerance through Ray's native mechanisms. Deduplication workflows automatically use this executor for GPU-accelerated stages.
+
+**Key Features**:
+- **ActorPool-based execution**: Creates dedicated actor pools per stage for optimal resource utilization
+- **Load balancing**: Uses `map_unordered` for efficient work distribution across actors
+- **RAFT support**: Native integration with [RAFT](https://github.com/rapidsai/raft) (RAPIDS Analytics Framework Toolbox) for GPU-accelerated clustering and nearest-neighbor operations
+- **Head node exclusion**: Optional `ignore_head_node` parameter to reserve the Ray cluster's [head node](https://docs.ray.io/en/latest/cluster/key-concepts.html#head-node) for coordination tasks only
+
+:::{dropdown} Example: Fuzzy Deduplication
+:icon: code-square
+
+```python
+from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
+
+workflow = FuzzyDeduplicationWorkflow(
+    input_path="/data/documents",
+    cache_path="/data/cache",
+    output_path="/data/output",
+    text_field="text",
+    perform_removal=True,
+    num_bands=20,
+    minhashes_per_band=13,
+)
+
+# The workflow automatically uses RayActorPoolExecutor for GPU-accelerated stages
+results = workflow.run()
+```
+
+For more details, refer to {ref}`Text Deduplication <text-process-data-dedup>`.
+:::
+
 ### `RayDataExecutor`
 
-`RayDataExecutor` uses Ray Data, a scalable data processing library built on Ray Core. Ray Data provides a familiar DataFrame-like API for distributed data transformations. This executor is experimental and best suited for large-scale batch processing tasks that benefit from Ray Data's optimized data loading and transformation pipelines.
+`RayDataExecutor` uses Ray Data, a scalable data processing library built on Ray Core. Ray Data provides a familiar DataFrame-like API for distributed data transformations. This executor is best suited for large-scale text processing tasks that benefit from Ray Data's optimized data loading and transformation pipelines.
 
 **Key Features**:
 - **Ray Data API**: Leverages Ray Data's optimized data processing primitives
 - **Scalable transformations**: Efficient map-batch operations across distributed workers
-- **Experimental status**: API and performance characteristics may change
 
 ```python
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
@@ -124,59 +156,21 @@ executor = RayDataExecutor()
 results = pipeline.run(executor)
 ```
 
-:::{note}`RayDataExecutor` currently has limited configuration options. For more control over execution, consider using `XennaExecutor` or `RayActorPoolExecutor`.
-:::
-
-### `RayActorPoolExecutor`
-
-Executor using Ray Actor pools for custom distributed processing patterns such as deduplication.
-
-```python
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-
-executor = RayActorPoolExecutor()
-results = pipeline.run(executor)
-```
-
 ## Ray Executors in Practice
 
-Ray-based executors provide enhanced scalability and performance for large-scale data processing tasks. They're beneficial for:
+Ray-based executors provide enhanced scalability and performance for large-scale data processing tasks. These executors are beneficial for:
 
 - **Large-scale classification tasks**: Distributed inference across multi-GPU setups
 - **Deduplication workflows**: Parallel processing of document similarity computations  
 - **Resource-intensive stages**: Automatic scaling based on computational demands
 
-### When to Use Ray Executors
-
-Consider Ray executors when:
-
-- Processing datasets that exceed single-machine capacity
-- Running GPU-intensive stages (classifiers, embedding models, etc.)
-- Needing automatic fault tolerance and recovery
-- Scaling across multi-node clusters
-
-### Ray vs. Xenna Executors
-
-| Feature | XennaExecutor | Ray Executors |
-|---------|---------------|---------------|
-| **Maturity** | Production-ready | Experimental |
-| **Streaming** | Native support | Limited |
-| **Resource Management** | Optimized for video/multimodal | General-purpose |
-| **Fault Tolerance** | Built-in | Ray-native |
-| **Scaling** | Auto-scaling | Manual configuration |
-
-**Recommendation**: Use `XennaExecutor` for production workloads and Ray executors for experimental large-scale processing.
-
-:::{note}
-Ray executors emit an experimental warning as the API and performance characteristics may change.
-:::
-
 ## Choosing a Backend
 
-Both options can deliver strong performance; choose based on API fit and maturity:
+All executors can deliver strong performance; choose based on your workload requirements:
 
 - **`XennaExecutor`**: Default for most workloads due to maturity and extensive real-world usage (including video pipelines); supports streaming and batch execution with auto-scaling.
-- **Ray Executors (experimental)**: Use Ray Data API for scalable data processing; the interface is still experimental and may change.
+- **`RayActorPoolExecutor`**: Automatically used for deduplication workflows; provides GPU-accelerated processing with RAFT integration.
+- **`RayDataExecutor`**: Best for batch data transformations using Ray Data's DataFrame-like API.
 
 ## Minimal End-to-End example
 
