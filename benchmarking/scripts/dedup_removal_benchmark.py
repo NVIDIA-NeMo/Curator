@@ -83,11 +83,11 @@ def run_removal_benchmark(  # noqa: PLR0913
         ids_to_remove_path=ids_to_remove_path,
         output_path=output_path,
         input_filetype=input_filetype,  # jsonl or parquet
-        input_id_field=id_field,
+        id_field=id_field,
         input_files_per_partition=files_per_partition,
         input_blocksize=blocksize,
         input_task_limit=limit,
-        ids_to_remove_duplicate_id_field=duplicate_id_field,
+        duplicate_id_field=duplicate_id_field,
         output_filetype=output_filetype,
         id_generator_path=id_generator_path,
         input_kwargs={},

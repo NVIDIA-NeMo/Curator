@@ -18,7 +18,7 @@ This guide covers installing NeMo Curator with support for **all modalities** an
 
 ### System Requirements
 
-For comprehensive system requirements and production deployment specifications, see [Production Deployment Requirements](deployment/requirements.md).
+For comprehensive system requirements and production deployment specifications, refer to [Production Deployment Requirements](deployment/requirements.md).
 
 **Quick Start Requirements:**
 
@@ -26,6 +26,7 @@ For comprehensive system requirements and production deployment specifications, 
 - **Python**: 3.10, 3.11, or 3.12
 - **Memory**: 16GB+ RAM for basic text processing
 - **GPU** (optional): NVIDIA GPU with 16GB+ VRAM for acceleration
+- **CUDA 12** (required for `audio_cuda12`, `video_cuda12`, `image_cuda12`, and `text_cuda12` extras)
 
 ### Development vs Production
 
@@ -41,9 +42,13 @@ For comprehensive system requirements and production deployment specifications, 
 
 Choose one of the following installation methods based on your needs:
 
+:::{tip}
+**Docker is the recommended installation method** for video and audio workflows. The NeMo Curator container includes FFmpeg (with NVENC support) pre-configured, avoiding manual dependency setup. Refer to the [Container Installation](#container-installation) tab below.
+:::
+
 ::::{tab-set}
 
-:::{tab-item} PyPI Installation (Recommended)
+:::{tab-item} PyPI Installation
 
 Install NeMo Curator from the Python Package Index using `uv` for proper dependency resolution.
 
@@ -87,18 +92,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --all-extras --all-groups
 ```
 
-Optional InternVideo2 installation steps:
-
-```bash
-bash external/intern_video2_installation.sh
-uv add InternVideo/InternVideo2/multi_modality
-```
-
 :::
 
-:::{tab-item} Container Installation
+:::{tab-item} Container Installation (Recommended for Video/Audio)
 
-NeMo Curator is available as a standalone container on NGC: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator. The container includes NeMo Curator with all dependencies pre-installed. You can run it with:
+NeMo Curator is available as a standalone container on NGC: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator. The container includes NeMo Curator with all dependencies pre-installed, including FFmpeg with NVENC support.
 
 ```bash
 # Pull the container from NGC
@@ -106,6 +104,14 @@ docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
 
 # Run the container with GPU support
 docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version }}
+```
+
+```{important}
+After entering the container, activate the virtual environment before running any NeMo Curator commands:
+
+    source /opt/venv/env.sh
+
+The container uses a virtual environment at `/opt/venv`. If you see `No module named nemo_curator`, the environment has not been activated.
 ```
 
 Alternatively, you can build the NeMo Curator container locally using the provided Dockerfile:
@@ -122,7 +128,7 @@ docker run --gpus all -it --rm nemo-curator:latest
 
 **Benefits:**
 
-- Pre-configured environment with all dependencies
+- Pre-configured environment with all dependencies (FFmpeg, CUDA libraries)
 - Consistent runtime across different systems
 - Ideal for production deployments
 
@@ -164,39 +170,9 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 :::
 ::::
 
-### InternVideo2 Support (Optional for Video)
-
-Video processing includes optional support for InternVideo2. To install InternVideo2, run these commands before installing NeMo Curator based on whether you install via PyPI or from source:
-
-::::{tab-set}
-
-:::{tab-item} PyPI Installation
-```bash
-# Clone and set up InternVideo2
-git clone https://github.com/OpenGVLab/InternVideo.git
-cd InternVideo
-git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7
-
-# Download and apply NeMo Curator patch
-curl -fsSL https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/external/intern_video2_multimodal.patch -o intern_video2_multimodal.patch
-patch -p1 < intern_video2_multimodal.patch
-cd ..
-
-# Add InternVideo2 to the environment
-uv add InternVideo/InternVideo2/multi_modality
+```{note}
+**FFmpeg build requires CUDA toolkit (nvcc):** If you encounter `ERROR: failed checking for nvcc` during FFmpeg installation, ensure that the CUDA toolkit is installed and `nvcc` is available on your `PATH`. You can verify with `nvcc --version`. If using the NeMo Curator container, FFmpeg is pre-installed with NVENC support.
 ```
-
-:::
-
-:::{tab-item} Source Installation
-```bash
-# Inside the NeMo Curator folder
-bash external/intern_video2_installation.sh
-uv add InternVideo/InternVideo2/multi_modality
-```
-
-:::
-::::
 
 ---
 
