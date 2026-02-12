@@ -148,4 +148,5 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Audi
             dataset_name=f"{self.model_name}_inference",
             filepath_key=self.filepath_key,
             data=audio_items,
+            _stage_perf=task._stage_perf,
         )

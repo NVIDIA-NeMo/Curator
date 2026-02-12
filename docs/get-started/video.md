@@ -22,11 +22,11 @@ This quickstart guide demonstrates how to:
 
 1. **Install NeMo Curator** with video processing support
 2. **Set up FFmpeg** with GPU-accelerated encoding
-3. **Configure embedding models** (Cosmos-Embed1 or InternVideo2)
+3. **Configure embedding models** (Cosmos-Embed1)
 4. **Process videos** through a complete splitting and embedding pipeline
 5. **Generate outputs** ready for duplicate removal, captioning, and model training
 
-**What you'll build:** A video processing pipeline that:
+**What you build:** A video processing pipeline that:
 - Splits videos into 10-second clips using fixed stride or scene detection
 - Generates clip-level embeddings for similarity search and deduplication
 - Optionally creates captions and preview images
@@ -63,7 +63,7 @@ To use NeMo Curator's video curation capabilities, ensure your system meets thes
   - CPU encoders: `libopenh264` or `libx264` (fallback options)
 
 :::{tip}
-If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
+If `uv` is not installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
 
 ```bash
 curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
@@ -78,13 +78,9 @@ source $HOME/.local/bin/env
 
 Create and activate a virtual environment, then choose an install option:
 
-```{note}
-Cosmos-Embed1 (the default) is generally better than InternVideo2 for most video embedding tasks. Consider using Cosmos-Embed1 (`cosmos-embed1-224p`) unless you have specific requirements for InternVideo2.
-```
-
 ::::{tab-set}
 
-:::{tab-item} PyPi Without internvideo2
+:::{tab-item} PyPI
 
 ```bash
 uv pip install torch wheel_stub psutil setuptools setuptools_scm
@@ -93,49 +89,13 @@ uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
 
 :::
 
-:::{tab-item} Source Without internvideo2
+:::{tab-item} Source
 
 ```bash
 git clone https://github.com/NVIDIA-NeMo/Curator.git
 cd Curator
 uv sync --extra video_cuda12 --all-groups
 source .venv/bin/activate
-```
-
-:::
-
-:::{tab-item} PyPi With internvideo2
-
-```bash
-# Install base dependencies
-uv pip install torch wheel_stub psutil setuptools setuptools_scm
-uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
-
-# Clone and set up InternVideo2
-git clone https://github.com/OpenGVLab/InternVideo.git
-cd InternVideo
-git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7
-
-# Download and apply NeMo Curator patch
-curl -fsSL https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/external/intern_video2_multimodal.patch -o intern_video2_multimodal.patch
-patch -p1 < intern_video2_multimodal.patch
-cd ..
-
-# Add InternVideo2 to the environment
-uv pip install InternVideo/InternVideo2/multi_modality
-```
-
-:::
-
-:::{tab-item} Source With internvideo2
-
-```bash
-git clone https://github.com/NVIDIA-NeMo/Curator.git
-cd Curator
-uv sync --extra video_cuda12 --all-groups
-bash external/intern_video2_installation.sh
-uv add InternVideo/InternVideo2/multi_modality
-source .venv/bin/activate 
 ```
 
 :::
@@ -153,7 +113,7 @@ docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version 
 ```
 
 ```{seealso}
-For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments-main).
+For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments).
 ```
 
 :::
@@ -223,12 +183,7 @@ NeMo Curator supports two embedding model families:
 - [cosmos-embed1-336p on Hugging Face](https://huggingface.co/nvidia/cosmos-embed1-336p)
 - [cosmos-embed1-448p on Hugging Face](https://huggingface.co/nvidia/cosmos-embed1-448p)
 
-#### InternVideo2 (IV2)
-
-Open model that requires the IV2 checkpoint and BERT model files to be available locally; higher VRAM usage. 
-- [InternVideo Official Github Page](https://github.com/OpenGVLab/InternVideo)
-
-For this quickstart, we're going to set up support for **Cosmos-Embed1-224p**.
+For this quickstart, the following steps set up support for **Cosmos-Embed1-224p**.
 
 ### Prepare Model Weights
 
@@ -256,7 +211,7 @@ Organize input videos and output locations before running the pipeline.
   MODEL_DIR=/path/to/models
   ```
 
-- **S3**: For cloud storage (AWS S3, MinIO, etc.). Configure credentials in `~/.aws/credentials` and use `s3://` paths for `--video-dir` and `--output-clip-path`.
+- **S3**: For cloud storage (AWS S3, MinIO, etc.). Configure credentials in `~/.aws/credentials` and use `s3://` paths for `--video-dir` and `--output-path`.
 
 **S3 usage notes:**
 - Input videos can be read from S3 paths
@@ -272,7 +227,7 @@ Use the example script from https://github.com/NVIDIA-NeMo/Curator/tree/main/tut
 python tutorials/video/getting-started/video_split_clip_example.py \
   --video-dir "$DATA_DIR" \
   --model-dir "$MODEL_DIR" \
-  --output-clip-path "$OUT_DIR" \
+  --output-path "$OUT_DIR" \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
   --embedding-algorithm cosmos-embed1-224p \
@@ -287,6 +242,19 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 4. Encodes clips using libopenh264 codec
 5. Writes output clips and metadata to `$OUT_DIR`
 
+```{tip}
+**Using a config file**: The example script accepts many command-line arguments. For complex configurations, you can store arguments in a file and pass them with the `@` prefix:
+
+    echo '--video-dir /data/videos
+    --output-path /data/output
+    --splitting-algorithm fixed_stride
+    --fixed-stride-split-duration 10.0
+    --embedding-algorithm cosmos-embed1-224p
+    --transcode-encoder libopenh264' > my_config.txt
+    
+    python tutorials/video/getting-started/video_split_clip_example.py @my_config.txt
+```
+
 ### Configuration Options Reference
 
 | Option | Values | Description |
@@ -296,7 +264,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 | `--fixed-stride-split-duration` | Float (seconds) | Clip length for fixed stride (default: 10.0) |
 | `--transnetv2-frame-decoder-mode` | `pynvc`, `ffmpeg_gpu`, `ffmpeg_cpu` | Frame decoding method for TransNetV2 |
 | **Embedding** |
-| `--embedding-algorithm` | `cosmos-embed1-224p`, `cosmos-embed1-336p`, `cosmos-embed1-448p`, `internvideo2` | Embedding model to use |
+| `--embedding-algorithm` | `cosmos-embed1-224p`, `cosmos-embed1-336p`, `cosmos-embed1-448p` | Embedding model to use |
 | **Encoding** |
 | `--transcode-encoder` | `h264_nvenc`, `libopenh264`, `libx264` | Video encoder for output clips |
 | `--transcode-use-hwaccel` | Flag | Enable hardware acceleration for encoding |
@@ -304,10 +272,6 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 | `--generate-captions` | Flag | Generate text captions for each clip |
 | `--generate-previews` | Flag | Create preview images for each clip |
 | `--verbose` | Flag | Enable detailed logging output |
-
-:::{tip}
-To use InternVideo2 instead, set `--embedding-algorithm internvideo2`.
-:::
 
 ### Understanding Pipeline Output
 

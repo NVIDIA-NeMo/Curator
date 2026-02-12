@@ -32,6 +32,7 @@ ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 # Install base dependency
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV DEBIAN_FRONTEND=noninteractive
+# gnupg upgrade Address CVE-2025-68973
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12-dev \
     python3 \
@@ -41,6 +42,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     vim && \
+    apt-get install -y --only-upgrade gnupg && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
@@ -62,16 +65,6 @@ COPY docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
 
-
-ARG INTERN_VIDEO_COMMIT=09d872e5093296c6f36b8b3a91fc511b76433bf7
-COPY external/intern_video2_multimodal.patch .
-# Clone InternVideo (Video curation dependency)
-RUN git clone https://github.com/OpenGVLab/InternVideo.git && \
-    cd InternVideo && \
-    git checkout ${INTERN_VIDEO_COMMIT} && \
-    patch -p1 < /opt/intern_video2_multimodal.patch && \
-    rm /opt/intern_video2_multimodal.patch
-
 FROM nemo_curator_dep AS nemo_curator
 
 WORKDIR /opt/Curator
@@ -82,7 +75,7 @@ COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_cur
 
 # Install Curator
 RUN uv sync --link-mode copy --locked --extra all --all-groups --no-cache && \
-  uv add /opt/InternVideo/InternVideo2/multi_modality
+    find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} +
 
 COPY . /opt/Curator
 
