@@ -20,7 +20,7 @@ The distributed data classification in NeMo Curator works by:
 
 1. **Parallel Processing**: Chunking datasets across multiple computing nodes and GPUs to accelerate classification
 2. **Pre-trained Models**: Using specialized models for different classification tasks
-3. **Batched Inference**: Optimizing throughput with intelligent batching via CrossFit integration
+3. **Batched Inference**: Optimizing throughput with intelligent batching
 4. **Consistent API**: Providing a unified interface through the `DistributedDataClassifier` base class
 
 The `DistributedDataClassifier` is designed to run on GPU clusters with minimal code changes regardless of which specific classifier you're using. All classifiers support filtering based on classification results and storing prediction scores as metadata.
@@ -28,6 +28,16 @@ The `DistributedDataClassifier` is designed to run on GPU clusters with minimal 
 :::{note}
 Distributed classification requires GPU acceleration and is not supported for CPU-only processing. As long as GPU resources are available and NeMo Curator is correctly installed, GPU acceleration is handled automatically.
 :::
+
+```{tip}
+**Running the tutorial notebooks**: The classification tutorial notebooks require the `text_cuda12` or `all` installation extra to include all relevant dependencies. If you encounter `ModuleNotFoundError`, reinstall with the appropriate extra:
+
+    uv pip install "nemo-curator[text_cuda12]"
+
+When using classifiers that download from Hugging Face (such as Aegis and InstructionDataGuard), set your `HF_TOKEN` environment variable to avoid rate limiting:
+
+    export HF_TOKEN="your_token_here"
+```
 
 ---
 
@@ -39,16 +49,16 @@ NVIDIA NeMo Curator provides a base class `DistributedDataClassifier` that can b
 
 | Classifier | Purpose | Model Location | Key Parameters | Requirements |
 |---|---|---|---|---|
-| DomainClassifier | Categorize English text by domain | [nvidia/domain-classifier](https://huggingface.co/nvidia/domain-classifier) | `filter_by`, `text_field` | None |
-| MultilingualDomainClassifier | Categorize text in 52 languages by domain | [nvidia/multilingual-domain-classifier](https://huggingface.co/nvidia/multilingual-domain-classifier) | `filter_by`, `text_field` | None |
-| QualityClassifier | Assess document quality | [nvidia/quality-classifier-deberta](https://huggingface.co/nvidia/quality-classifier-deberta) | `filter_by`, `text_field` | None |
-| AegisClassifier | Detect unsafe content | [nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0) | `aegis_variant`, `filter_by` | HuggingFace token |
-| InstructionDataGuardClassifier | Detect poisoning attacks | [nvidia/instruction-data-guard](https://huggingface.co/nvidia/instruction-data-guard) | `text_field`, `label_field` | HuggingFace token |
-| FineWebEduClassifier | Score educational value | [HuggingFaceFW/fineweb-edu-classifier](https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier) | `label_field`, `int_field` | None |
-| FineWebMixtralEduClassifier | Score educational value (Mixtral annotations) | [nvidia/nemocurator-fineweb-mixtral-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier) | `label_field`, `int_field`, `model_inference_batch_size=1024` | None |
-| FineWebNemotronEduClassifier | Score educational value (Nemotron annotations) | [nvidia/nemocurator-fineweb-nemotron-4-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier) | `label_field`, `int_field`, `model_inference_batch_size=1024` | None |
-| ContentTypeClassifier | Categorize by speech type | [nvidia/content-type-classifier-deberta](https://huggingface.co/nvidia/content-type-classifier-deberta) | `filter_by`, `text_field` | None |
-| PromptTaskComplexityClassifier | Classify prompt tasks and complexity | [nvidia/prompt-task-and-complexity-classifier](https://huggingface.co/nvidia/prompt-task-and-complexity-classifier) | `text_field` | None |
+| DomainClassifier | Assigns one of 26 domain labels (such as "Sports," "Science," "News") to English text | [nvidia/domain-classifier](https://huggingface.co/nvidia/domain-classifier) | `filter_by`, `text_field` | None |
+| MultilingualDomainClassifier | Assigns domain labels to text in 52 languages; same labels as DomainClassifier | [nvidia/multilingual-domain-classifier](https://huggingface.co/nvidia/multilingual-domain-classifier) | `filter_by`, `text_field` | None |
+| QualityClassifier | Rates document quality as "Low," "Medium," or "High" using a DeBERTa model | [nvidia/quality-classifier-deberta](https://huggingface.co/nvidia/quality-classifier-deberta) | `filter_by`, `text_field` | None |
+| AegisClassifier | Detects unsafe content across 13 risk categories (violence, hate speech, and others) using LlamaGuard | [nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0) | `aegis_variant`, `filter_by` | HuggingFace token |
+| InstructionDataGuardClassifier | Identifies LLM poisoning attacks in instruction-response pairs | [nvidia/instruction-data-guard](https://huggingface.co/nvidia/instruction-data-guard) | `text_field`, `label_field` | HuggingFace token |
+| FineWebEduClassifier | Scores educational value from 0 to 5 (0=spam, 5=scholarly) for training data selection | [HuggingFaceFW/fineweb-edu-classifier](https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier) | `label_field`, `int_field` | None |
+| FineWebMixtralEduClassifier | Scores educational value from 0 to 5 using Mixtral 8x22B annotation data | [nvidia/nemocurator-fineweb-mixtral-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier) | `label_field`, `int_field`, `model_inference_batch_size=1024` | None |
+| FineWebNemotronEduClassifier | Scores educational value from 0 to 5 using Nemotron-4-340B annotation data | [nvidia/nemocurator-fineweb-nemotron-4-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier) | `label_field`, `int_field`, `model_inference_batch_size=1024` | None |
+| ContentTypeClassifier | Categorizes text into 11 speech types (such as "Blogs," "News," "Academic") | [nvidia/content-type-classifier-deberta](https://huggingface.co/nvidia/content-type-classifier-deberta) | `filter_by`, `text_field` | None |
+| PromptTaskComplexityClassifier | Labels prompts by task type (such as QA and summarization) and complexity dimensions | [nvidia/prompt-task-and-complexity-classifier](https://huggingface.co/nvidia/prompt-task-and-complexity-classifier) | `text_field` | None |
 
 ### Domain Classifier
 
@@ -364,6 +374,10 @@ pipeline.add_stage(writer)
 # Execute pipeline
 results = pipeline.run()  # Uses XennaExecutor by default
 ```
+
+## Custom Model Integration
+
+You can integrate your own classification models by extending `DistributedDataClassifier`. Refer to the [Text Classifiers README](https://github.com/NVIDIA-NeMo/Curator/tree/main/nemo_curator/stages/text/classifiers#text-classifiers) for implementation details and examples.
 
 ## Performance Optimization
 
