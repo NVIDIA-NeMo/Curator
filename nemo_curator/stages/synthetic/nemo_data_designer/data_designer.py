@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
-
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
@@ -94,7 +93,7 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         num_output_records = len(df)
 
-        # Token metrics from NDD stats analysis 
+        # Token metrics from NDD stats analysis
         # (these stats are available for LLM columns only)
         output_medians = []
         input_medians = []
