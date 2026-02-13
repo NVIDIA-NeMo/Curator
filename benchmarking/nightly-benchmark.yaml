@@ -59,7 +59,10 @@ datasets:
     formats:
     - type: "bin"
       path: "{model_weights_path}/fasttext/lid.176.bin"
-
+  - name: "gretel_symptoms"
+    formats:
+    - type: "jsonl"
+      path: "{datasets_path}/gretel_symptoms"
 default_timeout_s: 7200
 
 # Optional sinks
@@ -470,7 +473,7 @@ entries:
         exact_value: 3800
       - metric: throughput_images_per_sec
         min_value: 3.0
-  
+
   - name: audio_fleurs
     enabled: true
     script: audio_fleurs_benchmark.py
@@ -561,7 +564,7 @@ entries:
         exact_value: 1400
       - metric: throughput_clips_per_sec
         min_value: 4.0
-  
+
   - name: video_transcoding
     enabled: true
     script: video_pipeline_benchmark.py
@@ -608,6 +611,31 @@ entries:
         exact_value: 300 # TODO: update this value after benchmarking
       - metric: throughput_clips_per_sec
         min_value: 0.25
+
+  - name: ndd_nvidia_nim
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:gretel_symptoms,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+      --model-type=nvidia-nim
+      --model-id=openai/gpt-oss-20b
+      --executor=ray_data
+    timeout_s: 3600
+    ray:
+      num_cpus: 8
+      num_gpus: 0
+      enable_object_spilling: false
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - throughput_rows_per_sec
+    requirements:
+      - metric: output_row_count
+        exact_value: 820
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings
     enabled: true
