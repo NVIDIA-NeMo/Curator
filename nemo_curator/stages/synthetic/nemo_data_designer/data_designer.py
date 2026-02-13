@@ -12,15 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass, field
 import logging
 import time
+from dataclasses import dataclass, field
 
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
+
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
+
 
 @dataclass
 class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
