@@ -59,6 +59,8 @@ datasets:
     formats:
     - type: "bin"
       path: "{model_weights_path}/fasttext/lid.176.bin"
+    - type: "ftz"
+      path: "{model_weights_path}/fasttext/lid.176.ftz"
   - name: "fasttext_quality_model"
     formats:
     - type: "bin"
