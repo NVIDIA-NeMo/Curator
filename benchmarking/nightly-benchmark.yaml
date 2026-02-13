@@ -651,7 +651,7 @@ entries:
       --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
       --fasttext-quality-model-path={dataset:fasttext_quality_model,bin}
       --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
-    timeout_s: 400
+    timeout_s: 200
     sink_data:
       - name: slack
         additional_metrics:
