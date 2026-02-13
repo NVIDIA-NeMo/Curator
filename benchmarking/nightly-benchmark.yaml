@@ -62,7 +62,7 @@ datasets:
   - name: "fasttext_quality_model"
     formats:
     - type: "bin"
-      path: "{model_weights_path}/fasttext/quality.bin"
+      path: "{model_weights_path}/fasttext/model.bin"
 
 default_timeout_s: 7200
 
