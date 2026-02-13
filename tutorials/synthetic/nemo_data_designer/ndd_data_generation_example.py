@@ -59,7 +59,7 @@ SEED_CSV_URL = "https://raw.githubusercontent.com/NVIDIA/GenerativeAIExamples/re
 
 def download_and_convert_seed_data(
     output_dir: str | Path | None = None,
-    records_per_file: int = 100,
+    records_per_file: int = 10,
 ) -> str:
     """Download seed CSV from URL, convert to JSONL (chunked), return output dir path."""
     if output_dir is None:

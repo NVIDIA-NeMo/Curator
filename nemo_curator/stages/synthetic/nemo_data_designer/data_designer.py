@@ -23,6 +23,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
 
+import numpy as np
 
 @dataclass
 class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -75,8 +76,6 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         num_input_records = batch.num_items
-        num_input_chars = sum(len(str(v)) for v in batch.data.values())
-
         # set seed dataframe from batch
         self.config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=batch.to_pandas()))
 
@@ -96,14 +95,31 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 ndd_logger.setLevel(_old_ndd_level)
 
         num_output_records = len(df)
-        num_output_chars = sum(len(str(v)) for v in df.values())
+
+        # Token metrics from NDD stats analysis 
+        # (these stats are available for LLM columns only)
+        output_medians = []
+        input_medians = []
+        if results.analysis:
+            # Loop through all columns in the analysis that has LLM token stats
+            for col_stat in results.analysis.column_statistics:
+                in_median = getattr(col_stat, "input_tokens_median", None)
+                out_median = getattr(col_stat, "output_tokens_median", None)
+                if isinstance(in_median, (int, float)):
+                    input_medians.append(float(in_median))
+                if isinstance(out_median, (int, float)):
+                    output_medians.append(float(out_median))
+        # Sum across all columns that have LLM token stats
+        output_tokens_median_per_record = sum(output_medians) if output_medians else 0.0
+        input_tokens_median_per_record = sum(input_medians) if input_medians else 0.0
+
         self._log_metrics(
             {
                 "ndd_running_time": ndd_running_time,
                 "num_input_records": float(num_input_records),
                 "num_output_records": float(num_output_records),
-                "num_input_chars": float(num_input_chars),
-                "num_output_chars": float(num_output_chars),
+                "input_tokens_median_per_record": float(input_tokens_median_per_record),
+                "output_tokens_median_per_record": float(output_tokens_median_per_record),
             }
         )
 
