@@ -1336,14 +1336,14 @@ wheels = [
 
 [[package]]
 name = "cvcuda-cu12"
-version = "0.16.0"
+version = "0.15.0"
 source = { registry = "https://pypi.nvidia.com/" }
 dependencies = [
     { name = "numpy" },
 ]
 wheels = [
-    { url = "https://pypi.nvidia.com/cvcuda-cu12/cvcuda_cu12-0.16.0-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:4150f3920e6cd2e407b4ea0f9c78dcd791b7b06dc05b0a1e526633ff6201ecc3" },
-    { url = "https://pypi.nvidia.com/cvcuda-cu12/cvcuda_cu12-0.16.0-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:cb550aee69ce027c0e901e7540ca3a6bdb63e2ed3207fbab567d2ce2e954d1a1" },
+    { url = "https://pypi.nvidia.com/cvcuda-cu12/cvcuda_cu12-0.15.0-cp310.cp311.cp312.cp313.cp38.cp39-cp310.cp311.cp312.cp313.cp38.cp39-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:071ce87e287b8079cc6c0db4c80c652ead48fbfdae54fde62f218158e8392ee7" },
+    { url = "https://pypi.nvidia.com/cvcuda-cu12/cvcuda_cu12-0.15.0-cp310.cp311.cp312.cp313.cp38.cp39-cp310.cp311.cp312.cp313.cp38.cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:e0bdf60f6fd4718fac194903ab0cf2adccf4c9782c077d25523047c36f98c6a6" },
 ]
 
 [[package]]
@@ -4398,7 +4398,7 @@ requires-dist = [
     { name = "cosmos-xenna", specifier = "==0.1.2" },
     { name = "cudf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "cuml-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
-    { name = "cvcuda-cu12", marker = "extra == 'video-cuda12'" },
+    { name = "cvcuda-cu12", marker = "extra == 'video-cuda12'", specifier = "<=0.15.0" },
     { name = "easydict", marker = "extra == 'video-cpu'" },
     { name = "einops", marker = "extra == 'video-cpu'" },
     { name = "fasttext", marker = "extra == 'text-cpu'", specifier = "==0.9.3" },
