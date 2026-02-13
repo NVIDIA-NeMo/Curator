@@ -23,8 +23,6 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
 
-import numpy as np
-
 @dataclass
 class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """Data Designer stage.

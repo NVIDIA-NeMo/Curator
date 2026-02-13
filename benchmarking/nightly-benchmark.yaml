@@ -627,14 +627,15 @@ entries:
       num_cpus: 8
       num_gpus: 0
       enable_object_spilling: false
-    requirements:
-      - metric: output_row_count
-        exact_value: 820
+    sink_data:
       - name: slack
         additional_metrics:
           - input_row_count
           - output_row_count
           - throughput_rows_per_sec
+    requirements:
+      - metric: output_row_count
+        exact_value: 820
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings
     enabled: true
