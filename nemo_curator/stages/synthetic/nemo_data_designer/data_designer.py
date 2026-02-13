@@ -12,16 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import logging
 import time
 from dataclasses import dataclass, field
-
-import data_designer.config as dd
-from data_designer.interface import DataDesigner
+from typing import TYPE_CHECKING
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
+
+if TYPE_CHECKING:
+    import data_designer.config as dd
+    from data_designer.interface import DataDesigner
 
 
 @dataclass
@@ -47,6 +51,9 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     data_designer: DataDesigner = field(init=False)
 
     def __post_init__(self) -> None:
+        import data_designer.config as dd
+        from data_designer.interface import DataDesigner
+
         # Set in __post_init__ so they are not constructor args; use .with_(resources=..., name=...) to customize.
         self.resources = Resources(gpus=0.0)
         self.name = "DataDesignerStage"
@@ -74,6 +81,8 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], []
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
+        import data_designer.config as dd
+
         num_input_records = batch.num_items
         # set seed dataframe from batch
         self.config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=batch.to_pandas()))
