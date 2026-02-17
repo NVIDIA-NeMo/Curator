@@ -22,7 +22,6 @@ from loguru import logger
 
 try:
     import cvcuda  # type: ignore[import-untyped]
-    import nvcv  # type: ignore[import-untyped]
     import pycuda.driver as cuda  # type: ignore[import-untyped]
     import PyNvVideoCodec as Nvc  # type: ignore[import-untyped]
 
@@ -30,13 +29,14 @@ try:
         Nvc.Pixel_Format.YUV444: cvcuda.ColorConversion.YUV2RGB,  # type: ignore[import-untyped]
         Nvc.Pixel_Format.NV12: cvcuda.ColorConversion.YUV2RGB_NV12,  # type: ignore[import-untyped]
     }
+    _PYNVC_AVAILABLE = True
 except (ImportError, RuntimeError):
     logger.warning("PyNvVideoCodec is not installed, some features will be disabled.")
     Nvc = None
     cvcuda = None
-    nvcv = None
     cuda = None
     pixel_format_to_cvcuda_code = {}
+    _PYNVC_AVAILABLE = False
 
 
 class FrameExtractionPolicy(enum.Enum):
@@ -268,9 +268,10 @@ class NvVideoDecoder:
         for packet in self.nvDemux:
             list_frames = self.nvDec.Decode(packet)
             for decoded_frame in list_frames:
-                nvcv_tensor = nvcv.as_tensor(nvcv.as_image(decoded_frame.nvcv_image(), nvcv.Format.U8))
-                if nvcv_tensor.layout == "NCHW":
-                    nchw_shape = nvcv_tensor.shape
+                # TODO: Remove the use of nvcv_image. It's deprecated
+                cvcuda_tensor = cvcuda.as_tensor(cvcuda.as_image(decoded_frame.nvcv_image(), cvcuda.Format.U8))
+                if cvcuda_tensor.layout == "NCHW":
+                    nchw_shape = cvcuda_tensor.shape
                     nhwc_shape = (nchw_shape[0], nchw_shape[2], nchw_shape[3], nchw_shape[1])
                     torch_nhwc = torch.empty(
                         nhwc_shape,
@@ -278,7 +279,7 @@ class NvVideoDecoder:
                         device=f"cuda:{self.device_id}",
                     )
                     cvcuda_nhwc = cvcuda.as_tensor(torch_nhwc.cuda(self.device_id), "NHWC")
-                    cvcuda.reformat_into(cvcuda_nhwc, nvcv_tensor, stream=self.cvcuda_stream)
+                    cvcuda.reformat_into(cvcuda_nhwc, cvcuda_tensor, stream=self.cvcuda_stream)
                     # Push the decoded frame with the reformatted frame to keep it alive.
                     self.input_frame_list.put(torch_nhwc)
                 else:
