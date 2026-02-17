@@ -13,6 +13,11 @@
 # limitations under the License.
 
 from .aesthetic_filter import ImageAestheticFilterStage
+from .blur_filter import ImageBlurFilterStage
 from .nsfw_filter import ImageNSFWFilterStage
 
-__all__ = ["ImageAestheticFilterStage", "ImageNSFWFilterStage"]
+__all__ = [
+    "ImageAestheticFilterStage",
+    "ImageBlurFilterStage",
+    "ImageNSFWFilterStage",
+]
