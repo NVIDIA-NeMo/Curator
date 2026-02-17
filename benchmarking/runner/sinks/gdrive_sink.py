@@ -33,15 +33,15 @@ class GdriveSink(Sink):
         super().__init__(sink_config)
         self.sink_config = sink_config
         self.results: list[dict[str, Any]] = []
-        self.session_name: str = None
-        self.matrix_config: Session = None
-        self.env_dict: dict[str, Any] = None
-        self.drive_folder_id: str = None
-        self.service_account_file: str = None
+        self.session_name: str | None = None
+        self.session: Session | None = None
+        self.env_dict: dict[str, Any] | None = None
+        self.drive_folder_id: str | None = None
+        self.service_account_file: str | None = None
 
-    def initialize(self, session_name: str, matrix_config: Session, env_dict: dict[str, Any]) -> None:
+    def initialize(self, session_name: str, session: Session, env_dict: dict[str, Any]) -> None:
         self.session_name = session_name
-        self.matrix_config = matrix_config
+        self.session = session
         self.env_dict = env_dict
         self.drive_folder_id = self.sink_config.get("drive_folder_id")
         if not self.drive_folder_id:
@@ -52,7 +52,10 @@ class GdriveSink(Sink):
             msg = "GdriveSink: No service account file configured"
             raise ValueError(msg)
 
-    def process_result(self, result_dict: dict[str, Any], matrix_entry: Entry) -> None:
+    def register_benchmark_entry_starting(self, result_dict: dict[str, Any], benchmark_entry: Entry) -> None:
+        pass
+
+    def register_benchmark_entry_finished(self, result_dict: dict[str, Any], benchmark_entry: Entry) -> None:
         pass
 
     def finalize(self) -> None:
@@ -66,8 +69,8 @@ class GdriveSink(Sink):
             self._delete_tar_file(tar_path)
 
     def _tar_results_and_artifacts(self) -> Path:
-        results_path = Path(self.matrix_config.results_path)
-        artifacts_path = Path(self.matrix_config.artifacts_dir)
+        results_path = Path(self.session.results_path)
+        artifacts_path = Path(self.session.artifacts_dir)
         tar_path = results_path / f"{self.session_name}.tar.gz"
         with tarfile.open(tar_path, "w:gz") as tar:
             tar.add(results_path, arcname=results_path.name)
