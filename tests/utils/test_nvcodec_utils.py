@@ -686,7 +686,7 @@ class TestNvVideoDecoder:
 
         # Setup side effect for as_tensor to return different mocks
         def as_tensor_side_effect(*args: Any, **_kwargs: Any) -> Any:
-            if len(args) > 0 and hasattr(args[0], "cuda"):
+            if len(args) == 2 and isinstance(args[1], str):
                 return mock_cvcuda_nhwc
             return mock_cvcuda_tensor
 
