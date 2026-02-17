@@ -73,7 +73,8 @@ sinks:
 #    experiment: ray-curator-common-crawl
   - name: slack
     enabled: true
-    webhook_url: ${SLACK_WEBHOOK_URL}
+    live_updates: true
+    channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
 #  - name: gdrive
 #    enabled: false
