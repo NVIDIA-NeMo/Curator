@@ -91,7 +91,7 @@ class TestImportHandling:
         """Test that the module can be imported even when GPU dependencies are missing."""
         # If we got here, the import was successful
         # This test verifies that import failures are handled gracefully
-        from nemo_curator.utils import nvcodec_utils  # noqa: PLC0415
+        from nemo_curator.utils import nvcodec_utils  # noqa: PLC0415, RUF100
 
         # Verify the module has expected attributes
         assert hasattr(nvcodec_utils, "FrameExtractionPolicy")
@@ -1179,7 +1179,7 @@ class TestGracefulDegradation:
     def test_all_classes_can_be_imported(self) -> None:
         """Test that all public classes can be imported regardless of dependency availability."""
         # All these should be importable even when dependencies are missing
-        from nemo_curator.utils.nvcodec_utils import (  # noqa: PLC0415
+        from nemo_curator.utils.nvcodec_utils import (  # noqa: PLC0415, RUF100
             FrameExtractionPolicy,
             NvVideoDecoder,
             PyNvcFrameExtractor,
