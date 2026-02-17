@@ -154,10 +154,16 @@ video_cuda12 = [
     "torchaudio",
 ]
 
+# Synthetic Data Generation (SDG) Dependencies
+sdg_cpu = [
+    "data-designer==0.4.0",
+]
+
 # All dependencies
 all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
+    "nemo_curator[sdg_cpu]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[video_cuda12]",
 ]
@@ -165,13 +171,14 @@ all = [
 [dependency-groups]
 build = ["setuptools", "torch<=2.9.1"]
 dev = ["jupyter"]
-linting = ["pre-commit", "ruff==0.11.4"]
+linting = ["pre-commit", "ruff==0.14.10"]
 test = [
     "coverage",
     "debugpy",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
+    "pytest-httpserver",
     "pytest-loguru",
     "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
     "s3fs", # added for testing cloud fs
@@ -200,6 +207,7 @@ constraint-dependencies = [
 override-dependencies = [
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
+    "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
