@@ -13,57 +13,19 @@
 # limitations under the License.
 
 import json
-import tarfile
-from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 from nemo_curator.stages.multimodal.io.readers.webdataset import WebdatasetReaderStage
 from nemo_curator.stages.multimodal.io.writers.multimodal import MultimodalParquetWriterStage
 from nemo_curator.tasks import FileGroupTask, MultiBatchTask
 
 
-@pytest.fixture
-def mint_like_tar(tmp_path: Path) -> tuple[str, bytes]:
-    tar_path = tmp_path / "shard-00000.tar"
-    sample_id = "abc123"
-    payload = {
-        "pdf_name": "doc.pdf",
-        "url": "https://example.com/doc.pdf",
-        "texts": ["hello", None, "world"],
-        "images": ["page_0_image_1", None, "page_2_image_9"],
-        "image_metadata": [{"page": 0}, {"page": 2}],
-    }
-    image_bytes = b"fake-image-bytes"
-    with tarfile.open(tar_path, "w") as tf:
-        json_blob = json.dumps(payload).encode("utf-8")
-        json_info = tarfile.TarInfo(name=f"{sample_id}.json")
-        json_info.size = len(json_blob)
-        tf.addfile(json_info, BytesIO(json_blob))
-
-        img_info = tarfile.TarInfo(name=f"{sample_id}.tiff")
-        img_info.size = len(image_bytes)
-        tf.addfile(img_info, BytesIO(image_bytes))
-    return str(tar_path), image_bytes
-
-
-@pytest.fixture
-def input_task(mint_like_tar: tuple[str, bytes]) -> FileGroupTask:
-    tar_path, _ = mint_like_tar
-    return FileGroupTask(
-        task_id="file_group_0",
-        dataset_name="mint_test",
-        data=[tar_path],
-        _metadata={"source_files": [tar_path]},
-    )
-
-
 def test_writer_materializes_and_marks_errors(
-    tmp_path: Path, input_task: FileGroupTask, mint_like_tar: tuple[str, bytes]
+    tmp_path: Path, input_task: FileGroupTask, mint_like_tar: tuple[str, str, bytes]
 ) -> None:
-    _, image_bytes = mint_like_tar
+    _, _, image_bytes = mint_like_tar
     reader = WebdatasetReaderStage()
     batch = reader.process(input_task)
     assert isinstance(batch, MultiBatchTask)

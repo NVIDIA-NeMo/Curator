@@ -31,6 +31,12 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class _MaterializationBuffers:
+    binary_values: list[object]
+    error_values: list[str | None]
+
+
+@dataclass
 class BaseMultimodalTabularWriter(BaseMultimodalWriter, ABC):
     """Shared multimodal tabular writer with optional image materialization."""
 
@@ -65,10 +71,10 @@ class BaseMultimodalTabularWriter(BaseMultimodalWriter, ABC):
         content_path: object,
         idxs: list[int],
         storage_options: dict[str, Any],
-        materialized_state: dict[str, list[object] | list[str | None]],
+        buffers: _MaterializationBuffers,
     ) -> None:
-        binary_values = materialized_state["binary_values"]
-        error_values = materialized_state["error_values"]
+        binary_values = buffers.binary_values
+        error_values = buffers.error_values
         if not content_path:
             self._set_errors(error_values, idxs, "missing content_path")
             return
@@ -133,7 +139,7 @@ class BaseMultimodalTabularWriter(BaseMultimodalWriter, ABC):
         else:
             storage_options = (self.write_kwargs or {}).get("storage_options", {})
         pending = out[image_mask]
-        materialized_state = {"binary_values": binary_values, "error_values": error_values}
+        buffers = _MaterializationBuffers(binary_values=binary_values, error_values=error_values)
         with self._time_metric("materialize_fetch_binary_s"):
             for content_path, idxs in pending.groupby("_src_content_path").groups.items():
                 self._materialize_group(
@@ -141,7 +147,7 @@ class BaseMultimodalTabularWriter(BaseMultimodalWriter, ABC):
                     content_path=content_path,
                     idxs=list(idxs),
                     storage_options=storage_options,
-                    materialized_state=materialized_state,
+                    buffers=buffers,
                 )
 
         out["binary_content"] = pd.Series(binary_values, dtype="object")
