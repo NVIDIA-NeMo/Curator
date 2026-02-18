@@ -20,16 +20,14 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 from loguru import logger
-from utils import setup_executor, write_benchmark_results
+from utils import collect_parquet_output_metrics, setup_executor, write_benchmark_results
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.multimodal.io import MultimodalParquetWriter, WebdatasetReader
 from nemo_curator.stages.multimodal.stages import BasicMultimodalFilterStage
 from nemo_curator.tasks.utils import TaskPerfUtils
-from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under, get_all_file_paths_under
 
 
 def create_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -66,42 +64,6 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
     return pipeline
 
 
-def _collect_output_metrics(output_path: Path) -> dict[str, Any]:
-    parquet_files = get_all_file_paths_under(
-        str(output_path),
-        recurse_subdirectories=True,
-        keep_extensions=[".parquet"],
-    )
-    output_files_with_size = get_all_file_paths_and_size_under(
-        str(output_path),
-        recurse_subdirectories=True,
-        keep_extensions=[".parquet"],
-    )
-    num_files = len(parquet_files)
-    total_size_bytes = int(sum(size for _, size in output_files_with_size))
-    num_rows = 0
-    modality_counts: dict[str, int] = {}
-    materialize_error_count = 0
-    for path in parquet_files:
-        df = pd.read_parquet(path)
-        num_rows += len(df)
-        if "modality" in df.columns:
-            vc = df["modality"].value_counts(dropna=False).to_dict()
-            for k, v in vc.items():
-                key = str(k)
-                modality_counts[key] = modality_counts.get(key, 0) + int(v)
-        if "materialize_error" in df.columns:
-            materialize_error_count += int(df["materialize_error"].notna().sum())
-    return {
-        "num_output_files": num_files,
-        "output_total_bytes": total_size_bytes,
-        "output_total_mb": total_size_bytes / (1024 * 1024),
-        "num_rows": num_rows,
-        "modality_counts": modality_counts,
-        "materialize_error_count": materialize_error_count,
-    }
-
-
 def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     executor = setup_executor(args.executor)
     input_path = str(Path(args.input_path).absolute())
@@ -121,7 +83,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         logger.debug(traceback.format_exc())
 
     elapsed = time.perf_counter() - start
-    output_metrics = _collect_output_metrics(output_path)
+    output_metrics = collect_parquet_output_metrics(output_path)
     task_metrics = TaskPerfUtils.aggregate_task_metrics(output_tasks, prefix="task")
     writer_stats = {k: v for k, v in task_metrics.items() if "multimodal_" in k and "_writer" in k}
     logger.info("Writer stage stats: {}", writer_stats)

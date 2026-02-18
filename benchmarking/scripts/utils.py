@@ -15,11 +15,14 @@
 import json
 import pickle
 from pathlib import Path
+from typing import Any
+
+import pandas as pd
 
 from nemo_curator.backends.experimental.ray_actor_pool.executor import RayActorPoolExecutor
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
+from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under, get_all_file_paths_under
 
 _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor, "ray_actors": RayActorPoolExecutor}
 
@@ -92,6 +95,42 @@ def write_benchmark_results(results: dict, output_path: str | Path) -> None:
         metrics_path.write_text(json.dumps(metrics_data, default=convert_paths_to_strings, indent=2))
     if "tasks" in results:
         (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
+
+
+def collect_parquet_output_metrics(output_path: Path) -> dict[str, Any]:
+    parquet_files = get_all_file_paths_under(
+        str(output_path),
+        recurse_subdirectories=True,
+        keep_extensions=[".parquet"],
+    )
+    output_files_with_size = get_all_file_paths_and_size_under(
+        str(output_path),
+        recurse_subdirectories=True,
+        keep_extensions=[".parquet"],
+    )
+    num_files = len(parquet_files)
+    total_size_bytes = int(sum(size for _, size in output_files_with_size))
+    num_rows = 0
+    modality_counts: dict[str, int] = {}
+    materialize_error_count = 0
+    for path in parquet_files:
+        df = pd.read_parquet(path)
+        num_rows += len(df)
+        if "modality" in df.columns:
+            vc = df["modality"].value_counts(dropna=False).to_dict()
+            for k, v in vc.items():
+                key = str(k)
+                modality_counts[key] = modality_counts.get(key, 0) + int(v)
+        if "materialize_error" in df.columns:
+            materialize_error_count += int(df["materialize_error"].notna().sum())
+    return {
+        "num_output_files": num_files,
+        "output_total_bytes": total_size_bytes,
+        "output_total_mb": total_size_bytes / (1024 * 1024),
+        "num_rows": num_rows,
+        "modality_counts": modality_counts,
+        "materialize_error_count": materialize_error_count,
+    }
 
 
 def convert_paths_to_strings(obj: object) -> object:
