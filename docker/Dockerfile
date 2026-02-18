@@ -32,6 +32,7 @@ ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 # Install base dependency
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV DEBIAN_FRONTEND=noninteractive
+# gnupg upgrade Address CVE-2025-68973
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12-dev \
     python3 \
@@ -41,6 +42,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     vim && \
+    apt-get install -y --only-upgrade gnupg && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
@@ -71,7 +74,8 @@ COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
 # Install Curator
-RUN uv sync --link-mode copy --locked --extra all --all-groups --no-cache
+RUN uv sync --link-mode copy --locked --extra all --all-groups --no-cache && \
+    find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} +
 
 COPY . /opt/Curator
 

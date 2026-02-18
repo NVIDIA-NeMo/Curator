@@ -24,8 +24,7 @@ import numpy as np
 import pytest
 
 import nemo_curator.stages.text.io.writer.utils as writer_utils
-from nemo_curator.stages.text.io.writer import MegatronTokenizerWriter
-from nemo_curator.stages.text.io.writer.megatron_tokenizer import _INDEX_HEADER
+from nemo_curator.stages.text.io.writer.megatron_tokenizer import _INDEX_HEADER, MegatronTokenizerWriter
 from nemo_curator.tasks import DocumentBatch
 
 
