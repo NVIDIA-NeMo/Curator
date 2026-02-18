@@ -132,7 +132,7 @@ class WebdatasetReaderStage(BaseMultimodalReader):
         if isinstance(images, list):
             for idx, image_token in enumerate(images):
                 content_key = self._resolve_image_content_key(image_token, image_member_name, member_names)
-                content_type, _ = mimetypes.guess_type(image_member_name or "")
+                content_type, _ = mimetypes.guess_type(content_key or image_member_name or "")
                 append_row(
                     {
                         "position": idx,
@@ -143,6 +143,14 @@ class WebdatasetReaderStage(BaseMultimodalReader):
                 )
 
         return rows
+
+    def _empty_output_schema(self) -> pa.Schema:
+        schema = MULTIMODAL_SCHEMA
+        if not self.fields:
+            return schema
+        existing = set(schema.names)
+        passthrough_fields = [pa.field(name, pa.null()) for name in self.fields if name not in existing]
+        return pa.schema([*schema, *passthrough_fields]) if passthrough_fields else schema
 
     def _build_passthrough_row(self, sample: dict[str, Any]) -> dict[str, Any]:
         excluded = {
@@ -281,7 +289,7 @@ class WebdatasetReaderStage(BaseMultimodalReader):
                         )
                     )
 
-        table = pa.Table.from_pylist(rows) if rows else pa.Table.from_pylist([], schema=MULTIMODAL_SCHEMA)
+        table = pa.Table.from_pylist(rows) if rows else pa.Table.from_pylist([], schema=self._empty_output_schema())
         splits = split_table_by_group_max_bytes(table, "sample_id", self.max_batch_bytes)
         batches: list[MultiBatchTask] = []
         for idx, split in enumerate(splits):

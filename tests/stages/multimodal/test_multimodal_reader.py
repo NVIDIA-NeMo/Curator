@@ -127,6 +127,54 @@ def test_reader_reads_all_fields_by_default(tmp_path: Path) -> None:
     assert "frames" not in df.columns
 
 
+def test_reader_uses_resolved_content_key_for_content_type(tmp_path: Path) -> None:
+    tar_path = tmp_path / "content-type-resolve.tar"
+    payload = {
+        "doc_id": "doc-ct",
+        "source_doc": "ct.pdf",
+        "captions": ["hello"],
+        "frames": ["token.png"],
+        "primary_image": "fallback.jpg",
+    }
+    with tarfile.open(tar_path, "w") as tf:
+        json_blob = json.dumps(payload).encode("utf-8")
+        json_info = tarfile.TarInfo(name="sample.meta.json")
+        json_info.size = len(json_blob)
+        tf.addfile(json_info, BytesIO(json_blob))
+        png_info = tarfile.TarInfo(name="token.png")
+        png_info.size = 3
+        tf.addfile(png_info, BytesIO(b"png"))
+        jpg_info = tarfile.TarInfo(name="fallback.jpg")
+        jpg_info.size = 3
+        tf.addfile(jpg_info, BytesIO(b"jpg"))
+
+    task = _task_for_tar(tar_path, "content_type_resolve")
+    reader = WebdatasetReaderStage(
+        sample_id_field="doc_id",
+        source_id_field="source_doc",
+        texts_field="captions",
+        images_field="frames",
+        image_member_field="primary_image",
+        json_extensions=(".meta.json",),
+    )
+    df = _as_df(reader.process(task))
+    image_row = df[df["modality"] == "image"].iloc[0]
+    assert image_row["content_type"] == "image/png"
+
+
+def test_reader_empty_output_schema_includes_requested_passthrough_fields(tmp_path: Path) -> None:
+    tar_path = tmp_path / "empty-no-json.tar"
+    with tarfile.open(tar_path, "w") as tf:
+        img_info = tarfile.TarInfo(name="image.jpg")
+        img_info.size = 3
+        tf.addfile(img_info, BytesIO(b"abc"))
+
+    task = _task_for_tar(tar_path, "empty_schema")
+    reader = WebdatasetReaderStage(source_id_field="pdf_name", fields=("p_hash",))
+    df = _as_df(reader.process(task))
+    assert "p_hash" in df.columns
+
+
 @pytest.mark.parametrize(
     ("task_id", "fields", "error_pattern"),
     [

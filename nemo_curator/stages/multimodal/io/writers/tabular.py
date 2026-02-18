@@ -62,7 +62,7 @@ class BaseMultimodalTabularWriter(BaseMultimodalWriter, ABC):
     def write_data(self, task: MultiBatchTask, file_path: str) -> None:
         with self._time_metric("materialize_dataframe_total_s"):
             df = self._materialize_dataframe(task)
-        write_kwargs = {"index": None}
+        write_kwargs = {"index": False}
         write_kwargs.update(self.write_kwargs)
         self._write_dataframe(df, file_path, write_kwargs)
 

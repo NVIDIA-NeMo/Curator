@@ -28,6 +28,11 @@ from nemo_curator.tasks import MultiBatchTask
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
+
 
 @dataclass
 class BaseMultimodalAnnotatorStage(ProcessingStage[MultiBatchTask, MultiBatchTask], ABC):
@@ -92,9 +97,15 @@ class BaseMultimodalFilterStage(BaseMultimodalAnnotatorStage, ABC):
     ) -> Iterator[tuple[int, bytes | None]]:
         """Yield (row_index, bytes) for masked rows using shared materialization logic."""
         materialized_df = materialize_task_binary_content(task).to_pandas()
-        for idx in df[row_mask].index.tolist():
-            row_bytes = materialized_df.loc[idx, "binary_content"] if "binary_content" in materialized_df.columns else None
-            yield idx, bytes(row_bytes) if isinstance(row_bytes, (bytes, bytearray)) else None
+        if "binary_content" not in materialized_df.columns:
+            for idx in df[row_mask].index.tolist():
+                yield idx, None
+            return
+        selected_positions = [pos for pos, keep in enumerate(row_mask.tolist()) if bool(keep)]
+        for pos in selected_positions:
+            row_idx = df.index[pos]
+            row_bytes = materialized_df.iloc[pos]["binary_content"]
+            yield row_idx, bytes(row_bytes) if isinstance(row_bytes, (bytes, bytearray)) else None
 
     def annotate(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.DataFrame:
         return df[self.keep_mask(task, df)]
@@ -111,14 +122,12 @@ class MultimodalJpegAspectRatioFilterStage(BaseMultimodalFilterStage):
 
     @staticmethod
     def _image_aspect_ratio(image_bytes: bytes) -> float | None:
-        try:
-            from PIL import Image
-        except ModuleNotFoundError as exc:
+        if Image is None:
             msg = (
                 "Pillow is required for MultimodalJpegAspectRatioFilterStage. "
                 "Install dependency group `image_cpu` (or `pillow`)."
             )
-            raise RuntimeError(msg) from exc
+            raise RuntimeError(msg)
         try:
             with Image.open(io.BytesIO(image_bytes)) as image:
                 width, height = image.size

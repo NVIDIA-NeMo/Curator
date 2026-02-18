@@ -100,3 +100,27 @@ def test_writer_materializes_direct_content_path_without_key(tmp_path: Path) -> 
     written = pd.read_parquet(write_task.data[0])
     assert written.loc[0, "binary_content"] == image_bytes
     assert pd.isna(written.loc[0, "materialize_error"])
+
+
+def test_writer_does_not_persist_dataframe_index(tmp_path: Path) -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "text",
+                "content_type": "text/plain",
+                "text_content": "hello",
+                "binary_content": None,
+                "metadata_source": None,
+                "metadata_json": None,
+                "materialize_error": None,
+            }
+        ]
+    )
+    df.index = pd.Index([99])
+    task = MultiBatchTask(task_id="idx_task", dataset_name="mint_test", data=df)
+    writer = MultimodalParquetWriterStage(path=str(tmp_path / "out_idx"), materialize_on_write=False, mode="overwrite")
+    write_task = writer.process(task)
+    written = pd.read_parquet(write_task.data[0])
+    assert "__index_level_0__" not in written.columns

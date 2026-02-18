@@ -17,9 +17,11 @@ import tarfile
 from io import BytesIO
 from pathlib import Path
 
+import pandas as pd
 import pyarrow as pa
 import pytest
 
+from nemo_curator.stages.multimodal.stages import MultimodalJpegAspectRatioFilterStage
 from nemo_curator.stages.multimodal.utils import load_bytes_from_content_reference
 from nemo_curator.tasks import MultiBatchTask
 from nemo_curator.tasks.multimodal import MULTIMODAL_SCHEMA
@@ -79,3 +81,38 @@ def test_load_bytes_from_content_reference_direct_and_keyed(tmp_path: Path) -> N
     cache: dict[tuple[str, str], bytes | None] = {}
     assert load_bytes_from_content_reference(str(direct_path), None, {}, cache) == direct_payload
     assert load_bytes_from_content_reference(str(tar_path), "x.bin", {}, cache) == tar_payload
+
+
+def test_jpeg_filter_handles_non_default_dataframe_index() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "text",
+                "content_type": "text/plain",
+                "text_content": "ok",
+                "binary_content": None,
+                "metadata_source": None,
+                "metadata_json": None,
+                "materialize_error": None,
+            },
+            {
+                "sample_id": "s1",
+                "position": 1,
+                "modality": "image",
+                "content_type": "image/jpeg",
+                "text_content": None,
+                "binary_content": b"not-a-valid-jpeg",
+                "metadata_source": None,
+                "metadata_json": None,
+                "materialize_error": None,
+            },
+        ]
+    )
+    df.index = pd.Index([10, 42])
+    task = MultiBatchTask(task_id="non_default_index", dataset_name="d1", data=df)
+    stage = MultimodalJpegAspectRatioFilterStage(drop_invalid_rows=False)
+    out = stage.process(task).to_pandas()
+    assert len(out) == 1
+    assert out.iloc[0]["modality"] == "text"
