@@ -40,7 +40,7 @@ MULTIMODAL_SCHEMA = pa.schema(
 class MultiBatchTask(Task[pa.Table | pd.DataFrame]):
     """Task carrying row-wise multimodal records."""
 
-    data: pa.Table | pd.DataFrame = field(default_factory=pa.Table)
+    data: pa.Table | pd.DataFrame = field(default_factory=lambda: pa.Table.from_pylist([], schema=MULTIMODAL_SCHEMA))
 
     def to_pyarrow(self) -> pa.Table:
         if isinstance(self.data, pa.Table):

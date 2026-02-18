@@ -12,6 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-DEFAULT_WEBDATASET_EXTENSIONS = (".tar", ".tar.gz", ".tgz", ".tar.zst")
+DEFAULT_WEBDATASET_EXTENSIONS = (".tar", ".tar.gz", ".tgz")
 DEFAULT_JSON_EXTENSIONS = (".json",)
 DEFAULT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".bmp", ".gif")
