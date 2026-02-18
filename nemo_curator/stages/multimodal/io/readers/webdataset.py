@@ -28,7 +28,6 @@ from nemo_curator.core.utils import split_table_by_group_max_bytes
 from nemo_curator.stages.multimodal.utils import (
     DEFAULT_IMAGE_EXTENSIONS,
     DEFAULT_JSON_EXTENSIONS,
-    load_bytes_from_metadata_source,
     require_source_id_field,
     resolve_storage_options,
     validate_and_project_source_fields,
@@ -195,6 +194,25 @@ class WebdatasetReaderStage(BaseMultimodalReader):
             return image_token
         return default_image_member_name
 
+    @staticmethod
+    def _load_image_bytes_from_tar(
+        tf: tarfile.TarFile,
+        content_key: str | None,
+        context: _ReadContext,
+    ) -> bytes | None:
+        if not content_key:
+            return None
+        cache_key = (context.tar_path, content_key)
+        if cache_key in context.byte_cache:
+            return context.byte_cache[cache_key]
+        try:
+            extracted = tf.extractfile(content_key)
+        except KeyError:
+            extracted = None
+        payload = extracted.read() if extracted is not None else None
+        context.byte_cache[cache_key] = payload
+        return payload
+
     def _rows_from_member(
         self,
         tf: tarfile.TarFile,
@@ -225,10 +243,11 @@ class WebdatasetReaderStage(BaseMultimodalReader):
             for row in sample_rows:
                 if row["modality"] != "image" or row["position"] < 0:
                     continue
-                row["binary_content"] = load_bytes_from_metadata_source(
-                    source_value=row["metadata_source"],
-                    storage_options=context.storage_options,
-                    byte_cache=context.byte_cache,
+                source = MultiBatchTask.parse_metadata_source(row["metadata_source"])
+                row["binary_content"] = self._load_image_bytes_from_tar(
+                    tf=tf,
+                    content_key=source.get("content_key"),
+                    context=context,
                 )
         return sample_rows
 
