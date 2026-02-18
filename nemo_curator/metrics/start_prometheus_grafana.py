@@ -90,12 +90,13 @@ def start_prometheus_grafana(
         f"You can access the grafana dashboard at http://localhost:{grafana_web_port}, username: admin, password: admin"
     )
     logger.info(f"You can access the prometheus dashboard at http://localhost:{prometheus_web_port}")
-    logger.info("Currently, we only provide a xenna dashboard,")
-    logger.info("but you can add more dashboards by adding json files")
+    logger.info("Ray dashboards have been auto-generated. You can add more dashboards by adding json files")
     logger.info(f"in {metrics_dir}/grafana/dashboards")
-    logger.info("from /tmp/ray/session_latest/metrics/grafana/dashboards")
-    logger.info("To kill prometheus and grafana, run: pkill -f 'prometheus .*' ; pkill -f 'grafana server'")
-    logger.info("Prometheus stores tha persistant data inside data, if you want to delete the data, run: rm -rf data")
+    logger.info(
+        f"To stop prometheus and grafana, run: "
+        f"kill $(cat {metrics_dir}/prometheus.pid) ; kill $(cat {metrics_dir}/grafana.pid)"
+    )
+    logger.info("Prometheus stores persistent data inside its data/ directory.")
     return
 
 

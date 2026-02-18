@@ -97,15 +97,15 @@ class RayClient:
             if is_prometheus_running(self.metrics_dir) and is_grafana_running(self.metrics_dir):
                 try:
                     add_ray_prometheus_metrics_service_discovery(self.ray_temp_dir, self.metrics_dir)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     msg = f"Failed to add Ray metrics service discovery: {e}"
                     logger.warning(msg)
-                    raise
             else:
+                metrics_dir_hint = f" with --metrics_dir={self.metrics_dir}" if self.metrics_dir else ""
                 msg = (
                     "No monitoring services are running. "
                     "Please run the `start_prometheus_grafana.py` "
-                    "script from nemo_curator/metrics folder to setup monitoring services separately."
+                    f"script from nemo_curator/metrics folder{metrics_dir_hint} to setup monitoring services separately."
                 )
                 logger.warning(msg)
 
@@ -188,7 +188,7 @@ class RayClient:
             # We kill the Ray GCS process to stop the cluster, but still we have some Ray processes running.
             msg = "NeMo Curator has stopped the Ray cluster it started by killing the Ray GCS process. "
             msg += "It is advised to wait for a few seconds before running any Ray commands to ensure Ray can cleanup other processes."
-            msg += "If you are seeing any Ray commands like `ray status` failing, please ensure /tmp/ray/ray_current_cluster has correct information."
+            msg += f"If you are seeing any Ray commands like `ray status` failing, please ensure {self.ray_temp_dir}/ray_current_cluster has correct information."
             logger.info(msg)
             # Clear the process to prevent double execution (atexit handler)
             self.ray_process = None

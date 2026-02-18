@@ -335,9 +335,9 @@ def add_ray_prometheus_metrics_service_discovery(ray_temp_dir: str, metrics_dir:
         with open(prometheus_config_path, "w") as f:
             yaml.dump(prometheus_config, f)
 
-    # Get prometheus port and reload
-    prometheus_port = get_prometheus_port(metrics_dir)
-    requests.post(f"http://localhost:{prometheus_port}/-/reload", timeout=5)
+        # Reload prometheus to pick up the new config
+        prometheus_port = get_prometheus_port(metrics_dir)
+        requests.post(f"http://localhost:{prometheus_port}/-/reload", timeout=5)
 
 
 def remove_ray_prometheus_metrics_service_discovery(ray_temp_dir: str, metrics_dir: str | None = None) -> None:
