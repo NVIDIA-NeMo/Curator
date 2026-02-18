@@ -92,6 +92,7 @@ audio_cuda12 = [
 ]
 
 image_cpu = [
+    "Pillow",
     "torchvision"
 ]
 

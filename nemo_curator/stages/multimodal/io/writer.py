@@ -22,7 +22,7 @@ from nemo_curator.stages.multimodal.io.writers.multimodal import MultimodalParqu
 class MultimodalParquetWriter(MultimodalParquetWriterStage):
     """User-facing multimodal parquet writer alias."""
 
-    path: str = ""
+    path: str
     write_kwargs: dict[str, Any] = field(default_factory=dict)
     materialize_on_write: bool = True
     name: str = "multimodal_parquet_writer"
