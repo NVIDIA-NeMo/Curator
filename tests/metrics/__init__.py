@@ -11,13 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from nemo_curator.metrics.utils import (
-    add_ray_prometheus_metrics_service_discovery,
-    remove_ray_prometheus_metrics_service_discovery,
-)
-
-__all__ = [
-    "add_ray_prometheus_metrics_service_discovery",
-    "remove_ray_prometheus_metrics_service_discovery",
-]

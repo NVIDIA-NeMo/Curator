@@ -19,6 +19,7 @@ import socket
 import subprocess
 from dataclasses import dataclass, field
 
+import yaml
 from loguru import logger
 
 from nemo_curator.core.constants import (
@@ -37,6 +38,7 @@ from nemo_curator.metrics.utils import (
     add_ray_prometheus_metrics_service_discovery,
     is_grafana_running,
     is_prometheus_running,
+    remove_ray_prometheus_metrics_service_discovery,
 )
 
 
@@ -60,6 +62,7 @@ class RayClient:
         object_store_memory: The amount of memory to use for the object store.
         enable_object_spilling: Whether to enable object spilling.
         ray_stdouterr_capture_file: The file to capture stdout/stderr to.
+        metrics_dir: The directory for Prometheus/Grafana metrics data. If None, uses the per-user default.
 
     Note:
         To start monitoring services (Prometheus and Grafana), use the standalone
@@ -78,6 +81,7 @@ class RayClient:
     object_store_memory: int | None = None
     enable_object_spilling: bool = False
     ray_stdouterr_capture_file: str | None = None
+    metrics_dir: str | None = None
 
     ray_process: subprocess.Popen | None = field(init=False, default=None)
 
@@ -90,9 +94,9 @@ class RayClient:
         """Start the Ray cluster if not already started, optionally capturing stdout/stderr to a file."""
         if self.include_dashboard:
             # Add Ray metrics service discovery to existing Prometheus configuration
-            if is_prometheus_running() and is_grafana_running():
+            if is_prometheus_running(self.metrics_dir) and is_grafana_running(self.metrics_dir):
                 try:
-                    add_ray_prometheus_metrics_service_discovery(self.ray_temp_dir)
+                    add_ray_prometheus_metrics_service_discovery(self.ray_temp_dir, self.metrics_dir)
                 except Exception as e:
                     msg = f"Failed to add Ray metrics service discovery: {e}"
                     logger.warning(msg)
@@ -155,6 +159,13 @@ class RayClient:
             atexit.register(self.stop)
 
     def stop(self) -> None:
+        # Remove Ray metrics service discovery entry from prometheus config
+        if self.include_dashboard:
+            try:
+                remove_ray_prometheus_metrics_service_discovery(self.ray_temp_dir, self.metrics_dir)
+            except (OSError, KeyError, yaml.YAMLError):
+                logger.debug("Could not remove Ray metrics service discovery during shutdown.")
+
         if self.ray_process:
             # Kill the entire process group to ensure child processes are terminated
             try:
