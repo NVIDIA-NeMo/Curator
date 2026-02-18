@@ -102,7 +102,7 @@ def _fill_materialized_bytes(
 ) -> None:
     pending = df[image_mask]
     for content_path, idxs in pending.groupby("_src_content_path").groups.items():
-        if not content_path:
+        if content_path is None or pd.isna(content_path):
             for idx in idxs:
                 error_values[idx] = "missing content_path"
             continue
@@ -110,7 +110,7 @@ def _fill_materialized_bytes(
         direct_rows: list[int] = []
         for idx in idxs:
             raw_key = df.loc[idx, "_src_content_key"]
-            if raw_key:
+            if raw_key not in (None, "") and pd.notna(raw_key):
                 keyed_rows.append((idx, str(raw_key)))
             else:
                 direct_rows.append(idx)
