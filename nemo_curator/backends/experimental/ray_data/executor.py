@@ -19,7 +19,7 @@ from loguru import logger
 from ray.data import DataContext, Dataset
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.experimental.utils import execute_setup_on_node
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys, execute_setup_on_node
 from nemo_curator.backends.utils import register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -60,7 +60,7 @@ class RayDataExecutor(BaseExecutor):
         # This prevents verbose logging from Ray Data about serialization of the dataclass
         DataContext.get_current().enable_fallback_to_arrow_object_ext_type = True
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
-        tasks: list[Task] = initial_tasks if initial_tasks else [EmptyTask]
+        tasks: list[Task] = initial_tasks or [EmptyTask]
         output_tasks: list[Task] = []
         try:
             # Initialize ray and explicitly set NOSET to empty
@@ -69,17 +69,36 @@ class RayDataExecutor(BaseExecutor):
                 ignore_reinit_error=True, runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": ""}}
             )
 
+            # Fail fast: run first stage on driver when it's file discovery (fanout + EmptyTask).
+            # This avoids Ray Data hanging with 0 tasks when path is wrong or file type doesn't match.
+            stages_to_run = stages
+            if self._is_empty_task_start(tasks) and stages and self._is_fanout_stage(stages[0]):
+                first_stage = stages[0]
+                execute_setup_on_node([first_stage], ignore_head_node=self.ignore_head_node)
+                file_tasks = first_stage.process(EmptyTask)
+                if not file_tasks:
+                    msg = (
+                        f"No files found or no tasks produced by {first_stage.__class__.__name__}. "
+                        "Check that the input path exists and contains files with the expected extensions "
+                        "(e.g. .jsonl for JsonlReader, .parquet for ParquetReader)."
+                    )
+                    raise ValueError(msg)
+                tasks = file_tasks
+                stages_to_run = stages[1:]
+
             # Convert tasks to dataset
             current_dataset = self._tasks_to_dataset(tasks)
 
-            # Execute setup on node for all stages
-            execute_setup_on_node(stages, ignore_head_node=self.ignore_head_node)
-            logger.info(f"Setup on node complete for all stages. Starting Ray Data pipeline with {len(stages)} stages")
+            # Execute setup on node for remaining stages
+            execute_setup_on_node(stages_to_run, ignore_head_node=self.ignore_head_node)
+            logger.info(
+                f"Setup on node complete for all stages. Starting Ray Data pipeline with {len(stages_to_run)} stages"
+            )
 
             # Process through each stage
-            for i, stage in enumerate(stages):
+            for i, stage in enumerate(stages_to_run):
                 # TODO: add pipeline level config for verbosity
-                logger.info(f"Processing stage {i + 1}/{len(stages)}: {stage}")
+                logger.info(f"Processing stage {i + 1}/{len(stages_to_run)}: {stage}")
                 logger.info(f"  CPU cores: {stage.resources.cpus}, GPU ratio: {stage.resources.gpus}")
 
                 # Create adapter for this stage
@@ -99,6 +118,14 @@ class RayDataExecutor(BaseExecutor):
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
             ray.shutdown()
         return output_tasks
+
+    def _is_empty_task_start(self, tasks: list[Task]) -> bool:
+        """True if pipeline started with EmptyTask (file-discovery pipeline)."""
+        return len(tasks) == 1 and tasks[0] is EmptyTask
+
+    def _is_fanout_stage(self, stage: "ProcessingStage") -> bool:
+        """True if stage is a fanout stage (e.g. FilePartitioningStage)."""
+        return getattr(stage, "ray_stage_spec", dict)().get(RayStageSpecKeys.IS_FANOUT_STAGE, False)
 
     def _tasks_to_dataset(self, tasks: list[Task]) -> Dataset:
         """Convert list of tasks to Ray Data dataset.

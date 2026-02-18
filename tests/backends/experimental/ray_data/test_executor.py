@@ -1,0 +1,50 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import pytest
+
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+
+
+class TestRayDataExecutorFailFast:
+    """Test fail-fast behavior when reader finds no files (wrong path or wrong file type)."""
+
+    def test_jsonl_reader_on_empty_dir_fails_fast(self, tmp_path):
+        """JsonlReader on empty directory should raise immediately, not run forever."""
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+
+        pipeline = Pipeline(name="test_fail_fast")
+        pipeline.add_stage(JsonlReader(str(empty_dir)))
+        pipeline.build()
+
+        executor = RayDataExecutor()
+
+        with pytest.raises(ValueError, match="No files found or no tasks produced"):
+            pipeline.run(executor=executor)
+
+    def test_jsonl_reader_on_nonexistent_path_fails_fast(self, tmp_path):
+        """JsonlReader on non-existent path should raise immediately."""
+        nonexistent = tmp_path / "does_not_exist" / "nested"
+
+        pipeline = Pipeline(name="test_fail_fast")
+        pipeline.add_stage(JsonlReader(str(nonexistent)))
+        pipeline.build()
+
+        executor = RayDataExecutor()
+
+        with pytest.raises(ValueError, match="No files found or no tasks produced"):
+            pipeline.run(executor=executor)
