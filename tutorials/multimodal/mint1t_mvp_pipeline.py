@@ -38,7 +38,7 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
             blocksize=args.input_blocksize,
             max_batch_bytes=args.output_max_batch_bytes,
             read_kwargs=read_kwargs,
-            load_binary=False,
+            materialize_on_read=args.materialize_on_read,
         )
     )
     pipe.add_stage(MultimodalJpegAspectRatioFilterStage(drop_invalid_rows=True))
@@ -69,9 +69,11 @@ if __name__ == "__main__":
     parser.add_argument("--files-per-partition", type=int, default=1)
     parser.add_argument("--input-blocksize", type=str, default=None)
     parser.add_argument("--output-max-batch-bytes", type=int, default=None)
+    parser.add_argument("--materialize-on-read", action="store_true", dest="materialize_on_read")
+    parser.add_argument("--no-materialize-on-read", action="store_false", dest="materialize_on_read")
     parser.add_argument("--materialize-on-write", action="store_true", dest="materialize_on_write")
     parser.add_argument("--no-materialize-on-write", action="store_false", dest="materialize_on_write")
-    parser.set_defaults(materialize_on_write=True)
+    parser.set_defaults(materialize_on_write=True, materialize_on_read=False)
     parser.add_argument("--mode", type=str, default="ignore", choices=["ignore", "overwrite", "append", "error"])
     parser.add_argument(
         "--storage-options-json",

@@ -15,15 +15,14 @@
 from __future__ import annotations
 
 import io
-import tarfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-import fsspec
 import pandas as pd
 from PIL import Image  # type: ignore[import-not-found]
 
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.multimodal.utils import load_bytes_from_metadata_source, resolve_storage_options
 from nemo_curator.tasks import MultiBatchTask
 
 
@@ -92,40 +91,6 @@ class MultimodalJpegAspectRatioFilterStage(BaseMultimodalFilterStage):
             return None
         return float(width) / float(height)
 
-    @staticmethod
-    def _load_image_bytes_from_source(
-        source_value: str | None,
-        storage_options: dict[str, object],
-        byte_cache: dict[tuple[str, str], bytes | None],
-    ) -> bytes | None:
-        source = MultiBatchTask.parse_metadata_source(source_value)
-        content_path = source.get("content_path")
-        content_key = source.get("content_key")
-        if not content_path:
-            return None
-
-        cache_key = (str(content_path), str(content_key or ""))
-        if cache_key in byte_cache:
-            return byte_cache[cache_key]
-
-        try:
-            with fsspec.open(str(content_path), mode="rb", **storage_options) as fobj:
-                if content_key:
-                    with tarfile.open(fileobj=fobj, mode="r:*") as tf:
-                        try:
-                            extracted = tf.extractfile(content_key)
-                        except KeyError:
-                            extracted = None
-                        payload = extracted.read() if extracted is not None else None
-                        byte_cache[cache_key] = payload
-                        return payload
-                payload = fobj.read()
-                byte_cache[cache_key] = payload
-                return payload
-        except Exception:  # noqa: BLE001
-            byte_cache[cache_key] = None
-            return None
-
     def _jpeg_keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
         keep_mask = pd.Series(True, index=df.index, dtype=bool)
         if "modality" not in df.columns or "content_type" not in df.columns:
@@ -133,15 +98,13 @@ class MultimodalJpegAspectRatioFilterStage(BaseMultimodalFilterStage):
         jpeg_mask = (df["modality"] == "image") & (df["content_type"].isin(self.jpeg_content_types))
         if not jpeg_mask.any():
             return keep_mask
-        storage_options = task._metadata.get("source_storage_options")
-        if not isinstance(storage_options, dict):
-            storage_options = {}
+        storage_options = resolve_storage_options(task=task)
         byte_cache: dict[tuple[str, str], bytes | None] = {}
         for idx in df[jpeg_mask].index.tolist():
             image_bytes = df.loc[idx, "binary_content"]
             if not isinstance(image_bytes, (bytes, bytearray)):
                 source_value = df.loc[idx, "metadata_source"] if "metadata_source" in df.columns else None
-                image_bytes = self._load_image_bytes_from_source(
+                image_bytes = load_bytes_from_metadata_source(
                     source_value=source_value,
                     storage_options=storage_options,
                     byte_cache=byte_cache,

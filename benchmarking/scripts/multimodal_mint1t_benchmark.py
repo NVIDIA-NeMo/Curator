@@ -50,7 +50,7 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
             blocksize=args.input_blocksize,
             max_batch_bytes=args.output_max_batch_bytes,
             read_kwargs=read_kwargs,
-            load_binary=False,
+            materialize_on_read=args.materialize_on_read,
         )
     )
     pipeline.add_stage(MultimodalJpegAspectRatioFilterStage(drop_invalid_rows=True))
@@ -97,6 +97,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "files_per_partition": args.files_per_partition,
             "input_blocksize": args.input_blocksize,
             "output_max_batch_bytes": args.output_max_batch_bytes,
+            "materialize_on_read": args.materialize_on_read,
             "materialize_on_write": args.materialize_on_write,
             "parquet_row_group_size": args.parquet_row_group_size,
             "parquet_compression": args.parquet_compression,
@@ -123,13 +124,15 @@ def main() -> int:
     parser.add_argument("--files-per-partition", type=int, default=1)
     parser.add_argument("--input-blocksize", type=str, default=None)
     parser.add_argument("--output-max-batch-bytes", type=int, default=None)
+    parser.add_argument("--materialize-on-read", action="store_true", dest="materialize_on_read")
+    parser.add_argument("--no-materialize-on-read", action="store_false", dest="materialize_on_read")
     parser.add_argument("--parquet-row-group-size", type=int, default=None)
     parser.add_argument("--parquet-compression", type=str, default=None)
     parser.add_argument("--parquet-write-backend", type=str, default="pandas", choices=["pandas", "pyarrow"])
     parser.add_argument("--materialize-on-write", action="store_true", dest="materialize_on_write")
     parser.add_argument("--no-materialize-on-write", action="store_false", dest="materialize_on_write")
     parser.add_argument("--mode", type=str, default="overwrite", choices=["ignore", "overwrite", "append", "error"])
-    parser.set_defaults(materialize_on_write=False)
+    parser.set_defaults(materialize_on_write=False, materialize_on_read=False)
     args = parser.parse_args()
 
     ray_client = RayClient()

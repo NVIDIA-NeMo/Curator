@@ -24,6 +24,11 @@ from PIL import Image
 
 from nemo_curator.core.utils import split_table_by_group_max_bytes
 from nemo_curator.stages.multimodal.stages import MultimodalJpegAspectRatioFilterStage
+from nemo_curator.stages.multimodal.utils import (
+    load_bytes_from_content_reference,
+    require_source_id_field,
+    resolve_storage_options,
+)
 from nemo_curator.tasks import MultiBatchTask
 from nemo_curator.tasks.multimodal import MULTIMODAL_SCHEMA
 
@@ -175,3 +180,40 @@ def test_basic_multimodal_filter_stage_jpeg_ratio_from_source(tmp_path: Path) ->
     stage = MultimodalJpegAspectRatioFilterStage(min_aspect_ratio=0.8, max_aspect_ratio=1.2)
     out = stage.process(task)
     assert out.to_pandas().empty
+
+
+def test_load_bytes_from_content_reference_direct_and_keyed(tmp_path: Path) -> None:
+    direct_path = tmp_path / "direct.bin"
+    direct_payload = b"direct-bytes"
+    direct_path.write_bytes(direct_payload)
+
+    tar_path = tmp_path / "blob.tar"
+    tar_payload = b"tar-bytes"
+    with tarfile.open(tar_path, "w") as tf:
+        info = tarfile.TarInfo(name="x.bin")
+        info.size = len(tar_payload)
+        tf.addfile(info, BytesIO(tar_payload))
+
+    cache: dict[tuple[str, str], bytes | None] = {}
+    out_direct = load_bytes_from_content_reference(str(direct_path), None, {}, cache)
+    out_keyed = load_bytes_from_content_reference(str(tar_path), "x.bin", {}, cache)
+    assert out_direct == direct_payload
+    assert out_keyed == tar_payload
+
+
+def test_require_source_id_field() -> None:
+    assert require_source_id_field("pdf_name") == "pdf_name"
+    with pytest.raises(ValueError, match="source_id_field must be provided explicitly"):
+        require_source_id_field("")
+
+
+def test_resolve_storage_options_prefers_task_metadata() -> None:
+    task = MultiBatchTask(
+        task_id="t1",
+        dataset_name="d1",
+        data=pa.Table.from_pylist([], schema=MULTIMODAL_SCHEMA),
+        _metadata={"source_storage_options": {"anon": False}},
+    )
+    assert resolve_storage_options(task=task, io_kwargs={"storage_options": {"anon": True}}) == {"anon": False}
+    assert resolve_storage_options(task=task, io_kwargs={}) == {"anon": False}
+    assert resolve_storage_options(io_kwargs={"storage_options": {"anon": True}}) == {"anon": True}

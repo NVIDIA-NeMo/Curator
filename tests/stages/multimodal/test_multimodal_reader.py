@@ -67,7 +67,7 @@ def test_reader_supports_custom_field_mapping(tmp_path: Path) -> None:
         images_field="frames",
         image_member_field="primary_image",
         json_extensions=(".meta.json",),
-        load_binary=True,
+        materialize_on_read=True,
     )
     output = reader.process(task)
     assert isinstance(output, MultiBatchTask)
@@ -85,3 +85,13 @@ def test_reader_propagates_source_storage_options(input_task: FileGroupTask) -> 
     output = reader.process(input_task)
     assert isinstance(output, MultiBatchTask)
     assert output._metadata.get("source_storage_options") == {"anon": False}
+
+
+def test_reader_materialize_on_read_flag(input_task: FileGroupTask) -> None:
+    reader = WebdatasetReaderStage(source_id_field="pdf_name", materialize_on_read=True)
+    output = reader.process(input_task)
+    assert isinstance(output, MultiBatchTask)
+    df = output.to_pandas()
+    image_rows = df[df["modality"] == "image"]
+    assert len(image_rows) > 0
+    assert image_rows["binary_content"].notna().any()

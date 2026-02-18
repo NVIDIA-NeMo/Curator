@@ -18,11 +18,14 @@ from typing import Any
 from nemo_curator.stages.base import CompositeStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.multimodal.io.readers.webdataset import WebdatasetReaderStage
+from nemo_curator.stages.multimodal.utils import (
+    DEFAULT_IMAGE_EXTENSIONS,
+    DEFAULT_JSON_EXTENSIONS,
+    DEFAULT_WEBDATASET_EXTENSIONS,
+    require_source_id_field,
+    resolve_storage_options,
+)
 from nemo_curator.tasks import MultiBatchTask, _EmptyTask
-
-_DEFAULT_WEBDATASET_EXTENSIONS = [".tar", ".tar.gz", ".tgz", ".tar.zst"]
-_DEFAULT_JSON_EXTENSIONS = [".json"]
-_DEFAULT_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".bmp", ".gif"]
 
 
 @dataclass
@@ -34,11 +37,11 @@ class WebdatasetReader(CompositeStage[_EmptyTask, MultiBatchTask]):
     blocksize: int | str | None = None
     max_batch_bytes: int | None = None
     read_kwargs: dict[str, Any] = field(default_factory=dict)
-    load_binary: bool = False
-    file_extensions: list[str] = field(default_factory=lambda: _DEFAULT_WEBDATASET_EXTENSIONS)
-    json_extensions: list[str] = field(default_factory=lambda: _DEFAULT_JSON_EXTENSIONS)
-    image_extensions: list[str] = field(default_factory=lambda: _DEFAULT_IMAGE_EXTENSIONS)
-    source_id_field: str | None = None
+    materialize_on_read: bool = False
+    file_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_WEBDATASET_EXTENSIONS))
+    json_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_JSON_EXTENSIONS))
+    image_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_IMAGE_EXTENSIONS))
+    source_id_field: str = ""
     sample_id_field: str | None = None
     texts_field: str = "texts"
     images_field: str = "images"
@@ -47,10 +50,8 @@ class WebdatasetReader(CompositeStage[_EmptyTask, MultiBatchTask]):
 
     def __post_init__(self):
         super().__init__()
-        if not self.source_id_field:
-            msg = "source_id_field must be provided explicitly (e.g., 'pdf_name')"
-            raise ValueError(msg)
-        self.storage_options = self.read_kwargs.get("storage_options", {})
+        self.source_id_field = require_source_id_field(self.source_id_field)
+        self.storage_options = resolve_storage_options(io_kwargs=self.read_kwargs)
 
     def decompose(self) -> list:
         return [
@@ -63,7 +64,7 @@ class WebdatasetReader(CompositeStage[_EmptyTask, MultiBatchTask]):
             ),
             WebdatasetReaderStage(
                 read_kwargs=self.read_kwargs,
-                load_binary=self.load_binary,
+                materialize_on_read=self.materialize_on_read,
                 max_batch_bytes=self.max_batch_bytes,
                 json_extensions=tuple(self.json_extensions),
                 image_extensions=tuple(self.image_extensions),

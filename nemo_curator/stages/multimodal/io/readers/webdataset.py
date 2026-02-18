@@ -25,23 +25,37 @@ import fsspec
 import pyarrow as pa
 
 from nemo_curator.core.utils import split_table_by_group_max_bytes
+from nemo_curator.stages.multimodal.utils import (
+    DEFAULT_IMAGE_EXTENSIONS,
+    DEFAULT_JSON_EXTENSIONS,
+    load_bytes_from_metadata_source,
+    require_source_id_field,
+    resolve_storage_options,
+)
 from nemo_curator.tasks import FileGroupTask, MultiBatchTask
 from nemo_curator.tasks.multimodal import MULTIMODAL_SCHEMA
 
 from .base import BaseMultimodalReader
 
-_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".bmp", ".gif")
+
+@dataclass
+class _ReadContext:
+    source_shard: str
+    tar_path: str
+    member_names: set[str]
+    storage_options: dict[str, object]
+    byte_cache: dict[tuple[str, str], bytes | None]
 
 
 @dataclass
 class WebdatasetReaderStage(BaseMultimodalReader):
     """Read MINT1T-style WebDataset shards into a row-wise multimodal task."""
 
-    load_binary: bool = False
+    materialize_on_read: bool = False
     max_batch_bytes: int | None = None
-    json_extensions: tuple[str, ...] = (".json",)
-    image_extensions: tuple[str, ...] = field(default_factory=lambda: _IMAGE_EXTENSIONS)
-    source_id_field: str | None = None
+    json_extensions: tuple[str, ...] = DEFAULT_JSON_EXTENSIONS
+    image_extensions: tuple[str, ...] = field(default_factory=lambda: DEFAULT_IMAGE_EXTENSIONS)
+    source_id_field: str = ""
     sample_id_field: str | None = None
     texts_field: str = "texts"
     images_field: str = "images"
@@ -49,9 +63,7 @@ class WebdatasetReaderStage(BaseMultimodalReader):
     name: str = "webdataset_reader"
 
     def __post_init__(self) -> None:
-        if not self.source_id_field:
-            msg = "source_id_field must be provided explicitly (e.g., 'pdf_name')"
-            raise ValueError(msg)
+        self.source_id_field = require_source_id_field(self.source_id_field)
 
     def _rows_from_sample(
         self,
@@ -60,10 +72,21 @@ class WebdatasetReaderStage(BaseMultimodalReader):
         source: dict[str, str],
         member_names: set[str],
     ) -> list[dict[str, Any]]:
-        source_id = sample.get(self.source_id_field) if self.source_id_field else None
+        source_id = sample.get(self.source_id_field)
         rows: list[dict[str, Any]] = []
         images = sample.get(self.images_field)
         image_member_name = self._resolve_default_image_member_name(sample_id, sample, images, member_names)
+        source_shard = source["source_shard"]
+        tar_path = source["tar_path"]
+        json_member_name = source["json_member_name"]
+
+        def build_metadata_source(content_key: str | None) -> str:
+            return MultiBatchTask.build_metadata_source(
+                source_id=source_id,
+                source_shard=source_shard,
+                content_path=tar_path,
+                content_key=content_key,
+            )
 
         rows.append(
             {
@@ -73,12 +96,7 @@ class WebdatasetReaderStage(BaseMultimodalReader):
                 "content_type": "application/json",
                 "text_content": None,
                 "binary_content": None,
-                "metadata_source": MultiBatchTask.build_metadata_source(
-                    source_id=source_id,
-                    source_shard=source["source_shard"],
-                    content_path=source["tar_path"],
-                    content_key=source["json_member_name"],
-                ),
+                "metadata_source": build_metadata_source(json_member_name),
                 "metadata_json": json.dumps(sample, ensure_ascii=True),
                 "materialize_error": None,
             }
@@ -95,12 +113,7 @@ class WebdatasetReaderStage(BaseMultimodalReader):
                         "content_type": "text/plain",
                         "text_content": text_value if isinstance(text_value, str) else None,
                         "binary_content": None,
-                        "metadata_source": MultiBatchTask.build_metadata_source(
-                            source_id=source_id,
-                            source_shard=source["source_shard"],
-                            content_path=source["tar_path"],
-                            content_key=source["json_member_name"],
-                        ),
+                        "metadata_source": build_metadata_source(json_member_name),
                         "metadata_json": None,
                         "materialize_error": None,
                     }
@@ -118,12 +131,7 @@ class WebdatasetReaderStage(BaseMultimodalReader):
                         "content_type": content_type or ("application/octet-stream" if image_member_name else None),
                         "text_content": None,
                         "binary_content": None,
-                        "metadata_source": MultiBatchTask.build_metadata_source(
-                            source_id=source_id,
-                            source_shard=source["source_shard"],
-                            content_path=source["tar_path"],
-                            content_key=content_key,
-                        ),
+                        "metadata_source": build_metadata_source(content_key),
                         "metadata_json": None,
                         "materialize_error": None,
                     }
@@ -166,9 +174,7 @@ class WebdatasetReaderStage(BaseMultimodalReader):
         self,
         tf: tarfile.TarFile,
         member: tarfile.TarInfo,
-        member_names: set[str],
-        source_info: dict[str, str],
-        binary_cache: dict[str, bytes | None],
+        context: _ReadContext,
     ) -> list[dict[str, Any]]:
         extracted = tf.extractfile(member)
         if extracted is None:
@@ -180,33 +186,30 @@ class WebdatasetReaderStage(BaseMultimodalReader):
             else Path(member.name).stem
         )
         source = {
-            "source_shard": source_info["source_shard"],
-            "tar_path": source_info["tar_path"],
+            "source_shard": context.source_shard,
+            "tar_path": context.tar_path,
             "json_member_name": member.name,
         }
         sample_rows = self._rows_from_sample(
             sample_id=sample_id,
             sample=payload,
             source=source,
-            member_names=member_names,
+            member_names=context.member_names,
         )
-        if self.load_binary:
+        if self.materialize_on_read:
             for row in sample_rows:
                 if row["modality"] != "image" or row["position"] < 0:
                     continue
-                source_meta = MultiBatchTask.parse_metadata_source(row["metadata_source"])
-                content_key = source_meta.get("content_key")
-                if not content_key:
-                    continue
-                if content_key not in binary_cache:
-                    img = tf.extractfile(content_key)
-                    binary_cache[content_key] = img.read() if img is not None else None
-                row["binary_content"] = binary_cache[content_key]
+                row["binary_content"] = load_bytes_from_metadata_source(
+                    source_value=row["metadata_source"],
+                    storage_options=context.storage_options,
+                    byte_cache=context.byte_cache,
+                )
         return sample_rows
 
     def process(self, task: FileGroupTask) -> MultiBatchTask | list[MultiBatchTask]:
         rows: list[dict[str, Any]] = []
-        storage_options = (self.read_kwargs or {}).get("storage_options", {})
+        storage_options = resolve_storage_options(io_kwargs=self.read_kwargs)
 
         for tar_path in task.data:
             source_shard = Path(tar_path).name
@@ -216,8 +219,13 @@ class WebdatasetReaderStage(BaseMultimodalReader):
             ):
                 members = [m for m in tf.getmembers() if m.isfile()]
                 member_names = {m.name for m in members}
-                binary_cache: dict[str, bytes | None] = {}
-                source = {"source_shard": source_shard, "tar_path": tar_path}
+                context = _ReadContext(
+                    source_shard=source_shard,
+                    tar_path=tar_path,
+                    member_names=member_names,
+                    storage_options=storage_options,
+                    byte_cache={},
+                )
                 for member in members:
                     if not member.name.endswith(self.json_extensions):
                         continue
@@ -225,9 +233,7 @@ class WebdatasetReaderStage(BaseMultimodalReader):
                         self._rows_from_member(
                             tf=tf,
                             member=member,
-                            member_names=member_names,
-                            source_info=source,
-                            binary_cache=binary_cache,
+                            context=context,
                         )
                     )
 
