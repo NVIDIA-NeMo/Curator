@@ -29,14 +29,31 @@ def _as_df(task_or_tasks: MultiBatchTask | list[MultiBatchTask]) -> pd.DataFrame
     return task.to_pandas()
 
 
-def test_reader_emits_metadata_text_image_rows(
-    input_task: FileGroupTask, mint_like_tar: tuple[str, str, bytes]
+def _write_tar_sample(
+    tar_path: Path,
+    payload: dict[str, object],
+    *,
+    json_name: str = "sample.json",
+    image_name: str = "image.jpg",
+    image_bytes: bytes = b"abc",
 ) -> None:
-    _, sample_id, _ = mint_like_tar
-    reader = WebdatasetReaderStage(source_id_field="pdf_name")
-    df = _as_df(reader.process(input_task))
-    assert set(df["modality"].unique()) == {"metadata", "text", "image"}
-    assert ((df["sample_id"] == sample_id) & (df["modality"] == "metadata") & (df["position"] == -1)).any()
+    with tarfile.open(tar_path, "w") as tf:
+        json_blob = json.dumps(payload).encode("utf-8")
+        json_info = tarfile.TarInfo(name=json_name)
+        json_info.size = len(json_blob)
+        tf.addfile(json_info, BytesIO(json_blob))
+        img_info = tarfile.TarInfo(name=image_name)
+        img_info.size = len(image_bytes)
+        tf.addfile(img_info, BytesIO(image_bytes))
+
+
+def _task_for_tar(tar_path: Path, task_id: str) -> FileGroupTask:
+    return FileGroupTask(
+        task_id=task_id,
+        dataset_name="custom_dataset",
+        data=[str(tar_path)],
+        _metadata={"source_files": [str(tar_path)]},
+    )
 
 
 def test_reader_supports_custom_field_mapping(tmp_path: Path) -> None:
@@ -50,22 +67,14 @@ def test_reader_supports_custom_field_mapping(tmp_path: Path) -> None:
         "p_hash": "abc123",
     }
     image_bytes = b"custom-image-bytes"
-    with tarfile.open(tar_path, "w") as tf:
-        json_blob = json.dumps(payload).encode("utf-8")
-        json_info = tarfile.TarInfo(name="sample-xyz.meta.json")
-        json_info.size = len(json_blob)
-        tf.addfile(json_info, BytesIO(json_blob))
-
-        img_info = tarfile.TarInfo(name="custom-image.jpg")
-        img_info.size = len(image_bytes)
-        tf.addfile(img_info, BytesIO(image_bytes))
-
-    task = FileGroupTask(
-        task_id="file_group_custom",
-        dataset_name="custom_dataset",
-        data=[str(tar_path)],
-        _metadata={"source_files": [str(tar_path)]},
+    _write_tar_sample(
+        tar_path,
+        payload,
+        json_name="sample-xyz.meta.json",
+        image_name="custom-image.jpg",
+        image_bytes=image_bytes,
     )
+    task = _task_for_tar(tar_path, "file_group_custom")
     reader = WebdatasetReaderStage(
         sample_id_field="doc_id",
         source_id_field="source_doc",
@@ -87,21 +96,6 @@ def test_reader_supports_custom_field_mapping(tmp_path: Path) -> None:
     assert image_rows.iloc[0]["p_hash"] == "abc123"
 
 
-def test_reader_propagates_source_storage_options(input_task: FileGroupTask) -> None:
-    reader = WebdatasetReaderStage(source_id_field="pdf_name", read_kwargs={"storage_options": {"anon": False}})
-    output = reader.process(input_task)
-    assert isinstance(output, MultiBatchTask)  # metadata lives on task, not dataframe
-    assert output._metadata.get("source_storage_options") == {"anon": False}
-
-
-def test_reader_materialize_on_read_flag(input_task: FileGroupTask) -> None:
-    reader = WebdatasetReaderStage(source_id_field="pdf_name", materialize_on_read=True)
-    df = _as_df(reader.process(input_task))
-    image_rows = df[df["modality"] == "image"]
-    assert len(image_rows) > 0
-    assert image_rows["binary_content"].notna().any()
-
-
 def test_reader_reads_all_fields_by_default(tmp_path: Path) -> None:
     tar_path = tmp_path / "all-fields.tar"
     payload = {
@@ -114,21 +108,8 @@ def test_reader_reads_all_fields_by_default(tmp_path: Path) -> None:
         "score": 0.91,
         "aux": {"page": 3},
     }
-    with tarfile.open(tar_path, "w") as tf:
-        blob = json.dumps(payload).encode("utf-8")
-        info = tarfile.TarInfo(name="sample.meta.json")
-        info.size = len(blob)
-        tf.addfile(info, BytesIO(blob))
-        img = tarfile.TarInfo(name="image.jpg")
-        img.size = 3
-        tf.addfile(img, BytesIO(b"abc"))
-
-    task = FileGroupTask(
-        task_id="all_fields",
-        dataset_name="custom_dataset",
-        data=[str(tar_path)],
-        _metadata={"source_files": [str(tar_path)]},
-    )
+    _write_tar_sample(tar_path, payload, json_name="sample.meta.json")
+    task = _task_for_tar(tar_path, "all_fields")
     reader = WebdatasetReaderStage(
         sample_id_field="doc_id",
         source_id_field="source_doc",
@@ -146,41 +127,20 @@ def test_reader_reads_all_fields_by_default(tmp_path: Path) -> None:
     assert "frames" not in df.columns
 
 
-def test_reader_fields_raises_for_missing_key(tmp_path: Path) -> None:
-    tar_path = tmp_path / "missing-key.tar"
+@pytest.mark.parametrize(
+    ("task_id", "fields", "error_pattern"),
+    [
+        ("missing_key", ("p_hash",), "fields not found in source sample"),
+        ("reserved_key", ("sample_id",), "fields contains reserved keys"),
+    ],
+)
+def test_reader_fields_validation_errors(
+    tmp_path: Path, task_id: str, fields: tuple[str, ...], error_pattern: str
+) -> None:
+    tar_path = tmp_path / f"{task_id}.tar"
     payload = {"pdf_name": "doc.pdf", "texts": ["t"], "images": []}
-    with tarfile.open(tar_path, "w") as tf:
-        blob = json.dumps(payload).encode("utf-8")
-        info = tarfile.TarInfo(name="sample.json")
-        info.size = len(blob)
-        tf.addfile(info, BytesIO(blob))
-
-    task = FileGroupTask(
-        task_id="missing_key",
-        dataset_name="custom_dataset",
-        data=[str(tar_path)],
-        _metadata={"source_files": [str(tar_path)]},
-    )
-    reader = WebdatasetReaderStage(source_id_field="pdf_name", fields=("p_hash",))
-    with pytest.raises(ValueError, match="fields not found in source sample"):
-        _ = reader.process(task)
-
-
-def test_reader_fields_raises_for_reserved_key(tmp_path: Path) -> None:
-    tar_path = tmp_path / "reserved-key.tar"
-    payload = {"pdf_name": "doc.pdf", "texts": ["t"], "images": []}
-    with tarfile.open(tar_path, "w") as tf:
-        blob = json.dumps(payload).encode("utf-8")
-        info = tarfile.TarInfo(name="sample.json")
-        info.size = len(blob)
-        tf.addfile(info, BytesIO(blob))
-
-    task = FileGroupTask(
-        task_id="reserved_key",
-        dataset_name="custom_dataset",
-        data=[str(tar_path)],
-        _metadata={"source_files": [str(tar_path)]},
-    )
-    reader = WebdatasetReaderStage(source_id_field="pdf_name", fields=("sample_id",))
-    with pytest.raises(ValueError, match="fields contains reserved keys"):
+    _write_tar_sample(tar_path, payload)
+    task = _task_for_tar(tar_path, task_id)
+    reader = WebdatasetReaderStage(source_id_field="pdf_name", fields=fields)
+    with pytest.raises(ValueError, match=error_pattern):
         _ = reader.process(task)

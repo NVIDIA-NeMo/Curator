@@ -31,6 +31,7 @@ from nemo_curator.stages.multimodal.utils import (
     load_bytes_from_metadata_source,
     require_source_id_field,
     resolve_storage_options,
+    validate_and_project_source_fields,
 )
 from nemo_curator.tasks import FileGroupTask, MultiBatchTask
 from nemo_curator.tasks.multimodal import MULTIMODAL_SCHEMA
@@ -147,10 +148,10 @@ class WebdatasetReaderStage(BaseMultimodalReader):
     def _build_passthrough_row(self, sample: dict[str, Any]) -> dict[str, Any]:
         excluded = {
             self.source_id_field,
-            self.sample_id_field,
+            *( [self.sample_id_field] if self.sample_id_field else [] ),
             self.texts_field,
             self.images_field,
-            self.image_member_field,
+            *( [self.image_member_field] if self.image_member_field else [] ),
             "sample_id",
             "position",
             "modality",
@@ -161,26 +162,7 @@ class WebdatasetReaderStage(BaseMultimodalReader):
             "metadata_json",
             "materialize_error",
         }
-        if self.fields is None:
-            fields = [key for key in sample if key not in excluded]
-        else:
-            fields = list(self.fields)
-            reserved = sorted(field for field in fields if field in excluded)
-            if reserved:
-                msg = f"fields contains reserved keys: {reserved}"
-                raise ValueError(msg)
-            missing = sorted(field for field in fields if field not in sample)
-            if missing:
-                msg = f"fields not found in source sample: {missing}"
-                raise ValueError(msg)
-        return {
-            field: (
-                json.dumps(sample.get(field), ensure_ascii=True)
-                if isinstance(sample.get(field), (dict, list))
-                else sample.get(field)
-            )
-            for field in fields
-        }
+        return validate_and_project_source_fields(sample=sample, fields=self.fields, excluded_fields=excluded)
 
     def _resolve_default_image_member_name(
         self,

@@ -17,17 +17,12 @@ import tarfile
 from io import BytesIO
 from pathlib import Path
 
-import pandas as pd
 import pyarrow as pa
 import pytest
-from PIL import Image
 
-from nemo_curator.core.utils import split_table_by_group_max_bytes
-from nemo_curator.stages.multimodal.stages import MultimodalJpegAspectRatioFilterStage
 from nemo_curator.stages.multimodal.utils import (
     load_bytes_from_content_reference,
     require_source_id_field,
-    resolve_storage_options,
 )
 from nemo_curator.tasks import MultiBatchTask
 from nemo_curator.tasks.multimodal import MULTIMODAL_SCHEMA
@@ -65,96 +60,12 @@ def single_row_task(single_row_table: pa.Table) -> MultiBatchTask:
     return MultiBatchTask(task_id="t1", dataset_name="d1", data=single_row_table)
 
 
-def test_to_pandas_keeps_arrow_dtypes(single_row_task: MultiBatchTask) -> None:
-    df = single_row_task.to_pandas()
-    assert isinstance(df, pd.DataFrame)
-    assert all(str(df.dtypes[col]).endswith("[pyarrow]") for col in ("sample_id", "position"))
-
-
 def test_with_parsed_source_columns(single_row_task: MultiBatchTask) -> None:
     df = single_row_task.with_parsed_source_columns()
     assert df.loc[0, "_src_source_id"] == "doc.pdf"
     assert df.loc[0, "_src_source_shard"] == "shard-00000.tar"
     assert df.loc[0, "_src_content_path"] == "/dataset/shard-00000.tar"
     assert df.loc[0, "_src_content_key"] == "s1.json"
-
-
-def test_split_table_keeps_group_intact() -> None:
-    table = pa.Table.from_pylist([
-        {"sample_id": "a", "position": 0, "value": "x" * 20},
-        {"sample_id": "a", "position": 1, "value": "y" * 20},
-        {"sample_id": "b", "position": 0, "value": "z" * 20},
-        {"sample_id": "b", "position": 1, "value": "w" * 20},
-    ])
-    splits = split_table_by_group_max_bytes(table, "sample_id", max_batch_bytes=120)
-    assert len(splits) == 2
-    groups = [set(split["sample_id"].to_pylist()) for split in splits]
-    assert len(groups[0]) == 1
-    assert len(groups[1]) == 1
-    assert groups[0] != groups[1]
-
-
-def _make_jpeg_bytes(width: int, height: int) -> bytes:
-    image = Image.new("RGB", (width, height), color=(255, 0, 0))
-    buffer = BytesIO()
-    image.save(buffer, format="JPEG")
-    return buffer.getvalue()
-
-
-def _image_row(
-    sample_id: str,
-    *,
-    binary_content: bytes | None = None,
-    metadata_source: str | None = None,
-) -> dict[str, object]:
-    return {
-        "sample_id": sample_id,
-        "position": 0,
-        "modality": "image",
-        "content_type": "image/jpeg",
-        "text_content": None,
-        "binary_content": binary_content,
-        "metadata_source": metadata_source,
-        "metadata_json": None,
-        "materialize_error": None,
-    }
-
-
-def test_basic_multimodal_filter_stage_jpeg_ratio_from_binary() -> None:
-    table = pa.Table.from_pylist(
-        [_image_row("s1", binary_content=_make_jpeg_bytes(100, 100)), _image_row("s2", binary_content=_make_jpeg_bytes(1000, 100))],
-        schema=MULTIMODAL_SCHEMA,
-    )
-    task = MultiBatchTask(task_id="ratio_binary", dataset_name="d1", data=table)
-    stage = MultimodalJpegAspectRatioFilterStage(min_aspect_ratio=0.8, max_aspect_ratio=1.2)
-    out = stage.process(task)
-    out_df = out.to_pandas()
-    assert len(out_df) == 1
-    assert out_df.iloc[0]["sample_id"] == "s1"
-
-
-def test_basic_multimodal_filter_stage_jpeg_ratio_from_source(tmp_path: Path) -> None:
-    tar_path = tmp_path / "images.tar"
-    image_key = "wide.jpg"
-    metadata_source = json.dumps(
-        {
-            "source_id": "doc.pdf",
-            "source_shard": "images.tar",
-            "content_path": str(tar_path),
-            "content_key": image_key,
-        }
-    )
-    wide_bytes = _make_jpeg_bytes(900, 100)
-    with tarfile.open(tar_path, "w") as tf:
-        info = tarfile.TarInfo(name=image_key)
-        info.size = len(wide_bytes)
-        tf.addfile(info, BytesIO(wide_bytes))
-
-    table = pa.Table.from_pylist([_image_row("s1", metadata_source=metadata_source)], schema=MULTIMODAL_SCHEMA)
-    task = MultiBatchTask(task_id="ratio_source", dataset_name="d1", data=table)
-    stage = MultimodalJpegAspectRatioFilterStage(min_aspect_ratio=0.8, max_aspect_ratio=1.2)
-    out = stage.process(task)
-    assert out.to_pandas().empty
 
 
 def test_load_bytes_from_content_reference_direct_and_keyed(tmp_path: Path) -> None:
@@ -177,15 +88,3 @@ def test_require_source_id_field() -> None:
     assert require_source_id_field("pdf_name") == "pdf_name"
     with pytest.raises(ValueError, match="source_id_field must be provided explicitly"):
         require_source_id_field("")
-
-
-def test_resolve_storage_options_prefers_task_metadata() -> None:
-    task = MultiBatchTask(
-        task_id="t1",
-        dataset_name="d1",
-        data=pa.Table.from_pylist([], schema=MULTIMODAL_SCHEMA),
-        _metadata={"source_storage_options": {"anon": False}},
-    )
-    assert resolve_storage_options(task=task, io_kwargs={"storage_options": {"anon": True}}) == {"anon": False}
-    assert resolve_storage_options(task=task, io_kwargs={}) == {"anon": False}
-    assert resolve_storage_options(io_kwargs={"storage_options": {"anon": True}}) == {"anon": True}

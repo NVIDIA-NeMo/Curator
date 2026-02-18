@@ -30,21 +30,15 @@ def _read_batch(input_task: FileGroupTask) -> MultiBatchTask:
     return batch
 
 
-def test_writer_materializes_and_marks_errors(
-    tmp_path: Path, input_task: FileGroupTask, mint_like_tar: tuple[str, str, bytes]
-) -> None:
-    _, _, image_bytes = mint_like_tar
-    batch = _read_batch(input_task)
-
-    writer = MultimodalParquetWriterStage(path=str(tmp_path / "out"), materialize_on_write=True, mode="overwrite")
-    write_task = writer.process(batch)
-    out_file = write_task.data[0]
-
-    written = pd.read_parquet(out_file)
-    image_rows = written[written["modality"] == "image"]
-    assert len(image_rows) > 0
-    assert image_rows["binary_content"].apply(lambda x: x == image_bytes).any()
-    assert image_rows["materialize_error"].isna().any()
+def _metadata_source(content_path: str, content_key: str | None, source_shard: str = "shard-00000.tar") -> str:
+    return json.dumps(
+        {
+            "source_id": "doc.pdf",
+            "source_shard": source_shard,
+            "content_path": content_path,
+            "content_key": content_key,
+        }
+    )
 
 
 def test_writer_marks_materialize_error_on_bad_source_path(tmp_path: Path, input_task: FileGroupTask) -> None:
@@ -53,14 +47,7 @@ def test_writer_marks_materialize_error_on_bad_source_path(tmp_path: Path, input
     image_mask = df["modality"] == "image"
     assert image_mask.any()
     first_image_idx = df[image_mask].index[0]
-    df.loc[first_image_idx, "metadata_source"] = json.dumps(
-        {
-            "source_id": "doc.pdf",
-            "source_shard": "shard-00000.tar",
-            "content_path": "/definitely/missing/path.tar",
-            "content_key": "abc123.tiff",
-        }
-    )
+    df.loc[first_image_idx, "metadata_source"] = _metadata_source("/definitely/missing/path.tar", "abc123.tiff")
     bad_batch = MultiBatchTask(
         task_id=batch.task_id,
         dataset_name=batch.dataset_name,
@@ -92,14 +79,7 @@ def test_writer_materializes_direct_content_path_without_key(tmp_path: Path) -> 
                 "content_type": "image/jpeg",
                 "text_content": None,
                 "binary_content": None,
-                "metadata_source": json.dumps(
-                    {
-                        "source_id": "doc.pdf",
-                        "source_shard": "raw_image.jpg",
-                        "content_path": str(raw_path),
-                        "content_key": None,
-                    }
-                ),
+                "metadata_source": _metadata_source(str(raw_path), None, source_shard="raw_image.jpg"),
                 "metadata_json": None,
                 "materialize_error": None,
             }

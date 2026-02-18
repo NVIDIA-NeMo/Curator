@@ -23,6 +23,7 @@ from nemo_curator.stages.multimodal.utils.materialization import (
     require_source_id_field,
     resolve_storage_options,
 )
+from nemo_curator.stages.multimodal.utils.validation_utils import validate_and_project_source_fields
 
 __all__ = [
     "DEFAULT_IMAGE_EXTENSIONS",
@@ -32,4 +33,5 @@ __all__ = [
     "load_bytes_from_metadata_source",
     "require_source_id_field",
     "resolve_storage_options",
+    "validate_and_project_source_fields",
 ]
