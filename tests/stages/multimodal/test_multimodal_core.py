@@ -68,8 +68,7 @@ def single_row_task(single_row_table: pa.Table) -> MultiBatchTask:
 def test_to_pandas_keeps_arrow_dtypes(single_row_task: MultiBatchTask) -> None:
     df = single_row_task.to_pandas()
     assert isinstance(df, pd.DataFrame)
-    assert str(df.dtypes["sample_id"]).endswith("[pyarrow]")
-    assert str(df.dtypes["position"]).endswith("[pyarrow]")
+    assert all(str(df.dtypes[col]).endswith("[pyarrow]") for col in ("sample_id", "position"))
 
 
 def test_with_parsed_source_columns(single_row_task: MultiBatchTask) -> None:
@@ -81,23 +80,18 @@ def test_with_parsed_source_columns(single_row_task: MultiBatchTask) -> None:
 
 
 def test_split_table_keeps_group_intact() -> None:
-    table = pa.Table.from_pylist(
-        [
-            {"sample_id": "a", "position": 0, "value": "x" * 20},
-            {"sample_id": "a", "position": 1, "value": "y" * 20},
-            {"sample_id": "b", "position": 0, "value": "z" * 20},
-            {"sample_id": "b", "position": 1, "value": "w" * 20},
-        ]
-    )
-
+    table = pa.Table.from_pylist([
+        {"sample_id": "a", "position": 0, "value": "x" * 20},
+        {"sample_id": "a", "position": 1, "value": "y" * 20},
+        {"sample_id": "b", "position": 0, "value": "z" * 20},
+        {"sample_id": "b", "position": 1, "value": "w" * 20},
+    ])
     splits = split_table_by_group_max_bytes(table, "sample_id", max_batch_bytes=120)
     assert len(splits) == 2
-
-    first_groups = set(splits[0]["sample_id"].to_pylist())
-    second_groups = set(splits[1]["sample_id"].to_pylist())
-    assert len(first_groups) == 1
-    assert len(second_groups) == 1
-    assert first_groups != second_groups
+    groups = [set(split["sample_id"].to_pylist()) for split in splits]
+    assert len(groups[0]) == 1
+    assert len(groups[1]) == 1
+    assert groups[0] != groups[1]
 
 
 def _make_jpeg_bytes(width: int, height: int) -> bytes:
@@ -107,34 +101,28 @@ def _make_jpeg_bytes(width: int, height: int) -> bytes:
     return buffer.getvalue()
 
 
+def _image_row(
+    sample_id: str,
+    *,
+    binary_content: bytes | None = None,
+    metadata_source: str | None = None,
+) -> dict[str, object]:
+    return {
+        "sample_id": sample_id,
+        "position": 0,
+        "modality": "image",
+        "content_type": "image/jpeg",
+        "text_content": None,
+        "binary_content": binary_content,
+        "metadata_source": metadata_source,
+        "metadata_json": None,
+        "materialize_error": None,
+    }
+
+
 def test_basic_multimodal_filter_stage_jpeg_ratio_from_binary() -> None:
-    square_bytes = _make_jpeg_bytes(100, 100)
-    wide_bytes = _make_jpeg_bytes(1000, 100)
     table = pa.Table.from_pylist(
-        [
-            {
-                "sample_id": "s1",
-                "position": 0,
-                "modality": "image",
-                "content_type": "image/jpeg",
-                "text_content": None,
-                "binary_content": square_bytes,
-                "metadata_source": None,
-                "metadata_json": None,
-                "materialize_error": None,
-            },
-            {
-                "sample_id": "s2",
-                "position": 0,
-                "modality": "image",
-                "content_type": "image/jpeg",
-                "text_content": None,
-                "binary_content": wide_bytes,
-                "metadata_source": None,
-                "metadata_json": None,
-                "materialize_error": None,
-            },
-        ],
+        [_image_row("s1", binary_content=_make_jpeg_bytes(100, 100)), _image_row("s2", binary_content=_make_jpeg_bytes(1000, 100))],
         schema=MULTIMODAL_SCHEMA,
     )
     task = MultiBatchTask(task_id="ratio_binary", dataset_name="d1", data=table)
@@ -147,35 +135,22 @@ def test_basic_multimodal_filter_stage_jpeg_ratio_from_binary() -> None:
 
 def test_basic_multimodal_filter_stage_jpeg_ratio_from_source(tmp_path: Path) -> None:
     tar_path = tmp_path / "images.tar"
+    image_key = "wide.jpg"
+    metadata_source = json.dumps(
+        {
+            "source_id": "doc.pdf",
+            "source_shard": "images.tar",
+            "content_path": str(tar_path),
+            "content_key": image_key,
+        }
+    )
     wide_bytes = _make_jpeg_bytes(900, 100)
     with tarfile.open(tar_path, "w") as tf:
-        info = tarfile.TarInfo(name="wide.jpg")
+        info = tarfile.TarInfo(name=image_key)
         info.size = len(wide_bytes)
         tf.addfile(info, BytesIO(wide_bytes))
 
-    table = pa.Table.from_pylist(
-        [
-            {
-                "sample_id": "s1",
-                "position": 0,
-                "modality": "image",
-                "content_type": "image/jpeg",
-                "text_content": None,
-                "binary_content": None,
-                "metadata_source": json.dumps(
-                    {
-                        "source_id": "doc.pdf",
-                        "source_shard": "images.tar",
-                        "content_path": str(tar_path),
-                        "content_key": "wide.jpg",
-                    }
-                ),
-                "metadata_json": None,
-                "materialize_error": None,
-            }
-        ],
-        schema=MULTIMODAL_SCHEMA,
-    )
+    table = pa.Table.from_pylist([_image_row("s1", metadata_source=metadata_source)], schema=MULTIMODAL_SCHEMA)
     task = MultiBatchTask(task_id="ratio_source", dataset_name="d1", data=table)
     stage = MultimodalJpegAspectRatioFilterStage(min_aspect_ratio=0.8, max_aspect_ratio=1.2)
     out = stage.process(task)
@@ -186,7 +161,6 @@ def test_load_bytes_from_content_reference_direct_and_keyed(tmp_path: Path) -> N
     direct_path = tmp_path / "direct.bin"
     direct_payload = b"direct-bytes"
     direct_path.write_bytes(direct_payload)
-
     tar_path = tmp_path / "blob.tar"
     tar_payload = b"tar-bytes"
     with tarfile.open(tar_path, "w") as tf:
@@ -195,10 +169,8 @@ def test_load_bytes_from_content_reference_direct_and_keyed(tmp_path: Path) -> N
         tf.addfile(info, BytesIO(tar_payload))
 
     cache: dict[tuple[str, str], bytes | None] = {}
-    out_direct = load_bytes_from_content_reference(str(direct_path), None, {}, cache)
-    out_keyed = load_bytes_from_content_reference(str(tar_path), "x.bin", {}, cache)
-    assert out_direct == direct_payload
-    assert out_keyed == tar_payload
+    assert load_bytes_from_content_reference(str(direct_path), None, {}, cache) == direct_payload
+    assert load_bytes_from_content_reference(str(tar_path), "x.bin", {}, cache) == tar_payload
 
 
 def test_require_source_id_field() -> None:

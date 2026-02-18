@@ -45,19 +45,6 @@ class BaseMultimodalTabularWriter(BaseMultimodalWriter, ABC):
     materialize_on_write: bool = True
     name: str = "base_multimodal_tabular_writer"
 
-    @staticmethod
-    def _set_errors(error_values: list[str | None], indices: list[int], error: str | None) -> None:
-        for idx in indices:
-            error_values[idx] = error
-
-    @staticmethod
-    def _set_payload(
-        binary_values: list[object], error_values: list[str | None], indices: list[int], payload: bytes
-    ) -> None:
-        for idx in indices:
-            binary_values[idx] = payload
-            error_values[idx] = None
-
     def _materialize_group(
         self,
         df: pd.DataFrame,
@@ -69,7 +56,8 @@ class BaseMultimodalTabularWriter(BaseMultimodalWriter, ABC):
         binary_values = buffers.binary_values
         error_values = buffers.error_values
         if not content_path:
-            self._set_errors(error_values, idxs, "missing content_path")
+            for idx in idxs:
+                error_values[idx] = "missing content_path"
             return
 
         for idx in idxs:

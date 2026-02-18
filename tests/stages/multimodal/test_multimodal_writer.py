@@ -24,13 +24,17 @@ from nemo_curator.tasks import FileGroupTask, MultiBatchTask
 from nemo_curator.tasks.multimodal import MULTIMODAL_SCHEMA
 
 
+def _read_batch(input_task: FileGroupTask) -> MultiBatchTask:
+    batch = WebdatasetReaderStage(source_id_field="pdf_name").process(input_task)
+    assert isinstance(batch, MultiBatchTask)
+    return batch
+
+
 def test_writer_materializes_and_marks_errors(
     tmp_path: Path, input_task: FileGroupTask, mint_like_tar: tuple[str, str, bytes]
 ) -> None:
     _, _, image_bytes = mint_like_tar
-    reader = WebdatasetReaderStage(source_id_field="pdf_name")
-    batch = reader.process(input_task)
-    assert isinstance(batch, MultiBatchTask)
+    batch = _read_batch(input_task)
 
     writer = MultimodalParquetWriterStage(path=str(tmp_path / "out"), materialize_on_write=True, mode="overwrite")
     write_task = writer.process(batch)
@@ -44,10 +48,7 @@ def test_writer_materializes_and_marks_errors(
 
 
 def test_writer_marks_materialize_error_on_bad_source_path(tmp_path: Path, input_task: FileGroupTask) -> None:
-    reader = WebdatasetReaderStage(source_id_field="pdf_name")
-    batch = reader.process(input_task)
-    assert isinstance(batch, MultiBatchTask)
-
+    batch = _read_batch(input_task)
     df = batch.to_pandas().copy()
     image_mask = df["modality"] == "image"
     assert image_mask.any()

@@ -60,6 +60,7 @@ class WebdatasetReaderStage(BaseMultimodalReader):
     texts_field: str = "texts"
     images_field: str = "images"
     image_member_field: str | None = None
+    fields: tuple[str, ...] | None = None
     name: str = "webdataset_reader"
 
     def __post_init__(self) -> None:
@@ -79,6 +80,7 @@ class WebdatasetReaderStage(BaseMultimodalReader):
         source_shard = source["source_shard"]
         tar_path = source["tar_path"]
         json_member_name = source["json_member_name"]
+        passthrough_row = self._build_passthrough_row(sample)
 
         def build_metadata_source(content_key: str | None) -> str:
             return MultiBatchTask.build_metadata_source(
@@ -88,34 +90,42 @@ class WebdatasetReaderStage(BaseMultimodalReader):
                 content_key=content_key,
             )
 
-        rows.append(
+        def append_row(row: dict[str, Any]) -> None:
+            rows.append(
+                {
+                    "sample_id": sample_id,
+                    "position": row["position"],
+                    "modality": row["modality"],
+                    "content_type": row.get("content_type"),
+                    "text_content": row.get("text_content"),
+                    "binary_content": row.get("binary_content"),
+                    "metadata_source": row.get("metadata_source"),
+                    "metadata_json": row.get("metadata_json"),
+                    "materialize_error": None,
+                    **passthrough_row,
+                }
+            )
+
+        append_row(
             {
-                "sample_id": sample_id,
                 "position": -1,
                 "modality": "metadata",
                 "content_type": "application/json",
-                "text_content": None,
-                "binary_content": None,
                 "metadata_source": build_metadata_source(json_member_name),
                 "metadata_json": json.dumps(sample, ensure_ascii=True),
-                "materialize_error": None,
             }
         )
 
         texts = sample.get(self.texts_field)
         if isinstance(texts, list):
             for idx, text_value in enumerate(texts):
-                rows.append(
+                append_row(
                     {
-                        "sample_id": sample_id,
                         "position": idx,
                         "modality": "text",
                         "content_type": "text/plain",
                         "text_content": text_value if isinstance(text_value, str) else None,
-                        "binary_content": None,
                         "metadata_source": build_metadata_source(json_member_name),
-                        "metadata_json": None,
-                        "materialize_error": None,
                     }
                 )
 
@@ -123,21 +133,54 @@ class WebdatasetReaderStage(BaseMultimodalReader):
             for idx, image_token in enumerate(images):
                 content_key = self._resolve_image_content_key(image_token, image_member_name, member_names)
                 content_type, _ = mimetypes.guess_type(image_member_name or "")
-                rows.append(
+                append_row(
                     {
-                        "sample_id": sample_id,
                         "position": idx,
                         "modality": "image",
                         "content_type": content_type or ("application/octet-stream" if image_member_name else None),
-                        "text_content": None,
-                        "binary_content": None,
                         "metadata_source": build_metadata_source(content_key),
-                        "metadata_json": None,
-                        "materialize_error": None,
                     }
                 )
 
         return rows
+
+    def _build_passthrough_row(self, sample: dict[str, Any]) -> dict[str, Any]:
+        excluded = {
+            self.source_id_field,
+            self.sample_id_field,
+            self.texts_field,
+            self.images_field,
+            self.image_member_field,
+            "sample_id",
+            "position",
+            "modality",
+            "content_type",
+            "text_content",
+            "binary_content",
+            "metadata_source",
+            "metadata_json",
+            "materialize_error",
+        }
+        if self.fields is None:
+            fields = [key for key in sample if key not in excluded]
+        else:
+            fields = list(self.fields)
+            reserved = sorted(field for field in fields if field in excluded)
+            if reserved:
+                msg = f"fields contains reserved keys: {reserved}"
+                raise ValueError(msg)
+            missing = sorted(field for field in fields if field not in sample)
+            if missing:
+                msg = f"fields not found in source sample: {missing}"
+                raise ValueError(msg)
+        return {
+            field: (
+                json.dumps(sample.get(field), ensure_ascii=True)
+                if isinstance(sample.get(field), (dict, list))
+                else sample.get(field)
+            )
+            for field in fields
+        }
 
     def _resolve_default_image_member_name(
         self,
@@ -237,7 +280,7 @@ class WebdatasetReaderStage(BaseMultimodalReader):
                         )
                     )
 
-        table = pa.Table.from_pylist(rows, schema=MULTIMODAL_SCHEMA)
+        table = pa.Table.from_pylist(rows) if rows else pa.Table.from_pylist([], schema=MULTIMODAL_SCHEMA)
         splits = split_table_by_group_max_bytes(table, "sample_id", self.max_batch_bytes)
         batches: list[MultiBatchTask] = []
         for idx, split in enumerate(splits):
