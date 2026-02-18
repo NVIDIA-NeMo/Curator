@@ -12,21 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .audio_batch import AudioBatch
-from .document import DocumentBatch
-from .file_group import FileGroupTask
-from .image import ImageBatch, ImageObject
-from .multimodal import MultiBatchTask
-from .tasks import EmptyTask, Task, _EmptyTask
+from dataclasses import dataclass, field
+from typing import Any
 
-__all__ = [
-    "AudioBatch",
-    "DocumentBatch",
-    "EmptyTask",
-    "FileGroupTask",
-    "ImageBatch",
-    "ImageObject",
-    "MultiBatchTask",
-    "Task",
-    "_EmptyTask",
-]
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import FileGroupTask, MultiBatchTask
+
+
+@dataclass
+class BaseMultimodalReader(ProcessingStage[FileGroupTask, MultiBatchTask]):
+    """Base contract for multimodal readers."""
+
+    read_kwargs: dict[str, Any] = field(default_factory=dict)
+    name: str = ""
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], ["sample_id", "position", "modality"]

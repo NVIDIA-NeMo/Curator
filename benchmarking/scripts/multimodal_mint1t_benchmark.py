@@ -1,0 +1,192 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Benchmark for multimodal MINT1T workflow: WebDataset -> filter -> parquet."""
+
+import argparse
+import time
+import traceback
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+from loguru import logger
+from utils import setup_executor, write_benchmark_results
+
+from nemo_curator.core.client import RayClient
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.multimodal.io import MultimodalParquetWriter, WebdatasetReader
+from nemo_curator.stages.multimodal.stages import BasicMultimodalFilterStage
+from nemo_curator.tasks.utils import TaskPerfUtils
+from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under, get_all_file_paths_under
+
+
+def create_pipeline(args: argparse.Namespace) -> Pipeline:
+    read_kwargs = {}
+    write_kwargs = {}
+    if args.parquet_row_group_size is not None:
+        write_kwargs["row_group_size"] = args.parquet_row_group_size
+    if args.parquet_compression is not None:
+        write_kwargs["compression"] = args.parquet_compression
+    write_kwargs["writer_backend"] = args.parquet_write_backend
+    pipeline = Pipeline(
+        name="multimodal_mint1t_benchmark",
+        description="Benchmark: WebDataset MINT1T to multimodal parquet",
+    )
+    pipeline.add_stage(
+        WebdatasetReader(
+            file_paths=args.input_path,
+            files_per_partition=args.files_per_partition,
+            blocksize=args.input_blocksize,
+            max_batch_bytes=args.output_max_batch_bytes,
+            read_kwargs=read_kwargs,
+            load_binary=False,
+        )
+    )
+    pipeline.add_stage(BasicMultimodalFilterStage(drop_invalid_rows=True))
+    pipeline.add_stage(
+        MultimodalParquetWriter(
+            path=args.output_path,
+            materialize_on_write=args.materialize_on_write,
+            write_kwargs=write_kwargs,
+            mode=args.mode,
+        )
+    )
+    return pipeline
+
+
+def _collect_output_metrics(output_path: Path) -> dict[str, Any]:
+    parquet_files = get_all_file_paths_under(
+        str(output_path),
+        recurse_subdirectories=True,
+        keep_extensions=[".parquet"],
+    )
+    output_files_with_size = get_all_file_paths_and_size_under(
+        str(output_path),
+        recurse_subdirectories=True,
+        keep_extensions=[".parquet"],
+    )
+    num_files = len(parquet_files)
+    total_size_bytes = int(sum(size for _, size in output_files_with_size))
+    num_rows = 0
+    modality_counts: dict[str, int] = {}
+    materialize_error_count = 0
+    for path in parquet_files:
+        df = pd.read_parquet(path)
+        num_rows += len(df)
+        if "modality" in df.columns:
+            vc = df["modality"].value_counts(dropna=False).to_dict()
+            for k, v in vc.items():
+                key = str(k)
+                modality_counts[key] = modality_counts.get(key, 0) + int(v)
+        if "materialize_error" in df.columns:
+            materialize_error_count += int(df["materialize_error"].notna().sum())
+    return {
+        "num_output_files": num_files,
+        "output_total_bytes": total_size_bytes,
+        "output_total_mb": total_size_bytes / (1024 * 1024),
+        "num_rows": num_rows,
+        "modality_counts": modality_counts,
+        "materialize_error_count": materialize_error_count,
+    }
+
+
+def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
+    executor = setup_executor(args.executor)
+    input_path = str(Path(args.input_path).absolute())
+    output_path = Path(args.output_path).absolute()
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    start = time.perf_counter()
+    output_tasks = []
+    success = False
+    try:
+        pipeline = create_pipeline(args)
+        logger.info("Pipeline:\n{}", pipeline.describe())
+        output_tasks = pipeline.run(executor)
+        success = True
+    except Exception as e:  # noqa: BLE001
+        logger.error("Benchmark failed: {}", e)
+        logger.debug(traceback.format_exc())
+
+    elapsed = time.perf_counter() - start
+    output_metrics = _collect_output_metrics(output_path)
+    task_metrics = TaskPerfUtils.aggregate_task_metrics(output_tasks, prefix="task")
+    writer_stats = {k: v for k, v in task_metrics.items() if "multimodal_" in k and "_writer" in k}
+    logger.info("Writer stage stats: {}", writer_stats)
+    rows = output_metrics["num_rows"]
+    return {
+        "params": {
+            "executor": args.executor,
+            "input_path": input_path,
+            "output_path": str(output_path),
+            "files_per_partition": args.files_per_partition,
+            "input_blocksize": args.input_blocksize,
+            "output_max_batch_bytes": args.output_max_batch_bytes,
+            "materialize_on_write": args.materialize_on_write,
+            "parquet_row_group_size": args.parquet_row_group_size,
+            "parquet_compression": args.parquet_compression,
+            "parquet_write_backend": args.parquet_write_backend,
+            "mode": args.mode,
+        },
+        "metrics": {
+            "is_success": success,
+            "time_taken_s": elapsed,
+            "throughput_rows_per_sec": (rows / elapsed) if elapsed > 0 else 0.0,
+            **task_metrics,
+            **output_metrics,
+        },
+        "tasks": output_tasks,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Multimodal MINT1T benchmark")
+    parser.add_argument("--benchmark-results-path", type=Path, required=True)
+    parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"])
+    parser.add_argument("--input-path", type=str, required=True)
+    parser.add_argument("--output-path", type=str, required=True)
+    parser.add_argument("--files-per-partition", type=int, default=1)
+    parser.add_argument("--input-blocksize", type=str, default=None)
+    parser.add_argument("--output-max-batch-bytes", type=int, default=None)
+    parser.add_argument("--parquet-row-group-size", type=int, default=None)
+    parser.add_argument("--parquet-compression", type=str, default=None)
+    parser.add_argument("--parquet-write-backend", type=str, default="pandas", choices=["pandas", "pyarrow"])
+    parser.add_argument("--materialize-on-write", action="store_true", dest="materialize_on_write")
+    parser.add_argument("--no-materialize-on-write", action="store_false", dest="materialize_on_write")
+    parser.add_argument("--mode", type=str, default="overwrite", choices=["ignore", "overwrite", "append", "error"])
+    parser.set_defaults(materialize_on_write=False)
+    args = parser.parse_args()
+
+    ray_client = RayClient()
+    ray_client.start()
+    try:
+        results = run_benchmark(args)
+    except Exception as e:  # noqa: BLE001
+        logger.error("Benchmark crashed: {}", e)
+        logger.debug(traceback.format_exc())
+        results = {
+            "params": vars(args),
+            "metrics": {"is_success": False},
+            "tasks": [],
+        }
+    finally:
+        write_benchmark_results(results, args.benchmark_results_path)
+        ray_client.stop()
+
+    return 0 if results["metrics"]["is_success"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

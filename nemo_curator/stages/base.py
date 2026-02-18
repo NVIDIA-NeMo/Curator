@@ -14,7 +14,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import copy
+import time
 from abc import ABC, ABCMeta, abstractmethod
+from inspect import isabstract
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
 from loguru import logger
@@ -48,8 +52,6 @@ class StageMeta(ABCMeta):
 
         # Only register subclasses that ultimately derive from ProcessingStage
         # but are not abstract.
-        from inspect import isabstract  # local import to avoid cycle during class creation
-
         if "ProcessingStage" in [base.__name__ for base in cls.mro()[1:]] and not isabstract(cls):
             # Ensure no duplicate class names (helps when reloading in notebooks)
             _STAGE_REGISTRY[cls.__name__] = cls  # type: ignore[assignment]
@@ -268,9 +270,6 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             resources: Override the resources property
             batch_size: Override the batch_size property
         """
-        # Create a copy of the current instance
-        import copy
-
         new_instance = copy.deepcopy(self)
 
         # Override the instance attributes directly
@@ -319,6 +318,15 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
     def _log_metric(self, name: str, value: float) -> None:
         return self._log_metrics({name: value})
+
+    @contextlib.contextmanager
+    def _time_metric(self, name: str) -> contextlib.AbstractContextManager[None]:
+        """Record elapsed time for a code block as a custom stage metric."""
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
+            self._log_metric(name, time.perf_counter() - start)
 
     def _consume_custom_metrics(self) -> dict[str, float]:
         """Return and clear metrics recorded during the last process call."""

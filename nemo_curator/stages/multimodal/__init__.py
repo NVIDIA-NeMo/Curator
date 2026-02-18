@@ -12,21 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .audio_batch import AudioBatch
-from .document import DocumentBatch
-from .file_group import FileGroupTask
-from .image import ImageBatch, ImageObject
-from .multimodal import MultiBatchTask
-from .tasks import EmptyTask, Task, _EmptyTask
+from nemo_curator.stages.multimodal.stages import BasicMultimodalFilterStage
 
-__all__ = [
-    "AudioBatch",
-    "DocumentBatch",
-    "EmptyTask",
-    "FileGroupTask",
-    "ImageBatch",
-    "ImageObject",
-    "MultiBatchTask",
-    "Task",
-    "_EmptyTask",
-]
+__all__ = ["BasicMultimodalFilterStage"]
