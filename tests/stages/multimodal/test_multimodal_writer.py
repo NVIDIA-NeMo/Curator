@@ -15,6 +15,7 @@
 import json
 import tarfile
 from io import BytesIO
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -25,7 +26,7 @@ from nemo_curator.tasks import FileGroupTask, MultiBatchTask
 
 
 @pytest.fixture
-def mint_like_tar(tmp_path):
+def mint_like_tar(tmp_path: Path) -> tuple[str, bytes]:
     tar_path = tmp_path / "shard-00000.tar"
     sample_id = "abc123"
     payload = {
@@ -49,7 +50,7 @@ def mint_like_tar(tmp_path):
 
 
 @pytest.fixture
-def input_task(mint_like_tar):
+def input_task(mint_like_tar: tuple[str, bytes]) -> FileGroupTask:
     tar_path, _ = mint_like_tar
     return FileGroupTask(
         task_id="file_group_0",
@@ -59,7 +60,9 @@ def input_task(mint_like_tar):
     )
 
 
-def test_writer_materializes_and_marks_errors(tmp_path, input_task: FileGroupTask, mint_like_tar) -> None:
+def test_writer_materializes_and_marks_errors(
+    tmp_path: Path, input_task: FileGroupTask, mint_like_tar: tuple[str, bytes]
+) -> None:
     _, image_bytes = mint_like_tar
     reader = WebdatasetReaderStage()
     batch = reader.process(input_task)
@@ -72,11 +75,11 @@ def test_writer_materializes_and_marks_errors(tmp_path, input_task: FileGroupTas
     written = pd.read_parquet(out_file)
     image_rows = written[written["modality"] == "image"]
     assert len(image_rows) > 0
-    assert (image_rows["binary_content"].apply(lambda x: x == image_bytes).any())
-    assert (image_rows["materialize_error"].isna().any())
+    assert image_rows["binary_content"].apply(lambda x: x == image_bytes).any()
+    assert image_rows["materialize_error"].isna().any()
 
 
-def test_writer_marks_materialize_error_on_bad_source_path(tmp_path, input_task: FileGroupTask) -> None:
+def test_writer_marks_materialize_error_on_bad_source_path(tmp_path: Path, input_task: FileGroupTask) -> None:
     reader = WebdatasetReaderStage()
     batch = reader.process(input_task)
     assert isinstance(batch, MultiBatchTask)
@@ -85,7 +88,7 @@ def test_writer_marks_materialize_error_on_bad_source_path(tmp_path, input_task:
     image_mask = df["modality"] == "image"
     assert image_mask.any()
     first_image_idx = df[image_mask].index[0]
-    df.at[first_image_idx, "metadata_source"] = json.dumps(
+    df.loc[first_image_idx, "metadata_source"] = json.dumps(
         {
             "source_id": "doc.pdf",
             "source_shard": "shard-00000.tar",

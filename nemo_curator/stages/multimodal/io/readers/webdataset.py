@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import tarfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -39,19 +39,26 @@ class WebdatasetReaderStage(BaseMultimodalReader):
 
     load_binary: bool = False
     max_batch_bytes: int | None = None
+    json_extensions: tuple[str, ...] = (".json",)
+    image_extensions: tuple[str, ...] = field(default_factory=lambda: _IMAGE_EXTENSIONS)
+    source_id_field: str | None = "pdf_name"
+    sample_id_field: str | None = None
+    texts_field: str = "texts"
+    images_field: str = "images"
+    image_member_field: str | None = None
     name: str = "webdataset_reader"
 
     def _rows_from_sample(
         self,
         sample_id: str,
         sample: dict[str, Any],
-        source_shard: str,
-        tar_path: str,
-        json_member_name: str,
-        image_member_name: str | None,
+        source: dict[str, str],
+        member_names: set[str],
     ) -> list[dict[str, Any]]:
-        source_id = sample.get("pdf_name")
+        source_id = sample.get(self.source_id_field) if self.source_id_field else None
         rows: list[dict[str, Any]] = []
+        images = sample.get(self.images_field)
+        image_member_name = self._resolve_default_image_member_name(sample_id, sample, images, member_names)
 
         rows.append(
             {
@@ -63,16 +70,16 @@ class WebdatasetReaderStage(BaseMultimodalReader):
                 "binary_content": None,
                 "metadata_source": MultiBatchTask.build_metadata_source(
                     source_id=source_id,
-                    source_shard=source_shard,
-                    content_path=tar_path,
-                    content_key=json_member_name,
+                    source_shard=source["source_shard"],
+                    content_path=source["tar_path"],
+                    content_key=source["json_member_name"],
                 ),
                 "metadata_json": json.dumps(sample, ensure_ascii=True),
                 "materialize_error": None,
             }
         )
 
-        texts = sample.get("texts")
+        texts = sample.get(self.texts_field)
         if isinstance(texts, list):
             for idx, text_value in enumerate(texts):
                 rows.append(
@@ -85,19 +92,18 @@ class WebdatasetReaderStage(BaseMultimodalReader):
                         "binary_content": None,
                         "metadata_source": MultiBatchTask.build_metadata_source(
                             source_id=source_id,
-                            source_shard=source_shard,
-                            content_path=tar_path,
-                            content_key=json_member_name,
+                            source_shard=source["source_shard"],
+                            content_path=source["tar_path"],
+                            content_key=source["json_member_name"],
                         ),
                         "metadata_json": None,
                         "materialize_error": None,
                     }
                 )
 
-        images = sample.get("images")
         if isinstance(images, list):
             for idx, image_token in enumerate(images):
-                content_key = image_member_name if image_token is not None else None
+                content_key = self._resolve_image_content_key(image_token, image_member_name, member_names)
                 content_type, _ = mimetypes.guess_type(image_member_name or "")
                 rows.append(
                     {
@@ -109,8 +115,8 @@ class WebdatasetReaderStage(BaseMultimodalReader):
                         "binary_content": None,
                         "metadata_source": MultiBatchTask.build_metadata_source(
                             source_id=source_id,
-                            source_shard=source_shard,
-                            content_path=tar_path,
+                            source_shard=source["source_shard"],
+                            content_path=source["tar_path"],
                             content_key=content_key,
                         ),
                         "metadata_json": None,
@@ -120,56 +126,120 @@ class WebdatasetReaderStage(BaseMultimodalReader):
 
         return rows
 
+    def _resolve_default_image_member_name(
+        self,
+        sample_id: str,
+        sample: dict[str, Any],
+        images: list[object] | None,
+        member_names: set[str],
+    ) -> str | None:
+        if self.image_member_field:
+            image_member_name = sample.get(self.image_member_field)
+            if isinstance(image_member_name, str) and image_member_name in member_names:
+                return image_member_name
+        if isinstance(images, list):
+            for image_token in images:
+                if isinstance(image_token, str) and image_token in member_names:
+                    return image_token
+        return next(
+            (f"{sample_id}{ext}" for ext in self.image_extensions if f"{sample_id}{ext}" in member_names), None
+        )
+
+    @staticmethod
+    def _resolve_image_content_key(
+        image_token: object,
+        default_image_member_name: str | None,
+        member_names: set[str],
+    ) -> str | None:
+        if image_token is None:
+            return None
+        if isinstance(image_token, str) and image_token in member_names:
+            return image_token
+        return default_image_member_name
+
+    def _rows_from_member(
+        self,
+        tf: tarfile.TarFile,
+        member: tarfile.TarInfo,
+        member_names: set[str],
+        source_info: dict[str, str],
+        binary_cache: dict[str, bytes | None],
+    ) -> list[dict[str, Any]]:
+        extracted = tf.extractfile(member)
+        if extracted is None:
+            return []
+        payload = json.load(extracted)
+        sample_id = (
+            str(payload.get(self.sample_id_field))
+            if self.sample_id_field and payload.get(self.sample_id_field) is not None
+            else Path(member.name).stem
+        )
+        source = {
+            "source_shard": source_info["source_shard"],
+            "tar_path": source_info["tar_path"],
+            "json_member_name": member.name,
+        }
+        sample_rows = self._rows_from_sample(
+            sample_id=sample_id,
+            sample=payload,
+            source=source,
+            member_names=member_names,
+        )
+        if self.load_binary:
+            for row in sample_rows:
+                if row["modality"] != "image" or row["position"] < 0:
+                    continue
+                source_meta = MultiBatchTask.parse_metadata_source(row["metadata_source"])
+                content_key = source_meta.get("content_key")
+                if not content_key:
+                    continue
+                if content_key not in binary_cache:
+                    img = tf.extractfile(content_key)
+                    binary_cache[content_key] = img.read() if img is not None else None
+                row["binary_content"] = binary_cache[content_key]
+        return sample_rows
+
     def process(self, task: FileGroupTask) -> MultiBatchTask | list[MultiBatchTask]:
         rows: list[dict[str, Any]] = []
         storage_options = (self.read_kwargs or {}).get("storage_options", {})
 
         for tar_path in task.data:
             source_shard = Path(tar_path).name
-            with fsspec.open(tar_path, mode="rb", **storage_options) as fobj:
-                with tarfile.open(fileobj=fobj, mode="r:*") as tf:
-                    members = [m for m in tf.getmembers() if m.isfile()]
-                    member_names = {m.name for m in members}
-                    for member in members:
-                        if not member.name.endswith(".json"):
-                            continue
-                        extracted = tf.extractfile(member)
-                        if extracted is None:
-                            continue
-                        payload = json.load(extracted)
-                        sample_id = Path(member.name).stem
-                        image_member_name = next(
-                            (f"{sample_id}{ext}" for ext in _IMAGE_EXTENSIONS if f"{sample_id}{ext}" in member_names),
-                            None,
+            with (
+                fsspec.open(tar_path, mode="rb", **storage_options) as fobj,
+                tarfile.open(fileobj=fobj, mode="r:*") as tf,
+            ):
+                members = [m for m in tf.getmembers() if m.isfile()]
+                member_names = {m.name for m in members}
+                binary_cache: dict[str, bytes | None] = {}
+                source = {"source_shard": source_shard, "tar_path": tar_path}
+                for member in members:
+                    if not member.name.endswith(self.json_extensions):
+                        continue
+                    rows.extend(
+                        self._rows_from_member(
+                            tf=tf,
+                            member=member,
+                            member_names=member_names,
+                            source_info=source,
+                            binary_cache=binary_cache,
                         )
-                        sample_rows = self._rows_from_sample(
-                            sample_id=sample_id,
-                            sample=payload,
-                            source_shard=source_shard,
-                            tar_path=tar_path,
-                            json_member_name=member.name,
-                            image_member_name=image_member_name,
-                        )
-                        if self.load_binary and image_member_name is not None:
-                            img = tf.extractfile(image_member_name)
-                            if img is not None:
-                                image_bytes = img.read()
-                                for row in sample_rows:
-                                    if row["modality"] == "image" and row["position"] >= 0:
-                                        row["binary_content"] = image_bytes
-                        rows.extend(sample_rows)
+                    )
 
         table = pa.Table.from_pylist(rows, schema=MULTIMODAL_SCHEMA)
         splits = split_table_by_group_max_bytes(table, "sample_id", self.max_batch_bytes)
         batches: list[MultiBatchTask] = []
         for idx, split in enumerate(splits):
             task_id = f"{task.task_id}_processed" if len(splits) == 1 else f"{task.task_id}_processed_{idx:05d}"
+            metadata = dict(task._metadata)
+            if storage_options:
+                metadata["source_storage_options"] = storage_options
             batches.append(
                 MultiBatchTask(
                     task_id=task_id,
                     dataset_name=task.dataset_name,
                     data=split,
-                    _metadata=task._metadata,
+                    _metadata=metadata,
                     _stage_perf=task._stage_perf,
                 )
             )

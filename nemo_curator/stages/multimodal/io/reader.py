@@ -21,6 +21,8 @@ from nemo_curator.stages.multimodal.io.readers.webdataset import WebdatasetReade
 from nemo_curator.tasks import MultiBatchTask, _EmptyTask
 
 _DEFAULT_WEBDATASET_EXTENSIONS = [".tar", ".tar.gz", ".tgz", ".tar.zst"]
+_DEFAULT_JSON_EXTENSIONS = [".json"]
+_DEFAULT_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".bmp", ".gif"]
 
 
 @dataclass
@@ -34,6 +36,13 @@ class WebdatasetReader(CompositeStage[_EmptyTask, MultiBatchTask]):
     read_kwargs: dict[str, Any] = field(default_factory=dict)
     load_binary: bool = False
     file_extensions: list[str] = field(default_factory=lambda: _DEFAULT_WEBDATASET_EXTENSIONS)
+    json_extensions: list[str] = field(default_factory=lambda: _DEFAULT_JSON_EXTENSIONS)
+    image_extensions: list[str] = field(default_factory=lambda: _DEFAULT_IMAGE_EXTENSIONS)
+    source_id_field: str | None = "pdf_name"
+    sample_id_field: str | None = None
+    texts_field: str = "texts"
+    images_field: str = "images"
+    image_member_field: str | None = None
     name: str = "webdataset_reader"
 
     def __post_init__(self):
@@ -53,5 +62,12 @@ class WebdatasetReader(CompositeStage[_EmptyTask, MultiBatchTask]):
                 read_kwargs=self.read_kwargs,
                 load_binary=self.load_binary,
                 max_batch_bytes=self.max_batch_bytes,
+                json_extensions=tuple(self.json_extensions),
+                image_extensions=tuple(self.image_extensions),
+                source_id_field=self.source_id_field,
+                sample_id_field=self.sample_id_field,
+                texts_field=self.texts_field,
+                images_field=self.images_field,
+                image_member_field=self.image_member_field,
             ),
         ]

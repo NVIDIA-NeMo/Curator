@@ -17,16 +17,17 @@ from __future__ import annotations
 import tarfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import fsspec
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from nemo_curator.tasks import MultiBatchTask
-
 from .base import BaseMultimodalWriter
+
+if TYPE_CHECKING:
+    from nemo_curator.tasks import MultiBatchTask
 
 
 @dataclass
@@ -36,6 +37,69 @@ class BaseMultimodalTabularWriter(BaseMultimodalWriter, ABC):
     write_kwargs: dict[str, Any] = field(default_factory=dict)
     materialize_on_write: bool = True
     name: str = "base_multimodal_tabular_writer"
+
+    @staticmethod
+    def _set_errors(error_values: list[str | None], indices: list[int], error: str | None) -> None:
+        for idx in indices:
+            error_values[idx] = error
+
+    @staticmethod
+    def _set_payload(
+        binary_values: list[object], error_values: list[str | None], indices: list[int], payload: bytes
+    ) -> None:
+        for idx in indices:
+            binary_values[idx] = payload
+            error_values[idx] = None
+
+    @staticmethod
+    def _key_to_indices(df: pd.DataFrame, keyed_idxs: list[int]) -> dict[str, list[int]]:
+        key_to_indices: dict[str, list[int]] = {}
+        for idx in keyed_idxs:
+            key = str(df.loc[idx, "_src_content_key"])
+            key_to_indices.setdefault(key, []).append(idx)
+        return key_to_indices
+
+    def _materialize_group(
+        self,
+        df: pd.DataFrame,
+        content_path: object,
+        idxs: list[int],
+        storage_options: dict[str, Any],
+        materialized_state: dict[str, list[object] | list[str | None]],
+    ) -> None:
+        binary_values = materialized_state["binary_values"]
+        error_values = materialized_state["error_values"]
+        if not content_path:
+            self._set_errors(error_values, idxs, "missing content_path")
+            return
+
+        keyed_idxs = [idx for idx in idxs if df.loc[idx, "_src_content_key"]]
+        direct_idxs = [idx for idx in idxs if not df.loc[idx, "_src_content_key"]]
+        try:
+            with fsspec.open(str(content_path), mode="rb", **storage_options) as fobj:
+                if keyed_idxs:
+                    key_to_indices = self._key_to_indices(df, keyed_idxs)
+                    with tarfile.open(fileobj=fobj, mode="r:*") as tf:
+                        for key, key_indices in key_to_indices.items():
+                            try:
+                                extracted = tf.extractfile(key)
+                            except KeyError:
+                                extracted = None
+                            if extracted is None:
+                                self._set_errors(error_values, key_indices, f"missing content_key '{key}'")
+                                continue
+                            self._set_payload(binary_values, error_values, key_indices, extracted.read())
+                if direct_idxs:
+                    if keyed_idxs:
+                        with fsspec.open(str(content_path), mode="rb", **storage_options) as fresh:
+                            payload = fresh.read()
+                    else:
+                        payload = fobj.read()
+                    self._set_payload(binary_values, error_values, direct_idxs, payload)
+                elif not keyed_idxs:
+                    self._set_payload(binary_values, error_values, idxs, fobj.read())
+        except Exception as e:  # noqa: BLE001
+            self._set_errors(error_values, idxs, str(e))
 
     def _materialize_dataframe(self, task: MultiBatchTask) -> pd.DataFrame:
         if not self.materialize_on_write:
@@ -63,56 +127,22 @@ class BaseMultimodalTabularWriter(BaseMultimodalWriter, ABC):
         if not image_mask.any():
             return out.drop(columns=[c for c in out.columns if c.startswith("_src_")], errors="ignore")
 
-        storage_options = (self.write_kwargs or {}).get("storage_options", {})
+        source_storage_options = task._metadata.get("source_storage_options", {})
+        if isinstance(source_storage_options, dict):
+            storage_options = source_storage_options or (self.write_kwargs or {}).get("storage_options", {})
+        else:
+            storage_options = (self.write_kwargs or {}).get("storage_options", {})
         pending = out[image_mask]
+        materialized_state = {"binary_values": binary_values, "error_values": error_values}
         with self._time_metric("materialize_fetch_binary_s"):
             for content_path, idxs in pending.groupby("_src_content_path").groups.items():
-                if not content_path:
-                    for idx in idxs:
-                        error_values[idx] = "missing content_path"
-                    continue
-
-                keyed_idxs = [idx for idx in idxs if out.at[idx, "_src_content_key"]]
-                direct_idxs = [idx for idx in idxs if not out.at[idx, "_src_content_key"]]
-                try:
-                    with fsspec.open(str(content_path), mode="rb", **storage_options) as fobj:
-                        if keyed_idxs:
-                            key_to_indices: dict[str, list[int]] = {}
-                            for idx in keyed_idxs:
-                                key = str(out.at[idx, "_src_content_key"])
-                                key_to_indices.setdefault(key, []).append(idx)
-
-                            with tarfile.open(fileobj=fobj, mode="r:*") as tf:
-                                for key, key_indices in key_to_indices.items():
-                                    try:
-                                        extracted = tf.extractfile(key)
-                                    except KeyError:
-                                        extracted = None
-                                    if extracted is None:
-                                        for idx in key_indices:
-                                            error_values[idx] = f"missing content_key '{key}'"
-                                        continue
-                                    payload = extracted.read()
-                                    for idx in key_indices:
-                                        binary_values[idx] = payload
-                                        error_values[idx] = None
-                        if direct_idxs:
-                            if keyed_idxs:
-                                with fsspec.open(str(content_path), mode="rb", **storage_options) as fresh:
-                                    payload = fresh.read()
-                            else:
-                                payload = fobj.read()
-                            for idx in direct_idxs:
-                                binary_values[idx] = payload
-                                error_values[idx] = None
-                        elif not keyed_idxs:
-                            payload = fobj.read()
-                            for idx in idxs:
-                                binary_values[idx] = payload
-                                error_values[idx] = None
-                except Exception as e:  # noqa: BLE001
-                    for idx in idxs:
-                        error_values[idx] = str(e)
+                self._materialize_group(
+                    df=out,
+                    content_path=content_path,
+                    idxs=list(idxs),
+                    storage_options=storage_options,
+                    materialized_state=materialized_state,
+                )
 
         out["binary_content"] = pd.Series(binary_values, dtype="object")
         out["materialize_error"] = pd.Series(error_values, dtype="object")
