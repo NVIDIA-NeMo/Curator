@@ -19,7 +19,7 @@ import pandas as pd
 import pyarrow as pa
 
 from nemo_curator.stages.multimodal.io.readers.webdataset import WebdatasetReaderStage
-from nemo_curator.stages.multimodal.io.writers.multimodal import MultimodalParquetWriterStage
+from nemo_curator.stages.multimodal.io.writers.tabular import MultimodalParquetWriterStage
 from nemo_curator.tasks import FileGroupTask, MultiBatchTask
 from nemo_curator.tasks.multimodal import MULTIMODAL_SCHEMA
 

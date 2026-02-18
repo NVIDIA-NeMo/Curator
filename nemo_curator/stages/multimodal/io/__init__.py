@@ -13,6 +13,6 @@
 # limitations under the License.
 
 from nemo_curator.stages.multimodal.io.reader import WebdatasetReader
-from nemo_curator.stages.multimodal.io.writer import MultimodalParquetWriter
+from nemo_curator.stages.multimodal.io.writers.tabular import MultimodalParquetWriterStage
 
-__all__ = ["MultimodalParquetWriter", "WebdatasetReader"]
+__all__ = ["MultimodalParquetWriterStage", "WebdatasetReader"]

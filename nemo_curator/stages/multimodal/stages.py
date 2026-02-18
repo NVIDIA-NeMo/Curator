@@ -17,12 +17,16 @@ from __future__ import annotations
 import io
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.multimodal.utils import load_bytes_from_metadata_source, resolve_storage_options
+from nemo_curator.stages.multimodal.utils import materialize_task_binary_content
 from nemo_curator.tasks import MultiBatchTask
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 @dataclass
@@ -65,6 +69,15 @@ class BaseMultimodalFilterStage(BaseMultimodalAnnotatorStage, ABC):
     def keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
         """Return boolean keep-mask aligned to dataframe index."""
 
+    def iter_materialized_bytes(
+        self, task: MultiBatchTask, df: pd.DataFrame, row_mask: pd.Series
+    ) -> Iterator[tuple[int, bytes | None]]:
+        """Yield (row_index, bytes) for masked rows using shared materialization logic."""
+        materialized_df = materialize_task_binary_content(task).to_pandas()
+        for idx in df[row_mask].index.tolist():
+            row_bytes = materialized_df.loc[idx, "binary_content"] if "binary_content" in materialized_df.columns else None
+            yield idx, bytes(row_bytes) if isinstance(row_bytes, (bytes, bytearray)) else None
+
     def annotate(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.DataFrame:
         return df[self.keep_mask(task, df)]
 
@@ -99,21 +112,11 @@ class MultimodalJpegAspectRatioFilterStage(BaseMultimodalFilterStage):
         jpeg_mask = (df["modality"] == "image") & (df["content_type"].isin(self.jpeg_content_types))
         if not jpeg_mask.any():
             return keep_mask
-        storage_options = resolve_storage_options(task=task)
-        byte_cache: dict[tuple[str, str], bytes | None] = {}
-        for idx in df[jpeg_mask].index.tolist():
-            image_bytes = df.loc[idx, "binary_content"]
-            if not isinstance(image_bytes, (bytes, bytearray)):
-                source_value = df.loc[idx, "metadata_source"] if "metadata_source" in df.columns else None
-                image_bytes = load_bytes_from_metadata_source(
-                    source_value=source_value,
-                    storage_options=storage_options,
-                    byte_cache=byte_cache,
-                )
-            if not isinstance(image_bytes, (bytes, bytearray)):
+        for idx, image_bytes in self.iter_materialized_bytes(task=task, df=df, row_mask=jpeg_mask):
+            if image_bytes is None:
                 keep_mask.loc[idx] = False
                 continue
-            aspect_ratio = self._image_aspect_ratio(bytes(image_bytes))
+            aspect_ratio = self._image_aspect_ratio(image_bytes)
             if aspect_ratio is None:
                 keep_mask.loc[idx] = False
                 continue
