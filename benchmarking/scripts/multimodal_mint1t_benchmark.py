@@ -26,7 +26,7 @@ from utils import collect_parquet_output_metrics, setup_executor, write_benchmar
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.multimodal.io import MultimodalParquetWriter, WebdatasetReader
-from nemo_curator.stages.multimodal.stages import BasicMultimodalFilterStage
+from nemo_curator.stages.multimodal.stages import MultimodalJpegAspectRatioFilterStage
 from nemo_curator.tasks.utils import TaskPerfUtils
 
 
@@ -52,7 +52,7 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
             load_binary=False,
         )
     )
-    pipeline.add_stage(BasicMultimodalFilterStage(drop_invalid_rows=True))
+    pipeline.add_stage(MultimodalJpegAspectRatioFilterStage(drop_invalid_rows=True))
     pipeline.add_stage(
         MultimodalParquetWriter(
             path=args.output_path,

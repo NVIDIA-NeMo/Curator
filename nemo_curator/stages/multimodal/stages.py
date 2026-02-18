@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import io
 import tarfile
-from dataclasses import dataclass, field
-from typing import Any
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 import fsspec
 import pandas as pd
@@ -28,22 +28,58 @@ from nemo_curator.tasks import MultiBatchTask
 
 
 @dataclass
-class BasicMultimodalFilterStage(ProcessingStage[MultiBatchTask, MultiBatchTask]):
-    """Validation/filter stage for multimodal rows with optional JPEG aspect-ratio checks."""
+class BaseMultimodalAnnotatorStage(ProcessingStage[MultiBatchTask, MultiBatchTask], ABC):
+    """Base stage for row-wise multimodal annotation/filter transforms."""
 
-    drop_invalid_rows: bool = True
-    validate_jpeg_aspect_ratio: bool = False
-    min_aspect_ratio: float = 0.2
-    max_aspect_ratio: float = 5.0
-    jpeg_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg")
-    read_kwargs: dict[str, Any] = field(default_factory=dict)
-    name: str = "basic_multimodal_filter"
+    name: str = "base_multimodal_annotator"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
+
+    @abstractmethod
+    def annotate(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply annotation/filter logic and return transformed dataframe."""
+
+    def process(self, task: MultiBatchTask) -> MultiBatchTask:
+        df = task.to_pandas().copy()
+        if df.empty:
+            return task
+        out_df = self.annotate(task, df)
+        return MultiBatchTask(
+            task_id=f"{task.task_id}_{self.name}",
+            dataset_name=task.dataset_name,
+            data=out_df.reset_index(drop=True),
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )
+
+
+@dataclass
+class BaseMultimodalFilterStage(BaseMultimodalAnnotatorStage, ABC):
+    """Base stage for multimodal filtering based on a keep-mask."""
+
+    name: str = "base_multimodal_filter"
+
+    @abstractmethod
+    def keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
+        """Return boolean keep-mask aligned to dataframe index."""
+
+    def annotate(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.DataFrame:
+        return df[self.keep_mask(task, df)]
+
+
+@dataclass
+class MultimodalJpegAspectRatioFilterStage(BaseMultimodalFilterStage):
+    """Filter multimodal rows and enforce JPEG aspect-ratio bounds."""
+
+    drop_invalid_rows: bool = True
+    min_aspect_ratio: float = 0.2
+    max_aspect_ratio: float = 5.0
+    jpeg_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg")
+    name: str = "multimodal_jpeg_aspect_ratio_filter"
 
     @staticmethod
     def _image_aspect_ratio(image_bytes: bytes) -> float | None:
@@ -59,7 +95,7 @@ class BasicMultimodalFilterStage(ProcessingStage[MultiBatchTask, MultiBatchTask]
     @staticmethod
     def _load_image_bytes_from_source(
         source_value: str | None,
-        storage_options: dict[str, Any],
+        storage_options: dict[str, object],
         byte_cache: dict[tuple[str, str], bytes | None],
     ) -> bytes | None:
         source = MultiBatchTask.parse_metadata_source(source_value)
@@ -90,28 +126,23 @@ class BasicMultimodalFilterStage(ProcessingStage[MultiBatchTask, MultiBatchTask]
             byte_cache[cache_key] = None
             return None
 
-    def _filter_jpeg_aspect_ratio(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
-            return df
+    def _jpeg_keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
+        keep_mask = pd.Series(True, index=df.index, dtype=bool)
         if "modality" not in df.columns or "content_type" not in df.columns:
-            return df
-
+            return keep_mask
         jpeg_mask = (df["modality"] == "image") & (df["content_type"].isin(self.jpeg_content_types))
         if not jpeg_mask.any():
-            return df
-
+            return keep_mask
         storage_options = task._metadata.get("source_storage_options")
         if not isinstance(storage_options, dict):
-            storage_options = (self.read_kwargs or {}).get("storage_options", {})
-
+            storage_options = {}
         byte_cache: dict[tuple[str, str], bytes | None] = {}
-        keep_mask = pd.Series(True, index=df.index)
-
         for idx in df[jpeg_mask].index.tolist():
             image_bytes = df.loc[idx, "binary_content"]
             if not isinstance(image_bytes, (bytes, bytearray)):
+                source_value = df.loc[idx, "metadata_source"] if "metadata_source" in df.columns else None
                 image_bytes = self._load_image_bytes_from_source(
-                    source_value=df.loc[idx, "metadata_source"] if "metadata_source" in df.columns else None,
+                    source_value=source_value,
                     storage_options=storage_options,
                     byte_cache=byte_cache,
                 )
@@ -124,29 +155,21 @@ class BasicMultimodalFilterStage(ProcessingStage[MultiBatchTask, MultiBatchTask]
                 continue
             if aspect_ratio < self.min_aspect_ratio or aspect_ratio > self.max_aspect_ratio:
                 keep_mask.loc[idx] = False
+        return keep_mask
 
-        return df[keep_mask]
+    @staticmethod
+    def _basic_row_validity_mask(df: pd.DataFrame) -> pd.Series:
+        keep_mask = pd.Series(True, index=df.index, dtype=bool)
+        allowed = {"text", "image", "metadata"}
+        keep_mask &= df["modality"].isin(allowed)
+        metadata_pos = (df["modality"] == "metadata") & (df["position"] == -1)
+        content_pos = (df["modality"] != "metadata") & (df["position"] >= 0)
+        keep_mask &= metadata_pos | content_pos
+        return keep_mask
 
-    def process(self, task: MultiBatchTask) -> MultiBatchTask:
-        df = task.to_pandas().copy()
-        if df.empty:
-            return task
-
+    def keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
+        keep_mask = pd.Series(True, index=df.index, dtype=bool)
         if self.drop_invalid_rows:
-            allowed = {"text", "image", "metadata"}
-            df = df[df["modality"].isin(allowed)]
-            # Keep metadata rows at sentinel position -1; content rows should be non-negative.
-            valid_pos = (df["modality"] == "metadata") & (df["position"] == -1)
-            valid_pos = valid_pos | ((df["modality"] != "metadata") & (df["position"] >= 0))
-            df = df[valid_pos]
-
-        if self.validate_jpeg_aspect_ratio:
-            df = self._filter_jpeg_aspect_ratio(task, df)
-
-        return MultiBatchTask(
-            task_id=f"{task.task_id}_{self.name}",
-            dataset_name=task.dataset_name,
-            data=df.reset_index(drop=True),
-            _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
-        )
+            keep_mask &= self._basic_row_validity_mask(df)
+        keep_mask &= self._jpeg_keep_mask(task, df)
+        return keep_mask

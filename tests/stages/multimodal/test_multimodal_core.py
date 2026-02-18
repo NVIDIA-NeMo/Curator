@@ -23,7 +23,7 @@ import pytest
 from PIL import Image
 
 from nemo_curator.core.utils import split_table_by_group_max_bytes
-from nemo_curator.stages.multimodal.stages import BasicMultimodalFilterStage
+from nemo_curator.stages.multimodal.stages import MultimodalJpegAspectRatioFilterStage
 from nemo_curator.tasks import MultiBatchTask
 from nemo_curator.tasks.multimodal import MULTIMODAL_SCHEMA
 
@@ -133,7 +133,7 @@ def test_basic_multimodal_filter_stage_jpeg_ratio_from_binary() -> None:
         schema=MULTIMODAL_SCHEMA,
     )
     task = MultiBatchTask(task_id="ratio_binary", dataset_name="d1", data=table)
-    stage = BasicMultimodalFilterStage(validate_jpeg_aspect_ratio=True, min_aspect_ratio=0.8, max_aspect_ratio=1.2)
+    stage = MultimodalJpegAspectRatioFilterStage(min_aspect_ratio=0.8, max_aspect_ratio=1.2)
     out = stage.process(task)
     out_df = out.to_pandas()
     assert len(out_df) == 1
@@ -172,6 +172,6 @@ def test_basic_multimodal_filter_stage_jpeg_ratio_from_source(tmp_path: Path) ->
         schema=MULTIMODAL_SCHEMA,
     )
     task = MultiBatchTask(task_id="ratio_source", dataset_name="d1", data=table)
-    stage = BasicMultimodalFilterStage(validate_jpeg_aspect_ratio=True, min_aspect_ratio=0.8, max_aspect_ratio=1.2)
+    stage = MultimodalJpegAspectRatioFilterStage(min_aspect_ratio=0.8, max_aspect_ratio=1.2)
     out = stage.process(task)
     assert out.to_pandas().empty
