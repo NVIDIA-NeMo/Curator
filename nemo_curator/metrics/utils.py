@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -292,16 +292,16 @@ def _write_ray_default_dashboards(dashboards_path: str) -> None:
         "data": generate_data_grafana_dashboard,
     }
 
-    for name, generator in dashboard_generators.items():
-        dashboard_file = os.path.join(dashboards_path, f"ray_{name}_dashboard.json")
+    for _name, _generator in dashboard_generators.items():
+        dashboard_file = os.path.join(dashboards_path, f"ray_{_name}_dashboard.json")
         if not os.path.isfile(dashboard_file):
             try:
-                content, _uid = generator()
+                content, _uid = _generator()
                 with open(dashboard_file, "w") as f:
                     f.write(content)
-                logger.debug(f"Wrote Ray {name} dashboard to {dashboard_file}")
+                logger.debug(f"Wrote Ray {_name} dashboard to {dashboard_file} ")
             except Exception:  # noqa: BLE001
-                logger.debug(f"Failed to generate Ray {name} dashboard, skipping.")
+                logger.debug(f"Failed to generate Ray {_name} dashboard, skipping.")
 
 
 def _get_all_discovery_paths(prometheus_config: dict) -> list[str]:
