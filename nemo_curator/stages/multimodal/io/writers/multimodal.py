@@ -143,8 +143,10 @@ class MultimodalParquetWriterStage(BaseMultimodalTabularWriter):
 
     def _write_dataframe(self, df: pd.DataFrame, file_path: str, write_kwargs: dict[str, Any]) -> None:
         # Empirically best default from current benchmark sweep.
+        # Note: row_group_size is in rows; 128_000 rows is a typical Parquet best-practice default.
+        # Callers can override this via write_kwargs["row_group_size"] if needed.
         write_kwargs.setdefault("compression", "snappy")
-        write_kwargs.setdefault("row_group_size", 128)
+        write_kwargs.setdefault("row_group_size", 128_000)
         writer_backend = str(write_kwargs.pop("writer_backend", "pandas")).lower()
         if writer_backend == "pyarrow":
             write_kwargs.pop("index", None)
