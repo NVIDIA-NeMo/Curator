@@ -80,7 +80,7 @@ class Session:
     @classmethod
     def assert_valid_config_dict(cls, data: dict) -> None:
         """Assert that the configuration contains the minimum required config values."""
-        required_fields = ["results_path", "datasets_path", "entries"]
+        required_fields = ["results_path", "datasets_path", "model_weights_path", "entries"]
         missing_fields = [k for k in required_fields if k not in data]
         if missing_fields:
             msg = f"Invalid configuration: missing required fields: {missing_fields}"
@@ -96,6 +96,7 @@ class Session:
         entry dicts to Entry objects, and returns a new Session
         object.
         """
+        cls.assert_valid_config_dict(data)
         path_resolver = PathResolver(data)
         dataset_resolver = DatasetResolver(data.get("datasets", []))
 

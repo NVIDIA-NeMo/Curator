@@ -34,20 +34,23 @@ class MlflowSink(Sink):
             msg = "MlflowSink: No experiment configured"
             raise ValueError(msg)
         self.results: list[dict[str, Any]] = []
-        self.session_name: str = None
-        self.matrix_config: Session = None
-        self.env_dict: dict[str, Any] = None
+        self.session_name: str | None = None
+        self.session: Session | None = None
+        self.env_dict: dict[str, Any] | None = None
 
-    def initialize(self, session_name: str, matrix_config: Session, env_dict: dict[str, Any]) -> None:
+    def initialize(self, session_name: str, session: Session, env_dict: dict[str, Any]) -> None:
         self.session_name = session_name
-        self.matrix_config = matrix_config
+        self.session = session
         self.env_dict = env_dict
 
-    def process_result(self, result_dict: dict[str, Any], matrix_entry: Entry) -> None:
-        # Use the matrix_entry to get any entry-specific settings for the Slack report
+    def register_benchmark_entry_starting(self, result_dict: dict[str, Any], benchmark_entry: Entry) -> None:
+        pass
+
+    def register_benchmark_entry_finished(self, result_dict: dict[str, Any], benchmark_entry: Entry) -> None:
+        # Use the benchmark_entry to get any entry-specific settings for the Slack report
         # such as additional metrics to include in the report.
-        if matrix_entry:
-            additional_metrics = matrix_entry.get_sink_data(self.name).get("additional_metrics", [])
+        if benchmark_entry:
+            additional_metrics = benchmark_entry.get_sink_data(self.name).get("additional_metrics", [])
         else:
             additional_metrics = []
         self.results.append((additional_metrics, result_dict))
