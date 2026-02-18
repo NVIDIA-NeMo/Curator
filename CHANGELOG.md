@@ -2,9 +2,43 @@
 
 ## NVIDIA NeMo Curator 1.1.0
 
+### New Features
+
+- **Benchmarking Infrastructure**: End-to-end pipeline benchmarking for all modalities (text, image, video, audio) with MLflow, Slack, and Grafana integration
+- **YAML Configuration**: Declarative pipeline configuration with pre-built configs for code filtering, deduplication, heuristic filtering, and FastText
+- **Pipeline Execution Tracking**: WorkflowRunResult for execution metrics, throughput, and resource usage
+- **Enhanced Embedding Generation**: vLLM integration, Sentence Transformers support, unified API across modalities
+
+### Improvements
+
+- **Ray Actor Pool**: Improved load balancing and stability
+- **Video**: Removed InternVideo2; vLLM 0.14.1, FFmpeg 8.0.1
+- **Audio**: Enhanced ASR/WER docs, robust manifest handling
+- **Image**: Optimized DALI batch sizes, memory guidance
+- **Text**: ID field standardization, fused iterate/extract stages, FilePartitioning improvements
+- **Deduplication**: Cloud storage (S3, GCS, Azure) for ParquetReader/Writer, non-blocking ID generation, empty batch handling
+
+### Dependency Updates
+
+- Transformers 4.55.2, vLLM 0.14.1, FFmpeg 8.0.1
+- Security patches: aiohttp, urllib3, python-multipart, setuptools
+
+### Bug Fixes
+
+- FastText numpy>2 compatibility, NeMo doc links, MegatronTokenizerWriter tokenizer download, ID generator blocking, vLLM video API, Gliner/SDG tutorials, semantic dedup test reliability
+
+### Infrastructure
+
+- Secrets detection, Dependabot, enhanced install tests, AWS runner support, Docker/uv optimization, Ruff and pre-commit, Cursor rules
+
+### Breaking Changes
+
+- **InternVideo2 Removed**: Use Cosmos-Embed1 for video embeddings
+- **ID Field Standardization**: Custom dedup workflows may need ID field updates
+
 ### Documentation
 
-- **Release notes accuracy**: Corrected release notes for 26.02/1.1.0 (YAML config CLI example, image batch size defaults, code linting claim)
+- Heuristic filter guide, distributed classifier memory guidance, installation troubleshooting, memory management, AWS credentials
 
 ## NVIDIA NeMo Curator 1.0.0
 
