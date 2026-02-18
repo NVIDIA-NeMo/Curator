@@ -19,7 +19,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import pandas as pd
-from PIL import Image  # type: ignore[import-not-found]
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.multimodal.utils import load_bytes_from_metadata_source, resolve_storage_options
@@ -82,6 +81,8 @@ class MultimodalJpegAspectRatioFilterStage(BaseMultimodalFilterStage):
 
     @staticmethod
     def _image_aspect_ratio(image_bytes: bytes) -> float | None:
+        from PIL import Image  # type: ignore[import-not-found]  # noqa: PLC0415
+
         try:
             with Image.open(io.BytesIO(image_bytes)) as image:
                 width, height = image.size
