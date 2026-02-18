@@ -103,14 +103,8 @@ class MultiBatchTask(Task[pa.Table | pd.DataFrame]):
     @staticmethod
     def parse_metadata_source(source_value: str | None) -> dict[str, str | None]:
         """Parse one metadata_source JSON string into a source locator dict."""
-        if source_value is None or pd.isna(source_value):
-            return {
-                "source_id": None,
-                "source_shard": None,
-                "content_path": None,
-                "content_key": None,
-            }
-        if source_value == "":
+        keys = ("source_id", "source_shard", "content_path", "content_key")
+        if source_value is None or pd.isna(source_value) or source_value == "":
             return {
                 "source_id": None,
                 "source_shard": None,
@@ -121,15 +115,17 @@ class MultiBatchTask(Task[pa.Table | pd.DataFrame]):
         if not isinstance(parsed, dict):
             msg = "metadata_source must decode to a JSON object"
             raise TypeError(msg)
-        return {
-            "source_id": parsed.get("source_id"),
-            "source_shard": parsed.get("source_shard"),
-            "content_path": parsed.get("content_path"),
-            "content_key": parsed.get("content_key"),
-        }
+        return {key: parsed.get(key) for key in keys}
 
     def with_parsed_source_columns(self, prefix: str = "_src_") -> pd.DataFrame:
-        """Return a pandas view with parsed metadata source columns added."""
+        """Return a pandas view with parsed metadata source columns added.
+
+        Added columns:
+        - {prefix}source_id
+        - {prefix}source_shard
+        - {prefix}content_path
+        - {prefix}content_key
+        """
         df = self.to_pandas().copy()
         parsed = [self.parse_metadata_source(value) for value in df["metadata_source"].tolist()]
         parsed_df = pd.DataFrame.from_records(
