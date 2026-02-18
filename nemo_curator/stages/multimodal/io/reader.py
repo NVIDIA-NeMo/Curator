@@ -38,7 +38,7 @@ class WebdatasetReader(CompositeStage[_EmptyTask, MultiBatchTask]):
     file_extensions: list[str] = field(default_factory=lambda: _DEFAULT_WEBDATASET_EXTENSIONS)
     json_extensions: list[str] = field(default_factory=lambda: _DEFAULT_JSON_EXTENSIONS)
     image_extensions: list[str] = field(default_factory=lambda: _DEFAULT_IMAGE_EXTENSIONS)
-    source_id_field: str | None = "pdf_name"
+    source_id_field: str | None = None
     sample_id_field: str | None = None
     texts_field: str = "texts"
     images_field: str = "images"
@@ -47,6 +47,9 @@ class WebdatasetReader(CompositeStage[_EmptyTask, MultiBatchTask]):
 
     def __post_init__(self):
         super().__init__()
+        if not self.source_id_field:
+            msg = "source_id_field must be provided explicitly (e.g., 'pdf_name')"
+            raise ValueError(msg)
         self.storage_options = self.read_kwargs.get("storage_options", {})
 
     def decompose(self) -> list:

@@ -44,6 +44,7 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
     )
     pipeline.add_stage(
         WebdatasetReader(
+            source_id_field="pdf_name",
             file_paths=args.input_path,
             files_per_partition=args.files_per_partition,
             blocksize=args.input_blocksize,

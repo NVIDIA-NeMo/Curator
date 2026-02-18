@@ -41,12 +41,17 @@ class WebdatasetReaderStage(BaseMultimodalReader):
     max_batch_bytes: int | None = None
     json_extensions: tuple[str, ...] = (".json",)
     image_extensions: tuple[str, ...] = field(default_factory=lambda: _IMAGE_EXTENSIONS)
-    source_id_field: str | None = "pdf_name"
+    source_id_field: str | None = None
     sample_id_field: str | None = None
     texts_field: str = "texts"
     images_field: str = "images"
     image_member_field: str | None = None
     name: str = "webdataset_reader"
+
+    def __post_init__(self) -> None:
+        if not self.source_id_field:
+            msg = "source_id_field must be provided explicitly (e.g., 'pdf_name')"
+            raise ValueError(msg)
 
     def _rows_from_sample(
         self,

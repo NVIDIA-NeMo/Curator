@@ -25,7 +25,7 @@ def test_reader_emits_metadata_text_image_rows(
     input_task: FileGroupTask, mint_like_tar: tuple[str, str, bytes]
 ) -> None:
     _, sample_id, _ = mint_like_tar
-    reader = WebdatasetReaderStage()
+    reader = WebdatasetReaderStage(source_id_field="pdf_name")
     output = reader.process(input_task)
     assert isinstance(output, MultiBatchTask)
 
@@ -81,7 +81,7 @@ def test_reader_supports_custom_field_mapping(tmp_path: Path) -> None:
 
 
 def test_reader_propagates_source_storage_options(input_task: FileGroupTask) -> None:
-    reader = WebdatasetReaderStage(read_kwargs={"storage_options": {"anon": False}})
+    reader = WebdatasetReaderStage(source_id_field="pdf_name", read_kwargs={"storage_options": {"anon": False}})
     output = reader.process(input_task)
     assert isinstance(output, MultiBatchTask)
     assert output._metadata.get("source_storage_options") == {"anon": False}

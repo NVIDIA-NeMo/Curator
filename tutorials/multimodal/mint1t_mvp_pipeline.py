@@ -32,6 +32,7 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
     pipe = Pipeline(name="mint1t_mvp_multimodal", description="WebDataset MINT1T -> multimodal rows -> parquet")
     pipe.add_stage(
         WebdatasetReader(
+            source_id_field="pdf_name",
             file_paths=args.input_path,
             files_per_partition=args.files_per_partition,
             blocksize=args.input_blocksize,

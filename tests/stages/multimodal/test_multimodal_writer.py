@@ -26,7 +26,7 @@ def test_writer_materializes_and_marks_errors(
     tmp_path: Path, input_task: FileGroupTask, mint_like_tar: tuple[str, str, bytes]
 ) -> None:
     _, _, image_bytes = mint_like_tar
-    reader = WebdatasetReaderStage()
+    reader = WebdatasetReaderStage(source_id_field="pdf_name")
     batch = reader.process(input_task)
     assert isinstance(batch, MultiBatchTask)
 
@@ -42,7 +42,7 @@ def test_writer_materializes_and_marks_errors(
 
 
 def test_writer_marks_materialize_error_on_bad_source_path(tmp_path: Path, input_task: FileGroupTask) -> None:
-    reader = WebdatasetReaderStage()
+    reader = WebdatasetReaderStage(source_id_field="pdf_name")
     batch = reader.process(input_task)
     assert isinstance(batch, MultiBatchTask)
 
