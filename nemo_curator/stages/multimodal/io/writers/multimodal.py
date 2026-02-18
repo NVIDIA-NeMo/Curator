@@ -19,8 +19,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from nemo_curator.stages.multimodal.utils import load_bytes_from_content_reference, resolve_storage_options
 
@@ -147,13 +145,5 @@ class MultimodalParquetWriterStage(BaseMultimodalTabularWriter):
         # Callers can override this via write_kwargs["row_group_size"] if needed.
         write_kwargs.setdefault("compression", "snappy")
         write_kwargs.setdefault("row_group_size", 128_000)
-        writer_backend = str(write_kwargs.pop("writer_backend", "pandas")).lower()
-        if writer_backend == "pyarrow":
-            write_kwargs.pop("index", None)
-            write_kwargs.pop("storage_options", None)
-            with self._time_metric("parquet_write_s"):
-                table = pa.Table.from_pandas(df, preserve_index=False)
-                pq.write_table(table, file_path, **write_kwargs)
-            return
         with self._time_metric("parquet_write_s"):
             df.to_parquet(file_path, **write_kwargs)

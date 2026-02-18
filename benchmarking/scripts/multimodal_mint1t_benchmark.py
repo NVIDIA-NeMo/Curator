@@ -37,7 +37,6 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
         write_kwargs["row_group_size"] = args.parquet_row_group_size
     if args.parquet_compression is not None:
         write_kwargs["compression"] = args.parquet_compression
-    write_kwargs["writer_backend"] = args.parquet_write_backend
     pipeline = Pipeline(
         name="multimodal_mint1t_benchmark",
         description="Benchmark: WebDataset MINT1T to multimodal parquet",
@@ -101,7 +100,6 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "materialize_on_write": args.materialize_on_write,
             "parquet_row_group_size": args.parquet_row_group_size,
             "parquet_compression": args.parquet_compression,
-            "parquet_write_backend": args.parquet_write_backend,
             "mode": args.mode,
         },
         "metrics": {
@@ -128,7 +126,6 @@ def main() -> int:
     parser.add_argument("--no-materialize-on-read", action="store_false", dest="materialize_on_read")
     parser.add_argument("--parquet-row-group-size", type=int, default=None)
     parser.add_argument("--parquet-compression", type=str, default=None)
-    parser.add_argument("--parquet-write-backend", type=str, default="pandas", choices=["pandas", "pyarrow"])
     parser.add_argument("--materialize-on-write", action="store_true", dest="materialize_on_write")
     parser.add_argument("--no-materialize-on-write", action="store_false", dest="materialize_on_write")
     parser.add_argument("--mode", type=str, default="overwrite", choices=["ignore", "overwrite", "append", "error"])
