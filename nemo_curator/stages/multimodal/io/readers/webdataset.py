@@ -43,7 +43,6 @@ class _ReadContext:
     source_shard: str
     tar_path: str
     member_names: set[str]
-    storage_options: dict[str, object]
     byte_cache: dict[tuple[str, str], bytes | None]
 
 
@@ -146,11 +145,6 @@ class WebdatasetReaderStage(BaseMultimodalReader):
 
     def _build_passthrough_row(self, sample: dict[str, Any]) -> dict[str, Any]:
         excluded = {
-            self.source_id_field,
-            *( [self.sample_id_field] if self.sample_id_field else [] ),
-            self.texts_field,
-            self.images_field,
-            *( [self.image_member_field] if self.image_member_field else [] ),
             "sample_id",
             "position",
             "modality",
@@ -160,6 +154,10 @@ class WebdatasetReaderStage(BaseMultimodalReader):
             "metadata_source",
             "metadata_json",
             "materialize_error",
+            self.source_id_field,
+            self.texts_field,
+            self.images_field,
+            *(field for field in (self.sample_id_field, self.image_member_field) if field),
         }
         return validate_and_project_source_fields(sample=sample, fields=self.fields, excluded_fields=excluded)
 
@@ -267,7 +265,6 @@ class WebdatasetReaderStage(BaseMultimodalReader):
                     source_shard=source_shard,
                     tar_path=tar_path,
                     member_names=member_names,
-                    storage_options=storage_options,
                     byte_cache={},
                 )
                 for member in members:
