@@ -31,8 +31,7 @@ New comprehensive benchmarking framework for performance monitoring and optimiza
 
 Enhanced features for the experimental Ray Actor Pool execution backend:
 
-- **Progress Bars**: New visual feedback for long-running actor pool operations, making it easier to monitor pipeline execution
-- **Improved Load Balancing**: Better worker distribution and task scheduling
+- **Improved Load Balancing**: Better worker distribution and task scheduling via map_unordered
 - **Enhanced Stability**: Continued refinements to the experimental executor
 
 Learn more in the [Execution Backends documentation](../../reference/infrastructure/execution-backends.md).
@@ -58,12 +57,12 @@ Declarative pipeline configuration for text curation workflows:
 
 Example:
 ```bash
-python -m nemo_curator.config.run --config_file heuristic_filter_english_pipeline.yaml
+python -m nemo_curator.config.run --config-path=text --config-name=heuristic_filter_english_pipeline input_path=./input_dir output_path=./output_dir
 ```
 
-### Workflow Results API
+### Pipeline Execution Tracking
 
-New API for tracking and analyzing pipeline execution:
+Enhanced tracking and analysis of pipeline execution:
 
 - **WorkflowRunResult**: Structured results object capturing execution metrics
 - **Performance Metrics**: Automatic tracking of processing time, throughput, and resource usage
@@ -86,7 +85,7 @@ New API for tracking and analyzing pipeline execution:
 
 ### Image Curation
 
-- **Optimized Batch Sizes**: Reduced default batch sizes for better CPU memory usage (batch_size=50, num_threads=4)
+- **Optimized Batch Sizes**: Configurable DALI batch sizes for better CPU/GPU memory usage (dali_batch_size=100, num_threads=8)
 - **Memory Guidance**: Added troubleshooting documentation for out-of-memory errors
 - **Tutorial Improvements**: Updated examples optimized for typical GPU configurations
 
@@ -95,7 +94,6 @@ New API for tracking and analyzing pipeline execution:
 - **ID Field Standardization**: Unified ID naming conventions across all deduplication workflows
 - **Performance Optimizations**: Fused document iterate and extract stages for reduced overhead
 - **Better Memory Management**: Improved handling of large-scale semantic deduplication
-- **Small Cluster Warnings**: Automatic warnings when n_clusters is too small for effective deduplication
 - **FilePartitioning Improvements**: One worker per partition for better parallelization
 
 ### Deduplication Enhancements
@@ -131,7 +129,7 @@ New API for tracking and analyzing pipeline execution:
 - **Enhanced Install Tests**: Comprehensive installation validation across environments
 - **AWS Runner Support**: CI/CD execution on AWS infrastructure
 - **Docker Optimization**: Improved layer caching and build times with uv
-- **Code Linting**: Standardized code quality checks with markdownlint and pre-commit hooks
+- **Code Linting**: Standardized code quality checks with Ruff and pre-commit hooks
 - **Cursor Rules**: Development guidelines and patterns for IDE assistance
 
 ## Breaking Changes

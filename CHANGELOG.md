@@ -1,5 +1,11 @@
 # Changelog
 
+## NVIDIA NeMo Curator 1.1.0
+
+### Documentation
+
+- **Release notes accuracy**: Corrected release notes for 26.02/1.1.0 (YAML config CLI example, image batch size defaults, code linting claim)
+
 ## NVIDIA NeMo Curator 1.0.0
 
 This major release represents a fundamental architecture shift from [Dask](https://www.dask.org/) to [Ray](https://www.ray.io/), expanding NeMo Curator to support multimodal data curation with new [video](https://docs.nvidia.com/nemo/curator/latest/curate-video/index.html) and [audio](https://docs.nvidia.com/nemo/curator/latest/curate-audio/index.html) capabilities. This refactor enables unified backend processing, better heterogeneous computing support, and enhanced autoscaling for dynamic workloads.
