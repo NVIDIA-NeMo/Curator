@@ -16,10 +16,12 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 
 from nemo_curator.stages.multimodal.io.readers.webdataset import WebdatasetReaderStage
 from nemo_curator.stages.multimodal.io.writers.multimodal import MultimodalParquetWriterStage
 from nemo_curator.tasks import FileGroupTask, MultiBatchTask
+from nemo_curator.tasks.multimodal import MULTIMODAL_SCHEMA
 
 
 def test_writer_materializes_and_marks_errors(
@@ -73,3 +75,47 @@ def test_writer_marks_materialize_error_on_bad_source_path(tmp_path: Path, input
     target = written.loc[first_image_idx]
     assert pd.isna(target["binary_content"])
     assert isinstance(target["materialize_error"], str)
+
+
+def test_writer_materializes_direct_content_path_without_key(tmp_path: Path) -> None:
+    image_bytes = b"raw-image-bytes"
+    raw_path = tmp_path / "raw_image.jpg"
+    raw_path.write_bytes(image_bytes)
+
+    table = pa.Table.from_pylist(
+        [
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "image",
+                "content_type": "image/jpeg",
+                "text_content": None,
+                "binary_content": None,
+                "metadata_source": json.dumps(
+                    {
+                        "source_id": "doc.pdf",
+                        "source_shard": "raw_image.jpg",
+                        "content_path": str(raw_path),
+                        "content_key": None,
+                    }
+                ),
+                "metadata_json": None,
+                "materialize_error": None,
+            }
+        ],
+        schema=MULTIMODAL_SCHEMA,
+    )
+    task = MultiBatchTask(
+        task_id="direct_content_path",
+        dataset_name="mint_test",
+        data=table,
+        _metadata={"source_files": [str(raw_path)]},
+    )
+
+    writer = MultimodalParquetWriterStage(
+        path=str(tmp_path / "out_direct"), materialize_on_write=True, mode="overwrite"
+    )
+    write_task = writer.process(task)
+    written = pd.read_parquet(write_task.data[0])
+    assert written.loc[0, "binary_content"] == image_bytes
+    assert pd.isna(written.loc[0, "materialize_error"])

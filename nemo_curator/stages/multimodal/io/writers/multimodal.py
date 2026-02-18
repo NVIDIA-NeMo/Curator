@@ -102,8 +102,6 @@ class BaseMultimodalTabularWriter(BaseMultimodalWriter, ABC):
                     else:
                         payload = fobj.read()
                     self._set_payload(binary_values, error_values, direct_idxs, payload)
-                elif not keyed_idxs:
-                    self._set_payload(binary_values, error_values, idxs, fobj.read())
         except Exception as e:  # noqa: BLE001
             self._set_errors(error_values, idxs, str(e))
 
