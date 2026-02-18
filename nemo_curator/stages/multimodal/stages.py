@@ -107,8 +107,6 @@ class MultimodalJpegAspectRatioFilterStage(BaseMultimodalFilterStage):
 
     def _jpeg_keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
         keep_mask = pd.Series(True, index=df.index, dtype=bool)
-        if "modality" not in df.columns or "content_type" not in df.columns:
-            return keep_mask
         jpeg_mask = (df["modality"] == "image") & (df["content_type"].isin(self.jpeg_content_types))
         if not jpeg_mask.any():
             return keep_mask
