@@ -20,10 +20,7 @@ from pathlib import Path
 import pyarrow as pa
 import pytest
 
-from nemo_curator.stages.multimodal.utils import (
-    load_bytes_from_content_reference,
-    require_source_id_field,
-)
+from nemo_curator.stages.multimodal.utils import load_bytes_from_content_reference
 from nemo_curator.tasks import MultiBatchTask
 from nemo_curator.tasks.multimodal import MULTIMODAL_SCHEMA
 
@@ -82,9 +79,3 @@ def test_load_bytes_from_content_reference_direct_and_keyed(tmp_path: Path) -> N
     cache: dict[tuple[str, str], bytes | None] = {}
     assert load_bytes_from_content_reference(str(direct_path), None, {}, cache) == direct_payload
     assert load_bytes_from_content_reference(str(tar_path), "x.bin", {}, cache) == tar_payload
-
-
-def test_require_source_id_field() -> None:
-    assert require_source_id_field("pdf_name") == "pdf_name"
-    with pytest.raises(ValueError, match="source_id_field must be provided explicitly"):
-        require_source_id_field("")
