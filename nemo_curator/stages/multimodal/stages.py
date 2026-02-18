@@ -63,11 +63,29 @@ class BaseMultimodalAnnotatorStage(ProcessingStage[MultiBatchTask, MultiBatchTas
 class BaseMultimodalFilterStage(BaseMultimodalAnnotatorStage, ABC):
     """Base stage for multimodal filtering based on a keep-mask."""
 
+    drop_invalid_rows: bool = True
     name: str = "base_multimodal_filter"
 
     @abstractmethod
+    def content_keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
+        """Return content-specific boolean keep-mask aligned to dataframe index."""
+
+    @staticmethod
+    def _basic_row_validity_mask(df: pd.DataFrame) -> pd.Series:
+        keep_mask = pd.Series(True, index=df.index, dtype=bool)
+        allowed = {"text", "image", "metadata"}
+        keep_mask &= df["modality"].isin(allowed)
+        metadata_pos = (df["modality"] == "metadata") & (df["position"] == -1)
+        content_pos = (df["modality"] != "metadata") & (df["position"] >= 0)
+        keep_mask &= metadata_pos | content_pos
+        return keep_mask
+
     def keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
-        """Return boolean keep-mask aligned to dataframe index."""
+        keep_mask = pd.Series(True, index=df.index, dtype=bool)
+        if self.drop_invalid_rows:
+            keep_mask &= self._basic_row_validity_mask(df)
+        keep_mask &= self.content_keep_mask(task, df)
+        return keep_mask
 
     def iter_materialized_bytes(
         self, task: MultiBatchTask, df: pd.DataFrame, row_mask: pd.Series
@@ -86,7 +104,6 @@ class BaseMultimodalFilterStage(BaseMultimodalAnnotatorStage, ABC):
 class MultimodalJpegAspectRatioFilterStage(BaseMultimodalFilterStage):
     """Filter multimodal rows and enforce JPEG aspect-ratio bounds."""
 
-    drop_invalid_rows: bool = True
     min_aspect_ratio: float = 0.2
     max_aspect_ratio: float = 5.0
     jpeg_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg")
@@ -122,19 +139,5 @@ class MultimodalJpegAspectRatioFilterStage(BaseMultimodalFilterStage):
                 keep_mask.loc[idx] = False
         return keep_mask
 
-    @staticmethod
-    def _basic_row_validity_mask(df: pd.DataFrame) -> pd.Series:
-        keep_mask = pd.Series(True, index=df.index, dtype=bool)
-        allowed = {"text", "image", "metadata"}
-        keep_mask &= df["modality"].isin(allowed)
-        metadata_pos = (df["modality"] == "metadata") & (df["position"] == -1)
-        content_pos = (df["modality"] != "metadata") & (df["position"] >= 0)
-        keep_mask &= metadata_pos | content_pos
-        return keep_mask
-
-    def keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
-        keep_mask = pd.Series(True, index=df.index, dtype=bool)
-        if self.drop_invalid_rows:
-            keep_mask &= self._basic_row_validity_mask(df)
-        keep_mask &= self._jpeg_keep_mask(task, df)
-        return keep_mask
+    def content_keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
+        return self._jpeg_keep_mask(task, df)
