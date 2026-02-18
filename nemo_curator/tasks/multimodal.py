@@ -131,9 +131,11 @@ class MultiBatchTask(Task[pa.Table | pd.DataFrame]):
         - {prefix}content_key
         """
         df = self.to_pandas().copy()
-        parsed = df["metadata_source"].apply(self.parse_metadata_source)
-        df[f"{prefix}source_id"] = parsed.apply(lambda d: d["source_id"])
-        df[f"{prefix}source_shard"] = parsed.apply(lambda d: d["source_shard"])
-        df[f"{prefix}content_path"] = parsed.apply(lambda d: d["content_path"])
-        df[f"{prefix}content_key"] = parsed.apply(lambda d: d["content_key"])
+        parsed = [self.parse_metadata_source(value) for value in df["metadata_source"].tolist()]
+        parsed_df = pd.DataFrame.from_records(
+            parsed,
+            columns=["source_id", "source_shard", "content_path", "content_key"],
+        )
+        for col in parsed_df.columns:
+            df[f"{prefix}{col}"] = parsed_df[col].to_numpy(copy=False)
         return df
