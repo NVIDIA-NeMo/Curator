@@ -20,7 +20,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pandas as pd
-from PIL import Image
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.multimodal.utils import materialize_task_binary_content
@@ -112,6 +111,14 @@ class MultimodalJpegAspectRatioFilterStage(BaseMultimodalFilterStage):
 
     @staticmethod
     def _image_aspect_ratio(image_bytes: bytes) -> float | None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError as exc:
+            msg = (
+                "Pillow is required for MultimodalJpegAspectRatioFilterStage. "
+                "Install dependency group `image_cpu` (or `pillow`)."
+            )
+            raise RuntimeError(msg) from exc
         try:
             with Image.open(io.BytesIO(image_bytes)) as image:
                 width, height = image.size
