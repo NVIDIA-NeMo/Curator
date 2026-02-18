@@ -15,7 +15,28 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from nemo_curator.tasks import Task
+
+
+def require_source_id_field(source_id_field: str) -> str:
+    if source_id_field:
+        return source_id_field
+    msg = "source_id_field must be provided explicitly (e.g., 'pdf_name')"
+    raise ValueError(msg)
+
+
+def resolve_storage_options(
+    task: Task[Any] | None = None,
+    io_kwargs: dict[str, object] | None = None,
+) -> dict[str, object]:
+    source_storage_options = task._metadata.get("source_storage_options") if task is not None else None
+    if isinstance(source_storage_options, dict) and source_storage_options:
+        return source_storage_options
+    storage_options = (io_kwargs or {}).get("storage_options")
+    return storage_options if isinstance(storage_options, dict) else {}
 
 
 def validate_and_project_source_fields(

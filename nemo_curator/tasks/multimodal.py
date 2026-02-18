@@ -103,7 +103,14 @@ class MultiBatchTask(Task[pa.Table | pd.DataFrame]):
     @staticmethod
     def parse_metadata_source(source_value: str | None) -> dict[str, str | None]:
         """Parse one metadata_source JSON string into a source locator dict."""
-        if source_value is None or source_value == "":
+        if source_value is None or pd.isna(source_value):
+            return {
+                "source_id": None,
+                "source_shard": None,
+                "content_path": None,
+                "content_key": None,
+            }
+        if source_value == "":
             return {
                 "source_id": None,
                 "source_shard": None,

@@ -15,29 +15,10 @@
 from __future__ import annotations
 
 import tarfile
-from typing import Any
 
 import fsspec
 
-from nemo_curator.tasks import MultiBatchTask, Task
-
-
-def require_source_id_field(source_id_field: str) -> str:
-    if source_id_field:
-        return source_id_field
-    msg = "source_id_field must be provided explicitly (e.g., 'pdf_name')"
-    raise ValueError(msg)
-
-
-def resolve_storage_options(
-    task: Task[Any] | None = None,
-    io_kwargs: dict[str, object] | None = None,
-) -> dict[str, object]:
-    source_storage_options = task._metadata.get("source_storage_options") if task is not None else None
-    if isinstance(source_storage_options, dict) and source_storage_options:
-        return source_storage_options
-    storage_options = (io_kwargs or {}).get("storage_options")
-    return storage_options if isinstance(storage_options, dict) else {}
+from nemo_curator.tasks import MultiBatchTask
 
 
 def load_bytes_from_content_reference(

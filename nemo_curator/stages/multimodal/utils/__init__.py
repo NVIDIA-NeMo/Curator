@@ -20,10 +20,12 @@ from nemo_curator.stages.multimodal.utils.constants import (
 from nemo_curator.stages.multimodal.utils.materialization import (
     load_bytes_from_content_reference,
     load_bytes_from_metadata_source,
+)
+from nemo_curator.stages.multimodal.utils.validation_utils import (
     require_source_id_field,
     resolve_storage_options,
+    validate_and_project_source_fields,
 )
-from nemo_curator.stages.multimodal.utils.validation_utils import validate_and_project_source_fields
 
 __all__ = [
     "DEFAULT_IMAGE_EXTENSIONS",
