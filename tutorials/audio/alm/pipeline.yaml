@@ -14,8 +14,8 @@
 #     --config-path . \
 #     --config-name pipeline \
 #     input_manifest=/data/input.jsonl \
-#     processors.0.min_speakers=3 \
-#     processors.1.overlap_percentage=30
+#     stages.0.min_speakers=3 \
+#     stages.1.overlap_percentage=30
 
 defaults:
   - _self_
@@ -65,8 +65,8 @@ input_manifest: ???
 # Output directory for results
 output_dir: ./alm_output
 
-# Processor chain definition
-processors:
+# Stage chain definition
+stages:
   # Stage 0: ALM Data Builder
   # Creates training windows from audio segments
   - _target_: nemo_curator.stages.audio.alm.ALMDataBuilderStage
