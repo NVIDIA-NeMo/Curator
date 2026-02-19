@@ -22,17 +22,104 @@ https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/audio/commo
 Produces identical output to SDP implementation.
 """
 
-from __future__ import annotations
-
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.tasks import AudioBatch
 
-# Constants for validation
 MIN_SEGMENTS_PER_WINDOW = 2
+
+
+@dataclass
+class BuilderStats:
+    """Tracks segment loss reasons and counts during window building."""
+
+    total_segments: int = 0
+    total_dur: float = 0.0
+    swift_path: str = ""
+    audio_sample_rate: int = 0
+    lost_bw: int = 0
+    dur_lost_bw: float = 0.0
+    lost_sr: int = 0
+    dur_lost_sr: float = 0.0
+    lost_spk: int = 0
+    dur_lost_spk: float = 0.0
+    lost_win: int = 0
+    dur_lost_win: float = 0.0
+    lost_no_spkr: int = 0
+    dur_lost_no_spkr: float = 0.0
+    lost_next_seg_bm: int = 0
+    dur_lost_next_seg_bm: float = 0.0
+    lost_win_full_data: list = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _get_bandwidth(seg: dict[str, Any]) -> int:
+    return seg.get("metrics", {}).get("bandwidth", 0)
+
+
+def _compute_speaker_durations(segments: list[dict[str, Any]]) -> dict[str, float]:
+    spk_durs: dict[str, float] = {}
+    for s in segments:
+        spk = s.get("speaker")
+        if spk:
+            spk_durs[spk] = spk_durs.get(spk, 0) + (s["end"] - s["start"])
+    return spk_durs
+
+
+def _truncate_segment(seg: dict[str, Any], truncated_end: float) -> dict[str, Any]:
+    """Truncate a segment's words at the given end time, returning a modified copy."""
+    part = seg.copy()
+    truncated_words = []
+    actual_end = seg["start"]
+
+    for w in seg.get("words", []):
+        if w["end"] <= truncated_end:
+            truncated_words.append(w.copy())
+            actual_end = w["end"]
+
+    part["words"] = truncated_words
+    part["text"] = " ".join(w.get("word", "") for w in truncated_words if w.get("word"))
+    part["end"] = actual_end
+    return part
+
+
+def _record_window_loss(
+    stat: BuilderStats,
+    seg: dict[str, Any],
+    segments: list[dict[str, Any]],
+    start_idx: int,
+    curr_idx: int,
+    window_segs: list[dict[str, Any]],
+    drop_fields: set[str],
+) -> None:
+    """Record statistics for a rejected window."""
+    seg_dur = seg["end"] - seg["start"]
+    stat.lost_win += 1
+    stat.dur_lost_win += seg_dur
+
+    next_seg_idx = min(curr_idx, len(segments) - 1)
+    next_segment = segments[next_seg_idx]
+
+    if next_segment.get("speaker", "no-speaker") == "no-speaker":
+        stat.lost_no_spkr += 1
+        stat.dur_lost_no_spkr += seg_dur
+    elif _get_bandwidth(next_segment) < 8000:
+        stat.lost_next_seg_bm += 1
+        stat.dur_lost_next_seg_bm += seg_dur
+
+    stat.lost_win_full_data.append(
+        {
+            "index": start_idx,
+            "window_segs": window_segs,
+            "next_seg": {k: v for k, v in next_segment.items() if k not in drop_fields},
+            "prev_seg": {k: v for k, v in segments[max(start_idx - 1, 0)].items() if k not in drop_fields},
+        }
+    )
 
 
 @dataclass
@@ -82,6 +169,16 @@ class ALMDataBuilderStage(LegacySpeechStage):
         self._drop_fields_set = {f.strip() for f in self.drop_fields.split(",") if f.strip()}
         self._drop_fields_top_level_set = {f.strip() for f in self.drop_fields_top_level.split(",") if f.strip()}
 
+    def process(self, task: AudioBatch) -> list[AudioBatch]:
+        """Process a batch, propagating parent task metadata and perf stats."""
+        results = []
+        for entry in task.data:
+            for child in self.process_dataset_entry(entry):
+                child._metadata = task._metadata.copy()
+                child._stage_perf = task._stage_perf.copy()
+                results.append(child)
+        return results
+
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         """
         Process a single manifest entry and build windows.
@@ -109,65 +206,37 @@ class ALMDataBuilderStage(LegacySpeechStage):
 
         return [AudioBatch(data=[result])]
 
-    def _process_single_entry(  # noqa: C901, PLR0912, PLR0915
-        self, entry_data: dict[str, Any]
-    ) -> dict[str, Any]:
-        """
-        Process a single entry and extract valid training windows.
-
-        Note: This method is complex (C901, PLR0912, PLR0915) because it follows
-        the exact SDP implementation logic for bit-exact compatibility.
-        Refactoring would risk behavioral differences.
-
-        Returns dict with:
-        - All input fields EXCEPT those in drop_fields_top_level
-        - windows: list of valid training windows
-        - stats: processing statistics
-        - truncation_events: count of truncation events
-        """
+    def _process_single_entry(self, entry_data: dict[str, Any]) -> dict[str, Any]:
+        """Process a single entry and extract valid training windows."""
         total_truncation_events = 0
 
         audio_file = entry_data.get("audio_filepath")
         segments = entry_data.get("segments", [])
         total_dur = sum(seg["end"] - seg["start"] for seg in segments)
 
-        stat: dict[str, Any] = {
-            "total_segments": len(segments),
-            "total_dur": total_dur,
-            "swift_path": entry_data.get("swift_audio_filepath", ""),
-            "audio_sample_rate": entry_data.get("audio_sample_rate", 0),
-            "lost_bw": 0,
-            "dur_lost_bw": 0.0,
-            "lost_sr": 0,
-            "dur_lost_sr": 0.0,
-            "lost_spk": 0,
-            "dur_lost_spk": 0.0,
-            "lost_win": 0,
-            "dur_lost_win": 0.0,
-            "lost_no_spkr": 0,
-            "dur_lost_no_spkr": 0.0,
-            "lost_next_seg_bm": 0,
-            "dur_lost_next_seg_bm": 0.0,
-            "lost_win_full_data": [],
-        }
+        stat = BuilderStats(
+            total_segments=len(segments),
+            total_dur=total_dur,
+            swift_path=entry_data.get("swift_audio_filepath", ""),
+            audio_sample_rate=entry_data.get("audio_sample_rate", 0),
+        )
 
         if entry_data.get("audio_sample_rate", 0) < self.min_sample_rate:
-            stat["lost_sr"] = len(segments)
-            stat["dur_lost_sr"] = total_dur
+            stat.lost_sr = len(segments)
+            stat.dur_lost_sr = total_dur
             return {
                 "audio_filepath": audio_file,
                 "windows": [],
-                "stats": stat,
+                "stats": stat.to_dict(),
                 "truncation_events": total_truncation_events,
             }
 
         valid_windows: list[dict[str, Any]] = []
 
         for start_idx, seg in enumerate(segments):
-            bandwidth = seg.get("metrics", {}).get("bandwidth", 0)
-            if bandwidth < self.min_bandwidth:
-                stat["lost_bw"] += 1
-                stat["dur_lost_bw"] += seg["end"] - seg["start"]
+            if _get_bandwidth(seg) < self.min_bandwidth:
+                stat.lost_bw += 1
+                stat.dur_lost_bw += seg["end"] - seg["start"]
                 continue
 
             window_segs: list[dict[str, Any]] = []
@@ -178,61 +247,33 @@ class ALMDataBuilderStage(LegacySpeechStage):
             for curr_idx in range(start_idx, len(segments)):
                 curr_seg = segments[curr_idx]
 
-                if curr_seg.get("metrics", {}).get("bandwidth", 0) < self.min_bandwidth:
+                if _get_bandwidth(curr_seg) < self.min_bandwidth:
                     break
 
-                potential_end = curr_seg["end"]
-                potential_duration = potential_end - window_start
+                potential_duration = curr_seg["end"] - window_start
 
                 if potential_duration > self.max_duration:
-                    if self.truncation:
-                        truncated_end = window_start + self.max_duration
-                        if curr_seg["start"] >= truncated_end:
-                            break
-                        if curr_seg.get("metrics", {}).get("bandwidth", 0) < self.min_bandwidth:
-                            break
-
-                        total_truncation_events += 1
-
-                        part_curr_seg = curr_seg.copy()
-                        truncated_words = []
-                        actual_end = curr_seg["start"]
-
-                        for w in curr_seg.get("words", []):
-                            if w["end"] <= truncated_end:
-                                truncated_words.append(w.copy())
-                                actual_end = w["end"]
-
-                        part_curr_seg["words"] = truncated_words
-                        words_text = [w.get("word", "") for w in truncated_words if w.get("word")]
-                        truncated_text = " ".join(words_text)
-                        part_curr_seg["text"] = truncated_text
-                        part_curr_seg["end"] = actual_end
-
-                        temp_window_segs = [*window_segs, part_curr_seg]
-                        temp_spk_durs: dict[str, float] = {}
-                        for s in temp_window_segs:
-                            spk = s.get("speaker")
-                            if spk:
-                                temp_spk_durs[spk] = temp_spk_durs.get(spk, 0) + (s["end"] - s["start"])
-
-                        if len(temp_spk_durs) > self.max_speakers or "no-speaker" in temp_spk_durs:
-                            break
-
-                        window_segs.append({k: v for k, v in part_curr_seg.items() if k not in self._drop_fields_set})
-                        window_end = actual_end
+                    if not self.truncation:
                         break
-                    else:
+                    truncated_end = window_start + self.max_duration
+                    if curr_seg["start"] >= truncated_end:
+                        break
+                    if _get_bandwidth(curr_seg) < self.min_bandwidth:
                         break
 
-                temp_window_segs = [*window_segs, curr_seg]
-                temp_spk_durs = {}
-                for s in temp_window_segs:
-                    spk = s.get("speaker")
-                    if spk:
-                        temp_spk_durs[spk] = temp_spk_durs.get(spk, 0) + (s["end"] - s["start"])
+                    total_truncation_events += 1
+                    part = _truncate_segment(curr_seg, truncated_end)
 
-                if len(temp_spk_durs) > self.max_speakers or "no-speaker" in temp_spk_durs:
+                    spk_durs = _compute_speaker_durations([*window_segs, part])
+                    if len(spk_durs) > self.max_speakers or "no-speaker" in spk_durs:
+                        break
+
+                    window_segs.append({k: v for k, v in part.items() if k not in self._drop_fields_set})
+                    window_end = part["end"]
+                    break
+
+                spk_durs = _compute_speaker_durations([*window_segs, curr_seg])
+                if len(spk_durs) > self.max_speakers or "no-speaker" in spk_durs:
                     break
 
                 window_end = curr_seg["end"]
@@ -241,78 +282,32 @@ class ALMDataBuilderStage(LegacySpeechStage):
             window_dur = window_end - window_start
 
             if not (self.min_duration <= window_dur <= self.max_duration):
-                stat["lost_win"] += 1
-                stat["dur_lost_win"] += seg["end"] - seg["start"]
-                # Bounds check: curr_idx may equal len(segments) if loop completed without break
-                next_seg_idx = min(curr_idx, len(segments) - 1)
-                next_segment = segments[next_seg_idx]
-                if next_segment.get("speaker", "no-speaker") == "no-speaker":
-                    stat["lost_no_spkr"] += 1
-                    stat["dur_lost_no_spkr"] += seg["end"] - seg["start"]
-                elif next_segment.get("metrics", {}).get("bandwidth", 0) < self.min_bandwidth:
-                    stat["lost_next_seg_bm"] += 1
-                    stat["dur_lost_next_seg_bm"] += seg["end"] - seg["start"]
-                stat["lost_win_full_data"].append(
-                    {
-                        "index": start_idx,
-                        "window_segs": window_segs,
-                        "next_seg": {k: v for k, v in next_segment.items() if k not in self._drop_fields_set},
-                        "prev_seg": {
-                            k: v for k, v in segments[max(start_idx - 1, 0)].items() if k not in self._drop_fields_set
-                        },
-                    }
-                )
+                _record_window_loss(stat, seg, segments, start_idx, curr_idx, window_segs, self._drop_fields_set)
                 continue
 
             if len(window_segs) < MIN_SEGMENTS_PER_WINDOW or any(
-                s.get("metrics", {}).get("bandwidth", 0) < self.min_bandwidth for s in window_segs
+                _get_bandwidth(s) < self.min_bandwidth for s in window_segs
             ):
-                stat["lost_win"] += 1
-                stat["dur_lost_win"] += seg["end"] - seg["start"]
-                # Bounds check: curr_idx may equal len(segments) if loop completed without break
-                next_seg_idx = min(curr_idx, len(segments) - 1)
-                next_segment = segments[next_seg_idx]
-                if next_segment.get("speaker", "no-speaker") == "no-speaker":
-                    stat["lost_no_spkr"] += 1
-                    stat["dur_lost_no_spkr"] += seg["end"] - seg["start"]
-                elif next_segment.get("metrics", {}).get("bandwidth", 0) < self.min_bandwidth:
-                    stat["lost_next_seg_bm"] += 1
-                    stat["dur_lost_next_seg_bm"] += seg["end"] - seg["start"]
-                stat["lost_win_full_data"].append(
-                    {
-                        "index": start_idx,
-                        "window_segs": window_segs,
-                        "next_seg": {k: v for k, v in next_segment.items() if k not in self._drop_fields_set},
-                        "prev_seg": {
-                            k: v for k, v in segments[max(start_idx - 1, 0)].items() if k not in self._drop_fields_set
-                        },
-                    }
-                )
+                _record_window_loss(stat, seg, segments, start_idx, curr_idx, window_segs, self._drop_fields_set)
                 continue
 
-            spk_durs: dict[str, float] = {}
-            for s in window_segs:
-                spk = s.get("speaker")
-                if spk:
-                    spk_durs[spk] = spk_durs.get(spk, 0) + (s["end"] - s["start"])
-
+            spk_durs = _compute_speaker_durations(window_segs)
             if not self.min_speakers <= len(spk_durs) <= self.max_speakers or "no-speaker" in spk_durs:
-                stat["lost_spk"] += 1
-                stat["dur_lost_spk"] += seg["end"] - seg["start"]
+                stat.lost_spk += 1
+                stat.dur_lost_spk += seg["end"] - seg["start"]
                 continue
 
             spk_durations = sorted(spk_durs.values(), reverse=True)[:5]
             spk_durations += [0.0] * (5 - len(spk_durations))
 
-            window_info: dict[str, Any] = {
+            valid_windows.append({
                 "segments": window_segs,
                 "speaker_durations": spk_durations,
-            }
-            valid_windows.append(window_info)
+            })
 
         result = {k: v for k, v in entry_data.items() if k not in self._drop_fields_top_level_set}
         result["windows"] = valid_windows
-        result["stats"] = stat
+        result["stats"] = stat.to_dict()
         result["truncation_events"] = total_truncation_events
 
         return result

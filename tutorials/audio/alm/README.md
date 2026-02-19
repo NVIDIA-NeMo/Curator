@@ -101,9 +101,9 @@ python tutorials/audio/alm/main.py \
   --config-name pipeline \
   input_manifest=/data/input.jsonl \
   output_dir=./custom_output \
-  processors.0.min_speakers=3 \
-  processors.0.max_speakers=6 \
-  processors.1.overlap_percentage=30
+  stages.0.min_speakers=3 \
+  stages.0.max_speakers=6 \
+  stages.1.overlap_percentage=30
 ```
 
 ### Configuration Parameters
@@ -112,19 +112,19 @@ python tutorials/audio/alm/main.py \
 |-----------|-------------|---------|
 | `input_manifest` | Path to input JSONL manifest | Required |
 | `output_dir` | Directory for output files | `./alm_output` |
-| `processors.0.target_window_duration` | Target window duration (seconds) | `120.0` |
-| `processors.0.tolerance` | Duration tolerance (e.g., 0.1 = ±10%) | `0.1` |
-| `processors.0.min_sample_rate` | Minimum sample rate (Hz) | `16000` |
-| `processors.0.min_bandwidth` | Minimum bandwidth (Hz) | `8000` |
-| `processors.0.min_speakers` | Minimum speakers per window | `2` |
-| `processors.0.max_speakers` | Maximum speakers per window | `5` |
-| `processors.1.overlap_percentage` | Overlap threshold 0-100 | `50` |
+| `stages.0.target_window_duration` | Target window duration (seconds) | `120.0` |
+| `stages.0.tolerance` | Duration tolerance (e.g., 0.1 = ±10%) | `0.1` |
+| `stages.0.min_sample_rate` | Minimum sample rate (Hz) | `16000` |
+| `stages.0.min_bandwidth` | Minimum bandwidth (Hz) | `8000` |
+| `stages.0.min_speakers` | Minimum speakers per window | `2` |
+| `stages.0.max_speakers` | Maximum speakers per window | `5` |
+| `stages.1.overlap_percentage` | Overlap threshold 0-100 | `50` |
 
 ### Override Notes
 
-Match indices in `processors` list in `pipeline.yaml`:
-- `processors.0.*`: ALMDataBuilderStage parameters
-- `processors.1.*`: ALMDataOverlapStage parameters
+Match indices in `stages` list in `pipeline.yaml`:
+- `stages.0.*`: ALMDataBuilderStage parameters
+- `stages.1.*`: ALMDataOverlapStage parameters
 
 ## Input Format
 
@@ -259,8 +259,8 @@ python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
   input_manifest=tests/fixtures/audio/alm/sample_input.jsonl \
-  processors.0.target_window_duration=60 \
-  processors.0.tolerance=0.15
+  stages.0.target_window_duration=60 \
+  stages.0.tolerance=0.15
 ```
 
 ### Stricter Speaker Requirements
@@ -272,8 +272,8 @@ python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
   input_manifest=tests/fixtures/audio/alm/sample_input.jsonl \
-  processors.0.min_speakers=2 \
-  processors.0.max_speakers=3
+  stages.0.min_speakers=2 \
+  stages.0.max_speakers=3
 ```
 
 ### Aggressive Overlap Filtering
@@ -285,15 +285,152 @@ python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
   input_manifest=tests/fixtures/audio/alm/sample_input.jsonl \
-  processors.1.overlap_percentage=0
+  stages.1.overlap_percentage=0
 ```
+
+## Benchmarking
+
+A dedicated benchmark script is provided at `benchmarking/scripts/alm_pipeline_benchmark.py` for measuring pipeline performance at scale and catching regressions. It runs through the full NeMo Curator benchmarking framework (Docker + Ray cluster + result collection).
+
+### How It Works
+
+The benchmark script:
+1. Loads a JSONL manifest (supports cloud paths via fsspec)
+2. Optionally multiplies entries with `--repeat-factor` for scale testing
+3. Builds a Pipeline with ALMDataBuilderStage + ALMDataOverlapStage
+4. Runs through XennaExecutor (or ray_data/ray_actors)
+5. Writes `params.json`, `metrics.json`, and `tasks.pkl` for the framework
+
+### Running Benchmarks
+
+**Prerequisites:**
+- Docker with NVIDIA container toolkit
+- NeMo Curator repository checked out
+
+**Step 1: Build the benchmarking Docker image (one-time):**
+
+```bash
+cd /path/to/Curator
+bash benchmarking/tools/build_docker.sh --tag-as-latest
+```
+
+**Step 2: Run the ALM benchmark:**
+
+```bash
+# Using the framework runner inside Docker:
+docker run --rm --net=host \
+  -v $(pwd):/opt/Curator \
+  -v /tmp/alm_benchmark_results:/tmp/alm_benchmark_results \
+  --entrypoint bash nemo_curator_benchmarking:latest \
+  -c "cd /opt/Curator && python benchmarking/run.py --config benchmarking/alm-benchmark.yaml"
+```
+
+Or using `run.sh` (requires Python 3.10+ on host):
+
+```bash
+bash benchmarking/tools/run.sh --use-host-curator --config benchmarking/alm-benchmark.yaml
+```
+
+**Step 3: Run the script standalone (for development/debugging):**
+
+```bash
+cd benchmarking/scripts
+python alm_pipeline_benchmark.py \
+  --benchmark-results-path /tmp/alm_results \
+  --input-manifest ../../tests/fixtures/audio/alm/sample_input.jsonl \
+  --executor xenna \
+  --repeat-factor 2000
+```
+
+### Benchmark Configuration
+
+The YAML config at `benchmarking/alm-benchmark.yaml` defines the benchmark entry:
+
+```yaml
+entries:
+  - name: alm_pipeline_xenna
+    script: alm_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest=/opt/Curator/tests/fixtures/audio/alm/sample_input.jsonl
+      --executor=xenna
+      --repeat-factor=2000
+    requirements:
+      - metric: is_success
+        exact_value: true
+      - metric: total_builder_windows
+        min_value: 1
+```
+
+### CLI Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--benchmark-results-path` | Required | Directory for output files |
+| `--input-manifest` | Required | Path to JSONL manifest |
+| `--executor` | `xenna` | `xenna`, `ray_data`, or `ray_actors` |
+| `--repeat-factor` | `1` | Multiply manifest entries for scale testing |
+| `--target-window-duration` | `120.0` | Target window duration (seconds) |
+| `--tolerance` | `0.1` | Window duration tolerance fraction |
+| `--min-sample-rate` | `16000` | Minimum audio sample rate |
+| `--min-bandwidth` | `8000` | Minimum segment bandwidth |
+| `--min-speakers` | `2` | Minimum speakers per window |
+| `--max-speakers` | `5` | Maximum speakers per window |
+| `--overlap-percentage` | `50` | Overlap filter percentage (0-100) |
+
+### Benchmark Results
+
+Results from running on a single workstation:
+
+**Machine specs:**
+- CPU: Intel Core i9-9900KF @ 3.60GHz (8 cores / 16 threads)
+- RAM: 32 GB
+- GPU: NVIDIA GeForce RTX 3080 Ti 12 GB (not used by ALM stages)
+- OS: Ubuntu 20.04, Linux 5.15
+
+**Small scale (5 entries, sample fixture):**
+
+| Metric | Value |
+|--------|-------|
+| Input entries | 5 |
+| Output entries | 5 |
+| Builder windows | 25 |
+| Filtered windows | 25 |
+| Total filtered duration | 3,035.50s |
+| Execution time | 15.62s |
+| Throughput (entries/sec) | 0.32 |
+
+**Large scale (10,000 entries, repeat-factor=2000):**
+
+| Metric | Value |
+|--------|-------|
+| Input entries | 10,000 |
+| Output entries | 10,000 |
+| Builder windows | 50,000 |
+| Filtered windows | 50,000 |
+| Total filtered duration | 6,071,000s |
+| Execution time | 90.19s |
+| Throughput (entries/sec) | 110.88 |
+| Throughput (windows/sec) | 554.40 |
+
+The pipeline scales well with XennaExecutor auto-allocating 3 workers per stage on the available 8 CPU cores. Throughput increases significantly at scale as the executor amortizes startup overhead.
+
+### Output Files
+
+The benchmark produces three files in `--benchmark-results-path`:
+
+| File | Description |
+|------|-------------|
+| `params.json` | All pipeline parameters for reproducibility |
+| `metrics.json` | `is_success`, `time_taken_s`, `throughput_entries_per_sec`, `throughput_windows_per_sec`, window counts, durations |
+| `tasks.pkl` | Pickled `AudioBatch` task objects for `TaskPerfUtils` aggregation |
 
 ## Performance Notes
 
 - Both stages use Ray-based parallelism via XennaExecutor
 - Processing is CPU-bound (no GPU required)
 - Memory usage scales with manifest size
-- For large manifests, consider processing in batches
+- For large manifests, consider processing in batches or using `--repeat-factor` for scale testing
 
 ## Troubleshooting
 

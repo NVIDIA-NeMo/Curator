@@ -19,9 +19,9 @@ This script processes audio manifests to create training windows for
 Audio Language Models using YAML-based configuration with Hydra.
 
 Features:
-- YAML-driven pipeline configuration
+- YAML-driven pipeline configuration using nemo_curator.config.run
 - Command-line parameter overrides
-- Extensible processor chain
+- Extensible stage chain
 
 Usage:
     # Run with sample data (from Curator repo root)
@@ -36,8 +36,8 @@ Usage:
         --config-name pipeline \\
         input_manifest=/data/input.jsonl \\
         output_dir=./my_output \\
-        processors.0.min_speakers=3 \\
-        processors.1.overlap_percentage=30
+        stages.0.min_speakers=3 \\
+        stages.1.overlap_percentage=30
 """
 
 import json
@@ -45,20 +45,12 @@ import json
 import hydra
 from fsspec.core import url_to_fs
 from loguru import logger
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.pipeline import Pipeline
+from nemo_curator.config.run import create_pipeline_from_yaml
 from nemo_curator.tasks import AudioBatch
-
-
-def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
-    """Create pipeline by instantiating stages from YAML config."""
-    pipeline = Pipeline(name="alm_yaml_pipeline", description="ALM Pipeline created from YAML config")
-    for processor_cfg in cfg.processors:
-        stage = hydra.utils.instantiate(processor_cfg)
-        pipeline.add_stage(stage)
-    return pipeline
+from nemo_curator.tasks.utils import TaskPerfUtils
 
 
 def load_manifest(manifest_path: str) -> list[dict]:
@@ -89,8 +81,6 @@ def main(cfg: DictConfig) -> None:
     """
     Run ALM pipeline using Hydra configuration.
     """
-    logger.info(f"Hydra config:\n{OmegaConf.to_yaml(cfg)}")
-
     # Get paths from config
     input_manifest = cfg.get("input_manifest")
     if not input_manifest:
@@ -129,10 +119,8 @@ def main(cfg: DictConfig) -> None:
     for task in results or []:
         output_entries.extend(task.data)
 
-    # Calculate statistics
-    # Stage 1 output: total_dur_list_window contains the original window count
-    stage1_windows = sum(len(e.get("total_dur_list_window", e.get("windows", []))) for e in output_entries)
-    # Stage 2 output: filtered_windows contains windows after overlap filtering
+    # Pipeline-level statistics from output data
+    stage1_windows = sum(len(e.get("windows", [])) for e in output_entries)
     stage2_windows = sum(len(e.get("filtered_windows", [])) for e in output_entries)
     total_filtered_dur = sum(e.get("filtered_dur", 0) for e in output_entries)
     entries_with_windows = sum(1 for e in output_entries if e.get("filtered_windows") or e.get("windows"))
@@ -146,6 +134,17 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"  Stage 1 (Builder) windows: {stage1_windows}")
     logger.info(f"  Stage 2 (Overlap) windows: {stage2_windows}")
     logger.info(f"  Total filtered duration: {total_filtered_dur:.2f}s ({total_filtered_dur / 60:.2f} min)")
+
+    # Per-stage performance stats from Task._stage_perf (populated by _log_metrics)
+    stage_metrics = TaskPerfUtils.collect_stage_metrics(results)
+    for stage_name, metrics in stage_metrics.items():
+        logger.info(f"  [{stage_name}]")
+        logger.info(f"    process_time: mean={metrics['process_time'].mean():.4f}s, total={metrics['process_time'].sum():.2f}s")
+        logger.info(f"    items_processed: {metrics['num_items_processed'].sum():.0f}")
+        if "custom.windows_created" in metrics:
+            logger.info(f"    windows_created: {metrics['custom.windows_created'].sum():.0f}")
+        if "custom.output_windows" in metrics:
+            logger.info(f"    output_windows (after overlap): {metrics['custom.output_windows'].sum():.0f}")
 
     # Save results
     output_path = f"{output_dir.rstrip('/')}/alm_output.jsonl"
