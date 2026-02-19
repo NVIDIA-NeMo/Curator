@@ -66,7 +66,6 @@ jobs:
     needs: [pre-flight, cicd-wait-in-queue]
     runs-on: ${{ matrix.os }}
     name: Unit_Test_${{ matrix.folder}}_CPU_python-${{ matrix.python-version }}
-    environment: nemo-ci
     if: |
       (
         success()
@@ -126,7 +125,6 @@ jobs:
     needs: [pre-flight, cicd-wait-in-queue]
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.script }}
-    environment: nemo-ci
     if: |
       (
         success()
