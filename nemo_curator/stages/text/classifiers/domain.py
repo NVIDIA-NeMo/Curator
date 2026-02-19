@@ -45,6 +45,10 @@ class DomainClassifier(DistributedDataClassifier):
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
+            Defaults to False.
 
     """
 
@@ -60,6 +64,7 @@ class DomainClassifier(DistributedDataClassifier):
         model_inference_batch_size: int = 256,
         autocast: bool = True,
         drop_tokens: bool = True,
+        use_existing_tokens: bool | list[str] = False,
     ):
         super().__init__(
             model_identifier=DOMAIN_MODEL_IDENTIFIER,
@@ -75,6 +80,7 @@ class DomainClassifier(DistributedDataClassifier):
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
             drop_tokens=drop_tokens,
+            use_existing_tokens=use_existing_tokens,
         )
 
         self.name = format_name_with_suffix(DOMAIN_MODEL_IDENTIFIER)
@@ -100,6 +106,10 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
+            Defaults to False.
 
     """
 
@@ -115,6 +125,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
         model_inference_batch_size: int = 256,
         autocast: bool = True,
         drop_tokens: bool = True,
+        use_existing_tokens: bool | list[str] = False,
     ):
         super().__init__(
             model_identifier=MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER,
@@ -130,6 +141,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
             drop_tokens=drop_tokens,
+            use_existing_tokens=use_existing_tokens,
         )
 
         self.name = format_name_with_suffix(MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER)
