@@ -4782,7 +4782,6 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'deduplication-cuda12'", specifier = "<1.8.0" },
     { name = "sentence-transformers", marker = "extra == 'text-cpu'" },
     { name = "sentencepiece", marker = "extra == 'text-cpu'" },
-    { name = "tenacity" },
     { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'", index = "https://pypi.org/simple" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "<=2.9.1", index = "https://download.pytorch.org/whl/cu128" },
