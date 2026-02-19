@@ -12,25 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
-
-# ruff: noqa: E402
-cudf = pytest.importorskip("cudf", reason="EmbeddingCreatorStage tests require cudf")
-
+from contextlib import suppress
 from unittest.mock import Mock, patch
 
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 import torch.nn.functional as F  # noqa: N812
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
-from nemo_curator.stages.text.embedders.base import EmbeddingCreatorStage, EmbeddingModelStage
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.text.embedders.base import EmbeddingCreatorStage, EmbeddingModelStage
+
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
-from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN
+from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD
 from nemo_curator.tasks import DocumentBatch
 
 
+@pytest.mark.gpu
 class TestEmbeddingModelStage:
     """Test EmbeddingModelStage class."""
 
@@ -88,8 +89,8 @@ class TestEmbeddingModelStage:
 
         # Check that the required columns are present in inputs
         assert inputs[0] == ["data"]
-        assert INPUT_ID_COLUMN in inputs[1]
-        assert ATTENTION_MASK_COLUMN in inputs[1]
+        assert INPUT_ID_FIELD in inputs[1]
+        assert ATTENTION_MASK_FIELD in inputs[1]
         assert outputs == (["data"], ["embeddings"])
 
     @pytest.mark.parametrize("pooling_strategy", ["mean_pooling", "last_token"])
@@ -138,8 +139,8 @@ class TestEmbeddingModelStage:
             data=pd.DataFrame(
                 {
                     "text": ["Hello world", "Test text"],
-                    INPUT_ID_COLUMN: [[1, 2, 3, 0], [4, 5, 0, 0]],  # Second sequence shorter
-                    ATTENTION_MASK_COLUMN: [[1, 1, 1, 0], [1, 1, 0, 0]],  # Corresponding masks
+                    INPUT_ID_FIELD: [[1, 2, 3, 0], [4, 5, 0, 0]],  # Second sequence shorter
+                    ATTENTION_MASK_FIELD: [[1, 1, 1, 0], [1, 1, 0, 0]],  # Corresponding masks
                 }
             ),
         )
@@ -202,6 +203,7 @@ class TestEmbeddingModelStage:
         assert torch.allclose(embeddings_array[1], expected_2, atol=1e-5)
 
 
+@pytest.mark.gpu
 class TestEmbeddingCreatorStage:
     """Test EmbeddingCreatorStage class."""
 
@@ -215,6 +217,7 @@ class TestEmbeddingCreatorStage:
     def test_embedding_creator_stage_initialization_and_decomposition(self) -> None:
         """Test initialization, decomposition, and parameter passing to decomposed stages."""
         # Test with custom parameters including hf_token and unk_token
+        # Note: use_sentence_transformer=False is required to test EmbeddingModelStage with custom pooling
         stage = EmbeddingCreatorStage(
             model_identifier="test-model",
             text_field="content",
@@ -226,6 +229,7 @@ class TestEmbeddingCreatorStage:
             model_inference_batch_size=128,
             sort_by_length=False,
             hf_token="test-token",  # noqa:S106
+            use_sentence_transformer=False,
         )
 
         # Test decomposition and stage types
@@ -293,16 +297,22 @@ class TestEmbeddingCreatorStage:
 
     @pytest.mark.parametrize("pooling_strategy", ["mean_pooling", "last_token"])
     @pytest.mark.parametrize("autocast", [True, False])
+    @pytest.mark.parametrize("use_sentence_transformer", [True, False])
     @pytest.mark.gpu
     def test_embedding_creator_stage_with_reference_embeddings(
-        self, pooling_strategy: str, sample_data: DocumentBatch, autocast: bool
+        self, pooling_strategy: str, sample_data: DocumentBatch, autocast: bool, use_sentence_transformer: bool
     ) -> None:
         """Test embeddings match reference implementation (requires GPU and model download)."""
+        if use_sentence_transformer and pooling_strategy != "mean_pooling":
+            pytest.skip(
+                "Ignoring last_token strategy for sentence transformer as behavior for miniLM is mean pooling "
+            )
         stage = EmbeddingCreatorStage(
             model_identifier="sentence-transformers/all-MiniLM-L6-v2",
             embedding_pooling=pooling_strategy,
             model_inference_batch_size=32,
             autocast=autocast,
+            use_sentence_transformer=use_sentence_transformer,
         )
 
         # Decompose and setup stages

@@ -60,7 +60,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     file_extensions: list[str] | None = None
     storage_options: dict[str, Any] | None = None
     limit: int | None = None
-    _name: str = "file_partitioning"
+    name: str = "file_partitioning"
 
     def __post_init__(self):
         """Initialize default values."""
@@ -71,7 +71,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         if self.blocksize is not None:
             self._blocksize = self._parse_size(self.blocksize)
 
-        self._resources = Resources(cpus=0.5)
+        self.resources = Resources(cpus=0.5)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -83,6 +83,11 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         """Ray stage specification for this stage."""
         return {
             RayStageSpecKeys.IS_FANOUT_STAGE: True,
+        }
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {
+            "num_workers_per_node": 1,
         }
 
     def process(self, _: _EmptyTask) -> list[FileGroupTask]:

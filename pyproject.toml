@@ -55,29 +55,33 @@ dependencies = [
     "comment_parser",
     "cosmos-xenna==0.1.2",
     "fsspec",
+    "hydra-core",
     "jieba==0.42.1",
     "loguru",
     "mecab-python3",
+    "omegaconf",
+    "openai>=1.0.0",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data]>=2.49",
+    "ray[default,data]>=2.50",
     "tenacity",
     "torch",
-    "transformers==4.55.2",
+    "transformers",
 ]
 
 [project.optional-dependencies]
 cuda12 = ["gpustat", "nvidia-ml-py"]
+vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
-    "cudf-cu12==25.6.*",
-    "cugraph-cu12==25.6.*",
-    "cuml-cu12==25.6.*",
-    "nx-cugraph-cu12==25.6.*",
-    "pylibraft-cu12==25.6.*",
-    "raft-dask-cu12==25.6.*",
-    "rapidsmpf-cu12==25.6.*",
+    "cudf-cu12==25.10.*",
+    "cuml-cu12==25.10.*",
+    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
+    "pylibcugraph-cu12==25.10.*",
+    "pylibraft-cu12==25.10.*",
+    "raft-dask-cu12==25.10.*",
+    "rapidsmpf-cu12==25.10.*",
 ]
 
 audio_cpu = [
@@ -119,12 +123,15 @@ text_cpu = [
     "peft",
     # Modifiers
     "ftfy",
+    # Embedders
+    "sentence-transformers"
 ]
 
 text_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
     "nemo_curator[text_cpu]",
+    "nemo_curator[vllm]",
 ]
 
 # Video Curation Dependencies
@@ -139,35 +146,43 @@ video_cpu = [
 video_cuda12 = [
     "nemo_curator[video_cpu]",
     "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
     "cvcuda_cu12",
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "pycuda",
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "torch<=2.8.0",
+    "torch<=2.9.1",
     "torchaudio",
-    "vllm==0.10.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+]
+
+# Synthetic Data Generation (SDG) Dependencies
+sdg_cpu = [
+    "data-designer==0.4.0",
 ]
 
 # All dependencies
 all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
+    "nemo_curator[sdg_cpu]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[video_cuda12]",
 ]
 
 [dependency-groups]
-build = ["setuptools", "torch<=2.8.0"]
+build = ["setuptools", "torch<=2.9.1"]
 dev = ["jupyter"]
-linting = ["pre-commit", "ruff==0.11.4"]
+linting = ["pre-commit", "ruff==0.14.10"]
 test = [
     "coverage",
     "debugpy",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
+    "pytest-httpserver",
     "pytest-loguru",
-    "scikit-learn",
+    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
+    "s3fs", # added for testing cloud fs
 ]
 
 [tool.uv]
@@ -177,15 +192,29 @@ default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
 no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
-    "protobuf>=4.25.8", # Address CVE GHSA-8qvm-5x2c-j2w7
+    "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
+    "cryptography>=46.0.5", # Address CVE GHSA-r6ph-v2qm-q3c2
+    "nbconvert>=7.17.0", # Address CVE GHSA-xm59-rqc7-hhvf
+    "pillow>=12.1.1", # Address CVE GHSA-cfh3-3jmp-rvhc
+    "protobuf>=5.29.6", # Address CVE GHSA-8qvm-5x2c-j2w7
+    "pyasn1>=0.6.2", # Address CVE GHSA-63vm-454h-vhhq
+    "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
+    "ray[default,data]>=2.52", # Address CVE GHSA-q279-jhrf-cc6v
+    "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
+    "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
+    "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
     "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
 ]
 override-dependencies = [
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
+    "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
-    "transformers==4.55.2",
+    "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
+    "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
+    "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
+    "transformers<=4.55.2", # Else Cosmos Embed imports fail
 ]
 
 
@@ -230,7 +259,7 @@ ignore = [
     "G",  # no enforcement during logging
     "FBT",  # allow booleans in function / class arguments
     "T20",  # allow printing
-    "E501",  # Allow line length violations, leave it to Black
+    "E501",  # allow line length violations, leave it to Black
     "ANN002",  # don't annotate **args
     "ANN003",  # don't annotate **kwargs
     "ANN204",  # don't annotate self/cls/special methods (__new__)
@@ -239,13 +268,13 @@ ignore = [
     "RET505", "RET506", "RET507", "RET508",  # allow branching (if else after return)
     "PGH004",  # allow generic noqa
     "PD901",  # allow naming dataframes df
-    "TD002",  # Allow TODO without author
-    "TD003",  # Allow TODO without link
-    "TRY003", # Allow long exception messages rather than creating a new exception class
-    "FIX002",  # Allow TODO to exist,
-    "EXE002", # Don't require for a shebang to be present if it's executable
-    "COM812", # Disable the trailing comma in linter, because ruff formatter ensures it
-    "SLF001", # Allow accessing private attributes
+    "TD002",  # allow TODO without author
+    "TD003",  # allow TODO without link
+    "TRY003", # allow long exception messages rather than creating a new exception class
+    "FIX002",  # allow TODO to exist,
+    "EXE002", # don't require for a shebang to be present if it's executable
+    "COM812", # disable the trailing comma in linter, because ruff formatter ensures it
+    "SLF001", # allow accessing private attributes
 ]
 fixable = ["ALL"]
 
@@ -253,20 +282,22 @@ fixable = ["ALL"]
 [tool.ruff.lint.extend-per-file-ignores]
 "nemo_curator/__init__.py" = ["F401"]
 "examples/**" = [
-    "INP001", # No __init__.py is required
+    "INP001", # no __init__.py is required
 ]
 "tests/**/*.py" = [
-    "S101", # asserts allowed in tests...
-    "ANN201", # Allow methods to not return something
-    "PLR2004", # Magic value used in comparison, ...
+    "S101", # asserts allowed in tests
+    "ANN201", # allow methods to not return something
+    "PLR2004", # magic value used in comparison
+    "ERA001", # allow commented-out code
 ]
 "tutorials/**" = [
-    "INP001", # No __init__.py is required
-    "PLE2515", # Ignore \u200b complaint
+    "INP001", # no __init__.py is required
+    "PLE2515", # ignore \u200b complaint
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
+    "asyncio",
     "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
 ]

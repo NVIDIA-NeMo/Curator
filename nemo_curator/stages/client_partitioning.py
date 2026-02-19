@@ -35,7 +35,7 @@ class ClientPartitioningStage(FilePartitioningStage):
     """
 
     input_list_json_path: str | None = None
-    _name: str = "client_partitioning"
+    name: str = "client_partitioning"
     # internal
     _fs: fsspec.AbstractFileSystem | None = field(default=None, init=False, repr=False)
     _root: str | None = field(default=None, init=False, repr=False)

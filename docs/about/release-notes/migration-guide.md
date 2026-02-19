@@ -15,7 +15,7 @@ modality: "universal"
 This guide explains how to transition existing Dask-based NeMo Curator workflows to the new Ray-based pipeline architecture.
 
 ```{seealso}
-For broader NeMo Framework migration topics, refer to the [NeMo Framework 2.0 Migration Guide](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemo-2.0/migration/index.html).
+For broader NeMo Framework migration topics, refer to the [NeMo Framework 2.0 Migration Guide](https://docs.nvidia.com/nemo-framework/user-guide/25.11/nemo-2.0/migration/index.html).
 ```
 
 ## Overview
@@ -247,7 +247,7 @@ In the new version, data loading is encapsulated in a dedicated pipeline stage (
 ```python
 # New: Read images from webdataset tar files
 read_stage = ImageReaderStage(
-    task_batch_size=args.task_batch_size,
+    batch_size=args.batch_size,
     num_threads=16,
     num_gpus_per_worker=0.25,
 )

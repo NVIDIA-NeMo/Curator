@@ -112,8 +112,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         self.input_storage_options = self.read_kwargs.pop("storage_options", None)
         self.output_storage_options = self.write_kwargs.pop("storage_options", None)
 
-        self._name = "KMeansStage"
-        self._resources = Resources(cpus=1.0, gpus=1.0)
+        self.name = "KMeansStage"
+        self.resources = Resources(cpus=1.0, gpus=1.0)
 
     def process(self, task: FileGroupTask) -> _EmptyTask:
         msg = "KMeansReadFitWriteStage does not support single-task processing"
@@ -186,13 +186,15 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             embeddings_arrays.append(embeddings_array)
 
         t1 = time.perf_counter()
+        self._log_metrics({"kmeans_read_time": t1 - t0, "num_rows": sum(len(df) for df in all_dfs)})
         logger.debug(f"Read time: {(t1 - t0):.2f} seconds")
         # Fit the model cooperatively across actors, then predict on local data
         concatenated_embeddings = cp.concatenate(embeddings_arrays, axis=0)
-        self.kmeans.fit(concatenated_embeddings, sample_weight=None)
-        labels = self.kmeans.predict(concatenated_embeddings).astype(cp.int32)
+        self.kmeans._fit(concatenated_embeddings, sample_weight=None, convert_dtype=False, multigpu=True)
+        labels = self.kmeans.predict(concatenated_embeddings, convert_dtype=False).astype(cp.int32)
 
         t2 = time.perf_counter()
+        self._log_metric("kmeans_fit_predict_time", t2 - t1)
         logger.info(f"KMeans fit+predict time: {(t2 - t1):.2f} seconds")
 
         results = []
@@ -228,12 +230,13 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
                 )
             )
         t3 = time.perf_counter()
+        self._log_metric("kmeans_write_time", t3 - t2)
         logger.info(f"Write time: {(t3 - t2):.2f} seconds")
 
         return results
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        from cuml.cluster.kmeans_mg import KMeansMG as cumlKMeans
+        from cuml.cluster.kmeans import KMeans as cumlKMeans
 
         if not hasattr(self, "_raft_handle"):
             msg = "RAFT handle not found. Make sure the stage is initialized with RAFT"
@@ -246,11 +249,11 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             n_clusters=self.n_clusters,
             max_iter=self.max_iter,
             tol=self.tol,
+            random_state=self.random_state,
             verbose=self.verbose,
             n_init=self.n_init,
             oversampling_factor=self.oversampling_factor,
             max_samples_per_batch=self.max_samples_per_batch,
-            convert_dtype=False,
         )
 
     @staticmethod

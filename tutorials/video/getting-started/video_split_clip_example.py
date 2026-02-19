@@ -27,18 +27,6 @@ from nemo_curator.stages.video.embedding.cosmos_embed1 import (
     CosmosEmbed1EmbeddingStage,
     CosmosEmbed1FrameCreationStage,
 )
-
-try:
-    from nemo_curator.stages.video.embedding.internvideo2 import (
-        InternVideo2EmbeddingStage,
-        InternVideo2FrameCreationStage,
-    )
-except ImportError:
-    print("InternVideo2 is not installed")
-    InternVideo2EmbeddingStage = None
-    InternVideo2FrameCreationStage = None
-
-
 from nemo_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
 from nemo_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from nemo_curator.stages.video.io.clip_writer import ClipWriterStage
@@ -169,24 +157,6 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                     verbose=args.verbose,
                 )
             )
-        elif args.embedding_algorithm.startswith("internvideo2"):
-            if InternVideo2FrameCreationStage is None:
-                msg = "InternVideo2 is not installed, please consider installing it or using cosmos-embed1 instead."
-                raise ValueError(msg)
-            pipeline.add_stage(
-                InternVideo2FrameCreationStage(
-                    model_dir=args.model_dir,
-                    target_fps=2.0,
-                    verbose=args.verbose,
-                )
-            )
-            pipeline.add_stage(
-                InternVideo2EmbeddingStage(
-                    model_dir=args.model_dir,
-                    gpu_memory_gb=args.embedding_gpu_memory_gb,
-                    verbose=args.verbose,
-                )
-            )
         else:
             msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
             raise ValueError(msg)
@@ -245,7 +215,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
 
     pipeline.add_stage(
         ClipWriterStage(
-            output_path=args.output_clip_path,
+            output_path=args.output_path,
             input_path=args.video_dir,
             upload_clips=args.upload_clips,
             dry_run=args.dry_run,
@@ -280,8 +250,15 @@ def main(args: argparse.Namespace) -> None:
     print("\nPipeline completed!")
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0915
+    """Create and return the argument parser for video splitting pipeline.
+
+    This function is extracted to allow reuse by other scripts (e.g., benchmarks).
+    """
+    parser = argparse.ArgumentParser(
+        description="Split videos into clips with optional embeddings, captions, and filtering.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     # General arguments
     parser.add_argument("--video-dir", type=str, required=True, help="Path to input video directory")
     parser.add_argument(
@@ -293,7 +270,6 @@ if __name__ == "__main__":
             "Models will be automatically downloaded on first use if not present. "
             "Required models depend on selected algorithms:\n"
             "  - TransNetV2: For scene detection (--splitting-algorithm transnetv2)\n"
-            "  - InternVideo2: For embeddings (--embedding-algorithm internvideo2)\n"
             "  - Cosmos-Embed1: For embeddings (--embedding-algorithm cosmos-embed1-*)\n"
             "  - Qwen: For captioning (--generate-captions)\n"
             "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
@@ -303,7 +279,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--video-limit", type=int, default=None, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
-    parser.add_argument("--output-clip-path", type=str, help="Path to output clips", required=True)
+    parser.add_argument("--output-path", type=str, help="Path to output clips", required=True)
 
     parser.add_argument(
         "--no-upload-clips",
@@ -316,7 +292,7 @@ if __name__ == "__main__":
         "--dry-run",
         action="store_true",
         default=False,
-        help="If set only write minimum metadata",
+        help="If set, only write minimum metadata",
     )
 
     # Splitting parameters
@@ -343,14 +319,14 @@ if __name__ == "__main__":
         "--limit-clips",
         type=int,
         default=0,
-        help="limit number of clips from each input video to process. 0 means no limit.",
+        help="Limit number of clips from each input video to process. 0 means no limit.",
     )
     parser.add_argument(
         "--transnetv2-frame-decoder-mode",
         type=str,
         default="pynvc",
         choices=["pynvc", "ffmpeg_gpu", "ffmpeg_cpu"],
-        help="Choose between ffmpeg on CPU or GPU or PyNvVideoCodec for video decode.",
+        help="Choose between FFmpeg on CPU or GPU or PyNvVideoCodec for video decode.",
     )
     parser.add_argument(
         "--transnetv2-threshold",
@@ -395,7 +371,7 @@ if __name__ == "__main__":
         "--transcode-cpus-per-worker",
         type=float,
         default=6.0,
-        help="Number of CPU threads per worker. The stage uses a batched ffmpeg "
+        help="Number of CPU threads per worker. The stage uses a batched FFmpeg "
         "commandline with batch_size (-transcode-ffmpeg-batch-size) of ~64 and per-batch thread count of 1.",
     )
     parser.add_argument(
@@ -403,26 +379,26 @@ if __name__ == "__main__":
         type=str,
         default="libopenh264",
         choices=["libopenh264", "h264_nvenc", "libx264"],
-        help="Codec for transcoding clips; None to skip transocding.",
+        help="Codec for transcoding clips; None to skip transcoding.",
     )
     parser.add_argument(
         "--transcode-encoder-threads",
         type=int,
         default=1,
-        help="Number of threads per ffmpeg encoding sub-command for transcoding clips.",
+        help="Number of threads per FFmpeg encoding sub-command for transcoding clips.",
     )
     parser.add_argument(
         "--transcode-ffmpeg-batch-size",
         type=int,
         default=16,
-        help="FFMPEG batchsize for transcoding clips. Each clip/sub-command in "
+        help="FFmpeg batchsize for transcoding clips. Each clip/sub-command in "
         "the batch uses --transcode-encoder-threads number of CPU threads",
     )
     parser.add_argument(
         "--transcode-use-hwaccel",
         action="store_true",
         default=False,
-        help="Whether to use cuda acceleration for decoding in transcoding stage.",
+        help="Whether to use CUDA acceleration for decoding in transcoding stage.",
     )
     parser.add_argument(
         "--transcode-use-input-video-bit-rate",
@@ -533,7 +509,7 @@ if __name__ == "__main__":
         "--embedding-algorithm",
         type=str,
         default="cosmos-embed1-224p",
-        choices=["cosmos-embed1-224p", "cosmos-embed1-336p", "cosmos-embed1-448p", "internvideo2"],
+        choices=["cosmos-embed1-224p", "cosmos-embed1-336p", "cosmos-embed1-448p"],
         help="Embedding algorithm to use.",
     )
     parser.add_argument(
@@ -634,7 +610,7 @@ if __name__ == "__main__":
         dest="captioning_model_does_preprocess",
         action="store_true",
         default=False,
-        help="If set, Captioning model will handle preprocessing (resize, rescale, normalize) instead of our code.",
+        help="If set, captioning model will handle preprocessing (resize, rescale, normalize) instead of our code.",
     )
     parser.add_argument(
         "--captioning-stage2-caption",
@@ -671,7 +647,7 @@ if __name__ == "__main__":
         "--captioning-use-vllm-mmcache",
         action="store_true",
         default=False,
-        help="vLLM MultiModal Cache Usage, default disabled for better performance and GPU Utilization",
+        help="vLLM MultiModal Cache Usage, default disabled for better performance and GPU utilization",
     )
     # Caption enhancement arguments
     parser.add_argument(
@@ -721,7 +697,7 @@ if __name__ == "__main__":
         "--enhance-captions-prompt-text",
         type=str,
         default=None,
-        help="Prompt text for further enhancing captions using EnhanceCaptionStage w/ Qwen-LM.",
+        help="Prompt text for further enhancing captions using EnhanceCaptionStage with Qwen-LM.",
     )
     parser.add_argument(
         "--enhanced-caption-models",
@@ -730,5 +706,10 @@ if __name__ == "__main__":
         choices=["qwen_lm"],
         help="Enhanced LLM models to use to improve captions",
     )
+    return parser
+
+
+if __name__ == "__main__":
+    parser = create_video_splitting_argparser()
     args = parser.parse_args()
     main(args)

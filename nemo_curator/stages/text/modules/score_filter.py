@@ -49,10 +49,10 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
     score_fn: Callable[[str], float | str] | DocumentFilter | list[DocumentFilter]
     score_field: str | list[str]
     text_field: str | list[str] = "text"
-    _name: str = "score_fn"
+    name: str = "score_fn"
 
     def __post_init__(self):
-        self._name, self.score_fn, self.text_field, _, self.score_field = _validate_and_normalize_filters(
+        self.name, self.score_fn, self.text_field, _, self.score_field = _validate_and_normalize_filters(
             self.score_fn, self.text_field, None, self.score_field, "score"
         )
 
@@ -144,10 +144,10 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
     filter_fn: Callable | DocumentFilter | list[DocumentFilter]
     filter_field: str | list[str]
     invert: bool | list[bool] = False
-    _name: str = "filter_fn"
+    name: str = "filter_fn"
 
     def __post_init__(self):
-        self._name, self.filter_fn, self.filter_field, self.invert, _ = _validate_and_normalize_filters(
+        self.name, self.filter_fn, self.filter_field, self.invert, _ = _validate_and_normalize_filters(
             self.filter_fn, self.filter_field, self.invert, None, "filter"
         )
 
@@ -244,10 +244,10 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     text_field: str | list[str] = "text"
     score_field: str | list[str] | None = None
     invert: bool | list[bool] = False
-    _name: str = "score_filter"
+    name: str = "score_filter"
 
     def __post_init__(self):
-        self._name, self.filter_obj, self.text_field, self.invert, self.score_field = _validate_and_normalize_filters(
+        self.name, self.filter_obj, self.text_field, self.invert, self.score_field = _validate_and_normalize_filters(
             self.filter_obj, self.text_field, self.invert, self.score_field, "score_filter"
         )
 

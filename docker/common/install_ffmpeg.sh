@@ -15,7 +15,7 @@
 #!/bin/bash
 set -xeuo pipefail # Exit immediately if a command exits with a non-zero status
 
-FFMPEG_VERSION=7.0.1
+FFMPEG_VERSION=8.0.1
 NVCODEC_VERSION=12.1.14.0
 
 for i in "$@"; do
@@ -49,6 +49,7 @@ apt-get install -y \
     libvorbis-dev \
     libvpx-dev \
     libwebp-dev \
+    nasm \
     pkg-config \
     vainfo \
     wget \
@@ -62,7 +63,7 @@ cd /tmp/nv-codec-headers-${NVCODEC_VERSION}
 make
 make install
 
-# INSTALL FFMPEG
+# Install FFMPEG
 wget -O /tmp/ffmpeg-snapshot.tar.bz2 https://www.ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.bz2
 tar xjvf /tmp/ffmpeg-snapshot.tar.bz2 -C /tmp/
 cd /tmp/ffmpeg-${FFMPEG_VERSION}

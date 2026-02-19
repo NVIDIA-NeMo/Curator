@@ -12,11 +12,11 @@ modality: "image-only"
 
 # Get Started with Image Curation
 
-This guide helps you set up and get started with NeMo Curator's image curation capabilities. Follow these steps to prepare your environment and run your first image curation pipeline.
+This guide provides step-by-step instructions for setting up NeMo Curator’s image curation capabilities. Follow these instructions to prepare your environment and execute your first image curation pipeline.
 
 ## Prerequisites
 
-To use NeMo Curator's image curation modules, ensure you meet the following requirements:
+Ensure your environment meets the following prerequisites for NeMo Curator image curation modules:
 
 * Python 3.10, 3.11, or 3.12
   * packaging >= 22.0
@@ -26,7 +26,7 @@ To use NeMo Curator's image curation modules, ensure you meet the following requ
   * CUDA 12 (or above)
 
 :::{tip}
-If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
+If `uv` is not installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
 
 ```bash
 curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
@@ -39,7 +39,7 @@ source $HOME/.local/bin/env
 
 ## Installation Options
 
-You can install NeMo Curator in three ways:
+You can install NeMo Curator using one of the following methods:
 
 ::::{tab-set}
 
@@ -85,7 +85,7 @@ docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version 
 ```
 
 ```{seealso}
-For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments-main).
+For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments).
 ```
 
 :::
@@ -114,6 +114,24 @@ For this example, you'll need:
 
 Here's a simple example to get started with NeMo Curator's image curation pipeline:
 
+:::{note}
+**CPU Memory Considerations**
+
+Image loading and decoding happens in CPU memory before GPU processing. If you encounter out-of-memory errors during the `ImageReaderStage`, reduce:
+- `batch_size`: Number of images per batch (reduce to 32-50 for systems with limited RAM)
+- `num_threads`: Parallel decoding threads (reduce to 4 for systems with limited RAM)
+- `num_cpus`: Ray Client CPU allocation (reduce to 8-16 for systems with limited RAM)
+
+The example below uses conservative defaults suitable for most systems. For high-memory systems, you can increase these values for better performance.
+
+To configure Ray with limited CPU resources:
+```python
+from nemo_curator.core.client import RayClient
+ray_client = RayClient(num_cpus=8)  # Adjust based on available CPU cores
+ray_client.start()
+```
+:::
+
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
@@ -136,9 +154,9 @@ pipeline.add_stage(FilePartitioningStage(
 
 # Stage 2: Read images from tar files using DALI
 pipeline.add_stage(ImageReaderStage(
-    task_batch_size=100,
+    batch_size=50,
     verbose=True,
-    num_threads=8,
+    num_threads=4,
     num_gpus_per_worker=0.25,
 ))
 
@@ -212,7 +230,7 @@ wget -O ~/nemo_curator/image_curation_example.py https://raw.githubusercontent.c
 
 # Run with your data
 python ~/nemo_curator/image_curation_example.py \
-    --input-tar-dataset-dir ~/nemo_curator/data/tar_archives \
+    --input-wds-dataset-dir ~/nemo_curator/data/tar_archives \
     --output-dataset-dir ~/nemo_curator/data/curated \
     --model-dir ~/nemo_curator/models \
     --aesthetic-threshold 0.5 \

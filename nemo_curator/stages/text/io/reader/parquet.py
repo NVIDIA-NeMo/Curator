@@ -37,7 +37,7 @@ class ParquetReaderStage(BaseReader):
         read_kwargs (dict[str, Any], optional): Keyword arguments for the underlying reader. Defaults to {}.
     """
 
-    _name: str = "parquet_reader"
+    name: str = "parquet_reader"
 
     def read_data(
         self,
@@ -59,7 +59,10 @@ class ParquetReaderStage(BaseReader):
         if "dtype_backend" not in read_kwargs:
             update_kwargs["dtype_backend"] = "pyarrow"
         read_kwargs.update(update_kwargs)
-        return pd.read_parquet(paths, **read_kwargs)
+        return pd.concat(
+            (pd.read_parquet(path, **read_kwargs) for path in paths),
+            ignore_index=True,
+        )
 
 
 @dataclass
@@ -80,7 +83,7 @@ class ParquetReader(CompositeStage[_EmptyTask, DocumentBatch]):
     task_type: Literal["document", "image", "video", "audio"] = "document"
     _generate_ids: bool = False
     _assign_ids: bool = False
-    _name: str = "parquet_reader"
+    name: str = "parquet_reader"
 
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""

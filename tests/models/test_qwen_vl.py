@@ -1,3 +1,5 @@
+# modality: video
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -128,11 +130,10 @@ class TestQwenVL:
             model=self.qwen_vl.weight_file,
             limit_mm_per_prompt={"image": 0, "video": 1},
             quantization="fp8",
-            max_seq_len_to_capture=32768,
             max_model_len=32768,
             gpu_memory_utilization=0.85,
             mm_processor_kwargs=expected_mm_processor_kwargs,
-            disable_mm_preprocessor_cache=False,
+            mm_processor_cache_gb=4,
             max_num_batched_tokens=32768,
         )
 
@@ -197,7 +198,7 @@ class TestQwenVL:
             "do_normalize": True,
         }
         assert call_args[1]["mm_processor_kwargs"] == expected_mm_processor_kwargs
-        assert call_args[1]["disable_mm_preprocessor_cache"] is True
+        assert call_args[1]["mm_processor_cache_gb"] == 0
 
     @patch("nemo_curator.models.qwen_vl.grouping.split_by_chunk_size")
     def test_generate_simple_case(self, mock_split_by_chunk_size: Mock) -> None:

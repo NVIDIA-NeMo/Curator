@@ -95,7 +95,7 @@ class ArxivDownloadExtractStage(DocumentDownloadExtractStage):
             record_limit=record_limit,
             add_filename_column=add_filename_column,
         )
-        self._name = "arxiv_pipeline"
+        self.name = "arxiv_pipeline"
 
     def decompose(self) -> list[ProcessingStage]:
         """Decompose this composite stage into its constituent stages."""

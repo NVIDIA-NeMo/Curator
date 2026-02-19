@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,20 +14,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
 import os
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
 
-cudf = pytest.importorskip("cudf", reason="ConnectedComponentsStage tests require cudf")
-cugraph = pytest.importorskip("cugraph", reason="ConnectedComponentsStage tests require cugraph")
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+    from nemo_curator.pipeline import Pipeline
+    from nemo_curator.stages.deduplication.fuzzy.connected_components import ConnectedComponentsStage
+    from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.deduplication.fuzzy.connected_components import ConnectedComponentsStage
-from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.tasks import FileGroupTask
 
 if TYPE_CHECKING:

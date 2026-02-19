@@ -91,11 +91,10 @@ class QwenVL(ModelInterface):
             model=self.weight_file,
             limit_mm_per_prompt={"image": 0, "video": 1},
             quantization="fp8" if self.fp8 else None,
-            max_seq_len_to_capture=32768,
             max_model_len=32768,
             gpu_memory_utilization=0.85,
             mm_processor_kwargs=mm_processor_kwargs,
-            disable_mm_preprocessor_cache=self.disable_mmcache,
+            mm_processor_cache_gb=0 if self.disable_mmcache else 4,
             max_num_batched_tokens=32768,
         )
         self.sampling_params = SamplingParams(

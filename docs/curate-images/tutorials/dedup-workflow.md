@@ -58,7 +58,7 @@ def create_image_embedding_pipeline(input_dir, embeddings_dir, model_dir):
     
     # Read images from tar archives
     pipeline.add_stage(ImageReaderStage(
-        task_batch_size=100,
+        batch_size=100,
         verbose=True,
         num_threads=16,
         num_gpus_per_worker=0.25,
@@ -181,46 +181,6 @@ dedup_workflow = create_deduplication_workflow(EMBEDDINGS_DIR, REMOVAL_DIR)
 dedup_workflow.run()
 ```
 
-### Parameters
-
-```{list-table}
-:header-rows: 1
-:widths: 20 15 15 50
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `input_path`
-  - str
-  - Required
-  - Path to directory containing embedding Parquet files
-* - `output_path`
-  - str
-  - Required
-  - Path to directory for duplicate removal results
-* - `id_field`
-  - str
-  - Required
-  - Column name containing image identifiers
-* - `embedding_field`
-  - str
-  - Required
-  - Column name containing embedding vectors
-* - `n_clusters`
-  - int
-  - 100
-  - Number of clusters for initial grouping (more clusters = faster processing but may miss some duplicates)
-* - `eps`
-  - float
-  - 0.01
-  - Similarity threshold (0–1). Lower values are more strict: `0.01` = very strict (near-identical), `0.05` = moderate (visually similar), `0.1` = loose (semantically related)
-* - `verbose`
-  - bool
-  - True
-  - Enable verbose logging for debugging
-```
-
 ---
 
 ## 3. Remove Duplicate Images
@@ -250,7 +210,7 @@ def create_image_removal_pipeline(input_dir, removal_dir, output_dir):
     
     # Read original images
     pipeline.add_stage(ImageReaderStage(
-        task_batch_size=100,
+        batch_size=100,
         verbose=True,
         num_threads=16,
         num_gpus_per_worker=0.25,
@@ -271,34 +231,6 @@ def create_image_removal_pipeline(input_dir, removal_dir, output_dir):
     ))
     
     return pipeline
-```
-
-### Parameters
-
-```{list-table}
-:header-rows: 1
-:widths: 20 15 15 50
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `removal_parquets_dir`
-  - str
-  - Required
-  - Directory containing Parquet files with image IDs to remove
-* - `duplicate_id_field`
-  - str
-  - `"id"`
-  - Name of the column containing image IDs to remove
-* - `verbose`
-  - bool
-  - False
-  - Enable verbose logging for debugging
-* - `num_workers_per_node`
-  - int | None
-  - None
-  - Number of workers per node for the stage (helps avoid OOM when multiple actors load the same removal Parquet files)
 ```
 
 ### Run the Removal Pipeline
@@ -351,7 +283,7 @@ def count_tar_files(directory):
     tar_files = glob(os.path.join(directory, "*.tar"))
     return len(tar_files)
 
-original_count = count_tar_files(INPUT_WDS_DIR)
+original_count = count_tar_files(INPUT_TAR_DIR)
 deduplicated_count = count_tar_files(OUTPUT_DIR)
 
 print(f"Original dataset: {original_count} tar files")
@@ -392,10 +324,10 @@ def run_image_deduplication_workflow():
     embedding_pipeline = Pipeline(name="embedding", description="Generate embeddings")
     
     embedding_pipeline.add_stage(FilePartitioningStage(
-        file_paths=INPUT_WDS_DIR, files_per_partition=1, file_extensions=[".tar"]
+        file_paths=INPUT_TAR_DIR, files_per_partition=1, file_extensions=[".tar"]
     ))
     embedding_pipeline.add_stage(ImageReaderStage(
-        task_batch_size=100, verbose=True, num_threads=16, num_gpus_per_worker=0.25
+        batch_size=100, verbose=True, num_threads=16, num_gpus_per_worker=0.25
     ))
     embedding_pipeline.add_stage(ImageEmbeddingStage(
         model_dir=MODEL_DIR, num_gpus_per_worker=0.25, 
@@ -428,10 +360,10 @@ def run_image_deduplication_workflow():
     removal_pipeline = Pipeline(name="removal", description="Remove duplicates")
     
     removal_pipeline.add_stage(FilePartitioningStage(
-        file_paths=INPUT_WDS_DIR, files_per_partition=1, file_extensions=[".tar"]
+        file_paths=INPUT_TAR_DIR, files_per_partition=1, file_extensions=[".tar"]
     ))
     removal_pipeline.add_stage(ImageReaderStage(
-        task_batch_size=100, verbose=True, num_threads=16, num_gpus_per_worker=0.25
+        batch_size=100, verbose=True, num_threads=16, num_gpus_per_worker=0.25
     ))
     removal_pipeline.add_stage(ImageDuplicatesRemovalStage(
         removal_parquets_dir=REMOVAL_DIR + "/duplicates",

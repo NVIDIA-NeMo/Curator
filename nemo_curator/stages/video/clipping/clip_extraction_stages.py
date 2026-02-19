@@ -61,7 +61,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     num_clips_per_chunk: int = 32
     ffmpeg_verbose: bool = False
     verbose: bool = False
-    _name: str = "clip_transcoding"
+    name: str = "clip_transcoding"
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Setup method called once before processing begins.
@@ -82,13 +82,13 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                 gpu_info = _get_local_gpu_info()[0]
                 nvencs = _make_gpu_resources_from_gpu_name(gpu_info.name).num_nvencs
                 gpu_memory_gb = _get_gpu_memory_gb()
-                self._resources = Resources(
+                self.resources = Resources(
                     nvencs=nvencs // self.nb_streams_per_gpu, gpu_memory_gb=gpu_memory_gb // self.nb_streams_per_gpu
                 )
             else:
-                self._resources = Resources(gpus=1)
+                self.resources = Resources(gpus=1)
         else:
-            self._resources = Resources(cpus=self.num_cpus_per_worker)
+            self.resources = Resources(cpus=self.num_cpus_per_worker)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["source_bytes"]
@@ -188,14 +188,14 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         use_bit_rate: str | None,
         clips: list[Clip],
     ) -> None:
-        """Extract clips using ffmpeg."""
-        # construct ffmpeg command
+        """Extract clips using FFmpeg."""
+        # Construct FFmpeg command
         command = self._build_ffmpeg_command(video_filename, clips, force_pix_fmt, use_bit_rate)
 
-        # run ffmpeg command
+        # Run FFmpeg command
         self._run_ffmpeg_command(command, working_dir, clips)
 
-        # read clips back into memory
+        # Read clips back into memory
         self._read_clips_to_memory(working_dir, clips)
 
     def _build_ffmpeg_command(
@@ -205,7 +205,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         force_pix_fmt: bool,
         use_bit_rate: str | None,
     ) -> list[str]:
-        """Build the ffmpeg command for extracting clips."""
+        """Build the FFmpeg command for extracting clips."""
         command = [
             "ffmpeg",
             "-hide_banner",
@@ -312,23 +312,23 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         )
 
     def _run_ffmpeg_command(self, command: list[str], working_dir: pathlib.Path, clips: list[Clip]) -> None:
-        """Run the ffmpeg command and handle errors."""
+        """Run the FFmpeg command and handle errors."""
         try:
             if self.verbose:
-                logger.info(f"Executing ffmpeg command: {' '.join(command)}")
+                logger.info(f"Executing FFmpeg command: {' '.join(command)}")
             output = subprocess.check_output(  # noqa: S603
                 command, cwd=working_dir, stderr=subprocess.STDOUT
             )
             if output and self.ffmpeg_verbose:
-                logger.warning(f"ffmpeg output: {output.decode('utf-8')}")
+                logger.warning(f"FFmpeg output: {output.decode('utf-8')}")
         except subprocess.CalledProcessError as e:
             self._handle_ffmpeg_error(e, command, clips)
 
     def _handle_ffmpeg_error(
         self, error: subprocess.CalledProcessError, command: list[str], clips: list[Clip]
     ) -> None:
-        """Handle ffmpeg command errors."""
-        logger.error(f"ffmpeg command failed with return code {error.returncode}")
+        """Handle FFmpeg command errors."""
+        logger.error(f"FFmpeg command failed with return code {error.returncode}")
         logger.error(f"Error: {error}")
         logger.warning(f"Command: {' '.join(command)}")
         if error.output:
@@ -356,7 +356,7 @@ class FixedStrideExtractorStage(ProcessingStage[VideoTask, VideoTask]):
     min_clip_length_s: float
     limit_clips: int
     verbose: bool = False
-    _name: str = "fixed_stride_extractor"
+    name: str = "fixed_stride_extractor"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

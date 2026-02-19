@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,30 +14,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
-
+from contextlib import suppress
 from pathlib import Path
 from typing import Literal
 
-import pytest
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    import cudf
 
-cudf = pytest.importorskip("cudf")
 import numpy as np
 import pandas as pd
+import pytest
 
-from nemo_curator.stages.deduplication.exact.workflow import ID_GENERATOR_OUTPUT_FILENAME, ExactDeduplicationWorkflow
-from nemo_curator.stages.deduplication.id_generator import (
-    CURATOR_DEDUP_ID_STR,
-    IdGeneratorBase,
-    create_id_generator_actor,
-    kill_id_generator_actor,
-)
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.deduplication.exact.workflow import (
+        ID_GENERATOR_OUTPUT_FILENAME,
+        ExactDeduplicationWorkflow,
+    )
+    from nemo_curator.stages.deduplication.id_generator import (
+        CURATOR_DEDUP_ID_STR,
+        IdGeneratorBase,
+        create_id_generator_actor,
+        kill_id_generator_actor,
+    )
+
 from nemo_curator.tasks import FileGroupTask
 
 
 def get_original_df_with_curator_ids(
     id_generator_path: str, tasks: list[FileGroupTask], filetype: Literal["parquet", "jsonl"]
-) -> cudf.DataFrame:
+) -> "cudf.DataFrame":
     """Get mapping from curator IDs to original IDs using IDGeneratorActor.
 
     Args:
@@ -125,7 +134,11 @@ class TestExactDuplicatesWorkflow:
             text_field="text",
             perform_removal=False,
         )
-        workflow.run(initial_tasks=exact_dedup_data_parquet)
+        result = workflow.run(initial_tasks=exact_dedup_data_parquet)
+        assert result.pipeline_tasks
+        assert result.get_metadata("total_time") > 0
+        expected_num_duplicates = 2
+        assert result.get_metadata("num_duplicates") == expected_num_duplicates
 
         original_df_with_curator_ids = (
             get_original_df_with_curator_ids(
@@ -145,6 +158,7 @@ class TestExactDuplicatesWorkflow:
         )
         removal_ids = set(removal_ids_df.id.to_arrow().to_pylist())
         duplicate_docs = [{1, -1}, {2, 4}]
+        assert len(removal_ids) == expected_num_duplicates
         # For every duplicate group assert that 1 document was not removed
         assert all(len(expected_group - removal_ids) == 1 for expected_group in duplicate_docs)
 
@@ -157,7 +171,10 @@ class TestExactDuplicatesWorkflow:
             perform_removal=False,
             input_path=str(tmpdir),
         )
-        workflow.run(initial_tasks=exact_no_dedup_data_jsonl)
+        result = workflow.run(initial_tasks=exact_no_dedup_data_jsonl)
+        assert result.pipeline_tasks
+        assert result.get_metadata("total_time") > 0
+        assert (result.get_metadata("num_duplicates") or 0) == 0
 
         removal_ids_df = cudf.read_parquet(tmpdir / "ExactDuplicateIds")
         assert len(removal_ids_df) == 0
