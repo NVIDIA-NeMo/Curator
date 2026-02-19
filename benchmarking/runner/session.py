@@ -37,7 +37,14 @@ from runner.utils import get_total_memory_bytes
 
 @dataclass(kw_only=True)
 class Session:
+    name: str | None = None
+    # results_path is typically the path to a directory of benchmark results, which contains one or more subdirs
+    # for individual session results. This is often shared by multiple sessions and requires mapping between
+    # host and container.
     results_path: Path
+    # output_path is the path to store all results for this session, typically a subdir of results_path.
+    # This often needs to be set after results_path is determined (e.g. after host/container mapping).
+    output_path: Path | None = None
     entries: list[Entry] = field(default_factory=list)
     sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
@@ -102,11 +109,11 @@ class Session:
         # Filter out data not needed for a Session object.
         sess_field_names = {f.name for f in fields(cls)}
         sess_data = {k: v for k, v in data.items() if k in sess_field_names}
-        sinks = cls.create_sinks_from_dict(sess_data.get("sinks", []))
 
+        sinks = cls.create_sinks_from_dict(sess_data.get("sinks", []))
         entries = [Entry.from_dict(e) for e in sess_data["entries"]]
 
-        # Filter entries based on the expression, if provided.
+        # Filter entries based on entry_filter_expr, if provided.
         # Example: expr "foo and not foobar" will include all entries
         # with "foo" in the name but not "foobar".
         if entry_filter_expr is not None:
@@ -126,6 +133,9 @@ class Session:
         sess_data["sinks"] = sinks
         sess_data["path_resolver"] = path_resolver
         sess_data["dataset_resolver"] = dataset_resolver
+        # Use the session results_path and name (both required) to create the session output_path,
+        # which assumes output_path must be a subdir of results_path.
+        sess_data["output_path"] = (sess_data["results_path"] / sess_data["name"]).absolute()
 
         return cls(**sess_data)
 
