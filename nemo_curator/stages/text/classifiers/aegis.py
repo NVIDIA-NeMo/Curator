@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -524,7 +524,8 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
         text_field (str): The field in the dataset that should be classified. Defaults to "text".
         filter_by (Optional[List[str]]): If specified, the resulting dataset will remove all values
             expect those specified in this list. Defaults to None.
-        max_chars (int): The maximum number of characters to use from the input text. Defaults to 6000.
+        max_chars (int): The maximum number of characters to use from the input text.
+            If None, text will not be truncated. Defaults to None.
         sort_by_length (bool): If True, will sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         model_inference_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
@@ -538,7 +539,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
     score_field: str = "instruction_data_guard_poisoning_score"
     text_field: str = "text"
     filter_by: list[str] | None = None
-    max_chars: int = 6000
+    max_chars: int | None = None
     sort_by_length: bool = True
     model_inference_batch_size: int = 64
     autocast: bool = True

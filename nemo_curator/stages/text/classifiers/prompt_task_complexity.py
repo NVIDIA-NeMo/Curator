@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -286,7 +286,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
             Not supported with PromptTaskComplexityClassifier (raises NotImplementedError).
         max_chars: Limits the total number of characters that can be fed to the tokenizer.
-            If None, text will not be truncated. Defaults to 2000.
+            If None, text will not be truncated. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
@@ -298,7 +298,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
     cache_dir: str | None = None
     text_field: str = "text"
     filter_by: list[str] | None = None
-    max_chars: int = 2000
+    max_chars: int | None = None
     sort_by_length: bool = True
     model_inference_batch_size: int = 256
     autocast: bool = True
