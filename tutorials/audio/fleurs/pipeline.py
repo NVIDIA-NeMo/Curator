@@ -31,11 +31,8 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 
 
 def create_audio_pipeline(args: argparse.Namespace) -> Pipeline:
-    # Define pipeline
     pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
 
-    # Add stages
-    # Add the composite stage that combines reading and downloading
     pipeline.add_stage(
         CreateInitialManifestFleursStage(
             lang=args.lang,
@@ -74,19 +71,12 @@ def main(args: argparse.Namespace) -> None:
     logger.add(sys.stderr, level="DEBUG" if args.verbose else "INFO")
 
     pipeline = create_audio_pipeline(args)
-
-    # Print pipeline description
     logger.info(pipeline.describe())
     logger.info("\n" + "=" * 50 + "\n")
 
-    # Create executor
     executor = XennaExecutor()
-
-    # Execute pipeline
     logger.info("Starting pipeline execution...")
     pipeline.run(executor)
-
-    # Print results
     logger.info("\nPipeline completed!")
 
 

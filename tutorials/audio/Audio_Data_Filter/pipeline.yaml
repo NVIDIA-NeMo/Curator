@@ -1,0 +1,102 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  Audio Data Filtration Pipeline
+  ##############################
+  This config uses the AudioDataFilterStage for audio curation with
+  consistent timestamp mapping throughout all transformations.
+
+  Timestamp Mapping:
+    All output segments contain accurate original_start_ms and original_end_ms
+    values that point back to the source audio file, maintained via TimestampTracker.
+
+  The pipeline performs:
+  1. Mono conversion and sample rate verification
+  2. VAD segmentation (optional)
+  3. Quality filtering (NISQA, SIGMOS, Band)
+  4. Concatenation with timestamp tracking
+  5. Speaker separation (optional)
+  6. Per-speaker VAD and quality filtering
+  7. Timestamp mapping back to original file positions
+
+  **Required arguments**.
+
+  * **raw_data_dir**: specify the directory where audio files are located.
+
+  **Output format**
+
+  Output manifest contains timestamp-mapped fields:
+
+  * **original_file (str)**: path to the source audio file.
+  * **original_start_ms (int)**: start position in source file (ms).
+  * **original_end_ms (int)**: end position in source file (ms).
+  * **duration_sec (float)**: segment duration in seconds.
+  * **speaker_id (str)**: speaker identifier (if enabled).
+  * **nisqa_mos (float)**: NISQA MOS score (if enabled).
+  * **sigmos_noise (float)**: SIGMOS noise score (if enabled).
+
+processors_to_run: all
+raw_data_dir: ???
+output_dir: ${raw_data_dir}/result
+
+cpus: 4.0
+gpus: 1.0
+
+# Set to null for all supported formats, or specify a list: [".wav", ".mp3", ".flac"]
+input_formats: null
+output_format: wav
+
+sample_rate: 48000
+
+enable_vad: true
+vad_min_duration_sec: 2.0
+vad_max_duration_sec: 60.0
+vad_threshold: 0.5
+
+enable_nisqa: true
+nisqa_mos_threshold: 4.5
+nisqa_noi_threshold: 4.3
+
+enable_sigmos: true
+sigmos_noise_threshold: 4.0
+sigmos_ovrl_threshold: 3.5
+
+enable_band_filter: true
+band_value: full_band
+
+enable_speaker_separation: true
+speaker_min_duration: 0.8
+speaker_exclude_overlaps: true
+
+processors:
+  - _target_: nemo_curator.stages.audio.AudioDataFilterStage
+    config:
+      _target_: nemo_curator.stages.audio.AudioDataFilterConfig
+      cpus: ${cpus}
+      gpus: ${gpus}
+      sample_rate: ${sample_rate}
+      output_format: ${output_format}
+      enable_vad: ${enable_vad}
+      vad_min_duration_sec: ${vad_min_duration_sec}
+      vad_max_duration_sec: ${vad_max_duration_sec}
+      vad_threshold: ${vad_threshold}
+      enable_band_filter: ${enable_band_filter}
+      band_value: ${band_value}
+      enable_nisqa: ${enable_nisqa}
+      nisqa_mos_threshold: ${nisqa_mos_threshold}
+      nisqa_noi_threshold: ${nisqa_noi_threshold}
+      enable_sigmos: ${enable_sigmos}
+      sigmos_noise_threshold: ${sigmos_noise_threshold}
+      sigmos_ovrl_threshold: ${sigmos_ovrl_threshold}
+      enable_speaker_separation: ${enable_speaker_separation}
+      speaker_min_duration: ${speaker_min_duration}
+      speaker_exclude_overlaps: ${speaker_exclude_overlaps}
+
