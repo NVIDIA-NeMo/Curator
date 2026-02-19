@@ -39,8 +39,23 @@ RUN cd /opt/Curator \
     slack_sdk \
   && uv cache prune
 
-# Add the Curator repo to the safe.directory list to avoid GitPython warnings
+# Copy the nemo_curator/config directory only if it does not already exist in the image.
+# This is not in pre-26.02 images and some newer benchmark scripts require it.
+COPY nemo_curator/config /tmp/config
+RUN if [ ! -d /opt/Curator/nemo_curator/config ]; then \
+      echo "Copying nemo_curator/config directory to /opt/Curator..."; \
+      mv /tmp/config /opt/Curator/nemo_curator; \
+    else \
+      echo "nemo_curator/config already exists in image, skipping copy"; \
+      rm -rf /tmp/config; \
+    fi
+
+# Use the latest benchmarking tools, do not assume they are already in the image and up-to-date.
+RUN rm -rf /opt/Curator/benchmarking
+COPY benchmarking /opt/Curator/benchmarking
+
+# Add the Curator repo to the safe.directory list to avoid git warnings
 RUN git config --global --add safe.directory /opt/Curator
 
- # Set the entrypoint to the main benchmarking runner script
+# Set the entrypoint to the main benchmarking runner script
 ENTRYPOINT ["python", "/opt/Curator/benchmarking/run.py"]

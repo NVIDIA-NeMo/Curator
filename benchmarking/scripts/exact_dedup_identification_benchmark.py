@@ -19,6 +19,7 @@ and logs results to configured sinks.
 """
 
 import argparse
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -61,10 +62,27 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
         run_time_taken = time.perf_counter() - run_start_time
 
         # Extract metrics from workflow result metadata
-        num_duplicates = workflow_result.metadata.get("num_duplicates", 0)
-        identification_time = workflow_result.metadata.get("identification_time", 0.0)
-        input_filegroups_time = workflow_result.metadata.get("input_filegroups_time", 0.0)
+        if workflow_result is not None:
+            num_duplicates = workflow_result.metadata.get("num_duplicates", 0)
+            identification_time = workflow_result.metadata.get("identification_time", 0.0)
+            input_filegroups_time = workflow_result.metadata.get("input_filegroups_time", 0.0)
+        else:
+            import pyarrow.parquet as pq
 
+            from nemo_curator.utils.file_utils import get_all_file_paths_under
+
+            num_duplicates = sum(
+                [
+                    pq.read_metadata(path).num_rows
+                    for path in get_all_file_paths_under(
+                        os.path.join(output_path, "ExactDuplicateIds"),
+                        recurse_subdirectories=True,
+                        keep_extensions="parquet",
+                    )
+                ]
+            )
+            identification_time = 0.0
+            input_filegroups_time = 0.0
         success = True
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Found {num_duplicates} exact duplicates")

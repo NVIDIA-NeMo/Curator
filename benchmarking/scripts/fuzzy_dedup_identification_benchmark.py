@@ -21,6 +21,7 @@ using TaskPerfUtils and logs results to configured sinks.
 """
 
 import argparse
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -67,11 +68,31 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     run_time_taken = time.perf_counter() - run_start_time
 
     # Extract metrics
-    workflow_total_time = workflow_run_result.metadata.get("total_time")
-    minhash_time = workflow_run_result.metadata.get("minhash_time")
-    lsh_time = workflow_run_result.metadata.get("lsh_time")
-    connected_components_time = workflow_run_result.metadata.get("connected_components_pipeline_time")
-    num_duplicates = workflow_run_result.metadata.get("num_duplicates")
+    if workflow_run_result is not None:
+        workflow_total_time = workflow_run_result.metadata.get("total_time")
+        minhash_time = workflow_run_result.metadata.get("minhash_time")
+        lsh_time = workflow_run_result.metadata.get("lsh_time")
+        connected_components_time = workflow_run_result.metadata.get("connected_components_pipeline_time")
+        num_duplicates = workflow_run_result.metadata.get("num_duplicates")
+    else:
+        import pyarrow.parquet as pq
+
+        from nemo_curator.utils.file_utils import get_all_file_paths_under
+
+        num_duplicates = sum(
+            [
+                pq.read_metadata(path).num_rows
+                for path in get_all_file_paths_under(
+                    os.path.join(output_path, "FuzzyDuplicateIds"),
+                    recurse_subdirectories=True,
+                    keep_extensions="parquet",
+                )
+            ]
+        )
+        minhash_time = 0.0
+        lsh_time = 0.0
+        connected_components_time = 0.0
+        workflow_total_time = 0.0
 
     minhash_percent_time = None
     lsh_percent_time = None

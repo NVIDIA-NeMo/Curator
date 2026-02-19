@@ -20,14 +20,18 @@ import shutil
 import sys
 import time
 import traceback
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import yaml
 from loguru import logger
 
-from nemo_curator.pipeline.workflow import WorkflowRunResult
+import nemo_curator
+
+try:
+    from nemo_curator.pipeline.workflow import WorkflowRunResult
+except ModuleNotFoundError:
+    WorkflowRunResult = None
 from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
@@ -51,6 +55,7 @@ from runner.ray_cluster import (
 )
 from runner.session import Session
 from runner.utils import find_result, get_obj_for_json, remove_disabled_blocks, resolve_env_vars
+from scripts.utils import aggregate_task_metrics as aggregate_task_metrics_for_legacy
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -83,7 +88,14 @@ def get_entry_script_persisted_data(session_entry_path: Path) -> dict[str, Any]:
     else:
         with open(tasks_pkl, "rb") as f:
             script_tasks = pickle.load(f)  # noqa: S301
-        if isinstance(script_tasks, (list, WorkflowRunResult, Mapping)):
+        if script_tasks is None:
+            pass
+        elif isinstance(script_tasks, (dict, list)):
+            # Fallback to the local copy of aggregate_task_metrics
+            # This should provide some amount of backwards compatibility with older versions of nemo-curator, but has the disadvantage of possibly being out of date with the latest changes.
+            script_metrics.update(aggregate_task_metrics_for_legacy(script_tasks, prefix="task"))
+        # Modern
+        elif hasattr(TaskPerfUtils, "aggregate_task_metrics"):
             script_metrics.update(TaskPerfUtils.aggregate_task_metrics(script_tasks, prefix="task"))
         else:
             msg = f"Invalid tasks type loaded from {tasks_pkl}: {type(script_tasks)}"
@@ -195,6 +207,7 @@ def run_entry(
         # Execute command with timeout
         logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
+
         run_data = run_command_with_timeout(
             command=cmd,
             timeout=entry.timeout_s,
@@ -256,6 +269,7 @@ def run_entry(
 
 
 def main() -> int:  # noqa: C901, PLR0912
+    logger.info(f"Using nemo-curator version: {nemo_curator.__version__}\n")
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",

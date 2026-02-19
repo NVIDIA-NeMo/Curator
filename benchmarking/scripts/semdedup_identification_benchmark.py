@@ -98,13 +98,23 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     workflow_run_result = workflow.run(pairwise_executor=executor_obj)
 
     run_time_taken = time.perf_counter() - run_start_time
-    task_metrics = TaskPerfUtils.aggregate_task_metrics(workflow_run_result)
+    try:
+        task_metrics = TaskPerfUtils.aggregate_task_metrics(workflow_run_result)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Failed to aggregate task metrics: {e}")
+        task_metrics = {}
 
     # Extract metrics from workflow result
-    workflow_total_time = workflow_run_result.metadata.get("total_time")
-    kmeans_time = workflow_run_result.metadata.get("kmeans_time")
-    pairwise_time = workflow_run_result.metadata.get("pairwise_time")
-    num_duplicates = workflow_run_result.metadata.get("num_duplicates")
+    if isinstance(workflow_run_result, dict):
+        workflow_total_time = workflow_run_result.get("total_execution_time")
+        kmeans_time = workflow_run_result.get("kmeans_execution_time")
+        pairwise_time = workflow_run_result.get("pairwise_execution_time")
+        num_duplicates = workflow_run_result.get("total_duplicates_identified")
+    else:
+        workflow_total_time = workflow_run_result.metadata.get("total_time")
+        kmeans_time = workflow_run_result.metadata.get("kmeans_time")
+        pairwise_time = workflow_run_result.metadata.get("pairwise_time")
+        num_duplicates = workflow_run_result.metadata.get("num_duplicates")
 
     # Calculate percentage times
     pairwise_percent_time = None
@@ -115,7 +125,7 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         kmeans_fit_predict_time = task_metrics.get("kmeans_KMeansStage_custom.kmeans_fit_predict_time_mean", 0)
         # this is different than kmeans_time because kmeans_time also includes setting up actors
         # while this is just sum of mean time taken across actors across the three steps
-        _kmeans_time_taken = kmeans_read_time + kmeans_write_time + kmeans_fit_predict_time
+        _kmeans_time_taken = kmeans_read_time + kmeans_write_time + kmeans_fit_predict_time + 0.0001
 
         kmeans_read_percent_time = round((kmeans_read_time / _kmeans_time_taken) * 100, 2)
         kmeans_write_percent_time = round((kmeans_write_time / _kmeans_time_taken) * 100, 2)
@@ -123,6 +133,15 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
 
         kmeans_percent_time = round((kmeans_time / workflow_total_time) * 100, 2)
         pairwise_percent_time = round((pairwise_time / workflow_total_time) * 100, 2)
+    else:
+        kmeans_read_time = None
+        kmeans_write_time = None
+        kmeans_fit_predict_time = None
+        kmeans_read_percent_time = None
+        kmeans_write_percent_time = None
+        kmeans_fit_predict_percent_time = None
+        kmeans_percent_time = None
+        pairwise_percent_time = None
 
     logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
 
