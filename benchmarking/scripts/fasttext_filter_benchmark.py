@@ -106,7 +106,7 @@ def run_fasttext_filter_benchmark(  # noqa: PLR0913
 
         success = True
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.error(f"Benchmark failed: {e}")
         logger.debug(traceback.format_exc())
         output_tasks = []
@@ -176,7 +176,7 @@ def main() -> int:
             fasttext_quality_model_path=args.fasttext_quality_model_path,
             overrides=args.overrides,
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         results = {
             "params": vars(args),
             "metrics": {"is_success": False},

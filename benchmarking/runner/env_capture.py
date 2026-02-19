@@ -98,7 +98,7 @@ def get_git_commit_string() -> str:
     try:
         repo = git.Repo(Path(__file__).parent, search_parent_directories=True)
         commit_str = repo.head.commit.hexsha
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"Failed to get git commit string: {e}")
         commit_str = "unknown"
 
@@ -125,7 +125,7 @@ def get_gpu_info_string() -> str:
             gpu_info_str = ", ".join(counts)
         else:
             gpu_info_str = "No GPUs found"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"Failed to get GPU info: {e}")
         gpu_info_str = "unknown"
 

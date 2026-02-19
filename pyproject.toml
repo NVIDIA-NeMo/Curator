@@ -266,7 +266,7 @@ ignore = [
     "PERF401",  # don't enforce list comprehension
     "RET505", "RET506", "RET507", "RET508",  # allow branching (if else after return)
     "PGH004",  # allow generic noqa
-    "PD901",  # allow naming dataframes df
+
     "TD002",  # allow TODO without author
     "TD003",  # allow TODO without link
     "TRY003", # allow long exception messages rather than creating a new exception class
@@ -274,6 +274,7 @@ ignore = [
     "EXE002", # don't require for a shebang to be present if it's executable
     "COM812", # disable the trailing comma in linter, because ruff formatter ensures it
     "SLF001", # allow accessing private attributes
+    "PLC0415", # allow imports inside functions (lazy imports for optional/heavy deps)
 ]
 fixable = ["ALL"]
 
@@ -288,6 +289,12 @@ fixable = ["ALL"]
     "ANN201", # allow methods to not return something
     "PLR2004", # magic value used in comparison
     "ERA001", # allow commented-out code
+]
+"benchmarking/**" = [
+    "BLE001", # allow catching blind exceptions (benchmark runners need catch-all error handling)
+]
+"docs/**" = [
+    "BLE001", # allow catching blind exceptions (Sphinx extensions need robust error handling)
 ]
 "tutorials/**" = [
     "INP001", # no __init__.py is required
