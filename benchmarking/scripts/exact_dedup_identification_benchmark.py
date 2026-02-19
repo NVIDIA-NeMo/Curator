@@ -69,7 +69,7 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Found {num_duplicates} exact duplicates")
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.error(f"Benchmark failed: {e}")
         success = False
         run_time_taken = time.perf_counter() - run_start_time
@@ -143,7 +143,7 @@ def main() -> int:
             id_field=args.id_field,
         )
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"Benchmark failed: {e}")
         results = {
             "params": vars(args),
