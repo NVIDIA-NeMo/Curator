@@ -224,6 +224,7 @@ class PromptTaskComplexityModelStage(ModelStage):
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -233,6 +234,7 @@ class PromptTaskComplexityModelStage(ModelStage):
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         autocast: bool = True,
+        drop_tokens: bool = True,
     ):
         super().__init__(
             model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
@@ -241,9 +243,10 @@ class PromptTaskComplexityModelStage(ModelStage):
             model_inference_batch_size=model_inference_batch_size,
             padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
             unpack_inference_batch=False,
+            autocast=autocast,
         )
 
-        self.autocast = autocast
+        self.drop_tokens = drop_tokens
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], OUTPUT_FIELDS
@@ -263,7 +266,8 @@ class PromptTaskComplexityModelStage(ModelStage):
         return outputs
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+        if self.drop_tokens:
+            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         for column in OUTPUT_FIELDS:
             df_cpu[column] = collected_output[column]
@@ -292,6 +296,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -302,6 +307,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
     sort_by_length: bool = True
     model_inference_batch_size: int = 256
     autocast: bool = True
+    drop_tokens: bool = True
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -327,6 +333,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 autocast=self.autocast,
+                drop_tokens=self.drop_tokens,
             ),
         ]
 

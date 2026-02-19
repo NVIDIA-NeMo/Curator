@@ -45,6 +45,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -59,6 +60,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 256,
         autocast: bool = True,
+        drop_tokens: bool = True,
     ):
         super().__init__(
             model_identifier=CONTENT_TYPE_MODEL_IDENTIFIER,
@@ -73,6 +75,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
+            drop_tokens=drop_tokens,
         )
 
         self.name = format_name_with_suffix(CONTENT_TYPE_MODEL_IDENTIFIER)

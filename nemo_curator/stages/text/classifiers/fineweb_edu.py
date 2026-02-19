@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -52,6 +52,7 @@ class FineWebModelStage(ModelStage):
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -65,6 +66,7 @@ class FineWebModelStage(ModelStage):
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         autocast: bool = True,
+        drop_tokens: bool = True,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -73,12 +75,13 @@ class FineWebModelStage(ModelStage):
             model_inference_batch_size=model_inference_batch_size,
             padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
             unpack_inference_batch=True,
+            autocast=autocast,
         )
 
         self.label_field = label_field
         self.float_score_field = float_score_field
         self.int_score_field = int_score_field
-        self.autocast = autocast
+        self.drop_tokens = drop_tokens
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.label_field, self.float_score_field, self.int_score_field]
@@ -121,7 +124,8 @@ class FineWebModelStage(ModelStage):
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+        if self.drop_tokens:
+            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         df_cpu[self.float_score_field] = collected_output[self.float_score_field]
         df_cpu[self.int_score_field] = collected_output[self.int_score_field]
@@ -153,6 +157,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -168,6 +173,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     sort_by_length: bool = True
     model_inference_batch_size: int = 256
     autocast: bool = True
+    drop_tokens: bool = True
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -191,6 +197,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 autocast=self.autocast,
+                drop_tokens=self.drop_tokens,
             ),
         ]
 
@@ -230,6 +237,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -245,6 +253,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 256,
         autocast: bool = True,
+        drop_tokens: bool = True,
     ):
         super().__init__(
             model_identifier=FINEWEB_EDU_MODEL_IDENTIFIER,
@@ -259,6 +268,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
+            drop_tokens=drop_tokens,
         )
 
         self.name = format_name_with_suffix(FINEWEB_EDU_MODEL_IDENTIFIER)
@@ -285,6 +295,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 1024.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -300,6 +311,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 1024,
         autocast: bool = True,
+        drop_tokens: bool = True,
     ):
         super().__init__(
             model_identifier=FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER,
@@ -314,6 +326,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
+            drop_tokens=drop_tokens,
         )
 
         self.name = format_name_with_suffix(FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER)
@@ -340,6 +353,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 1024.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -355,6 +369,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 1024,
         autocast: bool = True,
+        drop_tokens: bool = True,
     ):
         super().__init__(
             model_identifier=FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER,
@@ -369,6 +384,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
+            drop_tokens=drop_tokens,
         )
 
         self.name = format_name_with_suffix(FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER)

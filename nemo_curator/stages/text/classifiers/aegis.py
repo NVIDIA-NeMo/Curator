@@ -160,6 +160,7 @@ class AegisModelStage(ModelStage):
         has_seq_order: bool = True,
         add_instruction_data_guard: bool = False,
         autocast: bool = True,
+        drop_tokens: bool = True,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -175,6 +176,7 @@ class AegisModelStage(ModelStage):
         self.add_instruction_data_guard = add_instruction_data_guard
         self.label_field = label_field
         self.score_field = score_field
+        self.drop_tokens = drop_tokens
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.label_field] + ([self.score_field] if self.add_instruction_data_guard else [])
@@ -218,7 +220,8 @@ class AegisModelStage(ModelStage):
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+        if self.drop_tokens:
+            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         if self.add_instruction_data_guard:
             df_cpu[self.score_field] = collected_output[self.label_field].tolist()
@@ -401,6 +404,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         model_inference_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
         autocast (bool): If True, will use autocast to run the classifier. Defaults to True.
+        drop_tokens (bool): If True, will drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -416,6 +420,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     sort_by_length: bool = True
     model_inference_batch_size: int = 64
     autocast: bool = True
+    drop_tokens: bool = True
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -446,6 +451,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 has_seq_order=self.sort_by_length,
                 add_instruction_data_guard=False,
                 autocast=self.autocast,
+                drop_tokens=self.drop_tokens,
             ),
             PostProcessAegisResponsesStage(
                 cache_dir=self.cache_dir,
@@ -530,6 +536,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         model_inference_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
         autocast (bool): If True, will use autocast to run the classifier. Defaults to True.
+        drop_tokens (bool): If True, will drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -543,6 +550,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
     sort_by_length: bool = True
     model_inference_batch_size: int = 64
     autocast: bool = True
+    drop_tokens: bool = True
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -571,6 +579,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 has_seq_order=self.sort_by_length,
                 add_instruction_data_guard=True,
                 autocast=self.autocast,
+                drop_tokens=self.drop_tokens,
             ),
         ]
 

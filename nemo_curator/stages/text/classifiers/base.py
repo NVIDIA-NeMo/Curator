@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -77,6 +77,7 @@ class ClassifierModelStage(ModelStage):
         padding_side: The side to pad the input tokens. Defaults to "right".
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -90,6 +91,7 @@ class ClassifierModelStage(ModelStage):
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
         autocast: bool = True,
+        drop_tokens: bool = True,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -108,6 +110,8 @@ class ClassifierModelStage(ModelStage):
         else:
             self.score_field = "probs"
             self.keep_score_field = False
+
+        self.drop_tokens = drop_tokens
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.label_field] + ([self.score_field] if self.keep_score_field else [])
@@ -139,7 +143,9 @@ class ClassifierModelStage(ModelStage):
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+        if self.drop_tokens:
+            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+
         df_cpu[self.label_field] = collected_output[self.label_field]
 
         if self.keep_score_field:
@@ -172,6 +178,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -187,6 +194,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     sort_by_length: bool = True
     model_inference_batch_size: int = 256
     autocast: bool = True
+    drop_tokens: bool = True
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -210,6 +218,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 has_seq_order=self.sort_by_length,
                 padding_side=self.padding_side,
                 autocast=self.autocast,
+                drop_tokens=self.drop_tokens,
             ),
         ]
 

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -44,6 +44,7 @@ class DomainClassifier(DistributedDataClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -58,6 +59,7 @@ class DomainClassifier(DistributedDataClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 256,
         autocast: bool = True,
+        drop_tokens: bool = True,
     ):
         super().__init__(
             model_identifier=DOMAIN_MODEL_IDENTIFIER,
@@ -72,6 +74,7 @@ class DomainClassifier(DistributedDataClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
+            drop_tokens=drop_tokens,
         )
 
         self.name = format_name_with_suffix(DOMAIN_MODEL_IDENTIFIER)
@@ -96,6 +99,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
 
     """
 
@@ -110,6 +114,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 256,
         autocast: bool = True,
+        drop_tokens: bool = True,
     ):
         super().__init__(
             model_identifier=MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER,
@@ -124,6 +129,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
+            drop_tokens=drop_tokens,
         )
 
         self.name = format_name_with_suffix(MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER)
