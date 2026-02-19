@@ -91,7 +91,7 @@ class JusTextExtractor(HTMLExtractorAlgorithm):
             # Get the paragraphs from the DOM
             handler = justext.core.ParagraphMaker()
             lxml.sax.saxify(cleaned_dom, handler)
-        except (lxml.etree.ParserError, ValueError, Exception):
+        except (lxml.etree.ParserError, ValueError, Exception):  # noqa: BLE001
             # Return nothing when we cannot segment the document
             logger.info("Could not segment paragaphs in the document")
             return None

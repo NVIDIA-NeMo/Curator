@@ -55,10 +55,16 @@ datasets:
     formats:
     - type: "tar"
       path: "{datasets_path}/arxiv_downloads"
-  - name: "fasttext_model"
+  - name: "fasttext_langid_model"
     formats:
     - type: "bin"
       path: "{model_weights_path}/fasttext/lid.176.bin"
+    - type: "ftz"
+      path: "{model_weights_path}/fasttext/lid.176.ftz"
+  - name: "fasttext_quality_model"
+    formats:
+    - type: "bin"
+      path: "{model_weights_path}/fasttext/model.bin"
   - name: "gretel_symptoms"
     formats:
     - type: "jsonl"
@@ -73,7 +79,8 @@ sinks:
 #    experiment: ray-curator-common-crawl
   - name: slack
     enabled: true
-    webhook_url: ${SLACK_WEBHOOK_URL}
+    live_updates: true
+    channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
 #  - name: gdrive
 #    enabled: false
@@ -411,6 +418,52 @@ entries:
       - metric: throughput_docs_per_sec
         min_value: 8500
 
+  - name: fasttext_filter_raydata
+    enabled: true
+    script: fasttext_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --input-path={dataset:tinystories,parquet}
+      --yaml-config={curator_repo_dir}/nemo_curator/config/text/fasttext_filter_pipeline.yaml
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --fasttext-quality-model-path={dataset:fasttext_quality_model,bin}
+      --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
+    timeout_s: 200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_kept_documents
+          - throughput_docs_per_sec
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+
+  - name: fasttext_filter_xenna
+    enabled: true
+    script: fasttext_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --input-path={dataset:tinystories,parquet}
+      --yaml-config={curator_repo_dir}/nemo_curator/config/text/fasttext_filter_pipeline.yaml
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --fasttext-quality-model-path={dataset:fasttext_quality_model,bin}
+      --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
+    timeout_s: 100
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_kept_documents
+          - throughput_docs_per_sec
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+
   - name: modifier_raydata
     enabled: true
     script: modifier_benchmark.py
@@ -493,7 +546,7 @@ entries:
       --benchmark-results-path={session_entry_dir}
       --tar-input-path={dataset:arxiv_downloads,tar}
       --output-path={session_entry_dir}/scratch/output
-      --fasttext-model-path={dataset:fasttext_model,bin}
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
       --executor=ray_data
     timeout_s: 3600
     sink_data:
@@ -522,7 +575,7 @@ entries:
       --benchmark-results-path={session_entry_dir}
       --tar-input-path={dataset:arxiv_downloads,tar}
       --output-path={session_entry_dir}/scratch/output
-      --fasttext-model-path={dataset:fasttext_model,bin}
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
       --executor=xenna
     timeout_s: 3600
     sink_data:

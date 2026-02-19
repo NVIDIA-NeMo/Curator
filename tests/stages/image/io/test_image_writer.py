@@ -42,7 +42,7 @@ def _import_writer_with_stubbed_pyarrow() -> tuple[types.ModuleType, type]:
 
 
 def test_inputs_outputs_and_name(tmp_path: pathlib.Path) -> None:
-    module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
+    _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
 
     stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=3)
     assert stage.inputs() == (["data"], [])
