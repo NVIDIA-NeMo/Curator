@@ -23,7 +23,7 @@
 
 ### Bug Fixes
 
-- FastText numpy>2 compatibility, NeMo doc links, MegatronTokenizerWriter tokenizer download, ID generator blocking, vLLM video API, Gliner/SDG tutorials, semantic dedup test reliability
+- FastText numpy>2 compatibility, NeMo doc links, ID generator blocking, vLLM video API, Gliner/SDG tutorials, semantic dedup test reliability
 
 ### Infrastructure
 

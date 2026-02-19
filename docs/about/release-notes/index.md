@@ -93,7 +93,6 @@ Enhanced tracking of pipeline execution:
 
 - Fixed fasttext predict call compatibility with numpy>2
 - Fixed broken NeMo Framework documentation links
-- Fixed MegatronTokenizerWriter to download only necessary tokenizer files
 - Fixed ID generator blocking issues for large-scale processing
 - Fixed vLLM API compatibility with video captioning pipeline
 - Fixed Gliner tutorial examples and SDG workflow bugs
