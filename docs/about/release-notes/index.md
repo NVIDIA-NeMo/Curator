@@ -163,6 +163,7 @@ Future releases will focus on:
 :hidden:
 :maxdepth: 4
 
+Software Versions <software-versions>
 Migration Guide <migration-guide>
 Migration FAQ <migration-faq>
 
