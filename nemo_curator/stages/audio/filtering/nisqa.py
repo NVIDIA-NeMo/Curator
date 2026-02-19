@@ -33,7 +33,7 @@ Example:
 import os
 import tempfile
 import threading
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from functools import partial
@@ -55,8 +55,6 @@ def _nisqa_worker_init(gpu_id: int):
         torch.cuda.set_device(gpu_id)
 
 
-# Thread-local storage for per-thread NISQA pipeline instances
-import threading
 _NISQA_THREAD_LOCAL = threading.local()
 
 
@@ -143,7 +141,6 @@ def _nisqa_process_on_gpu(
             else:
                 mos = noi = col = dis = loud = float(score_data)
             
-            # Debug: log the actual scores with segment info
             segment_num = item.get('segment_num', 'unknown')
             if mos < 0.1:  # Suspiciously low score
                 logger.warning(f"[GPU {gpu_id}] Segment {segment_num}: LOW MOS={mos:.4f}, score_data={score_data}")
@@ -176,9 +173,7 @@ def _nisqa_process_on_gpu(
                 os.unlink(temp_path)
                 
     except Exception as e:
-        logger.error(f"[{task_id}] Error in multi-GPU NISQA processing on GPU {gpu_id}: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"[{task_id}] Error in multi-GPU NISQA processing on GPU {gpu_id}: {e}")
         return None
 
 
@@ -293,7 +288,6 @@ class NISQAFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         """Clean up resources."""
         if self._predict_function is not None:
             self._predict_function = None
-            import torch
             torch.cuda.empty_cache()
     
     def _initialize_model(self):
@@ -422,9 +416,7 @@ class NISQAFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 return None
                 
         except Exception as e:
-            logger.error(f"[{task_id}] Error in NISQA filtering: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception(f"[{task_id}] Error in NISQA filtering: {e}")
             return None
         finally:
             if temp_path and os.path.exists(temp_path):
@@ -565,7 +557,6 @@ class NISQAFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             mode = "GPU" if self._resources.gpus > 0 else "sequential"
         
         passed_count = len(results)
-        rejected_count = total_items - passed_count
         
         # Log summary
         threshold_parts = []

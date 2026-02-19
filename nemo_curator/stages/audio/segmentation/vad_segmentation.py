@@ -40,7 +40,7 @@ import os
 import threading
 import warnings
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Tuple, Optional
 
 import numpy as np
 import torch
@@ -348,9 +348,7 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 logger.info(f"[VADSegmentation] {file_name}: {len(segments)} segments extracted ({total_duration:.1f}s total speech)")
                 
             except Exception as e:
-                logger.error(f"Error during VAD segmentation: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.exception(f"Error during VAD segmentation: {e}")
                 continue
         
         return output_tasks

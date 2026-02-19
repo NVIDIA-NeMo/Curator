@@ -41,29 +41,17 @@ processors_to_run: all
 raw_data_dir: ???
 output_dir: ${raw_data_dir}/result
 
-# Dataset selection
-# Full dataset has ~14,000+ samples. Set to -1 for all samples.
 max_samples: 5000
-
-# Download settings
-# auto_download: Automatically download and extract DNS Challenge dataset
-# download_parts: Number of parts to download (1-6)
-#   - 1 part: ~30GB, ~2,500 samples (recommended for tutorials)
-#   - 6 parts: ~182GB, ~14,000+ samples (full dataset)
 auto_download: true
-download_parts: 1
+download_parts: 1  # 1=~30GB partial, 6=~182GB full
 
-# Processing settings
 sample_rate: 48000
 batch_size: 1
 
-# Resource settings
 gpus: 1.0
 cpus: 1.0
 
 processors:
-  # Stage 1: Create initial manifest from read_speech directory
-  # Auto-downloads dataset if enabled (default: true)
   - _target_: nemo_curator.stages.audio.datasets.readspeech.CreateInitialManifestReadSpeechStage
     raw_data_dir: ${raw_data_dir}
     max_samples: ${max_samples}
@@ -71,43 +59,30 @@ processors:
     download_parts: ${download_parts}
     batch_size: ${batch_size}
 
-  # Stage 2: AudioDataFilterStage for quality filtering
   - _target_: nemo_curator.stages.audio.AudioDataFilterStage
     config:
       _target_: nemo_curator.stages.audio.AudioDataFilterConfig
       cpus: ${cpus}
       gpus: ${gpus}
       sample_rate: ${sample_rate}
-
-      # VAD settings - segments audio by voice activity
       enable_vad: true
       vad_min_duration_sec: 2.0
       vad_max_duration_sec: 60.0
       vad_threshold: 0.5
-
-      # Band filter - classifies audio bandwidth
       enable_band_filter: true
       band_value: "full_band"
-
-      # NISQA filter - speech quality assessment
       enable_nisqa: true
       nisqa_mos_threshold: 4.5
       nisqa_noi_threshold: 4.3
-
-      # SIGMOS filter - signal quality assessment
       enable_sigmos: true
       sigmos_noise_threshold: 4.0
       sigmos_ovrl_threshold: 3.5
-
-      # Speaker separation - diarization and separation
       enable_speaker_separation: true
       speaker_exclude_overlaps: true
       speaker_min_duration: 0.8
 
-  # Stage 3: Convert AudioBatch to DocumentBatch for writing
   - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
 
-  # Stage 4: Write results to JSONL
   - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
     path: ${output_dir}
     write_kwargs:

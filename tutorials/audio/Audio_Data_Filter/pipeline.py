@@ -81,17 +81,10 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
         description="Audio curation pipeline with consistent timestamp mapping"
     )
     
-    # Create AudioDataFilterConfig from args
-    # Resource allocation (cpus, gpus) is now part of the config
     config = AudioDataFilterConfig(
-        # Resource allocation
         cpus=args.cpus,
         gpus=args.gpus,
-        
-        # General
         sample_rate=args.sample_rate,
-        
-        # VAD
         enable_vad=args.enable_vad,
         vad_min_duration_sec=args.vad_min_duration,
         vad_max_duration_sec=args.vad_max_duration,
@@ -108,15 +101,11 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
         enable_sigmos=args.enable_sigmos,
         sigmos_noise_threshold=args.sigmos_noise_threshold,
         sigmos_ovrl_threshold=args.sigmos_ovrl_threshold,
-        
-        # Speaker Separation
         enable_speaker_separation=args.enable_speaker_separation,
         speaker_exclude_overlaps=args.speaker_exclude_overlaps,
         speaker_min_duration=args.speaker_min_duration,
     )
     
-    # Create the AudioDataFilterStage
-    # Resources are applied from config automatically
     audio_filter_stage = AudioDataFilterStage(config=config).with_(
         batch_size=args.batch_size,
     )
@@ -144,7 +133,6 @@ def load_audio_tasks(input_dir: str, recursive: bool = False,
     audio_files = []
     
     for ext in formats:
-        # Ensure extension starts with a dot
         ext = ext if ext.startswith('.') else f'.{ext}'
         pattern = f"*{ext}"
         
@@ -155,7 +143,6 @@ def load_audio_tasks(input_dir: str, recursive: bool = False,
         
         audio_files.extend(found)
     
-    # Remove duplicates and sort
     audio_files = sorted(set(audio_files))
     
     if not audio_files:
@@ -163,7 +150,6 @@ def load_audio_tasks(input_dir: str, recursive: bool = False,
         logger.warning(f"No audio files found in {input_dir} (searched for: {format_str})")
         return []
     
-    # Log format breakdown
     format_counts = {}
     for f in audio_files:
         ext = os.path.splitext(f)[1].lower()
@@ -293,7 +279,6 @@ Examples:
     
     args = parser.parse_args()
     
-    # Set output directory
     if args.output_dir is None:
         args.output_dir = os.path.join(args.raw_data_dir, "result")
     
@@ -302,12 +287,10 @@ Examples:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
     
-    # Validate input
     if not os.path.isdir(args.raw_data_dir):
         logger.error(f"Input directory not found: {args.raw_data_dir}")
         sys.exit(1)
     
-    # Clean output if requested
     if args.clean and os.path.exists(args.output_dir):
         shutil.rmtree(args.output_dir)
     
@@ -337,13 +320,10 @@ Examples:
     logger.info(f"Timestamp Mapping: ENABLED (always)")
     logger.info("=" * 70)
     
-    # Create pipeline
     pipeline = create_pipeline(args)
     logger.info(pipeline.describe())
     
-    # Determine input formats
     if args.input_formats:
-        # Convert user input to tuple of extensions with dots
         input_formats = tuple(
             f".{fmt.lstrip('.')}" for fmt in args.input_formats
         )
@@ -358,7 +338,6 @@ Examples:
         logger.error("No audio files to process")
         sys.exit(1)
     
-    # Execute pipeline
     logger.info("Starting pipeline execution...")
     
     try:
@@ -396,7 +375,6 @@ Examples:
         if all_results:
             save_results(all_results, args.output_dir)
             
-            # Log sample output showing timestamp mapping
             if all_results:
                 sample = all_results[0]
                 logger.info("Sample output (showing timestamp mapping):")
@@ -410,9 +388,7 @@ Examples:
             logger.warning("No segments passed filters")
             
     except Exception as e:
-        logger.error(f"Pipeline failed: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Pipeline failed: {e}")
         sys.exit(1)
     
     logger.info("Done!")

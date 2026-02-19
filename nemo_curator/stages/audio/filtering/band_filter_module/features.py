@@ -1,7 +1,8 @@
 import numpy as np
 import librosa
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple
 import pyloudnorm as pyln
+from loguru import logger
 
 
 class AudioFeatureExtractor:
@@ -50,14 +51,13 @@ class AudioFeatureExtractor:
             # Check for NaN values and replace them
             for key in all_features:
                 if np.isnan(all_features[key]):
-                    print(f"Warning: NaN value found for feature {key} in {file_path}, replacing with 0")
+                    logger.warning(f"NaN value found for feature {key} in {file_path}, replacing with 0")
                     all_features[key] = 0.0
             
             return all_features
             
         except Exception as e:
-            print(f"Error processing {file_path}: {e}")
-            # Return empty feature dict in case of error
+            logger.error(f"Error processing {file_path}: {e}")
             return AudioFeatureExtractor.get_empty_feature_dict(feature_group)
     
     @staticmethod
@@ -192,7 +192,7 @@ class AudioFeatureExtractor:
             features['spectral_entropy_mean'] = float(np.mean(entropy))
             features['spectral_entropy_std'] = float(np.std(entropy))
         except Exception as e:
-            print(f"Error extracting frequency features: {e}")
+            logger.error(f"Error extracting frequency features: {e}")
             # Set default values for all features in this group
             keys = ['spectral_centroid_mean', 'spectral_centroid_std', 
                    'spectral_bandwidth_mean', 'spectral_bandwidth_std',
@@ -263,8 +263,7 @@ class AudioFeatureExtractor:
             else:
                 features['harmonic_to_noise_ratio'] = 100.0  # High value if no noise detected
         except Exception as e:
-            print(f"Error extracting noise features: {e}")
-            # Set default values
+            logger.error(f"Error extracting noise features: {e}")
             features['estimated_snr'] = 50.0
             features['clipping_ratio'] = 0.0
             features['harmonic_to_noise_ratio'] = 50.0
@@ -333,7 +332,7 @@ class AudioFeatureExtractor:
             
             features['avg_attack_time'] = float(np.mean(attack_times) if attack_times else 0)
         except Exception as e:
-            print(f"Error extracting temporal features: {e}")
+            logger.error(f"Error extracting temporal features: {e}")
             # Set default values
             keys = ['zero_crossing_rate_mean', 'zero_crossing_rate_std',
                    'rms_energy_mean', 'rms_energy_std',
@@ -388,8 +387,7 @@ class AudioFeatureExtractor:
             for i in range(contrast.shape[0]):
                 features[f'contrast_band_{i+1}_mean'] = float(np.mean(contrast[i]))
         except Exception as e:
-            print(f"Error extracting perceptual features: {e}")
-            # Set default values for all MFCCs
+            logger.error(f"Error extracting perceptual features: {e}")
             for i in range(13):
                 features[f'mfcc_{i+1}_mean'] = 0.0
                 features[f'mfcc_{i+1}_std'] = 0.0
@@ -500,7 +498,7 @@ class AudioFeatureExtractor:
                     # Lower default for empty bands
                     band_energy[f'band_energy_{band}'] = -120.0  # Much lower default to better represent absence of energy
         except Exception as e:
-            print(f"Error calculating band energy: {e}")
+            logger.error(f"Error calculating band energy: {e}")
             # Set default values for all band energies
             for band in bands:
                 band_energy[f'band_energy_{band}'] = -120.0
@@ -532,7 +530,7 @@ class AudioFeatureExtractor:
             value = features_dict[name]
             # Convert any NaN to 0.0
             if np.isnan(value):
-                print(f"Warning: NaN value found for feature {name}, replacing with 0")
+                logger.warning(f"NaN value found for feature {name}, replacing with 0")
                 value = 0.0
             feature_vector.append(value)
             
@@ -590,12 +588,12 @@ class AudioFeatureExtractor:
             # Check for NaN values and replace them
             for key in all_features:
                 if np.isnan(all_features[key]):
-                    print(f"Warning: NaN value found for feature {key}, replacing with 0")
+                    logger.warning(f"NaN value found for feature {key}, replacing with 0")
                     all_features[key] = 0.0
             
             return all_features
             
         except Exception as e:
-            print(f"Error processing waveform: {e}")
+            logger.error(f"Error processing waveform: {e}")
             # Return empty feature dict in case of error
             return AudioFeatureExtractor.get_empty_feature_dict(feature_group) 

@@ -325,9 +325,7 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 return None
                 
         except Exception as e:
-            logger.error(f"[{task_id}] Error in band filtering: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception(f"[{task_id}] Error in band filtering: {e}")
             return None
 
     def _process_multi_gpu(self, task: AudioBatch, num_gpus: int) -> List[Dict[str, Any]]:
@@ -456,7 +454,6 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             mode = "GPU" if self._resources.gpus > 0 else "sequential"
         
         passed_count = len(results)
-        rejected_count = total_items - passed_count
         
         logger.info(f"[BandFilter] {task.task_id}: {passed_count}/{total_items} passed ({self.band_value}) [{mode}]")
         

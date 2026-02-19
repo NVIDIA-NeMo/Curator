@@ -57,8 +57,6 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
         description="DNS Challenge Read Speech dataset curation with AudioDataFilterStage"
     )
 
-    # Stage 1: Create initial manifest from read_speech directory
-    # Auto-downloads dataset if enabled (default=True)
     pipeline.add_stage(
         CreateInitialManifestReadSpeechStage(
             raw_data_dir=args.raw_data_dir,
@@ -82,8 +80,6 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
         vad_min_duration_sec=args.vad_min_duration,
         vad_max_duration_sec=args.vad_max_duration,
         vad_threshold=args.vad_threshold,
-
-        # Quality Filters
         enable_band_filter=args.enable_band_filter,
         band_value=args.band_value,
 
@@ -94,8 +90,6 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
         enable_sigmos=args.enable_sigmos,
         sigmos_noise_threshold=args.sigmos_noise_threshold,
         sigmos_ovrl_threshold=args.sigmos_ovrl_threshold,
-
-        # Speaker Separation
         enable_speaker_separation=args.enable_speaker_separation,
         speaker_exclude_overlaps=args.speaker_exclude_overlaps,
         speaker_min_duration=args.speaker_min_duration,
@@ -135,7 +129,6 @@ def save_results(results: list, output_dir: str, clean_intermediate: bool = True
                     clean_entry[key] = value
                 else:
                     clean_entry[key] = str(value)
-            # Use ensure_ascii=False to avoid escaping forward slashes
             f.write(json.dumps(clean_entry, ensure_ascii=False) + "\n")
 
     logger.info(f"Saved {len(results)} results to {manifest_path}")
@@ -237,7 +230,6 @@ Examples:
 
     args = parser.parse_args()
 
-    # Set output directory
     if args.output_dir is None:
         args.output_dir = os.path.join(args.raw_data_dir, "result")
 
@@ -245,7 +237,6 @@ Examples:
     logger.remove()
     logger.add(sys.stderr, level="DEBUG" if args.verbose else "INFO")
 
-    # Clean output if requested
     if args.clean and os.path.exists(args.output_dir):
         shutil.rmtree(args.output_dir)
 
@@ -276,7 +267,6 @@ Examples:
     logger.info(f"Enabled Filters: {enabled or ['none']}")
     logger.info("=" * 70)
 
-    # Create and run pipeline
     pipeline = create_readspeech_pipeline(args)
     logger.info(pipeline.describe())
 
@@ -287,7 +277,6 @@ Examples:
         executor = XennaExecutor()
         results = pipeline.run(executor)
 
-        # Collect and save results
         all_results = []
         for result in results:
             if result is not None:
@@ -301,7 +290,6 @@ Examples:
         if all_results:
             save_results(all_results, args.output_dir)
 
-            # Log sample output
             sample = all_results[0]
             logger.info("Sample output:")
             logger.info(f"  audio_filepath: {sample.get('audio_filepath', 'N/A')}")
@@ -312,9 +300,7 @@ Examples:
             logger.warning("No segments passed filters")
 
     except Exception as e:
-        logger.error(f"Pipeline failed: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Pipeline failed: {e}")
         sys.exit(1)
 
     logger.info("Done!")

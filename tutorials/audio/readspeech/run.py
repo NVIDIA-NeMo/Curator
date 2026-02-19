@@ -66,7 +66,6 @@ def merge_jsonl_files(output_dir: str) -> str:
     manifest_path = os.path.join(output_dir, "manifest.jsonl")
     jsonl_files = glob.glob(os.path.join(output_dir, "*.jsonl"))
     
-    # Exclude manifest.jsonl itself if it exists
     jsonl_files = [f for f in jsonl_files if os.path.basename(f) != "manifest.jsonl"]
     
     if not jsonl_files:
@@ -93,14 +92,13 @@ def merge_jsonl_files(output_dir: str) -> str:
             # Use ensure_ascii=False to avoid escaping forward slashes
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     
-    logger.info(f"✓ Merged {len(all_records)} records into {manifest_path}")
+    logger.info(f"Merged {len(all_records)} records into {manifest_path}")
     
-    # Remove intermediate files
     for jsonl_file in jsonl_files:
         os.remove(jsonl_file)
         logger.debug(f"  Removed: {os.path.basename(jsonl_file)}")
     
-    logger.info(f"✓ Cleaned up {len(jsonl_files)} intermediate JSONL files")
+    logger.info(f"Cleaned up {len(jsonl_files)} intermediate JSONL files")
     
     return manifest_path
 
@@ -114,17 +112,11 @@ def main(cfg: DictConfig) -> None:
     logger.info("=" * 60)
     logger.info(f"Hydra config:\n{OmegaConf.to_yaml(cfg)}")
 
-    # Create pipeline
     pipeline = create_pipeline_from_yaml(cfg)
-
-    # Print pipeline description
     logger.info(pipeline.describe())
     logger.info("=" * 60)
 
-    # Create executor
     executor = XennaExecutor()
-
-    # Execute pipeline
     logger.info("Starting pipeline execution...")
     pipeline.run(executor)
 
@@ -134,7 +126,6 @@ def main(cfg: DictConfig) -> None:
     os.makedirs(output_dir, exist_ok=True)
     manifest_path = merge_jsonl_files(output_dir)
 
-    # Print results
     logger.info("\n" + "=" * 60)
     logger.info("Pipeline completed!")
     logger.info(f"Results saved to: {manifest_path}")

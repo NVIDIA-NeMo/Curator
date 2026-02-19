@@ -402,9 +402,7 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                         continue
                     results.append(result)
             except Exception as e:
-                logger.error(f"Error in {name}: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.exception(f"Error in {name}: {e}")
         
         logger.debug(f"[{name}] {len(tasks)} -> {len(results)}")
         return results
@@ -476,9 +474,7 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                     ))
                     
                 except Exception as e:
-                    logger.error(f"Error converting mono to audio segment: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    logger.exception(f"Error converting mono to audio segment: {e}")
         
         return converted
     

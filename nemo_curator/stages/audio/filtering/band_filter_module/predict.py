@@ -1,5 +1,4 @@
 import os
-import sys
 import numpy as np
 import joblib
 import warnings
@@ -7,7 +6,6 @@ from typing import Dict, List, Tuple, Any, Optional
 import concurrent.futures
 import time
 import torch
-import torchaudio
 from contextlib import contextmanager
 from loguru import logger
 
@@ -55,12 +53,7 @@ GPU_AVAILABLE = False
 try:
     if torch.cuda.is_available():
         GPU_AVAILABLE = True
-        # print(f"GPU detected: {torch.cuda.get_device_name(0)}")
-    else:
-        # print("CUDA is available but no GPU detected")
-        pass
 except Exception:
-    # print("PyTorch not available, running in CPU mode")
     pass
 
 
@@ -88,7 +81,7 @@ class BandPredictor:
         cfg_model_path = getattr(config, 'band_model_path', None) if config else None
         # Default model path if neither provided
         if not cfg_model_path:
-             cfg_model_path = "band_filter/model/band_classifier_model_band_7000_samples.joblib"
+            cfg_model_path = "band_filter/model/band_classifier_model_band_7000_samples.joblib"
              
         cfg_feature_group = getattr(config, 'band_feature_group', "band") if config else "band"
         cfg_n_workers = getattr(config, 'band_n_workers', 4) if config else 4
@@ -129,12 +122,6 @@ class BandPredictor:
         """Load the model from disk"""
         try:
             start_time = time.time()
-            if not os.path.exists(self.model_path):
-                # Try to find it relative to current file if it's a relative path
-                if not os.path.isabs(self.model_path):
-                    # Check in common locations
-                    pass 
-            
             with warnings.catch_warnings():
                 # Suppress warnings during model loading
                 warnings.filterwarnings("ignore", category=UserWarning)
@@ -359,7 +346,7 @@ class BandPredictor:
                         for i, pred in zip(valid_indices, batch_predictions):
                             results[i] = 'full_band' if pred == 1 else 'low_band'
                     else:
-                         results = ["Error: Feature extraction failed"] * len(audio_data)
+                        results = ["Error: Feature extraction failed"] * len(audio_data)
                     
                 except Exception as e:
                     logger.error(f"Error during batch prediction: {e}")

@@ -37,8 +37,6 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
-from functools import partial
-
 import torch
 from loguru import logger
 from pydub import AudioSegment
@@ -264,7 +262,6 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         """Clean up resources."""
         if self._predict_function is not None:
             self._predict_function = None
-            import torch
             torch.cuda.empty_cache()
     
     def _initialize_model(self):
@@ -408,9 +405,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 return None
                 
         except Exception as e:
-            logger.error(f"[{task_id}] Error in SIGMOS filtering: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception(f"[{task_id}] Error in SIGMOS filtering: {e}")
             return None
         finally:
             if temp_path and os.path.exists(temp_path):
@@ -552,7 +547,6 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             mode = "GPU" if self._resources.gpus > 0 else "sequential"
         
         passed_count = len(results)
-        rejected_count = total_items - passed_count
         
         # Log summary
         threshold_parts = []

@@ -34,7 +34,7 @@ import os
 import tempfile
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 import soundfile as sf
@@ -178,7 +178,6 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         if self._separator is not None:
             del self._separator
             self._separator = None
-            import torch
             torch.cuda.empty_cache()
     
     def _resolve_model_path(self) -> str:
@@ -339,8 +338,6 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
                     ))
                         
             except Exception as e:
-                logger.error(f"Error in speaker separation: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.exception(f"Error in speaker separation: {e}")
         
         return results

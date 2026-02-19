@@ -40,14 +40,9 @@ def main(cfg: DictConfig) -> None:
     logger.info(pipeline.describe())
     logger.info("\n" + "=" * 50 + "\n")
 
-    # Create executor
     executor = XennaExecutor()
-
-    # Execute pipeline
     logger.info("Starting pipeline execution...")
     pipeline.run(executor)
-
-    # Print results
     logger.info("\nPipeline completed!")
 
 

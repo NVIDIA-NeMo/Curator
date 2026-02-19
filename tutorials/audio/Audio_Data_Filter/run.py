@@ -35,7 +35,7 @@ Usage:
 import glob
 import json
 import os
-from typing import List, Tuple
+from typing import Tuple
 
 import hydra
 from loguru import logger
@@ -67,7 +67,6 @@ def save_results(results: list, output_dir: str) -> str:
     for result in results:
         if result is None:
             continue
-        # Handle AudioBatch data (list of dicts)
         if hasattr(result, "data") and result.data:
             if isinstance(result.data, list):
                 all_entries.extend(result.data)
@@ -76,7 +75,6 @@ def save_results(results: list, output_dir: str) -> str:
     
     with open(manifest_path, "w") as f:
         for entry in all_entries:
-            # Clean up non-serializable values
             clean_entry = {}
             for key, value in entry.items():
                 if hasattr(value, "item"):
@@ -112,19 +110,15 @@ def load_audio_tasks(
     """
     audio_files = []
     
-    # Search for all supported formats
     for ext in formats:
         ext = ext if ext.startswith('.') else f'.{ext}'
         pattern = f"*{ext}"
         
-        # First try non-recursive
         found = glob.glob(os.path.join(raw_data_dir, pattern))
         audio_files.extend(found)
         
-        # If recursive enabled and no files found in root, search recursively
         if recursive:
             found_recursive = glob.glob(os.path.join(raw_data_dir, "**", pattern), recursive=True)
-            # Add only files not already found
             for f in found_recursive:
                 if f not in audio_files:
                     audio_files.append(f)
@@ -137,7 +131,6 @@ def load_audio_tasks(
         logger.warning(f"No audio files found in {raw_data_dir} (searched for: {format_str})")
         return []
     
-    # Log format breakdown
     format_counts = {}
     for f in audio_files:
         ext = os.path.splitext(f)[1].lower()
@@ -178,7 +171,6 @@ def main(cfg: DictConfig) -> None:
     """
     logger.info(f"Hydra config:\n{OmegaConf.to_yaml(cfg)}")
     
-    # Load audio tasks from raw_data_dir
     raw_data_dir = cfg.get("raw_data_dir")
     if not raw_data_dir:
         logger.error("raw_data_dir is required!")
@@ -191,7 +183,6 @@ def main(cfg: DictConfig) -> None:
     # Get input formats from config (or use defaults)
     input_formats = cfg.get("input_formats", None)
     if input_formats:
-        # Convert from OmegaConf list to tuple
         input_formats = tuple(input_formats)
         logger.info(f"Input formats: {', '.join(input_formats)}")
     else:
@@ -203,21 +194,14 @@ def main(cfg: DictConfig) -> None:
         logger.error("No audio files to process!")
         return
     
-    # Create pipeline from YAML
     pipeline = create_pipeline_from_yaml(cfg)
-    
-    # Print pipeline description
     logger.info(pipeline.describe())
     logger.info("\n" + "=" * 50 + "\n")
     
-    # Create executor
     executor = XennaExecutor()
-    
-    # Execute pipeline with initial tasks
     logger.info(f"Starting pipeline execution with {len(initial_tasks)} audio files...")
     results = pipeline.run(executor, initial_tasks=initial_tasks)
     
-    # Save results to JSONL
     output_dir = cfg.get("output_dir", os.path.join(raw_data_dir, "result"))
     if results:
         save_results(results, output_dir)

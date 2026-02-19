@@ -8,11 +8,7 @@ the original batch_mos_pred.py script.
 import os
 import sys
 import torch
-import pandas as pd
-import time
-import copy
 import threading
-from pathlib import Path
 from loguru import logger
 
 # IMPORTANT: This module is intended to be self-contained within nemo_curator
@@ -135,8 +131,7 @@ def build_nisqa_model(config=None, nisqa_base_path=None):
     args["tr_bs_val"] = args["bs"]
     args["tr_num_workers"] = args["num_workers"]
 
-    # Debug print to confirm model path
-    print(f"DEBUG: Loading NISQA model from {args['pretrained_model']}")
+    logger.debug(f"Loading NISQA model from {args['pretrained_model']}")
     return nisqaModel(args)
 
 
@@ -270,7 +265,7 @@ class NISQAPipeline:
                 score_dict = self.predict_file(wav_path)
                 results[wav_path] = score_dict
             except Exception as e:
-                print(f"Error processing file {wav_path}: {e}")
+                logger.error(f"Error processing file {wav_path}: {e}")
                 continue
         
         return results
@@ -297,7 +292,7 @@ class NISQAPipeline:
                 score_dict = self.predict_file(wav_file)
                 results[wav_file] = score_dict
             except Exception as e:
-                print(f"Error processing file {wav_file}: {e}")
+                logger.error(f"Error processing file {wav_file}: {e}")
                 continue
                 
         return results

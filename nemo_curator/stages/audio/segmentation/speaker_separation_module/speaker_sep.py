@@ -1,10 +1,9 @@
 import os
-import sys
 import tempfile
-from typing import List, Tuple, Dict, Any, Optional
-import numpy as np
+from typing import List, Tuple, Dict, Optional
 import torch
 import soundfile as sf
+from loguru import logger
 from pydub import AudioSegment
 
 
@@ -34,7 +33,7 @@ def load_audio(audio_path: str) -> Tuple[torch.Tensor, int]:
 try:
     from nemo.collections.asr.models import SortformerEncLabelModel
 except ImportError:
-    print("Warning: NeMo not found. Speaker separation will not work.")
+    logger.warning("NeMo not found. Speaker separation will not work.")
     SortformerEncLabelModel = None
 
 class SpeakerSeparator:
@@ -52,15 +51,6 @@ class SpeakerSeparator:
         """
         self.config = config or {}
         
-        # Helper to get config values safely
-        def get_cfg(key, default=None):
-            if hasattr(self.config, 'get'):
-                val = self.config.get(key)
-                return val if val is not None else default
-            elif isinstance(self.config, dict):
-                 return self.config.get(key, default)
-            return default
-
         # Get model name
         if model_name:
             self.model_name = model_name
@@ -68,9 +58,9 @@ class SpeakerSeparator:
             # Try to find in config
             val = None
             if hasattr(self.config, 'speaker_model_path'):
-                 val = getattr(self.config, 'speaker_model_path')
+                val = getattr(self.config, 'speaker_model_path')
             elif isinstance(self.config, dict):
-                 val = self.config.get('speaker_model_path')
+                val = self.config.get('speaker_model_path')
                  
             self.model_name = val or "model/diar_sortformer_4spk-v1.nemo"
 
@@ -93,7 +83,7 @@ class SpeakerSeparator:
     def _load_model(self):
         """Load the diarization model."""
         try:
-            print(f"Loading speaker separation model from: {self.model_name}")
+            logger.info(f"Loading speaker separation model from: {self.model_name}")
             self.diar_model = SortformerEncLabelModel.restore_from(
                 restore_path=self.model_name,
                 map_location=self.device,
@@ -101,7 +91,7 @@ class SpeakerSeparator:
             )
             self.diar_model.eval()
         except Exception as e:
-            print(f"Error loading model: {e}")
+            logger.error(f"Error loading model: {e}")
             raise
     
     def _get_param(self, param_name, default_value):
@@ -109,7 +99,8 @@ class SpeakerSeparator:
         # Try direct attribute on config object
         if hasattr(self.config, param_name):
             val = getattr(self.config, param_name)
-            if val is not None: return val
+            if val is not None:
+                return val
             
         # Try dictionary access
         if isinstance(self.config, dict):
@@ -124,8 +115,9 @@ class SpeakerSeparator:
         if hasattr(self.config, 'get'):
             try:
                 val = self.config.get(param_name)
-                if val is not None: return val
-            except:
+                if val is not None:
+                    return val
+            except Exception:
                 pass
 
         return default_value
@@ -243,12 +235,9 @@ class SpeakerSeparator:
                     single_speaker_start = start_with_buffer
                     current_single_speaker = next(iter(active_speakers))
         
-        # Debug info for troubleshooting
         if all(len(segments) == 0 for segments in result_segments.values()):
-            print("Warning: All segments were excluded. This may indicate an issue with speaker overlap detection.")
-            # Print count of original segments
             total_original = sum(len(segments) for segments in speaker_segments.values())
-            print(f"Original segment count: {total_original}")
+            logger.warning(f"All segments were excluded during overlap filtering (original count: {total_original})")
             
         return result_segments
 
@@ -326,8 +315,7 @@ class SpeakerSeparator:
                 return result
         except Exception as e:
             # If there's an error in diarization, log it and return a fallback result with one speaker
-            print(f"Error during diarization: {e}")
-            print("Falling back to single speaker mode")
+            logger.warning(f"Error during diarization: {e}. Falling back to single speaker mode")
             
             # Calculate duration in seconds
             duration_sec = waveform.shape[1] / sample_rate
@@ -380,7 +368,7 @@ class SpeakerSeparator:
             
             # Make sure we have at least one speaker
             if not speaker_segments:
-                print("Warning: No speakers detected. Creating default single speaker.")
+                logger.warning("No speakers detected. Creating default single speaker.")
                 # Create a default speaker segment if none found
                 if isinstance(audio_path_or_waveform, str):
                     # Input is a file path - use soundfile
@@ -396,14 +384,14 @@ class SpeakerSeparator:
             if exclude_overlaps:
                 # Completely exclude overlapping segments with buffer
                 processed_segments = self.exclude_overlapping_segments(speaker_segments, buffer_time)
-                print(f"After excluding overlaps with {buffer_time}s buffer: {sum(len(segs) for segs in processed_segments.values())} segments remaining")
+                logger.debug(f"After excluding overlaps with {buffer_time}s buffer: {sum(len(segs) for segs in processed_segments.values())} segments remaining")
             else:
                 # Clean cut overlapping segments (divide between speakers)
                 processed_segments = self.clean_cut_overlapping_segments(speaker_segments)
             
             # Check if we still have segments after processing
             if all(len(segments) == 0 for segments in processed_segments.values()):
-                print("Warning: All segments were removed during processing. Creating a new single segment.")
+                logger.warning("All segments were removed during processing. Creating a new single segment.")
                 # Create a default speaker segment if all were removed
                 if isinstance(audio_path_or_waveform, str):
                     # Input is a file path - use soundfile
@@ -427,7 +415,7 @@ class SpeakerSeparator:
                 
                 # Check again if we have any segments left
                 if all(len(segments) == 0 for segments in processed_segments.values()):
-                    print("Warning: All segments were removed after duration filtering. Creating a new single segment.")
+                    logger.warning("All segments were removed after duration filtering. Creating a new single segment.")
                     # Create a default speaker segment with a slightly shorter duration to pass the filter
                     if isinstance(audio_path_or_waveform, str):
                         # Input is a file path - use soundfile
@@ -442,10 +430,7 @@ class SpeakerSeparator:
             return processed_segments
             
         except Exception as e:
-            print(f"Error during audio processing: {e}")
-            import traceback
-            traceback.print_exc()
-            print("Falling back to single speaker mode")
+            logger.warning(f"Error during audio processing: {e}. Falling back to single speaker mode")
             
             # Create a fallback result with one speaker covering the entire audio
             if isinstance(audio_path_or_waveform, str):
