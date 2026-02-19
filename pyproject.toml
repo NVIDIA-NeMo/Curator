@@ -266,7 +266,6 @@ ignore = [
     "PERF401",  # don't enforce list comprehension
     "RET505", "RET506", "RET507", "RET508",  # allow branching (if else after return)
     "PGH004",  # allow generic noqa
-    "PD901",  # allow naming dataframes df
     "TD002",  # allow TODO without author
     "TD003",  # allow TODO without link
     "TRY003", # allow long exception messages rather than creating a new exception class
@@ -274,6 +273,7 @@ ignore = [
     "EXE002", # don't require for a shebang to be present if it's executable
     "COM812", # disable the trailing comma in linter, because ruff formatter ensures it
     "SLF001", # allow accessing private attributes
+    "PD901", # allow df as DataFrame variable name
 ]
 fixable = ["ALL"]
 
@@ -292,6 +292,48 @@ fixable = ["ALL"]
 "tutorials/**" = [
     "INP001", # no __init__.py is required
     "PLE2515", # ignore \u200b complaint
+]
+# Cursor IDE skills - standalone CLI scripts, not library code
+".cursor/skills/**/*.py" = [
+    "INP001",   # standalone scripts, not packages
+    "PLC0415",  # lazy imports for optional deps
+    "F401",     # imports to test availability
+    "C901", "PLR0911", "PLR0912", "PLR0915",  # CLI complexity
+    "PLR0913",  # config generators need many params
+    "PLR2004",  # domain thresholds as literals
+    "PLW0603",  # global caching
+    "S603", "S607",  # subprocess calls with trusted input
+    "S112",     # try-except-continue for robustness
+    "BLE001",   # broad except for probing features
+    "ANN401",   # Any for introspection
+    "ANN201", "ANN202",  # return types on CLI funcs
+    "ARG001",   # unused args for API compat
+    "N812",     # import naming
+    "ERA001",   # commented examples
+    "DTZ005", "DTZ007",  # naive datetimes ok for age calc
+    "TRY300",   # try/except patterns
+    "PERF203", "PERF102",  # perf patterns ok in scripts
+    "SIM102", "SIM103", "SIM108",  # simplification optional
+    "RET504",   # unnecessary assign before return ok
+    "RUF059",   # unused unpacked var
+    "B007",     # unused loop var
+    "EXE001",   # shebangs without +x
+]
+"example-skill-gen/**/*.py" = [
+    "INP001",   # standalone scripts
+    "PLC0415",  # lazy imports
+    "S311",     # random for test data
+    "S603", "S607",  # subprocess calls with trusted input
+    "C901", "PLR0911", "PLR0912", "PLR0915",  # CLI complexity
+    "PLR2004",  # thresholds as literals
+    "ANN201",   # return types on CLI funcs
+    "SIM102",   # nested if ok
+    "PERF203",  # try in loop ok
+    "RUF059",   # unused unpacked var
+    "EXE001",   # shebangs without +x
+    "DTZ005", "DTZ007",  # naive datetimes
+    "TRY300",   # try/except patterns
+    "ERA001",   # commented examples
 ]
 
 [tool.pytest.ini_options]

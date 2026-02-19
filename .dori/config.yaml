@@ -1,0 +1,33 @@
+version: 1
+logs:
+  retention_days: 14
+  max_entries_per_day: 500
+acp:
+  enabled: false
+  endpoint: https://acp.example.com/events
+  api_key: ${ACP_API_KEY}
+  mode: both
+  batch_size: 50
+  batch_interval_seconds: 300
+  retry:
+    enabled: true
+    max_attempts: 3
+    backoff_seconds:
+    - 5
+    - 30
+    - 120
+  include:
+    user: true
+    project: true
+    git: true
+    platform: true
+  heartbeat:
+    enabled: false
+    endpoint: http://localhost:9810/track
+    agent_name: dori
+    host: ''
+    tool_version: ''
+cursor:
+  api_key: ${CURSOR_API_KEY}
+  base_url: https://api.cursor.com
+active_pack: nemo-curator-local

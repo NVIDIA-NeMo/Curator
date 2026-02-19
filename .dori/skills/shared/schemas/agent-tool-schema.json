@@ -1,0 +1,353 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nvidia.github.io/agent-tool-schema/v1",
+  "title": "Agent Tool Schema",
+  "description": "A machine-readable specification for describing library/tool capabilities to AI agents. Enables operation discovery, parameter validation, pipeline composition, and code generation.",
+  "type": "object",
+  "required": ["$schema", "schema_version", "tool", "operations"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Reference to the Agent Tool Schema specification"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Version of the Agent Tool Schema specification (semver)"
+    },
+    "tool": {
+      "$ref": "#/$defs/ToolInfo"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    },
+    "types": {
+      "type": "object",
+      "description": "Type definitions that flow through operations",
+      "additionalProperties": {
+        "$ref": "#/$defs/TypeDefinition"
+      }
+    },
+    "operations": {
+      "type": "object",
+      "description": "Available operations (functions, classes, stages)",
+      "additionalProperties": {
+        "$ref": "#/$defs/Operation"
+      }
+    },
+    "composition": {
+      "$ref": "#/$defs/CompositionRules"
+    },
+    "execution": {
+      "$ref": "#/$defs/ExecutionInfo"
+    }
+  },
+  "$defs": {
+    "ToolInfo": {
+      "type": "object",
+      "description": "Information about the tool/library",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable name of the tool"
+        },
+        "package": {
+          "type": "string",
+          "description": "Package name for installation (e.g., PyPI name)"
+        },
+        "version": {
+          "type": "string",
+          "description": "Version of the tool"
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief description of what the tool does"
+        },
+        "install": {
+          "type": "string",
+          "description": "Installation command (e.g., pip install nemo-curator)"
+        },
+        "documentation": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to documentation"
+        },
+        "repository": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to source repository"
+        }
+      }
+    },
+    "Metadata": {
+      "type": "object",
+      "description": "Schema generation metadata",
+      "properties": {
+        "generated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this schema was generated"
+        },
+        "generator": {
+          "type": "string",
+          "description": "Tool that generated this schema"
+        },
+        "generator_version": {
+          "type": "string",
+          "description": "Version of the generator"
+        },
+        "package_available": {
+          "type": "boolean",
+          "description": "Whether the package was available during generation"
+        }
+      }
+    },
+    "TypeDefinition": {
+      "type": "object",
+      "description": "Definition of a type that flows through operations",
+      "required": ["description"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "What this type represents"
+        },
+        "runtime_type": {
+          "type": "string",
+          "description": "Fully qualified Python type (e.g., nemo_curator.tasks.DocumentBatch)"
+        },
+        "data_format": {
+          "type": "string",
+          "description": "Format of the data (e.g., pd.DataFrame, list[dict])"
+        },
+        "common_columns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Common column/field names in this type"
+        },
+        "schema": {
+          "type": "object",
+          "description": "JSON Schema describing the type's structure"
+        }
+      }
+    },
+    "Operation": {
+      "type": "object",
+      "description": "A callable operation (function, class, stage)",
+      "required": ["import", "description"],
+      "properties": {
+        "import": {
+          "type": "string",
+          "description": "Python import statement (e.g., from module import Class)"
+        },
+        "description": {
+          "type": "string",
+          "description": "What this operation does"
+        },
+        "category": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "description": "Category or categories this operation belongs to"
+        },
+        "input_type": {
+          "type": "string",
+          "description": "Expected input type (references types section)"
+        },
+        "output_type": {
+          "type": "string",
+          "description": "Output type produced (references types section)"
+        },
+        "output_adds_columns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Columns/fields this operation adds to the output"
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Operation parameters",
+          "additionalProperties": {
+            "$ref": "#/$defs/Parameter"
+          }
+        },
+        "resources": {
+          "$ref": "#/$defs/ResourceRequirements"
+        },
+        "hints": {
+          "$ref": "#/$defs/OperationHints"
+        }
+      }
+    },
+    "Parameter": {
+      "type": "object",
+      "description": "Parameter specification (JSON Schema style)",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Parameter type (string, integer, number, boolean, array, object)"
+        },
+        "description": {
+          "type": "string",
+          "description": "What this parameter controls"
+        },
+        "default": {
+          "description": "Default value if not provided"
+        },
+        "required": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this parameter is required"
+        },
+        "minimum": {
+          "type": "number",
+          "description": "Minimum value (for numeric types)"
+        },
+        "maximum": {
+          "type": "number",
+          "description": "Maximum value (for numeric types)"
+        },
+        "enum": {
+          "type": "array",
+          "description": "Allowed values"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern (for string types)"
+        },
+        "items": {
+          "type": "object",
+          "description": "Schema for array items"
+        }
+      }
+    },
+    "ResourceRequirements": {
+      "type": "object",
+      "description": "Computational resource requirements",
+      "properties": {
+        "requires_gpu": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether GPU is required"
+        },
+        "gpu_memory_gb": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Estimated GPU memory needed in GB"
+        },
+        "typical_cpu_cores": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Typical CPU cores used"
+        },
+        "memory_gb": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Estimated RAM needed in GB"
+        },
+        "requires_network": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether network access is required"
+        },
+        "requires_credentials": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Environment variables or credentials needed (e.g., HF_TOKEN)"
+        }
+      }
+    },
+    "OperationHints": {
+      "type": "object",
+      "description": "Semantic hints to guide agent usage",
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "description": "What this operation is for (natural language)"
+        },
+        "when_to_use": {
+          "type": "string",
+          "description": "Conditions when this operation is appropriate"
+        },
+        "output_values": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Possible output values (for classifiers/categorizers)"
+        },
+        "typical_retention": {
+          "type": "string",
+          "description": "Typical data retention rate (e.g., '80-95%')"
+        },
+        "order_preference": {
+          "type": "string",
+          "description": "Where in a pipeline this should typically go"
+        },
+        "related_operations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Operations often used together"
+        },
+        "common_patterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Common usage patterns"
+        }
+      },
+      "additionalProperties": true
+    },
+    "CompositionRules": {
+      "type": "object",
+      "description": "Rules for composing operations into pipelines",
+      "properties": {
+        "type_flow": {
+          "type": "object",
+          "description": "Which operations produce/consume each type",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "producers": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Operations that output this type"
+              },
+              "consumers": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Operations that accept this type as input"
+              }
+            }
+          }
+        },
+        "patterns": {
+          "type": "object",
+          "description": "Named pipeline patterns",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "description": { "type": "string" },
+              "sequence": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ExecutionInfo": {
+      "type": "object",
+      "description": "Execution environment information",
+      "properties": {
+        "environments": {
+          "type": "object",
+          "description": "Supported execution environments",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}
