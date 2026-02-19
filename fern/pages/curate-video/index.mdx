@@ -1,0 +1,125 @@
+---
+title: About Video Curation
+description: "Comprehensive guide to Ray-based video curation with NeMo Curator including splitting and deduplication pipelines for large-scale processing"
+---
+
+Learn what video curation is and how you use NeMo Curator to turn long videos into high‑quality, searchable clips.
+Depending on the use case, this can involve processing 100+ PB of videos.
+To efficiently process this quantity of videos, NeMo Curator provides highly optimized curation pipelines.
+
+## Use Cases
+
+Identify when to use NeMo Curator by matching your goals to common video curation scenarios.
+
+* Generating clips for video world model training
+* Generating clips for generative video model fine-tuning
+* Creating a rich video database for video retrieval applications
+
+## Architecture
+
+Understand how components work together so you can plan, scale, and troubleshoot video pipelines. The following diagram outlines NeMo Curator's video curation architecture:
+
+![High-level outline of NeMo Curator's video curation architecture](/assets/images/video-pipeline-diagram.png)
+
+<Note>
+Video pipelines use the `XennaExecutor` backend by default, which provides optimized support for GPU-accelerated video processing including hardware decoders (`nvdecs`) and encoders (`nvencs`). You do not need to import or configure the executor unless you want to use an alternative backend. For more information about customizing backends, refer to [Add a Custom Stage](/curate-video/tutorials/pipeline-customization).
+</Note>
+
+---
+
+## Introduction
+
+Get oriented and prepare your environment so you can start curating videos with confidence.
+
+<Cards>
+
+<Card title="Concepts" href="/about/concepts/video">
+Learn about the architecture, stages, pipelines, and data flow for video curation
+</Card>
+
+<Card title="Get Started" href="/get-started/video">
+Install NeMo Curator, configure storage, prepare data, and run your first video pipeline.
+</Card>
+
+</Cards>
+---
+
+## Curation Tasks
+
+Follow task-based guides to load, process, and write curated video data end to end.
+
+### Load Data
+
+Bring videos into your pipeline from local paths or remote sources you control.
+
+<Cards>
+
+<Card title="Video Data Loading" href="/curate-video/load-data">
+Load videos from local paths, cloud storage, or explicit file lists
+</Card>
+
+</Cards>
+### Process Data
+
+Transform raw videos into curated clips, frames, embeddings, and metadata you can use.
+
+<Cards>
+
+<Card title="Clip Videos" href="/curate-video/process-data/clipping">
+Split long videos into shorter clips using fixed stride or scene-change detection.
+</Card>
+
+<Card title="Encode Clips" href="/curate-video/process-data/transcoding">
+Encode clips to H.264 using CPU or GPU encoders and tune performance.
+</Card>
+
+<Card title="Filter Clips and Frames" href="/curate-video/process-data/filtering">
+Apply motion-based filtering and aesthetic filtering to improve dataset quality.
+</Card>
+
+<Card title="Extract Frames" href="/curate-video/process-data/frame-extraction">
+Extract frames from clips or full videos for embeddings, filtering, and analysis.
+</Card>
+
+<Card title="Create Embeddings" href="/curate-video/process-data/embeddings">
+Generate clip-level embeddings with InternVideo2 or Cosmos-Embed1 for search and duplicate removal.
+</Card>
+
+<Card title="Create Captions & Preview" href="/curate-video/process-data/captions-preview">
+Generate Qwen‑VL captions and optional WebP previews; optionally enhance with Qwen‑LM.
+</Card>
+
+<Card title="Remove Duplicate Embeddings" href="/curate-video/process-data/dedup">
+Remove near-duplicates using semantic clustering and similarity with generated embeddings.
+</Card>
+
+</Cards>
+### Write Data
+
+Save outputs in formats your training or retrieval systems can consume at scale.
+
+<Cards>
+
+<Card title="Save & Export" href="/curate-video/save-export">
+Understand output directories, parquet embeddings, and packaging for training.
+</Card>
+
+</Cards>
+---
+
+## Tutorials
+
+Practice with guided, hands-on examples to build, customize, and run video pipelines.
+
+<Cards>
+
+<Card title="Beginner Tutorial" href="/curate-video/tutorials/beginner">
+Create and run your first video pipeline: read, split, encode, embed, write.
+</Card>
+
+<Card title="Split and Deduplicate" href="/curate-video/tutorials/split-dedup">
+Split videos and then remove near-duplicates using semantic dedup.
+</Card>
+
+</Cards>
+
