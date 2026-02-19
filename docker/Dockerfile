@@ -34,11 +34,6 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV DEBIAN_FRONTEND=noninteractive
 # gnupg upgrade Address CVE-2025-68973
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.12-dev \
-    python3 \
-    python3-dev \
-    python3-venv \
-    python-is-python3\
     curl \
     git \
     vim && \
@@ -56,7 +51,9 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_CACHE_DIR=/opt/uv_cache
 ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
-RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
+RUN uv python install --default --preview 3.12 && \
+    uv tool update-shell && \
+    uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
 
 FROM build AS nemo_curator_dep
 
