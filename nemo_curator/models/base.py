@@ -29,7 +29,6 @@ class ModelInterface(abc.ABC):
     def model_id_names(self) -> list[str]:
         """Returns a list of model IDs associated with the model.
 
-        In cosmos-curate, each model has an ID associated with it.
         This is often the huggingspace name for that model (e.g. Salesforce/instructblip-vicuna-13b).
 
         Returns:
