@@ -14,35 +14,16 @@ modality: "universal"
 
 ## What's New in 26.02
 
-### Benchmarking Infrastructure
+### Stage and Pipeline Benchmarking
 
-New comprehensive benchmarking framework for performance monitoring and optimization:
+Benchmarking framework for performance monitoring:
 
-- **End-to-End Pipeline Benchmarking**: Automated benchmarks for all curation modalities (text, image, video, audio)
-- **Performance Tracking**: Integration with MLflow for metrics tracking and Slack for notifications
-- **Nightly Benchmarks**: Continuous performance monitoring across:
+- **Stage and Pipeline Benchmarking**: Automated benchmarks for curation modalities (text, image, video, audio)
+- **Performance Tracking**: Metrics tracking across:
   - Text pipelines: exact deduplication, fuzzy deduplication, semantic deduplication, score filters, modifiers
   - Image curation workflows with DALI-based processing
   - Video processing pipelines with scene detection and semantic deduplication
   - Audio ASR inference and quality assessment
-- **Grafana Dashboards**: Real-time monitoring of pipeline performance and resource utilization
-
-### Ray Actor Pool Executor Improvements
-
-Enhanced features for the experimental Ray Actor Pool execution backend:
-
-- **Improved Load Balancing**: Better worker distribution and task scheduling via map_unordered
-- **Enhanced Stability**: Continued refinements to the experimental executor
-
-Learn more in the [Execution Backends documentation](../../reference/infrastructure/execution-backends.md).
-
-### Enhanced Embedding Generation
-
-Expanded embedding support with new model integrations:
-
-- **vLLM Integration**: High-performance LLM-based embedding generation with automatic batching
-- **Sentence Transformers**: Support for popular sentence embedding models
-- **Unified API**: Consistent embedding interface across text, image, and video modalities
 
 ### YAML Configuration Support
 
@@ -57,14 +38,13 @@ Declarative pipeline configuration for text curation workflows:
 
 Example:
 ```bash
-python -m nemo_curator.config.run --config-path=text --config-name=heuristic_filter_english_pipeline input_path=./input_dir output_path=./output_dir
+python run.py --config-path ./text --config-name heuristic_filter_english_pipeline.yaml input_path=./input_dir output_path=./output_dir
 ```
 
-### Pipeline Execution Tracking
+### Pipeline Performance and Metric Logging
 
-Enhanced tracking and analysis of pipeline execution:
+Enhanced tracking of pipeline execution:
 
-- **WorkflowRunResult**: Structured results object capturing execution metrics
 - **Performance Metrics**: Automatic tracking of processing time, throughput, and resource usage
 - **Better Debugging**: Detailed logs and error reporting for failed stages
 
@@ -85,16 +65,13 @@ Enhanced tracking and analysis of pipeline execution:
 
 ### Image Curation
 
-- **Optimized Batch Sizes**: Configurable DALI batch sizes for better CPU/GPU memory usage (dali_batch_size=100, num_threads=8)
+- **Optimized Batch Sizes**: Configurable batch sizes for better CPU/GPU memory usage (batch_size=100, num_threads=8)
 - **Memory Guidance**: Added troubleshooting documentation for out-of-memory errors
 - **Tutorial Improvements**: Updated examples optimized for typical GPU configurations
 
 ### Text Curation
 
-- **ID Field Standardization**: Unified ID naming conventions across all deduplication workflows
-- **Performance Optimizations**: Fused document iterate and extract stages for reduced overhead
 - **Better Memory Management**: Improved handling of large-scale semantic deduplication
-- **FilePartitioning Improvements**: One worker per partition for better parallelization
 
 ### Deduplication Enhancements
 
@@ -129,13 +106,11 @@ Enhanced tracking and analysis of pipeline execution:
 - **Enhanced Install Tests**: Comprehensive installation validation across environments
 - **AWS Runner Support**: CI/CD execution on AWS infrastructure
 - **Docker Optimization**: Improved layer caching and build times with uv
-- **Code Linting**: Standardized code quality checks with Ruff and pre-commit hooks
 - **Cursor Rules**: Development guidelines and patterns for IDE assistance
 
 ## Breaking Changes
 
 - **InternVideo2 Removed**: Video pipelines must use alternative embedding models (Cosmos-Embed1)
-- **ID Field Standardization**: Custom deduplication workflows may need updates to use standardized ID field names
 
 ## Documentation Improvements
 

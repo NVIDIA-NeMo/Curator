@@ -4,18 +4,15 @@
 
 ### New Features
 
-- **Benchmarking Infrastructure**: End-to-end pipeline benchmarking for all modalities (text, image, video, audio) with MLflow, Slack, and Grafana integration
+- **Stage and Pipeline Benchmarking**: Benchmarking for all modalities (text, image, video, audio)
 - **YAML Configuration**: Declarative pipeline configuration with pre-built configs for code filtering, deduplication, heuristic filtering, and FastText
-- **Pipeline Execution Tracking**: WorkflowRunResult for execution metrics, throughput, and resource usage
-- **Enhanced Embedding Generation**: vLLM integration, Sentence Transformers support, unified API across modalities
 
 ### Improvements
 
-- **Ray Actor Pool**: Improved load balancing and stability
 - **Video**: Removed InternVideo2; vLLM 0.14.1, FFmpeg 8.0.1
 - **Audio**: Enhanced ASR/WER docs, robust manifest handling
-- **Image**: Optimized DALI batch sizes, memory guidance
-- **Text**: ID field standardization, fused iterate/extract stages, FilePartitioning improvements
+- **Image**: Optimized batch sizes (batch_size=100, num_threads=8), memory guidance
+- **Text**: Better memory management for large-scale semantic deduplication
 - **Deduplication**: Cloud storage (S3, GCS, Azure) for ParquetReader/Writer, non-blocking ID generation, empty batch handling
 
 ### Dependency Updates
@@ -29,12 +26,11 @@
 
 ### Infrastructure
 
-- Secrets detection, Dependabot, enhanced install tests, AWS runner support, Docker/uv optimization, Ruff and pre-commit, Cursor rules
+- Secrets detection, Dependabot, enhanced install tests, AWS runner support, Docker/uv optimization, Cursor rules
 
 ### Breaking Changes
 
 - **InternVideo2 Removed**: Use Cosmos-Embed1 for video embeddings
-- **ID Field Standardization**: Custom dedup workflows may need ID field updates
 
 ### Documentation
 
