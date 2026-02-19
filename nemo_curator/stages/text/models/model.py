@@ -62,8 +62,11 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         padding_side: Literal["left", "right"] = "right",
         unpack_inference_batch: bool = False,
         autocast: bool = True,
-        token_fields: list[str] = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD],
+        token_fields: list[str] | None = None,
     ):
+        if token_fields is None:
+            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
         self.name = format_name_with_suffix(model_identifier, suffix="_model")
         # Assume that the model can fit on a single GPU
         self.resources = Resources(cpus=1, gpus=1)

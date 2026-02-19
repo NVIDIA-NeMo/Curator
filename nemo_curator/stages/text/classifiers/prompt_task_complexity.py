@@ -74,8 +74,16 @@ class MulticlassHead(nn.Module):
 
 
 class CustomDeberta(nn.Module, PyTorchModelHubMixin):
-    def __init__(self, config: dataclass):
+    def __init__(
+        self,
+        config: dataclass,
+        input_id_field: str = INPUT_ID_FIELD,
+        attention_mask_field: str = ATTENTION_MASK_FIELD,
+    ):
         super().__init__()
+
+        self.input_id_field = input_id_field
+        self.attention_mask_field = attention_mask_field
 
         self.backbone = AutoModel.from_pretrained(config["base_model"])
         self.target_sizes = config["target_sizes"].values()
@@ -207,8 +215,8 @@ class CustomDeberta(nn.Module, PyTorchModelHubMixin):
 
     @torch.no_grad()
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        input_ids = batch[INPUT_ID_FIELD]
-        attention_mask = batch[ATTENTION_MASK_FIELD]
+        input_ids = batch[self.input_id_field]
+        attention_mask = batch[self.attention_mask_field]
 
         return self._forward(input_ids, attention_mask)
 
@@ -225,6 +233,7 @@ class PromptTaskComplexityModelStage(ModelStage):
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        token_fields: The fields to use for the input tokens. Defaults to ["input_ids", "attention_mask"].
 
     """
 
@@ -235,7 +244,11 @@ class PromptTaskComplexityModelStage(ModelStage):
         has_seq_order: bool = True,
         autocast: bool = True,
         drop_tokens: bool = True,
+        token_fields: list[str] | None = None,
     ):
+        if token_fields is None:
+            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
         super().__init__(
             model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
             cache_dir=cache_dir,
@@ -244,6 +257,7 @@ class PromptTaskComplexityModelStage(ModelStage):
             padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
             unpack_inference_batch=False,
             autocast=autocast,
+            token_fields=token_fields,
         )
 
         self.drop_tokens = drop_tokens
@@ -257,6 +271,8 @@ class PromptTaskComplexityModelStage(ModelStage):
                 self.model_identifier,
                 cache_dir=self.cache_dir,
                 local_files_only=local_files_only,
+                input_id_field=self.input_id_field,
+                attention_mask_field=self.attention_mask_field,
             )
             .cuda()
             .eval()
@@ -267,7 +283,7 @@ class PromptTaskComplexityModelStage(ModelStage):
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
         if self.drop_tokens:
-            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+            df_cpu = df_cpu.drop(columns=[self.input_id_field, self.attention_mask_field])
 
         for column in OUTPUT_FIELDS:
             df_cpu[column] = collected_output[column]
@@ -297,6 +313,10 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
+            Defaults to False.
 
     """
 
@@ -308,6 +328,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
     model_inference_batch_size: int = 256
     autocast: bool = True
     drop_tokens: bool = True
+    use_existing_tokens: bool | list[str] = False
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -318,8 +339,10 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
             msg = "filter_by not supported with PromptTaskComplexityClassifier"
             raise NotImplementedError(msg)
 
-        self.stages = [
-            TokenizerStage(
+        self.stages = []
+
+        if not self.use_existing_tokens:
+            tokenizer_stage = TokenizerStage(
                 model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
                 cache_dir=self.cache_dir,
                 text_field=self.text_field,
@@ -327,21 +350,32 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 max_seq_length=MAX_SEQ_LENGTH,
                 padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
-            ),
-            PromptTaskComplexityModelStage(
-                cache_dir=self.cache_dir,
-                model_inference_batch_size=self.model_inference_batch_size,
-                has_seq_order=self.sort_by_length,
-                autocast=self.autocast,
-                drop_tokens=self.drop_tokens,
-            ),
-        ]
+            )
+            self.stages.append(tokenizer_stage)
+
+        if isinstance(self.use_existing_tokens, list):
+            if len(self.use_existing_tokens) != 2:  # noqa: PLR2004
+                msg = "use_existing_tokens must be a list of two strings representing the [input_ids, attention_mask] fields"
+                raise ValueError(msg)
+            token_fields = self.use_existing_tokens
+        else:
+            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
+        model_stage = PromptTaskComplexityModelStage(
+            cache_dir=self.cache_dir,
+            model_inference_batch_size=self.model_inference_batch_size,
+            has_seq_order=self.sort_by_length,
+            autocast=self.autocast,
+            drop_tokens=self.drop_tokens,
+            token_fields=token_fields,
+        )
+        self.stages.append(model_stage)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return self.stages[0].inputs()
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return self.stages[1].outputs()
+        return self.stages[-1].outputs()
 
     def decompose(self) -> list[ProcessingStage]:
         return self.stages

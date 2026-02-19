@@ -161,7 +161,11 @@ class AegisModelStage(ModelStage):
         add_instruction_data_guard: bool = False,
         autocast: bool = True,
         drop_tokens: bool = True,
+        token_fields: list[str] | None = None,
     ):
+        if token_fields is None:
+            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
         super().__init__(
             model_identifier=model_identifier,
             cache_dir=cache_dir,
@@ -171,6 +175,7 @@ class AegisModelStage(ModelStage):
             padding_side=TOKENIZER_PADDING_SIDE,
             unpack_inference_batch=False,
             autocast=autocast,
+            token_fields=token_fields,
         )
 
         self.add_instruction_data_guard = add_instruction_data_guard
@@ -202,15 +207,6 @@ class AegisModelStage(ModelStage):
 
         self.model = self.model.cuda().eval()
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
-            padding_side=TOKENIZER_PADDING_SIDE,
-            cache_dir=self.cache_dir,
-            local_files_only=local_files_only,
-            token=self.hf_token,
-        )
-        self.tokenizer.pad_token = self.tokenizer.unk_token
-
     def process_model_output(
         self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None
     ) -> dict[str, np.ndarray]:
@@ -221,7 +217,7 @@ class AegisModelStage(ModelStage):
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
         if self.drop_tokens:
-            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+            df_cpu = df_cpu.drop(columns=[self.input_id_field, self.attention_mask_field])
 
         if self.add_instruction_data_guard:
             df_cpu[self.score_field] = collected_output[self.label_field].tolist()
@@ -278,13 +274,17 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
     label_field: str = "aegis_pred"
     raw_output_field: str = "_aegis_raw_pred"
     keep_raw_output: bool = False
+    aegis_prompt_field: str = HIDDEN_TEXT_FIELD
+    keep_aegis_prompt_field: bool = False
     name = "postprocess_aegis_responses"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.raw_output_field, HIDDEN_TEXT_FIELD]
+        return ["data"], [self.raw_output_field, self.aegis_prompt_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.label_field] + ([self.raw_output_field] if self.keep_raw_output else [])
+        return ["data"], [self.label_field] + ([self.raw_output_field] if self.keep_raw_output else []) + (
+            [self.aegis_prompt_field] if self.keep_aegis_prompt_field else []
+        )
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {"is_actor_stage": True}
@@ -341,7 +341,7 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
             skip_special_tokens=True,
         )
 
-        original_lengths = df[HIDDEN_TEXT_FIELD].str.len().tolist()
+        original_lengths = df[self.aegis_prompt_field].str.len().tolist()
         generated_tokens = [
             chars[original_length:] for chars, original_length in zip(generated_tokens, original_lengths, strict=False)
         ]
@@ -354,7 +354,10 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
 
         df[self.label_field] = pd.Series(parsed_response)
 
-        return df.drop(columns=[HIDDEN_TEXT_FIELD])
+        if not self.keep_aegis_prompt_field:
+            df = df.drop(columns=[self.aegis_prompt_field])
+
+        return df
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
@@ -405,6 +408,13 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         model_inference_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
         autocast (bool): If True, will use autocast to run the classifier. Defaults to True.
         drop_tokens (bool): If True, will drop the input tokens from the output dataframe. Defaults to True.
+        aegis_prompt_field (Optional[str]): The field in the dataset that contains the formatted prompts for the AEGIS model,
+            if they are already in the dataset. Defaults to None.
+        keep_aegis_prompt_field (bool): If True, will keep the formatted prompts in the output dataframe. Defaults to False.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
+            Defaults to False.
 
     """
 
@@ -421,46 +431,70 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     model_inference_batch_size: int = 64
     autocast: bool = True
     drop_tokens: bool = True
+    aegis_prompt_field: str | None = None
+    keep_aegis_prompt_field: bool = False
+    use_existing_tokens: bool | list[str] = False
 
     def __post_init__(self) -> None:
         super().__init__()
 
         self.name = format_name_with_suffix(self.aegis_variant)
 
-        self.stages = [
-            FormatAegisPromptStage(
+        self.stages = []
+
+        if self.aegis_prompt_field is None:
+            self.aegis_prompt_field = HIDDEN_TEXT_FIELD
+            format_aegis_prompt_stage = FormatAegisPromptStage(
                 text_field=self.text_field,
                 max_chars=self.max_chars,
-            ),
-            TokenizerStage(
+            )
+            self.stages.append(format_aegis_prompt_stage)
+
+        if not self.use_existing_tokens:
+            tokenizer_stage = TokenizerStage(
                 model_identifier=PRETRAINED_MODEL_NAME_OR_PATH,
                 cache_dir=self.cache_dir,
                 hf_token=self.hf_token,
-                text_field=HIDDEN_TEXT_FIELD,
+                text_field=self.aegis_prompt_field,
                 max_seq_length=MAX_SEQ_LENGTH,
                 padding_side=TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
                 unk_token=True,
-            ),
-            AegisModelStage(
-                model_identifier=self.aegis_variant,
-                cache_dir=self.cache_dir,
-                hf_token=self.hf_token,
-                label_field=self.raw_output_field,
-                model_inference_batch_size=self.model_inference_batch_size,
-                has_seq_order=self.sort_by_length,
-                add_instruction_data_guard=False,
-                autocast=self.autocast,
-                drop_tokens=self.drop_tokens,
-            ),
-            PostProcessAegisResponsesStage(
-                cache_dir=self.cache_dir,
-                hf_token=self.hf_token,
-                label_field=self.label_field,
-                raw_output_field=self.raw_output_field,
-                keep_raw_output=self.keep_raw_output,
-            ),
-        ]
+            )
+            self.stages.append(tokenizer_stage)
+
+        if isinstance(self.use_existing_tokens, list):
+            if len(self.use_existing_tokens) != 2:  # noqa: PLR2004
+                msg = "use_existing_tokens must be a list of two strings representing the [input_ids, attention_mask] fields"
+                raise ValueError(msg)
+            token_fields = self.use_existing_tokens
+        else:
+            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
+        model_stage = AegisModelStage(
+            model_identifier=self.aegis_variant,
+            cache_dir=self.cache_dir,
+            hf_token=self.hf_token,
+            label_field=self.raw_output_field,
+            model_inference_batch_size=self.model_inference_batch_size,
+            has_seq_order=self.sort_by_length,
+            add_instruction_data_guard=False,
+            autocast=self.autocast,
+            drop_tokens=self.drop_tokens,
+            token_fields=token_fields,
+        )
+        self.stages.append(model_stage)
+
+        postprocess_aegis_responses_stage = PostProcessAegisResponsesStage(
+            cache_dir=self.cache_dir,
+            hf_token=self.hf_token,
+            label_field=self.label_field,
+            raw_output_field=self.raw_output_field,
+            keep_raw_output=self.keep_raw_output,
+            aegis_prompt_field=self.aegis_prompt_field,
+            keep_aegis_prompt_field=self.keep_aegis_prompt_field,
+        )
+        self.stages.append(postprocess_aegis_responses_stage)
 
         if self.filter_by is not None and len(self.filter_by) > 0:
             self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.label_field))
@@ -469,7 +503,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         return self.stages[0].inputs()
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return self.stages[3].outputs()
+        return self.stages[-1].outputs()
 
     def filter_by_category(self, value: str) -> bool:
         return value in self.filter_by
@@ -537,6 +571,10 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
         model_inference_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
         autocast (bool): If True, will use autocast to run the classifier. Defaults to True.
         drop_tokens (bool): If True, will drop the input tokens from the output dataframe. Defaults to True.
+        use_existing_tokens (bool | list[str]): Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
+            Defaults to False.
 
     """
 
@@ -551,14 +589,17 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
     model_inference_batch_size: int = 64
     autocast: bool = True
     drop_tokens: bool = True
+    use_existing_tokens: bool | list[str] = False
 
     def __post_init__(self) -> None:
         super().__init__()
 
         self.name = format_name_with_suffix(INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER)
 
-        self.stages = [
-            TokenizerStage(
+        self.stages = []
+
+        if not self.use_existing_tokens:
+            tokenizer_stage = TokenizerStage(
                 model_identifier=PRETRAINED_MODEL_NAME_OR_PATH,
                 cache_dir=self.cache_dir,
                 hf_token=self.hf_token,
@@ -568,20 +609,31 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 padding_side=TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
                 unk_token=True,
-            ),
-            AegisModelStage(
-                model_identifier=AEGIS_VARIANTS[0],
-                cache_dir=self.cache_dir,
-                hf_token=self.hf_token,
-                label_field=self.label_field,
-                score_field=self.score_field,
-                model_inference_batch_size=self.model_inference_batch_size,
-                has_seq_order=self.sort_by_length,
-                add_instruction_data_guard=True,
-                autocast=self.autocast,
-                drop_tokens=self.drop_tokens,
-            ),
-        ]
+            )
+            self.stages.append(tokenizer_stage)
+
+        if isinstance(self.use_existing_tokens, list):
+            if len(self.use_existing_tokens) != 2:  # noqa: PLR2004
+                msg = "use_existing_tokens must be a list of two strings representing the [input_ids, attention_mask] fields"
+                raise ValueError(msg)
+            token_fields = self.use_existing_tokens
+        else:
+            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
+        model_stage = AegisModelStage(
+            model_identifier=AEGIS_VARIANTS[0],
+            cache_dir=self.cache_dir,
+            hf_token=self.hf_token,
+            label_field=self.label_field,
+            score_field=self.score_field,
+            model_inference_batch_size=self.model_inference_batch_size,
+            has_seq_order=self.sort_by_length,
+            add_instruction_data_guard=True,
+            autocast=self.autocast,
+            drop_tokens=self.drop_tokens,
+            token_fields=token_fields,
+        )
+        self.stages.append(model_stage)
 
         if self.filter_by is not None and len(self.filter_by) > 0:
             self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.label_field))
@@ -590,7 +642,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
         return self.stages[0].inputs()
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return self.stages[1].outputs()
+        return self.stages[-1].outputs()
 
     def filter_by_category(self, value: str) -> bool:
         return value in self.filter_by

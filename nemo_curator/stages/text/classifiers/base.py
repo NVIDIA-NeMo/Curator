@@ -93,8 +93,11 @@ class ClassifierModelStage(ModelStage):
         padding_side: Literal["left", "right"] = "right",
         autocast: bool = True,
         drop_tokens: bool = True,
-        token_fields: list[str] = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD],
+        token_fields: list[str] | None = None,
     ):
+        if token_fields is None:
+            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
         super().__init__(
             model_identifier=model_identifier,
             cache_dir=cache_dir,
@@ -222,7 +225,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             self.stages.append(tokenizer_stage)
 
         if isinstance(self.use_existing_tokens, list):
-            if len(self.use_existing_tokens) != 2:
+            if len(self.use_existing_tokens) != 2:  # noqa: PLR2004
                 msg = "use_existing_tokens must be a list of two strings representing the [input_ids, attention_mask] fields"
                 raise ValueError(msg)
             token_fields = self.use_existing_tokens
