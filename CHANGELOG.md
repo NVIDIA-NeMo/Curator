@@ -10,15 +10,15 @@
 
 ### Improvements
 
-- **Video**: Removed InternVideo2; vLLM 0.14.1, FFmpeg 8.0.1
+- **Video**: Removed InternVideo2; vLLM 0.15.1, FFmpeg 8.0.1
 - **Audio**: Enhanced ASR/WER docs, robust manifest handling
-- **Image**: Optimized batch sizes (batch_size=100, num_threads=8), memory guidance
+- **Image**: Optimized batch sizes (batch_size=100, num_threads=16), memory guidance
 - **Text**: Better memory management for large-scale semantic deduplication
 - **Deduplication**: Cloud storage (S3, GCS, Azure) for ParquetReader/Writer, non-blocking ID generation, empty batch handling
 
 ### Dependency Updates
 
-- Transformers 4.55.2, vLLM 0.14.1, FFmpeg 8.0.1
+- Transformers 4.55.2, vLLM 0.15.1, FFmpeg 8.0.1
 - Security patches: aiohttp, urllib3, python-multipart, setuptools
 
 ### Bug Fixes
