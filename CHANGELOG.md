@@ -6,6 +6,7 @@
 
 - **Stage and Pipeline Benchmarking**: Benchmarking for all modalities (text, image, video, audio)
 - **YAML Configuration**: Declarative pipeline configuration with pre-built configs for code filtering, deduplication, heuristic filtering, and FastText
+- **Pipeline Performance and Metric Logging**: Automatic tracking of processing time, throughput, and resource usage; detailed logs and error reporting for failed stages
 
 ### Improvements
 
