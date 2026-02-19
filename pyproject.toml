@@ -205,7 +205,6 @@ constraint-dependencies = [
     "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
 ]
 override-dependencies = [
-    "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
     "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",

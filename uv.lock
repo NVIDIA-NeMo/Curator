@@ -47,7 +47,6 @@ constraints = [
     { name = "xgrammar", specifier = ">=0.1.21" },
 ]
 overrides = [
-    { name = "apex", marker = "sys_platform == 'never'" },
     { name = "distance", marker = "sys_platform == 'never'" },
     { name = "huggingface-hub", specifier = ">=0.34,<1.0" },
     { name = "kaldiio", marker = "sys_platform == 'never'" },
