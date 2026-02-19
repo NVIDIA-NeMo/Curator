@@ -14,28 +14,16 @@ modality: "universal"
 
 ## What's New in 26.02
 
-### Benchmarking Infrastructure
+### Stage and Pipeline Benchmarking
 
-New comprehensive benchmarking framework for performance monitoring and optimization:
+Benchmarking framework for performance monitoring:
 
-- **End-to-End Pipeline Benchmarking**: Automated benchmarks for all curation modalities (text, image, video, audio)
-- **Performance Tracking**: Integration with MLflow for metrics tracking and Slack for notifications
-- **Nightly Benchmarks**: Continuous performance monitoring across:
+- **Stage and Pipeline Benchmarking**: Automated benchmarks for curation modalities (text, image, video, audio)
+- **Performance Tracking**: Metrics tracking across:
   - Text pipelines: exact deduplication, fuzzy deduplication, semantic deduplication, score filters, modifiers
   - Image curation workflows with DALI-based processing
-  - Video processing pipelines with scene detection and semantic deduplication
+  - Video processing pipelines with splitting, scene detection, captioning, and semantic deduplication
   - Audio ASR inference and quality assessment
-- **Grafana Dashboards**: Real-time monitoring of pipeline performance and resource utilization
-
-### Ray Actor Pool Executor Improvements
-
-Enhanced features for the experimental Ray Actor Pool execution backend:
-
-- **Progress Bars**: New visual feedback for long-running actor pool operations, making it easier to monitor pipeline execution
-- **Improved Load Balancing**: Better worker distribution and task scheduling
-- **Enhanced Stability**: Continued refinements to the experimental executor
-
-Learn more in the [Execution Backends documentation](../../reference/infrastructure/execution-backends.md).
 
 ### YAML Configuration Support
 
@@ -50,12 +38,12 @@ Declarative pipeline configuration for text curation workflows:
 
 Example:
 ```bash
-python -m nemo_curator.config.run --config_file heuristic_filter_english_pipeline.yaml
+python run.py --config-path ./text --config-name heuristic_filter_english_pipeline.yaml input_path=./input_dir output_path=./output_dir
 ```
 
-### Workflow Results API
+### Pipeline Performance and Metric Logging
 
-New API for tracking and analyzing pipeline execution:
+Enhanced tracking of pipeline execution:
 
 - **Performance Metrics**: Automatic tracking of processing time, throughput, and resource usage
 - **Better Debugging**: Detailed logs and error reporting for failed stages
@@ -65,7 +53,7 @@ New API for tracking and analyzing pipeline execution:
 ### Video Curation
 
 - **Model Updates**: Removed InternVideo2 dependency; updated to more performant alternatives
-- **vLLM 0.14.1**: Upgraded for better video captioning compatibility and performance
+- **vLLM 0.15.1**: Upgraded for better video captioning compatibility and performance
 - **FFmpeg 8.0.1**: Latest FFmpeg with improved codec support and performance
 - **Enhanced Tutorials**: Improved video processing examples with real-world scenarios
 
@@ -77,15 +65,13 @@ New API for tracking and analyzing pipeline execution:
 
 ### Image Curation
 
-- **Optimized Batch Sizes**: Reduced default batch sizes for better CPU memory usage (batch_size=50, num_threads=4)
+- **Optimized Batch Sizes**: Configurable batch sizes for better CPU/GPU memory usage (batch_size=100, num_threads=16)
 - **Memory Guidance**: Added troubleshooting documentation for out-of-memory errors
 - **Tutorial Improvements**: Updated examples optimized for typical GPU configurations
 
 ### Text Curation
 
 - **Better Memory Management**: Improved handling of large-scale semantic deduplication
-- **Small Cluster Warnings**: Automatic warnings when n_clusters is too small for effective deduplication
-- **FilePartitioning Improvements**: One worker per partition for better parallelization
 
 ### Deduplication Enhancements
 
@@ -96,7 +82,7 @@ New API for tracking and analyzing pipeline execution:
 ## Dependency Updates
 
 - **Transformers**: Pinned to 4.55.2 for stability and compatibility
-- **vLLM**: Updated to 0.14.1 with video pipeline compatibility fixes
+- **vLLM**: Updated to 0.15.1 with video pipeline compatibility fixes
 - **FFmpeg**: Upgraded to 8.0.1 for enhanced multimedia processing
 - **Security Patches**:
   - Addressed CVEs in aiohttp, urllib3, python-multipart, setuptools
@@ -107,7 +93,6 @@ New API for tracking and analyzing pipeline execution:
 
 - Fixed fasttext predict call compatibility with numpy>2
 - Fixed broken NeMo Framework documentation links
-- Fixed MegatronTokenizerWriter to download only necessary tokenizer files
 - Fixed ID generator blocking issues for large-scale processing
 - Fixed vLLM API compatibility with video captioning pipeline
 - Fixed Gliner tutorial examples and SDG workflow bugs
@@ -120,7 +105,6 @@ New API for tracking and analyzing pipeline execution:
 - **Enhanced Install Tests**: Comprehensive installation validation across environments
 - **AWS Runner Support**: CI/CD execution on AWS infrastructure
 - **Docker Optimization**: Improved layer caching and build times with uv
-- **Code Linting**: Standardized code quality checks with markdownlint and pre-commit hooks
 - **Cursor Rules**: Development guidelines and patterns for IDE assistance
 
 ## Breaking Changes
