@@ -14,6 +14,8 @@
 
 from typing import TYPE_CHECKING, Any, Literal
 
+import cudf
+
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, get_id_generator_actor
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.deduplication.shuffle_utils.rapidsmpf_shuffler import pylibcudf_to_cudf_dataframe
@@ -22,8 +24,6 @@ from nemo_curator.tasks import FileGroupTask
 from nemo_curator.utils.file_utils import get_fs
 
 if TYPE_CHECKING:
-    import cudf
-
     from nemo_curator.backends.base import WorkerMetadata
 
 
@@ -145,32 +145,99 @@ class ExactDuplicateIdentification(DeduplicationIO, ShuffleStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return (["data"], [])
 
-    def read_and_insert(self, task: FileGroupTask) -> FileGroupTask:
+    def _hash_and_insert(self, df: "cudf.DataFrame") -> None:
+        """Hash the text field and insert into the shuffle actor.
+
+        Parameters
+        ----------
+        df
+            DataFrame containing the id_field and text_field columns.
+        """
         self._check_actor_obj()
-
-        if self.assign_id_field and self.id_generator is None:
-            msg = "ID generator not initialized. Call setup() first."
-            raise RuntimeError(msg)
-        input_columns = [self.text_field] if self.assign_id_field else [self.text_field, self.id_field]
-        if self.input_filetype == "jsonl":
-            df = self.read_jsonl(
-                filepath=task.data, columns=input_columns, assign_id=self.assign_id_field, **self.read_kwargs
-            )
-        elif self.input_filetype == "parquet":
-            df = self.read_parquet(
-                filepath=task.data, columns=input_columns, assign_id=self.assign_id_field, **self.read_kwargs
-            )
-        else:
-            msg = f"Unsupported input filetype: {self.input_filetype}"
-            raise ValueError(msg)
-
         hashed_df = df[[self.id_field]]
         hashed_df[EXACT_DUPLICATE_GROUP_FIELD] = df[self.text_field].hash_values(method="md5")
         self.output_columns = list(hashed_df.columns)
-        self.dataset_name = task.dataset_name
-
         self._actor_obj.insert_chunk(hashed_df, self.output_columns)
-        return task
+
+    def _read_files(self, filepaths: list[str]) -> "cudf.DataFrame":
+        """Read files and return a DataFrame.
+
+        Parameters
+        ----------
+        filepaths
+            List of file paths to read.
+
+        Returns
+        -------
+        cudf.DataFrame
+            DataFrame containing the id_field and text_field columns.
+        """
+        input_columns = [self.text_field] if self.assign_id_field else [self.text_field, self.id_field]
+        if self.input_filetype == "jsonl":
+            read_func = self.read_jsonl
+        elif self.input_filetype == "parquet":
+            read_func = self.read_parquet
+        else:
+            msg = f"Unsupported input filetype: {self.input_filetype}"
+            raise ValueError(msg)
+        return read_func(filepaths, columns=input_columns, assign_id=self.assign_id_field, **self.read_kwargs)
+
+    def read_and_insert_batch(self, tasks: list[FileGroupTask]) -> list[FileGroupTask]:
+        """Batch process multiple file group tasks for exact deduplication.
+
+        This method reads all files from all tasks, concatenates them (if needed),
+        hashes the text field using MD5, and inserts into the shuffle actor for
+        deduplication. Processing tasks in batches significantly improves
+        throughput by reducing actor call overhead and enabling more efficient
+        GPU operations.
+
+        Parameters
+        ----------
+        tasks
+            List of FileGroupTask objects containing files to process.
+            Must contain at least one task.
+
+        Returns
+        -------
+        list[FileGroupTask]
+            The input tasks unchanged. The actual deduplication results are
+            written through the shuffle actor as a side effect.
+
+        Raises
+        ------
+        RuntimeError
+            If ID generator is not initialized when assign_id is True.
+        """
+        if self.assign_id_field and self.id_generator is None:
+            msg = "ID generator not initialized. Call setup() first."
+            raise RuntimeError(msg)
+
+        # Optimize for single-task batch to avoid unnecessary concat overhead
+        if len(tasks) == 1:
+            df = self._read_files(tasks[0].data)
+            self.dataset_name = tasks[0].dataset_name
+        else:
+            dfs = [self._read_files(task.data) for task in tasks]
+            df = cudf.concat(dfs, ignore_index=True)
+            self.dataset_name = tasks[0].dataset_name
+
+        self._hash_and_insert(df)
+        return tasks
+
+    def read_and_insert(self, task: FileGroupTask) -> FileGroupTask:
+        """Single task processing is not supported.
+
+        This stage requires batch processing via read_and_insert_batch for
+        optimal performance. The shuffle adapter will automatically route
+        tasks to the batch method.
+
+        Raises
+        ------
+        NotImplementedError
+            Always raised as this stage only supports batch processing.
+        """
+        msg = "ExactDuplicateIdentification only supports batch processing via read_and_insert_batch"
+        raise NotImplementedError(msg)
 
     def insert_finished(self) -> None:
         super().insert_finished()
