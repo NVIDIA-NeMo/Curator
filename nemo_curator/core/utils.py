@@ -49,7 +49,7 @@ def check_ray_responsive(timeout_s: int = RAY_CLUSTER_START_VERIFICATION_TIMEOUT
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=timeout_s,
+                timeout=10,
             )
             if "No cluster status" in result.stdout or "Error" in result.stdout:
                 logger.debug("Ray cluster is not responsive ('No cluster status' returned or Error in output)")
