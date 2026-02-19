@@ -115,7 +115,7 @@ def copy_assets(app: Sphinx, exc: Exception | None) -> None:
                     shutil.rmtree(dest_dir)
                 shutil.copytree(src_dir, dest_dir)
                 logger.info(f"AI assistant assets copied: {asset_dir}/")
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.warning(f"Failed to copy {asset_dir}/: {e}")
 
 
@@ -142,7 +142,7 @@ def copy_assets_early(app: Sphinx, _docname: str, _source: list[str]) -> None:
                 shutil.rmtree(dest_assets_dir)
             shutil.copytree(assets_dir, dest_assets_dir)
             logger.info("AI assistant CSS assets copied")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning(f"Failed to copy CSS assets: {e}")
 
     # Mark as copied

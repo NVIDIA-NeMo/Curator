@@ -111,7 +111,7 @@ def run_benchmark(args: argparse.Namespace) -> dict:
     try:
         results = pipeline.run(executor, initial_tasks=None)
         success = True
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.error(f"Pipeline failed: {e}")
         results = []
         success = False
