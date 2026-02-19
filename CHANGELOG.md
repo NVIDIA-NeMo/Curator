@@ -1,5 +1,42 @@
 # Changelog
 
+## NVIDIA NeMo Curator 1.1.0
+
+### New Features
+
+- **Stage and Pipeline Benchmarking**: Benchmarking for all modalities (text, image, video, audio)
+- **YAML Configuration**: Declarative pipeline configuration with pre-built configs for code filtering, deduplication, heuristic filtering, and FastText
+- **Pipeline Performance and Metric Logging**: Automatic tracking of processing time, throughput, and resource usage; detailed logs and error reporting for failed stages
+
+### Improvements
+
+- **Video**: Removed InternVideo2; vLLM 0.14.1, FFmpeg 8.0.1
+- **Audio**: Enhanced ASR/WER docs, robust manifest handling
+- **Image**: Optimized batch sizes (batch_size=100, num_threads=8), memory guidance
+- **Text**: Better memory management for large-scale semantic deduplication
+- **Deduplication**: Cloud storage (S3, GCS, Azure) for ParquetReader/Writer, non-blocking ID generation, empty batch handling
+
+### Dependency Updates
+
+- Transformers 4.55.2, vLLM 0.14.1, FFmpeg 8.0.1
+- Security patches: aiohttp, urllib3, python-multipart, setuptools
+
+### Bug Fixes
+
+- FastText numpy>2 compatibility, NeMo doc links, MegatronTokenizerWriter tokenizer download, ID generator blocking, vLLM video API, Gliner/SDG tutorials, semantic dedup test reliability
+
+### Infrastructure
+
+- Secrets detection, Dependabot, enhanced install tests, AWS runner support, Docker/uv optimization, Cursor rules
+
+### Breaking Changes
+
+- **InternVideo2 Removed**: Use Cosmos-Embed1 for video embeddings
+
+### Documentation
+
+- Heuristic filter guide, distributed classifier memory guidance, installation troubleshooting, memory management, AWS credentials
+
 ## NVIDIA NeMo Curator 1.0.0
 
 This major release represents a fundamental architecture shift from [Dask](https://www.dask.org/) to [Ray](https://www.ray.io/), expanding NeMo Curator to support multimodal data curation with new [video](https://docs.nvidia.com/nemo/curator/latest/curate-video/index.html) and [audio](https://docs.nvidia.com/nemo/curator/latest/curate-audio/index.html) capabilities. This refactor enables unified backend processing, better heterogeneous computing support, and enhanced autoscaling for dynamic workloads.
