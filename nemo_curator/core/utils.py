@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,6 +17,8 @@ import socket
 import subprocess
 from typing import TYPE_CHECKING
 
+import pyarrow as pa
+import pyarrow.compute as pc
 import ray
 from loguru import logger
 
@@ -134,3 +136,47 @@ def init_cluster(  # noqa: PLR0913
         proc = subprocess.Popen(ray_command, shell=False, start_new_session=True)  # noqa: S603
     logger.info(f"Ray start command: {' '.join(ray_command)}")
     return proc
+
+
+def split_table_by_group_max_bytes(
+    table: pa.Table,
+    group_column: str,
+    max_batch_bytes: int | None,
+) -> list[pa.Table]:
+    """Split an Arrow table by approximate byte size without splitting group rows.
+
+    Each unique value in ``group_column`` is kept in a single output table.
+    If a single group exceeds ``max_batch_bytes``, it is still emitted as one chunk.
+    """
+    if max_batch_bytes is None or table.num_rows == 0:
+        return [table]
+    if max_batch_bytes <= 0:
+        msg = f"max_batch_bytes must be > 0, got {max_batch_bytes}"
+        raise ValueError(msg)
+    if group_column not in table.column_names:
+        msg = f"Group column '{group_column}' not found in table"
+        raise ValueError(msg)
+
+    group_values = [str(v) for v in pc.unique(table[group_column]).to_pylist()]
+    group_tables: list[pa.Table] = []
+    for group_value in group_values:
+        group_tables.append(table.filter(pc.equal(table[group_column], group_value)))
+
+    chunks: list[list[pa.Table]] = []
+    chunk_tables: list[pa.Table] = []
+    chunk_bytes = 0
+    for group_table in group_tables:
+        group_bytes = int(group_table.nbytes)
+        if chunk_tables and (chunk_bytes + group_bytes > max_batch_bytes):
+            chunks.append(chunk_tables)
+            chunk_tables = []
+            chunk_bytes = 0
+        chunk_tables.append(group_table)
+        chunk_bytes += group_bytes
+    if chunk_tables:
+        chunks.append(chunk_tables)
+
+    out_tables: list[pa.Table] = []
+    for chunk in chunks:
+        out_tables.append(pa.concat_tables(chunk) if len(chunk) > 1 else chunk[0])
+    return out_tables

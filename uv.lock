@@ -4556,6 +4556,7 @@ all = [
     { name = "nvidia-ml-py" },
     { name = "opencv-python" },
     { name = "peft" },
+    { name = "pillow" },
     { name = "pycld2" },
     { name = "pycuda" },
     { name = "pylibcugraph-cu12" },
@@ -4600,6 +4601,7 @@ deduplication-cuda12 = [
     { name = "scikit-learn" },
 ]
 image-cpu = [
+    { name = "pillow" },
     { name = "torchvision", version = "0.24.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchvision", version = "0.24.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
@@ -4609,6 +4611,7 @@ image-cuda12 = [
     { name = "gpustat" },
     { name = "nvidia-dali-cuda120" },
     { name = "nvidia-ml-py" },
+    { name = "pillow" },
     { name = "pylibcugraph-cu12" },
     { name = "pylibraft-cu12" },
     { name = "raft-dask-cu12" },
@@ -4768,6 +4771,7 @@ requires-dist = [
     { name = "opencv-python", marker = "extra == 'video-cpu'" },
     { name = "pandas", specifier = ">=2.1.0" },
     { name = "peft", marker = "extra == 'text-cpu'" },
+    { name = "pillow", marker = "extra == 'image-cpu'" },
     { name = "pyarrow" },
     { name = "pycld2", marker = "extra == 'text-cpu'" },
     { name = "pycuda", marker = "extra == 'video-cuda12'" },
