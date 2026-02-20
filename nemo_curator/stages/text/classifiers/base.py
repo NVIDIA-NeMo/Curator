@@ -62,7 +62,7 @@ class Deberta(nn.Module, PyTorchModelHubMixin):
 
     @torch.no_grad()
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        features = self.model(self.input_id_field, self.attention_mask_field).last_hidden_state
+        features = self.model(batch[self.input_id_field], batch[self.attention_mask_field]).last_hidden_state
         dropped = self.dropout(features)
         outputs = self.fc(dropped)
 
