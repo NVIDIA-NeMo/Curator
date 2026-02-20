@@ -42,8 +42,16 @@ class Deberta(nn.Module, PyTorchModelHubMixin):
 
     """
 
-    def __init__(self, config: dataclass):
+    def __init__(
+        self,
+        config: dataclass,
+        input_id_field: str = INPUT_ID_FIELD,
+        attention_mask_field: str = ATTENTION_MASK_FIELD
+    ):
         super().__init__()
+        self.input_id_field = input_id_field
+        self.attention_mask_field = attention_mask_field
+
         self.model = AutoModel.from_pretrained(config["base_model"])
         self.dropout = nn.Dropout(config["fc_dropout"])
         self.fc = nn.Linear(self.model.config.hidden_size, len(config["id2label"]))
@@ -54,7 +62,7 @@ class Deberta(nn.Module, PyTorchModelHubMixin):
 
     @torch.no_grad()
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        features = self.model(**batch).last_hidden_state
+        features = self.model(self.input_id_field, self.attention_mask_field).last_hidden_state
         dropped = self.dropout(features)
         outputs = self.fc(dropped)
 
@@ -124,7 +132,13 @@ class ClassifierModelStage(ModelStage):
 
     def _setup(self, local_files_only: bool = True) -> None:
         self.model = (
-            Deberta.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only)
+            Deberta.from_pretrained(
+                self.model_identifier,
+                cache_dir=self.cache_dir,
+                local_files_only=local_files_only,
+                input_id_field=self.input_id_field,
+                attention_mask_field=self.attention_mask_field,
+            )
             .cuda()
             .eval()
         )
