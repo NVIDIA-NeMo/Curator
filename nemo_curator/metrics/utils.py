@@ -275,7 +275,7 @@ def write_grafana_configs(grafana_web_port: int, prometheus_web_port: int, metri
 def _write_ray_default_dashboards(dashboards_path: str) -> None:
     """Generate and write Ray's default Grafana dashboards to the dashboards directory."""
     try:
-        from ray.dashboard.modules.metrics.grafana_dashboard_factory import (  # noqa: PLC0415
+        from ray.dashboard.modules.metrics.grafana_dashboard_factory import (
             generate_data_grafana_dashboard,
             generate_default_grafana_dashboard,
             generate_serve_deployment_grafana_dashboard,

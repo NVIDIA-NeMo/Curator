@@ -105,7 +105,7 @@ def run_score_filter_benchmark(  # noqa: PLR0913
         logger.success(f"Kept {num_kept_documents} out of {num_documents_processed} rows (documents)")
         success = True
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         error_traceback = traceback.format_exc()
         logger.error(f"Benchmark failed: {e}")
         logger.debug(f"Full traceback:\n{error_traceback}")
@@ -166,7 +166,7 @@ def main() -> int:
             overrides=args.overrides,
         )
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         error_traceback = traceback.format_exc()
         print(f"Benchmark failed: {e}")
         logger.debug(f"Full traceback:\n{error_traceback}")

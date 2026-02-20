@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: S603
 
 import os
 import shutil
@@ -103,13 +102,13 @@ def teardown_ray_cluster_and_env(
             # Stop the Ray client
             # This also removes the RAY_ADDRESS environment variable if the client also started the Ray cluster
             ray_client.stop()
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Failed to stop Ray client")
         # Copy debugging artifacts and clean up temp directory
         try:
             _copy_ray_debug_artifacts(ray_temp_path, ray_cluster_path)
             shutil.rmtree(ray_temp_path, ignore_errors=True)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Failed to copy/remove Ray temp dir")
 
 
@@ -183,7 +182,7 @@ def _copy_item_safely(src_path: Path, dst_path: Path) -> None:
             shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
         else:
             shutil.copy2(src_path, dst_path)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"Failed to copy {src_path.name}: {e}")
 
 

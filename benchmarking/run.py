@@ -352,7 +352,7 @@ def main() -> int:  # noqa: C901, PLR0912
                 result_data=result_data,
             )
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             run_success = False
             error_traceback = traceback.format_exc()
             logger.error(f"\t\t❌ Entry failed with exception: {e}")

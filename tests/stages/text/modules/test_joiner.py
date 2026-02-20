@@ -304,10 +304,10 @@ class TestDocumentJoiner:
             length_field="length",
         )
 
-        top_level, data_attrs = joiner.inputs()
+        _top_level, data_attrs = joiner.inputs()
         assert "length" in data_attrs
 
-        top_level, data_attrs = joiner.outputs()
+        _top_level, data_attrs = joiner.outputs()
         assert "length" in data_attrs
 
     def test_metadata_preservation(self):
