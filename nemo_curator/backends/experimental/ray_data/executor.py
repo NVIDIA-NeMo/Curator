@@ -80,7 +80,7 @@ class RayDataExecutor(BaseExecutor):
                     msg = (
                         f"No files found or no tasks produced by {first_stage.__class__.__name__}. "
                         "Check that the input path exists and contains files with the expected extensions "
-                        "(e.g. .jsonl for JsonlReader, .parquet for ParquetReader)."
+                        "(e.g., `.jsonl` for JsonlReader or `.parquet` for ParquetReader)."
                     )
                     raise ValueError(msg)
                 tasks = file_tasks
