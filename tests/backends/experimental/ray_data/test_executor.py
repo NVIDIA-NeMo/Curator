@@ -24,7 +24,7 @@ from nemo_curator.stages.text.io.reader import JsonlReader
 class TestRayDataExecutorFailFast:
     """Test fail-fast behavior when reader finds no files (wrong path or wrong file type)."""
 
-    def test_jsonl_reader_on_empty_dir_fails_fast(self, tmp_path):
+    def test_jsonl_reader_on_empty_dir_fails_fast(self, tmp_path: Path):
         """JsonlReader on empty directory should raise immediately, not run forever."""
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
