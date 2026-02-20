@@ -49,10 +49,19 @@ def check_ray_responsive(timeout_s: int = RAY_CLUSTER_START_VERIFICATION_TIMEOUT
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=timeout_s,
+                timeout=10,
             )
+
+            # Clean stdout to remove any new lines and carriage returns
+            result.stdout = result.stdout.replace("\n", "").replace("\r", "")
             if "No cluster status" in result.stdout or "Error" in result.stdout:
                 logger.debug("Ray cluster is not responsive ('No cluster status' returned or Error in output)")
+            elif "Found multiple active Ray instances" in result.stdout:
+                logger.warning(
+                    "Found multiple active Ray instances. Pleae set RAY_ADDRESS environment variable to the correct value."
+                )
+                responsive = False
+                break
             else:
                 logger.debug("Ray cluster IS responsive")
                 responsive = True
@@ -174,8 +183,5 @@ def init_cluster(  # noqa: PLR0913
     else:
         proc = subprocess.Popen(ray_command, shell=False, start_new_session=True)  # noqa: S603
     logger.info(f"Ray start command: {' '.join(ray_command)}")
-
-    # Verify that Ray cluster actually started successfully
-    check_ray_responsive()
 
     return proc
