@@ -82,7 +82,7 @@ class RayDataExecutor(BaseExecutor):
                         "Check that the input path exists and contains files with the expected extensions "
                         "(e.g., `.jsonl` for JsonlReader or `.parquet` for ParquetReader)."
                     )
-                    raise ValueError(msg)
+                    raise ValueError(msg)  # noqa: TRY301
                 tasks = file_tasks
                 stages_to_run = stages[1:]
 
