@@ -22,6 +22,7 @@ from typing import Any
 
 import ray
 from loguru import logger
+from runner.utils import run_shm_size_check
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.core.utils import check_ray_responsive
@@ -76,6 +77,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
 
         _ensure_ray_client_process_started(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
         responsive = check_ray_responsive()
+        run_shm_size_check(human_readable=True)
         if not responsive:
             logger.info("Ray cluster did not become responsive in time, stopping client and retrying...")
             client.stop()
