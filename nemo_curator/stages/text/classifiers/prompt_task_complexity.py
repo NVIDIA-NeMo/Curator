@@ -237,7 +237,7 @@ class PromptTaskComplexityModelStage(ModelStage):
 
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         cache_dir: str | None = None,
         model_inference_batch_size: int = 256,
