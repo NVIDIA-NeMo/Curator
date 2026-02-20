@@ -38,7 +38,7 @@ class TestRayDataExecutorFailFast:
         with pytest.raises(ValueError, match="No files found or no tasks produced"):
             pipeline.run(executor=executor)
 
-    def test_jsonl_reader_on_nonexistent_path_fails_fast(self, tmp_path):
+    def test_jsonl_reader_on_nonexistent_path_fails_fast(self, tmp_path: Path):
         """JsonlReader on non-existent path should raise immediately."""
         nonexistent = tmp_path / "does_not_exist" / "nested"
 
