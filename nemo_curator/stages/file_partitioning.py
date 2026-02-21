@@ -105,8 +105,12 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         files = self._get_file_list_with_sizes() if self.blocksize else self._get_file_list()
         logger.info(f"Found {len(files)} files")
         if len(files) == 0:
-            logger.warning(f"No files found under {self.file_paths}")
-            return []
+            msg = (
+                f"No files found under {self.file_paths}. "
+                "Check that the path exists and contains files with the expected extensions "
+                "(e.g. .jsonl for JsonlReader, .parquet for ParquetReader)."
+            )
+            raise ValueError(msg)
         # Partition files
         if self.files_per_partition:
             partitions = self._partition_by_count(files, self.files_per_partition)
