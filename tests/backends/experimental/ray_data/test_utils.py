@@ -27,7 +27,7 @@ class TestGetAvailableCpuGpuResources:
     # TODO: Move this to tests/backends/experimental/test_utils.py
     """Test class for utility functions in ray_data backend."""
 
-    def test_get_available_cpu_gpu_resources_conftest(self, shared_ray_client: None):  # noqa: ARG002
+    def test_get_available_cpu_gpu_resources_conftest(self, shared_ray_client: None):
         """Test get_available_cpu_gpu_resources function."""
         # Test with Ray resources from conftest.py
         cpus, gpus = get_available_cpu_gpu_resources()
@@ -38,7 +38,7 @@ class TestGetAvailableCpuGpuResources:
 
     def test_get_resources_with_ignore_head_node(
         self,
-        shared_ray_client: None,  # noqa: ARG002
+        shared_ray_client: None,
     ):
         """Test get_available_cpu_gpu_resources with ignore_head_node=True to skip head node.
         Since this test is run with the head node, the resources should be 0."""

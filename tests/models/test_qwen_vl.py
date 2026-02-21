@@ -157,7 +157,7 @@ class TestQwenVL:
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
-    def test_setup_without_fp8(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:  # noqa: ARG002
+    def test_setup_without_fp8(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
         """Test setup method with fp8 quantization disabled."""
         # Create QwenVL instance with fp8=False
         qwen_vl = QwenVL(
@@ -178,7 +178,7 @@ class TestQwenVL:
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
-    def test_setup_with_model_preprocessing(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:  # noqa: ARG002
+    def test_setup_with_model_preprocessing(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
         """Test setup method with model preprocessing enabled."""
         qwen_vl = QwenVL(
             model_dir=self.model_dir,
@@ -393,7 +393,7 @@ class TestQwenVL:
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
-    def test_setup_sampling_params_with_custom_tokens(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:  # noqa: ARG002
+    def test_setup_sampling_params_with_custom_tokens(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
         """Test that SamplingParams uses the custom max_output_tokens."""
         custom_tokens = 256
         qwen_vl = QwenVL(

@@ -57,7 +57,7 @@ class TestExecuteSetupOnNode:
 
     def test_execute_setup_on_node_with_two_stages(
         self,
-        shared_ray_client: None,  # noqa: ARG002
+        shared_ray_client: None,
         tmp_path: Path,
         caplog: LogCaptureFixture,
     ):
@@ -120,10 +120,10 @@ class TestExecuteSetupOnNode:
 
     def test_execute_setup_on_node_ignore_head_node(
         self,
-        shared_ray_client: None,  # noqa: ARG002
+        shared_ray_client: None,
         tmp_path: Path,
-        caplog: LogCaptureFixture,  # noqa: ARG002
-        reset_head_node_cache: None,  # noqa: ARG002
+        caplog: LogCaptureFixture,
+        reset_head_node_cache: None,
     ):
         """Test execute_setup_on_node with ignore_head_node=True to skip head node."""
 
@@ -176,8 +176,8 @@ class TestExecuteSetupOnNode:
 class TestGetHeadNodeId:
     def test_lazy_evaluation(
         self,
-        shared_ray_client: None,  # noqa: ARG002
-        reset_head_node_cache: None,  # noqa: ARG002
+        shared_ray_client: None,
+        reset_head_node_cache: None,
     ):
         """Test that get_head_node_id uses lazy evaluation and caching."""
 

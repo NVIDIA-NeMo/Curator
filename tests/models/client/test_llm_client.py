@@ -50,7 +50,7 @@ class TestLLMClient:
             def setup(self) -> None:
                 pass
 
-            def query_model(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:  # noqa: ARG002
+            def query_model(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 return ["test response"]
 
         client = TestLLMClient()
@@ -77,7 +77,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:  # noqa: ARG002
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 return ["test response"]
 
         client = TestAsyncLLMClient()
@@ -95,10 +95,10 @@ class TestAsyncLLMClient:
             async def _query_model_impl(
                 self,
                 *,
-                messages: Iterable,  # noqa: ARG002
-                model: str,  # noqa: ARG002
+                messages: Iterable,
+                model: str,
                 generation_config: GenerationConfig | None = None,
-                **kwargs: object,  # noqa: ARG002
+                **kwargs: object,
             ) -> list[str]:
                 # Verify that generation_config was converted from dict to GenerationConfig
                 assert isinstance(generation_config, GenerationConfig)
@@ -133,7 +133,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:  # noqa: ARG002
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 self.attempt_count += 1
                 if self.attempt_count <= 2:
                     error_msg = "429 Rate limit exceeded"
@@ -156,7 +156,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:  # noqa: ARG002
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 error_msg = "Some other error"
                 raise ValueError(error_msg)
 
@@ -179,7 +179,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:  # noqa: ARG002
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 error_msg = "429 Rate limit exceeded"
                 raise RateLimitError(error_msg)
 
@@ -199,7 +199,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:  # noqa: ARG002
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 return ["test response"]
 
         client = TestAsyncLLMClient(max_concurrent_requests=3)
@@ -234,7 +234,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:  # noqa: ARG002
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 self.active_requests += 1
                 self.max_active = max(self.max_active, self.active_requests)
                 await asyncio.sleep(0.1)  # Simulate work

@@ -37,7 +37,7 @@ class TestArxivDownloader:
     @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
     @mock.patch("subprocess.run", return_value=mock.Mock(returncode=0))
     @pytest.mark.parametrize("verbose", [True, False])
-    def test_download_to_path(self, mock_run: mock.Mock, tmp_path: Path, verbose: bool) -> None:
+    def test_download_to_path(self, mock_run: mock.Mock, mock_s5cmd: mock.Mock, tmp_path: Path, verbose: bool) -> None:
         """Test _download_to_path with s5cmd."""
         downloader = ArxivDownloader(str(tmp_path), verbose=verbose)
 
@@ -61,7 +61,7 @@ class TestArxivDownloader:
 
     @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
     @mock.patch("subprocess.run", return_value=mock.Mock(returncode=1, stderr=b"Failed to download"))
-    def test_download_to_path_failed(self, mock_run: mock.Mock, tmp_path: Path) -> None:
+    def test_download_to_path_failed(self, mock_run: mock.Mock, mock_s5cmd: mock.Mock, tmp_path: Path) -> None:
         """Test _download_to_path with failed download."""
         downloader = ArxivDownloader(str(tmp_path), verbose=False)
 
@@ -79,7 +79,7 @@ class TestArxivDownloader:
         )
 
     @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
-    def test_init_with_s5cmd(self, tmp_path: Path) -> None:
+    def test_init_with_s5cmd(self, mock_s5cmd: mock.Mock, tmp_path: Path) -> None:
         """Test _check_s5cmd_installed when s5cmd is available."""
         downloader = ArxivDownloader(str(tmp_path), verbose=False)
 
@@ -89,13 +89,13 @@ class TestArxivDownloader:
             assert result is True
 
     @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=False)
-    def test_init_without_s5cmd(self, tmp_path: Path) -> None:
+    def test_init_without_s5cmd(self, mock_s5cmd: mock.Mock, tmp_path: Path) -> None:
         """Test initialization but s5cmd not installed."""
         with pytest.raises(RuntimeError, match="s5cmd is not installed"):
             ArxivDownloader(str(tmp_path), verbose=False)
 
     @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
-    def test_get_output_filename(self, tmp_path: Path) -> None:
+    def test_get_output_filename(self, mock_s5cmd: mock.Mock, tmp_path: Path) -> None:
         """Test conversion of URL to output filename."""
         downloader = ArxivDownloader(str(tmp_path), verbose=False)
 
