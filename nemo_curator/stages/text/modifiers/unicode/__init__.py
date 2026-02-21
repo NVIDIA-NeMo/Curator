@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,14 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .unicode_reformatter import UnicodeReformatter
+
+__all__ = [
+    "UnicodeReformatter",
+]
 
 
-class FastTextLabelModifier(DocumentModifier):
-    def __init__(self, label: str):
-        super().__init__()
-        self.label = label
+def __getattr__(name: str) -> type["UnicodeReformatter"]:
+    if name == "UnicodeReformatter":
+        from .unicode_reformatter import UnicodeReformatter
 
-    def modify_document(self, text: str) -> str:
-        text = text.replace("\n", " ").replace("__label__", " ")
-        return f"{self.label} {text}"
+        return UnicodeReformatter
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

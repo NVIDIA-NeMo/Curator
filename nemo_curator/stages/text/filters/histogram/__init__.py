@@ -12,26 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .doc_modifier import DocumentModifier
-from .modifier import Modify
-from .string import (
-    BoilerPlateStringModifier,
-    LineRemover,
-    MarkdownRemover,
-    NewlineNormalizer,
-    QuotationRemover,
-    Slicer,
-    UrlRemover,
-)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .histogram import HistogramFilter
 
 __all__ = [
-    "BoilerPlateStringModifier",
-    "DocumentModifier",
-    "LineRemover",
-    "MarkdownRemover",
-    "Modify",
-    "NewlineNormalizer",
-    "QuotationRemover",
-    "Slicer",
-    "UrlRemover",
+    "HistogramFilter",
 ]
+
+
+def __getattr__(name: str) -> type["HistogramFilter"]:
+    if name == "HistogramFilter":
+        from .histogram import HistogramFilter
+
+        return HistogramFilter
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

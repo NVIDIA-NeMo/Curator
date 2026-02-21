@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,20 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
+from typing import TYPE_CHECKING
 
-from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
+if TYPE_CHECKING:
+    from .fasttext_label import FastTextLabelModifier
 
-URL_REGEX = re.compile(r"https?://\S+|www\.\S+", flags=re.IGNORECASE)
+__all__ = [
+    "FastTextLabelModifier",
+]
 
 
-class UrlRemover(DocumentModifier):
-    """
-    Removes all URLs in a document.
-    """
+def __getattr__(name: str) -> type["FastTextLabelModifier"]:
+    if name == "FastTextLabelModifier":
+        from .fasttext_label import FastTextLabelModifier
 
-    def __init__(self):
-        super().__init__()
-
-    def modify_document(self, text: str) -> str:
-        return URL_REGEX.sub("", text)
+        return FastTextLabelModifier
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

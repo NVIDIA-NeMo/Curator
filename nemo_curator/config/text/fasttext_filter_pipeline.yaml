@@ -47,16 +47,16 @@ stages:
     blocksize: null
     fields: null
 
-  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+  - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.fasttext_filter.FastTextLangId
+      _target_: nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextLangId
       model_path: ${fasttext_langid_model_path}
       min_langid_score: 0.3
     text_field: ${text_field}
     score_field: null
-  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+  - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.fasttext_filter.FastTextQualityFilter
+      _target_: nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextQualityFilter
       model_path: ${fasttext_quality_model_path}
       # The label used for high-quality documents
       label: "__label__hq"

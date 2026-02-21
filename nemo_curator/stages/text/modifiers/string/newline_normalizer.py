@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,23 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
+
 from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
 
+THREE_OR_MORE_NEWLINES_REGEX = re.compile(r"(\n){3,}")
+THREE_OR_MORE_WINDOWS_NEWLINES_REGEX = re.compile(r"(\r\n){3,}")
 
-class LineRemover(DocumentModifier):
+
+class NewlineNormalizer(DocumentModifier):
     """
-    Removes lines from a document if the content of the line matches a given string.
+    Replaces 3 or more consecutive newline characters with only 2 newline characters.
     """
 
-    def __init__(self, patterns: list[str]):
-        """
-        Args:
-            patterns (List[str]): The patterns to check
-        """
+    def __init__(self):
         super().__init__()
-        self._patterns = patterns
 
     def modify_document(self, text: str) -> str:
-        lines = text.split("\n")
-        new_lines = [line for line in lines if line not in self._patterns]
-        return "\n".join(new_lines)
+        text = THREE_OR_MORE_NEWLINES_REGEX.sub("\n\n", text)
+        return THREE_OR_MORE_WINDOWS_NEWLINES_REGEX.sub("\r\n\r\n", text)

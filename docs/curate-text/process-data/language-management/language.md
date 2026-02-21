@@ -50,9 +50,9 @@ The following example demonstrates how to create a language identification pipel
 """Language identification using Curator."""
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.filters import FastTextLangId
+from nemo_curator.stages.text.filters.fasttext import FastTextLangId
 from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import ScoreFilter
 
 def create_language_identification_pipeline(data_dir: str) -> Pipeline:
     """Create a pipeline for language identification."""

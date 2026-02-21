@@ -13,7 +13,7 @@ modality: "text-only"
 
 Remove undesirable text such as improperly decoded Unicode characters, inconsistent line spacing, or excessive URLs from documents being pre-processed for your dataset using NeMo Curator.
 
-One common issue in text datasets is improper Unicode character encoding, which can result in garbled or unreadable text, particularly with special characters like apostrophes, quotes, or diacritical marks. For example, the input sentence `"The Mona Lisa doesn't have eyebrows."` from a given document may not have included a properly encoded apostrophe (`'`), resulting in the sentence decoding as `"The Mona Lisa doesnÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢t have eyebrows."`. 
+One common issue in text datasets is improper Unicode character encoding, which can result in garbled or unreadable text, particularly with special characters like apostrophes, quotes, or diacritical marks. For example, the input sentence `"The Mona Lisa doesn't have eyebrows."` from a given document may not have included a properly encoded apostrophe (`'`), resulting in the sentence decoding as `"The Mona Lisa doesnÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢t have eyebrows."`.
 
 NeMo Curator enables you to easily run this document through the default `UnicodeReformatter` module to detect and remove the unwanted text, or you can define your own custom Unicode text cleaner tailored to your needs.
 
@@ -42,8 +42,9 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
-from nemo_curator.stages.text.modules import Modify
+from nemo_curator.stages.text.modifiers.string import UrlRemover, NewlineNormalizer
+from nemo_curator.stages.text.modifiers.unicode import UnicodeReformatter
+from nemo_curator.stages.text.modifiers import Modify
 
 def main():
     # Initialize Ray client
@@ -55,15 +56,15 @@ def main():
         name="text_cleaning_pipeline",
         description="Clean text data using Unicode reformatter, newline normalizer, and URL remover"
     )
-    
+
     # Add reader stage
     pipeline.add_stage(JsonlReader(file_paths="books/"))
-    
+
     # Add processing stages
     pipeline.add_stage(Modify(UnicodeReformatter()))
     pipeline.add_stage(Modify(NewlineNormalizer()))
     pipeline.add_stage(Modify(UrlRemover()))
-    
+
     # Add writer stage
     pipeline.add_stage(JsonlWriter(path="cleaned_books/"))
 
@@ -72,7 +73,7 @@ def main():
 
     # Stop Ray client
     ray_client.stop()
-    
+
 if __name__ == "__main__":
     main()
 ```
@@ -87,7 +88,7 @@ You can create your own custom text cleaner by extending the `DocumentModifier` 
 ```python
 import re
 
-from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
+from nemo_curator.stages.text.modifiers import DocumentModifier
 
 URL_REGEX = re.compile(r"https?://\S+|www\.\S+", flags=re.IGNORECASE)
 

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -147,16 +147,16 @@ def test_pipeline_with_parquet_writer_stage():
 
 
 def test_pipeline_with_hydra_instantiated_stage():
-    from nemo_curator.stages.text.filters.heuristic_filter import NonAlphaNumericFilter
-    from nemo_curator.stages.text.modules.score_filter import ScoreFilter
+    from nemo_curator.stages.text.filters import ScoreFilter
+    from nemo_curator.stages.text.filters.heuristic import NonAlphaNumericFilter
 
     cfg = OmegaConf.create(
         {
             "stages": [
                 {
-                    "_target_": "nemo_curator.stages.text.modules.score_filter.ScoreFilter",
+                    "_target_": "nemo_curator.stages.text.filters.score_filter.ScoreFilter",
                     "filter_obj": {
-                        "_target_": "nemo_curator.stages.text.filters.heuristic_filter.NonAlphaNumericFilter",
+                        "_target_": "nemo_curator.stages.text.filters.heuristic.string.NonAlphaNumericFilter",
                         "max_non_alpha_numeric_to_text_ratio": 0.25,
                     },
                     "text_field": "text",
@@ -179,8 +179,8 @@ def test_pipeline_with_hydra_instantiated_stage():
 
 
 def test_pipeline_with_multiple_stages():
-    from nemo_curator.stages.text.modifiers.url_remover import UrlRemover
-    from nemo_curator.stages.text.modules.modifier import Modify
+    from nemo_curator.stages.text.modifiers import Modify
+    from nemo_curator.stages.text.modifiers.string import UrlRemover
 
     cfg = OmegaConf.create(
         {
@@ -193,8 +193,8 @@ def test_pipeline_with_multiple_stages():
                     "fields": None,
                 },
                 {
-                    "_target_": "nemo_curator.stages.text.modules.modifier.Modify",
-                    "modifier_fn": {"_target_": "nemo_curator.stages.text.modifiers.url_remover.UrlRemover"},
+                    "_target_": "nemo_curator.stages.text.modifiers.modifier.Modify",
+                    "modifier_fn": {"_target_": "nemo_curator.stages.text.modifiers.string.url_remover.UrlRemover"},
                     "input_fields": "text",
                 },
                 {
