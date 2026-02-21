@@ -89,7 +89,7 @@ class TestBaseDocumentIterator:
         error_file = tmp_path / "error_file.txt"
         error_file.write_text("test content")
 
-        with pytest.raises(ValueError, match="Mock error processing error_file.txt"):
+        with pytest.raises(ValueError, match=r"Mock error processing error_file.txt"):
             list(iterator.iterate(str(error_file)))
 
     def test_iterator_empty_results(self) -> None:

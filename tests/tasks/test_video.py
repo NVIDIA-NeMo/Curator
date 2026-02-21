@@ -459,7 +459,7 @@ class TestVideo:
         video = Video(input_video=pathlib.Path("test.mp4"))
         video.metadata.size = 1024000
 
-        with pytest.raises(ValueError, match="metadata.duration is None"):
+        with pytest.raises(ValueError, match=r"metadata.duration is None"):
             _ = video.weight
 
     def test_get_major_size(self) -> None:
