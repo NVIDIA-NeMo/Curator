@@ -14,6 +14,7 @@
 
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
@@ -44,6 +45,23 @@ class TestRayDataExecutorFailFast:
 
         pipeline = Pipeline(name="test_fail_fast")
         pipeline.add_stage(JsonlReader(str(nonexistent)))
+        pipeline.build()
+
+        executor = RayDataExecutor()
+
+        with pytest.raises(ValueError, match="No files found or no tasks produced"):
+            pipeline.run(executor=executor)
+
+    def test_jsonl_reader_on_parquet_data_fails_fast(self, tmp_path: Path):
+        """JsonlReader on directory of Parquet files (wrong file type) should raise immediately."""
+        parquet_dir = tmp_path / "parquet_data"
+        parquet_dir.mkdir()
+
+        df = pd.DataFrame({"text": ["doc1", "doc2"], "id": [1, 2]})
+        df.to_parquet(parquet_dir / "data.parquet", index=False)
+
+        pipeline = Pipeline(name="test_fail_fast")
+        pipeline.add_stage(JsonlReader(str(parquet_dir)))
         pipeline.build()
 
         executor = RayDataExecutor()
