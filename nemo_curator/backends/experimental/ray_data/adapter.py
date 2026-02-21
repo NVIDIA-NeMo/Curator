@@ -96,6 +96,9 @@ class RayDataStageAdapter(BaseStageAdapter):
         else:
             map_batches_fn = create_task_from_stage(self.stage)
             concurrency_kwargs = {"concurrency": None}
+            max_calls = self.stage.ray_stage_spec().get(RayStageSpecKeys.MAX_CALLS_PER_WORKER, None)
+            if max_calls is not None:
+                concurrency_kwargs["max_calls"] = max_calls
 
         if self.stage.resources.cpus > 0:
             concurrency_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]

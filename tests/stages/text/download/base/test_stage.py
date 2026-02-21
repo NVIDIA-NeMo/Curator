@@ -371,4 +371,5 @@ class TestDocumentDownloadExtractStage:
             extractor=extractor,
             record_limit=10,
             add_filename_column="test_file",
+            max_calls_per_worker=None,
         )

@@ -14,9 +14,12 @@
 
 from typing import Literal
 
+from loguru import logger
+
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.download import DocumentDownloadExtractStage
 from nemo_curator.stages.text.download.html_extractors import HTMLExtractorAlgorithm
+from nemo_curator.stages.text.download.html_extractors.justext import JusTextExtractor
 
 from .download import CommonCrawlWARCDownloader
 from .extract import CommonCrawlHTMLExtractor
@@ -48,6 +51,7 @@ class CommonCrawlDownloadExtractStage(DocumentDownloadExtractStage):
         url_limit: int | None = None,
         record_limit: int | None = None,
         add_filename_column: bool | str = True,
+        extractor_max_calls_per_worker: int | None = None,
     ):
         self.crawl_type = crawl_type
         self.start_snapshot = start_snapshot
@@ -71,6 +75,13 @@ class CommonCrawlDownloadExtractStage(DocumentDownloadExtractStage):
             algorithm_kwargs=html_extraction_kwargs,
             stop_lists=stop_lists,
         )
+        if extractor_max_calls_per_worker is None and isinstance(self.extractor.algorithm, JusTextExtractor):
+            extractor_max_calls_per_worker = 2
+            logger.info(
+                "justext extraction can cause memory fragmentation and lead to OOM errors."
+                "Setting extractor_max_calls_per_worker=2 for the iterate-extract stage. "
+                "Pass extractor_max_calls_per_worker explicitly to override."
+            )
         super().__init__(
             url_generator=self.url_generator,
             downloader=self.downloader,
@@ -79,6 +90,7 @@ class CommonCrawlDownloadExtractStage(DocumentDownloadExtractStage):
             url_limit=url_limit,
             record_limit=record_limit,
             add_filename_column=add_filename_column,
+            extractor_max_calls_per_worker=extractor_max_calls_per_worker,
         )
         self.name = f"common_crawl_{self.crawl_type}_pipeline"
 
