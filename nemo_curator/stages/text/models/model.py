@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -48,6 +48,7 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         unpack_inference_batch: Whether to unpack the inference batch with **kwargs. Defaults to False.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        token_fields: The fields to use for the input tokens. Defaults to ["input_ids", "attention_mask"].
 
     """
 
@@ -61,7 +62,11 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         padding_side: Literal["left", "right"] = "right",
         unpack_inference_batch: bool = False,
         autocast: bool = True,
+        token_fields: list[str] | None = None,
     ):
+        if token_fields is None:
+            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
         self.name = format_name_with_suffix(model_identifier, suffix="_model")
         # Assume that the model can fit on a single GPU
         self.resources = Resources(cpus=1, gpus=1)
@@ -74,9 +79,11 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.padding_side = padding_side
         self.unpack_inference_batch = unpack_inference_batch
         self.autocast = autocast
+        self.input_id_field = token_fields[0]
+        self.attention_mask_field = token_fields[1]
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [INPUT_ID_FIELD, ATTENTION_MASK_FIELD] + ([SEQ_ORDER_FIELD] if self.has_seq_order else [])
+        return ["data"], [self.input_id_field, self.attention_mask_field] + ([SEQ_ORDER_FIELD] if self.has_seq_order else [])
 
     def outputs(self) -> tuple[list[str], list[str]]:
         msg = "Subclasses must implement this method"
@@ -125,11 +132,11 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         for i in range(0, len(df), self.model_inference_batch_size):
             yield clip_tokens(
                 {
-                    INPUT_ID_FIELD: torch.tensor(
-                        df[INPUT_ID_FIELD][i : i + self.model_inference_batch_size].tolist()
+                    self.input_id_field: torch.tensor(
+                        df[self.input_id_field][i : i + self.model_inference_batch_size].tolist()
                     ).to(self.model.device),
-                    ATTENTION_MASK_FIELD: torch.tensor(
-                        df[ATTENTION_MASK_FIELD][i : i + self.model_inference_batch_size].tolist()
+                    self.attention_mask_field: torch.tensor(
+                        df[self.attention_mask_field][i : i + self.model_inference_batch_size].tolist()
                     ).to(self.model.device),
                 },
                 padding_side=self.padding_side,

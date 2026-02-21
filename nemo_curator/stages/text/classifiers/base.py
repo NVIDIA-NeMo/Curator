@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -42,8 +42,16 @@ class Deberta(nn.Module, PyTorchModelHubMixin):
 
     """
 
-    def __init__(self, config: dataclass):
+    def __init__(
+        self,
+        config: dataclass,
+        input_id_field: str = INPUT_ID_FIELD,
+        attention_mask_field: str = ATTENTION_MASK_FIELD
+    ):
         super().__init__()
+        self.input_id_field = input_id_field
+        self.attention_mask_field = attention_mask_field
+
         self.model = AutoModel.from_pretrained(config["base_model"])
         self.dropout = nn.Dropout(config["fc_dropout"])
         self.fc = nn.Linear(self.model.config.hidden_size, len(config["id2label"]))
@@ -54,7 +62,7 @@ class Deberta(nn.Module, PyTorchModelHubMixin):
 
     @torch.no_grad()
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        features = self.model(batch[INPUT_ID_FIELD], batch[ATTENTION_MASK_FIELD]).last_hidden_state
+        features = self.model(batch[self.input_id_field], batch[self.attention_mask_field]).last_hidden_state
         dropped = self.dropout(features)
         outputs = self.fc(dropped)
 
@@ -77,6 +85,8 @@ class ClassifierModelStage(ModelStage):
         padding_side: The side to pad the input tokens. Defaults to "right".
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        token_fields: The fields to use for the input tokens. Defaults to ["input_ids", "attention_mask"].
 
     """
 
@@ -90,7 +100,12 @@ class ClassifierModelStage(ModelStage):
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
         autocast: bool = True,
+        drop_tokens: bool = True,
+        token_fields: list[str] | None = None,
     ):
+        if token_fields is None:
+            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
         super().__init__(
             model_identifier=model_identifier,
             cache_dir=cache_dir,
@@ -99,6 +114,7 @@ class ClassifierModelStage(ModelStage):
             padding_side=padding_side,
             unpack_inference_batch=False,
             autocast=autocast,
+            token_fields=token_fields,
         )
 
         self.label_field = label_field
@@ -109,12 +125,20 @@ class ClassifierModelStage(ModelStage):
             self.score_field = "probs"
             self.keep_score_field = False
 
+        self.drop_tokens = drop_tokens
+
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.label_field] + ([self.score_field] if self.keep_score_field else [])
 
     def _setup(self, local_files_only: bool = True) -> None:
         self.model = (
-            Deberta.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only)
+            Deberta.from_pretrained(
+                self.model_identifier,
+                cache_dir=self.cache_dir,
+                local_files_only=local_files_only,
+                input_id_field=self.input_id_field,
+                attention_mask_field=self.attention_mask_field,
+            )
             .cuda()
             .eval()
         )
@@ -139,7 +163,9 @@ class ClassifierModelStage(ModelStage):
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+        if self.drop_tokens:
+            df_cpu = df_cpu.drop(columns=[self.input_id_field, self.attention_mask_field])
+
         df_cpu[self.label_field] = collected_output[self.label_field]
 
         if self.keep_score_field:
@@ -172,6 +198,11 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
+            Defaults to False.
 
     """
 
@@ -187,12 +218,16 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     sort_by_length: bool = True
     model_inference_batch_size: int = 256
     autocast: bool = True
+    drop_tokens: bool = True
+    use_existing_tokens: bool | list[str] = False
 
     def __post_init__(self) -> None:
         super().__init__()
 
-        self.stages = [
-            TokenizerStage(
+        self.stages = []
+
+        if not self.use_existing_tokens:
+            tokenizer_stage = TokenizerStage(
                 model_identifier=self.model_identifier,
                 cache_dir=self.cache_dir,
                 text_field=self.text_field,
@@ -200,18 +235,30 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 max_seq_length=self.max_seq_length,
                 padding_side=self.padding_side,
                 sort_by_length=self.sort_by_length,
-            ),
-            ClassifierModelStage(
-                model_identifier=self.model_identifier,
-                cache_dir=self.cache_dir,
-                label_field=self.label_field,
-                score_field=self.score_field,
-                model_inference_batch_size=self.model_inference_batch_size,
-                has_seq_order=self.sort_by_length,
-                padding_side=self.padding_side,
-                autocast=self.autocast,
-            ),
-        ]
+            )
+            self.stages.append(tokenizer_stage)
+
+        if isinstance(self.use_existing_tokens, list):
+            if len(self.use_existing_tokens) != 2:  # noqa: PLR2004
+                msg = "use_existing_tokens must be a list of two strings representing the [input_ids, attention_mask] fields"
+                raise ValueError(msg)
+            token_fields = self.use_existing_tokens
+        else:
+            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
+        model_stage = ClassifierModelStage(
+            model_identifier=self.model_identifier,
+            cache_dir=self.cache_dir,
+            label_field=self.label_field,
+            score_field=self.score_field,
+            model_inference_batch_size=self.model_inference_batch_size,
+            has_seq_order=self.sort_by_length,
+            padding_side=self.padding_side,
+            autocast=self.autocast,
+            drop_tokens=self.drop_tokens,
+            token_fields=token_fields,
+        )
+        self.stages.append(model_stage)
 
         if self.filter_by is not None and len(self.filter_by) > 0:
             self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.label_field))
@@ -220,7 +267,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         return self.stages[0].inputs()
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return self.stages[1].outputs()
+        return self.stages[-1].outputs()
 
     def filter_by_category(self, value: str) -> bool:
         return value in self.filter_by
