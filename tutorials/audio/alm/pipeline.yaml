@@ -7,15 +7,15 @@
 #   python tutorials/audio/alm/main.py \
 #     --config-path . \
 #     --config-name pipeline \
-#     input_manifest=tests/fixtures/audio/alm/sample_input.jsonl
+#     stages.0.manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 #
 #   # Override values from command line
 #   python tutorials/audio/alm/main.py \
 #     --config-path . \
 #     --config-name pipeline \
-#     input_manifest=/data/input.jsonl \
-#     stages.0.min_speakers=3 \
-#     stages.1.overlap_percentage=30
+#     stages.0.manifest_path=/data/input.jsonl \
+#     stages.1.min_speakers=3 \
+#     stages.2.overlap_percentage=30
 
 defaults:
   - _self_
@@ -35,6 +35,8 @@ documentation: |
 
   It performs the following data processing:
 
+  0. ALM Manifest Reader: Reads JSONL manifest on the worker (not the driver)
+
   1. ALM Data Builder: Creates training windows from audio segments
      - Filters by sample rate, bandwidth, speaker count
      - Creates windows of target duration (120s ± 10%)
@@ -45,7 +47,7 @@ documentation: |
 
   **Required arguments**:
 
-  * **input_manifest**: Path to input JSONL manifest with audio segments
+  * **stages.0.manifest_path**: Path to input JSONL manifest with audio segments
 
   **Output format**:
 
@@ -59,15 +61,17 @@ documentation: |
   * **filtered_dur (float)**: Total duration of filtered windows
   * **stats (dict)**: Processing statistics
 
-# Input manifest (JSONL with audio segments)
-input_manifest: ???
-
 # Output directory for results
 output_dir: ./alm_output
 
 # Stage chain definition
 stages:
-  # Stage 0: ALM Data Builder
+  # Stage 0: ALM Manifest Reader
+  # Reads JSONL manifest on the worker, produces one AudioBatch per entry
+  - _target_: nemo_curator.stages.audio.alm.ALMManifestReaderStage
+    manifest_path: ???
+
+  # Stage 1: ALM Data Builder
   # Creates training windows from audio segments
   - _target_: nemo_curator.stages.audio.alm.ALMDataBuilderStage
 
@@ -91,7 +95,7 @@ stages:
     drop_fields: "words"
     drop_fields_top_level: "words,segments"
 
-  # Stage 1: ALM Data Overlap Filter
+  # Stage 2: ALM Data Overlap Filter
   # Filters windows based on overlap threshold
   - _target_: nemo_curator.stages.audio.alm.ALMDataOverlapStage
 
