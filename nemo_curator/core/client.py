@@ -30,6 +30,7 @@ from nemo_curator.core.constants import (
     DEFAULT_RAY_TEMP_DIR,
 )
 from nemo_curator.core.utils import (
+    check_ray_responsive,
     get_free_port,
     init_cluster,
 )
@@ -88,6 +89,10 @@ class RayClient:
 
     def start(self) -> None:
         """Start the Ray cluster if not already started, optionally capturing stdout/stderr to a file."""
+
+        # register atexit handler to stop the Ray cluster when the program exits
+        atexit.register(self.stop)
+
         if self.include_dashboard:
             # Add Ray metrics service discovery to existing Prometheus configuration
             if is_prometheus_running() and is_grafana_running():
@@ -149,10 +154,11 @@ class RayClient:
                 stdouterr_capture_file=self.ray_stdouterr_capture_file,
             )
             # Set environment variable for RAY_ADDRESS
-
             os.environ["RAY_ADDRESS"] = f"{ip_address}:{self.ray_port}"
-            # Register atexit handler only when we have a ray process
-            atexit.register(self.stop)
+            # Verify that Ray cluster actually started successfully
+            if not check_ray_responsive():
+                msg = "Ray cluster did not become responsive in time. Please check the logs for more information."
+                raise RuntimeError(msg)
 
     def stop(self) -> None:
         if self.ray_process:
