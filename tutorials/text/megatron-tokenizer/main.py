@@ -22,7 +22,7 @@ from datasets import load_dataset
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import ParquetReader
-from nemo_curator.stages.text.io.writer import MegatronTokenizerWriter
+from nemo_curator.stages.text.io.writer.megatron_tokenizer import MegatronTokenizerWriter
 
 
 def main(args: argparse.Namespace) -> None:

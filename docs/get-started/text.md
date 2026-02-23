@@ -108,7 +108,15 @@ mkdir -p ~/nemo_curator/data/curated
 ```
 
 ```{note}
-For this example, you'll need sample JSONL files in `~/nemo_curator/data/sample/`. Each line should be a JSON object with at least `text` and `id` fields. You can create test data or refer to {ref}`Read Existing Data <text-load-data-read-existing>` and {ref}`Data Loading <text-load-data>` for information on downloading data.
+For this example, you need sample JSONL files in `~/nemo_curator/data/sample/`. Each line should be a JSON object with at least `text` and `id` fields. You can create test data or refer to {ref}`Read Existing Data <text-load-data-read-existing>` and {ref}`Data Loading <text-load-data>` for information on downloading data.
+```
+
+```{tip}
+**Set your HuggingFace token** to avoid rate limiting when downloading models or datasets:
+
+    export HF_TOKEN="your_token_here"
+
+Without a token, repeated downloads from Hugging Face may result in `429 Client Error` (rate limiting). Get a free token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
 ```
 
 ## Basic Text Curation Example

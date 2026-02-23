@@ -31,10 +31,10 @@ Learn how to run the splitting pipeline to generate clips and embeddings, then r
 Run the splitting example. Set `VIDEO_DIR`, `OUT_DIR`, and `MODEL_DIR` first.
 
 ```bash
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   --video-dir "$VIDEO_DIR" \
   --model-dir "$MODEL_DIR" \
-  --output-clip-path "$OUT_DIR" \
+  --output-path "$OUT_DIR" \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
   --embedding-algorithm cosmos-embed1-224p \
@@ -49,7 +49,7 @@ Writer-related flags you can add:
   --dry-run                   # Write nothing; validate only
 ```
 
-The pipeline writes embeddings under `$OUT_DIR/iv2_embd_parquet/` (or `ce1_embd_parquet/` if you use Cosmos-Embed1).
+The pipeline writes embeddings under `$OUT_DIR/ce1_embd_parquet/` when using Cosmos-Embed1.
 
 ### Embedding Format Example
 
@@ -64,7 +64,7 @@ The pipeline writes embeddings to Parquet with two columns:
 
 ```text
 $OUT_DIR/
-  iv2_embd_parquet/
+  ce1_embd_parquet/
     1a2b3c4d-....parquet
     5e6f7g8h-....parquet
 ```
@@ -93,7 +93,7 @@ embedding: list<float32>  # length = 768 for Cosmos-Embed1
 ```python
 import pyarrow.parquet as pq
 
-table = pq.read_table(f"{OUT_DIR}/iv2_embd_parquet")
+table = pq.read_table(f"{OUT_DIR}/ce1_embd_parquet")
 df = table.to_pandas()
 print(df.head())  # columns: id, embedding (list[float])
 ```
@@ -113,7 +113,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.deduplication.semantic.kmeans import KMeansStage
 from nemo_curator.stages.deduplication.semantic.pairwise import PairwiseStage
 
-INPUT_PARQUET = f"{OUT_DIR}/iv2_embd_parquet"  # or s3://...
+INPUT_PARQUET = f"{OUT_DIR}/ce1_embd_parquet"  # or s3://...
 OUTPUT_DIR = f"{OUT_DIR}/semantic_dedup"
 
 pipe = Pipeline(name="video_semantic_dedup", description="K-means + pairwise duplicate removal")
@@ -175,7 +175,7 @@ Video-specific pointers:
 - Use `ClipWriterStage` path helpers to locate outputs: `nemo_curator/stages/video/io/clip_writer.py`.
   - Processed videos: `get_output_path_processed_videos(OUT_DIR)`
   - Clip chunks and previews: `get_output_path_processed_clip_chunks(OUT_DIR)`, `get_output_path_previews(OUT_DIR)`
-  - Embeddings parquet: `${OUT_DIR}/iv2_embd_parquet` (or `${OUT_DIR}/ce1_embd_parquet`)
+  - Embeddings parquet: `${OUT_DIR}/ce1_embd_parquet`
 
 ### Example Export
 
@@ -188,7 +188,7 @@ from glob import glob
 
 OUT_DIR = os.environ["OUT_DIR"]
 clips_dir = os.path.join(OUT_DIR, "clips")  # adjust if filtering path used
-meta_parquet = os.path.join(OUT_DIR, "iv2_embd_parquet")
+meta_parquet = os.path.join(OUT_DIR, "ce1_embd_parquet")
 
 def iter_clips(path):
     for p in glob(os.path.join(path, "**", "*.mp4"), recursive=True):

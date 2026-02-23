@@ -73,7 +73,7 @@ def is_grafana_running() -> bool:
 
 def get_prometheus_port() -> int:
     """Get the port number that Prometheus is running on."""
-    result = subprocess.run(["ps", "-ef", "|", "grep", "prometheus"], check=False, capture_output=True, text=True)  # noqa: S603,S607
+    result = subprocess.run(["ps", "-ef", "|", "grep", "prometheus"], check=False, capture_output=True, text=True)  # noqa: S607
 
     port = None
     for i in result.stdout.splitlines():

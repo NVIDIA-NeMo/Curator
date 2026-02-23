@@ -68,7 +68,7 @@ pipe.run()
 :::{tab-item} Script Flags
 
 ```bash
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --generate-captions \
   --captioning-algorithm qwen \

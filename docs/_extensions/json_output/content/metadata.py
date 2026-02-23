@@ -39,7 +39,7 @@ def extract_document_metadata(
         metadata_cache[docname] = metadata
         logger.debug(f"Successfully extracted metadata for {docname}: {len(metadata)} items")
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"Error extracting metadata from {docname}: {e}")
         metadata_cache[docname] = {}
 
@@ -71,7 +71,7 @@ def extract_frontmatter(file_path: str, frontmatter_cache: dict) -> dict[str, An
         except yaml.YAMLError as e:
             logger.warning(f"YAML parsing error in frontmatter for {file_path}: {e}")
             result = None
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.debug(f"Could not extract frontmatter from {file_path}: {e}")
             result = None
 

@@ -32,7 +32,11 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
     def process(self, task: AudioBatch) -> list[Task]:
         result = []
         for entry in task.data:
-            result.extend(self.process_dataset_entry(entry))
+            entries = self.process_dataset_entry(entry)
+            for r in entries:
+                if r is not task and not r._stage_perf:
+                    r._stage_perf = list(task._stage_perf)
+            result.extend(entries)
         return result
 
     @abstractmethod
@@ -54,6 +58,7 @@ class GetAudioDurationStage(LegacySpeechStage):
         All the same fields as in the input manifest plus duration_key
     """
 
+    name = "GetAudioDurationStage"
     audio_filepath_key: str
     duration_key: str
 
@@ -80,14 +85,14 @@ class PreserveByValueStage(LegacySpeechStage):
 
     """
 
+    name = "PreserveByValueStage"
+
     def __init__(
         self,
         input_value_key: str,
         target_value: int | str,
         operator: str = "eq",
-        **kwargs,
     ):
-        super().__init__(**kwargs)
         self.input_value_key = input_value_key
         self.target_value = target_value
         if operator == "lt":

@@ -66,13 +66,13 @@ pipe.run()
 
 ```bash
 # Clip frames implicitly when generating embeddings or aesthetics
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --generate-embeddings \
   --clip-extraction-target-res -1
 
 # Full-video frames for TransNetV2 scene change
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --splitting-algorithm transnetv2 \
   --transnetv2-frame-decoder-mode pynvc

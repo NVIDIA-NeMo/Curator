@@ -12,215 +12,152 @@ modality: "universal"
 
 # NeMo Curator Release Notes: {{ current_release }}
 
-## Synthetic Data Generation
+## What's New in 26.02
 
-New Ray-based synthetic data generation capabilities for creating and augmenting training data using LLMs:
+### Benchmarking Infrastructure
 
-- **LLM Client Infrastructure**: OpenAI-compatible async/sync clients with automatic rate limiting, retry logic, and exponential backoff
-- **Multilingual Q&A Generation**: Generate synthetic Q&A pairs across multiple languages using customizable prompts
-- **Nemotron-CC Pipelines**: Advanced text transformation and knowledge extraction workflows:
-  - **Wikipedia Paraphrasing**: Improve low-quality text by rewriting in Wikipedia-style prose
-  - **Diverse QA**: Generate diverse question-answer pairs for reading comprehension training
-  - **Distill**: Create condensed, information-dense paraphrases preserving key concepts
-  - **Extract Knowledge**: Extract factual content as textbook-style passages
-  - **Knowledge List**: Extract structured fact lists from documents
+New comprehensive benchmarking framework for performance monitoring and optimization:
 
-Learn more in the [Synthetic Data Generation documentation](../../curate-text/synthetic/index.md).
+- **End-to-End Pipeline Benchmarking**: Automated benchmarks for all curation modalities (text, image, video, audio)
+- **Performance Tracking**: Integration with MLflow for metrics tracking and Slack for notifications
+- **Nightly Benchmarks**: Continuous performance monitoring across:
+  - Text pipelines: exact deduplication, fuzzy deduplication, semantic deduplication, score filters, modifiers
+  - Image curation workflows with DALI-based processing
+  - Video processing pipelines with scene detection and semantic deduplication
+  - Audio ASR inference and quality assessment
+- **Grafana Dashboards**: Real-time monitoring of pipeline performance and resource utilization
 
-  ```{list-table} Available Installation Extras
-  :header-rows: 1
-  :widths: 25 35 40
+### Ray Actor Pool Executor Improvements
 
-  * - Extra
-    - Installation Command
-    - Description
-  * - **All Modalities**
-    - `nemo-curator[all]`
-    - Complete installation with all modalities and GPU support
-  * - **Text Curation**
-    - `nemo-curator[text_cuda12]`
-    - GPU-accelerated text processing with RAPIDS
-  * - **Image Curation**
-    - `nemo-curator[image_cuda12]`
-    - Image processing with NVIDIA DALI
-  * - **Audio Curation**
-    - `nemo-curator[audio_cuda12]`
-    - Speech recognition with NeMo ASR models
-  * - **Video Curation**
-    - `nemo-curator[video_cuda12]`
-    - Video processing with GPU acceleration
-  * - **Basic GPU**
-    - `nemo-curator[cuda12]`
-    - CUDA utilities without modality-specific dependencies
-  ```
+Enhanced features for the experimental Ray Actor Pool execution backend:
 
-  All GPU installations require the NVIDIA PyPI index:
-  ```bash
-  uv pip install https://pypi.nvidia.com nemo-curator[EXTRA]
-  ```
+- **Progress Bars**: New visual feedback for long-running actor pool operations, making it easier to monitor pipeline execution
+- **Improved Load Balancing**: Better worker distribution and task scheduling
+- **Enhanced Stability**: Continued refinements to the experimental executor
 
-## New Modalities
+Learn more in the [Execution Backends documentation](../../reference/infrastructure/execution-backends.md).
 
-### Video
+### Enhanced Embedding Generation
 
-NeMo Curator now supports comprehensive [video data curation](../../curate-video/index.md) with distributed processing capabilities:
+Expanded embedding support with new model integrations:
 
-- **Video splitting**: [Fixed-stride](../../curate-video/process-data/clipping.md) and [scene-change detection (TransNetV2)](../../curate-video/process-data/clipping.md) for clip extraction
-- **Semantic deduplication**: [K-means clustering and pairwise similarity](../../curate-video/process-data/dedup.md) for near-duplicate clip removal
-- **Content filtering**: [Motion-based filtering](../../curate-video/process-data/filtering.md) and [aesthetic filtering](../../curate-video/process-data/filtering.md) for quality improvement
-- **Embedding generation**: Cosmos-Embed1 models for clip-level embeddings
-- **Enhanced captioning**: [VL-based caption generation with optional LLM-based rewriting](../../curate-video/process-data/captions-preview.md) (Qwen-VL and Qwen-LM supported) for detailed video descriptions
-- **Ray-based distributed architecture**: Scalable video processing with [autoscaling support](../concepts/video/architecture.md)
+- **vLLM Integration**: High-performance LLM-based embedding generation with automatic batching
+- **Sentence Transformers**: Support for popular sentence embedding models
+- **Unified API**: Consistent embedding interface across text, image, and video modalities
 
-### Audio
+### YAML Configuration Support
 
-New [audio curation capabilities](../../curate-audio/index.md) for speech data processing:
+Declarative pipeline configuration for text curation workflows:
 
-- **ASR inference**: [Automatic speech recognition](../../curate-audio/process-data/asr-inference/index.md) using NeMo Framework pretrained models
-- **Quality assessment**: [Word Error Rate (WER) and Character Error Rate (CER)](../../curate-audio/process-data/quality-assessment/index.md) calculation
-- **Speech metrics**: [Duration analysis and speech rate metrics](../../curate-audio/process-data/audio-analysis/index.md) (words/characters per second)
-- **Text integration**: Seamless integration with [text curation workflows](../../curate-audio/process-data/text-integration/index.md) via `AudioToDocumentStage`
-- **Manifest support**: JSONL manifest format for audio file management
+- **YAML-Based Pipelines**: Define entire curation pipelines in YAML configuration files
+- **Pre-Built Configurations**: Ready-to-use configs for common workflows:
+  - Code filtering, exact/fuzzy/semantic deduplication
+  - Heuristic filtering (English and non-English)
+  - FastText language identification
+- **Reproducible Workflows**: Version-controlled pipeline definitions for consistent results
 
-## Modality Refactors
-
-### Text
-
-- **Ray backend migration**: Complete transition from Dask to Ray for distributed [text processing](../../curate-text/index.md)
-- **Improved model-based classifier throughput**: Better overlapping of compute between tokenization and inference through [length-based sequence sorting](../../curate-text/process-data/quality-assessment/distributed-classifier.md) for optimal GPU memory utilization
-- **Task-centric architecture**: New `Task`-based processing model for finer-grained control
-- **Pipeline redesign**: Updated `ProcessingStage` and `Pipeline` architecture with resource specification
-
-### Image
-
-- **Pipeline-based architecture**: Transitioned from legacy `ImageTextPairDataset` to modern [stage-based processing](../../curate-images/index.md) with `ImageReaderStage`, `ImageEmbeddingStage`, and filter stages
-- **DALI-based image loading**: New `ImageReaderStage` uses NVIDIA DALI for high-performance WebDataset tar shard processing with GPU/CPU fallback
-- **Modular processing stages**: Separate stages for [embedding generation](../../curate-images/process-data/embeddings/index.md), [aesthetic filtering](../../curate-images/process-data/filters/aesthetic.md), and [NSFW filtering](../../curate-images/process-data/filters/nsfw.md)
-- **Task-based data flow**: Images processed as `ImageBatch` tasks containing `ImageObject` instances with metadata, embeddings, and classification scores
-
-Learn more about [image curation](../../curate-images/index.md).
-
-## Deduplication Improvements
-
-Enhanced deduplication capabilities across all modalities with improved performance and flexibility:
-
-- **Exact and Fuzzy deduplication**: Updated [rapidsmpf-based shuffle backend](../../reference/infrastructure/gpu-processing.md) for more efficient GPU-to-GPU data transfer and better spilling capabilities
-- **Semantic deduplication**: Support for deduplicating [text](../../curate-text/process-data/deduplication/semdedup.md) and [video](../../curate-video/process-data/dedup.md) datasets using unified embedding-based workflows
-- **New ranking strategies**: Added `RankingStrategy` which allows you to rank elements within cluster centers to decide which point to prioritize during duplicate removal, supporting [metadata-based ranking](../../curate-text/process-data/deduplication/semdedup.md) to prioritize specific datasets or inputs
-
-## Core Refactors
-
-The architecture refactor introduces a layered system with unified interfaces and multiple execution backends:
-
-```{mermaid}
-graph LR
-    subgraph "User Layer"
-        P[Pipeline]
-        S1[ProcessingStage X→Y]
-        S2[ProcessingStage Y→Z]
-        S3[ProcessingStage Z→W]
-        R[Resources<br/>CPU/GPU/NVDEC/NVENC]
-    end
-    
-    subgraph "Orchestration Layer"
-        BE[BaseExecutor Interface]
-    end
-    
-    subgraph "Backend Layer"
-        XE[XennaExecutor]
-        RAP[RayActorPoolExecutor]
-        RDE[RayDataExecutor]
-    end
-    
-    subgraph "Adaptation Layer"
-        XA[Xenna Adapter]
-        RAPA[Ray Actor Adapter]
-        RDA[Ray Data Adapter]
-    end
-    
-    subgraph "Execution Layer"
-        X[Cosmos-Xenna<br/>Streaming/Batch]
-        RAY1[Ray Actor Pool<br/>Load Balancing]
-        RAY2[Ray Data API<br/>Dataset Processing]
-    end
-    
-    P --> S1
-    P --> S2
-    P --> S3
-    S1 -.-> R
-    S2 -.-> R
-    S3 -.-> R
-    
-    P --> BE
-    BE --> XE
-    BE --> RAP
-    BE --> RDE
-    
-    XE --> XA
-    RAP --> RAPA
-    RDE --> RDA
-    
-    XA --> X
-    RAPA --> RAY1
-    RDA --> RAY2
-    
-    style P fill:#E6F3FF
-    style BE fill:#F0F8FF
+Example:
+```bash
+python -m nemo_curator.config.run --config_file heuristic_filter_english_pipeline.yaml
 ```
 
-### Pipelines
+### Workflow Results API
 
-- **New Pipeline API**: Ray-based pipeline execution with `BaseExecutor` interface
-- **Multiple backends**: Support for [Xenna, Ray Actor Pool, and Ray Data execution backends](../../reference/infrastructure/execution-backends.md)
-- **Resource specification**: Configurable CPU and GPU memory requirements per stage
-- **Stage composition**: Improved stage validation and execution orchestration
+New API for tracking and analyzing pipeline execution:
 
-### Stages
+- **WorkflowRunResult**: Structured results object capturing execution metrics
+- **Performance Metrics**: Automatic tracking of processing time, throughput, and resource usage
+- **Better Debugging**: Detailed logs and error reporting for failed stages
 
-- **ProcessingStage redesign**: Generic `ProcessingStage[X, Y]` base class with type safety
-- **Resource requirements**: Built-in resource specification for CPU and GPU memory
-- **Backend adapters**: Stage adaptation layer for different Ray orchestration systems
-- **Input/output validation**: Enhanced type checking and data validation
+## Improvements from 25.09
 
-## Tutorials
+### Video Curation
 
-- **Text tutorials**: Updated all [text curation tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/text) to use new Ray-based API
-- **Image tutorials**: Migrated [image processing tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/image) to unified backend
-- **Audio tutorials**: New [audio curation tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio)
-- **Video tutorials**: New [video processing tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/video)
+- **Model Updates**: Removed InternVideo2 dependency; updated to more performant alternatives
+- **vLLM 0.14.1**: Upgraded for better video captioning compatibility and performance
+- **FFmpeg 8.0.1**: Latest FFmpeg with improved codec support and performance
+- **Enhanced Tutorials**: Improved video processing examples with real-world scenarios
 
-For all tutorial content, refer to the [tutorials directory](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials) in the NeMo Curator GitHub repository.
+### Audio Curation
 
-## Known Limitations
+- **Enhanced Documentation**: Comprehensive ASR inference and quality assessment guides
+- **Improved WER Filtering**: Better guidance for Word Error Rate filtering thresholds
+- **Manifest Handling**: More robust JSONL manifest processing for large audio datasets
 
-> (Pending Refactor in Future Release)
+### Image Curation
 
-### Generation
+- **Optimized Batch Sizes**: Reduced default batch sizes for better CPU memory usage (batch_size=50, num_threads=4)
+- **Memory Guidance**: Added troubleshooting documentation for out-of-memory errors
+- **Tutorial Improvements**: Updated examples optimized for typical GPU configurations
 
-- **Synthetic data generation**: Synthetic text generation features are being refactored for Ray compatibility
-- **Hard negative mining**: Retrieval-based data generation workflows under development
+### Text Curation
 
-### PII
+- **ID Field Standardization**: Unified ID naming conventions across all deduplication workflows
+- **Performance Optimizations**: Fused document iterate and extract stages for reduced overhead
+- **Better Memory Management**: Improved handling of large-scale semantic deduplication
+- **Small Cluster Warnings**: Automatic warnings when n_clusters is too small for effective deduplication
+- **FilePartitioning Improvements**: One worker per partition for better parallelization
 
-- **PII processing**: Personal Identifiable Information removal tools are being updated for Ray backend
-- **Privacy workflows**: Enhanced privacy-preserving data curation capabilities in development
+### Deduplication Enhancements
 
-### Blending & Shuffling
+- **Cloud Storage Support**: Fixed ParquetReader/Writer and pairwise I/O for S3, GCS, and Azure Blob
+- **Non-Blocking ID Generation**: Improved ID generator performance for large datasets
+- **Empty Batch Handling**: Better error handling for filters processing empty data batches
 
-- **Data blending**: Multi-source dataset blending functionality being refactored
-- **Dataset shuffling**: Large-scale data shuffling operations under development
+## Dependency Updates
 
-## Docs Refactor
+- **Transformers**: Pinned to 4.55.2 for stability and compatibility
+- **vLLM**: Updated to 0.14.1 with video pipeline compatibility fixes
+- **FFmpeg**: Upgraded to 8.0.1 for enhanced multimedia processing
+- **Security Patches**:
+  - Addressed CVEs in aiohttp, urllib3, python-multipart, setuptools
+  - Removed vulnerable thirdparty aiohttp file from Ray
+  - Updated to secure dependency versions
 
-- **Local preview capability**: Improved documentation build system with local preview support
-- **Modality-specific guides**: Comprehensive documentation for each supported modality ([text](../../curate-text/index.md), [image](../../curate-images/index.md), [audio](../../curate-audio/index.md), [video](../../curate-video/index.md))
-- **API reference**: Complete [API documentation](../../apidocs/index.rst) with type annotations and examples
+## Bug Fixes
+
+- Fixed fasttext predict call compatibility with numpy>2
+- Fixed broken NeMo Framework documentation links
+- Fixed MegatronTokenizerWriter to download only necessary tokenizer files
+- Fixed ID generator blocking issues for large-scale processing
+- Fixed vLLM API compatibility with video captioning pipeline
+- Fixed Gliner tutorial examples and SDG workflow bugs
+- Improved semantic deduplication unit test reliability
+
+## Infrastructure & Developer Experience
+
+- **Secrets Detection**: Automated secret scanning in CI/CD workflows
+- **Dependabot Integration**: Automatic dependency update pull requests
+- **Enhanced Install Tests**: Comprehensive installation validation across environments
+- **AWS Runner Support**: CI/CD execution on AWS infrastructure
+- **Docker Optimization**: Improved layer caching and build times with uv
+- **Code Linting**: Standardized code quality checks with markdownlint and pre-commit hooks
+- **Cursor Rules**: Development guidelines and patterns for IDE assistance
+
+## Breaking Changes
+
+- **InternVideo2 Removed**: Video pipelines must use alternative embedding models (Cosmos-Embed1)
+- **ID Field Standardization**: Custom deduplication workflows may need updates to use standardized ID field names
+
+## Documentation Improvements
+
+- **Heuristic Filter Guide**: Comprehensive documentation for language-specific filtering strategies
+- **Distributed Classifier**: Enhanced GPU memory optimization guidance with length-based sequence sorting
+- **Installation Guide**: Clearer instructions with troubleshooting for common issues
+- **Memory Management**: New guidance for handling CPU/GPU memory constraints
+- **AWS Integration**: Updated tutorials with correct AWS credentials setup
 
 ---
 
 ## What's Next
 
-The next release will focus on code curation and math curation.
+Future releases will focus on:
+
+- **Code Curation**: Specialized pipelines for curating code datasets
+- **Math Curation**: Mathematical reasoning and problem-solving data curation
+- **Generation Features**: Completing the Ray refactor for synthetic data generation
+- **PII Processing**: Enhanced privacy-preserving data curation with Ray backend
+- **Blending & Shuffling**: Large-scale multi-source dataset blending and shuffling operations
 
 ```{toctree}
 :hidden:

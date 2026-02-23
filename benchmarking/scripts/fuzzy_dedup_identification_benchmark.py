@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: ERA001
 
 """Duplicate identification logic benchmarking script for nightly benchmarking framework.
 

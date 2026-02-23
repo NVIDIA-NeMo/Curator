@@ -214,7 +214,7 @@ class TestModelStage:
 
         # Check that model was called with unpacked arguments
         assert stage.model.call_count == 1
-        args, kwargs = stage.model.call_args
+        _args, kwargs = stage.model.call_args
         assert INPUT_ID_FIELD in kwargs
         assert ATTENTION_MASK_FIELD in kwargs
 
