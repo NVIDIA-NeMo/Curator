@@ -15,7 +15,6 @@
 
 import os
 import shutil
-import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -26,6 +25,7 @@ from loguru import logger
 from runner.utils import run_shm_size_check
 
 from nemo_curator.core.client import RayClient
+from nemo_curator.core.utils import check_ray_responsive
 
 ray_client_start_timeout_s = 30
 ray_client_start_poll_interval_s = 0.5
@@ -77,6 +77,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
 
         _ensure_ray_client_process_started(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
         responsive = check_ray_responsive()
+        run_shm_size_check(human_readable=True)
         if not responsive:
             logger.info("Ray cluster did not become responsive in time, stopping client and retrying...")
             client.stop()
@@ -110,49 +111,6 @@ def teardown_ray_cluster_and_env(
             shutil.rmtree(ray_temp_path, ignore_errors=True)
         except Exception:
             logger.exception("Failed to copy/remove Ray temp dir")
-
-
-def check_ray_responsive(timeout_s: int = 20) -> bool:
-    # Assume the env var RAY_ADDRESS is set to the correct value by code starting the Ray cluster
-    logger.debug(f"Verifying Ray cluster is responsive, using RAY_ADDRESS={os.environ.get('RAY_ADDRESS')}")
-
-    responsive = False
-    timer = 0
-    t0 = time.time()
-    while not responsive and (timer < timeout_s):
-        try:
-            logger.debug("running 'ray status' command")
-            result = subprocess.run(
-                ["ray", "status"],  # noqa: S607
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=timeout_s,
-            )
-            if "No cluster status" in result.stdout or "Error" in result.stdout:
-                logger.debug("Ray cluster is not responsive ('No cluster status' returned or Error in output)")
-            else:
-                logger.debug("Ray cluster IS responsive")
-                responsive = True
-
-        except subprocess.CalledProcessError:
-            logger.debug("Ray cluster is not responsive ('ray status' command failed)")
-
-        except subprocess.TimeoutExpired:
-            logger.debug("Ray cluster is not responsive ('ray status' command timed out)")
-
-        finally:
-            # Also show the output of `df -h /dev/shm`, since this is often a symptom of problems
-            run_shm_size_check(human_readable=True)
-
-        timer = time.time() - t0
-        time.sleep(0.5)
-
-    if not responsive and timer >= timeout_s:
-        logger.debug("Ray cluster did not become responsive in time...")
-
-    return responsive
 
 
 def get_ray_cluster_data() -> dict[str, Any]:
