@@ -96,6 +96,7 @@ def _record_window_loss(
     curr_idx: int,
     window_segs: list[dict[str, Any]],
     drop_fields: set[str],
+    min_bandwidth: int,
 ) -> None:
     """Record statistics for a rejected window."""
     seg_dur = seg["end"] - seg["start"]
@@ -108,7 +109,7 @@ def _record_window_loss(
     if next_segment.get("speaker", "no-speaker") == "no-speaker":
         stat.lost_no_spkr += 1
         stat.dur_lost_no_spkr += seg_dur
-    elif _get_bandwidth(next_segment) < 8000:
+    elif _get_bandwidth(next_segment) < min_bandwidth:
         stat.lost_next_seg_bm += 1
         stat.dur_lost_next_seg_bm += seg_dur
 
@@ -282,13 +283,13 @@ class ALMDataBuilderStage(LegacySpeechStage):
             window_dur = window_end - window_start
 
             if not (self.min_duration <= window_dur <= self.max_duration):
-                _record_window_loss(stat, seg, segments, start_idx, curr_idx, window_segs, self._drop_fields_set)
+                _record_window_loss(stat, seg, segments, start_idx, curr_idx, window_segs, self._drop_fields_set, self.min_bandwidth)
                 continue
 
             if len(window_segs) < MIN_SEGMENTS_PER_WINDOW or any(
                 _get_bandwidth(s) < self.min_bandwidth for s in window_segs
             ):
-                _record_window_loss(stat, seg, segments, start_idx, curr_idx, window_segs, self._drop_fields_set)
+                _record_window_loss(stat, seg, segments, start_idx, curr_idx, window_segs, self._drop_fields_set, self.min_bandwidth)
                 continue
 
             spk_durs = _compute_speaker_durations(window_segs)
