@@ -140,6 +140,8 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                     ).to(self.model.device),
                 },
                 padding_side=self.padding_side,
+                input_id_field=self.input_id_field,
+                attention_mask_field=self.attention_mask_field,
             )
 
     def process_model_output(

@@ -29,7 +29,7 @@ from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD, format_name_with_suffix
 from nemo_curator.tasks import DocumentBatch
 
-from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
+from .utils import DEBERTA_TOKENIZER_PADDING_SIDE, SortByLengthStage
 
 PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER = "nvidia/prompt-task-and-complexity-classifier"
 MAX_SEQ_LENGTH = 512
@@ -246,9 +246,6 @@ class PromptTaskComplexityModelStage(ModelStage):
         drop_tokens: bool = True,
         token_fields: list[str] | None = None,
     ):
-        if token_fields is None:
-            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
-
         super().__init__(
             model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
             cache_dir=cache_dir,
@@ -360,6 +357,11 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
             token_fields = self.use_existing_tokens
         else:
             token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
+        # Ensure that the data is sorted by length if no tokenization is performed and sort_by_length is True
+        if len(self.stages) == 0 and self.sort_by_length:
+            sort_by_length_stage = SortByLengthStage(attention_mask_field=token_fields[1])
+            self.stages.append(sort_by_length_stage)
 
         model_stage = PromptTaskComplexityModelStage(
             cache_dir=self.cache_dir,

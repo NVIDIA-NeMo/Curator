@@ -29,7 +29,7 @@ from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID
 from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks import DocumentBatch
 
-from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
+from .utils import DEBERTA_TOKENIZER_PADDING_SIDE, SortByLengthStage
 
 FINEWEB_EDU_MODEL_IDENTIFIER = "HuggingFaceFW/fineweb-edu-classifier"
 FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER = "nvidia/nemocurator-fineweb-mixtral-edu-classifier"
@@ -70,9 +70,6 @@ class FineWebModelStage(ModelStage):
         drop_tokens: bool = True,
         token_fields: list[str] | None = None,
     ):
-        if token_fields is None:
-            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
-
         super().__init__(
             model_identifier=model_identifier,
             cache_dir=cache_dir,
@@ -210,6 +207,11 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             token_fields = self.use_existing_tokens
         else:
             token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
+        # Ensure that the data is sorted by length if no tokenization is performed and sort_by_length is True
+        if len(self.stages) == 0 and self.sort_by_length:
+            sort_by_length_stage = SortByLengthStage(attention_mask_field=token_fields[1])
+            self.stages.append(sort_by_length_stage)
 
         model_stage = FineWebModelStage(
             model_identifier=self.model_identifier,

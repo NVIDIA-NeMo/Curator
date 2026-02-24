@@ -19,7 +19,7 @@ os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from nemo_curator.stages.text.models.utils import format_name_with_suffix
 
 from .base import DistributedDataClassifier
-from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
+from .utils import DEBERTA_TOKENIZER_PADDING_SIDE
 
 QUALITY_CLASSIFIER_MODEL_IDENTIFIER = "nvidia/quality-classifier-deberta"
 MAX_SEQ_LENGTH = 1024

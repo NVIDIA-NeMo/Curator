@@ -36,6 +36,7 @@ from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks import DocumentBatch
 
 from .aegis_utils import AEGIS_LABELS, format_aegis
+from .utils import SortByLengthStage
 
 PRETRAINED_MODEL_NAME_OR_PATH = "meta-llama/LlamaGuard-7b"
 AEGIS_VARIANTS = [
@@ -163,9 +164,6 @@ class AegisModelStage(ModelStage):
         drop_tokens: bool = True,
         token_fields: list[str] | None = None,
     ):
-        if token_fields is None:
-            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
-
         super().__init__(
             model_identifier=model_identifier,
             cache_dir=cache_dir,
@@ -440,6 +438,10 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
 
         self.name = format_name_with_suffix(self.aegis_variant)
 
+        if self.aegis_prompt_field is None and self.use_existing_tokens:
+            msg = "aegis_prompt_field must be specified if use_existing_tokens is True"
+            raise ValueError(msg)
+
         self.stages = []
 
         if self.aegis_prompt_field is None:
@@ -470,6 +472,11 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             token_fields = self.use_existing_tokens
         else:
             token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
+        # Ensure that the data is sorted by length if no tokenization is performed and sort_by_length is True
+        if len(self.stages) == 0 and self.sort_by_length:
+            sort_by_length_stage = SortByLengthStage(attention_mask_field=token_fields[1])
+            self.stages.append(sort_by_length_stage)
 
         model_stage = AegisModelStage(
             model_identifier=self.aegis_variant,
@@ -619,6 +626,11 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
             token_fields = self.use_existing_tokens
         else:
             token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+
+        # Ensure that the data is sorted by length if no tokenization is performed and sort_by_length is True
+        if len(self.stages) == 0 and self.sort_by_length:
+            sort_by_length_stage = SortByLengthStage(attention_mask_field=token_fields[1])
+            self.stages.append(sort_by_length_stage)
 
         model_stage = AegisModelStage(
             model_identifier=AEGIS_VARIANTS[0],
