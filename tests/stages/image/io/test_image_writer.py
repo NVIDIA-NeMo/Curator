@@ -198,7 +198,7 @@ def test_encode_image_to_bytes_modes(tmp_path: pathlib.Path) -> None:
             captured.append((tuple(arr.shape), "" if mode is None else mode, arr.dtype))
 
             class _Img:
-                def save(self, buffer: io.BytesIO, image_format: str | None = None, **kwargs) -> None:  # noqa: ARG002
+                def save(self, buffer: io.BytesIO, image_format: str | None = None, **kwargs) -> None:
                     buffer.write(b"ok")
 
             return _Img()

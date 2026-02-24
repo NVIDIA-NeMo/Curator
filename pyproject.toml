@@ -287,6 +287,7 @@ fixable = ["ALL"]
 "tests/**/*.py" = [
     "S101", # asserts allowed in tests
     "ANN201", # allow methods to not return something
+    "ARG002", # allow unused method args (mock.patch decorator injects args not always referenced)
     "PLR2004", # magic value used in comparison
     "ERA001", # allow commented-out code
 ]
