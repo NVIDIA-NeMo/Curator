@@ -14,7 +14,12 @@
 
 import torch
 
-from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD, clip_tokens, format_name_with_suffix
+from nemo_curator.stages.text.models.utils import (
+    ATTENTION_MASK_FIELD,
+    INPUT_ID_FIELD,
+    clip_tokens,
+    format_name_with_suffix,
+)
 
 
 def test_format_name_with_suffix() -> None:
@@ -35,9 +40,7 @@ def test_clip_tokens_right_padding():
     assert result[INPUT_ID_FIELD].shape == (2, 4)
     assert result[ATTENTION_MASK_FIELD].shape == (2, 4)
     assert torch.equal(result[INPUT_ID_FIELD].to("cpu"), torch.tensor([[1, 2, 3, 0], [1, 2, 3, 4]]))
-    assert torch.equal(
-        result[ATTENTION_MASK_FIELD].to("cpu"), torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]])
-    )
+    assert torch.equal(result[ATTENTION_MASK_FIELD].to("cpu"), torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]]))
 
 
 def test_clip_tokens_custom_input_id_field_and_attention_mask_field():
@@ -59,9 +62,7 @@ def test_clip_tokens_custom_input_id_field_and_attention_mask_field():
     assert result[input_id_field].shape == (2, 4)
     assert result[attention_mask_field].shape == (2, 4)
     assert torch.equal(result[input_id_field].to("cpu"), torch.tensor([[1, 2, 3, 0], [1, 2, 3, 4]]))
-    assert torch.equal(
-        result[attention_mask_field].to("cpu"), torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]])
-    )
+    assert torch.equal(result[attention_mask_field].to("cpu"), torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]]))
 
 
 # Test modified from CrossFit: https://github.com/rapidsai/crossfit/blob/main/tests/op/test_tokenize.py
@@ -77,9 +78,7 @@ def test_clip_tokens_left_padding():
     assert result[INPUT_ID_FIELD].shape == (2, 4)
     assert result[ATTENTION_MASK_FIELD].shape == (2, 4)
     assert torch.equal(result[INPUT_ID_FIELD].to("cpu"), torch.tensor([[0, 1, 2, 3], [1, 2, 3, 4]]))
-    assert torch.equal(
-        result[ATTENTION_MASK_FIELD].to("cpu"), torch.tensor([[0, 1, 1, 1], [1, 1, 1, 1]])
-    )
+    assert torch.equal(result[ATTENTION_MASK_FIELD].to("cpu"), torch.tensor([[0, 1, 1, 1], [1, 1, 1, 1]]))
 
 
 # Test modified from CrossFit: https://github.com/rapidsai/crossfit/blob/main/tests/op/test_tokenize.py
