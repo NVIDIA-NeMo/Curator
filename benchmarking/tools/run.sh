@@ -51,13 +51,18 @@ if [ -z "${IMAGE_DIGEST}" ] || [ "${IMAGE_DIGEST}" = "<none>" ]; then
 fi
 
 ################################################################################################################
+GPUS_FLAG=""
+if [ "${GPUS}" != "none" ]; then
+  GPUS_FLAG="--gpus=\"${GPUS}\""
+fi
+
 docker run \
   --rm \
   --net=host \
   --interactive \
   --tty \
   \
-  --gpus="\"${GPUS}\"" \
+  ${GPUS_FLAG} \
   --memory=${CONTAINER_MEMORY_BYTES} \
   --shm-size=${SHM_SIZE_BYTES} \
   \

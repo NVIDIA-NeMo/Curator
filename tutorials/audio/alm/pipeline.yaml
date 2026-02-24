@@ -7,13 +7,13 @@
 #   python tutorials/audio/alm/main.py \
 #     --config-path . \
 #     --config-name pipeline \
-#     stages.0.manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
+#     manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 #
 #   # Override values from command line
 #   python tutorials/audio/alm/main.py \
 #     --config-path . \
 #     --config-name pipeline \
-#     stages.0.manifest_path=/data/input.jsonl \
+#     manifest_path=/data/input.jsonl \
 #     stages.1.min_speakers=3 \
 #     stages.2.overlap_percentage=30
 
@@ -47,7 +47,7 @@ documentation: |
 
   **Required arguments**:
 
-  * **stages.0.manifest_path**: Path to input JSONL manifest with audio segments
+  * **manifest_path**: Path to input JSONL manifest with audio segments
 
   **Output format**:
 
@@ -61,6 +61,9 @@ documentation: |
   * **filtered_dur (float)**: Total duration of filtered windows
   * **stats (dict)**: Processing statistics
 
+# Path to input JSONL manifest (required)
+manifest_path: ???
+
 # Output directory for results
 output_dir: ./alm_output
 
@@ -69,7 +72,7 @@ stages:
   # Stage 0: ALM Manifest Reader
   # Reads JSONL manifest on the worker, produces one AudioBatch per entry
   - _target_: nemo_curator.stages.audio.alm.ALMManifestReaderStage
-    manifest_path: ???
+    manifest_path: ${manifest_path}
 
   # Stage 1: ALM Data Builder
   # Creates training windows from audio segments
@@ -102,3 +105,8 @@ stages:
     # Overlap filtering (0 = aggressive, 100 = permissive)
     overlap_percentage: 50
     target_duration: 120.0
+
+  # Stage 3: ALM Manifest Writer
+  # Writes output entries to a JSONL manifest
+  - _target_: nemo_curator.stages.audio.alm.ALMManifestWriterStage
+    output_path: ${output_dir}/alm_output.jsonl

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -155,9 +155,6 @@ class ALMDataBuilderStage(LegacySpeechStage):
     # Top-level fields to drop from output entry (comma-separated)
     drop_fields_top_level: str = "words,segments"
 
-    # Parallelism (used by runner, passed via config)
-    max_workers: int = -1
-
     # Stage metadata
     name: str = "alm_data_builder"
 
@@ -169,16 +166,6 @@ class ALMDataBuilderStage(LegacySpeechStage):
         self.max_duration = self.target_window_duration + tol
         self._drop_fields_set = {f.strip() for f in self.drop_fields.split(",") if f.strip()}
         self._drop_fields_top_level_set = {f.strip() for f in self.drop_fields_top_level.split(",") if f.strip()}
-
-    def process(self, task: AudioBatch) -> list[AudioBatch]:
-        """Process a batch, propagating parent task metadata and perf stats."""
-        results = []
-        for entry in task.data:
-            for child in self.process_dataset_entry(entry):
-                child._metadata = task._metadata.copy()
-                child._stage_perf = task._stage_perf.copy()
-                results.append(child)
-        return results
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         """

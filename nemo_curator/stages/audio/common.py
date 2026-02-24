@@ -36,6 +36,8 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
             for r in entries:
                 if r is not task and not r._stage_perf:
                     r._stage_perf = list(task._stage_perf)
+                if r is not task and not r._metadata:
+                    r._metadata = task._metadata.copy()
             result.extend(entries)
         return result
 

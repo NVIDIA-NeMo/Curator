@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,15 +17,21 @@
 This script runs the ALM data curation pipeline (Builder + Overlap stages)
 through the full Pipeline/Executor stack and collects performance metrics
 for regression tracking.
+
+Can be invoked standalone with explicit args, or with --config to read
+parameters from a benchmarking YAML (e.g. nightly-benchmark.yaml).
 """
 
 import argparse
 import json
+import re
+import shlex
 import time
 import traceback
 from pathlib import Path
 from typing import Any
 
+import yaml
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
@@ -59,7 +65,6 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
     max_speakers: int,
     overlap_percentage: int,
     repeat_factor: int,
-    **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the ALM pipeline benchmark and collect comprehensive metrics."""
     benchmark_results_path = Path(benchmark_results_path)
@@ -169,10 +174,29 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
     }
 
 
+def _load_args_from_config(config_path: str, entry_name: str) -> list[str]:
+    """Extract CLI args for a named entry from a benchmarking YAML config."""
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+
+    for entry in cfg.get("entries", []):
+        if entry.get("name") == entry_name:
+            raw_args = entry.get("args", "")
+            curator_repo_dir = str(Path(config_path).resolve().parent.parent)
+            resolved = re.sub(r"\{curator_repo_dir\}", curator_repo_dir, raw_args)
+            resolved = re.sub(r"\{session_entry_dir\}", "/tmp/alm_benchmark_results", resolved)
+            return shlex.split(resolved)
+
+    msg = f"Entry '{entry_name}' not found in {config_path}"
+    raise ValueError(msg)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="ALM pipeline benchmark for nightly benchmarking")
-    parser.add_argument("--benchmark-results-path", type=Path, required=True, help="Path to write benchmark results")
-    parser.add_argument("--input-manifest", required=True, help="Path to input JSONL manifest")
+    parser.add_argument("--config", type=str, help="Path to benchmarking YAML config (e.g. nightly-benchmark.yaml)")
+    parser.add_argument("--entry", type=str, default="alm_pipeline_xenna", help="Entry name in the YAML config")
+    parser.add_argument("--benchmark-results-path", type=Path, help="Path to write benchmark results")
+    parser.add_argument("--input-manifest", help="Path to input JSONL manifest")
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data", "ray_actors"], help="Executor")
     parser.add_argument("--target-window-duration", type=float, default=120.0, help="Target window duration (seconds)")
     parser.add_argument("--tolerance", type=float, default=0.1, help="Window duration tolerance fraction")
@@ -183,20 +207,31 @@ def main() -> int:
     parser.add_argument("--overlap-percentage", type=int, default=50, help="Overlap filter percentage (0-100)")
     parser.add_argument("--repeat-factor", type=int, default=1, help="Multiply manifest entries by this factor for scale testing")
 
-    args = parser.parse_args()
+    pre_args, remaining = parser.parse_known_args()
+
+    if pre_args.config:
+        config_args = _load_args_from_config(pre_args.config, pre_args.entry)
+        args = parser.parse_args(config_args + remaining)
+    else:
+        args = parser.parse_args()
+
+    if not args.benchmark_results_path or not args.input_manifest:
+        parser.error("--benchmark-results-path and --input-manifest are required (provide directly or via --config)")
+
+    run_args = {k: v for k, v in vars(args).items() if k not in ("config", "entry")}
 
     logger.info("=== ALM Pipeline Benchmark Starting ===")
-    logger.info(f"Arguments: {vars(args)}")
+    logger.info(f"Arguments: {run_args}")
 
     success_code = 1
 
     result_dict = {
-        "params": vars(args),
+        "params": run_args,
         "metrics": {"is_success": False},
         "tasks": [],
     }
     try:
-        result_dict.update(run_alm_pipeline_benchmark(**vars(args)))
+        result_dict.update(run_alm_pipeline_benchmark(**run_args))
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path)

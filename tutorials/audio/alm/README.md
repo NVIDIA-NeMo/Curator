@@ -30,10 +30,7 @@ Install NeMo Curator and tutorial dependencies:
 
 ```bash
 # From the Curator repository root
-pip install -e .
-
-# Install additional tutorial dependencies
-pip install -r tutorials/audio/alm/requirements.txt
+pip install -e ".[audio_cpu]"
 ```
 
 ## Sample Data
@@ -47,7 +44,6 @@ tests/fixtures/audio/alm/
 tutorials/audio/alm/
 ├── main.py                   # Pipeline runner (YAML-driven)
 ├── pipeline.yaml             # Pipeline configuration
-├── requirements.txt          # Additional dependencies
 └── README.md                 # This file
 ```
 
@@ -65,7 +61,7 @@ Run the pipeline on the included sample data (from Curator repo root):
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  stages.0.manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
+  manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 ```
 
 Expected output:
@@ -84,7 +80,10 @@ PIPELINE COMPLETE
     process_time: mean=0.0004s, total=0.00s
     items_processed: 5
     output_windows (after overlap): 25
-Results saved to: ./alm_output/alm_output.jsonl
+    filtered_audio_duration: 3035.5s
+  [alm_manifest_writer]
+    process_time: mean=0.0001s, total=0.00s
+    items_processed: 5
 ```
 
 ## Using Custom Data
@@ -93,7 +92,7 @@ Results saved to: ./alm_output/alm_output.jsonl
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  stages.0.manifest_path=/path/to/your/data.jsonl \
+  manifest_path=/path/to/your/data.jsonl \
   output_dir=./my_output
 ```
 
@@ -105,7 +104,7 @@ All parameters are defined in `pipeline.yaml`. Override from command line:
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  stages.0.manifest_path=/data/input.jsonl \
+  manifest_path=/data/input.jsonl \
   output_dir=./custom_output \
   stages.1.min_speakers=3 \
   stages.1.max_speakers=6 \
@@ -116,7 +115,7 @@ python tutorials/audio/alm/main.py \
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `stages.0.manifest_path` | Path to input JSONL manifest | Required |
+| `manifest_path` | Path to input JSONL manifest | Required |
 | `output_dir` | Directory for output files | `./alm_output` |
 | `stages.1.target_window_duration` | Target window duration (seconds) | `120.0` |
 | `stages.1.tolerance` | Duration tolerance (e.g., 0.1 = ±10%) | `0.1` |
@@ -265,7 +264,7 @@ For shorter windows (e.g., 60 seconds):
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  stages.0.manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
+  manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
   stages.1.target_window_duration=60 \
   stages.1.tolerance=0.15
 ```
@@ -278,7 +277,7 @@ For exactly 2-3 speakers:
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  stages.0.manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
+  manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
   stages.1.min_speakers=2 \
   stages.1.max_speakers=3
 ```
@@ -291,7 +290,7 @@ Remove all overlapping windows:
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  stages.0.manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
+  manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
   stages.2.overlap_percentage=0
 ```
 
@@ -310,6 +309,11 @@ The benchmark script:
 
 ### Running Benchmarks
 
+The benchmarking framework is designed to run inside Docker. The benchmarking image
+installs additional dependencies (`GitPython`, `pynvml`, `rich`, `slack_sdk`, etc.)
+that are not part of `nemo_curator` itself. This applies to all benchmarks in the
+repository, not just ALM.
+
 **Prerequisites:**
 - Docker with NVIDIA container toolkit
 - NeMo Curator repository checked out
@@ -321,37 +325,43 @@ cd /path/to/Curator
 bash benchmarking/tools/build_docker.sh --tag-as-latest
 ```
 
-**Step 2: Run the ALM benchmark:**
+**Step 2: Disable the Slack sink for local runs.**
+
+The shared `benchmarking/nightly-benchmark.yaml` has the Slack sink enabled, which
+requires valid `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` credentials (used in CI).
+For local testing, temporarily disable it:
+
+```yaml
+sinks:
+  - name: slack
+    enabled: false   # <-- change from true to false
+    live_updates: true
+    channel_id: ${SLACK_CHANNEL_ID}
+    default_metrics: ["exec_time_s"]
+```
+
+**Step 3: Run the ALM benchmark:**
+
+The `--config` flag reads parameters directly from the `alm_pipeline_xenna`
+entry in `benchmarking/nightly-benchmark.yaml`:
 
 ```bash
-# Using the framework runner inside Docker:
-docker run --rm --net=host \
+docker run --rm --net=host --shm-size=8g \
   -v $(pwd):/opt/Curator \
-  -v /tmp/alm_benchmark_results:/tmp/alm_benchmark_results \
   --entrypoint bash nemo_curator_benchmarking:latest \
-  -c "cd /opt/Curator && python benchmarking/run.py --config benchmarking/alm-benchmark.yaml"
+  -c "cd /opt/Curator && python benchmarking/scripts/alm_pipeline_benchmark.py \
+    --config benchmarking/nightly-benchmark.yaml"
 ```
 
-Or using `run.sh` (requires Python 3.10+ on host):
+The ALM pipeline is CPU-only so no `--gpus` flag is needed.
+For CI/nightly runs, the benchmark is invoked via `benchmarking/tools/run.sh`
+using the `alm_pipeline_xenna` entry. See `benchmarking/README.md` for details.
 
-```bash
-bash benchmarking/tools/run.sh --use-host-curator --config benchmarking/alm-benchmark.yaml
-```
-
-**Step 3: Run the script standalone (for development/debugging):**
-
-```bash
-cd benchmarking/scripts
-python alm_pipeline_benchmark.py \
-  --benchmark-results-path /tmp/alm_results \
-  --input-manifest ../../tests/fixtures/audio/alm/sample_input.jsonl \
-  --executor xenna \
-  --repeat-factor 2000
-```
+> **Remember** to re-enable the Slack sink (`enabled: true`) before pushing.
 
 ### Benchmark Configuration
 
-The YAML config at `benchmarking/alm-benchmark.yaml` defines the benchmark entry:
+The ALM benchmark entry is defined in `benchmarking/nightly-benchmark.yaml`:
 
 ```yaml
 entries:
@@ -359,13 +369,22 @@ entries:
     script: alm_pipeline_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest=/opt/Curator/tests/fixtures/audio/alm/sample_input.jsonl
+      --input-manifest={curator_repo_dir}/tests/fixtures/audio/alm/sample_input.jsonl
       --executor=xenna
+      --target-window-duration=120.0
+      --tolerance=0.1
+      --min-sample-rate=16000
+      --min-bandwidth=8000
+      --min-speakers=2
+      --max-speakers=5
+      --overlap-percentage=50
       --repeat-factor=2000
     requirements:
       - metric: is_success
         exact_value: true
       - metric: total_builder_windows
+        min_value: 1
+      - metric: total_filtered_windows
         min_value: 1
 ```
 

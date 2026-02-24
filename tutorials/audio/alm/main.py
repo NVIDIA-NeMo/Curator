@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,22 +32,19 @@ Usage:
     python tutorials/audio/alm/main.py \\
         --config-path . \\
         --config-name pipeline \\
-        stages.0.manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
+        manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 
     # Override parameters
     python tutorials/audio/alm/main.py \\
         --config-path . \\
         --config-name pipeline \\
-        stages.0.manifest_path=/data/input.jsonl \\
+        manifest_path=/data/input.jsonl \\
         output_dir=./my_output \\
         stages.1.min_speakers=3 \\
         stages.2.overlap_percentage=30
 """
 
-import json
-
 import hydra
-from fsspec.core import url_to_fs
 from loguru import logger
 from omegaconf import DictConfig
 
@@ -56,24 +53,9 @@ from nemo_curator.config.run import create_pipeline_from_yaml
 from nemo_curator.tasks.utils import TaskPerfUtils
 
 
-def save_manifest(entries: list[dict], output_path: str) -> None:
-    """Save entries to a JSONL manifest file. Supports local and cloud paths."""
-    fs, path = url_to_fs(output_path)
-    parent_dir = "/".join(path.split("/")[:-1])
-    if parent_dir:
-        fs.makedirs(parent_dir, exist_ok=True)
-    with fs.open(path, "w", encoding="utf-8") as f:
-        for entry in entries:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-
 @hydra.main(version_base=None)
 def main(cfg: DictConfig) -> None:
     """Run ALM pipeline using Hydra configuration."""
-    output_dir = cfg.get("output_dir", "./alm_output")
-    fs, output_dir_path = url_to_fs(output_dir)
-    fs.makedirs(output_dir_path, exist_ok=True)
-
     pipeline = create_pipeline_from_yaml(cfg)
 
     logger.info(pipeline.describe())
@@ -102,10 +84,8 @@ def main(cfg: DictConfig) -> None:
             logger.info(f"    windows_created: {metrics['custom.windows_created'].sum():.0f}")
         if "custom.output_windows" in metrics:
             logger.info(f"    output_windows (after overlap): {metrics['custom.output_windows'].sum():.0f}")
-
-    output_path = f"{output_dir.rstrip('/')}/alm_output.jsonl"
-    save_manifest(output_entries, output_path)
-    logger.info(f"Results saved to: {output_path}")
+        if "custom.filtered_dur" in metrics:
+            logger.info(f"    filtered_audio_duration: {metrics['custom.filtered_dur'].sum():.1f}s")
 
 
 if __name__ == "__main__":

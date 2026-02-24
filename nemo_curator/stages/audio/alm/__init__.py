@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,9 +22,11 @@ for Audio Language Model training.
 from nemo_curator.stages.audio.alm.alm_data_builder import ALMDataBuilderStage
 from nemo_curator.stages.audio.alm.alm_data_overlap import ALMDataOverlapStage
 from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReaderStage
+from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
 
 __all__ = [
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
     "ALMManifestReaderStage",
+    "ALMManifestWriterStage",
 ]

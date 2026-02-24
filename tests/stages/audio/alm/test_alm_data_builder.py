@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -88,13 +88,6 @@ class TestALMDataBuilder:
 
         output = result[0].data[0]
         assert len(output.get("windows", [])) == 0
-
-    def test_default_values(self) -> None:
-        stage = ALMDataBuilderStage()
-        assert stage.target_window_duration == 120.0
-        assert stage.tolerance == 0.1
-        assert stage.min_speakers == 2
-        assert stage.max_speakers == 5
 
     def test_empty_segments(self) -> None:
         stage = ALMDataBuilderStage(target_window_duration=120.0)

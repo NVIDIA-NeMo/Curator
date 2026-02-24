@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,14 +22,12 @@ import pytest
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage
 from nemo_curator.tasks import AudioBatch
 
-FIXTURE_PATH = Path(__file__).parent.parent.parent.parent / "fixtures" / "audio" / "alm" / "sample_input.jsonl"
-
-
 @pytest.fixture
 def sample_entries() -> list[dict]:
     """Load sample entries from fixture file."""
+    fixture_path = Path(__file__).parent.parent.parent.parent / "fixtures" / "audio" / "alm" / "sample_input.jsonl"
     entries = []
-    with open(FIXTURE_PATH, encoding="utf-8") as f:
+    with open(fixture_path, encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 entries.append(json.loads(line.strip()))

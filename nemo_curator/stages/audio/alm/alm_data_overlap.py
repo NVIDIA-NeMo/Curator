@@ -1,5 +1,16 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
-# Licensed under the Apache License, Version 2.0
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """
 ALM Data Overlap Stage - Native NeMo Curator Implementation.
@@ -162,9 +173,6 @@ class ALMDataOverlapStage(LegacySpeechStage):
     overlap_percentage: int = 0
     target_duration: float = 120.0
 
-    # Parallelism (used by runner, passed via config)
-    max_workers: int = -1
-
     # Stage metadata
     name: str = "alm_data_overlap"
 
@@ -176,16 +184,6 @@ class ALMDataOverlapStage(LegacySpeechStage):
         if self.target_duration <= 0:
             msg = "target_duration must be positive"
             raise ValueError(msg)
-
-    def process(self, task: AudioBatch) -> list[AudioBatch]:
-        """Process a batch, propagating parent task metadata and perf stats."""
-        results = []
-        for entry in task.data:
-            for child in self.process_dataset_entry(entry):
-                child._metadata = task._metadata.copy()
-                child._stage_perf = task._stage_perf.copy()
-                results.append(child)
-        return results
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         """
@@ -203,11 +201,13 @@ class ALMDataOverlapStage(LegacySpeechStage):
         filter_time = time.perf_counter() - t0
 
         output_windows = len(result.get("filtered_windows", []))
+        filtered_dur = result.get("filtered_dur", 0.0)
         self._log_metrics(
             {
                 "filter_time": filter_time,
                 "input_windows": input_windows,
                 "output_windows": output_windows,
+                "filtered_dur": filtered_dur,
             }
         )
 

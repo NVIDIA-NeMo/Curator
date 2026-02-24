@@ -1,8 +1,0 @@
-# ALM Tutorial Requirements
-# Install with: pip install -r requirements.txt
-
-# Core NeMo Curator (install from repo root with: pip install -e .)
-# nemo-curator
-
-# Additional dependencies for ALM tutorial
-soundfile>=0.12.0

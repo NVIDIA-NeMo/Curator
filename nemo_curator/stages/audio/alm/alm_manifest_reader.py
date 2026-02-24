@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,28 +27,33 @@ from nemo_curator.tasks import AudioBatch, _EmptyTask
 
 @dataclass
 class ALMManifestReaderStage(ProcessingStage[_EmptyTask, AudioBatch]):
-    """Read a JSONL manifest on a worker and produce one AudioBatch per entry.
+    """Read one or more JSONL manifests on a worker and produce one AudioBatch per entry.
 
     This stage accepts an EmptyTask and fans out into individual AudioBatch
     tasks, keeping manifest I/O off the driver. Supports local and cloud
     paths via fsspec.
 
     Args:
-        manifest_path: Path to the input JSONL manifest (local or cloud).
+        manifest_path: Path or list of paths to input JSONL manifests (local or cloud).
     """
 
-    manifest_path: str
+    manifest_path: str | list[str]
     name: str = "alm_manifest_reader"
 
-    def process(self, _: _EmptyTask) -> list[AudioBatch]:
-        fs, path = url_to_fs(self.manifest_path)
-        entries: list[dict[str, Any]] = []
-        with fs.open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    entries.append(json.loads(line.strip()))
+    def __post_init__(self) -> None:
+        if not isinstance(self.manifest_path, str):
+            self.manifest_path = list(self.manifest_path)
 
-        logger.info(f"ALMManifestReaderStage: loaded {len(entries)} entries from {self.manifest_path}")
+    def process(self, _: _EmptyTask) -> list[AudioBatch]:
+        paths = self.manifest_path if isinstance(self.manifest_path, list) else [self.manifest_path]
+        entries: list[dict[str, Any]] = []
+        for manifest in paths:
+            fs, resolved = url_to_fs(manifest)
+            with fs.open(resolved, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        entries.append(json.loads(line.strip()))
+            logger.info(f"ALMManifestReaderStage: loaded {len(entries)} entries from {manifest}")
 
         return [AudioBatch(data=[entry]) for entry in entries]
 
