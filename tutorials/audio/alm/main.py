@@ -88,19 +88,10 @@ def main(cfg: DictConfig) -> None:
     for task in results or []:
         output_entries.extend(task.data)
 
-    stage1_windows = sum(len(e.get("windows", [])) for e in output_entries)
-    stage2_windows = sum(len(e.get("filtered_windows", [])) for e in output_entries)
-    total_filtered_dur = sum(e.get("filtered_dur", 0) for e in output_entries)
-    entries_with_windows = sum(1 for e in output_entries if e.get("filtered_windows") or e.get("windows"))
-
     logger.info("\n" + "=" * 50)
     logger.info("PIPELINE COMPLETE")
     logger.info("=" * 50)
     logger.info(f"  Output entries: {len(output_entries)}")
-    logger.info(f"  Entries with windows: {entries_with_windows}")
-    logger.info(f"  Stage 1 (Builder) windows: {stage1_windows}")
-    logger.info(f"  Stage 2 (Overlap) windows: {stage2_windows}")
-    logger.info(f"  Total filtered duration: {total_filtered_dur:.2f}s ({total_filtered_dur / 60:.2f} min)")
 
     stage_metrics = TaskPerfUtils.collect_stage_metrics(results)
     for stage_name, metrics in stage_metrics.items():

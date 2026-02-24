@@ -1,5 +1,6 @@
 results_path: /tmp/alm_benchmark_results
 datasets_path: /opt/Curator/tests/fixtures
+model_weights_path: /tmp
 
 default_timeout_s: 300
 

@@ -65,19 +65,25 @@ Run the pipeline on the included sample data (from Curator repo root):
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  input_manifest=tests/fixtures/audio/alm/sample_input.jsonl
+  stages.0.manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 ```
 
 Expected output:
 ```
 PIPELINE COMPLETE
 ==================================================
-  Input entries: 5
   Output entries: 5
-  Entries with windows: 5
-  Stage 1 (Builder) windows: 181
-  Stage 2 (Overlap) windows: 25
-  Total filtered duration: 3035.50s (50.59 min)
+  [alm_manifest_reader]
+    process_time: mean=0.0030s, total=0.01s
+    items_processed: 0
+  [alm_data_builder]
+    process_time: mean=0.0015s, total=0.01s
+    items_processed: 5
+    windows_created: 181
+  [alm_data_overlap]
+    process_time: mean=0.0004s, total=0.00s
+    items_processed: 5
+    output_windows (after overlap): 25
 Results saved to: ./alm_output/alm_output.jsonl
 ```
 
@@ -87,7 +93,7 @@ Results saved to: ./alm_output/alm_output.jsonl
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  input_manifest=/path/to/your/data.jsonl \
+  stages.0.manifest_path=/path/to/your/data.jsonl \
   output_dir=./my_output
 ```
 
@@ -99,32 +105,33 @@ All parameters are defined in `pipeline.yaml`. Override from command line:
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  input_manifest=/data/input.jsonl \
+  stages.0.manifest_path=/data/input.jsonl \
   output_dir=./custom_output \
-  stages.0.min_speakers=3 \
-  stages.0.max_speakers=6 \
-  stages.1.overlap_percentage=30
+  stages.1.min_speakers=3 \
+  stages.1.max_speakers=6 \
+  stages.2.overlap_percentage=30
 ```
 
 ### Configuration Parameters
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `input_manifest` | Path to input JSONL manifest | Required |
+| `stages.0.manifest_path` | Path to input JSONL manifest | Required |
 | `output_dir` | Directory for output files | `./alm_output` |
-| `stages.0.target_window_duration` | Target window duration (seconds) | `120.0` |
-| `stages.0.tolerance` | Duration tolerance (e.g., 0.1 = ±10%) | `0.1` |
-| `stages.0.min_sample_rate` | Minimum sample rate (Hz) | `16000` |
-| `stages.0.min_bandwidth` | Minimum bandwidth (Hz) | `8000` |
-| `stages.0.min_speakers` | Minimum speakers per window | `2` |
-| `stages.0.max_speakers` | Maximum speakers per window | `5` |
-| `stages.1.overlap_percentage` | Overlap threshold 0-100 | `50` |
+| `stages.1.target_window_duration` | Target window duration (seconds) | `120.0` |
+| `stages.1.tolerance` | Duration tolerance (e.g., 0.1 = ±10%) | `0.1` |
+| `stages.1.min_sample_rate` | Minimum sample rate (Hz) | `16000` |
+| `stages.1.min_bandwidth` | Minimum bandwidth (Hz) | `8000` |
+| `stages.1.min_speakers` | Minimum speakers per window | `2` |
+| `stages.1.max_speakers` | Maximum speakers per window | `5` |
+| `stages.2.overlap_percentage` | Overlap threshold 0-100 | `50` |
 
 ### Override Notes
 
 Match indices in `stages` list in `pipeline.yaml`:
-- `stages.0.*`: ALMDataBuilderStage parameters
-- `stages.1.*`: ALMDataOverlapStage parameters
+- `stages.0.*`: ALMManifestReaderStage parameters
+- `stages.1.*`: ALMDataBuilderStage parameters
+- `stages.2.*`: ALMDataOverlapStage parameters
 
 ## Input Format
 
@@ -258,9 +265,9 @@ For shorter windows (e.g., 60 seconds):
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  input_manifest=tests/fixtures/audio/alm/sample_input.jsonl \
-  stages.0.target_window_duration=60 \
-  stages.0.tolerance=0.15
+  stages.0.manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
+  stages.1.target_window_duration=60 \
+  stages.1.tolerance=0.15
 ```
 
 ### Stricter Speaker Requirements
@@ -271,9 +278,9 @@ For exactly 2-3 speakers:
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  input_manifest=tests/fixtures/audio/alm/sample_input.jsonl \
-  stages.0.min_speakers=2 \
-  stages.0.max_speakers=3
+  stages.0.manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
+  stages.1.min_speakers=2 \
+  stages.1.max_speakers=3
 ```
 
 ### Aggressive Overlap Filtering
@@ -284,8 +291,8 @@ Remove all overlapping windows:
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  input_manifest=tests/fixtures/audio/alm/sample_input.jsonl \
-  stages.1.overlap_percentage=0
+  stages.0.manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
+  stages.2.overlap_percentage=0
 ```
 
 ## Benchmarking
@@ -394,7 +401,7 @@ Results from running on a single workstation:
 |--------|-------|
 | Input entries | 5 |
 | Output entries | 5 |
-| Builder windows | 25 |
+| Builder windows | 181 |
 | Filtered windows | 25 |
 | Total filtered duration | 3,035.50s |
 | Execution time | 15.62s |
@@ -406,12 +413,12 @@ Results from running on a single workstation:
 |--------|-------|
 | Input entries | 10,000 |
 | Output entries | 10,000 |
-| Builder windows | 50,000 |
+| Builder windows | 362,000 |
 | Filtered windows | 50,000 |
 | Total filtered duration | 6,071,000s |
-| Execution time | 90.19s |
-| Throughput (entries/sec) | 110.88 |
-| Throughput (windows/sec) | 554.40 |
+| Execution time | 94.77s |
+| Throughput (entries/sec) | 105.52 |
+| Throughput (windows/sec) | 3,819.96 |
 
 The pipeline scales well with XennaExecutor auto-allocating 3 workers per stage on the available 8 CPU cores. Throughput increases significantly at scale as the executor amortizes startup overhead.
 

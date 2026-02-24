@@ -238,7 +238,6 @@ class ALMDataOverlapStage(LegacySpeechStage):
         swift_filepath = _get_filepath_from_stats(stats, "swift_path")
 
         result = entry.copy()
-        result["windows"] = filtered_windows
         result["total_dur_window"] = total_dur_window
         result["total_dur_list_window"] = total_dur_list_window
         result["total_dur_list_window_timestamps"] = total_dur_list_window_timestamps

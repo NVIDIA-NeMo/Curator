@@ -259,8 +259,6 @@ class ALMDataBuilderStage(LegacySpeechStage):
                     truncated_end = window_start + self.max_duration
                     if curr_seg["start"] >= truncated_end:
                         break
-                    if _get_bandwidth(curr_seg) < self.min_bandwidth:
-                        break
 
                     total_truncation_events += 1
                     part = _truncate_segment(curr_seg, truncated_end)
