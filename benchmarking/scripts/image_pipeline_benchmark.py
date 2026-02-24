@@ -134,7 +134,7 @@ def run_image_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         logger.success(f"Output tasks: {len(output_tasks)}")
         success = True
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         error_traceback = traceback.format_exc()
         logger.error(f"Benchmark failed: {e}")
         logger.debug(f"Full traceback:\n{error_traceback}")
@@ -258,7 +258,7 @@ def main() -> int:
     try:
         results = run_image_pipeline_benchmark(args)
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         error_traceback = traceback.format_exc()
         print(f"Benchmark failed: {e}")
         logger.debug(f"Full traceback:\n{error_traceback}")
