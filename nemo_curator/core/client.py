@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import socket
 import subprocess
 from dataclasses import dataclass, field
 
+import yaml
 from loguru import logger
 
 from nemo_curator.core.constants import (
@@ -38,6 +39,7 @@ from nemo_curator.metrics.utils import (
     add_ray_prometheus_metrics_service_discovery,
     is_grafana_running,
     is_prometheus_running,
+    remove_ray_prometheus_metrics_service_discovery,
 )
 
 
@@ -61,6 +63,7 @@ class RayClient:
         object_store_memory: The amount of memory to use for the object store.
         enable_object_spilling: Whether to enable object spilling.
         ray_stdouterr_capture_file: The file to capture stdout/stderr to.
+        metrics_dir: The directory for Prometheus/Grafana metrics data. If None, uses the per-user default.
 
     Note:
         To start monitoring services (Prometheus and Grafana), use the standalone
@@ -79,6 +82,7 @@ class RayClient:
     object_store_memory: int | None = None
     enable_object_spilling: bool = False
     ray_stdouterr_capture_file: str | None = None
+    metrics_dir: str | None = None
 
     ray_process: subprocess.Popen | None = field(init=False, default=None)
 
@@ -95,18 +99,18 @@ class RayClient:
 
         if self.include_dashboard:
             # Add Ray metrics service discovery to existing Prometheus configuration
-            if is_prometheus_running() and is_grafana_running():
+            if is_prometheus_running(self.metrics_dir) and is_grafana_running(self.metrics_dir):
                 try:
-                    add_ray_prometheus_metrics_service_discovery(self.ray_temp_dir)
-                except Exception as e:
+                    add_ray_prometheus_metrics_service_discovery(self.ray_temp_dir, self.metrics_dir)
+                except Exception as e:  # noqa: BLE001
                     msg = f"Failed to add Ray metrics service discovery: {e}"
                     logger.warning(msg)
-                    raise
             else:
+                metrics_dir_hint = f" with --metrics_dir={self.metrics_dir}" if self.metrics_dir else ""
                 msg = (
                     "No monitoring services are running. "
                     "Please run the `start_prometheus_grafana.py` "
-                    "script from nemo_curator/metrics folder to setup monitoring services separately."
+                    f"script from nemo_curator/metrics folder{metrics_dir_hint} to setup monitoring services separately."
                 )
                 logger.warning(msg)
 
@@ -161,6 +165,13 @@ class RayClient:
                 raise RuntimeError(msg)
 
     def stop(self) -> None:
+        # Remove Ray metrics service discovery entry from prometheus config
+        if self.include_dashboard:
+            try:
+                remove_ray_prometheus_metrics_service_discovery(self.ray_temp_dir, self.metrics_dir)
+            except (OSError, KeyError, yaml.YAMLError):
+                logger.debug("Could not remove Ray metrics service discovery during shutdown.")
+
         if self.ray_process:
             # Kill the entire process group to ensure child processes are terminated
             try:
@@ -183,7 +194,7 @@ class RayClient:
             # We kill the Ray GCS process to stop the cluster, but still we have some Ray processes running.
             msg = "NeMo Curator has stopped the Ray cluster it started by killing the Ray GCS process. "
             msg += "It is advised to wait for a few seconds before running any Ray commands to ensure Ray can cleanup other processes."
-            msg += "If you are seeing any Ray commands like `ray status` failing, please ensure /tmp/ray/ray_current_cluster has correct information."
+            msg += f"If you are seeing any Ray commands like `ray status` failing, please ensure {self.ray_temp_dir}/ray_current_cluster has correct information."
             logger.info(msg)
             # Clear the process to prevent double execution (atexit handler)
             self.ray_process = None
