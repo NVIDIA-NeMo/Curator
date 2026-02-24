@@ -16,8 +16,10 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from nemo_curator.core import serve as serve_module
 from nemo_curator.pipeline.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
 
 
 @pytest.fixture
@@ -43,3 +45,81 @@ def test_pipeline_uses_xenna_executor_by_default(some_stage: ProcessingStage):
 
         # Verify execute was called on the XennaExecutor instance
         mock_xenna_instance.execute.assert_called_once()
+
+
+class TestPipelineRayServeWarning:
+    def setup_method(self) -> None:
+        serve_module._ray_serve_active = False
+
+    def teardown_method(self) -> None:
+        serve_module._ray_serve_active = False
+
+    def test_warns_when_ray_serve_active_with_gpu_stages(self) -> None:
+        gpu_resources = Resources(gpus=1.0)
+        gpu_stage = Mock(spec=ProcessingStage)
+        gpu_stage.name = "EmbeddingStage"
+        gpu_stage.resources = gpu_resources
+
+        serve_module._ray_serve_active = True
+        mock_executor = Mock()
+        pipeline = Pipeline(name="test", stages=[gpu_stage])
+
+        with patch("nemo_curator.pipeline.pipeline.logger") as mock_logger:
+            pipeline.run(executor=mock_executor)
+
+            mock_logger.warning.assert_called_once()
+            warning_msg = mock_logger.warning.call_args[0][0]
+            assert "Ray Serve is active" in warning_msg
+            assert "EmbeddingStage" in warning_msg
+
+    def test_no_warning_when_ray_serve_active_with_cpu_only_stages(self) -> None:
+        cpu_resources = Resources(cpus=2.0)
+        cpu_stage = Mock(spec=ProcessingStage)
+        cpu_stage.name = "TextFilter"
+        cpu_stage.resources = cpu_resources
+
+        serve_module._ray_serve_active = True
+        mock_executor = Mock()
+        pipeline = Pipeline(name="test", stages=[cpu_stage])
+
+        with patch("nemo_curator.pipeline.pipeline.logger") as mock_logger:
+            pipeline.run(executor=mock_executor)
+            mock_logger.warning.assert_not_called()
+
+    def test_no_warning_when_ray_serve_not_active(self) -> None:
+        gpu_resources = Resources(gpus=1.0)
+        gpu_stage = Mock(spec=ProcessingStage)
+        gpu_stage.name = "EmbeddingStage"
+        gpu_stage.resources = gpu_resources
+
+        mock_executor = Mock()
+        pipeline = Pipeline(name="test", stages=[gpu_stage])
+
+        with patch("nemo_curator.pipeline.pipeline.logger") as mock_logger:
+            pipeline.run(executor=mock_executor)
+            mock_logger.warning.assert_not_called()
+
+    def test_warning_lists_all_gpu_stage_names(self) -> None:
+        gpu_stage_1 = Mock(spec=ProcessingStage)
+        gpu_stage_1.name = "EmbeddingStage"
+        gpu_stage_1.resources = Resources(gpus=1.0)
+
+        gpu_stage_2 = Mock(spec=ProcessingStage)
+        gpu_stage_2.name = "ClassifierStage"
+        gpu_stage_2.resources = Resources(gpu_memory_gb=8.0)
+
+        cpu_stage = Mock(spec=ProcessingStage)
+        cpu_stage.name = "TextFilter"
+        cpu_stage.resources = Resources(cpus=2.0)
+
+        serve_module._ray_serve_active = True
+        mock_executor = Mock()
+        pipeline = Pipeline(name="test", stages=[gpu_stage_1, cpu_stage, gpu_stage_2])
+
+        with patch("nemo_curator.pipeline.pipeline.logger") as mock_logger:
+            pipeline.run(executor=mock_executor)
+
+            warning_msg = mock_logger.warning.call_args[0][0]
+            assert "EmbeddingStage" in warning_msg
+            assert "ClassifierStage" in warning_msg
+            assert "TextFilter" not in warning_msg
