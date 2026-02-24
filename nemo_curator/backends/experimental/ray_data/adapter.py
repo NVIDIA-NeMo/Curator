@@ -15,9 +15,8 @@
 from collections.abc import Callable
 from typing import Any
 
-import ray.data
 from loguru import logger
-from ray.data import Dataset
+from ray.data import ActorPoolStrategy, Dataset
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
@@ -92,9 +91,9 @@ class RayDataStageAdapter(BaseStageAdapter):
             concurrency = calculate_concurrency_for_actors_for_stage(self.stage, ignore_head_node=ignore_head_node)
             if isinstance(concurrency, tuple):
                 min_size, max_size = concurrency
-                actor_pool = ray.data.ActorPoolStrategy(min_size=min_size, max_size=max_size)
+                actor_pool = ActorPoolStrategy(min_size=min_size, max_size=max_size)
             else:
-                actor_pool = ray.data.ActorPoolStrategy(size=concurrency)
+                actor_pool = ActorPoolStrategy(size=concurrency)
             compute_kwargs: dict[str, Any] = {"compute": actor_pool}
         else:
             map_batches_fn = create_task_from_stage(self.stage)
