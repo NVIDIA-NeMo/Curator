@@ -26,10 +26,17 @@ The output JSONL from this pipeline is consumed by downstream processors for add
 
 ## Installation
 
-Install NeMo Curator and tutorial dependencies:
+From the Curator repository root:
 
 ```bash
-# From the Curator repository root
+uv sync --extra audio_cpu
+source .venv/bin/activate
+```
+
+This creates a `.venv` with all base, dev, test, and audio dependencies resolved
+from the lockfile. If you don't have `uv`, you can fall back to pip:
+
+```bash
 pip install -e ".[audio_cpu]"
 ```
 
