@@ -161,6 +161,7 @@ class RayClient:
             os.environ["RAY_ADDRESS"] = f"{ip_address}:{self.ray_port}"
             # Verify that Ray cluster actually started successfully
             if not check_ray_responsive():
+                self.stop()  # Clean up the process we just started
                 msg = "Ray cluster did not become responsive in time. Please check the logs for more information."
                 raise RuntimeError(msg)
 

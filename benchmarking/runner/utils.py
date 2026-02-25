@@ -14,6 +14,7 @@
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -136,6 +137,37 @@ def get_total_memory_bytes() -> int:
 
     # Fallback: get total physical memory
     return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+
+
+def get_shm_usage() -> dict[str, int | str | None]:
+    """
+    Get structured /dev/shm usage data using shutil.disk_usage.
+
+    Returns a dict with keys:
+        total_bytes, used_bytes, available_bytes: int or None
+        summary: human-readable string summarizing usage
+    """
+    result_dict: dict[str, int | str | None] = {
+        "total_bytes": None,
+        "used_bytes": None,
+        "available_bytes": None,
+        "summary": None,
+    }
+    try:
+        usage = shutil.disk_usage("/dev/shm")  # noqa: S108
+    except OSError as exc:
+        logger.warning(f"Could not get /dev/shm usage: {exc}")
+        return result_dict
+
+    result_dict["total_bytes"] = usage.total
+    result_dict["used_bytes"] = usage.used
+    result_dict["available_bytes"] = usage.free
+    result_dict["summary"] = (
+        f"/dev/shm: {human_readable_bytes_repr(usage.used)} used / "  # noqa: S108
+        f"{human_readable_bytes_repr(usage.total)} total "
+        f"({human_readable_bytes_repr(usage.free)} available)"
+    )
+    return result_dict
 
 
 def run_shm_size_check(human_readable: bool = False) -> tuple[int | None, str | None]:

@@ -15,6 +15,7 @@
 
 import os
 import shutil
+import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -22,13 +23,53 @@ from typing import Any
 
 import ray
 from loguru import logger
-from runner.utils import run_shm_size_check
+from runner.utils import get_shm_usage
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.core.utils import check_ray_responsive
 
 ray_client_start_timeout_s = 30
 ray_client_start_poll_interval_s = 0.5
+
+
+_RAY_CLEANUP_WAIT_S = 5
+
+
+def _is_inside_container() -> bool:
+    """Check if we are running inside a Docker/container environment."""
+    return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+
+
+def _force_stop_ray() -> None:
+    """Run `ray stop --force` to kill all Ray processes. Only safe inside containers with single tenancy."""
+    logger.info("Running `ray stop --force` (safe inside container)...")
+    try:
+        subprocess.run(
+            ["ray", "stop", "--force"],  # noqa: S607
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception:
+        logger.exception("Failed to run `ray stop --force`")
+
+
+def _wait_for_ray_cleanup() -> None:
+    """Wait for Ray child processes to exit and /dev/shm segments to release after stopping a cluster.
+
+    Inside containers (single tenancy), uses `ray stop --force` to ensure all orphaned
+    processes are killed. On shared machines, only waits for natural cleanup.
+    """
+    if _is_inside_container():
+        _force_stop_ray()
+
+    logger.info(f"Waiting {_RAY_CLEANUP_WAIT_S}s for Ray to clean up child processes and release /dev/shm...")
+    time.sleep(_RAY_CLEANUP_WAIT_S)
+
+    shm = get_shm_usage()
+    if shm["summary"]:
+        logger.info(f"After cleanup wait: {shm['summary']}")
 
 
 def setup_ray_cluster_and_env(  # noqa: PLR0913
@@ -52,9 +93,15 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
     if ray_address_env:
         logger.warning(f"RAY_ADDRESS already set in environment: {ray_address_env}")
 
+    # Log /dev/shm usage before any attempt for diagnostics
+    shm = get_shm_usage()
+    if shm["summary"]:
+        logger.info(f"Before Ray cluster setup: {shm['summary']}")
+
     responsive = False
     retries = 0
     max_retries = 5
+    client = None
     while not responsive and retries < max_retries:
         logger.info(f"Starting Ray cluster (attempt {retries + 1} of {max_retries})...")
 
@@ -73,14 +120,23 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
             ray_stdouterr_capture_file=ray_stdouterr_capture_file,
             object_store_memory=object_store_size,
         )
-        client.start()
 
-        _ensure_ray_client_process_started(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
-        responsive = check_ray_responsive()
-        run_shm_size_check(human_readable=True)
+        try:
+            client.start()
+            _ensure_ray_client_process_started(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
+            responsive = check_ray_responsive()
+        except Exception:
+            logger.exception(f"Ray cluster start failed on attempt {retries + 1}")
+            responsive = False
+
         if not responsive:
-            logger.info("Ray cluster did not become responsive in time, stopping client and retrying...")
-            client.stop()
+            logger.info("Ray cluster did not become responsive, cleaning up before retry...")
+            try:
+                client.stop()
+            except Exception:
+                logger.exception("Failed to stop client during retry cleanup")
+            os.environ.pop("RAY_ADDRESS", None)
+            _wait_for_ray_cleanup()
             retries += 1
 
     if not responsive:
@@ -105,6 +161,10 @@ def teardown_ray_cluster_and_env(
             ray_client.stop()
         except Exception:
             logger.exception("Failed to stop Ray client")
+
+        # Wait for Ray child processes to exit and /dev/shm to release
+        _wait_for_ray_cleanup()
+
         # Copy debugging artifacts and clean up temp directory
         try:
             _copy_ray_debug_artifacts(ray_temp_path, ray_cluster_path)
@@ -114,7 +174,15 @@ def teardown_ray_cluster_and_env(
 
 
 def get_ray_cluster_data() -> dict[str, Any]:
-    """Get resource data from the Ray cluster."""
+    """Get resource data from the Ray cluster.
+
+    If the cluster is not responsive (e.g. crashed due to OOM), returns an empty dict
+    instead of connecting — ray.init() on a dead cluster fatally terminates the process
+    via Ray's C++ core worker.
+    """
+    if not check_ray_responsive():
+        logger.warning("Ray cluster is not responsive, skipping cluster data collection")
+        return {}
     ray.init(ignore_reinit_error=True)
     time.sleep(0.2)  # ray.available_resources() returns might have a lag
     ray_data = ray.cluster_resources()
