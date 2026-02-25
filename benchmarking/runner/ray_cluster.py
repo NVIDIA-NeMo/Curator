@@ -15,7 +15,6 @@
 
 import os
 import shutil
-import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -32,44 +31,17 @@ ray_client_start_timeout_s = 30
 ray_client_start_poll_interval_s = 0.5
 
 
-_RAY_CLEANUP_WAIT_S = 5
-
-
-def _is_inside_container() -> bool:
-    """Check if we are running inside a Docker/container environment."""
-    return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
-
-
-def _force_stop_ray() -> None:
-    """Run `ray stop --force` to kill all Ray processes. Only safe inside containers with single tenancy."""
-    logger.info("Running `ray stop --force` (safe inside container)...")
-    try:
-        subprocess.run(
-            ["ray", "stop", "--force"],  # noqa: S607
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except Exception:
-        logger.exception("Failed to run `ray stop --force`")
+_RAY_CLEANUP_WAIT_S = 10
 
 
 def _wait_for_ray_cleanup() -> None:
-    """Wait for Ray child processes to exit and /dev/shm segments to release after stopping a cluster.
-
-    Inside containers (single tenancy), uses `ray stop --force` to ensure all orphaned
-    processes are killed. On shared machines, only waits for natural cleanup.
-    """
-    if _is_inside_container():
-        _force_stop_ray()
-
+    """Wait for Ray child processes to exit and /dev/shm segments to release after stopping a cluster."""
     logger.info(f"Waiting {_RAY_CLEANUP_WAIT_S}s for Ray to clean up child processes and release /dev/shm...")
     time.sleep(_RAY_CLEANUP_WAIT_S)
 
     shm = get_shm_usage()
     if shm["summary"]:
-        logger.info(f"After cleanup wait: {shm['summary']}")
+        logger.info(f"SHM usage after cleanup wait: {shm['summary']}")
 
 
 def setup_ray_cluster_and_env(  # noqa: PLR0913
@@ -93,10 +65,9 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
     if ray_address_env:
         logger.warning(f"RAY_ADDRESS already set in environment: {ray_address_env}")
 
-    # Log /dev/shm usage before any attempt for diagnostics
     shm = get_shm_usage()
     if shm["summary"]:
-        logger.info(f"Before Ray cluster setup: {shm['summary']}")
+        logger.info(f"SHM usage before Ray cluster setup: {shm['summary']}")
 
     responsive = False
     retries = 0
@@ -183,11 +154,9 @@ def get_ray_cluster_data() -> dict[str, Any]:
     if not check_ray_responsive():
         logger.warning("Ray cluster is not responsive, skipping cluster data collection")
         return {}
-    ray.init(ignore_reinit_error=True)
-    time.sleep(0.2)  # ray.available_resources() returns might have a lag
-    ray_data = ray.cluster_resources()
-    ray.shutdown()
-    return ray_data
+    with ray.init(ignore_reinit_error=True):
+        time.sleep(0.2)  # ray.available_resources() returns might have a lag
+        return ray.cluster_resources()
 
 
 def _ensure_ray_client_process_started(client: RayClient, timeout_s: int, poll_interval_s: float) -> None:
