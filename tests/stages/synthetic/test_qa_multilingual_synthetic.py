@@ -227,7 +227,7 @@ class TestQAMultilingualSyntheticStage:
             def setup(self) -> None:
                 pass
 
-            def query_model(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:  # noqa: ARG002
+            def query_model(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 captured_prompts.append(messages[0]["content"])
                 return ["response"]
 
@@ -280,7 +280,7 @@ class TestQAMultilingualSyntheticStage:
             def setup(self) -> None:
                 pass
 
-            def query_model(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:  # noqa: ARG002
+            def query_model(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 content = messages[0]["content"]
                 for lang in ["English", "Spanish", "French"]:
                     if lang in content:
