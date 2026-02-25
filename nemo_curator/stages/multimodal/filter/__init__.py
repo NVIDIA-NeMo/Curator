@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from nemo_curator.stages.multimodal.filter.blur_filter import MultimodalBlurFilterStage
+from nemo_curator.stages.multimodal.filter.clip_score_filter import MultimodalCLIPScoreFilterStage
 from nemo_curator.stages.multimodal.filter.image_to_text_ratio_filter import (
     MultimodalImageToTextRatioFilterStage,
 )
@@ -20,6 +21,7 @@ from nemo_curator.stages.multimodal.filter.qrcode_filter import MultimodalQRCode
 
 __all__ = [
     "MultimodalBlurFilterStage",
+    "MultimodalCLIPScoreFilterStage",
     "MultimodalImageToTextRatioFilterStage",
     "MultimodalQRCodeFilterStage",
 ]
