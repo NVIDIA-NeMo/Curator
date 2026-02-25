@@ -22,11 +22,11 @@ from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioBatch, FileGroupTask
 
 
 @dataclass
-class ALMManifestWriterStage(ProcessingStage[AudioBatch, AudioBatch]):
+class ALMManifestWriterStage(ProcessingStage[AudioBatch, FileGroupTask]):
     """Append AudioBatch entries to a JSONL manifest file.
 
     Each processed AudioBatch has its data entries appended to the output
@@ -49,12 +49,18 @@ class ALMManifestWriterStage(ProcessingStage[AudioBatch, AudioBatch]):
             pass
         logger.info(f"ALMManifestWriterStage: writing to {self.output_path}")
 
-    def process(self, task: AudioBatch) -> AudioBatch:
+    def process(self, task: AudioBatch) -> FileGroupTask:
         fs, path = url_to_fs(self.output_path)
         with fs.open(path, "a", encoding="utf-8") as f:
             for entry in task.data:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        return task
+        return FileGroupTask(
+            task_id=task.task_id,
+            dataset_name=task.dataset_name,
+            data=[self.output_path],
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )
 
     def num_workers(self) -> int | None:
         return 1

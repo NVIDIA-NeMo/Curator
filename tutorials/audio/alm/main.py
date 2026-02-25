@@ -66,14 +66,17 @@ def main(cfg: DictConfig) -> None:
     logger.info("Starting pipeline execution...")
     results = pipeline.run(executor)
 
-    output_entries = []
+    output_files = []
     for task in results or []:
-        output_entries.extend(task.data)
+        output_files.extend(task.data)
+    unique_files = sorted(set(output_files))
 
     logger.info("\n" + "=" * 50)
     logger.info("PIPELINE COMPLETE")
     logger.info("=" * 50)
-    logger.info(f"  Output entries: {len(output_entries)}")
+    logger.info(f"  Output files written: {len(unique_files)}")
+    for fp in unique_files:
+        logger.info(f"    - {fp}")
 
     stage_metrics = TaskPerfUtils.collect_stage_metrics(results)
     for stage_name, metrics in stage_metrics.items():

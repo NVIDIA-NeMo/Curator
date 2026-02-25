@@ -78,7 +78,7 @@ sinks:
 #    tracking_uri: ${MLFLOW_TRACKING_URI}
 #    experiment: ray-curator-common-crawl
   - name: slack
-    enabled: true
+    enabled: false
     live_updates: true
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]

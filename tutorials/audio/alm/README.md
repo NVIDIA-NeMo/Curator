@@ -130,7 +130,12 @@ python tutorials/audio/alm/main.py \
 | `stages.1.min_bandwidth` | Minimum bandwidth (Hz) | `8000` |
 | `stages.1.min_speakers` | Minimum speakers per window | `2` |
 | `stages.1.max_speakers` | Maximum speakers per window | `5` |
+| `stages.1.truncation` | Truncate segments exceeding window | `true` |
+| `stages.1.drop_fields` | Comma-separated fields to drop from segments | `"words"` |
+| `stages.1.drop_fields_top_level` | Comma-separated top-level fields to drop | `"words,segments"` |
 | `stages.2.overlap_percentage` | Overlap threshold 0-100 | `50` |
+| `stages.2.target_duration` | Target duration for overlap comparison | `120.0` |
+| `stages.3.output_path` | Output JSONL path | `${output_dir}/alm_output.jsonl` |
 
 ### Override Notes
 
@@ -138,6 +143,7 @@ Match indices in `stages` list in `pipeline.yaml`:
 - `stages.0.*`: ALMManifestReaderStage parameters
 - `stages.1.*`: ALMDataBuilderStage parameters
 - `stages.2.*`: ALMDataOverlapStage parameters
+- `stages.3.*`: ALMManifestWriterStage parameters
 
 ## Input Format
 
@@ -303,160 +309,125 @@ python tutorials/audio/alm/main.py \
 
 ## Benchmarking
 
-A dedicated benchmark script is provided at `benchmarking/scripts/alm_pipeline_benchmark.py` for measuring pipeline performance at scale and catching regressions. It runs through the full NeMo Curator benchmarking framework (Docker + Ray cluster + result collection).
+See [benchmarking/ALM_BENCHMARK.md](../../../benchmarking/ALM_BENCHMARK.md) for the full ALM benchmark documentation, including how to run benchmarks, configuration, CLI arguments, and reference results.
 
-### How It Works
+## Testing
 
-The benchmark script:
-1. Loads a JSONL manifest (supports cloud paths via fsspec)
-2. Optionally multiplies entries with `--repeat-factor` for scale testing
-3. Builds a Pipeline with ALMDataBuilderStage + ALMDataOverlapStage
-4. Runs through XennaExecutor (or ray_data/ray_actors)
-5. Writes `params.json`, `metrics.json`, and `tasks.pkl` for the framework
+The ALM pipeline has comprehensive unit and integration tests in `tests/stages/audio/alm/`.
 
-### Running Benchmarks
+### Running Tests
 
-The benchmarking framework is designed to run inside Docker. The benchmarking image
-installs additional dependencies (`GitPython`, `pynvml`, `rich`, `slack_sdk`, etc.)
-that are not part of `nemo_curator` itself. This applies to all benchmarks in the
-repository, not just ALM.
-
-**Prerequisites:**
-- Docker with NVIDIA container toolkit
-- NeMo Curator repository checked out
-
-**Step 1: Build the benchmarking Docker image (one-time):**
+From the Curator repository root:
 
 ```bash
-cd /path/to/Curator
-bash benchmarking/tools/build_docker.sh --tag-as-latest
+pytest tests/stages/audio/alm/ -v
 ```
 
-**Step 2: Disable the Slack sink for local runs.**
+### Test Structure
 
-The shared `benchmarking/nightly-benchmark.yaml` has the Slack sink enabled, which
-requires valid `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` credentials (used in CI).
-For local testing, temporarily disable it:
-
-```yaml
-sinks:
-  - name: slack
-    enabled: false   # <-- change from true to false
-    live_updates: true
-    channel_id: ${SLACK_CHANNEL_ID}
-    default_metrics: ["exec_time_s"]
+```
+tests/stages/audio/alm/
+├── conftest.py                    # Shared fixtures
+├── test_alm_manifest_reader.py    # 11 tests (2 classes)
+├── test_alm_manifest_writer.py    # 12 tests (2 classes)
+├── test_alm_data_builder.py       #  8 tests (2 classes)
+└── test_alm_data_overlap.py       #  7 tests (2 classes)
 ```
 
-**Step 3: Run the ALM benchmark:**
+### Shared Fixtures (`conftest.py`)
 
-The `--config` flag reads parameters directly from the `alm_pipeline_xenna`
-entry in `benchmarking/nightly-benchmark.yaml`:
+| Fixture | Description |
+|---------|-------------|
+| `sample_entries` | Loads all 5 entries from `tests/fixtures/audio/alm/sample_input.jsonl` |
+| `sample_entry` | First entry from `sample_entries` |
+| `entry_with_windows` | `sample_entry` processed through `ALMDataBuilderStage` (pre-built windows for overlap tests) |
 
-```bash
-docker run --rm --net=host --shm-size=8g \
-  -v $(pwd):/opt/Curator \
-  --entrypoint bash nemo_curator_benchmarking:latest \
-  -c "cd /opt/Curator && python benchmarking/scripts/alm_pipeline_benchmark.py \
-    --config benchmarking/nightly-benchmark.yaml"
-```
+### ALMManifestReaderStage Tests
 
-The ALM pipeline is CPU-only so no `--gpus` flag is needed.
-For CI/nightly runs, the benchmark is invoked via `benchmarking/tools/run.sh`
-using the `alm_pipeline_xenna` entry. See `benchmarking/README.md` for details.
+**`TestALMManifestReader`** (unit tests):
 
-> **Remember** to re-enable the Slack sink (`enabled: true`) before pushing.
+| Test | What it verifies |
+|------|-----------------|
+| `test_reads_single_manifest` | Reads 2-entry JSONL, returns `AudioBatch` per entry |
+| `test_reads_multiple_manifests` | Accepts list of manifest paths, concatenates entries |
+| `test_one_audio_batch_per_entry` | Each entry becomes exactly one `AudioBatch` with `len(data) == 1` |
+| `test_skips_blank_lines` | Blank/whitespace-only lines in JSONL are ignored |
+| `test_empty_manifest` | Empty file returns `[]` |
+| `test_preserves_nested_data` | Nested `segments[].metrics.bandwidth` survives round-trip |
+| `test_duplicate_manifests_for_repeat` | Same path repeated 3x produces 3 batches (repeat-factor pattern) |
+| `test_manifest_path_coerced_to_list` | Tuple input is coerced to list |
+| `test_string_path_stays_string` | Single string path is not wrapped |
+| `test_xenna_stage_spec` | Returns `{"num_workers_per_node": 1}` |
+| `test_ray_stage_spec` | Returns `{"is_fanout_stage": True}` |
 
-### Benchmark Configuration
+**`TestALMManifestReaderIntegration`**:
 
-The ALM benchmark entry is defined in `benchmarking/nightly-benchmark.yaml`:
+| Test | What it verifies |
+|------|-----------------|
+| `test_reads_sample_fixture` | Reads the real `sample_input.jsonl` fixture, verifies 5 entries with segments |
 
-```yaml
-entries:
-  - name: alm_pipeline_xenna
-    script: alm_pipeline_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --input-manifest={curator_repo_dir}/tests/fixtures/audio/alm/sample_input.jsonl
-      --executor=xenna
-      --target-window-duration=120.0
-      --tolerance=0.1
-      --min-sample-rate=16000
-      --min-bandwidth=8000
-      --min-speakers=2
-      --max-speakers=5
-      --overlap-percentage=50
-      --repeat-factor=2000
-    requirements:
-      - metric: is_success
-        exact_value: true
-      - metric: total_builder_windows
-        min_value: 1
-      - metric: total_filtered_windows
-        min_value: 1
-```
+### ALMManifestWriterStage Tests
 
-### CLI Arguments
+**`TestALMManifestWriter`** (unit tests):
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--benchmark-results-path` | Required | Directory for output files |
-| `--input-manifest` | Required | Path to JSONL manifest |
-| `--executor` | `xenna` | `xenna`, `ray_data`, or `ray_actors` |
-| `--repeat-factor` | `1` | Multiply manifest entries for scale testing |
-| `--target-window-duration` | `120.0` | Target window duration (seconds) |
-| `--tolerance` | `0.1` | Window duration tolerance fraction |
-| `--min-sample-rate` | `16000` | Minimum audio sample rate |
-| `--min-bandwidth` | `8000` | Minimum segment bandwidth |
-| `--min-speakers` | `2` | Minimum speakers per window |
-| `--max-speakers` | `5` | Maximum speakers per window |
-| `--overlap-percentage` | `50` | Overlap filter percentage (0-100) |
+| Test | What it verifies |
+|------|-----------------|
+| `test_writes_entries_to_jsonl` | 2 entries written as 2 JSONL lines with correct `audio_filepath` |
+| `test_returns_file_group_task` | Returns `FileGroupTask` with output path, task_id, dataset_name |
+| `test_propagates_metadata_and_stage_perf` | `_metadata` and `_stage_perf` pass through to output task |
+| `test_appends_across_multiple_process_calls` | 3 sequential `process()` calls produce 3 lines |
+| `test_setup_truncates_existing_file` | `setup()` clears pre-existing file content |
+| `test_setup_creates_parent_directories` | `setup()` creates nested directories for output path |
+| `test_handles_unicode_content` | Japanese and accented characters survive write/read |
+| `test_preserves_nested_structures` | `windows[].segments[]` and `stats` dict survive serialization |
+| `test_empty_data_writes_nothing` | Empty `data=[]` writes no lines, still returns `FileGroupTask` |
+| `test_num_workers_returns_one` | `num_workers()` returns 1 (single-writer constraint) |
+| `test_xenna_stage_spec` | Returns `{"num_workers": 1}` |
 
-### Benchmark Results
+**`TestALMManifestWriterRoundTrip`**:
 
-Results from running on a single workstation:
+| Test | What it verifies |
+|------|-----------------|
+| `test_reader_writer_round_trip` | Write all fixture entries with writer, read back with reader, verify `audio_filepath` and segment counts match |
 
-**Machine specs:**
-- CPU: Intel Core i9-9900KF @ 3.60GHz (8 cores / 16 threads)
-- RAM: 32 GB
-- GPU: NVIDIA GeForce RTX 3080 Ti 12 GB (not used by ALM stages)
-- OS: Ubuntu 20.04, Linux 5.15
+### ALMDataBuilderStage Tests
 
-**Small scale (5 entries, sample fixture):**
+**`TestALMDataBuilder`** (unit tests):
 
-| Metric | Value |
-|--------|-------|
-| Input entries | 5 |
-| Output entries | 5 |
-| Builder windows | 181 |
-| Filtered windows | 25 |
-| Total filtered duration | 3,035.50s |
-| Execution time | 15.62s |
-| Throughput (entries/sec) | 0.32 |
+| Test | What it verifies |
+|------|-----------------|
+| `test_creates_windows_from_sample` | Sample entry produces non-empty `windows` list and `stats` |
+| `test_filters_low_sample_rate` | Entry with 8kHz sample rate has `lost_sr > 0` or empty windows |
+| `test_filters_low_bandwidth` | All segments set to 4kHz bandwidth triggers `lost_bw > 0` |
+| `test_speaker_constraints` | Single-speaker entry with `min_speakers=2` produces zero windows |
+| `test_empty_segments` | Entry with `segments=[]` returns empty windows |
+| `test_drop_fields` | `words` removed from segments inside windows; `words` and `segments` removed from top-level |
+| `test_different_sample_rates` | All 5 fixture entries (16-48kHz) process without error |
 
-**Large scale (10,000 entries, repeat-factor=2000):**
+**`TestALMDataBuilderIntegration`**:
 
-| Metric | Value |
-|--------|-------|
-| Input entries | 10,000 |
-| Output entries | 10,000 |
-| Builder windows | 362,000 |
-| Filtered windows | 50,000 |
-| Total filtered duration | 6,071,000s |
-| Execution time | 94.77s |
-| Throughput (entries/sec) | 105.52 |
-| Throughput (windows/sec) | 3,819.96 |
+| Test | What it verifies |
+|------|-----------------|
+| `test_processes_all_sample_entries` | All 5 fixture entries produce exactly **181 total windows** |
 
-The pipeline scales well with XennaExecutor auto-allocating 3 workers per stage on the available 8 CPU cores. Throughput increases significantly at scale as the executor amortizes startup overhead.
+### ALMDataOverlapStage Tests
 
-### Output Files
+**`TestALMDataOverlap`** (unit tests):
 
-The benchmark produces three files in `--benchmark-results-path`:
+| Test | What it verifies |
+|------|-----------------|
+| `test_filters_overlapping_windows` | `filtered_windows` count <= input `windows` count |
+| `test_keeps_closer_to_target` | Aggressive filtering (`overlap_percentage=0`) produces valid output |
+| `test_permissive_mode` | `overlap_percentage=100` keeps >= windows than `overlap_percentage=0` |
+| `test_no_windows` | Entry with `windows=[]` passes through unchanged |
+| `test_validation` | Invalid `overlap_percentage` (-1, 101) and `target_duration` (-1) raise `ValueError` |
+| `test_calculates_duration` | Output includes `filtered_dur >= 0` and `filtered_dur_list` |
 
-| File | Description |
-|------|-------------|
-| `params.json` | All pipeline parameters for reproducibility |
-| `metrics.json` | `is_success`, `time_taken_s`, `throughput_entries_per_sec`, `throughput_windows_per_sec`, window counts, durations |
-| `tasks.pkl` | Pickled `AudioBatch` task objects for `TaskPerfUtils` aggregation |
+**`TestALMDataOverlapIntegration`**:
+
+| Test | What it verifies |
+|------|-----------------|
+| `test_full_pipeline` | Full Builder -> Overlap pipeline: 5 entries produce **181 windows -> 25 filtered windows**, total filtered duration **~3035.5 seconds** |
 
 ## Performance Notes
 

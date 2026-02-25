@@ -422,6 +422,7 @@ Your script **must** write three JSON/pickle files to the `--benchmark-results-p
 ### Reference Implementations
 
 See existing scripts in `scripts/` for complete examples:
+- `alm_pipeline_benchmark.py` - ALM audio pipeline benchmark ([detailed docs](ALM_BENCHMARK.md))
 - `domain_classification_benchmark.py` - Domain classification with model inference
 - `embedding_generation_benchmark.py` - Embedding generation benchmark
 - `removal_benchmark.py` - Data removal operations benchmark

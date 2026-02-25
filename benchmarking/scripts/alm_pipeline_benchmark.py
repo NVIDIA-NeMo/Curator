@@ -23,7 +23,6 @@ parameters from a benchmarking YAML (e.g. nightly-benchmark.yaml).
 """
 
 import argparse
-import json
 import re
 import shlex
 import time
@@ -36,21 +35,7 @@ from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
-from nemo_curator.tasks import AudioBatch
-
-
-def load_manifest(manifest_path: str) -> list[dict]:
-    """Load entries from a JSONL manifest file."""
-    from fsspec.core import url_to_fs
-
-    fs, path = url_to_fs(manifest_path)
-    entries = []
-    with fs.open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                entries.append(json.loads(line.strip()))
-    return entries
+from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage, ALMManifestReaderStage
 
 
 def run_alm_pipeline_benchmark(  # noqa: PLR0913
@@ -78,15 +63,11 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
     logger.info(f"Speakers: {min_speakers}-{max_speakers}")
     logger.info(f"Overlap percentage: {overlap_percentage}")
 
-    entries = load_manifest(input_manifest)
-    if repeat_factor > 1:
-        entries = entries * repeat_factor
-    num_input_entries = len(entries)
-    logger.info(f"Loaded {num_input_entries} entries from manifest (repeat_factor={repeat_factor})")
+    manifest_paths = [input_manifest] * max(repeat_factor, 1)
+    logger.info(f"Manifest paths: {len(manifest_paths)} copies (repeat_factor={repeat_factor})")
 
-    initial_tasks = [AudioBatch(data=[entry]) for entry in entries]
-
-    pipeline = Pipeline(name="alm_benchmark", description="ALM Builder + Overlap benchmark pipeline")
+    pipeline = Pipeline(name="alm_benchmark", description="ALM Reader + Builder + Overlap benchmark pipeline")
+    pipeline.add_stage(ALMManifestReaderStage(manifest_path=manifest_paths))
     pipeline.add_stage(
         ALMDataBuilderStage(
             target_window_duration=target_window_duration,
@@ -112,7 +93,7 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
         logger.info("Running ALM pipeline...")
         logger.info(f"Pipeline description:\n{pipeline.describe()}")
 
-        output_tasks = pipeline.run(exc, initial_tasks=initial_tasks)
+        output_tasks = pipeline.run(exc)
         run_time_taken = time.perf_counter() - run_start_time
 
         output_entries = []
@@ -120,13 +101,14 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
             output_entries.extend(task.data)
 
         num_output_entries = len(output_entries)
+        num_input_entries = num_output_entries
         total_builder_windows = sum(len(e.get("windows", [])) for e in output_entries)
         total_filtered_windows = sum(len(e.get("filtered_windows", [])) for e in output_entries)
         total_filtered_dur = sum(e.get("filtered_dur", 0) for e in output_entries)
         entries_with_windows = sum(1 for e in output_entries if e.get("filtered_windows") or e.get("windows"))
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
-        logger.success(f"Input: {num_input_entries} entries -> Output: {num_output_entries} entries")
+        logger.success(f"Entries: {num_output_entries} (repeat_factor={repeat_factor})")
         logger.success(f"Builder windows: {total_builder_windows}, Filtered windows: {total_filtered_windows}")
         logger.success(f"Total filtered duration: {total_filtered_dur:.2f}s")
         success = True
@@ -137,6 +119,7 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
         logger.debug(f"Full traceback:\n{error_traceback}")
         output_tasks = []
         run_time_taken = time.perf_counter() - run_start_time
+        num_input_entries = 0
         num_output_entries = 0
         total_builder_windows = 0
         total_filtered_windows = 0
