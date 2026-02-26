@@ -127,7 +127,7 @@ Results from running on a single workstation:
 | Builder windows | 181 |
 | Filtered windows | 25 |
 | Total filtered duration | 3,035.50s |
-| Execution time | 15.62s |
+| Execution time | 15.50s |
 | Throughput (entries/sec) | 0.32 |
 
 **Large scale (10,000 entries, repeat-factor=2000):**
@@ -139,11 +139,11 @@ Results from running on a single workstation:
 | Builder windows | 362,000 |
 | Filtered windows | 50,000 |
 | Total filtered duration | 6,071,000s |
-| Execution time | 94.77s |
-| Throughput (entries/sec) | 105.52 |
-| Throughput (windows/sec) | 3,819.96 |
+| Execution time | 77.32s |
+| Throughput (entries/sec) | 129.33 |
+| Throughput (windows/sec) | 4,683.27 |
 
-The pipeline scales well with XennaExecutor auto-allocating 3 workers per stage on the available 8 CPU cores. Throughput increases significantly at scale as the executor amortizes startup overhead.
+The pipeline scales well with XennaExecutor auto-allocating workers per stage via the CompositeStage reader (FilePartitioningStage + ALMManifestReaderStage). Throughput increases significantly at scale as the executor amortizes startup overhead.
 
 ## Output Files
 

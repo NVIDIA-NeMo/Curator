@@ -39,7 +39,7 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioBatch]):
     Supports local and cloud paths (S3, GCS).
     """
 
-    name: str = "alm_manifest_reader"
+    name: str = "alm_manifest_reader_stage"
 
     def process(self, task: FileGroupTask) -> list[AudioBatch]:
         paths = task.data
@@ -76,12 +76,16 @@ class ALMManifestReader(CompositeStage[_EmptyTask, AudioBatch]):
     Args:
         manifest_path: Path or list of paths to JSONL manifests (local or cloud).
         files_per_partition: Number of manifest files per partition. Defaults to 1.
+        blocksize: Target size per partition (e.g., "100MB"). Ignored if files_per_partition is set.
         file_extensions: File extensions to filter. Defaults to [".jsonl", ".json"].
+        storage_options: Storage options for cloud paths (S3, GCS credentials, endpoints).
     """
 
     manifest_path: str | list[str]
     files_per_partition: int | None = 1
+    blocksize: int | str | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
+    storage_options: dict[str, Any] | None = None
     name: str = "alm_manifest_reader"
 
     def __post_init__(self) -> None:
@@ -92,7 +96,9 @@ class ALMManifestReader(CompositeStage[_EmptyTask, AudioBatch]):
             FilePartitioningStage(
                 file_paths=self.manifest_path,
                 files_per_partition=self.files_per_partition,
+                blocksize=self.blocksize,
                 file_extensions=self.file_extensions,
+                storage_options=self.storage_options,
             ),
             ALMManifestReaderStage(),
         ]
@@ -101,4 +107,6 @@ class ALMManifestReader(CompositeStage[_EmptyTask, AudioBatch]):
         parts = [f"Read ALM JSONL manifests from {self.manifest_path}"]
         if self.files_per_partition:
             parts.append(f"with {self.files_per_partition} files per partition")
+        elif self.blocksize:
+            parts.append(f"with target blocksize {self.blocksize}")
         return ", ".join(parts)
