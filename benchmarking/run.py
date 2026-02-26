@@ -289,13 +289,17 @@ def main() -> int:  # noqa: C901, PLR0912
     )
     args = parser.parse_args()
 
-    # Consolidate the configuration from all YAML files into a single dict
+    session_name = args.session_name or time.strftime("benchmark-run__%Y-%m-%d_%H-%M-%S_UTC")
+
     config_dict = {}
+    # Consolidate the configuration from all YAML files into a single dict
     for yml_file in args.config:
         with open(yml_file) as f:
             config_dicts = yaml.full_load_all(f)
             for d in config_dicts:
                 config_dict.update(d)
+    config_dict["name"] = session_name
+
     # Preprocess the config dict prior to creating objects from it
     try:
         Session.assert_valid_config_dict(config_dict)
@@ -305,8 +309,6 @@ def main() -> int:  # noqa: C901, PLR0912
         logger.error(f"Invalid configuration: {e}")
         return 1
 
-    session_name = args.session_name or time.strftime("benchmark-run__%Y-%m-%d_%H-%M-%S_UTC")
-    config_dict["name"] = session_name
     session = Session.from_dict(config_dict, args.entries)
 
     # List the entries that will be run and exit if list-only option specified
