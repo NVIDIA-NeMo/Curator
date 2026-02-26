@@ -27,12 +27,9 @@ from nemo_curator.stages.audio.common import (
 )
 
 __all__ = [
-    # Base classes
-    "LegacySpeechStage",
-    # Common stages
-    "GetAudioDurationStage",
-    "PreserveByValueStage",
-    # ALM stages
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
+    "GetAudioDurationStage",
+    "LegacySpeechStage",
+    "PreserveByValueStage",
 ]

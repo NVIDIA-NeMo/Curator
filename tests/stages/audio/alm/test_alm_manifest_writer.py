@@ -15,6 +15,7 @@
 """Tests for ALMManifestWriterStage."""
 
 import json
+from pathlib import Path
 
 from nemo_curator.stages.audio.alm import ALMManifestWriterStage
 from nemo_curator.tasks import AudioBatch, FileGroupTask
@@ -23,7 +24,7 @@ from nemo_curator.tasks import AudioBatch, FileGroupTask
 class TestALMManifestWriter:
     """Unit tests for ALMManifestWriterStage."""
 
-    def test_writes_entries_to_jsonl(self, tmp_path):
+    def test_writes_entries_to_jsonl(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
@@ -43,7 +44,7 @@ class TestALMManifestWriter:
         assert json.loads(lines[0])["audio_filepath"] == "a.wav"
         assert json.loads(lines[1])["audio_filepath"] == "b.wav"
 
-    def test_returns_file_group_task(self, tmp_path):
+    def test_returns_file_group_task(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
@@ -56,7 +57,7 @@ class TestALMManifestWriter:
         assert result.task_id == "t1"
         assert result.dataset_name == "ds"
 
-    def test_propagates_metadata_and_stage_perf(self, tmp_path):
+    def test_propagates_metadata_and_stage_perf(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
@@ -75,7 +76,7 @@ class TestALMManifestWriter:
         assert result._metadata == metadata
         assert result._stage_perf == stage_perf
 
-    def test_appends_across_multiple_process_calls(self, tmp_path):
+    def test_appends_across_multiple_process_calls(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
@@ -86,9 +87,9 @@ class TestALMManifestWriter:
 
         lines = out.read_text().strip().split("\n")
         assert len(lines) == 3
-        assert [json.loads(l)["entry"] for l in lines] == [1, 2, 3]
+        assert [json.loads(line)["entry"] for line in lines] == [1, 2, 3]
 
-    def test_setup_truncates_existing_file(self, tmp_path):
+    def test_setup_truncates_existing_file(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         out.write_text('{"old": "data"}\n')
 
@@ -97,14 +98,14 @@ class TestALMManifestWriter:
 
         assert out.read_text() == ""
 
-    def test_setup_creates_parent_directories(self, tmp_path):
+    def test_setup_creates_parent_directories(self, tmp_path: Path) -> None:
         out = tmp_path / "nested" / "deep" / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
 
         assert out.parent.exists()
 
-    def test_handles_unicode_content(self, tmp_path):
+    def test_handles_unicode_content(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
@@ -116,7 +117,7 @@ class TestALMManifestWriter:
         assert loaded["text"] == "日本語テスト"
         assert loaded["speaker"] == "Ñoño"
 
-    def test_preserves_nested_structures(self, tmp_path):
+    def test_preserves_nested_structures(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
@@ -135,7 +136,7 @@ class TestALMManifestWriter:
         assert loaded["windows"][0]["segments"][0]["speaker"] == "spk_0"
         assert loaded["stats"]["lost_bw"] == 3
 
-    def test_empty_data_writes_nothing(self, tmp_path):
+    def test_empty_data_writes_nothing(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
@@ -146,21 +147,20 @@ class TestALMManifestWriter:
         assert out.read_text() == ""
         assert isinstance(result, FileGroupTask)
 
-    def test_num_workers_returns_one(self):
-        writer = ALMManifestWriterStage(output_path="/tmp/out.jsonl")
+    def test_num_workers_returns_one(self, tmp_path: Path) -> None:
+        writer = ALMManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
         assert writer.num_workers() == 1
 
-    def test_xenna_stage_spec(self):
-        writer = ALMManifestWriterStage(output_path="/tmp/out.jsonl")
+    def test_xenna_stage_spec(self, tmp_path: Path) -> None:
+        writer = ALMManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
         assert writer.xenna_stage_spec() == {"num_workers": 1}
 
 
 class TestALMManifestWriterRoundTrip:
     """Round-trip test: write with writer, read back and verify."""
 
-    def test_reader_writer_round_trip(self, sample_entries, tmp_path):
+    def test_reader_writer_round_trip(self, sample_entries: list[dict], tmp_path: Path) -> None:
         from nemo_curator.stages.audio.alm import ALMManifestReaderStage
-        from nemo_curator.tasks import FileGroupTask
 
         out = tmp_path / "round_trip.jsonl"
 
@@ -174,7 +174,7 @@ class TestALMManifestWriterRoundTrip:
         result = reader.process(FileGroupTask(task_id="rt", dataset_name="rt", data=[str(out)]))
 
         assert len(result) == len(sample_entries)
-        for orig, batch in zip(sample_entries, result):
+        for orig, batch in zip(sample_entries, result, strict=True):
             loaded = batch.data[0]
             assert loaded["audio_filepath"] == orig["audio_filepath"]
             assert len(loaded["segments"]) == len(orig["segments"])

@@ -115,7 +115,7 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
         logger.success(f"Total filtered duration: {total_filtered_dur:.2f}s")
         success = True
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         error_traceback = traceback.format_exc()
         logger.error(f"Benchmark failed: {e}")
         logger.debug(f"Full traceback:\n{error_traceback}")
@@ -169,7 +169,9 @@ def _load_args_from_config(config_path: str, entry_name: str) -> list[str]:
             raw_args = entry.get("args", "")
             curator_repo_dir = str(Path(config_path).resolve().parent.parent)
             resolved = re.sub(r"\{curator_repo_dir\}", curator_repo_dir, raw_args)
-            resolved = re.sub(r"\{session_entry_dir\}", "/tmp/alm_benchmark_results", resolved)
+            import tempfile
+
+            resolved = re.sub(r"\{session_entry_dir\}", tempfile.gettempdir() + "/alm_benchmark_results", resolved)
             return shlex.split(resolved)
 
     msg = f"Entry '{entry_name}' not found in {config_path}"

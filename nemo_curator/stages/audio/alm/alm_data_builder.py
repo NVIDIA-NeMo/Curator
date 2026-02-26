@@ -88,7 +88,7 @@ def _truncate_segment(seg: dict[str, Any], truncated_end: float) -> dict[str, An
     return part
 
 
-def _record_window_loss(
+def _record_window_loss(  # noqa: PLR0913
     stat: BuilderStats,
     seg: dict[str, Any],
     segments: list[dict[str, Any]],
@@ -194,7 +194,7 @@ class ALMDataBuilderStage(LegacySpeechStage):
 
         return [AudioBatch(data=[result])]
 
-    def _process_single_entry(self, entry_data: dict[str, Any]) -> dict[str, Any]:
+    def _process_single_entry(self, entry_data: dict[str, Any]) -> dict[str, Any]:  # noqa: C901, PLR0912, PLR0915
         """Process a single entry and extract valid training windows."""
         total_truncation_events = 0
 

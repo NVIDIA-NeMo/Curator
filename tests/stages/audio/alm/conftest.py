@@ -22,6 +22,7 @@ import pytest
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage
 from nemo_curator.tasks import AudioBatch
 
+
 @pytest.fixture
 def sample_entries() -> list[dict]:
     """Load sample entries from fixture file."""

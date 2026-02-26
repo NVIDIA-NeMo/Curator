@@ -40,7 +40,7 @@ class ALMManifestWriterStage(ProcessingStage[AudioBatch, FileGroupTask]):
     output_path: str
     name: str = "alm_manifest_writer"
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         fs, path = url_to_fs(self.output_path)
         parent_dir = "/".join(path.split("/")[:-1])
         if parent_dir:

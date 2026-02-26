@@ -15,8 +15,7 @@
 """Tests for ALMManifestReaderStage and ALMManifestReader (CompositeStage)."""
 
 import json
-
-import pytest
+from pathlib import Path
 
 from nemo_curator.stages.audio.alm import ALMManifestReader, ALMManifestReaderStage
 from nemo_curator.tasks import AudioBatch, FileGroupTask
@@ -29,7 +28,7 @@ def _make_file_group_task(paths: list[str]) -> FileGroupTask:
 class TestALMManifestReaderStage:
     """Unit tests for ALMManifestReaderStage (low-level stage)."""
 
-    def test_reads_single_manifest(self, tmp_path):
+    def test_reads_single_manifest(self, tmp_path: Path) -> None:
         entries = [
             {"audio_filepath": "a.wav", "audio_sample_rate": 16000, "segments": []},
             {"audio_filepath": "b.wav", "audio_sample_rate": 22050, "segments": []},
@@ -45,7 +44,7 @@ class TestALMManifestReaderStage:
         assert result[0].data[0]["audio_filepath"] == "a.wav"
         assert result[1].data[0]["audio_filepath"] == "b.wav"
 
-    def test_reads_multiple_manifests(self, tmp_path):
+    def test_reads_multiple_manifests(self, tmp_path: Path) -> None:
         m1 = tmp_path / "m1.jsonl"
         m2 = tmp_path / "m2.jsonl"
         m1.write_text(json.dumps({"audio_filepath": "a.wav", "segments": []}))
@@ -58,7 +57,7 @@ class TestALMManifestReaderStage:
         paths = [r.data[0]["audio_filepath"] for r in result]
         assert paths == ["a.wav", "b.wav"]
 
-    def test_one_audio_batch_per_entry(self, tmp_path):
+    def test_one_audio_batch_per_entry(self, tmp_path: Path) -> None:
         entries = [{"audio_filepath": f"{i}.wav", "segments": []} for i in range(5)]
         manifest = tmp_path / "input.jsonl"
         manifest.write_text("\n".join(json.dumps(e) for e in entries))
@@ -71,7 +70,7 @@ class TestALMManifestReaderStage:
             assert len(batch.data) == 1
             assert batch.data[0]["audio_filepath"] == f"{i}.wav"
 
-    def test_skips_blank_lines(self, tmp_path):
+    def test_skips_blank_lines(self, tmp_path: Path) -> None:
         manifest = tmp_path / "input.jsonl"
         manifest.write_text(
             json.dumps({"audio_filepath": "a.wav", "segments": []})
@@ -85,7 +84,7 @@ class TestALMManifestReaderStage:
 
         assert len(result) == 2
 
-    def test_empty_manifest(self, tmp_path):
+    def test_empty_manifest(self, tmp_path: Path) -> None:
         manifest = tmp_path / "empty.jsonl"
         manifest.write_text("")
 
@@ -94,7 +93,7 @@ class TestALMManifestReaderStage:
 
         assert result == []
 
-    def test_preserves_nested_data(self, tmp_path):
+    def test_preserves_nested_data(self, tmp_path: Path) -> None:
         entry = {
             "audio_filepath": "a.wav",
             "audio_sample_rate": 16000,
@@ -117,7 +116,7 @@ class TestALMManifestReaderStage:
         assert loaded["segments"][0]["metrics"]["bandwidth"] == 8000
         assert loaded["segments"][0]["speaker"] == "spk_0"
 
-    def test_duplicate_manifests_for_repeat(self, tmp_path):
+    def test_duplicate_manifests_for_repeat(self, tmp_path: Path) -> None:
         manifest = tmp_path / "input.jsonl"
         manifest.write_text(json.dumps({"audio_filepath": "a.wav", "segments": []}))
 
@@ -131,7 +130,7 @@ class TestALMManifestReaderStage:
 class TestALMManifestReaderComposite:
     """Tests for ALMManifestReader (CompositeStage)."""
 
-    def test_decomposes_into_two_stages(self, tmp_path):
+    def test_decomposes_into_two_stages(self, tmp_path: Path) -> None:
         manifest = tmp_path / "input.jsonl"
         manifest.write_text(json.dumps({"audio_filepath": "a.wav", "segments": []}))
 
@@ -142,12 +141,12 @@ class TestALMManifestReaderComposite:
         assert stages[0].__class__.__name__ == "FilePartitioningStage"
         assert isinstance(stages[1], ALMManifestReaderStage)
 
-    def test_accepts_list_of_paths(self):
+    def test_accepts_list_of_paths(self) -> None:
         composite = ALMManifestReader(manifest_path=["/a.jsonl", "/b.jsonl"])
         stages = composite.decompose()
         assert stages[0].file_paths == ["/a.jsonl", "/b.jsonl"]
 
-    def test_files_per_partition_default(self):
+    def test_files_per_partition_default(self) -> None:
         composite = ALMManifestReader(manifest_path="/data")
         stages = composite.decompose()
         assert stages[0].files_per_partition == 1
@@ -156,9 +155,7 @@ class TestALMManifestReaderComposite:
 class TestALMManifestReaderIntegration:
     """Integration test using the real sample fixture."""
 
-    def test_reads_sample_fixture(self):
-        from pathlib import Path
-
+    def test_reads_sample_fixture(self) -> None:
         fixture = Path(__file__).parent.parent.parent.parent / "fixtures" / "audio" / "alm" / "sample_input.jsonl"
         stage = ALMManifestReaderStage()
         result = stage.process(_make_file_group_task([str(fixture)]))
