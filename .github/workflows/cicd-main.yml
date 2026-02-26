@@ -66,6 +66,8 @@ jobs:
     needs: [pre-flight, cicd-wait-in-queue]
     runs-on: ${{ matrix.os }}
     name: Unit_Test_${{ matrix.folder}}_CPU_python-${{ matrix.python-version }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
     environment: nemo-ci
     if: |
       (

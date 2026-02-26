@@ -96,6 +96,8 @@ runs:
 
     - name: Start container
       shell: bash
+      env:
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
       run: |
         MNT_PATH=${{ steps.azure-fileshare.outputs.mnt_path }}
 
@@ -112,6 +114,7 @@ runs:
           -d \
           --name nemo_container_${{ github.run_id }} ${ARG[@]} \
           --shm-size=64g \
+          --env HF_TOKEN=${HF_TOKEN} \
           --env RUN_ID=${{ github.run_id }} \
           --volume $(pwd)/NeMo-Curator:/workspace \
           --workdir /workspace \
