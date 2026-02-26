@@ -33,11 +33,10 @@ Note: you may only need to do this periodically when the environment needs to be
 
 **2. Update config:**
 
-Update `results_path`, `artifacts_path`, and `datasets_path` in the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/nightly-benchmark.yaml`
+Update `results_path` and `datasets_path` in the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/nightly-benchmark.yaml`
 
 ```yaml
 results_path: /path/where/results/are/stored
-artifacts_path: /path/where/artifacts/are/stored
 datasets_path: /path/to/datasets
 ```
 
@@ -67,7 +66,7 @@ Results are written to the `results_path` specified in your configuration, organ
 A **session** represents a single invocation of the benchmarking framework. Each session:
 - Has a unique name with timestamp (e.g., `benchmark-run__2025-01-23__14-30-00`)
 - Contains one or more benchmark entries
-- Produces a session directory with results and artifacts
+- Produces a session directory with results
 - Captures environment metadata (system info, package versions, etc.)
 
 ### Scripts
@@ -113,7 +112,7 @@ See [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions) for de
 
 The framework uses one or more YAML files to configure benchmark sessions. Multiple configuration files are merged, allowing separation of concerns (e.g., machine-specific paths vs. benchmark definitions).
 
-A useful pattern is to use multiple YAML files, where configuration that does not typically change is in one or more files, and user or machine-specific configuration is others.  For example, `my_paths_and_reports.yaml` could have results / artifacts / datasets paths and personal sink settings (individual slack channel, etc.), and `release-benchmarks.yaml` could have the team-wide configuration containing the individual benchmark entries and performance requirements.
+A useful pattern is to use multiple YAML files, where configuration that does not typically change is in one or more files, and user or machine-specific configuration is others.  For example, `my_paths_and_reports.yaml` could have results / datasets paths and personal sink settings (individual slack channel, etc.), and `release-benchmarks.yaml` could have the team-wide configuration containing the individual benchmark entries and performance requirements.
 
 This can be especially useful during development. During development you'll not only want to use your own paths and report settings, you'll also want to use the standard benchmarking environment (i.e. a container), but cannot afford to rebuild the Docker image for each code change you're evaluating. The `--use-host-curator` flag is intended for this case. This flag will use your Curator source dir on host inside the container via a volume mount (this works because the container has curator installed in editable mode), and no image rebuild step is needed.
 
@@ -125,13 +124,11 @@ An example of a development scenario using this pattern looks like this:
 ### Configuration Structure
 
 ```yaml
-# Required: Base paths for results, artifacts, and datasets
+# Required: Base paths for results and datasets
 # These paths must exist on the host machine
 # When running in Docker with tools/run.sh, paths are automatically mapped to container volumes
-# These base paths can be referenced in other configuration values using {results_path}, {artifacts_path}, {datasets_path}
-# NOTE: the current version of the framework does not use artifacts_path
+# These base paths can be referenced in other configuration values using {results_path}, {datasets_path}
 results_path: /path/to/results
-artifacts_path: /path/to/artifacts
 datasets_path: /path/to/datasets
 
 # Optional: Global timeout for all entries (seconds)
@@ -151,7 +148,7 @@ sinks:
     experiment: my-experiment
   - name: slack
     enabled: true
-    webhook_url: ${SLACK_WEBHOOK_URL}
+    channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]  # Metrics to report by default for all entries
   - name: gdrive
     enabled: false
@@ -226,7 +223,7 @@ Configuration values can reference environment variables using `${VAR_NAME}` syn
 results_path: "${HOME}/benchmarks/results"
 sinks:
   - name: slack
-    webhook_url: ${SLACK_WEBHOOK_URL}
+    channel_id: ${SLACK_CHANNEL_ID}
   - name: mlflow
     tracking_uri: ${MLFLOW_TRACKING_URI}
 ```
@@ -247,7 +244,6 @@ datasets:
 
 Available base path placeholders:
 - `{results_path}` - Resolves to the configured `results_path`
-- `{artifacts_path}` - Resolves to the configured `artifacts_path` *Note: unused in current version of the framework*
 - `{datasets_path}` - Resolves to the configured `datasets_path`
 
 **Dataset references** - Reference datasets in entry arguments:
@@ -312,10 +308,10 @@ Run benchmarks using a configuration file:
 ```
 
 This command:
-- Reads the configuration file and extracts `results_path`, `artifacts_path`, and `datasets_path`
+- Reads the configuration file and extracts `results_path` and `datasets_path`
 - Automatically creates volume mounts to map these paths into the container
 - Runs the benchmarking framework with the Curator code built into the Docker image
-- Passes environment variables like `SLACK_WEBHOOK_URL` and `MLFLOW_TRACKING_URI` to the container
+- Passes environment variables like `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `MLFLOW_TRACKING_URI` to the container
 
 ### Using Host Curator Sources
 
@@ -463,11 +459,13 @@ Posts results to Slack channels:
 ```yaml
 sinks:
   - name: slack
-    webhook_url: https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+    channel_id: C1234567890  # Your Slack channel ID
     enabled: true
 ```
 
-Results are formatted as interactive Slack messages with environment info and metrics.
+Results are posted as interactive Slack messages with environment info and metrics. Requires:
+- `SLACK_BOT_TOKEN` environment variable set to your Slack Bot User OAuth Token
+- `SLACK_CHANNEL_ID` in config or environment variable for the target channel
 
 #### Google Drive Sink
 

@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,24 +14,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
 import os
+from contextlib import suppress
 from pathlib import Path
 
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
-from nemo_curator.tasks import FileGroupTask
-
-cudf = pytest.importorskip("cudf")
-cuml = pytest.importorskip("cuml")
-cp = pytest.importorskip("cupy")
-
-
-from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
+    from nemo_curator.tasks import FileGroupTask
 
 
+@pytest.mark.gpu
 class TestIdentifyDuplicatesStage:
     """Test cases for IdentifyDuplicatesStage."""
 

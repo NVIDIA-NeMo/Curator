@@ -26,10 +26,10 @@ from torch import nn
 from transformers import AutoConfig, AutoModel
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.text.filters import Filter
 from nemo_curator.stages.text.models.model import ModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD
-from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks import DocumentBatch
 
 

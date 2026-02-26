@@ -138,6 +138,7 @@ A typical image curation pipeline using NeMo Curator's stage-based architecture:
 **Example:**
 
 ```python
+from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.image.io.image_reader import ImageReaderStage
 from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
@@ -156,6 +157,9 @@ pipeline.add_stage(ImageDuplicatesRemovalStage(
     removal_parquets_dir="/path/to/removal_ids/duplicates",
     duplicate_id_field="id",
 ))
+
+# Execute the pipeline
+results = pipeline.run()
 ```
 
 This modular pipeline approach allows you to customize or skip stages based on your workflow needs. Filtering stages (aesthetic and NSFW filtering) must always follow embedding generation, as they require pre-computed embeddings as input.

@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,28 +14,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
-
+from contextlib import suppress
 from pathlib import Path
 from typing import Literal
 
 import pytest
 
-cudf = pytest.importorskip("cudf")
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    import cudf
+
 import numpy as np
 import pandas as pd
 import ray
 
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.deduplication.exact.identification import ExactDuplicateIdentification
-from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, get_id_generator_actor
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+    from nemo_curator.pipeline import Pipeline
+    from nemo_curator.stages.deduplication.exact.identification import ExactDuplicateIdentification
+    from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, get_id_generator_actor
+
 from nemo_curator.tasks import FileGroupTask
 
 
 def get_original_df_with_curator_ids(
     tasks: list[FileGroupTask], filetype: Literal["parquet", "jsonl"]
-) -> cudf.DataFrame:
+) -> "cudf.DataFrame":
     """Get mapping from curator IDs to original IDs using IDGeneratorActor.
     Args:
         tasks: List of tasks that were processed

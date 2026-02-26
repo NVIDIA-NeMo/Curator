@@ -25,6 +25,26 @@ The `ImageEmbeddingStage` generates CLIP embeddings for images using OpenAI's Vi
 
 The stage processes `ImageBatch` objects containing `ImageObject` instances with loaded image data. It applies CLIP preprocessing, generates embeddings in batches, and stores the results in each `ImageObject.embedding` attribute.
 
+## Prerequisites
+
+Before using the `ImageEmbeddingStage`, ensure you have:
+
+### Model Setup
+
+The CLIP model weights are automatically downloaded from HuggingFace on first use. The stage will:
+1. Download the OpenAI CLIP ViT-L/14 model (~3.5GB) to the specified `model_dir`
+2. Cache the model for subsequent runs
+3. Load the model onto GPU (or CPU if GPU unavailable)
+
+**First-time setup:** The initial model download may take several minutes depending on your internet connection. Subsequent runs will use the cached model.
+
+### System Requirements
+
+- **GPU:** NVIDIA GPU with CUDA support (recommended for performance)
+- **Memory:** At least 8GB GPU memory for batch processing
+- **Disk Space:** ~4GB for model weights
+- **Python Dependencies:** PyTorch, transformers (installed with NeMo Curator)
+
 ## Usage
 
 ```python
@@ -46,6 +66,7 @@ pipeline.add_stage(FilePartitioningStage(
 # Stage 2: Read images
 pipeline.add_stage(ImageReaderStage(
     batch_size=100,
+    num_threads=8,
     num_gpus_per_worker=0.25,
 ))
 

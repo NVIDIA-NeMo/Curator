@@ -361,8 +361,7 @@ class TestImageNSFWFilterStage:
 # GPU integration test appended to CPU suite
 @pytest.mark.gpu
 def test_image_nsfw_filter_on_gpu() -> None:
-    if not torch.cuda.is_available():  # pragma: no cover - CPU CI
-        pytest.skip("CUDA not available; skipping GPU nsfw test")
+    """Test image NSFW filter on GPU."""
 
     class _DummyNSFWScorer:
         def __init__(self, _model_dir: str | None = None, **_kwargs: object) -> None:

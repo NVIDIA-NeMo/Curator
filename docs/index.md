@@ -217,12 +217,21 @@ Audio Curation Quickstart <get-started/audio.md>
 
 ::::{toctree}
 :hidden:
+:caption: Setup & Deployment
+:maxdepth: 2
+admin/index.md
+Install Curator <admin/installation.md>
+::::
+
+::::{toctree}
+:hidden:
 :caption: Curate Text
 :maxdepth: 2
 curate-text/index.md
 Tutorials <curate-text/tutorials/index.md>
 Load Data <curate-text/load-data/index.md>
 Process Data <curate-text/process-data/index.md>
+Synthetic Data <curate-text/synthetic/index.md>
 ::::
 
 ::::{toctree}
@@ -258,14 +267,6 @@ Tutorials <curate-audio/tutorials/index.md>
 Load Data <curate-audio/load-data/index.md>
 Process Data <curate-audio/process-data/index.md>
 Save & Export <curate-audio/save-export.md>
-::::
-
-::::{toctree}
-:hidden:
-:caption: Setup & Deployment
-:maxdepth: 2
-admin/index.md
-Install Curator <admin/installation.md>
 ::::
 
 ::::{toctree}

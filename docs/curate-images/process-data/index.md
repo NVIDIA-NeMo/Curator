@@ -28,6 +28,22 @@ Each stage processes `ImageBatch` objects containing images, metadata, and proce
 
 ---
 
+## Embedding Options
+
+:::: {grid} 1 2 2 2
+:gutter: 1 1 1 2
+
+::: {grid-item-card} CLIP Embedding Stage
+:link: image-process-data-embeddings-clip
+:link-type: ref
+
+Generate image embeddings using CLIP models with GPU acceleration. Supports various CLIP architectures and automatic model downloading.
++++
+{bdg-secondary}`ImageEmbeddingStage` {bdg-secondary}`CLIP` {bdg-secondary}`GPU-accelerated`
+:::
+
+::::
+
 ## Filter Options
 
 :::: {grid} 1 2 2 2
@@ -52,56 +68,6 @@ Detect not-safe-for-work (NSFW) content in images using a CLIP-based filter. Fil
 :::
 
 ::::
-
-## Embedding Options
-
-:::: {grid} 1 2 2 2
-:gutter: 1 1 1 2
-
-::: {grid-item-card} CLIP Embedding Stage
-:link: image-process-data-embeddings-clip
-:link-type: ref
-
-Generate image embeddings using CLIP models with GPU acceleration. Supports various CLIP architectures and automatic model downloading.
-+++
-{bdg-secondary}`ImageEmbeddingStage` {bdg-secondary}`CLIP` {bdg-secondary}`GPU-accelerated`
-:::
-
-
-::::
-
-## Filtering Images
-
-The filtering stages (`ImageAestheticFilterStage`, `ImageNSFWFilterStage`) include filtering capabilities. Images that don't meet the specified thresholds are automatically filtered out during processing.
-
-**Built-in filtering capabilities:**
-
-* **Aesthetic filtering**: Remove images with low aesthetic scores using `ImageAestheticFilterStage`
-* **NSFW filtering**: Remove inappropriate content using `ImageNSFWFilterStage`
-* **Automatic processing**: Filtering happens during the pipeline execution
-
-### Pipeline with filtering
-
-```python
-from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
-from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
-
-# Filter by aesthetic quality (keep images with score >= 0.5)
-pipeline.add_stage(ImageAestheticFilterStage(
-    model_dir="/models",
-    score_threshold=0.5,  # Minimum aesthetic score
-    num_gpus_per_worker=0.25,
-))
-
-# Filter NSFW content (keep images with score < 0.5)
-pipeline.add_stage(ImageNSFWFilterStage(
-    model_dir="/models", 
-    score_threshold=0.5,  # Maximum NSFW score (images below this are kept)
-    num_gpus_per_worker=0.25,
-))
-```
-
-For custom filtering logic, you can create your own stage by extending `ProcessingStage[ImageBatch, ImageBatch]`.
 
 ```{toctree}
 :maxdepth: 2

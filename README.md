@@ -74,7 +74,7 @@ Process large-scale video corpora with distributed, GPU-accelerated pipelines fo
 | **Data Loading** | Local paths • S3-compatible storage • HTTP(S) URLs | [Load Data](https://docs.nvidia.com/nemo/curator/latest/curate-video/load-data/index.html) |
 | **Clipping** | Fixed-stride splitting • Scene-change detection (TransNetV2) | [Clipping](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/clipping.html) |
 | **Processing** | GPU H.264 encoding • Frame extraction • Motion filtering • Aesthetic filtering | [Processing](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/filtering.html) |
-| **Embeddings** | InternVideo2 and Cosmos-Embed1 for clip-level embeddings | [Embeddings](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/embeddings.html) |
+| **Embeddings** | Cosmos-Embed1 for clip-level embeddings | [Embeddings](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/embeddings.html) |
 | **Deduplication** | K-means clustering • Pairwise similarity for near-duplicates | [Deduplication](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/dedup.html) |
 
 ---

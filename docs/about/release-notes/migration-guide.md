@@ -15,7 +15,7 @@ modality: "universal"
 This guide explains how to transition existing Dask-based NeMo Curator workflows to the new Ray-based pipeline architecture.
 
 ```{seealso}
-For broader NeMo Framework migration topics, refer to the [NeMo Framework 2.0 Migration Guide](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemo-2.0/migration/index.html).
+For broader NeMo Framework migration topics, refer to the [NeMo Framework 2.0 Migration Guide](https://docs.nvidia.com/nemo-framework/user-guide/25.11/nemo-2.0/migration/index.html).
 ```
 
 ## Overview

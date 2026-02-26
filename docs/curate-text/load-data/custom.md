@@ -16,7 +16,7 @@ Create custom data loading pipelines using Curator. This guide shows how to buil
 
 ## How It Works
 
-Curator uses the same **4-step pipeline pattern** described in {ref}`Data Acquisition Concepts <about-concepts-text-data-acquisition>` for custom data loading. Each step uses an abstract base class with corresponding processing stages that compose into pipelines.
+Curator uses the same **3-step pipeline pattern** described in {ref}`Data Acquisition Concepts <about-concepts-text-data-acquisition>` for custom data loading. Each step uses an abstract base class with corresponding processing stages that compose into pipelines.
 
 ---
 

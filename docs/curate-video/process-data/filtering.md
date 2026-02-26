@@ -83,7 +83,7 @@ pipe.run()
 
 ```bash
 # Motion filtering
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --motion-filter enable \
   --motion-decode-target-fps 2.0 \
@@ -95,7 +95,7 @@ python -m nemo_curator.examples.video.video_split_clip_example \
   --motion-score-gpus-per-worker 0.5
 
 # Aesthetic filtering
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --aesthetic-threshold 3.5 \
   --aesthetic-reduction min \

@@ -69,13 +69,8 @@ def interleave_datasets(dir1: str, dir2: str, out_path: str, chunk_size: int = 1
     with open(out_path, "w") as out:
         for chunk1, chunk2 in itertools.zip_longest(gen1, gen2, fillvalue=[]):
             # write chunk1 (may be empty if dir1 is exhausted)
-            for line in chunk1:
-                out.write(line + "\n")
+            out.writelines(line + "\n" for line in chunk1)
             # write chunk2 (may be empty if dir2 is exhausted)
-            for line in chunk2:
-                out.write(line + "\n")
+            out.writelines(line + "\n" for line in chunk2)
 
-    print(
-        f"Interleaved datasets from {dir1} and {dir2} into {out_path} "
-        f"with adaptive chunk size up to {chunk_size}"
-    )
+    print(f"Interleaved datasets from {dir1} and {dir2} into {out_path} with adaptive chunk size up to {chunk_size}")
