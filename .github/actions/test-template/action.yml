@@ -48,6 +48,9 @@ inputs:
     description: "Has Azure credentials"
     required: false
     default: "false"
+  HF_TOKEN:
+    description: "Huggingface Token"
+    required: true
   PAT:
     description: "GitHub Personal Access Token"
     required: true
@@ -97,7 +100,7 @@ runs:
     - name: Start container
       shell: bash
       env:
-        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        HF_TOKEN: ${{ inputs.HF_TOKEN }}
       run: |
         MNT_PATH=${{ steps.azure-fileshare.outputs.mnt_path }}
 
