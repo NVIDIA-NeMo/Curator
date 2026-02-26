@@ -73,10 +73,6 @@ def run_and_assert_classifier_stages(
     tokenizer_stage = stages[0]
     assert all(col in dataset.data.columns for col in tokenizer_stage.inputs()[1])
     tokenizer_stage.setup_on_node()
-    # try:
-    #     tokenizer_stage.setup_on_node()
-    # except RuntimeError:
-    #     pytest.skip("Skipping test due to flaky Hugging Face download")
     tokenizer_stage.setup()
     tokenized_batch = tokenizer_stage.process(dataset)
     assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
@@ -85,10 +81,6 @@ def run_and_assert_classifier_stages(
     model_stage = stages[1]
     assert all(col in tokenized_batch.data.columns for col in model_stage.inputs()[1])
     model_stage.setup_on_node()
-    # try:
-    #     model_stage.setup_on_node()
-    # except RuntimeError:
-    #     pytest.skip("Skipping test due to flaky Hugging Face download")
     model_stage.setup()
     result_batch = model_stage.process(tokenized_batch)
     assert all(col in result_batch.data.columns for col in model_stage.outputs()[1])
@@ -220,10 +212,6 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     tokenizer_stage = stages[1]
     assert all(col in wrapped_batch.data.columns for col in tokenizer_stage.inputs()[1])
     tokenizer_stage.setup_on_node()
-    # try:
-    #     tokenizer_stage.setup_on_node()
-    # except RuntimeError:
-    #     pytest.skip("Skipping test due to flaky Hugging Face download")
     tokenizer_stage.setup()
     tokenized_batch = tokenizer_stage.process(wrapped_batch)
     assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
@@ -232,10 +220,6 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     model_stage = stages[2]
     assert all(col in tokenized_batch.data.columns for col in model_stage.inputs()[1])
     model_stage.setup_on_node()
-    # try:
-    #     model_stage.setup_on_node()
-    # except RuntimeError:
-    #     pytest.skip("Skipping test due to flaky Hugging Face download")
     model_stage.setup()
     result_batch = model_stage.process(tokenized_batch)
     assert all(col in result_batch.data.columns for col in model_stage.outputs()[1])
@@ -244,10 +228,6 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     postprocess_aegis_responses_stage = stages[3]
     assert all(col in result_batch.data.columns for col in postprocess_aegis_responses_stage.inputs()[1])
     postprocess_aegis_responses_stage.setup_on_node()
-    # try:
-    #     postprocess_aegis_responses_stage.setup_on_node()
-    # except RuntimeError:
-    #     pytest.skip("Skipping test due to flaky Hugging Face download")
     postprocess_aegis_responses_stage.setup()
     postprocessed_batch = postprocess_aegis_responses_stage.process(result_batch)
     assert all(col in postprocessed_batch.data.columns for col in postprocess_aegis_responses_stage.outputs()[1])
