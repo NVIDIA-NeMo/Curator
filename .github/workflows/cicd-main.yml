@@ -159,6 +159,7 @@ jobs:
   Nemo_CICD_Test:
     needs:
       - pre-flight
+      - cicd-cpu-tests
       - cicd-gpu-tests
     if: |
       (
