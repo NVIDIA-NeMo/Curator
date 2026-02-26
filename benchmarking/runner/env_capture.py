@@ -25,7 +25,7 @@ import git
 import pynvml
 from loguru import logger
 from runner.session import Session
-from runner.utils import get_obj_for_json, get_total_memory_bytes, run_shm_size_check
+from runner.utils import get_obj_for_json, get_shm_usage, get_total_memory_bytes
 
 
 def dump_env(session_obj: Session, output_path: Path) -> dict[str, Any]:
@@ -66,7 +66,8 @@ def get_env() -> dict[str, Any]:
 
     git_commit_string = get_git_commit_string()
     cuda_visible_devices = get_gpu_info_string()
-    shm_size_bytes, _ = run_shm_size_check(human_readable=False)
+    shm = get_shm_usage()
+    shm_size_bytes = shm.get("total_bytes")
 
     # The image digest is not known at image build time and is not available inside the
     # container, so it must be passed in when the container is run.
