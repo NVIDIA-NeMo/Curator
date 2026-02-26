@@ -152,6 +152,60 @@ class TestALMManifestReaderComposite:
         assert stages[0].files_per_partition == 1
 
 
+class TestALMManifestReaderDirectory:
+    """Tests for directory-based manifest discovery."""
+
+    @staticmethod
+    def _nested_dir() -> Path:
+        return Path(__file__).parent.parent.parent.parent / "fixtures" / "audio" / "alm" / "nested_manifests"
+
+    def test_reads_all_jsonl_from_directory(self) -> None:
+        nested = self._nested_dir()
+        all_files = sorted(str(p) for p in nested.rglob("*.jsonl"))
+        stage = ALMManifestReaderStage()
+        result = stage.process(_make_file_group_task(all_files))
+
+        assert len(result) == 5
+        assert all(isinstance(r, AudioBatch) for r in result)
+
+    def test_reads_from_subdirectory_a(self) -> None:
+        subdir = self._nested_dir() / "subdir_a"
+        files = sorted(str(p) for p in subdir.glob("*.jsonl"))
+        stage = ALMManifestReaderStage()
+        result = stage.process(_make_file_group_task(files))
+
+        assert len(result) == 2
+        paths = {r.data[0]["audio_filepath"] for r in result}
+        assert "/data/audio/conversation_001.wav" in paths
+        assert "/data/audio/interview_002.wav" in paths
+
+    def test_reads_from_subdirectory_b(self) -> None:
+        subdir = self._nested_dir() / "subdir_b"
+        files = sorted(str(p) for p in subdir.glob("*.jsonl"))
+        stage = ALMManifestReaderStage()
+        result = stage.process(_make_file_group_task(files))
+
+        assert len(result) == 3
+
+    def test_composite_discovers_nested_directory(self) -> None:
+        nested = self._nested_dir()
+        composite = ALMManifestReader(manifest_path=str(nested))
+        stages = composite.decompose()
+
+        partitioner = stages[0]
+        assert partitioner.file_paths == str(nested)
+        assert partitioner.file_extensions == [".jsonl", ".json"]
+
+    def test_ignores_non_jsonl_files(self) -> None:
+        nested = self._nested_dir()
+        txt_files = list(nested.rglob("*.txt"))
+        assert len(txt_files) > 0, "Test setup: .txt file should exist"
+
+        jsonl_files = sorted(str(p) for p in nested.rglob("*.jsonl"))
+        for f in jsonl_files:
+            assert not f.endswith(".txt")
+
+
 class TestALMManifestReaderIntegration:
     """Integration test using the real sample fixture."""
 

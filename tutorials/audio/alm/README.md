@@ -95,11 +95,23 @@ PIPELINE COMPLETE
 
 ## Using Custom Data
 
+With a single manifest file:
+
 ```bash
 python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
   manifest_path=/path/to/your/data.jsonl \
+  output_dir=./my_output
+```
+
+With a directory (recursively discovers all `.jsonl` and `.json` files in subdirectories):
+
+```bash
+python tutorials/audio/alm/main.py \
+  --config-path . \
+  --config-name pipeline \
+  manifest_path=/data/manifests/ \
   output_dir=./my_output
 ```
 
