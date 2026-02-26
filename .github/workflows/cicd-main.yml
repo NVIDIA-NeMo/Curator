@@ -56,67 +56,67 @@ jobs:
         run: |
           echo "Running CI tests"
 
-#   cicd-cpu-tests:
-#     strategy:
-#       fail-fast: false
-#       matrix:
-#         os: [ubuntu-latest]
-#         python-version: ["3.10", "3.12"]
-#         folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-synthetic", "stages-text", "stages-video", "tasks", "utils"]
-#     needs: [pre-flight, cicd-wait-in-queue]
-#     runs-on: ${{ matrix.os }}
-#     name: Unit_Test_${{ matrix.folder}}_CPU_python-${{ matrix.python-version }}
-#     env:
-#       HF_TOKEN: ${{ secrets.HF_TOKEN }}
-#     environment: nemo-ci
-#     if: |
-#       (
-#         success()
-#         || needs.pre-flight.outputs.is_ci_workload == 'true'
-#         || needs.pre-flight.outputs.force_run_all == 'true'
-#       )
-#       && !cancelled()
-#     steps:
-#       - uses: actions/checkout@v4
-#         with:
-#           submodules: recursive
-#       - name: Free up disk space on Ubuntu
-#         run: |
-#           sudo rm -rf /usr/share/dotnet
-#           sudo rm -rf /opt/ghc
-#           sudo rm -rf /usr/local/share/boost
-#           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-#       - name: Set up uv with Python ${{ matrix.python-version }}
-#         uses: astral-sh/setup-uv@v6
-#         with:
-#           python-version: ${{ matrix.python-version }}
-#           enable-cache: false
-#       - name: Run tests ${{ matrix.folder }} (CPU)
-#         timeout-minutes: 40
-#         run: |
-#           uv sync --link-mode copy --locked --extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu --group test
-#           FOLDER="${{ matrix.folder }}"
-#           FOLDER="${FOLDER/stages-/stages/}"
-#           uv run coverage run --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu"
-# 
-#       - name: Generate report
-#         id: check
-#         shell: bash
-#         run: |
-#           uv run coverage xml
-#           uv run coverage report
-#           coverage_report=coverage-unit-test-${{ matrix.folder }}-${{ github.run_id }}-$(uuidgen)
-#           echo "$coverage_report"
-#           echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
-#       - name: Upload artifacts
-#         uses: actions/upload-artifact@v4
-#         if: ${{ steps.check.outputs.coverage_report != 'none' }}
-#         with:
-#           name: ${{ steps.check.outputs.coverage_report }}
-#           path: |
-#             ./coverage.xml
-#             ./.coverage
-#           include-hidden-files: true
+  cicd-cpu-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.10", "3.12"]
+        folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-synthetic", "stages-text", "stages-video", "tasks", "utils"]
+    needs: [pre-flight, cicd-wait-in-queue]
+    runs-on: ${{ matrix.os }}
+    name: Unit_Test_${{ matrix.folder}}_CPU_python-${{ matrix.python-version }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    environment: nemo-ci
+    if: |
+      (
+        success()
+        || needs.pre-flight.outputs.is_ci_workload == 'true'
+        || needs.pre-flight.outputs.force_run_all == 'true'
+      )
+      && !cancelled()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Free up disk space on Ubuntu
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+      - name: Set up uv with Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: false
+      - name: Run tests ${{ matrix.folder }} (CPU)
+        timeout-minutes: 40
+        run: |
+          uv sync --link-mode copy --locked --extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu --group test
+          FOLDER="${{ matrix.folder }}"
+          FOLDER="${FOLDER/stages-/stages/}"
+          uv run coverage run --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu"
+
+      - name: Generate report
+        id: check
+        shell: bash
+        run: |
+          uv run coverage xml
+          uv run coverage report
+          coverage_report=coverage-unit-test-${{ matrix.folder }}-${{ github.run_id }}-$(uuidgen)
+          echo "$coverage_report"
+          echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ steps.check.outputs.coverage_report != 'none' }}
+        with:
+          name: ${{ steps.check.outputs.coverage_report }}
+          path: |
+            ./coverage.xml
+            ./.coverage
+          include-hidden-files: true
 
   cicd-gpu-tests:
     strategy:
