@@ -37,14 +37,14 @@ class TestCommonCrawlWARCDownloader:
         assert success is True
         assert error_message is None
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            ["wget", url, "-O", temp_path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
 
     @mock.patch.object(CommonCrawlWARCDownloader, "_check_s5cmd_installed", return_value=True)
     @mock.patch("subprocess.run", return_value=mock.Mock(returncode=0))
-    def test_download_to_path_s3(self, mock_run: mock.Mock, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
+    def test_download_to_path_s3(self, mock_run: mock.Mock, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:
         """Test _download_to_path with s5cmd (use_aws_to_download=True)."""
 
         downloader = CommonCrawlWARCDownloader(str(tmp_path), use_aws_to_download=True, verbose=False)
@@ -76,7 +76,7 @@ class TestCommonCrawlWARCDownloader:
         assert success is True
         assert error_message is None
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            ["wget", url, "-O", temp_path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"],
             stdout=None,
             stderr=None,
         )
@@ -94,7 +94,7 @@ class TestCommonCrawlWARCDownloader:
         assert success is True
         assert error_message is None
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            ["wget", url, "-O", temp_path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -112,7 +112,7 @@ class TestCommonCrawlWARCDownloader:
         assert success is False
         assert error_message == "Download failed"
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            ["wget", url, "-O", temp_path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -135,7 +135,7 @@ class TestCommonCrawlWARCDownloader:
             assert result is False
 
     @mock.patch.object(CommonCrawlWARCDownloader, "_check_s5cmd_installed", return_value=False)
-    def test_init_aws_download_without_s5cmd(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
+    def test_init_aws_download_without_s5cmd(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:
         """Test initialization with AWS download but s5cmd not installed."""
         with pytest.raises(RuntimeError, match="s5cmd is not installed"):
             CommonCrawlWARCDownloader(str(tmp_path), use_aws_to_download=True, verbose=False)

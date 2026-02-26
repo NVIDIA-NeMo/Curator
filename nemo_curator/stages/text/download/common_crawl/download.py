@@ -70,7 +70,7 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
         else:
             # We don't use -c (for continue resume) because we want to download file to temp path using -O
             # but -c and -O don't work well together
-            cmd = ["wget", url_to_download, "-O", path]
+            cmd = ["wget", url_to_download, "-O", path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"]
 
         # Always capture stderr so we can provide meaningful error messages
         if self._verbose:
