@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+import logging
 import sys
 import urllib.request
 from collections.abc import Generator
@@ -47,6 +48,22 @@ def mock_ray_serve_llm() -> Generator[ModuleType]:
         ray_serve.run = Mock(name="serve.run")
     if not hasattr(ray_serve, "shutdown"):
         ray_serve.shutdown = Mock(name="serve.shutdown")
+    if not hasattr(ray_serve, "delete"):
+        ray_serve.delete = Mock(name="serve.delete")
+    if not hasattr(ray_serve, "status"):
+        # Default: no existing apps
+        mock_status = Mock()
+        mock_status.applications = {}
+        ray_serve.status = Mock(name="serve.status", return_value=mock_status)
+
+    # Mock ray.serve.schema.LoggingConfig
+    mock_schema_module = sys.modules.get("ray.serve.schema")
+    if mock_schema_module is None:
+        mock_schema_module = ModuleType("ray.serve.schema")
+        sys.modules["ray.serve.schema"] = mock_schema_module
+    if not hasattr(mock_schema_module, "LoggingConfig"):
+        mock_schema_module.LoggingConfig = Mock(name="LoggingConfig")
+    ray_serve.schema = mock_schema_module
 
     original = sys.modules.get("ray.serve.llm")
     sys.modules["ray.serve.llm"] = mock_llm_module
@@ -128,8 +145,10 @@ class TestModelServer:
     def test_defaults(self) -> None:
         config = ModelConfig(model_identifier="some-model")
         server = ModelServer(models=[config])
+        assert server.name == "default"
         assert server.port == DEFAULT_SERVE_PORT
         assert server.health_check_timeout_s == DEFAULT_SERVE_HEALTH_TIMEOUT_S
+        assert server.verbose is False
         assert len(server.models) == 1
 
     def test_endpoint_property(self) -> None:
@@ -144,7 +163,7 @@ class TestModelServer:
         config = ModelConfig(model_identifier="some-model")
         server = ModelServer(models=[config])
 
-        with patch.object(server, "_wait_for_healthy"):
+        with patch.object(server, "_wait_for_healthy"), patch.object(server, "_teardown_existing_apps"):
             server.start()
 
         mock_port.assert_called_once_with(DEFAULT_SERVE_PORT, get_next_free_port=True)
@@ -159,7 +178,7 @@ class TestModelServer:
         config = ModelConfig(model_identifier="some-model")
         server = ModelServer(models=[config], port=8001)
 
-        with patch.object(server, "_wait_for_healthy"):
+        with patch.object(server, "_wait_for_healthy"), patch.object(server, "_teardown_existing_apps"):
             server.start()
 
         # Custom port != DEFAULT_SERVE_PORT, so get_next_free_port=False
@@ -173,7 +192,9 @@ class TestModelServer:
         assert is_ray_serve_active()
 
         server = ModelServer(models=[ModelConfig(model_identifier="m")])
-        server.stop()
+
+        with patch.object(server, "_wait_for_port_release"):
+            server.stop()
 
         assert not is_ray_serve_active()
 
@@ -182,7 +203,12 @@ class TestModelServer:
         config = ModelConfig(model_identifier="some-model")
         server = ModelServer(models=[config])
 
-        with patch.object(server, "_wait_for_healthy"), server as s:
+        with (
+            patch.object(server, "_wait_for_healthy"),
+            patch.object(server, "_teardown_existing_apps"),
+            patch.object(server, "_wait_for_port_release"),
+            server as s,
+        ):
             assert s is server
             assert is_ray_serve_active()
 
@@ -198,7 +224,7 @@ class TestModelServer:
         ]
         server = ModelServer(models=configs)
 
-        with patch.object(server, "_wait_for_healthy"):
+        with patch.object(server, "_wait_for_healthy"), patch.object(server, "_teardown_existing_apps"):
             server.start()
 
         mock_port.assert_called_once()
@@ -227,6 +253,220 @@ class TestModelServer:
             pytest.raises(TimeoutError, match="did not become ready within 2s"),
         ):
             server._wait_for_healthy()
+
+
+@pytest.mark.usefixtures("mock_ray_serve_llm")
+class TestVerboseLogging:
+    """Tests for the verbose flag controlling Ray Serve / vLLM log levels."""
+
+    def teardown_method(self) -> None:
+        serve_module._ray_serve_active = False
+        serve_module._reset_ray_serve_loggers()
+
+    @patch("nemo_curator.core.serve.get_free_port", return_value=8000)
+    def test_verbose_false_suppresses_loggers(self, mock_port: Mock) -> None:
+        server = ModelServer(models=[ModelConfig(model_identifier="m")], verbose=False)
+
+        with patch.object(server, "_wait_for_healthy"), patch.object(server, "_teardown_existing_apps"):
+            server.start()
+
+        # Noisy loggers should be at WARNING or higher
+        for name in serve_module._NOISY_LOGGERS:
+            assert logging.getLogger(name).level >= logging.WARNING
+
+        serve_module._ray_serve_active = False
+
+    @patch("nemo_curator.core.serve.get_free_port", return_value=8000)
+    def test_verbose_true_keeps_default_levels(self, mock_port: Mock) -> None:
+        server = ModelServer(models=[ModelConfig(model_identifier="m")], verbose=True)
+
+        with patch.object(server, "_wait_for_healthy"), patch.object(server, "_teardown_existing_apps"):
+            server.start()
+
+        # Loggers should remain at NOTSET (default)
+        for name in serve_module._NOISY_LOGGERS:
+            assert logging.getLogger(name).level == logging.NOTSET
+
+        serve_module._ray_serve_active = False
+
+    @patch("nemo_curator.core.serve.get_free_port", return_value=8000)
+    def test_stop_restores_loggers(self, mock_port: Mock) -> None:
+        server = ModelServer(models=[ModelConfig(model_identifier="m")], verbose=False)
+
+        with (
+            patch.object(server, "_wait_for_healthy"),
+            patch.object(server, "_teardown_existing_apps"),
+            patch.object(server, "_wait_for_port_release"),
+        ):
+            server.start()
+            # Loggers are suppressed during run
+            for name in serve_module._NOISY_LOGGERS:
+                assert logging.getLogger(name).level >= logging.WARNING
+
+            server.stop()
+
+        # After stop, loggers should be restored
+        for name in serve_module._NOISY_LOGGERS:
+            assert logging.getLogger(name).level == logging.NOTSET
+
+
+@pytest.mark.usefixtures("mock_ray_serve_llm")
+class TestTeardownExistingApps:
+    """Tests for cleaning up stale Serve state before deploying."""
+
+    def test_no_existing_apps_is_noop(self) -> None:
+        from ray import serve
+
+        mock_status = Mock()
+        mock_status.applications = {}
+
+        mock_delete = Mock()
+
+        with patch.object(serve, "status", return_value=mock_status), patch.object(serve, "delete", mock_delete):
+            server = ModelServer(models=[ModelConfig(model_identifier="m")])
+            server._teardown_existing_apps()
+
+        mock_delete.assert_not_called()
+
+    def test_only_own_app_is_deleted(self) -> None:
+        from ray import serve
+
+        # Cluster has "default" and "other-app", but ModelServer only owns "default"
+        mock_status = Mock()
+        mock_status.applications = {"default": Mock(), "other-app": Mock()}
+
+        mock_delete = Mock()
+
+        with (
+            patch.object(serve, "status", return_value=mock_status),
+            patch.object(serve, "delete", mock_delete),
+        ):
+            server = ModelServer(models=[ModelConfig(model_identifier="m")])
+            server._teardown_existing_apps()
+
+        # Only "default" should be deleted — "other-app" is left alone
+        mock_delete.assert_called_once_with("default", _blocking=True)
+
+    def test_custom_name_only_deletes_own_app(self) -> None:
+        from ray import serve
+
+        mock_status = Mock()
+        mock_status.applications = {"default": Mock(), "my-app": Mock()}
+
+        mock_delete = Mock()
+
+        with (
+            patch.object(serve, "status", return_value=mock_status),
+            patch.object(serve, "delete", mock_delete),
+        ):
+            server = ModelServer(models=[ModelConfig(model_identifier="m")], name="my-app")
+            server._teardown_existing_apps()
+
+        # Only "my-app" should be deleted — "default" is left alone
+        mock_delete.assert_called_once_with("my-app", _blocking=True)
+
+    def test_no_matching_app_is_noop(self) -> None:
+        from ray import serve
+
+        mock_status = Mock()
+        mock_status.applications = {"other-app": Mock()}
+
+        mock_delete = Mock()
+
+        with patch.object(serve, "status", return_value=mock_status), patch.object(serve, "delete", mock_delete):
+            server = ModelServer(models=[ModelConfig(model_identifier="m")])
+            server._teardown_existing_apps()
+
+        mock_delete.assert_not_called()
+
+    def test_status_error_is_silently_ignored(self) -> None:
+        from ray import serve
+
+        with patch.object(serve, "status", side_effect=RuntimeError("no controller")):
+            server = ModelServer(models=[ModelConfig(model_identifier="m")])
+            # Should not raise
+            server._teardown_existing_apps()
+
+
+@pytest.mark.usefixtures("mock_ray_serve_llm")
+class TestStopCleanup:
+    """Tests for the two-phase stop (delete + shutdown) and port wait."""
+
+    def teardown_method(self) -> None:
+        serve_module._ray_serve_active = False
+
+    def test_stop_calls_delete_then_shutdown(self) -> None:
+        from ray import serve
+
+        mock_delete = Mock()
+        mock_shutdown = Mock()
+
+        serve_module._ray_serve_active = True
+        server = ModelServer(models=[ModelConfig(model_identifier="m")])
+
+        with (
+            patch.object(serve, "delete", mock_delete),
+            patch.object(serve, "shutdown", mock_shutdown),
+            patch.object(server, "_wait_for_port_release"),
+        ):
+            server.stop()
+
+        mock_delete.assert_called_once_with("default", _blocking=True)
+        mock_shutdown.assert_called_once()
+        assert not is_ray_serve_active()
+
+    def test_stop_uses_custom_name(self) -> None:
+        from ray import serve
+
+        mock_delete = Mock()
+        mock_shutdown = Mock()
+
+        serve_module._ray_serve_active = True
+        server = ModelServer(models=[ModelConfig(model_identifier="m")], name="my-app")
+
+        with (
+            patch.object(serve, "delete", mock_delete),
+            patch.object(serve, "shutdown", mock_shutdown),
+            patch.object(server, "_wait_for_port_release"),
+        ):
+            server.stop()
+
+        mock_delete.assert_called_once_with("my-app", _blocking=True)
+
+    def test_stop_survives_delete_error(self) -> None:
+        from ray import serve
+
+        mock_delete = Mock(side_effect=RuntimeError("already gone"))
+        mock_shutdown = Mock()
+
+        serve_module._ray_serve_active = True
+        server = ModelServer(models=[ModelConfig(model_identifier="m")])
+
+        with (
+            patch.object(serve, "delete", mock_delete),
+            patch.object(serve, "shutdown", mock_shutdown),
+            patch.object(server, "_wait_for_port_release"),
+        ):
+            server.stop()
+
+        # shutdown still called even though delete failed
+        mock_shutdown.assert_called_once()
+        assert not is_ray_serve_active()
+
+    def test_wait_for_port_release_returns_when_free(self) -> None:
+        server = ModelServer(models=[ModelConfig(model_identifier="m")], port=19876)
+
+        with patch("socket.socket") as mock_sock_cls:
+            mock_sock = Mock()
+            mock_sock_cls.return_value.__enter__ = Mock(return_value=mock_sock)
+            mock_sock_cls.return_value.__exit__ = Mock(return_value=False)
+            # Port not in use (connect fails)
+            mock_sock.connect_ex.return_value = 1
+
+            server._wait_for_port_release(timeout_s=3)
+
+        # Should return immediately on first check
+        mock_sock.connect_ex.assert_called_once()
 
 
 @pytest.mark.usefixtures("mock_ray_serve_llm")
