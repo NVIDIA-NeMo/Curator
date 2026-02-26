@@ -21,12 +21,13 @@ for Audio Language Model training.
 
 from nemo_curator.stages.audio.alm.alm_data_builder import ALMDataBuilderStage
 from nemo_curator.stages.audio.alm.alm_data_overlap import ALMDataOverlapStage
-from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReaderStage
+from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader, ALMManifestReaderStage
 from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
 
 __all__ = [
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
+    "ALMManifestReader",
     "ALMManifestReaderStage",
     "ALMManifestWriterStage",
 ]

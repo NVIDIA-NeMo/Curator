@@ -160,6 +160,7 @@ class TestALMManifestWriterRoundTrip:
 
     def test_reader_writer_round_trip(self, sample_entries, tmp_path):
         from nemo_curator.stages.audio.alm import ALMManifestReaderStage
+        from nemo_curator.tasks import FileGroupTask
 
         out = tmp_path / "round_trip.jsonl"
 
@@ -169,10 +170,8 @@ class TestALMManifestWriterRoundTrip:
             task = AudioBatch(data=[entry], task_id=f"t{i}")
             writer.process(task)
 
-        reader = ALMManifestReaderStage(manifest_path=str(out))
-        from nemo_curator.tasks.tasks import EmptyTask
-
-        result = reader.process(EmptyTask)
+        reader = ALMManifestReaderStage()
+        result = reader.process(FileGroupTask(task_id="rt", dataset_name="rt", data=[str(out)]))
 
         assert len(result) == len(sample_entries)
         for orig, batch in zip(sample_entries, result):

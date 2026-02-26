@@ -69,10 +69,12 @@ output_dir: ./alm_output
 
 # Stage chain definition
 stages:
-  # Stage 0: ALM Manifest Reader
-  # Reads JSONL manifest on the worker, produces one AudioBatch per entry
-  - _target_: nemo_curator.stages.audio.alm.ALMManifestReaderStage
+  # Stage 0: ALM Manifest Reader (CompositeStage)
+  # Decomposes into FilePartitioningStage + ALMManifestReaderStage
+  # Reads JSONL line-by-line (no Pandas), produces one AudioBatch per entry
+  - _target_: nemo_curator.stages.audio.alm.ALMManifestReader
     manifest_path: ${manifest_path}
+    files_per_partition: 1
 
   # Stage 1: ALM Data Builder
   # Creates training windows from audio segments

@@ -12,19 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for ALMManifestReaderStage."""
+"""Tests for ALMManifestReaderStage and ALMManifestReader (CompositeStage)."""
 
 import json
 
 import pytest
 
-from nemo_curator.stages.audio.alm import ALMManifestReaderStage
-from nemo_curator.tasks import AudioBatch
-from nemo_curator.tasks.tasks import EmptyTask
+from nemo_curator.stages.audio.alm import ALMManifestReader, ALMManifestReaderStage
+from nemo_curator.tasks import AudioBatch, FileGroupTask
 
 
-class TestALMManifestReader:
-    """Unit tests for ALMManifestReaderStage."""
+def _make_file_group_task(paths: list[str]) -> FileGroupTask:
+    return FileGroupTask(task_id="test", dataset_name="test", data=paths)
+
+
+class TestALMManifestReaderStage:
+    """Unit tests for ALMManifestReaderStage (low-level stage)."""
 
     def test_reads_single_manifest(self, tmp_path):
         entries = [
@@ -34,8 +37,8 @@ class TestALMManifestReader:
         manifest = tmp_path / "input.jsonl"
         manifest.write_text("\n".join(json.dumps(e) for e in entries))
 
-        stage = ALMManifestReaderStage(manifest_path=str(manifest))
-        result = stage.process(EmptyTask)
+        stage = ALMManifestReaderStage()
+        result = stage.process(_make_file_group_task([str(manifest)]))
 
         assert len(result) == 2
         assert all(isinstance(r, AudioBatch) for r in result)
@@ -48,8 +51,8 @@ class TestALMManifestReader:
         m1.write_text(json.dumps({"audio_filepath": "a.wav", "segments": []}))
         m2.write_text(json.dumps({"audio_filepath": "b.wav", "segments": []}))
 
-        stage = ALMManifestReaderStage(manifest_path=[str(m1), str(m2)])
-        result = stage.process(EmptyTask)
+        stage = ALMManifestReaderStage()
+        result = stage.process(_make_file_group_task([str(m1), str(m2)]))
 
         assert len(result) == 2
         paths = [r.data[0]["audio_filepath"] for r in result]
@@ -60,8 +63,8 @@ class TestALMManifestReader:
         manifest = tmp_path / "input.jsonl"
         manifest.write_text("\n".join(json.dumps(e) for e in entries))
 
-        stage = ALMManifestReaderStage(manifest_path=str(manifest))
-        result = stage.process(EmptyTask)
+        stage = ALMManifestReaderStage()
+        result = stage.process(_make_file_group_task([str(manifest)]))
 
         assert len(result) == 5
         for i, batch in enumerate(result):
@@ -77,8 +80,8 @@ class TestALMManifestReader:
             + "\n"
         )
 
-        stage = ALMManifestReaderStage(manifest_path=str(manifest))
-        result = stage.process(EmptyTask)
+        stage = ALMManifestReaderStage()
+        result = stage.process(_make_file_group_task([str(manifest)]))
 
         assert len(result) == 2
 
@@ -86,8 +89,8 @@ class TestALMManifestReader:
         manifest = tmp_path / "empty.jsonl"
         manifest.write_text("")
 
-        stage = ALMManifestReaderStage(manifest_path=str(manifest))
-        result = stage.process(EmptyTask)
+        stage = ALMManifestReaderStage()
+        result = stage.process(_make_file_group_task([str(manifest)]))
 
         assert result == []
 
@@ -107,8 +110,8 @@ class TestALMManifestReader:
         manifest = tmp_path / "input.jsonl"
         manifest.write_text(json.dumps(entry))
 
-        stage = ALMManifestReaderStage(manifest_path=str(manifest))
-        result = stage.process(EmptyTask)
+        stage = ALMManifestReaderStage()
+        result = stage.process(_make_file_group_task([str(manifest)]))
 
         loaded = result[0].data[0]
         assert loaded["segments"][0]["metrics"]["bandwidth"] == 8000
@@ -118,28 +121,36 @@ class TestALMManifestReader:
         manifest = tmp_path / "input.jsonl"
         manifest.write_text(json.dumps({"audio_filepath": "a.wav", "segments": []}))
 
-        stage = ALMManifestReaderStage(manifest_path=[str(manifest)] * 3)
-        result = stage.process(EmptyTask)
+        stage = ALMManifestReaderStage()
+        result = stage.process(_make_file_group_task([str(manifest)] * 3))
 
         assert len(result) == 3
         assert all(r.data[0]["audio_filepath"] == "a.wav" for r in result)
 
-    def test_manifest_path_coerced_to_list(self):
-        stage = ALMManifestReaderStage(manifest_path=("a.jsonl", "b.jsonl"))
-        assert isinstance(stage.manifest_path, list)
-        assert stage.manifest_path == ["a.jsonl", "b.jsonl"]
 
-    def test_string_path_stays_string(self):
-        stage = ALMManifestReaderStage(manifest_path="single.jsonl")
-        assert isinstance(stage.manifest_path, str)
+class TestALMManifestReaderComposite:
+    """Tests for ALMManifestReader (CompositeStage)."""
 
-    def test_xenna_stage_spec(self):
-        stage = ALMManifestReaderStage(manifest_path="x.jsonl")
-        assert stage.xenna_stage_spec() == {"num_workers_per_node": 1}
+    def test_decomposes_into_two_stages(self, tmp_path):
+        manifest = tmp_path / "input.jsonl"
+        manifest.write_text(json.dumps({"audio_filepath": "a.wav", "segments": []}))
 
-    def test_ray_stage_spec(self):
-        stage = ALMManifestReaderStage(manifest_path="x.jsonl")
-        assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+        composite = ALMManifestReader(manifest_path=str(tmp_path))
+        stages = composite.decompose()
+
+        assert len(stages) == 2
+        assert stages[0].__class__.__name__ == "FilePartitioningStage"
+        assert isinstance(stages[1], ALMManifestReaderStage)
+
+    def test_accepts_list_of_paths(self):
+        composite = ALMManifestReader(manifest_path=["/a.jsonl", "/b.jsonl"])
+        stages = composite.decompose()
+        assert stages[0].file_paths == ["/a.jsonl", "/b.jsonl"]
+
+    def test_files_per_partition_default(self):
+        composite = ALMManifestReader(manifest_path="/data")
+        stages = composite.decompose()
+        assert stages[0].files_per_partition == 1
 
 
 class TestALMManifestReaderIntegration:
@@ -149,8 +160,8 @@ class TestALMManifestReaderIntegration:
         from pathlib import Path
 
         fixture = Path(__file__).parent.parent.parent.parent / "fixtures" / "audio" / "alm" / "sample_input.jsonl"
-        stage = ALMManifestReaderStage(manifest_path=str(fixture))
-        result = stage.process(EmptyTask)
+        stage = ALMManifestReaderStage()
+        result = stage.process(_make_file_group_task([str(fixture)]))
 
         assert len(result) == 5
         for batch in result:

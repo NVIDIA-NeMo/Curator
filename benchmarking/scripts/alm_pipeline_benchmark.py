@@ -35,7 +35,7 @@ from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage, ALMManifestReaderStage
+from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage, ALMManifestReader, ALMManifestWriterStage
 
 
 def run_alm_pipeline_benchmark(  # noqa: PLR0913
@@ -66,8 +66,8 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
     manifest_paths = [input_manifest] * max(repeat_factor, 1)
     logger.info(f"Manifest paths: {len(manifest_paths)} copies (repeat_factor={repeat_factor})")
 
-    pipeline = Pipeline(name="alm_benchmark", description="ALM Reader + Builder + Overlap benchmark pipeline")
-    pipeline.add_stage(ALMManifestReaderStage(manifest_path=manifest_paths))
+    pipeline = Pipeline(name="alm_benchmark", description="ALM Reader + Builder + Overlap + Writer benchmark pipeline")
+    pipeline.add_stage(ALMManifestReader(manifest_path=manifest_paths))
     pipeline.add_stage(
         ALMDataBuilderStage(
             target_window_duration=target_window_duration,
@@ -84,6 +84,8 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913
             target_duration=target_window_duration,
         )
     )
+    output_path = str(benchmark_results_path / "alm_output.jsonl")
+    pipeline.add_stage(ALMManifestWriterStage(output_path=output_path))
 
     exc = setup_executor(executor)
 
