@@ -153,7 +153,7 @@ class TestAddRayPrometheusMetricsServiceDiscovery:
 
     @patch("nemo_curator.metrics.utils.requests.post")
     @patch("nemo_curator.metrics.utils.get_prometheus_port", return_value=9090)
-    def test_adds_path_to_empty_config(self, mock_port: object, mock_post: object, tmp_path: pathlib.Path) -> None:  # noqa: ARG002
+    def test_adds_path_to_empty_config(self, mock_port: object, mock_post: object, tmp_path: pathlib.Path) -> None:
         """Should add discovery path to an empty file_sd_configs list."""
         self._write_empty_prometheus_config(tmp_path)
         (tmp_path / PROMETHEUS_PORT_FILE).write_text("9090")
@@ -167,7 +167,7 @@ class TestAddRayPrometheusMetricsServiceDiscovery:
 
     @patch("nemo_curator.metrics.utils.requests.post")
     @patch("nemo_curator.metrics.utils.get_prometheus_port", return_value=9090)
-    def test_does_not_add_duplicate(self, mock_port: object, mock_post: object, tmp_path: pathlib.Path) -> None:  # noqa: ARG002
+    def test_does_not_add_duplicate(self, mock_port: object, mock_post: object, tmp_path: pathlib.Path) -> None:
         """Should not add duplicate discovery path."""
         self._write_empty_prometheus_config(tmp_path)
         (tmp_path / PROMETHEUS_PORT_FILE).write_text("9090")
@@ -184,8 +184,8 @@ class TestAddRayPrometheusMetricsServiceDiscovery:
     @patch("nemo_curator.metrics.utils.get_prometheus_port", return_value=9090)
     def test_adds_multiple_different_paths(
         self,
-        mock_port: object,  # noqa: ARG002
-        mock_post: object,  # noqa: ARG002
+        mock_port: object,
+        mock_post: object,
         tmp_path: pathlib.Path,
     ) -> None:
         """Should support multiple different Ray cluster paths."""
