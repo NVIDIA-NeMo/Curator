@@ -195,6 +195,7 @@ def run_entry(
         # Execute command with timeout
         logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
+        ray_cluster_data = get_ray_cluster_data()
         run_data = run_command_with_timeout(
             command=cmd,
             timeout=entry.timeout_s,
@@ -216,7 +217,6 @@ def run_entry(
                 "logs_dir": logs_path,
             }
         )
-        ray_cluster_data = get_ray_cluster_data()
         # script_persisted_data is a dictionary with keys "params" and "metrics"
         # "params" will contain everything the script wrote to its params.json file
         # "metrics" will contain everything the script wrote to its metrics.json file plus metrics

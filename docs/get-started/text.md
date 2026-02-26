@@ -66,7 +66,7 @@ Install the latest version directly from GitHub:
 git clone https://github.com/NVIDIA-NeMo/Curator.git
 cd Curator
 uv sync --extra text_cuda12 --all-groups
-source .venv/bin/activate 
+source .venv/bin/activate
 ```
 
 ```{note}
@@ -127,8 +127,8 @@ Here's a simple example to get started with NeMo Curator's pipeline-based archit
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules.score_filter import ScoreFilter
-from nemo_curator.stages.text.filters import WordCountFilter, NonAlphaNumericFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter, NonAlphaNumericFilter
 
 # Create a pipeline for text curation
 pipeline = Pipeline(

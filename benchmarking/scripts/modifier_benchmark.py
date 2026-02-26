@@ -30,15 +30,15 @@ from utils import setup_executor, write_benchmark_results
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
-from nemo_curator.stages.text.modifiers import (
+from nemo_curator.stages.text.modifiers import Modify
+from nemo_curator.stages.text.modifiers.string import (
     BoilerPlateStringModifier,
     MarkdownRemover,
     NewlineNormalizer,
     QuotationRemover,
-    UnicodeReformatter,
     UrlRemover,
 )
-from nemo_curator.stages.text.modules import Modify
+from nemo_curator.stages.text.modifiers.unicode import UnicodeReformatter
 
 
 def run_modify_benchmark(

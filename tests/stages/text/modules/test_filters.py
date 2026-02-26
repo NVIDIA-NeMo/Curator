@@ -18,42 +18,45 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nemo_curator.stages.text.filters import (
-    AlphaFilter,
+from nemo_curator.stages.text.filters import DocumentFilter, Filter, Score, ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import (
     BoilerPlateStringFilter,
     BulletsFilter,
     CommonEnglishWordsFilter,
-    DocumentFilter,
     EllipsisFilter,
-    GeneralCommentToCodeFilter,
-    HistogramFilter,
-    HTMLBoilerplateFilter,
     LongWordFilter,
     MeanWordLengthFilter,
     NonAlphaNumericFilter,
-    NumberOfLinesOfCodeFilter,
     NumbersFilter,
     ParenthesesFilter,
-    PerExtensionFilter,
     PornographicUrlsFilter,
     PunctuationFilter,
+    SubstringFilter,
+    SymbolsToWordsFilter,
+    UrlsFilter,
+    WhiteSpaceFilter,
+    WordCountFilter,
+    WordsWithoutAlphabetsFilter,
+)
+from nemo_curator.stages.text.filters.heuristic.code import (
+    AlphaFilter,
+    GeneralCommentToCodeFilter,
+    HTMLBoilerplateFilter,
+    NumberOfLinesOfCodeFilter,
+    PerExtensionFilter,
     PythonCommentToCodeFilter,
+    XMLHeaderFilter,
+)
+from nemo_curator.stages.text.filters.heuristic.repetition import (
     RepeatedLinesByCharFilter,
     RepeatedLinesFilter,
     RepeatedParagraphsByCharFilter,
     RepeatedParagraphsFilter,
     RepeatingDuplicateNGramsFilter,
     RepeatingTopNGramsFilter,
-    SubstringFilter,
-    SymbolsToWordsFilter,
-    TokenCountFilter,
-    UrlsFilter,
-    WhiteSpaceFilter,
-    WordCountFilter,
-    WordsWithoutAlphabetsFilter,
-    XMLHeaderFilter,
 )
-from nemo_curator.stages.text.modules import Filter, Score, ScoreFilter
+from nemo_curator.stages.text.filters.histogram import HistogramFilter
+from nemo_curator.stages.text.filters.token import TokenCountFilter
 from nemo_curator.tasks import DocumentBatch
 
 
