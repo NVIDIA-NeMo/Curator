@@ -35,21 +35,15 @@ def dump_env(session_obj: Session) -> dict[str, Any]:
     cmd = "uv pip freeze"
     timeout = 120
     logger.debug(f"Running '{cmd}' to capture environment package details")
-    try:
-        out = subprocess.check_output(cmd.split(" "), text=True, timeout=timeout)  # noqa: S603
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Command '{cmd}' failed with exit code {e.returncode}. Environment capture failed.")
-        raise
-    except subprocess.TimeoutExpired:
-        logger.error(f"Command '{cmd}' timed out after {timeout} seconds. Environment capture failed.")
-        raise
+    out = subprocess.check_output(cmd.split(" "), text=True, timeout=timeout)  # noqa: S603
 
+    # Write the packages from the command output to a text file.
     packages_txt_path = session_obj.output_path / "packages.txt"
     packages_txt_path.write_text(out)
     logger.info(f"Captured packages from '{cmd}' to {packages_txt_path}")
     env_data["packages_txt"] = str(packages_txt_path)
 
-    # Write env data to file as JSON and return the dictionary written
+    # Write env data to file as JSON and return the dictionary written.
     (session_obj.output_path / "env.json").write_text(json.dumps(get_obj_for_json(env_data)))
     return env_data
 
