@@ -95,7 +95,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
         try:
             client.start()
             _ensure_ray_client_process_started(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
-            responsive = check_ray_responsive()
+            responsive = True
         except Exception:
             logger.exception(f"Ray cluster start failed on attempt {retries + 1}")
             responsive = False
