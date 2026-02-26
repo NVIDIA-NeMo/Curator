@@ -15,7 +15,6 @@
 import json
 import os
 import platform
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -32,35 +31,23 @@ def dump_env(session_obj: Session) -> dict[str, Any]:
     env_data = get_env()
     env_data["object_store_size"] = session_obj.object_store_size
 
-    # Try package managers in order of preference for capturing the environment
-    # package_managers = [("uv", "pip freeze"), ("pip", "freeze"), ("micromamba", "list --explicit"), ("conda", "list --explicit")]  # noqa: ERA001
-    package_managers = [("uv", "pip freeze"), ("pip", "freeze")]
-    env_dumped = False
-    for package_manager, cmd in package_managers:
-        if shutil.which(package_manager):
-            cmd_list = [package_manager, *cmd.split(" ")]
-            logger.debug(f"Running '{' '.join(cmd_list)}' to capture environment package details")
-            try:
-                exp = subprocess.check_output(cmd_list, text=True, timeout=120)  # noqa: S603
-                packages_txt_path = session_obj.output_path / "packages.txt"
-                packages_txt_path.write_text(exp)
-                env_data["packages_txt"] = str(packages_txt_path)
-                logger.info(f"Captured packages from {package_manager} {cmd} to {packages_txt_path}")
-                env_dumped = True
-                break
-            except subprocess.CalledProcessError as e:
-                logger.warning(
-                    f"Command '{package_manager} {cmd}' failed with exit code {e.returncode}. "
-                    "Trying next package manager..."
-                )
-            except subprocess.TimeoutExpired:
-                logger.warning(
-                    f"Command '{package_manager} {cmd}' timed out after 120 seconds. Trying next package manager..."
-                )
-    if not env_dumped:
-        logger.warning(
-            f"No package manager ({', '.join([pm for pm, _ in package_managers])}) found in PATH, skipping environment capture"
-        )
+    # Use "uv pip freeze" to capture the environment packages.
+    cmd = "uv pip freeze"
+    timeout = 120
+    logger.debug(f"Running '{cmd}' to capture environment package details")
+    try:
+        out = subprocess.check_output(cmd.split(" "), text=True, timeout=timeout)  # noqa: S603
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Command '{cmd}' failed with exit code {e.returncode}. Environment capture failed.")
+        raise
+    except subprocess.TimeoutExpired:
+        logger.error(f"Command '{cmd}' timed out after {timeout} seconds. Environment capture failed.")
+        raise
+
+    packages_txt_path = session_obj.output_path / "packages.txt"
+    packages_txt_path.write_text(out)
+    logger.info(f"Captured packages from '{cmd}' to {packages_txt_path}")
+    env_data["packages_txt"] = str(packages_txt_path)
 
     # Write env data to file as JSON and return the dictionary written
     (session_obj.output_path / "env.json").write_text(json.dumps(get_obj_for_json(env_data)))
