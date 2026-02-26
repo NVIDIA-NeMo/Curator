@@ -308,12 +308,12 @@ class TestClipWriterStage:
 
     def test_get_video_uri_invalid_path(self):
         """Test _get_video_uri with invalid input path."""
-        with pytest.raises(ValueError, match="Input video path .* does not start with"):
+        with pytest.raises(ValueError, match=r"Input video path .* does not start with"):
             self.stage._get_video_uri("/invalid/path/video.mp4")
 
     def test_get_clip_chunk_uri_invalid_path(self):
         """Test _get_clip_chunk_uri with invalid input path."""
-        with pytest.raises(ValueError, match="Input video path .* does not start with"):
+        with pytest.raises(ValueError, match=r"Input video path .* does not start with"):
             self.stage._get_clip_chunk_uri("/invalid/path/video.mp4", 0)
 
     def test_write_clip_embedding_to_buffer_with_embeddings(self):
@@ -514,7 +514,7 @@ class TestClipWriterStage:
             assert result.max_clip_duration == 5.0
 
             mock_write_json.assert_called_once()
-            args, kwargs = mock_write_json.call_args
+            args, _kwargs = mock_write_json.call_args
             data = args[0]
 
             # Check metadata structure
@@ -555,7 +555,7 @@ class TestClipWriterStage:
             assert result.num_with_caption == 0
 
             mock_write_json.assert_called_once()
-            args, kwargs = mock_write_json.call_args
+            args, _kwargs = mock_write_json.call_args
             data = args[0]
 
             assert data["valid"] is False  # No buffer
@@ -803,7 +803,7 @@ class TestClipWriterStage:
             assert result.num_with_caption == 0
 
             mock_write_json.assert_called_once()
-            args, kwargs = mock_write_json.call_args
+            args, _kwargs = mock_write_json.call_args
             data = args[0]
 
             # Check that no captions were added to windows
@@ -839,7 +839,7 @@ class TestClipWriterStage:
             assert isinstance(result, ClipStats)
 
             mock_write_json.assert_called_once()
-            args, kwargs = mock_write_json.call_args
+            args, _kwargs = mock_write_json.call_args
             data = args[0]
 
             assert "errors" in data

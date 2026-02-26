@@ -80,7 +80,7 @@ def _extract_main_content(
         if settings["filter_clutter"] and content.get("content"):
             _apply_content_filtering(content, docname)
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"Error extracting main content from {docname}: {e}")
         content = {"content": "", "format": "text"}
 
@@ -153,7 +153,7 @@ def _extract_basic_features(content: dict[str, Any], doctree: nodes.document, do
             content[feature_name] = result
             if feature_name == "headings":
                 logger.debug(f"Extracted {len(result)} headings from {docname}")
-        except Exception as e:  # noqa: BLE001, PERF203
+        except Exception as e:  # noqa: PERF203
             logger.warning(f"Error extracting {feature_name} from {docname}: {e}")
             content[feature_name] = default_value
 
@@ -171,7 +171,7 @@ def _extract_complex_features(content: dict[str, Any], doctree: nodes.document, 
             result = extract_func(doctree)
             content[feature_name] = result
             logger.debug(f"Extracted {len(result)} {feature_name} from {docname}")
-        except Exception as e:  # noqa: BLE001, PERF203
+        except Exception as e:  # noqa: PERF203
             logger.warning(f"Error extracting {feature_name} from {docname}: {e}")
             content[feature_name] = []
 
@@ -181,7 +181,7 @@ def _extract_keywords_feature(content: dict[str, Any], docname: str) -> None:
     try:
         content["keywords"] = extract_keywords(content.get("content", ""), content.get("headings", []))
         logger.debug(f"Extracted {len(content['keywords'])} keywords from {docname}")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"Error extracting keywords from {docname}: {e}")
         content["keywords"] = []
 

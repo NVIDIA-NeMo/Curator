@@ -62,7 +62,7 @@ class GdriveSink(Sink):
         try:
             tar_path = self._tar_results_and_artifacts()
             self._upload_to_gdrive(tar_path)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             tb = traceback.format_exc()
             logger.error(f"GdriveSink: Error uploading to Google Drive: {e}\n{tb}")
         finally:

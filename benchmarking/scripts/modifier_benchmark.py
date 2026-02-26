@@ -30,15 +30,15 @@ from utils import setup_executor, write_benchmark_results
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
-from nemo_curator.stages.text.modifiers import (
+from nemo_curator.stages.text.modifiers import Modify
+from nemo_curator.stages.text.modifiers.string import (
     BoilerPlateStringModifier,
     MarkdownRemover,
     NewlineNormalizer,
     QuotationRemover,
-    UnicodeReformatter,
     UrlRemover,
 )
-from nemo_curator.stages.text.modules import Modify
+from nemo_curator.stages.text.modifiers.unicode import UnicodeReformatter
 
 
 def run_modify_benchmark(
@@ -90,7 +90,7 @@ def run_modify_benchmark(
         logger.success(f"Processed {num_documents_processed} documents")
         success = True
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         error_traceback = traceback.format_exc()
         logger.error(f"Benchmark failed: {e}")
         logger.debug(f"Full traceback:\n{error_traceback}")
@@ -141,7 +141,7 @@ def main() -> int:
             benchmark_results_path=args.benchmark_results_path,
         )
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         error_traceback = traceback.format_exc()
         print(f"Benchmark failed: {e}")
         logger.debug(f"Full traceback:\n{error_traceback}")

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: ERA001
 
 """Semantic duplicate identification benchmarking script for nightly benchmarking framework.
 
@@ -100,7 +99,7 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     run_time_taken = time.perf_counter() - run_start_time
     try:
         task_metrics = TaskPerfUtils.aggregate_task_metrics(workflow_run_result)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.error(f"Failed to aggregate task metrics: {e}")
         task_metrics = {}
 

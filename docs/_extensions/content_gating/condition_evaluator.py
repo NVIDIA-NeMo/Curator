@@ -57,7 +57,7 @@ def should_include_content(app: Sphinx, condition: str) -> bool:
             logger.debug(f"Condition '{tag}' evaluated to {result} (current tags: {current_tags})")
             return result
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"Error evaluating :only: condition '{condition}': {e}")
         # Default to including the content if there's an error
         return True

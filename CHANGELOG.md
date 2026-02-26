@@ -150,7 +150,7 @@ The next release will focus on completing the refactor of Generation, PII, and B
 
 - New How-to Data Recipes (Tutorials)
   - Multimodal DAPT Curation w/ PDF Extraction
-  - Llama Nemotron Data Curation 
+  - Llama Nemotron Data Curation
   - LLM NIM - PII Redaction
 - Performance and Code Optimizations
   - Simplified Clustering Logic: Significantly improved semantic deduplication clustering performance
