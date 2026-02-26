@@ -154,10 +154,16 @@ video_cuda12 = [
     "torchaudio",
 ]
 
+# Synthetic Data Generation (SDG) Dependencies
+sdg_cpu = [
+    "data-designer==0.4.0",
+]
+
 # All dependencies
 all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
+    "nemo_curator[sdg_cpu]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[video_cuda12]",
 ]
@@ -165,13 +171,14 @@ all = [
 [dependency-groups]
 build = ["setuptools", "torch<=2.9.1"]
 dev = ["jupyter"]
-linting = ["pre-commit", "ruff==0.11.4"]
+linting = ["pre-commit", "ruff==0.14.10"]
 test = [
     "coverage",
     "debugpy",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
+    "pytest-httpserver",
     "pytest-loguru",
     "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
     "s3fs", # added for testing cloud fs
@@ -200,6 +207,7 @@ constraint-dependencies = [
 override-dependencies = [
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
+    "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
@@ -258,7 +266,7 @@ ignore = [
     "PERF401",  # don't enforce list comprehension
     "RET505", "RET506", "RET507", "RET508",  # allow branching (if else after return)
     "PGH004",  # allow generic noqa
-    "PD901",  # allow naming dataframes df
+
     "TD002",  # allow TODO without author
     "TD003",  # allow TODO without link
     "TRY003", # allow long exception messages rather than creating a new exception class
@@ -266,6 +274,7 @@ ignore = [
     "EXE002", # don't require for a shebang to be present if it's executable
     "COM812", # disable the trailing comma in linter, because ruff formatter ensures it
     "SLF001", # allow accessing private attributes
+    "PLC0415", # allow imports inside functions (lazy imports for optional/heavy deps)
 ]
 fixable = ["ALL"]
 
@@ -278,8 +287,15 @@ fixable = ["ALL"]
 "tests/**/*.py" = [
     "S101", # asserts allowed in tests
     "ANN201", # allow methods to not return something
+    "ARG002", # allow unused method args (mock.patch decorator injects args not always referenced)
     "PLR2004", # magic value used in comparison
     "ERA001", # allow commented-out code
+]
+"benchmarking/**" = [
+    "BLE001", # allow catching blind exceptions (benchmark runners need catch-all error handling)
+]
+"docs/**" = [
+    "BLE001", # allow catching blind exceptions (Sphinx extensions need robust error handling)
 ]
 "tutorials/**" = [
     "INP001", # no __init__.py is required

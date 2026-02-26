@@ -237,7 +237,7 @@ class TestBackendIntegrations:
 
 
 class TestEnvVars:
-    def test_max_limit_env_vars(self, shared_ray_client: None):  # noqa: ARG002
+    def test_max_limit_env_vars(self, shared_ray_client: None):
         """We set these env vars in __init__.py of the package
 
 
