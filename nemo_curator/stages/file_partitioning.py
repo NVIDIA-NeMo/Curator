@@ -108,7 +108,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             msg = (
                 f"No files found under {self.file_paths}. "
                 "Check that the path exists and contains files with the expected extensions "
-                "(e.g. .jsonl for JsonlReader, .parquet for ParquetReader)."
+                "(e.g., `.jsonl` for JsonlReader or `.parquet` for ParquetReader)."
             )
             raise ValueError(msg)
         # Partition files
