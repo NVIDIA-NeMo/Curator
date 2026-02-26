@@ -164,7 +164,7 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     # Skip the test if the HF_TOKEN is not set
     hf_token = os.environ.get("HF_TOKEN")
     if not hf_token:
-        pytest.skip("HF_TOKEN environment variable not set")
+        pytest.fail("HF_TOKEN environment variable not set")
 
     text = [
         "What kind of fireworks would be the best to fire from my apartment for my four year old to see?",
