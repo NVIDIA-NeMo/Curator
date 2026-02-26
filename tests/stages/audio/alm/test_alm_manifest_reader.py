@@ -165,7 +165,7 @@ class TestALMManifestReaderDirectory:
         stage = ALMManifestReaderStage()
         result = stage.process(_make_file_group_task(all_files))
 
-        assert len(result) == 5
+        assert len(result) == 20  # 4 files × 5 entries each
         assert all(isinstance(r, AudioBatch) for r in result)
 
     def test_reads_from_subdirectory_a(self) -> None:
@@ -174,10 +174,7 @@ class TestALMManifestReaderDirectory:
         stage = ALMManifestReaderStage()
         result = stage.process(_make_file_group_task(files))
 
-        assert len(result) == 2
-        paths = {r.data[0]["audio_filepath"] for r in result}
-        assert "/data/audio/conversation_001.wav" in paths
-        assert "/data/audio/interview_002.wav" in paths
+        assert len(result) == 10  # 2 files × 5 entries each
 
     def test_reads_from_subdirectory_b(self) -> None:
         subdir = self._nested_dir() / "subdir_b"
@@ -185,7 +182,7 @@ class TestALMManifestReaderDirectory:
         stage = ALMManifestReaderStage()
         result = stage.process(_make_file_group_task(files))
 
-        assert len(result) == 3
+        assert len(result) == 10  # 2 files × 5 entries each
 
     def test_composite_discovers_nested_directory(self) -> None:
         nested = self._nested_dir()

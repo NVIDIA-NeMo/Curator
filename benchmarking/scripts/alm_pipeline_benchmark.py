@@ -32,13 +32,18 @@ from typing import Any
 
 import yaml
 from loguru import logger
-from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage, ALMManifestReader, ALMManifestWriterStage
+from nemo_curator.stages.audio.alm import (
+    ALMDataBuilderStage,
+    ALMDataOverlapStage,
+    ALMManifestReader,
+    ALMManifestWriterStage,
+)
+from utils import setup_executor, write_benchmark_results
 
 
-def run_alm_pipeline_benchmark(  # noqa: PLR0913
+def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
     benchmark_results_path: str,
     input_manifest: str,
     executor: str,

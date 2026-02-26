@@ -319,6 +319,35 @@ python tutorials/audio/alm/main.py \
   stages.2.overlap_percentage=0
 ```
 
+### Directory Input (Recursive Discovery)
+
+Process all manifests in a directory tree:
+
+```bash
+python tutorials/audio/alm/main.py \
+  --config-path . \
+  --config-name pipeline \
+  manifest_path=tests/fixtures/audio/alm/nested_manifests
+```
+
+This recursively discovers all `.jsonl` and `.json` files under `nested_manifests/` (including `subdir_a/` and `subdir_b/`), partitions them via `FilePartitioningStage`, and processes all entries through the full pipeline. Expected output with the included test fixtures (4 manifest files, 5 entries each = 20 entries):
+
+```
+PIPELINE COMPLETE
+==================================================
+  [file_partitioning]
+    items_processed: 0
+  [alm_manifest_reader]
+    items_processed: 20
+  [alm_data_builder]
+    windows_created: 724
+  [alm_data_overlap]
+    output_windows (after overlap): 100
+    filtered_audio_duration: 12142.0s
+  [alm_manifest_writer]
+    items_processed: 20
+```
+
 ## Benchmarking
 
 See [benchmarking/ALM_BENCHMARK.md](../../../benchmarking/ALM_BENCHMARK.md) for the full ALM benchmark documentation, including how to run benchmarks, configuration, CLI arguments, and reference results.

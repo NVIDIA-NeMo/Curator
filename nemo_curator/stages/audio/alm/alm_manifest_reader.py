@@ -28,7 +28,6 @@ from loguru import logger
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch, FileGroupTask, _EmptyTask
 
 
