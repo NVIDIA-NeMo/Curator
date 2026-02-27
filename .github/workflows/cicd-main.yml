@@ -66,6 +66,8 @@ jobs:
     needs: [pre-flight, cicd-wait-in-queue]
     runs-on: ${{ matrix.os }}
     name: Unit_Test_${{ matrix.folder}}_CPU_python-${{ matrix.python-version }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
     environment: nemo-ci
     if: |
       (
@@ -148,6 +150,7 @@ jobs:
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           PAT: ${{ secrets.PAT }}
           timeout: 20
           test-data-path: ${{ needs.pre-flight.outputs.test_data_path }}

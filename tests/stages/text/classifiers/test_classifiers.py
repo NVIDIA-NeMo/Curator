@@ -72,10 +72,7 @@ def run_and_assert_classifier_stages(
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[0]
     assert all(col in dataset.data.columns for col in tokenizer_stage.inputs()[1])
-    try:
-        tokenizer_stage.setup_on_node()
-    except RuntimeError:
-        pytest.skip("Skipping test due to flaky Hugging Face download")
+    tokenizer_stage.setup_on_node()
     tokenizer_stage.setup()
     tokenized_batch = tokenizer_stage.process(dataset)
     assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
@@ -83,10 +80,7 @@ def run_and_assert_classifier_stages(
     # Check that the model stage inputs/output columns are correct
     model_stage = stages[1]
     assert all(col in tokenized_batch.data.columns for col in model_stage.inputs()[1])
-    try:
-        model_stage.setup_on_node()
-    except RuntimeError:
-        pytest.skip("Skipping test due to flaky Hugging Face download")
+    model_stage.setup_on_node()
     model_stage.setup()
     result_batch = model_stage.process(tokenized_batch)
     assert all(col in result_batch.data.columns for col in model_stage.outputs()[1])
@@ -164,7 +158,7 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     # Skip the test if the HF_TOKEN is not set
     hf_token = os.environ.get("HF_TOKEN")
     if not hf_token:
-        pytest.skip("HF_TOKEN environment variable not set")
+        pytest.fail("HF_TOKEN environment variable not set")
 
     text = [
         "What kind of fireworks would be the best to fire from my apartment for my four year old to see?",
@@ -217,10 +211,7 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[1]
     assert all(col in wrapped_batch.data.columns for col in tokenizer_stage.inputs()[1])
-    try:
-        tokenizer_stage.setup_on_node()
-    except RuntimeError:
-        pytest.skip("Skipping test due to flaky Hugging Face download")
+    tokenizer_stage.setup_on_node()
     tokenizer_stage.setup()
     tokenized_batch = tokenizer_stage.process(wrapped_batch)
     assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
@@ -228,10 +219,7 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     # Check that the model stage inputs/output columns are correct
     model_stage = stages[2]
     assert all(col in tokenized_batch.data.columns for col in model_stage.inputs()[1])
-    try:
-        model_stage.setup_on_node()
-    except RuntimeError:
-        pytest.skip("Skipping test due to flaky Hugging Face download")
+    model_stage.setup_on_node()
     model_stage.setup()
     result_batch = model_stage.process(tokenized_batch)
     assert all(col in result_batch.data.columns for col in model_stage.outputs()[1])
@@ -239,10 +227,7 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     # Check that the postprocess_aegis_responses stage inputs/output columns are correct
     postprocess_aegis_responses_stage = stages[3]
     assert all(col in result_batch.data.columns for col in postprocess_aegis_responses_stage.inputs()[1])
-    try:
-        postprocess_aegis_responses_stage.setup_on_node()
-    except RuntimeError:
-        pytest.skip("Skipping test due to flaky Hugging Face download")
+    postprocess_aegis_responses_stage.setup_on_node()
     postprocess_aegis_responses_stage.setup()
     postprocessed_batch = postprocess_aegis_responses_stage.process(result_batch)
     assert all(col in postprocessed_batch.data.columns for col in postprocess_aegis_responses_stage.outputs()[1])
@@ -321,7 +306,7 @@ def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
     # Skip the test if the HF_TOKEN is not set
     hf_token = os.environ.get("HF_TOKEN")
     if not hf_token:
-        pytest.skip("HF_TOKEN environment variable not set")
+        pytest.fail("HF_TOKEN environment variable not set")
 
     instruction = "Find a route between San Diego and Phoenix which passes through Nevada"
     input_ = ""

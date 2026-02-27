@@ -12,24 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .doc_modifier import DocumentModifier
-from .modifier import Modify
-from .string import (
-    BoilerPlateStringModifier,
-    LineRemover,
-    MarkdownRemover,
-    NewlineNormalizer,
-    QuotationRemover,
-    Slicer,
-    UrlRemover,
-)
+from .c4 import BoilerPlateStringModifier
+from .line_remover import LineRemover
+from .markdown_remover import MarkdownRemover
+from .newline_normalizer import NewlineNormalizer
+from .quotation_remover import QuotationRemover
+from .slicer import Slicer
+from .url_remover import UrlRemover
 
 __all__ = [
     "BoilerPlateStringModifier",
-    "DocumentModifier",
     "LineRemover",
     "MarkdownRemover",
-    "Modify",
     "NewlineNormalizer",
     "QuotationRemover",
     "Slicer",

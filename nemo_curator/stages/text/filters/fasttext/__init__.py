@@ -12,26 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .doc_modifier import DocumentModifier
-from .modifier import Modify
-from .string import (
-    BoilerPlateStringModifier,
-    LineRemover,
-    MarkdownRemover,
-    NewlineNormalizer,
-    QuotationRemover,
-    Slicer,
-    UrlRemover,
-)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .fasttext_filters import FastTextLangId, FastTextQualityFilter
 
 __all__ = [
-    "BoilerPlateStringModifier",
-    "DocumentModifier",
-    "LineRemover",
-    "MarkdownRemover",
-    "Modify",
-    "NewlineNormalizer",
-    "QuotationRemover",
-    "Slicer",
-    "UrlRemover",
+    "FastTextLangId",
+    "FastTextQualityFilter",
 ]
+
+
+def __getattr__(name: str) -> type["FastTextLangId"] | type["FastTextQualityFilter"]:
+    if name == "FastTextLangId":
+        from .fasttext_filters import FastTextLangId
+
+        return FastTextLangId
+    if name == "FastTextQualityFilter":
+        from .fasttext_filters import FastTextQualityFilter
+
+        return FastTextQualityFilter
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

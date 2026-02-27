@@ -12,26 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .doc_modifier import DocumentModifier
-from .modifier import Modify
-from .string import (
-    BoilerPlateStringModifier,
-    LineRemover,
-    MarkdownRemover,
-    NewlineNormalizer,
-    QuotationRemover,
-    Slicer,
-    UrlRemover,
+from .code import (
+    AlphaFilter,
+    GeneralCommentToCodeFilter,
+    HTMLBoilerplateFilter,
+    NumberOfLinesOfCodeFilter,
+    PerExtensionFilter,
+    PythonCommentToCodeFilter,
+    TokenizerFertilityFilter,
+    XMLHeaderFilter,
 )
 
 __all__ = [
-    "BoilerPlateStringModifier",
-    "DocumentModifier",
-    "LineRemover",
-    "MarkdownRemover",
-    "Modify",
-    "NewlineNormalizer",
-    "QuotationRemover",
-    "Slicer",
-    "UrlRemover",
+    "AlphaFilter",
+    "GeneralCommentToCodeFilter",
+    "HTMLBoilerplateFilter",
+    "NumberOfLinesOfCodeFilter",
+    "PerExtensionFilter",
+    "PythonCommentToCodeFilter",
+    "TokenizerFertilityFilter",
+    "XMLHeaderFilter",
 ]
