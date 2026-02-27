@@ -158,3 +158,6 @@ data/
 
 # InternVideo2 dependency (cloned by installation script)
 InternVideo/
+
+# Internal comparison tooling (not for distribution)
+.internal/
