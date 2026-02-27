@@ -49,17 +49,16 @@ from nemo_curator.stages.text.download.arxiv.iterator import ArxivIterator
 from nemo_curator.stages.text.download.base import URLGenerator
 from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
-from nemo_curator.stages.text.filters import (
-    FastTextLangId,
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.fasttext import FastTextLangId
+from nemo_curator.stages.text.filters.heuristic import (
     PunctuationFilter,
-    RepeatedLinesFilter,
-    RepeatingTopNGramsFilter,
     UrlsFilter,
     WordCountFilter,
 )
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatedLinesFilter, RepeatingTopNGramsFilter
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 from nemo_curator.stages.text.modules.add_id import AddId
-from nemo_curator.stages.text.modules.score_filter import ScoreFilter
 from nemo_curator.tasks import DocumentBatch, _EmptyTask
 from nemo_curator.tasks.utils import TaskPerfUtils
 
