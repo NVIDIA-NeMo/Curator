@@ -49,7 +49,7 @@ inputs:
     required: false
     default: "false"
   HF_TOKEN:
-    description: "Huggingface Token"
+    description: "Hugging Face Token"
     required: true
   PAT:
     description: "GitHub Personal Access Token"
