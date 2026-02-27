@@ -198,7 +198,7 @@ class Pipeline:
                 names = ", ".join(s.name for s in gpu_stages)
                 logger.warning(
                     f"Ray Serve is active and pipeline has GPU stages: [{names}]. "
-                    "GPU resource contention between served models and pipeline stages is untested. "
+                    "GPU resource contention may occur between served models and pipeline stages. "
                     "Consider using a CPU-only pipeline or stopping the ModelServer before running GPU stages."
                 )
 
