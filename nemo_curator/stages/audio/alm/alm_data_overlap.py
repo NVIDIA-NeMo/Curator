@@ -219,6 +219,11 @@ class ALMDataOverlapStage(LegacySpeechStage):
 
         windows = entry.get("windows", [])
         if not windows:
+            entry.setdefault("filtered_windows", [])
+            entry.setdefault("filtered_dur", 0.0)
+            entry.setdefault("filtered_dur_list", [])
+            entry.setdefault("total_dur_window", 0.0)
+            entry.setdefault("total_dur_list_window", [])
             return entry
 
         total_dur_window = _calculate_total_dur(windows)
