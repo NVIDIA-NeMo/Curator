@@ -276,7 +276,6 @@ class CosmosEmbed1(ModelInterface):
                 self._weights_dir,
                 trust_remote_code=True,
                 local_files_only=True,
-                low_cpu_mem_usage=False,
             ).to("cuda", dtype=torch.bfloat16)
             if self._model is None:
                 msg = "Model failed to load"
