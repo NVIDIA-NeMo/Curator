@@ -78,7 +78,7 @@ class ChunkMergeStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         rows_before = len(df)
 
         # Deduplicate by (groupby_columns + chunk_id)
-        dedup_cols = self.groupby_columns + [self.chunk_id_field]
+        dedup_cols = [*self.groupby_columns, self.chunk_id_field]
         df = df.drop_duplicates(subset=dedup_cols, keep="first")
 
         # Filter rows where text matches no-content markers, is null, empty, or newline
@@ -97,7 +97,7 @@ class ChunkMergeStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             )
 
         # Sort by groupby_columns + chunk_id for correct ordering
-        sort_cols = self.groupby_columns + [self.chunk_id_field]
+        sort_cols = [*self.groupby_columns, self.chunk_id_field]
         df = df.sort_values(sort_cols).reset_index(drop=True)
 
         # Build aggregation: concat text fields, sum token counts, first() for metadata

@@ -67,16 +67,18 @@ def build_pipeline(  # noqa: PLR0913
     return p
 
 
+def _safe_read_row_count(fp: str) -> int:
+    """Read row count from a single JSONL file, returning 0 on failure."""
+    try:
+        return len(pd.read_json(fp, lines=True))
+    except (ValueError, FileNotFoundError):
+        logger.warning(f"Could not read {fp}, skipping")
+        return 0
+
+
 def count_rows(file_paths: list[str]) -> int:
     """Count total rows across JSONL files."""
-    total = 0
-    for fp in file_paths:
-        try:
-            df = pd.read_json(fp, lines=True)
-            total += len(df)
-        except Exception:
-            pass
-    return total
+    return sum(_safe_read_row_count(fp) for fp in file_paths)
 
 
 def main() -> None:
@@ -117,7 +119,7 @@ def main() -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005
     output_dir = os.path.join(args.output, f"merged_{timestamp}")
 
-    raw_text_field = args.raw_text_field if args.raw_text_field else None
+    raw_text_field = args.raw_text_field or None
 
     ray_client = RayClient()
     ray_client.start()
