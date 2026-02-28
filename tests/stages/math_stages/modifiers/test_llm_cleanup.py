@@ -33,11 +33,11 @@ class MockLLMOutput:
 class MockLLM:
     """Mock vLLM LLM class."""
 
-    def __init__(self, *args, **kwargs):  # noqa: ARG002
+    def __init__(self, *args, **kwargs):
         self.model = kwargs.get("model", "test-model")
         self.max_model_len = kwargs.get("max_model_len", 32000)
 
-    def generate(self, prompts: list[str], sampling_params=None, use_tqdm=False):  # noqa: ARG002, ANN001
+    def generate(self, prompts: list[str], sampling_params=None, use_tqdm=False):  # noqa: ANN001
         """Mock generate method that returns cleaned text."""
         results = []
         for prompt in prompts:
@@ -84,7 +84,7 @@ class MockSamplingParams:
 class MockVLLMModel:
     """Mock VLLMModel class that prevents real vLLM initialization."""
 
-    def __init__(self, *args, **kwargs):  # noqa: ARG002
+    def __init__(self, *args, **kwargs):
         # Store all kwargs as attributes
         self.model = kwargs.get("model", "test-model")
         self.max_model_len = kwargs.get("max_model_len")

@@ -30,7 +30,7 @@ class TestArxivDownloadExtractStage:
     """Test suite for ArxivDownloadExtractStage."""
 
     @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
-    def test_arxiv_stage_decomposition(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
+    def test_arxiv_stage_decomposition(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:
         """Test that ArxivDownloadExtractStage can be decomposed into constituent stages."""
         download_dir = str(tmp_path / "downloads")
         stage = ArxivDownloadExtractStage(download_dir=download_dir)
@@ -64,7 +64,7 @@ class TestArxivDownloadExtractStage:
         assert isinstance(extract_stage.extractor, ArxivExtractor)
 
     @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
-    def test_arxiv_stage_name(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
+    def test_arxiv_stage_name(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:
         """Test that stage name is as expected."""
         download_dir = str(tmp_path / "downloads")
 
@@ -72,7 +72,7 @@ class TestArxivDownloadExtractStage:
         assert stage.name == "arxiv_pipeline"
 
     @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
-    def test_arxiv_stage_description(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
+    def test_arxiv_stage_description(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:
         """Test that stage description is as expected."""
         download_dir = str(tmp_path / "downloads")
 
@@ -81,7 +81,7 @@ class TestArxivDownloadExtractStage:
         assert description == "Arxiv pipeline"
 
     @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
-    def test_arxiv_stage_parameters_propagation(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
+    def test_arxiv_stage_parameters_propagation(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:
         """Test that parameters are properly propagated to constituent stages."""
         download_dir = str(tmp_path / "downloads")
 
@@ -119,7 +119,7 @@ class TestArxivDownloadExtractStage:
         assert extract_stage.filename_col == "custom_filename"
 
     @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
-    def test_arxiv_stage_inputs_outputs(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
+    def test_arxiv_stage_inputs_outputs(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:
         """Test stage inputs and outputs specification."""
         download_dir = str(tmp_path / "downloads")
 
@@ -136,7 +136,7 @@ class TestArxivDownloadExtractStage:
         assert outputs == (["data"], ["text", "file_name"])
 
     @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
-    def test_arxiv_stage_initialization_validation(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
+    def test_arxiv_stage_initialization_validation(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:
         """Test that stage initialization validates parameters correctly."""
         download_dir = str(tmp_path / "downloads")
 
