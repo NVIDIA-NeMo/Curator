@@ -15,6 +15,7 @@
 import os
 import socket
 import subprocess
+import time
 from typing import TYPE_CHECKING
 
 import ray
@@ -25,10 +26,59 @@ from nemo_curator.core.constants import (
     DEFAULT_RAY_DASHBOARD_METRIC_PORT,
     DEFAULT_RAY_MAX_WORKER_PORT,
     DEFAULT_RAY_MIN_WORKER_PORT,
+    RAY_CLUSTER_START_VERIFICATION_TIMEOUT,
 )
 
 if TYPE_CHECKING:
     import loguru
+
+
+def check_ray_responsive(timeout_s: int = RAY_CLUSTER_START_VERIFICATION_TIMEOUT) -> bool:
+    # Assume the env var RAY_ADDRESS is set to the correct value by code starting the Ray cluster
+    logger.debug(f"Verifying Ray cluster is responsive, using RAY_ADDRESS={os.environ.get('RAY_ADDRESS')}")
+
+    responsive = False
+    timer = 0
+    t0 = time.time()
+    while not responsive and (timer < timeout_s):
+        try:
+            logger.debug("running 'ray status' command")
+            result = subprocess.run(
+                ["ray", "status"],  # noqa: S607
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=10,
+            )
+
+            # Clean stdout to remove any new lines and carriage returns
+            result.stdout = result.stdout.replace("\n", "").replace("\r", "")
+            if "No cluster status" in result.stdout or "Error" in result.stdout:
+                logger.debug("Ray cluster is not responsive ('No cluster status' returned or Error in output)")
+            elif "Found multiple active Ray instances" in result.stdout:
+                logger.warning(
+                    "Found multiple active Ray instances. Pleae set RAY_ADDRESS environment variable to the correct value."
+                )
+                responsive = False
+                break
+            else:
+                logger.debug("Ray cluster IS responsive")
+                responsive = True
+
+        except subprocess.CalledProcessError:
+            logger.debug("Ray cluster is not responsive ('ray status' command failed)")
+
+        except subprocess.TimeoutExpired:
+            logger.debug("Ray cluster is not responsive ('ray status' command timed out)")
+
+        timer = time.time() - t0
+        time.sleep(0.5)
+
+    if not responsive and timer >= timeout_s:
+        logger.debug("Ray cluster did not become responsive in time...")
+
+    return responsive
 
 
 def get_free_port(start_port: int, get_next_free_port: bool = True) -> int:
@@ -133,4 +183,5 @@ def init_cluster(  # noqa: PLR0913
     else:
         proc = subprocess.Popen(ray_command, shell=False, start_new_session=True)  # noqa: S603
     logger.info(f"Ray start command: {' '.join(ray_command)}")
+
     return proc

@@ -42,6 +42,10 @@ Based on [SemDeDup: Data-efficient learning at web-scale through semantic dedupl
 - GPU acceleration (required for embedding generation and clustering)
 - Stable document identifiers for removal (either existing IDs or IDs managed by the workflow and removal stages)
 
+```{note}
+**Running in Docker**: When running semantic deduplication inside the NeMo Curator container, ensure the container is started with `--gpus all` so that CUDA GPUs are available. Without this flag, you will see `RuntimeError: No CUDA GPUs are available`. Also activate the virtual environment with `source /opt/venv/env.sh` after entering the container.
+```
+
 ## Quick Start
 
 Get started with semantic deduplication using the following example of identifying duplicates, then remove them in one step:

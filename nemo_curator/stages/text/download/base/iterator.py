@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +25,8 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.column_utils import resolve_filename_column
 
+from .extract import DocumentExtractor
+
 
 class DocumentIterator(ABC):
     """Abstract base class for document iterators.
@@ -45,38 +47,46 @@ class DocumentIterator(ABC):
 
 
 @dataclass
-class DocumentIterateStage(ProcessingStage[FileGroupTask, DocumentBatch]):
-    """Stage that iterates through downloaded files and extracts records.
+class DocumentIterateExtractStage(ProcessingStage[FileGroupTask, DocumentBatch]):
+    """Stage that iterates through downloaded files with DocumentIterator,
+    then extracts structured content from raw records with DocumentExtractor.
 
-    Takes local file paths and produces a DocumentBatch with records.
-    All iterators yield dict[str, str] records uniformly.
+    Takes local file paths and produces a DocumentBatch with extracted content.
+    If DocumentIterator produces the final format, then DocumentExtractor is not needed.
     """
 
     iterator: DocumentIterator
+    extractor: DocumentExtractor | None = None
     record_limit: int | None = None
     add_filename_column: bool | str = True
 
     def __post_init__(self):
         """Initialize the stage."""
         self.filename_col = resolve_filename_column(self.add_filename_column)
-        self.name = f"iterate_{self.iterator.__class__.__name__.lower()}"
+        if self.extractor:
+            self.name = f"iterate_extract_{self.iterator.__class__.__name__.lower()}_{self.extractor.__class__.__name__.lower()}"
+        else:
+            self.name = f"iterate_{self.iterator.__class__.__name__.lower()}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define input requirements - expects FileGroupTask with local file paths."""
         return (["data"], [])
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        """Define output - produces DocumentBatch with records."""
-        return (["data"], self.iterator.output_columns() + ([self.filename_col] if self.add_filename_column else []))  # type: ignore[reportReturnType]
+        """Define output - produces DocumentBatch with processed records."""
+        if self.extractor:
+            return (["data"], self.extractor.output_columns() + ([self.filename_col] if self.add_filename_column else []))
+        else:
+            return (["data"], self.iterator.output_columns() + ([self.filename_col] if self.add_filename_column else []))
 
     def process(self, task: FileGroupTask) -> DocumentBatch:
-        """Iterate through files and extract records.
+        """Iterate through files and extract structured content.
 
         Args:
             task (FileGroupTask): Task containing local file paths
 
         Returns:
-            DocumentBatch: Batch containing records
+            DocumentBatch: Batch containing extracted records
         """
         records = []
 
@@ -84,15 +94,30 @@ class DocumentIterateStage(ProcessingStage[FileGroupTask, DocumentBatch]):
             try:
                 record_count = 0
                 iterator_result = self.iterator.iterate(file_path)
-                if iterator_result is not None:
-                    for record_dict in iterator_result:
-                        if self.record_limit and record_count >= self.record_limit:
-                            break
-                        if self.add_filename_column:
-                            # TODO: Support cloud storage https://github.com/NVIDIA-NeMo/Curator/issues/779
-                            record_dict[self.filename_col] = os.path.basename(file_path)  # type: ignore[reportReturnType]
-                        records.append(record_dict)
-                        record_count += 1
+
+                if iterator_result is None:
+                    continue
+
+                for record_dict in iterator_result:
+                    if self.record_limit and record_count >= self.record_limit:
+                        break
+
+                    # Add filename early
+                    if self.add_filename_column:
+                        record_dict[self.filename_col] = os.path.basename(file_path)
+
+                    # Extract structured content
+                    extracted = self.extractor.extract(record_dict) if self.extractor else record_dict
+
+                    if extracted is None:
+                        continue
+
+                    # Ensure filename is preserved
+                    if self.add_filename_column:
+                        extracted[self.filename_col] = record_dict[self.filename_col]
+
+                    records.append(extracted)
+                    record_count += 1
 
             except Exception as e:  # noqa: BLE001
                 logger.error(f"Error iterating {file_path}: {e}")

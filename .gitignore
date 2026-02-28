@@ -155,6 +155,3 @@ data/
 
 # macOS Files
 .DS_Store
-
-# InternVideo2 dependency (cloned by installation script)
-InternVideo/

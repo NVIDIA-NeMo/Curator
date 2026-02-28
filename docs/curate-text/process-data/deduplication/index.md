@@ -24,8 +24,8 @@ NeMo Curator provides three deduplication approaches, each optimized for differe
 
 ::::{tab-item} Exact
 
-**Method**: MD5 hashing  
-**Detects**: Character-for-character identical documents  
+**Method**: MD5 hashing
+**Detects**: Character-for-character identical documents
 **Speed**: Fastest
 
 Computes MD5 hashes for each document's text content and groups documents with identical hashes. Best for removing exact copies.
@@ -58,8 +58,8 @@ For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate ID
 
 ::::{tab-item} Fuzzy
 
-**Method**: MinHash + Locality Sensitive Hashing (LSH)  
-**Detects**: Near-duplicates with minor edits (~80% similarity)  
+**Method**: MinHash + Locality Sensitive Hashing (LSH)
+**Detects**: Near-duplicates with minor edits (~80% similarity)
 **Speed**: Fast
 
 Generates MinHash signatures and uses LSH to find similar documents. Best for detecting documents with small formatting differences or typos.
@@ -96,8 +96,8 @@ For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate ID
 
 ::::{tab-item} Semantic
 
-**Method**: Embeddings + clustering + pairwise similarity  
-**Detects**: Semantically similar content (paraphrases, translations)  
+**Method**: Embeddings + clustering + pairwise similarity
+**Detects**: Semantically similar content (paraphrases, translations)
 **Speed**: Moderate
 
 Generates embeddings using transformer models, clusters them, and computes pairwise similarities. Best for meaning-based deduplication.
@@ -110,7 +110,7 @@ from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplic
 
 text_workflow = TextSemanticDeduplicationWorkflow(
     input_path="/path/to/input/data",
-    output_path="/path/to/output", 
+    output_path="/path/to/output",
     cache_path="/path/to/cache",
     text_field="text",
     model_identifier="sentence-transformers/all-MiniLM-L6-v2",
@@ -126,7 +126,7 @@ text_workflow.run()
 - `TextSemanticDeduplicationWorkflow`: For raw text with automatic embedding generation
 - `SemanticDeduplicationWorkflow`: For pre-computed embeddings
 
-See {ref}`Semantic Deduplication <text-process-data-dedup-semdedup>` for details.
+See {ref}`Semantic Deduplication <text-process-data-format-sem-dedup>` for details.
 :::
 
 :::{dropdown} Advanced: Step-by-Step Semantic Deduplication
@@ -245,8 +245,8 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_path="/path/to/duplicates",  # ExactDuplicateIds/, FuzzyDuplicateIds/, or duplicates/
     output_path="/path/to/clean",
     input_filetype="parquet",
-    input_id_field="_curator_dedup_id",
-    ids_to_remove_duplicate_id_field="_curator_dedup_id",
+    id_field="_curator_dedup_id",
+    duplicate_id_field="_curator_dedup_id",
     id_generator_path="/path/to/id_generator.json"  # Required when IDs were auto-assigned
 )
 removal_workflow.run()
@@ -258,13 +258,13 @@ removal_workflow.run()
 **When `assign_id=True`** (IDs auto-assigned):
 
 - Duplicate IDs file contains `_curator_dedup_id` column
-- Set `ids_to_remove_duplicate_id_field="_curator_dedup_id"`
+- Set `duplicate_id_field="_curator_dedup_id"`
 - `id_generator_path` is required
 
 **When `assign_id=False`** (using existing IDs):
 
 - Duplicate IDs file contains the column specified by `id_field` (e.g., `"id"`)
-- Set `ids_to_remove_duplicate_id_field` to match your `id_field` value
+- Set `duplicate_id_field` to match your `id_field` value
 - `id_generator_path` not required
 :::
 
@@ -378,7 +378,7 @@ For detailed implementation guides, see:
 
 - {ref}`Exact Duplicate Removal <text-process-data-dedup-exact>`
 - {ref}`Fuzzy Duplicate Removal <text-process-data-dedup-fuzzy>`
-- {ref}`Semantic Deduplication <text-process-data-dedup-semdedup>`
+- {ref}`Semantic Deduplication <text-process-data-format-sem-dedup>`
 
 :::{dropdown} Performance Considerations
 :icon: zap
@@ -455,7 +455,7 @@ The ID Generator ensures consistent IDs across workflow stages.
 
 - **New to deduplication**: Start with {ref}`Exact Duplicate Removal <text-process-data-dedup-exact>` for the fastest approach
 - **Need near-duplicate detection**: See {ref}`Fuzzy Duplicate Removal <text-process-data-dedup-fuzzy>` for MinHash-based matching
-- **Require semantic matching**: Explore {ref}`Semantic Deduplication <text-process-data-dedup-semdedup>` for meaning-based deduplication
+- **Require semantic matching**: Explore {ref}`Semantic Deduplication <text-process-data-format-sem-dedup>` for meaning-based deduplication
 
 **For hands-on guidance**: See {ref}`Text Curation Tutorials <text-tutorials>` for step-by-step examples.
 

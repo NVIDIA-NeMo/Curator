@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,8 +17,7 @@ from unittest import mock
 
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.base.download import DocumentDownloadStage
-from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
-from nemo_curator.stages.text.download.base.iterator import DocumentIterateStage
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage
 from nemo_curator.stages.text.download.base.stage import DocumentDownloadExtractStage
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
 
@@ -141,14 +140,13 @@ class TestDocumentDownloadExtractStage:
 
         stages = stage.decompose()
 
-        # Should have 4 stages: URL generation, download, iterate, extract
-        assert len(stages) == 4
+        # Should have 3 stages: URL generation, download, iterate-extract
+        assert len(stages) == 3
 
         # Check stage types and order
         assert isinstance(stages[0], URLGenerationStage)
         assert isinstance(stages[1], DocumentDownloadStage)
-        assert isinstance(stages[2], DocumentIterateStage)
-        assert isinstance(stages[3], DocumentExtractStage)
+        assert isinstance(stages[2], DocumentIterateExtractStage)
 
         # Check that parameters are propagated correctly
         url_stage = stages[0]
@@ -158,12 +156,10 @@ class TestDocumentDownloadExtractStage:
         download_stage = stages[1]
         assert download_stage.downloader is downloader
 
-        iterate_stage = stages[2]
-        assert iterate_stage.iterator is iterator
-        assert iterate_stage.record_limit == 10
-
-        extract_stage = stages[3]
-        assert extract_stage.extractor is extractor
+        iterate_extract_stage = stages[2]
+        assert iterate_extract_stage.iterator is iterator
+        assert iterate_extract_stage.extractor is extractor
+        assert iterate_extract_stage.record_limit == 10
 
     def test_decompose_without_extractor(self, tmp_path: Path) -> None:
         """Test decomposition into constituent stages without extractor."""
@@ -180,13 +176,18 @@ class TestDocumentDownloadExtractStage:
 
         stages = stage.decompose()
 
-        # Should have 3 stages: URL generation, download, iterate (no extract)
+        # Should have 3 stages: URL generation, download, iterate-extract
         assert len(stages) == 3
 
         # Check stage types and order
         assert isinstance(stages[0], URLGenerationStage)
         assert isinstance(stages[1], DocumentDownloadStage)
-        assert isinstance(stages[2], DocumentIterateStage)
+        assert isinstance(stages[2], DocumentIterateExtractStage)
+
+        # Check that parameters are propagated correctly for iterate-extract stage
+        iterate_extract_stage = stages[2]
+        assert iterate_extract_stage.iterator is iterator
+        assert iterate_extract_stage.extractor is None
 
     def test_get_description(self, tmp_path: Path) -> None:
         """Test that stage description is correctly generated."""
@@ -230,16 +231,11 @@ class TestDocumentDownloadExtractStage:
         assert isinstance(url_stage, URLGenerationStage)
         assert url_stage.limit == 3
 
-        # Check iterate stage
+        # Check iterate-extract stage
         iterate_stage = stages[2]
-        assert isinstance(iterate_stage, DocumentIterateStage)
+        assert isinstance(iterate_stage, DocumentIterateExtractStage)
         assert iterate_stage.record_limit == 5
         assert iterate_stage.filename_col == "custom_file"
-
-        # Check extract stage
-        extract_stage = stages[3]
-        assert isinstance(extract_stage, DocumentExtractStage)
-        assert extract_stage.filename_col == "custom_file"
 
     def test_stage_resources(self, tmp_path: Path) -> None:
         """Test that stage has appropriate resource requirements."""
@@ -274,12 +270,9 @@ class TestDocumentDownloadExtractStage:
         )
 
         stages = stage_bool.decompose()
-        iterate_stage = stages[2]
-        extract_stage = stages[3]
-        assert isinstance(iterate_stage, DocumentIterateStage)
-        assert isinstance(extract_stage, DocumentExtractStage)
-        assert iterate_stage.filename_col == "file_name"  # Default name
-        assert extract_stage.filename_col == "file_name"
+        iterate_extract_stage = stages[2]
+        assert isinstance(iterate_extract_stage, DocumentIterateExtractStage)
+        assert iterate_extract_stage.filename_col == "file_name"  # Default name
 
         # Test with boolean False
         stage_false = DocumentDownloadExtractStage(
@@ -291,12 +284,9 @@ class TestDocumentDownloadExtractStage:
         )
 
         stages = stage_false.decompose()
-        iterate_stage = stages[2]
-        extract_stage = stages[3]
-        assert isinstance(iterate_stage, DocumentIterateStage)
-        assert isinstance(extract_stage, DocumentExtractStage)
-        assert iterate_stage.add_filename_column is False
-        assert extract_stage.add_filename_column is False
+        iterate_extract_stage = stages[2]
+        assert isinstance(iterate_extract_stage, DocumentIterateExtractStage)
+        assert iterate_extract_stage.add_filename_column is False
 
         # Test with custom string
         stage_custom = DocumentDownloadExtractStage(
@@ -308,12 +298,9 @@ class TestDocumentDownloadExtractStage:
         )
 
         stages = stage_custom.decompose()
-        iterate_stage = stages[2]
-        extract_stage = stages[3]
-        assert isinstance(iterate_stage, DocumentIterateStage)
-        assert isinstance(extract_stage, DocumentExtractStage)
-        assert iterate_stage.filename_col == "source_path"
-        assert extract_stage.filename_col == "source_path"
+        iterate_extract_stage = stages[2]
+        assert isinstance(iterate_extract_stage, DocumentIterateExtractStage)
+        assert iterate_extract_stage.filename_col == "source_path"
 
     def test_stage_edge_cases(self, tmp_path: Path) -> None:
         """Test edge cases for the composite stage."""
@@ -334,23 +321,21 @@ class TestDocumentDownloadExtractStage:
 
         # Check that limits are correctly set
         url_stage = stages[0]
-        iterate_stage = stages[2]
+        iterate_extract_stage = stages[2]
         assert isinstance(url_stage, URLGenerationStage)
-        assert isinstance(iterate_stage, DocumentIterateStage)
+        assert isinstance(iterate_extract_stage, DocumentIterateExtractStage)
         assert url_stage.limit == 0
-        assert iterate_stage.record_limit == 0
+        assert iterate_extract_stage.record_limit == 0
 
         # Should still have all required stages
         assert len(stages) == 3
 
     @mock.patch("nemo_curator.stages.text.download.base.stage.URLGenerationStage")
     @mock.patch("nemo_curator.stages.text.download.base.stage.DocumentDownloadStage")
-    @mock.patch("nemo_curator.stages.text.download.base.stage.DocumentIterateStage")
-    @mock.patch("nemo_curator.stages.text.download.base.stage.DocumentExtractStage")
+    @mock.patch("nemo_curator.stages.text.download.base.stage.DocumentIterateExtractStage")
     def test_stage_initialization_mocking(
         self,
-        mock_extract_stage: mock.Mock,
-        mock_iterate_stage: mock.Mock,
+        mock_iterate_extract_stage: mock.Mock,
         mock_download_stage: mock.Mock,
         mock_url_stage: mock.Mock,
         tmp_path: Path,
@@ -381,13 +366,9 @@ class TestDocumentDownloadExtractStage:
             downloader=downloader,
         )
 
-        mock_iterate_stage.assert_called_once_with(
+        mock_iterate_extract_stage.assert_called_once_with(
             iterator=iterator,
-            record_limit=10,
-            add_filename_column="test_file",
-        )
-
-        mock_extract_stage.assert_called_once_with(
             extractor=extractor,
+            record_limit=10,
             add_filename_column="test_file",
         )

@@ -112,6 +112,15 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             msg = f"{cls.__name__} must not override '_batch_size'"
             raise TypeError(msg)
 
+        for attr in ("name", "resources", "batch_size"):
+            if isinstance(cls.__dict__.get(attr), property):
+                msg = (
+                    f"{cls.__name__} must not define '{attr}' as a @property. "
+                    f"Use a plain class attribute or dataclass field instead, "
+                    f"so that ProcessingStage.with_() can override it."
+                )
+                raise TypeError(msg)
+
     def num_workers(self) -> int | None:
         """Number of workers required. If None, then executor will determine the number of workers."""
         return None

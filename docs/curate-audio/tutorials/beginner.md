@@ -55,7 +55,7 @@ cd NeMo-Curator/tutorials/audio/fleurs/
 
 ## Prerequisites
 
-* NeMo Curator installed (see [Installation Guide](docs/admin/installation.md))
+* NeMo Curator installed (see [Installation Guide](admin-installation))
 * NVIDIA GPU (required for ASR inference, minimum 16GB VRAM recommended)
 * Internet connection for dataset download
 * Basic Python knowledge
@@ -373,7 +373,7 @@ After completing this tutorial, explore:
 
 ## Related Topics
 
-- **[Audio Curation Quickstart](docs/get-started/audio.md)**: Quick introduction to audio curation
+- **[Audio Curation Quickstart](gs-audio)**: Quick introduction to audio curation
 - **[FLEURS Dataset](../load-data/fleurs-dataset.md)**: Detailed FLEURS dataset documentation
 - **[Quality Assessment](../process-data/quality-assessment/index.md)**: Comprehensive quality metrics guide
 - **[Save & Export](../save-export.md)**: Advanced export options and formats

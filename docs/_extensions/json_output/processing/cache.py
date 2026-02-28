@@ -59,7 +59,7 @@ class JSONOutputCache:
                 self._timestamps[docname] = current_mtime
                 return True
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.debug(f"Error checking modification time for {docname}: {e}")
             return True  # Process if we can't determine modification time
 
@@ -68,7 +68,7 @@ class JSONOutputCache:
         try:
             if source_path and source_path.exists():
                 self._timestamps[docname] = source_path.stat().st_mtime
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug(f"Could not update timestamp for {docname}")
 
     def clear_caches(self) -> None:

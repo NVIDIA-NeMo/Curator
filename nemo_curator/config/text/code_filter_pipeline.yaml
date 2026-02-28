@@ -50,23 +50,23 @@ stages:
     blocksize: null
     fields: null
 
-  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+  - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.code.PythonCommentToCodeFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.code.PythonCommentToCodeFilter
       min_comment_to_code_ratio: 0.001
       max_comment_to_code_ratio: 0.85
     text_field: ${text_field}
     score_field: null
-  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+  - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.code.NumberOfLinesOfCodeFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.code.NumberOfLinesOfCodeFilter
       min_lines: 5
       max_lines: 20000
     text_field: ${text_field}
     score_field: null
-  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+  - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.code.TokenizerFertilityFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.code.TokenizerFertilityFilter
       path_to_tokenizer: ${path_to_tokenizer}
       min_char_to_token_ratio: 2
     text_field: ${text_field}

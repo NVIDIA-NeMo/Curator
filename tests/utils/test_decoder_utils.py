@@ -486,7 +486,7 @@ class TestSampleClosest:
         start = 1.0
         stop = 3.0
 
-        indices, counts, sample_elements = sample_closest(src, sample_rate, start=start, stop=stop)
+        _indices, _counts, sample_elements = sample_closest(src, sample_rate, start=start, stop=stop)
 
         assert sample_elements[0] >= start
         assert sample_elements[-1] <= stop
@@ -506,7 +506,7 @@ class TestSampleClosest:
         src = np.array([0.0, 1.0, 2.0, 3.0, 4.0], dtype=np.float32)
         sample_rate = 10.0  # High rate to cause duplicates
 
-        indices_dedup, counts_dedup, _ = sample_closest(src, sample_rate, dedup=True)
+        indices_dedup, _counts_dedup, _ = sample_closest(src, sample_rate, dedup=True)
         indices_no_dedup, counts_no_dedup, _ = sample_closest(src, sample_rate, dedup=False)
 
         assert len(indices_no_dedup) >= len(indices_dedup)

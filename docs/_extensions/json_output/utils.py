@@ -116,7 +116,7 @@ def get_document_url(app: Sphinx, docname: str) -> str:
     try:
         if hasattr(app.builder, "get_target_uri"):
             return app.builder.get_target_uri(docname)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"Failed to get target URI for {docname}: {e}")
 
     return docname + ".html"

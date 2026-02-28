@@ -132,7 +132,7 @@ class TestCosmosEmbed1:
         """Test setup method with missing weights directory."""
         mock_path.return_value.exists.return_value = False
 
-        with pytest.raises(FileNotFoundError, match="Weights directory .* not found!"):
+        with pytest.raises(FileNotFoundError, match=r"Weights directory .* not found!"):
             self.model.setup()
 
     @patch("nemo_curator.models.cosmos_embed1.Path")
