@@ -19,7 +19,6 @@ from datetime import datetime
 
 import pandas as pd
 from loguru import logger
-from nemo_curator.stages.text.modules.modifier import Modify
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
@@ -29,6 +28,7 @@ from nemo_curator.stages.math.modifiers.merge_chunks import ChunkMergeStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modifiers import Modify
 from nemo_curator.utils import prompts
 
 

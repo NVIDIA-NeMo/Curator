@@ -75,12 +75,13 @@ def main() -> None:
     ray_client = RayClient()
     ray_client.start()
 
-    pipeline = build_pipeline(args.input, args.output)
-    logger.info(pipeline.describe())
+    try:
+        pipeline = build_pipeline(args.input, args.output)
+        logger.info(pipeline.describe())
 
-    pipeline.run()
-
-    ray_client.stop()
+        pipeline.run()
+    finally:
+        ray_client.stop()
 
 
 if __name__ == "__main__":

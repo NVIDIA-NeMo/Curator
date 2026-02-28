@@ -18,9 +18,13 @@ from dataclasses import dataclass
 from typing import Any
 
 import magic
+import pandas as pd
 from resiliparse.parse.encoding import bytes_to_str, detect_encoding
 
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.download.base.extract import DocumentExtractor
+from nemo_curator.tasks import DocumentBatch
+from nemo_curator.utils.column_utils import resolve_filename_column
 
 from .html_extractors.lynx import LynxExtractor
 from .mime_types import HTML_MAGIC_TYPES, HTML_MIME_TYPES, TEXT_MAGIC_TYPES, TEXT_MIME_TYPES
@@ -193,3 +197,48 @@ class MathContentExtractor(DocumentExtractor):
             )
         except (TypeError, AttributeError, ValueError):
             return False
+
+
+@dataclass
+class MathExtractStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Processing stage that applies a DocumentExtractor row-by-row to a DocumentBatch.
+
+    Designed for use after CommonCrawlWARCReader, where binary content has already
+    been fetched into a DocumentBatch. Each row is passed to the extractor and rows
+    where extraction returns None are filtered out.
+    """
+
+    extractor: DocumentExtractor
+    add_filename_column: bool | str = False
+
+    def __post_init__(self) -> None:
+        self.filename_col = resolve_filename_column(self.add_filename_column)
+        self.name = f"extract_{self.extractor.__class__.__name__.lower()}"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], self.extractor.input_columns()
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        cols = self.extractor.output_columns()
+        if self.filename_col:
+            cols = [*cols, self.filename_col]
+        return ["data"], cols
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        df = batch.to_pandas()
+        records = []
+        for _, row in df.iterrows():
+            row_dict = row.to_dict()
+            extracted = self.extractor.extract(row_dict)
+            if extracted is None:
+                continue
+            if self.filename_col and self.filename_col in row_dict:
+                extracted[self.filename_col] = row_dict[self.filename_col]
+            records.append(extracted)
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=pd.DataFrame(records),
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )

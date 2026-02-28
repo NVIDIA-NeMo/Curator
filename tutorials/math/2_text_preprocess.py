@@ -20,9 +20,8 @@ from loguru import logger
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.math.download.extract import MathContentExtractor
+from nemo_curator.stages.math.download.extract import MathContentExtractor, MathExtractStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
 from nemo_curator.stages.text.download.common_crawl.download import CommonCrawlWARCReader
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
@@ -63,7 +62,7 @@ def build_pipeline(config: TextPreprocessConfig) -> Pipeline:
         )
 
     p.add_stage(
-        DocumentExtractStage(
+        MathExtractStage(
             extractor=MathContentExtractor(
                 binary_column="binary_content", url_column="url", mime_type_column="content_mime_type"
             ),
@@ -131,26 +130,27 @@ def main() -> None:
     ray_client = RayClient()
     ray_client.start()
 
-    config = TextPreprocessConfig(
-        input_glob=args.input,
-        output_dir=args.output,
-        fetch_cc=args.fetch_cc,
-        warc_filename_col=args.warc_filename_col,
-        warc_record_offset_col=args.offset_col,
-        warc_record_length_col=args.length_col,
-    )
-    pipeline = build_pipeline(config)
-    logger.info(pipeline.describe())
+    try:
+        config = TextPreprocessConfig(
+            input_glob=args.input,
+            output_dir=args.output,
+            fetch_cc=args.fetch_cc,
+            warc_filename_col=args.warc_filename_col,
+            warc_record_offset_col=args.offset_col,
+            warc_record_length_col=args.length_col,
+        )
+        pipeline = build_pipeline(config)
+        logger.info(pipeline.describe())
 
-    pipeline.run()
+        pipeline.run()
 
-    logger.info("Pipeline completed successfully.")
+        logger.info("Pipeline completed successfully.")
 
-    # Optional: Report extraction statistics
-    if args.report_stats:
-        report_extraction_stats(args.output)
-
-    ray_client.stop()
+        # Optional: Report extraction statistics
+        if args.report_stats:
+            report_extraction_stats(args.output)
+    finally:
+        ray_client.stop()
 
 
 if __name__ == "__main__":

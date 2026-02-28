@@ -442,6 +442,7 @@ python tutorials/math/3_llm_cleanup.py \
   --prompt HTML_TO_TEXT_PROMPT \
   --chunk_data \
   --chunk_length 5000 \
+  --max_model_len 16384 \
   --input_filetype jsonl
 ```
 
@@ -513,5 +514,6 @@ python tutorials/math/3_llm_cleanup.py \
   --prompt HTML_TO_TEXT_PROMPT_CODE \
   --chunk_data \
   --chunk_length 5000 \
+  --max_model_len 16384 \
   --input_filetype jsonl
 ```

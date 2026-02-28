@@ -18,8 +18,8 @@ from unittest import mock
 import pandas as pd
 import pytest
 
-from nemo_curator.stages.math.download.extract import MathContentExtractor
-from nemo_curator.stages.text.download.base.extract import DocumentExtractor, DocumentExtractStage
+from nemo_curator.stages.math.download.extract import MathContentExtractor, MathExtractStage
+from nemo_curator.stages.text.download.base.extract import DocumentExtractor
 from nemo_curator.tasks import DocumentBatch
 
 
@@ -58,7 +58,7 @@ class MockMathExtractor(DocumentExtractor):
 
 
 class TestMathContentExtractorStage:
-    """Tests for MathContentExtractor with DocumentExtractStage."""
+    """Tests for MathContentExtractor with MathExtractStage."""
 
     @pytest.mark.parametrize(
         ("url", "expected_type", "expected_text"),
@@ -71,7 +71,7 @@ class TestMathContentExtractorStage:
     def test_process_content_types(self, url: str, expected_type: str, expected_text: str) -> None:
         """Test processing different content types using mock extractor."""
         extractor = MockMathExtractor()
-        stage = DocumentExtractStage(extractor=extractor, add_filename_column=False)
+        stage = MathExtractStage(extractor=extractor, add_filename_column=False)
 
         # Create input DataFrame with single record
         input_data = pd.DataFrame([{"binary_content": b"test content", "url": url, "mime_type": "test/type"}])
@@ -95,7 +95,7 @@ class TestMathContentExtractorStage:
         """Test processing when some records fail extraction."""
         # Use mock extractor that fails on specific URL
         extractor = MockMathExtractor(fail_on_url="http://example.com/bad.txt")
-        stage = DocumentExtractStage(extractor=extractor, add_filename_column=False)
+        stage = MathExtractStage(extractor=extractor, add_filename_column=False)
 
         # Create input DataFrame with some failing records
         input_data = pd.DataFrame(
@@ -146,7 +146,7 @@ class TestMathContentExtractorStage:
         mock_magic_class.return_value = mock_magic_instance
 
         extractor = MathContentExtractor()
-        stage = DocumentExtractStage(extractor=extractor, add_filename_column=False)
+        stage = MathExtractStage(extractor=extractor, add_filename_column=False)
 
         # Use real binary content that can be decoded naturally
         input_data = pd.DataFrame(
@@ -187,7 +187,7 @@ class TestMathContentExtractorStage:
     def test_process_empty_batch(self) -> None:
         """Test processing an empty document batch."""
         extractor = MockMathExtractor()
-        stage = DocumentExtractStage(extractor=extractor, add_filename_column=False)
+        stage = MathExtractStage(extractor=extractor, add_filename_column=False)
 
         input_data = pd.DataFrame()
         input_task = DocumentBatch(
@@ -205,7 +205,7 @@ class TestMathContentExtractorStage:
     def test_stage_with_mock_extractor_smoke(self) -> None:
         """Smoke test for stage processing using mock extractor."""
         extractor = MockMathExtractor()
-        stage = DocumentExtractStage(extractor=extractor, add_filename_column=False)
+        stage = MathExtractStage(extractor=extractor, add_filename_column=False)
 
         # Test basic stage properties
         assert stage.name == "extract_mockmathextractor"
@@ -228,7 +228,7 @@ class TestMathContentExtractorStage:
     def test_process_with_filename_column(self) -> None:
         """Test processing with filename column enabled."""
         extractor = MathContentExtractor()
-        stage = DocumentExtractStage(extractor=extractor, add_filename_column=True)
+        stage = MathExtractStage(extractor=extractor, add_filename_column=True)
 
         # Use real binary content that can be decoded naturally
         test_content = "Test content"
@@ -267,7 +267,7 @@ class TestMathContentExtractorStage:
     def test_process_real_notebook_content(self, complex_notebook_json: str) -> None:
         """Test processing with realistic notebook content - integration style."""
         extractor = MathContentExtractor()
-        stage = DocumentExtractStage(extractor=extractor, add_filename_column=False)
+        stage = MathExtractStage(extractor=extractor, add_filename_column=False)
 
         # Use real binary content that can be decoded naturally
         binary_content = complex_notebook_json.encode("utf-8")
@@ -311,7 +311,7 @@ class TestMathContentExtractorStage:
     def test_process_real_html_with_math(self, math_html: str) -> None:
         """Test processing with realistic HTML containing mathematical content."""
         extractor = MathContentExtractor()
-        stage = DocumentExtractStage(extractor=extractor, add_filename_column=False)
+        stage = MathExtractStage(extractor=extractor, add_filename_column=False)
 
         # Use real binary content that can be decoded naturally
         binary_content = math_html.encode("utf-8")

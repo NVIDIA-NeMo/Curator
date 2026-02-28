@@ -77,7 +77,7 @@ class CenterCropTextStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
 class FineMathModelStage(ModelStage):
     """
-    HF sequence classification model stage for FineMath.
+    Hugging Face sequence classification model stage for FineMath.
 
     Outputs columns:
     - finemath_scores (float list)

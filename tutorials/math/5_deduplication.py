@@ -150,7 +150,7 @@ def main() -> None:
         id_generator_path = os.path.join(args.duplicate_ids_dir, "fuzzy_id_generator.json")
 
         # Check if duplicates were found
-        if not os.path.exists(id_generator_path):
+        if not os.path.exists(duplicate_ids_path):
             logger.info("No duplicates found. Copying input to output directory...")
             import shutil
 
