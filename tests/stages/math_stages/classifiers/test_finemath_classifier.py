@@ -26,6 +26,7 @@ from nemo_curator.stages.math.classifiers.finemath import (
     FineMathClassifier,
     FineMathModelStage,
 )
+from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 from nemo_curator.tasks import DocumentBatch
 
 
@@ -34,11 +35,11 @@ class TestCenterCropTextStage:
 
     def test_mid_slice_function(self) -> None:
         """Test the _mid_slice static method."""
-        # Test with short string (cropping needed due to implementation)
+        # Test with short string (no cropping needed — crop window exceeds length)
         short_text = "Hello World"  # 11 characters, mid=5
         result = CenterCropTextStage._mid_slice(short_text, 100)
-        # m=5, b=max(0, 5-100)=0, e=min(5+100, 11-1)=10
-        assert result == "Hello Worl"  # s[0:10]
+        # m=5, b=max(0, 5-100)=0, e=min(5+100, 11)=11
+        assert result == "Hello World"  # s[0:11]
 
         # Test with long string (cropping needed)
         long_text = "0123456789" * 10  # 100 characters, mid=50
@@ -63,15 +64,15 @@ class TestCenterCropTextStage:
 
         result = stage.process(batch)
 
-        # Long text: m=10, b=max(0, 10-5)=5, e=min(10+5, 20-1)=15
+        # Long text: m=10, b=max(0, 10-5)=5, e=min(10+5, 20)=15
         # Should get s[5:15] = "56789ABCDE"
         cropped_text = result.data["text"].iloc[0]
         assert len(cropped_text) == 10
         assert cropped_text == "56789ABCDE"
 
-        # Short text: "short" has 5 chars, mid=2, b=max(0, 2-5)=0, e=min(2+5, 5-1)=4
-        # Should get s[0:4] = "shor"
-        assert result.data["text"].iloc[1] == "shor"
+        # Short text: "short" has 5 chars, mid=2, b=max(0, 2-5)=0, e=min(2+5, 5)=5
+        # Should get s[0:5] = "short"
+        assert result.data["text"].iloc[1] == "short"
 
     def test_process_no_cropping_needed(self) -> None:
         """Test process method when no cropping is needed."""
@@ -82,12 +83,11 @@ class TestCenterCropTextStage:
 
         result = stage.process(batch)
 
-        # Due to the _mid_slice implementation, even with large crop_chars,
-        # text gets cropped due to the min(m+n, len(s)-1) logic
-        # "Short text" (10 chars): m=5, b=0, e=min(5+100, 10-1)=9, so s[0:9]="Short tex"
-        assert result.data["text"].iloc[0] == "Short tex"
-        # "Another short text" (18 chars): m=9, b=0, e=min(9+100, 18-1)=17, so s[0:17]
-        assert result.data["text"].iloc[1] == "Another short tex"
+        # With large crop_chars, text should not be cropped
+        # "Short text" (10 chars): m=5, b=0, e=min(5+100, 10)=10, so s[0:10]="Short text"
+        assert result.data["text"].iloc[0] == "Short text"
+        # "Another short text" (18 chars): m=9, b=0, e=min(9+100, 18)=18, so s[0:18]
+        assert result.data["text"].iloc[1] == "Another short text"
 
     def test_process_zero_crop_chars(self) -> None:
         """Test process method with zero crop characters."""
@@ -299,8 +299,6 @@ class TestFineMathClassifier:
         assert len(stages) == 3
 
         # Verify stage types
-        from nemo_curator.stages.text.models.tokenizer import TokenizerStage
-
         assert isinstance(stages[0], CenterCropTextStage)
         assert isinstance(stages[1], TokenizerStage)
         assert isinstance(stages[2], FineMathModelStage)
