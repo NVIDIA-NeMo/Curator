@@ -152,7 +152,7 @@ def main() -> None:
         # Check if duplicates were found
         if not os.path.exists(id_generator_path):
             logger.info("No duplicates found. Copying input to output directory...")
-            import shutil  # noqa: PLC0415
+            import shutil
 
             if os.path.exists(args.output):
                 shutil.rmtree(args.output)
@@ -166,8 +166,8 @@ def main() -> None:
                 output_path=args.output,
                 input_filetype=args.input_filetype,
                 input_file_extensions=input_file_extensions,
-                input_id_field="_curator_dedup_id",
-                ids_to_remove_duplicate_id_field="_curator_dedup_id",
+                id_field="_curator_dedup_id",
+                duplicate_id_field="_curator_dedup_id",
                 input_blocksize=args.input_blocksize,
                 id_generator_path=id_generator_path,
             )

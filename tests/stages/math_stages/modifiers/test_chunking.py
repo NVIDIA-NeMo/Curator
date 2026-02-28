@@ -51,6 +51,7 @@ class TestTokenSplitterStage:
     def test_process_single_short_text(self):
         """Test process method with a single short text that doesn't need chunking."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=100)
+        stage.setup()
 
         df = pd.DataFrame({"text": ["Short text here"]})
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
@@ -66,6 +67,7 @@ class TestTokenSplitterStage:
     def test_process_text_with_chunking(self):
         """Test process method with text that needs chunking."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=5)
+        stage.setup()
 
         # Create text with multiple paragraphs that will exceed token limit
         text = "Paragraph one.\n\nParagraph two.\n\nParagraph three.\n\nParagraph four."
@@ -85,6 +87,7 @@ class TestTokenSplitterStage:
     def test_process_preserves_metadata(self):
         """Test that process preserves original metadata fields."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=100)
+        stage.setup()
 
         df = pd.DataFrame(
             {
@@ -108,6 +111,7 @@ class TestTokenSplitterStage:
     def test_process_multiple_documents(self):
         """Test process method with multiple documents."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=100)
+        stage.setup()
 
         df = pd.DataFrame(
             {
@@ -127,6 +131,7 @@ class TestTokenSplitterStage:
     def test_process_empty_text(self):
         """Test process method with empty text."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=100)
+        stage.setup()
 
         df = pd.DataFrame({"text": [""]})
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
@@ -139,6 +144,7 @@ class TestTokenSplitterStage:
     def test_process_text_with_only_whitespace(self):
         """Test process method with text containing only whitespace."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=100)
+        stage.setup()
 
         df = pd.DataFrame({"text": ["   \n\n   \n\n   "]})
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
@@ -151,6 +157,7 @@ class TestTokenSplitterStage:
     def test_process_custom_separator(self):
         """Test process method with custom separator."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=5, separator="\n")
+        stage.setup()
 
         text = "Line one\nLine two\nLine three\nLine four"
         df = pd.DataFrame({"text": [text]})
@@ -169,6 +176,7 @@ class TestTokenSplitterStage:
     def test_process_chunk_id_sequential(self):
         """Test that chunk_id is sequential for each document."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=5)
+        stage.setup()
 
         text = "Para one.\n\nPara two.\n\nPara three.\n\nPara four.\n\nPara five."
         df = pd.DataFrame({"text": [text]})
@@ -183,6 +191,7 @@ class TestTokenSplitterStage:
     def test_process_n_tokens_calculated(self):
         """Test that n_tokens is correctly calculated for each chunk."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=100)
+        stage.setup()
 
         df = pd.DataFrame({"text": ["Some text here"]})
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
@@ -199,6 +208,7 @@ class TestTokenSplitterStage:
     def test_process_last_paragraph_no_separator(self):
         """Test that last paragraph doesn't get separator appended."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=100)
+        stage.setup()
 
         text = "First paragraph.\n\nSecond paragraph."
         df = pd.DataFrame({"text": [text]})
@@ -213,6 +223,7 @@ class TestTokenSplitterStage:
     def test_process_missing_text_field(self):
         """Test process method when text field is missing."""
         stage = TokenSplitterStage(model_name="test-model", text_field="missing_field")
+        stage.setup()
 
         df = pd.DataFrame({"other_field": ["Some text"]})
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")

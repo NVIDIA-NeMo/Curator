@@ -12,14 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
 from typing import Any
 
-import torch
 from loguru import logger
-from transformers import AutoConfig
 
 from nemo_curator.models.base import ModelInterface
+from nemo_curator.utils.gpu_utils import get_gpu_count, get_max_model_len_from_config
 
 try:
     from vllm import LLM, SamplingParams
@@ -33,46 +31,6 @@ except ImportError:
 
     class SamplingParams:
         pass
-
-
-def _get_max_model_len_from_config(model: str) -> int | None:
-    """
-    Try to get max model length from HuggingFace AutoConfig.
-
-    Args:
-        model: Model identifier (e.g., "microsoft/phi-4")
-
-    Returns:
-        Max model length if found, None otherwise.
-    """
-    config = AutoConfig.from_pretrained(model, trust_remote_code=True)
-    max_len = (
-        getattr(config, "max_position_embeddings", None)
-        or getattr(config, "n_positions", None)
-        or getattr(config, "max_sequence_length", None)
-    )
-    if max_len:
-        logger.info(f"Auto-detected max_model_len={max_len} for {model}")
-
-    return max_len
-
-
-def _get_gpu_count() -> int:
-    """
-    Get number of available CUDA GPUs as a power of 2.
-
-    Many models require tensor parallelism to use power-of-2 GPU counts.
-    This returns the largest power of 2 <= available GPU count.
-
-    Returns:
-        Power of 2 GPU count, minimum 1.
-    """
-    count = torch.cuda.device_count()
-    tp_size = 2 ** int(math.log2(count)) if count >= 2 else 1  # noqa: PLR2004
-    logger.info(
-        f"Detected {count} GPU(s), using tensor_parallel_size={tp_size}"
-    )
-    return tp_size
 
 
 class VLLMModel(ModelInterface):
@@ -141,10 +99,10 @@ class VLLMModel(ModelInterface):
         if self.max_model_len is not None:
             final_max_model_len = self.max_model_len
         else:
-            final_max_model_len = _get_max_model_len_from_config(self.model)
+            final_max_model_len = get_max_model_len_from_config(self.model)
 
         # Set tensor_parallel_size as user param or auto-detect from GPU count
-        final_tp_size = self.tensor_parallel_size if self.tensor_parallel_size is not None else _get_gpu_count()
+        final_tp_size = self.tensor_parallel_size if self.tensor_parallel_size is not None else get_gpu_count()
 
         # Set max_num_batched_tokens as user param or use default
         final_max_batched = self.max_num_batched_tokens

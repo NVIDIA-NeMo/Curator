@@ -15,6 +15,7 @@
 import pandas as pd
 from transformers import AutoTokenizer
 
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.models.utils import format_name_with_suffix
 from nemo_curator.tasks import DocumentBatch
@@ -41,8 +42,18 @@ class TokenSplitterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.text_field = text_field
         self.chunk_id_field = chunk_id_field
         self.n_tokens_field = n_tokens_field
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self._tokenizer = None
         self.name = format_name_with_suffix(self.model_name, suffix="_token_splitter")
+
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
+        """Download model weights to local cache once per physical node."""
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(repo_id=self.model_name, local_files_only=False)
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        """Load tokenizer from local cache per worker."""
+        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]

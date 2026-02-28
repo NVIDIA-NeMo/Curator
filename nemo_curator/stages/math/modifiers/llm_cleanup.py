@@ -14,7 +14,7 @@
 
 import pandas as pd
 
-from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.vllm_model import VLLMModel
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -68,16 +68,17 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             self._model = model
             model_name = model.model
         else:
-            self._model = VLLMModel(
-                model=model,
-                max_model_len=max_model_len,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                min_p=min_p,
-                max_tokens=max_tokens,
-                cache_dir=cache_dir,
-            )
+            self._model = None
+            self._model_kwargs = {
+                "model": model,
+                "max_model_len": max_model_len,
+                "temperature": temperature,
+                "top_p": top_p,
+                "top_k": top_k,
+                "min_p": min_p,
+                "max_tokens": max_tokens,
+                "cache_dir": cache_dir,
+            }
             model_name = model
 
         self.system_prompt = system_prompt
@@ -88,7 +89,6 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.n_tokens_field = n_tokens_field
         self.resources = Resources(cpus=1.0, gpus=1.0)
         self.name = format_name_with_suffix(model_name, suffix="_llm_cleanup")
-        self._tokenizer = None
         self._final_max_model_len = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -99,8 +99,19 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             return ["data"], ["label"]
         return ["data"], [self.output_field]
 
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
+        """Download model weights to local cache once per physical node."""
+        model_name = self._model.model if self._model is not None else self._model_kwargs["model"]
+        cache_dir = self._model_kwargs.get("cache_dir") if self._model is None else self._model.cache_dir
+
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(repo_id=model_name, cache_dir=cache_dir, local_files_only=False)
+
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        """Set up the model wrapper and tokenizer."""
+        """Create model (if needed) and set up the model wrapper and tokenizer."""
+        if self._model is None:
+            self._model = VLLMModel(**self._model_kwargs)
         self._model.setup()
         self._tokenizer = self._model.get_tokenizer()
         if hasattr(self._model, "_final_max_model_len"):

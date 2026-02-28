@@ -193,24 +193,19 @@ flowchart TD
         PREPROCESSED["Preprocessed Data<br/><i>text, url, type</i>"]
     end
 
-    subgraph step3["Step 3: Quality Classification"]
-        CLASSIFY["3_quality_classifier.py<br/><i>FineMath model</i>"]
+    subgraph step3["Step 3: LLM Cleanup"]
+        LLM["3_llm_cleanup.py<br/><i>vLLM + Phi-4</i>"]
+        FINAL["Cleaned Data<br/><i>+ cleaned_text</i>"]
+    end
+
+    subgraph step4["Step 4: Quality Classification"]
+        CLASSIFY["4_quality_classifier.py<br/><i>FineMath model</i>"]
         CLASSIFIED["Classified Data<br/><i>+ finemath_scores</i>"]
     end
 
-    subgraph step4["Step 4: Deduplication"]
-        DEDUP["4_deduplication.py<br/><i>Fuzzy matching</i>"]
+    subgraph step5["Step 5: Deduplication"]
+        DEDUP["5_deduplication.py<br/><i>Fuzzy matching</i>"]
         DEDUPED["Deduplicated Data"]
-    end
-
-    subgraph step5["Step 5: LLM Cleanup"]
-        LLM["5_llm_cleanup.py<br/><i>vLLM + Phi-4</i>"]
-        CHUNKED["Chunked Cleaned Data<br/><i>+ cleaned_text, chunk_id</i>"]
-    end
-
-    subgraph step6["Step 6: Post-Processing"]
-        MERGE["6_postprocess.py<br/><i>Chunk merge</i>"]
-        FINAL["Final Merged Data<br/><i>1 row per document</i>"]
     end
 
     %% Download flow (optional)
@@ -231,14 +226,12 @@ flowchart TD
     %% Common flow after preprocessing
     EXTRACT <-->|"Fetch from Common Crawl<br/><i>HTTPS range requests</i>"| CC_S3
     EXTRACT --> PREPROCESSED
-    PREPROCESSED --> CLASSIFY
+    PREPROCESSED --> LLM
+    LLM --> FINAL
+    FINAL --> CLASSIFY
     CLASSIFY --> CLASSIFIED
     CLASSIFIED --> DEDUP
     DEDUP --> DEDUPED
-    DEDUPED --> LLM
-    LLM --> CHUNKED
-    CHUNKED --> MERGE
-    MERGE --> FINAL
 
     %% ==========================================
     %% NVIDIA Color Scheme
@@ -262,13 +255,13 @@ flowchart TD
     class HF,CC_INDEX,CC_S3 nvidiaPurple
 
     %% Processing steps (Python scripts) - NVIDIA Green
-    class DL,LOOKUP,EXTRACT,CLASSIFY,DEDUP,LLM,MERGE nvidiaGreen
+    class DL,LOOKUP,EXTRACT,LLM,CLASSIFY,DEDUP nvidiaGreen
 
     %% Intermediate outputs - Light Gray
-    class RAW,ENRICHED,PREPROCESSED,CLASSIFIED,DEDUPED,CHUNKED nvidiaLightGray
+    class RAW,ENRICHED,PREPROCESSED,FINAL,CLASSIFIED nvidiaLightGray
 
     %% Final output - Gray
-    class FINAL nvidiaGray
+    class DEDUPED nvidiaGray
 
     %% Subgraph styling (Note: subgraph styling support varies by renderer)
     style download fill:transparent,stroke:#000000,stroke-width:2px,stroke-dasharray:5 5,color:#333
@@ -278,7 +271,6 @@ flowchart TD
     style step3 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
     style step4 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
     style step5 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
-    style step6 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
 
     %% Link/Arrow styling (Note: linkStyle support varies by renderer)
     linkStyle default stroke:#76b900,stroke-width:2px
@@ -291,17 +283,16 @@ flowchart TD
 | 0 | `0_download.py` | HuggingFace | Raw parquet files | Optional (if data not already available) |
 | 1 | `1_cc_index_lookup.py` | URLs | URLs + WARC metadata | Datasets without WARC metadata |
 | 2 | `2_text_preprocess.py` | WARC metadata | Extracted text | All datasets |
-| 3 | `3_quality_classifier.py` | Text | Text + quality scores | All datasets |
-| 4 | `4_deduplication.py` | Scored text | Deduplicated text | All datasets |
-| 5 | `5_llm_cleanup.py` | Deduplicated text | Chunked cleaned text | Optional |
-| 6 | `6_postprocess.py` | Chunked cleaned text | Merged documents (1 row/doc) | Required after Step 5 |
+| 3 | `3_llm_cleanup.py` | Preprocessed text | Cleaned text (merged) | Optional |
+| 4 | `4_quality_classifier.py` | Text | Text + quality scores | All datasets |
+| 5 | `5_deduplication.py` | Scored text | Deduplicated text | All datasets |
 
 ### Working Directory Setup
 
 ```bash
 # Create working directories
 export MATH_DATA_DIR=/tmp/math_pipeline
-mkdir -p $MATH_DATA_DIR/{raw,enriched,preprocessed,classified,dedup_cache,dedup_ids,deduplicated,cleaned,merged}
+mkdir -p $MATH_DATA_DIR/{raw,enriched,preprocessed,cleaned,classified,dedup_cache,dedup_ids,deduplicated}
 ```
 
 ## Download Dataset from HuggingFace (Optional)
@@ -439,62 +430,13 @@ python tutorials/math/2_text_preprocess.py \
 
 **Output**: JSONL files with columns: `text`, `url`, `type`
 
-## Step 3: Quality Classification
+## Step 3: LLM Cleanup
 
-Classify mathematical content quality using the FineMath model:
-
-```bash
-python tutorials/math/3_quality_classifier.py \
-  --input "$MATH_DATA_DIR/preprocessed/*.jsonl" \
-  --output $MATH_DATA_DIR/classified
-```
-
-**Input**: JSONL files from Step 2
-
-**Output**: JSONL files with additional columns:
-- `finemath_scores`: float scores (0..5)
-- `finemath_int_scores`: integer scores (0..5)
-
-**Example Output**:
-```json
-{"id":0,"text":"The derivative of x^2 is 2x.","finemath_scores":1.6865234375,"finemath_int_scores":2}
-{"id":1,"text":"This is plain English without math.","finemath_scores":0.9130859375,"finemath_int_scores":1}
-{"id":2,"text":"Let $f(x)=x^2$. Then $f'(x)=2x.","finemath_scores":2.291015625,"finemath_int_scores":2}
-{"id":3,"text":"We have $$\\int_0^1 x^2 dx = 1/3.$$.","finemath_scores":1.9150390625,"finemath_int_scores":2}
-```
-
-## Step 4: Deduplication
-
-Remove duplicate content using fuzzy deduplication:
+Clean and refine text using a large language model. This step uses vLLM for efficient inference and requires a GPU. When `--chunk_data` is enabled, documents are split into chunks, cleaned by the LLM, then merged back into one row per document.
 
 ```bash
-python tutorials/math/4_deduplication.py \
-  --input $MATH_DATA_DIR/classified \
-  --cache_dir $MATH_DATA_DIR/dedup_cache \
-  --duplicate_ids_dir $MATH_DATA_DIR/dedup_ids \
-  --output $MATH_DATA_DIR/deduplicated \
-  --input_filetype jsonl
-```
-
-**Input**: JSONL files from Step 3
-
-**Output**: Deduplicated JSONL files
-
-**Process**: Deduplication takes place in two stages:
-1. First stage: Duplicate IDs are identified and saved to `duplicate_ids_dir`
-2. Second stage: Duplicates are removed from the dataset
-
-**Note**: The `cache_dir` must be empty between runs.
-
-## Step 5: LLM Cleanup
-
-Clean and refine text using a large language model. This step uses vLLM for efficient inference and requires a GPU.
-
-**Note**: The `--chunk_data` flag is required to tokenize and chunk the input text before LLM processing.
-
-```bash
-python tutorials/math/5_llm_cleanup.py \
-  --input $MATH_DATA_DIR/deduplicated \
+python tutorials/math/3_llm_cleanup.py \
+  --input $MATH_DATA_DIR/preprocessed \
   --output $MATH_DATA_DIR/cleaned \
   --model microsoft/phi-4 \
   --prompt HTML_TO_TEXT_PROMPT \
@@ -503,49 +445,55 @@ python tutorials/math/5_llm_cleanup.py \
   --input_filetype jsonl
 ```
 
-**Input**: JSONL files from Step 4
+**Input**: JSONL files from Step 2
 
-**Output**: JSONL files with additional columns:
-- `cleaned_text`: LLM-processed text (or `label` if `--classification` is used)
-- `chunk_id`: Sequential chunk identifier
-- All original metadata fields preserved
+**Output**: JSONL files with `cleaned_text` (LLM-processed text). When chunking is enabled, chunks are automatically merged back into one row per document.
 
-**Additional options**:
-- `--chunk_length`: Maximum tokens per chunk (default: 5000)
+**Key flags**:
+- `--chunk_data` / `--chunk_length`: Enable token-based chunking before LLM processing
+- `--groupby`: Columns to group by for chunk merging (default: `url`)
+- `--max_text_length`: Maximum merged text length in chars (default: 900,000)
 - `--classification`: Output classification labels instead of cleaned text
-- `--max_model_len`: Maximum model context length (auto-detected if not specified)
-- `--filter_by_n_tokens`: Filter chunks by token count
 - `--temperature`, `--top_p`, `--top_k`, `--min_p`: Sampling parameters
 
-## Step 6: Post-Processing (Chunk Merge)
+## Step 4: Quality Classification
 
-After LLM cleanup, the output has multiple rows per document (one per chunk). This step merges chunks back into one row per document.
+Classify mathematical content quality using the FineMath model:
 
 ```bash
-python tutorials/math/6_postprocess.py \
-  --input $MATH_DATA_DIR/cleaned \
-  --output $MATH_DATA_DIR/merged
+python tutorials/math/4_quality_classifier.py \
+  --input "$MATH_DATA_DIR/cleaned/*.jsonl" \
+  --output $MATH_DATA_DIR/classified
 ```
 
-**Input**: JSONL files from Step 5 (with `cleaned_text`, `chunk_id`, and metadata columns)
+**Input**: JSONL files from Step 3
 
-**Output**: JSONL files with one row per document, where:
-- `cleaned_text`: Concatenated from all chunks (separator: `\n`)
-- `text`: Raw text concatenated from all chunks
-- Metadata columns (`url`, `type`, `finemath_scores`, etc.) preserved via `first()`
+**Output**: JSONL files with additional columns:
+- `finemath_scores`: float scores (0..5)
+- `finemath_int_scores`: integer scores (0..5)
 
-**What happens during merge**:
-1. Duplicate chunks (same `url` + `chunk_id`) are deduplicated
-2. Chunks with `"NO USEFUL CONTENT"` are dropped
-3. Empty/null chunks are filtered out
-4. Chunks are sorted by `chunk_id` and concatenated
-5. Documents where all chunks were filtered are dropped entirely
-6. Merged documents exceeding 900K characters are dropped
+## Step 5: Deduplication
 
-**Additional options**:
-- `--groupby`: Columns to group by (default: `url`; use `warc_filename url` for CC data)
-- `--text-field`: LLM output column name (default: `cleaned_text`)
-- `--max-text-length`: Maximum merged text length (default: 900,000)
+Remove duplicate content using fuzzy deduplication:
+
+```bash
+python tutorials/math/5_deduplication.py \
+  --input $MATH_DATA_DIR/classified \
+  --cache_dir $MATH_DATA_DIR/dedup_cache \
+  --duplicate_ids_dir $MATH_DATA_DIR/dedup_ids \
+  --output $MATH_DATA_DIR/deduplicated \
+  --input_filetype jsonl
+```
+
+**Input**: JSONL files from Step 4
+
+**Output**: Deduplicated JSONL files
+
+**Process**: Deduplication takes place in two stages:
+1. First stage: Duplicate IDs are identified and saved to `duplicate_ids_dir`
+2. Second stage: Duplicates are removed from the dataset
+
+**Note**: The `cache_dir` must be empty between runs.
 
 ## Alternative Prompts and Use Cases
 
@@ -558,7 +506,7 @@ The LLM cleanup step supports various specialized prompts for different mathemat
 **`HTML_TO_TEXT_PROMPT_CODE`**: For pages mixing math and significant code (e.g., computational math tutorials)
 
 ```bash
-python tutorials/math/5_llm_cleanup.py \
+python tutorials/math/3_llm_cleanup.py \
   --input $MATH_DATA_DIR/deduplicated \
   --output $MATH_DATA_DIR/cleaned_code \
   --model microsoft/phi-4 \

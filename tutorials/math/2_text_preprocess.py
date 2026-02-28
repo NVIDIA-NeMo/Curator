@@ -79,7 +79,7 @@ def build_pipeline(config: TextPreprocessConfig) -> Pipeline:
 def report_extraction_stats(output_dir: str) -> None:
     """Optional: Report extraction statistics by reading output with Ray Data."""
     try:
-        from nemo_curator.utils.file_utils import get_all_file_paths_under  # noqa: PLC0415
+        from nemo_curator.utils.file_utils import get_all_file_paths_under
 
         jsonl_files = get_all_file_paths_under(output_dir, keep_extensions=[".jsonl"])
         if not jsonl_files:
