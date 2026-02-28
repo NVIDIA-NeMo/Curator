@@ -16,7 +16,7 @@ from collections.abc import Callable
 from typing import Any
 
 from loguru import logger
-from ray.data import Dataset
+from ray.data import ActorPoolStrategy, Dataset
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
@@ -88,24 +88,25 @@ class RayDataStageAdapter(BaseStageAdapter):
 
         if is_actor_stage_:
             map_batches_fn = create_actor_from_stage(self.stage)
-            concurrency_kwargs = {
-                "concurrency": calculate_concurrency_for_actors_for_stage(
-                    self.stage, ignore_head_node=ignore_head_node
-                ),
-            }
+            concurrency = calculate_concurrency_for_actors_for_stage(self.stage, ignore_head_node=ignore_head_node)
+            if isinstance(concurrency, tuple):
+                min_size, max_size = concurrency
+                actor_pool = ActorPoolStrategy(min_size=min_size, max_size=max_size)
+            else:
+                actor_pool = ActorPoolStrategy(size=concurrency)
+            compute_kwargs: dict[str, Any] = {"compute": actor_pool}
         else:
             map_batches_fn = create_task_from_stage(self.stage)
-            concurrency_kwargs = {"concurrency": None}
+            compute_kwargs = {}
 
         if self.stage.resources.cpus > 0:
-            concurrency_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
+            compute_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
         if self.stage.resources.gpus > 0:
-            concurrency_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
+            compute_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
 
-        # Calculate concurrency based on available resources
-        logger.info(f"{self.stage.__class__.__name__} {is_actor_stage_=} with {concurrency_kwargs=}")
+        logger.info(f"{self.stage.__class__.__name__} {is_actor_stage_=} with {compute_kwargs=}")
 
-        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **concurrency_kwargs)  # type: ignore[reportArgumentType]
+        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **compute_kwargs)  # type: ignore[reportArgumentType]
 
         if self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
             processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
