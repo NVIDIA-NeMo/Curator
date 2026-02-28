@@ -205,7 +205,12 @@ flowchart TD
 
     subgraph step5["Step 5: LLM Cleanup"]
         LLM["5_llm_cleanup.py<br/><i>vLLM + Phi-4</i>"]
-        FINAL["Final Cleaned Data<br/><i>+ cleaned_text</i>"]
+        CHUNKED["Chunked Cleaned Data<br/><i>+ cleaned_text, chunk_id</i>"]
+    end
+
+    subgraph step6["Step 6: Post-Processing"]
+        MERGE["6_postprocess.py<br/><i>Chunk merge</i>"]
+        FINAL["Final Merged Data<br/><i>1 row per document</i>"]
     end
 
     %% Download flow (optional)
@@ -231,7 +236,9 @@ flowchart TD
     CLASSIFIED --> DEDUP
     DEDUP --> DEDUPED
     DEDUPED --> LLM
-    LLM --> FINAL
+    LLM --> CHUNKED
+    CHUNKED --> MERGE
+    MERGE --> FINAL
 
     %% ==========================================
     %% NVIDIA Color Scheme
@@ -255,10 +262,10 @@ flowchart TD
     class HF,CC_INDEX,CC_S3 nvidiaPurple
 
     %% Processing steps (Python scripts) - NVIDIA Green
-    class DL,LOOKUP,EXTRACT,CLASSIFY,DEDUP,LLM nvidiaGreen
+    class DL,LOOKUP,EXTRACT,CLASSIFY,DEDUP,LLM,MERGE nvidiaGreen
 
     %% Intermediate outputs - Light Gray
-    class RAW,ENRICHED,PREPROCESSED,CLASSIFIED,DEDUPED nvidiaLightGray
+    class RAW,ENRICHED,PREPROCESSED,CLASSIFIED,DEDUPED,CHUNKED nvidiaLightGray
 
     %% Final output - Gray
     class FINAL nvidiaGray
@@ -271,6 +278,7 @@ flowchart TD
     style step3 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
     style step4 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
     style step5 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
+    style step6 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
 
     %% Link/Arrow styling (Note: linkStyle support varies by renderer)
     linkStyle default stroke:#76b900,stroke-width:2px
@@ -285,14 +293,15 @@ flowchart TD
 | 2 | `2_text_preprocess.py` | WARC metadata | Extracted text | All datasets |
 | 3 | `3_quality_classifier.py` | Text | Text + quality scores | All datasets |
 | 4 | `4_deduplication.py` | Scored text | Deduplicated text | All datasets |
-| 5 | `5_llm_cleanup.py` | Deduplicated text | Cleaned text | Optional |
+| 5 | `5_llm_cleanup.py` | Deduplicated text | Chunked cleaned text | Optional |
+| 6 | `6_postprocess.py` | Chunked cleaned text | Merged documents (1 row/doc) | Required after Step 5 |
 
 ### Working Directory Setup
 
 ```bash
 # Create working directories
 export MATH_DATA_DIR=/tmp/math_pipeline
-mkdir -p $MATH_DATA_DIR/{raw,enriched,preprocessed,classified,dedup_cache,dedup_ids,deduplicated,cleaned}
+mkdir -p $MATH_DATA_DIR/{raw,enriched,preprocessed,classified,dedup_cache,dedup_ids,deduplicated,cleaned,merged}
 ```
 
 ## Download Dataset from HuggingFace (Optional)
@@ -507,6 +516,36 @@ python tutorials/math/5_llm_cleanup.py \
 - `--max_model_len`: Maximum model context length (auto-detected if not specified)
 - `--filter_by_n_tokens`: Filter chunks by token count
 - `--temperature`, `--top_p`, `--top_k`, `--min_p`: Sampling parameters
+
+## Step 6: Post-Processing (Chunk Merge)
+
+After LLM cleanup, the output has multiple rows per document (one per chunk). This step merges chunks back into one row per document.
+
+```bash
+python tutorials/math/6_postprocess.py \
+  --input $MATH_DATA_DIR/cleaned \
+  --output $MATH_DATA_DIR/merged
+```
+
+**Input**: JSONL files from Step 5 (with `cleaned_text`, `chunk_id`, and metadata columns)
+
+**Output**: JSONL files with one row per document, where:
+- `cleaned_text`: Concatenated from all chunks (separator: `\n`)
+- `text`: Raw text concatenated from all chunks
+- Metadata columns (`url`, `type`, `finemath_scores`, etc.) preserved via `first()`
+
+**What happens during merge**:
+1. Duplicate chunks (same `url` + `chunk_id`) are deduplicated
+2. Chunks with `"NO USEFUL CONTENT"` are dropped
+3. Empty/null chunks are filtered out
+4. Chunks are sorted by `chunk_id` and concatenated
+5. Documents where all chunks were filtered are dropped entirely
+6. Merged documents exceeding 900K characters are dropped
+
+**Additional options**:
+- `--groupby`: Columns to group by (default: `url`; use `warc_filename url` for CC data)
+- `--text-field`: LLM output column name (default: `cleaned_text`)
+- `--max-text-length`: Maximum merged text length (default: 900,000)
 
 ## Alternative Prompts and Use Cases
 
