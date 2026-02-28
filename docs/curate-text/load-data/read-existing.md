@@ -25,8 +25,8 @@ Use Curator's `JsonlReader` and `ParquetReader` to read existing datasets into a
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import WordCountFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter
 
 # Initialize Ray client
 ray_client = RayClient()
@@ -70,8 +70,8 @@ ray_client.stop()
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import ParquetReader
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import WordCountFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter
 
 # Initialize Ray client
 ray_client = RayClient()

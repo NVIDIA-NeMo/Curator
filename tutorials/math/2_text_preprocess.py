@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -79,7 +79,7 @@ def build_pipeline(config: TextPreprocessConfig) -> Pipeline:
 def report_extraction_stats(output_dir: str) -> None:
     """Optional: Report extraction statistics by reading output with Ray Data."""
     try:
-        from nemo_curator.utils.file_utils import get_all_file_paths_under
+        from nemo_curator.utils.file_utils import get_all_file_paths_under  # noqa: PLC0415
 
         jsonl_files = get_all_file_paths_under(output_dir, keep_extensions=[".jsonl"])
         if not jsonl_files:

@@ -70,7 +70,7 @@ NeMo Curator uses these fundamental building blocks that users combine into pipe
 :header-rows: 1
 
 * - Component
-  - Purpose  
+  - Purpose
   - Usage Pattern
 * - **`Pipeline`**
   - Orchestrate processing stages
@@ -103,11 +103,11 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import (
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatedLinesFilter
+from nemo_curator.stages.text.filters.heuristic import (
     WordCountFilter,
     NonAlphaNumericFilter,
-    RepeatedLinesFilter,
     PunctuationFilter,
     BoilerPlateStringFilter
 )
@@ -186,8 +186,8 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import Modify
-from nemo_curator.stages.text.modifiers import UnicodeReformatter
+from nemo_curator.stages.text.modifiers import Modify
+from nemo_curator.stages.text.modifiers.unicode import UnicodeReformatter
 
 # Start Ray client
 ray_client = RayClient()
@@ -317,7 +317,7 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     output_path="/path/to/deduplicated/output",
     input_filetype="parquet",  # Same as identification workflow
     input_blocksize="1.5GiB",  # Same as identification workflow
-    ids_to_remove_duplicate_id_field="_curator_dedup_id",
+    duplicate_id_field="_curator_dedup_id",
     id_generator_path="/path/to/output/fuzzy_id_generator.json",
 )
 

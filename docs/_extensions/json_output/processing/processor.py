@@ -105,7 +105,7 @@ def _apply_size_filtering(app: Sphinx, all_docs: list[str], log_func: Callable[[
                 filtered_docs.append(docname)
             else:
                 log_func(f"Skipping large file: {docname} ({source_path.stat().st_size} bytes)")
-        except Exception:  # noqa: BLE001, PERF203
+        except Exception:  # noqa: PERF203
             filtered_docs.append(docname)  # Include if we can't check size
     return filtered_docs
 

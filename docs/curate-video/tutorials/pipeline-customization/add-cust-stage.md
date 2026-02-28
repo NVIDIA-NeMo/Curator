@@ -61,7 +61,7 @@ class MyCustomStage(ProcessingStage[VideoTask, VideoTask]):
 from nemo_curator.stages.resources import Resources
 
 stage = MyCustomStage().with_(
-    resources=Resources(cpus=4.0, gpu_memory_gb=16.0, nvdecs=1, nvencs=1)
+    resources=Resources(cpus=4.0, gpu_memory_gb=16.0)
 )
 ```
 
@@ -160,6 +160,3 @@ For end-to-end usage, review and adapt the example:
 
 If you need a container image, extend your base image using a Dockerfile and include your code and dependencies. Then build and run with your preferred container tooling.
 
-```{note}
-Ray Data backends do not support `nvdecs`/`nvencs` resource keys. Xenna does. If you plan to use `nvdecs`/`nvencs`, prefer the default Xenna executor.
-```

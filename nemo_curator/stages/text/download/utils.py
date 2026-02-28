@@ -29,7 +29,7 @@ def check_s5cmd_installed() -> bool:
         True if s5cmd is installed and accessible, False otherwise.
     """
     try:
-        subprocess.run(["s5cmd", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S603, S607
+        subprocess.run(["s5cmd", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S607
     except FileNotFoundError:
         return False
     else:

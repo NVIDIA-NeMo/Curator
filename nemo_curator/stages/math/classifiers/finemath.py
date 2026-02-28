@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -56,7 +56,7 @@ class CenterCropTextStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     @staticmethod
     def _mid_slice(s: str, n: int) -> str:
         m = len(s) // 2
-        b, e = max(0, m - n), min(m + n, len(s) - 1)
+        b, e = max(0, m - n), min(m + n, len(s))
         return s[b:e]
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:

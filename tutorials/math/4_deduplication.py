@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -152,7 +152,7 @@ def main() -> None:
         # Check if duplicates were found
         if not os.path.exists(id_generator_path):
             logger.info("No duplicates found. Copying input to output directory...")
-            import shutil
+            import shutil  # noqa: PLC0415
 
             if os.path.exists(args.output):
                 shutil.rmtree(args.output)

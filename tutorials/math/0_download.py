@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -100,7 +100,7 @@ def get_parquet_files(repo_id: str, subset: str | None = None) -> list[str]:
             subset_files.extend([f for f in parquet_files if f.startswith(pattern)])
 
         # Use subset files if found, otherwise fallback to files containing subset name
-        parquet_files = subset_files if subset_files else [f for f in parquet_files if subset in f]
+        parquet_files = subset_files or [f for f in parquet_files if subset in f]
 
     if not parquet_files:
         logger.warning(f"No parquet files found in {repo_id}" + (f" for subset {subset}" if subset else ""))

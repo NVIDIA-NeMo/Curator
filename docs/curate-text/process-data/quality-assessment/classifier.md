@@ -87,8 +87,8 @@ results = pipeline.run()
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import FastTextQualityFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.fasttext import FastTextQualityFilter
 
 # Create pipeline with FastText filter (requires pre-trained model)
 pipeline = Pipeline(name="fasttext_quality_pipeline")
@@ -123,7 +123,7 @@ You can configure quality classifiers and filters with different parameters:
 
 ```python
 from nemo_curator.stages.text.classifiers import QualityClassifier
-from nemo_curator.stages.text.filters import FastTextQualityFilter
+from nemo_curator.stages.text.filters.fasttext import FastTextQualityFilter
 
 # DeBERTa quality classifier configurations
 basic_deberta_classifier = QualityClassifier(

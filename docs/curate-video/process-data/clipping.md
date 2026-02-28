@@ -84,7 +84,7 @@ pipe.run()
 
 ```bash
 # Fixed stride
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
@@ -92,7 +92,7 @@ python -m nemo_curator.examples.video.video_split_clip_example \
   --limit-clips 0
 
 # TransNetV2
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --splitting-algorithm transnetv2 \
   --transnetv2-frame-decoder-mode pynvc \

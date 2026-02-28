@@ -16,12 +16,11 @@ This guide covers the core concepts for acquiring and processing text data from 
 
 ## Overview
 
-Data acquisition in NeMo Curator follows a four-stage architecture:
+Data acquisition in NeMo Curator follows a three-stage architecture:
 
 1. **Generate URLs**: Discover and generate download URLs from minimal input
 2. **Download**: Retrieve raw data files from remote sources
-3. **Iterate**: Extract individual records from downloaded containers
-4. **Extract**: Convert raw content to clean, structured text
+3. **Iterate** and **Extract**: Extract individual records from downloaded containers and convert raw content to clean, structured text
 
 This process transforms diverse remote data sources into a standardized `DocumentBatch` that can be used throughout the text curation pipeline.
 

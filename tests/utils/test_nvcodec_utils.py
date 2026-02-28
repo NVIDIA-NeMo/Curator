@@ -67,7 +67,6 @@ class TestImportHandling:
 
     @patch("nemo_curator.utils.nvcodec_utils.cuda", None)
     @patch("nemo_curator.utils.nvcodec_utils.cvcuda", None)
-    @patch("nemo_curator.utils.nvcodec_utils.nvcv", None)
     @patch("nemo_curator.utils.nvcodec_utils.Nvc", None)
     def test_py_nvc_frame_extractor_without_dependencies(self) -> None:
         """Test PyNvcFrameExtractor fails gracefully when dependencies are missing."""
@@ -92,7 +91,7 @@ class TestImportHandling:
         """Test that the module can be imported even when GPU dependencies are missing."""
         # If we got here, the import was successful
         # This test verifies that import failures are handled gracefully
-        from nemo_curator.utils import nvcodec_utils
+        from nemo_curator.utils import nvcodec_utils  # noqa: PLC0415, RUF100
 
         # Verify the module has expected attributes
         assert hasattr(nvcodec_utils, "FrameExtractionPolicy")
@@ -528,10 +527,7 @@ class TestNvVideoDecoder:
     @patch("nemo_curator.utils.nvcodec_utils.Nvc")
     @patch("nemo_curator.utils.nvcodec_utils.torch")
     @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
-    @patch("nemo_curator.utils.nvcodec_utils.nvcv")
-    def test_generate_decoded_frames(
-        self, _mock_nvcv: Any, _mock_cvcuda: Any, _mock_torch: Any, mock_nvc: Any
-    ) -> None:
+    def test_generate_decoded_frames(self, _mock_cvcuda: Any, _mock_torch: Any, mock_nvc: Any) -> None:
         """Test generate_decoded_frames method."""
         # Setup mocks
         mock_demux = Mock()
@@ -655,10 +651,7 @@ class TestNvVideoDecoder:
     @patch("nemo_curator.utils.nvcodec_utils.Nvc")
     @patch("nemo_curator.utils.nvcodec_utils.torch")
     @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
-    @patch("nemo_curator.utils.nvcodec_utils.nvcv")
-    def test_generate_decoded_frames_with_frames(
-        self, mock_nvcv: Any, mock_cvcuda: Any, mock_torch: Any, mock_nvc: Any
-    ) -> None:
+    def test_generate_decoded_frames_with_frames(self, mock_cvcuda: Any, mock_torch: Any, mock_nvc: Any) -> None:
         """Test generate_decoded_frames with actual frame processing."""
         # Setup mocks
         mock_demux = Mock()
@@ -677,20 +670,27 @@ class TestNvVideoDecoder:
         mock_decoded_frame.nvcv_image.return_value = Mock()
 
         # Mock tensor operations
-        mock_nvcv_tensor = Mock()
-        mock_nvcv_tensor.layout = "NCHW"
-        mock_nvcv_tensor.shape = (1, 3, 480, 640)  # NCHW format
-        mock_nvcv.as_tensor.return_value = mock_nvcv_tensor
-        mock_nvcv.as_image.return_value = Mock()
-        mock_nvcv.Format.U8 = Mock()
+        mock_cvcuda_tensor = Mock()
+        mock_cvcuda_tensor.layout = "NCHW"
+        mock_cvcuda_tensor.shape = (1, 3, 480, 640)  # NCHW format
+        mock_cvcuda.as_tensor.return_value = mock_cvcuda_tensor
+        mock_cvcuda.as_image.return_value = Mock()
+        mock_cvcuda.Format.U8 = Mock()
 
         # Mock torch tensor
         mock_torch_nhwc = Mock()
         mock_torch.empty.return_value = mock_torch_nhwc
 
-        # Mock cvcuda tensor
+        # Mock cvcuda tensor for NHWC conversion
         mock_cvcuda_nhwc = Mock()
-        mock_cvcuda.as_tensor.return_value = mock_cvcuda_nhwc
+
+        # Setup side effect for as_tensor to return different mocks
+        def as_tensor_side_effect(*args: Any, **_kwargs: Any) -> Any:
+            if len(args) == 2 and isinstance(args[1], str):
+                return mock_cvcuda_nhwc
+            return mock_cvcuda_tensor
+
+        mock_cvcuda.as_tensor.side_effect = as_tensor_side_effect
 
         # Mock demux iteration - return one packet with one frame
         mock_demux.__iter__ = Mock(return_value=iter([mock_packet]))
@@ -707,9 +707,8 @@ class TestNvVideoDecoder:
         result = decoder.generate_decoded_frames()
 
         # Verify frame processing was called
-        mock_nvcv.as_tensor.assert_called_once()
+        mock_cvcuda.as_tensor.assert_called()
         mock_torch.empty.assert_called_once()
-        mock_cvcuda.as_tensor.assert_called_once()
         mock_cvcuda.reformat_into.assert_called_once()
 
         # Should return the processed frames
@@ -718,9 +717,8 @@ class TestNvVideoDecoder:
     @patch("nemo_curator.utils.nvcodec_utils.Nvc")
     @patch("nemo_curator.utils.nvcodec_utils.torch")
     @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
-    @patch("nemo_curator.utils.nvcodec_utils.nvcv")
     def test_generate_decoded_frames_unexpected_layout(
-        self, mock_nvcv: Any, _mock_cvcuda: Any, _mock_torch: Any, mock_nvc: Any
+        self, mock_cvcuda: Any, _mock_torch: Any, mock_nvc: Any
     ) -> None:
         """Test generate_decoded_frames with unexpected tensor layout."""
         # Setup mocks
@@ -740,11 +738,11 @@ class TestNvVideoDecoder:
         mock_decoded_frame.nvcv_image.return_value = Mock()
 
         # Mock tensor with unexpected layout
-        mock_nvcv_tensor = Mock()
-        mock_nvcv_tensor.layout = "NHWC"  # Unexpected layout - should be NCHW
-        mock_nvcv.as_tensor.return_value = mock_nvcv_tensor
-        mock_nvcv.as_image.return_value = Mock()
-        mock_nvcv.Format.U8 = Mock()
+        mock_cvcuda_tensor = Mock()
+        mock_cvcuda_tensor.layout = "NHWC"  # Unexpected layout - should be NCHW
+        mock_cvcuda.as_tensor.return_value = mock_cvcuda_tensor
+        mock_cvcuda.as_image.return_value = Mock()
+        mock_cvcuda.Format.U8 = Mock()
 
         # Mock demux iteration
         mock_demux.__iter__ = Mock(return_value=iter([mock_packet]))
@@ -764,10 +762,7 @@ class TestNvVideoDecoder:
     @patch("nemo_curator.utils.nvcodec_utils.Nvc")
     @patch("nemo_curator.utils.nvcodec_utils.torch")
     @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
-    @patch("nemo_curator.utils.nvcodec_utils.nvcv")
-    def test_generate_decoded_frames_partial_batch(
-        self, mock_nvcv: Any, mock_cvcuda: Any, mock_torch: Any, mock_nvc: Any
-    ) -> None:
+    def test_generate_decoded_frames_partial_batch(self, mock_cvcuda: Any, mock_torch: Any, mock_nvc: Any) -> None:
         """Test generate_decoded_frames with partial batch (less frames than batch_size)."""
         # Setup mocks
         mock_demux = Mock()
@@ -789,17 +784,24 @@ class TestNvVideoDecoder:
             mock_frames.append(frame)
 
         # Mock tensor operations
-        mock_nvcv_tensor = Mock()
-        mock_nvcv_tensor.layout = "NCHW"
-        mock_nvcv_tensor.shape = (1, 3, 480, 640)
-        mock_nvcv.as_tensor.return_value = mock_nvcv_tensor
-        mock_nvcv.as_image.return_value = Mock()
-        mock_nvcv.Format.U8 = Mock()
+        mock_cvcuda_tensor = Mock()
+        mock_cvcuda_tensor.layout = "NCHW"
+        mock_cvcuda_tensor.shape = (1, 3, 480, 640)
+        mock_cvcuda.as_tensor.return_value = mock_cvcuda_tensor
+        mock_cvcuda.as_image.return_value = Mock()
+        mock_cvcuda.Format.U8 = Mock()
 
         mock_torch_nhwc = Mock()
         mock_torch.empty.return_value = mock_torch_nhwc
         mock_cvcuda_nhwc = Mock()
-        mock_cvcuda.as_tensor.return_value = mock_cvcuda_nhwc
+
+        # Setup side effect for as_tensor to return different mocks
+        def as_tensor_side_effect(*args: Any, **_kwargs: Any) -> Any:
+            if len(args) == 2 and isinstance(args[1], str):
+                return mock_cvcuda_nhwc
+            return mock_cvcuda_tensor
+
+        mock_cvcuda.as_tensor.side_effect = as_tensor_side_effect
 
         # Mock demux to return frames across multiple packets then end
         decode_calls = []
@@ -825,9 +827,8 @@ class TestNvVideoDecoder:
         assert len(result) == 2
 
         # Verify frame processing was called
-        mock_nvcv.as_tensor.assert_called()
-        mock_torch.empty.assert_called()
         mock_cvcuda.as_tensor.assert_called()
+        mock_torch.empty.assert_called()
         mock_cvcuda.reformat_into.assert_called()
 
 
@@ -1178,7 +1179,7 @@ class TestGracefulDegradation:
     def test_all_classes_can_be_imported(self) -> None:
         """Test that all public classes can be imported regardless of dependency availability."""
         # All these should be importable even when dependencies are missing
-        from nemo_curator.utils.nvcodec_utils import (
+        from nemo_curator.utils.nvcodec_utils import (  # noqa: PLC0415, RUF100
             FrameExtractionPolicy,
             NvVideoDecoder,
             PyNvcFrameExtractor,

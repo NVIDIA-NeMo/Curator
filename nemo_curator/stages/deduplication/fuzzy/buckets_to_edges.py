@@ -33,7 +33,7 @@ class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     and outputs a file consisting of edges between documents with the same bucket id.
 
     Args:
-        doc_id_field: The field name containing the document ids for each bucket.
+        document_id_field: The field name containing the document ids for each bucket.
         output_path: The directory to write the output file to.
         read_kwargs: Keyword arguments to pass for reading the input files.
             Only the storage_options key is supported for now.
@@ -47,11 +47,11 @@ class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     def __init__(
         self,
         output_path: str,
-        doc_id_field: str = CURATOR_DEDUP_ID_STR,
+        document_id_field: str = CURATOR_DEDUP_ID_STR,
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
     ):
-        self.doc_id_field = doc_id_field
+        self.document_id_field = document_id_field
         self._check_io_kwargs(read_kwargs)
         self._check_io_kwargs(write_kwargs)
         self.read_storage_options = read_kwargs.get("storage_options") if read_kwargs is not None else None
@@ -73,10 +73,12 @@ class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         input_fs = get_fs(task.data[0], self.read_storage_options)
         df = pq.read_table(task.data, filesystem=input_fs)
         edges = []
-        for bucket_docs in df[self.doc_id_field]:
+        for bucket_docs in df[self.document_id_field]:
             edges.extend(pairwise(bucket_docs))
         edges = [list(edge) for edge in edges]
-        edges = pa.Table.from_pandas(pd.DataFrame(edges, columns=[f"{self.doc_id_field}_x", f"{self.doc_id_field}_y"]))
+        edges = pa.Table.from_pandas(
+            pd.DataFrame(edges, columns=[f"{self.document_id_field}_x", f"{self.document_id_field}_y"])
+        )
 
         output_path = self.output_fs.sep.join([self.output_path, f"{task._uuid}.parquet"])
         pq.write_table(edges, output_path, filesystem=self.output_fs)

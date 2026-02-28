@@ -12,11 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: S603
 
 import os
 import shutil
-import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -24,12 +22,26 @@ from typing import Any
 
 import ray
 from loguru import logger
-from runner.utils import run_shm_size_check
+from runner.utils import get_shm_usage
 
 from nemo_curator.core.client import RayClient
+from nemo_curator.core.utils import check_ray_responsive
 
 ray_client_start_timeout_s = 30
 ray_client_start_poll_interval_s = 0.5
+
+
+_RAY_CLEANUP_WAIT_S = 10
+
+
+def _wait_for_ray_cleanup() -> None:
+    """Wait for Ray child processes to exit and /dev/shm segments to release after stopping a cluster."""
+    logger.info(f"Waiting {_RAY_CLEANUP_WAIT_S}s for Ray to clean up child processes and release /dev/shm...")
+    time.sleep(_RAY_CLEANUP_WAIT_S)
+
+    shm = get_shm_usage()
+    if shm["summary"]:
+        logger.info(f"SHM usage after cleanup wait: {shm['summary']}")
 
 
 def setup_ray_cluster_and_env(  # noqa: PLR0913
@@ -53,9 +65,14 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
     if ray_address_env:
         logger.warning(f"RAY_ADDRESS already set in environment: {ray_address_env}")
 
+    shm = get_shm_usage()
+    if shm["summary"]:
+        logger.info(f"SHM usage before Ray cluster setup: {shm['summary']}")
+
     responsive = False
     retries = 0
     max_retries = 5
+    client = None
     while not responsive and retries < max_retries:
         logger.info(f"Starting Ray cluster (attempt {retries + 1} of {max_retries})...")
 
@@ -74,13 +91,23 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
             ray_stdouterr_capture_file=ray_stdouterr_capture_file,
             object_store_memory=object_store_size,
         )
-        client.start()
 
-        _ensure_ray_client_process_started(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
-        responsive = check_ray_responsive()
+        try:
+            client.start()
+            _ensure_ray_client_process_started(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
+            responsive = True
+        except Exception:
+            logger.exception(f"Ray cluster start failed on attempt {retries + 1}")
+            responsive = False
+
         if not responsive:
-            logger.info("Ray cluster did not become responsive in time, stopping client and retrying...")
-            client.stop()
+            logger.info("Ray cluster did not become responsive, cleaning up before retry...")
+            try:
+                client.stop()
+            except Exception:
+                logger.exception("Failed to stop client during retry cleanup")
+            os.environ.pop("RAY_ADDRESS", None)
+            _wait_for_ray_cleanup()
             retries += 1
 
     if not responsive:
@@ -103,66 +130,33 @@ def teardown_ray_cluster_and_env(
             # Stop the Ray client
             # This also removes the RAY_ADDRESS environment variable if the client also started the Ray cluster
             ray_client.stop()
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Failed to stop Ray client")
+
+        # Wait for Ray child processes to exit and /dev/shm to release
+        _wait_for_ray_cleanup()
+
         # Copy debugging artifacts and clean up temp directory
         try:
             _copy_ray_debug_artifacts(ray_temp_path, ray_cluster_path)
             shutil.rmtree(ray_temp_path, ignore_errors=True)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Failed to copy/remove Ray temp dir")
 
 
-def check_ray_responsive(timeout_s: int = 20) -> bool:
-    # Assume the env var RAY_ADDRESS is set to the correct value by code starting the Ray cluster
-    logger.debug(f"Verifying Ray cluster is responsive, using RAY_ADDRESS={os.environ.get('RAY_ADDRESS')}")
-
-    responsive = False
-    timer = 0
-    t0 = time.time()
-    while not responsive and (timer < timeout_s):
-        try:
-            logger.debug("running 'ray status' command")
-            result = subprocess.run(
-                ["ray", "status"],  # noqa: S607
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=timeout_s,
-            )
-            if "No cluster status" in result.stdout or "Error" in result.stdout:
-                logger.debug("Ray cluster is not responsive ('No cluster status' returned or Error in output)")
-            else:
-                logger.debug("Ray cluster IS responsive")
-                responsive = True
-
-        except subprocess.CalledProcessError:
-            logger.debug("Ray cluster is not responsive ('ray status' command failed)")
-
-        except subprocess.TimeoutExpired:
-            logger.debug("Ray cluster is not responsive ('ray status' command timed out)")
-
-        finally:
-            # Also show the output of `df -h /dev/shm`, since this is often a symptom of problems
-            run_shm_size_check(human_readable=True)
-
-        timer = time.time() - t0
-        time.sleep(0.5)
-
-    if not responsive and timer >= timeout_s:
-        logger.debug("Ray cluster did not become responsive in time...")
-
-    return responsive
-
-
 def get_ray_cluster_data() -> dict[str, Any]:
-    """Get resource data from the Ray cluster."""
-    ray.init(ignore_reinit_error=True)
-    time.sleep(0.2)  # ray.available_resources() returns might have a lag
-    ray_data = ray.cluster_resources()
-    ray.shutdown()
-    return ray_data
+    """Get resource data from the Ray cluster.
+
+    If the cluster is not responsive (e.g. crashed due to OOM), returns an empty dict
+    instead of connecting — ray.init() on a dead cluster fatally terminates the process
+    via Ray's C++ core worker.
+    """
+    if not check_ray_responsive():
+        logger.warning("Ray cluster is not responsive, skipping cluster data collection")
+        return {}
+    with ray.init(ignore_reinit_error=True):
+        time.sleep(0.2)  # ray.available_resources() returns might have a lag
+        return ray.cluster_resources()
 
 
 def _ensure_ray_client_process_started(client: RayClient, timeout_s: int, poll_interval_s: float) -> None:
@@ -183,7 +177,7 @@ def _copy_item_safely(src_path: Path, dst_path: Path) -> None:
             shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
         else:
             shutil.copy2(src_path, dst_path)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"Failed to copy {src_path.name}: {e}")
 
 
