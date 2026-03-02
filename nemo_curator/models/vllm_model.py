@@ -82,6 +82,7 @@ class VLLMModel(ModelInterface):
         self._final_max_model_len: int | None = None
         self._is_qwen3: bool = False
 
+    @property
     def model_id_names(self) -> list[str]:
         """Return the model identifier."""
         return [self.model]
@@ -99,7 +100,7 @@ class VLLMModel(ModelInterface):
         if self.max_model_len is not None:
             final_max_model_len = self.max_model_len
         else:
-            final_max_model_len = get_max_model_len_from_config(self.model)
+            final_max_model_len = get_max_model_len_from_config(self.model, cache_dir=self.cache_dir)
 
         # Set tensor_parallel_size as user param or auto-detect from GPU count
         final_tp_size = self.tensor_parallel_size if self.tensor_parallel_size is not None else get_gpu_count()
@@ -136,6 +137,11 @@ class VLLMModel(ModelInterface):
             if self.max_tokens is not None
             else final_max_model_len
         )
+        if max_gen_tokens is None:
+            logger.warning(
+                "max_tokens is None and max_model_len could not be auto-detected. "
+                "vLLM will use its default (typically 16 tokens), which may be too few."
+            )
         is_qwen3 = "Qwen3" in self.model or "qwen3" in self.model.lower()
 
         sampling_kwargs: dict[str, Any] = {
@@ -159,7 +165,7 @@ class VLLMModel(ModelInterface):
 
     def generate(
         self,
-        prompts: list[str] | list[list[dict[str, str]]],
+        prompts: list[str],
     ) -> list[str]:
         """
         Generate text from prompts.
@@ -188,7 +194,7 @@ class VLLMModel(ModelInterface):
                 out.outputs[0].text if out.outputs else ""
                 for out in outputs
             ]
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError) as e:
             msg = f"Error generating text: {e}"
             raise RuntimeError(msg) from e
 

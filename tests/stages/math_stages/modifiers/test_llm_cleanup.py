@@ -208,7 +208,7 @@ class TestLLMCleanupStage:
         result = stage.process(batch)
 
         assert len(result.data) == 3
-        assert all("cleaned_text" in result.data.columns for _ in range(3))
+        assert "cleaned_text" in result.data.columns
         assert all(result.data["cleaned_text"].iloc[i].startswith("Cleaned:") for i in range(3))
 
     def test_process_preserves_metadata(self):

@@ -78,8 +78,8 @@ class TestTokenSplitterStage:
 
         # Should create multiple chunks
         assert len(result.data) > 1
-        assert all("chunk_id" in result.data.columns for _ in range(len(result.data)))
-        assert all("n_tokens" in result.data.columns for _ in range(len(result.data)))
+        assert "chunk_id" in result.data.columns
+        assert "n_tokens" in result.data.columns
         # Chunk IDs should be sequential starting from 0
         chunk_ids = result.data["chunk_id"].tolist()
         assert chunk_ids == list(range(len(chunk_ids)))

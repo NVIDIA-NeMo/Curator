@@ -116,7 +116,12 @@ class TokenSplitterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
             records.extend(chunks)
 
-        output_df = pd.DataFrame(records)
+        if records:
+            output_df = pd.DataFrame(records)
+        else:
+            output_cols = [self.text_field, self.chunk_id_field, self.n_tokens_field]
+            output_cols.extend(c for c in df.columns if c != self.text_field)
+            output_df = pd.DataFrame(columns=output_cols)
 
         return DocumentBatch(
             task_id=batch.task_id,

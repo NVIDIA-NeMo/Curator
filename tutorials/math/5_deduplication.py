@@ -155,6 +155,7 @@ def main() -> None:
             import shutil
 
             if os.path.exists(args.output):
+                logger.warning(f"Removing existing output directory: {args.output}")
                 shutil.rmtree(args.output)
             shutil.copytree(args.input, args.output)
             logger.info(f"All documents are unique. Copied {args.input} → {args.output}")
@@ -165,6 +166,7 @@ def main() -> None:
                 ids_to_remove_path=duplicate_ids_path,
                 output_path=args.output,
                 input_filetype=args.input_filetype,
+                output_filetype=args.input_filetype,
                 input_file_extensions=input_file_extensions,
                 id_field="_curator_dedup_id",
                 duplicate_id_field="_curator_dedup_id",

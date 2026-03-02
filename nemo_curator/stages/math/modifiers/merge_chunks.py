@@ -54,6 +54,8 @@ class ChunkMergeStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def inputs(self) -> tuple[list[str], list[str]]:
         required_cols = [self.text_field, self.chunk_id_field, *self.groupby_columns]
+        if self.raw_text_field:
+            required_cols.append(self.raw_text_field)
         return ["data"], required_cols
 
     def outputs(self) -> tuple[list[str], list[str]]:

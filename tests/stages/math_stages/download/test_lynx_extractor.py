@@ -12,21 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import shutil
 import subprocess
 from unittest import mock
-
-import pytest
 
 from nemo_curator.stages.math.download.html_extractors.lynx import LynxExtractor
 
 
-@pytest.mark.skipif(not shutil.which("lynx"), reason="lynx executable not found in PATH")
 class TestLynxExtractor:
     """Test the LynxExtractor class."""
 
+    @mock.patch("shutil.which", return_value="/usr/bin/lynx")
     @mock.patch("subprocess.run")
-    def test_lynx_extractor_extract_text_success(self, mock_run: mock.Mock, html_with_content: str) -> None:
+    def test_lynx_extractor_extract_text_success(self, mock_run: mock.Mock, mock_which: mock.Mock, html_with_content: str) -> None:
         """Test successful lynx text extraction."""
         # Mock successful subprocess call
         mock_process = mock.Mock()
@@ -58,8 +55,9 @@ class TestLynxExtractor:
             timeout=15,
         )
 
+    @mock.patch("shutil.which", return_value="/usr/bin/lynx")
     @mock.patch("subprocess.run")
-    def test_lynx_extractor_extract_text_timeout(self, mock_run: mock.Mock, simple_html: str) -> None:
+    def test_lynx_extractor_extract_text_timeout(self, mock_run: mock.Mock, mock_which: mock.Mock, simple_html: str) -> None:
         """Test LynxExtractor timeout handling."""
         mock_run.side_effect = subprocess.TimeoutExpired(["lynx"], timeout=20)
 
@@ -70,8 +68,9 @@ class TestLynxExtractor:
         assert result == ""
         mock_run.assert_called_once()
 
+    @mock.patch("shutil.which", return_value="/usr/bin/lynx")
     @mock.patch("subprocess.run")
-    def test_lynx_extractor_extract_text_failure(self, mock_run: mock.Mock, simple_html: str) -> None:
+    def test_lynx_extractor_extract_text_failure(self, mock_run: mock.Mock, mock_which: mock.Mock, simple_html: str) -> None:
         """Test LynxExtractor when lynx returns non-zero exit code."""
         mock_process = mock.Mock()
         mock_process.returncode = 1
@@ -84,8 +83,9 @@ class TestLynxExtractor:
         assert result == ""
         mock_run.assert_called_once()
 
+    @mock.patch("shutil.which", return_value="/usr/bin/lynx")
     @mock.patch("subprocess.run")
-    def test_lynx_extractor_extract_text_empty_input(self, mock_run: mock.Mock) -> None:
+    def test_lynx_extractor_extract_text_empty_input(self, mock_run: mock.Mock, mock_which: mock.Mock) -> None:
         """Test LynxExtractor with empty input."""
         extractor = LynxExtractor()
 
@@ -94,8 +94,9 @@ class TestLynxExtractor:
         assert result == ""
         mock_run.assert_not_called()  # Should return early without calling subprocess
 
+    @mock.patch("shutil.which", return_value="/usr/bin/lynx")
     @mock.patch("subprocess.run")
-    def test_lynx_extractor_extract_text_decode_error(self, mock_run: mock.Mock, simple_html: str) -> None:
+    def test_lynx_extractor_extract_text_decode_error(self, mock_run: mock.Mock, mock_which: mock.Mock, simple_html: str) -> None:
         """Test LynxExtractor with decode error handling."""
         mock_process = mock.Mock()
         mock_process.returncode = 0
@@ -111,8 +112,9 @@ class TestLynxExtractor:
         assert isinstance(result, str)
         mock_run.assert_called_once()
 
+    @mock.patch("shutil.which", return_value="/usr/bin/lynx")
     @mock.patch("subprocess.run")
-    def test_lynx_extractor_extract_text_with_math_content(self, mock_run: mock.Mock, math_html: str) -> None:
+    def test_lynx_extractor_extract_text_with_math_content(self, mock_run: mock.Mock, mock_which: mock.Mock, math_html: str) -> None:
         """Test LynxExtractor with mathematical content."""
         # Simulate lynx extracting LaTeX/math content
         mock_process = mock.Mock()
@@ -128,8 +130,9 @@ class TestLynxExtractor:
         assert "coefficients" in result
         mock_run.assert_called_once()
 
+    @mock.patch("shutil.which", return_value="/usr/bin/lynx")
     @mock.patch("subprocess.run")
-    def test_lynx_extractor_subprocess_error(self, mock_run: mock.Mock, simple_html: str) -> None:
+    def test_lynx_extractor_subprocess_error(self, mock_run: mock.Mock, mock_which: mock.Mock, simple_html: str) -> None:
         """Test LynxExtractor with subprocess error handling."""
         mock_run.side_effect = subprocess.SubprocessError("Subprocess failed")
 
@@ -140,8 +143,9 @@ class TestLynxExtractor:
         assert result == ""
         mock_run.assert_called_once()
 
+    @mock.patch("shutil.which", return_value="/usr/bin/lynx")
     @mock.patch("subprocess.run")
-    def test_lynx_extractor_os_error(self, mock_run: mock.Mock, simple_html: str) -> None:
+    def test_lynx_extractor_os_error(self, mock_run: mock.Mock, mock_which: mock.Mock, simple_html: str) -> None:
         """Test LynxExtractor with OS error handling."""
         mock_run.side_effect = OSError("System error")
 
@@ -152,7 +156,8 @@ class TestLynxExtractor:
         assert result == ""
         mock_run.assert_called_once()
 
-    def test_lynx_extractor_unicode_encode_error(self) -> None:
+    @mock.patch("shutil.which", return_value="/usr/bin/lynx")
+    def test_lynx_extractor_unicode_encode_error(self, mock_which: mock.Mock) -> None:
         """Test LynxExtractor with Unicode encode error handling."""
         extractor = LynxExtractor()
 

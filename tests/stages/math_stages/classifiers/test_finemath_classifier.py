@@ -129,7 +129,7 @@ class TestFineMathModelStage:
         mock_model.forward.return_value = mock_output
 
         # Configure the forward function
-        configured_model = FineMathModelStage._configure_forward(mock_model, autocast=False)
+        configured_model = FineMathModelStage._configure_forward(mock_model)
 
         # Test that the forward function was modified
         assert configured_model is mock_model
@@ -142,9 +142,8 @@ class TestFineMathModelStage:
         mock_logits.squeeze.assert_called_once_with(-1)
         mock_logits.squeeze.return_value.float.assert_called_once()
 
-    @mock.patch("torch.autocast")
-    def test_configure_forward_with_autocast(self, mock_autocast: mock.Mock) -> None:
-        """Test _configure_forward method with autocast enabled."""
+    def test_configure_forward_logits_processing(self) -> None:
+        """Test _configure_forward correctly processes logits (squeeze + float)."""
         mock_model = mock.Mock()
         mock_logits = mock.Mock()
         mock_logits.squeeze.return_value.float.return_value = torch.tensor([1.5])
@@ -152,15 +151,16 @@ class TestFineMathModelStage:
         mock_output.logits = mock_logits
         mock_model.forward.return_value = mock_output
 
-        # Configure with autocast enabled
-        configured_model = FineMathModelStage._configure_forward(mock_model, autocast=True)
+        # Autocast is now handled by parent ModelStage.process(), not _configure_forward
+        configured_model = FineMathModelStage._configure_forward(mock_model)
 
         # Test calling the modified forward function
         with mock.patch("torch.no_grad"):
             configured_model.forward(input_ids=torch.tensor([1]))
 
-        # Verify autocast was used
-        mock_autocast.assert_called_once_with(device_type="cuda")
+        # Verify logits are squeezed and converted to float
+        mock_logits.squeeze.assert_called_once_with(-1)
+        mock_logits.squeeze.return_value.float.assert_called_once()
 
     def test_process_model_output(self) -> None:
         """Test process_model_output method."""
@@ -173,11 +173,11 @@ class TestFineMathModelStage:
         result = stage.process_model_output(mock_tensor)
 
         # Check that scores are clamped to [0, 5] range
-        expected_float_scores = [1.2, 3.8, 5.0, 0.0, 2.0]  # Clamped to [0, 5]
-        expected_int_scores = [1, 4, 5, 0, 2]  # round(max(0, min(score, 5)))
+        expected_float_scores = np.array([1.2, 3.8, 5.0, 0.0, 2.0])  # Clamped to [0, 5]
+        expected_int_scores = np.array([1, 4, 5, 0, 2])  # round(clip(score, 0, 5))
 
-        assert result["finemath_scores"] == expected_float_scores
-        assert result["finemath_int_scores"] == expected_int_scores
+        np.testing.assert_array_almost_equal(result["finemath_scores"], expected_float_scores)
+        np.testing.assert_array_equal(result["finemath_int_scores"], expected_int_scores)
 
     def test_process_model_output_custom_columns(self) -> None:
         """Test process_model_output with custom column names."""
@@ -192,8 +192,8 @@ class TestFineMathModelStage:
 
         assert "custom_float" in result
         assert "custom_int" in result
-        assert result["custom_float"] == [2.5]
-        assert result["custom_int"] == [2]  # round(max(0, min(2.5, 5))) = round(2.5) = 2
+        np.testing.assert_array_almost_equal(result["custom_float"], [2.5])
+        np.testing.assert_array_equal(result["custom_int"], [2])
 
     def test_create_output_dataframe(self) -> None:
         """Test create_output_dataframe method."""
@@ -344,10 +344,10 @@ class TestFineMathClassifier:
         result = stage.process_model_output(mock_tensor)
 
         # Float scores should be clamped to [0, 5]
-        expected_float = [5.0, 0.0, 0.0, 5.0, 2.5, 4.9, 5.0]
-        assert result["finemath_scores"] == expected_float
+        expected_float = np.array([5.0, 0.0, 0.0, 5.0, 2.5, 4.9, 5.0])
+        np.testing.assert_array_almost_equal(result["finemath_scores"], expected_float)
 
-        # Int scores should be clamped then rounded: round(max(0, min(score, 5)))
+        # Int scores should be clamped then rounded: round(clip(score, 0, 5))
         # [10.0, -5.0, 0.0, 5.0, 2.5, 4.9, 5.1] -> [5, 0, 0, 5, 2, 5, 5]
-        expected_int = [5, 0, 0, 5, 2, 5, 5]
-        assert result["finemath_int_scores"] == expected_int
+        expected_int = np.array([5, 0, 0, 5, 2, 5, 5])
+        np.testing.assert_array_equal(result["finemath_int_scores"], expected_int)

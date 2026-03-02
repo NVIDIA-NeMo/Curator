@@ -14,11 +14,13 @@
 
 import json
 import re
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from typing import Any
 
 import magic
 import pandas as pd
+from loguru import logger
 from resiliparse.parse.encoding import bytes_to_str, detect_encoding
 
 from nemo_curator.stages.base import ProcessingStage
@@ -94,12 +96,14 @@ class MathContentExtractor(DocumentExtractor):
     lynx_timeout_sec: int = 20
 
     # Lazily-initialized, avoid unpickleable objects during deepcopy in with_()
-    _lynx: Any | None = None
-    _magic: Any | None = None
+    _lynx: Any | None = field(default=None, init=False, repr=False)
+    _magic: Any | None = field(default=None, init=False, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self):
         self._lynx = None
         self._magic = None
+        self._lock = threading.Lock()
 
     def input_columns(self) -> list[str]:
         return [self.binary_column, self.url_column, self.mime_type_column]
@@ -117,9 +121,12 @@ class MathContentExtractor(DocumentExtractor):
         if isinstance(binary, (bytes, bytearray)):
             try:
                 if self._magic is None:
-                    self._magic = magic.Magic(mime=True)
+                    with self._lock:
+                        if self._magic is None:
+                            self._magic = magic.Magic(mime=True)
                 magic_mime_type = self._magic.from_buffer(binary)
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"Magic MIME detection failed: {e}")
                 magic_mime_type = None
 
         content = _decode_bytes(binary if isinstance(binary, (bytes, bytearray)) else None)
@@ -138,7 +145,9 @@ class MathContentExtractor(DocumentExtractor):
         if doc_type == "html":
             # lazy init lynx extractor
             if self._lynx is None:
-                self._lynx = LynxExtractor(timeout_sec=self.lynx_timeout_sec)
+                with self._lock:
+                    if self._lynx is None:
+                        self._lynx = LynxExtractor(timeout_sec=self.lynx_timeout_sec)
             return {
                 "text": self._lynx.extract_text(content),
                 self.url_column: url,

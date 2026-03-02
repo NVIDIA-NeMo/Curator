@@ -28,8 +28,14 @@ def get_gpu_count() -> int:
 
     Returns:
         Power of 2 GPU count, minimum 1.
+
+    Raises:
+        RuntimeError: If no CUDA GPUs are detected.
     """
     count = torch.cuda.device_count()
+    if count == 0:
+        msg = "No CUDA GPUs detected. At least one GPU is required for vLLM inference."
+        raise RuntimeError(msg)
     tp_size = 2 ** int(math.log2(count)) if count >= 2 else 1  # noqa: PLR2004
     logger.info(
         f"Detected {count} GPU(s), using tensor_parallel_size={tp_size}"
@@ -37,23 +43,28 @@ def get_gpu_count() -> int:
     return tp_size
 
 
-def get_max_model_len_from_config(model: str) -> int | None:
+def get_max_model_len_from_config(model: str, cache_dir: str | None = None) -> int | None:
     """
     Try to get max model length from HuggingFace AutoConfig.
 
     Args:
         model: Model identifier (e.g., "microsoft/phi-4")
+        cache_dir: Optional cache directory for model config.
 
     Returns:
         Max model length if found, None otherwise.
     """
-    config = AutoConfig.from_pretrained(model, trust_remote_code=True)
+    try:
+        config = AutoConfig.from_pretrained(model, trust_remote_code=True, cache_dir=cache_dir)
+    except (OSError, ValueError, ImportError) as e:
+        logger.warning(f"Could not auto-detect max_model_len for {model}: {e}")
+        return None
     max_len = (
         getattr(config, "max_position_embeddings", None)
         or getattr(config, "n_positions", None)
         or getattr(config, "max_sequence_length", None)
     )
-    if max_len:
+    if max_len is not None:
         logger.info(f"Auto-detected max_model_len={max_len} for {model}")
 
     return max_len

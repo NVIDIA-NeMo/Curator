@@ -24,7 +24,7 @@ from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
 
-def build_pipeline(input_glob: str, output_dir: str) -> Pipeline:
+def build_pipeline(input_glob: str, output_dir: str, text_field: str = "text") -> Pipeline:
     p = Pipeline(
         name="math_quality_classifier",
         description="Classify mathematical content quality using the FineMath model",
@@ -42,7 +42,7 @@ def build_pipeline(input_glob: str, output_dir: str) -> Pipeline:
 
     # Classifier (composite): tune tokenizer and model sub-stages
     p.add_stage(
-        FineMathClassifier().with_(
+        FineMathClassifier(text_field=text_field).with_(
             {
                 "finemath_classifier_tokenizer": {"resources": Resources(cpus=1.0)},
                 "finemath_classifier_model": {"resources": Resources(cpus=1.0, gpus=1.0)},
@@ -70,13 +70,18 @@ def main() -> None:
         required=True,
         help="Output directory for JSONL results",
     )
+    parser.add_argument(
+        "--text-field",
+        default="text",
+        help="Column to classify (default: 'text', use 'cleaned_text' after LLM cleanup)",
+    )
     args = parser.parse_args()
 
     ray_client = RayClient()
     ray_client.start()
 
     try:
-        pipeline = build_pipeline(args.input, args.output)
+        pipeline = build_pipeline(args.input, args.output, text_field=args.text_field)
         logger.info(pipeline.describe())
 
         pipeline.run()

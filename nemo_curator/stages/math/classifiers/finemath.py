@@ -113,16 +113,13 @@ class FineMathModelStage(ModelStage):
         )
 
     @staticmethod
-    def _configure_forward(model: torch.nn.Module, autocast: bool = True) -> torch.nn.Module:
+    def _configure_forward(model: torch.nn.Module) -> torch.nn.Module:
         original_forward = model.forward
 
         @torch.no_grad()
         def custom_forward(*args, **kwargs) -> torch.Tensor:
-            if autocast:
-                with torch.autocast(device_type="cuda"):
-                    output = original_forward(*args, **kwargs)
-            else:
-                output = original_forward(*args, **kwargs)
+            # autocast is handled by parent ModelStage.process()
+            output = original_forward(*args, **kwargs)
             return output.logits.squeeze(-1).float()
 
         model.forward = custom_forward
@@ -134,14 +131,14 @@ class FineMathModelStage(ModelStage):
             cache_dir=self.cache_dir,
             local_files_only=local_files_only,
         ).cuda()
-        self.model = self._configure_forward(model, self.autocast)
+        self.model = self._configure_forward(model)
 
     def process_model_output(
         self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None
     ) -> dict[str, np.ndarray]:
         logits = outputs.cpu().numpy()
-        float_scores = [min(5.0, max(0.0, x)) for x in logits]
-        int_scores = [round(max(0, min(score, 5))) for score in logits]
+        float_scores = np.clip(logits, 0.0, 5.0)
+        int_scores = np.round(float_scores).astype(int)
         return {
             self.float_score_column: float_scores,
             self.int_score_column: int_scores,
@@ -202,12 +199,6 @@ class FineMathClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         )
         self.stages = stages
         self.name = format_name_with_suffix(FINEMATH_MODEL_ID)
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return self.stages[0].inputs()
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return self.stages[-1].outputs()  # Return last stage outputs
 
     def decompose(self) -> list[ProcessingStage]:
         return self.stages

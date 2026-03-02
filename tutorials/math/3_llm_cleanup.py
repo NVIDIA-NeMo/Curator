@@ -104,6 +104,10 @@ def build_pipeline(  # noqa: PLR0913
     try:
         system_prompt = getattr(prompts, prompt)
     except AttributeError:
+        logger.warning(
+            f"Prompt '{prompt}' not found in prompts module, using as literal string. "
+            f"Available: {[p for p in dir(prompts) if p.isupper()]}"
+        )
         system_prompt = prompt
 
     # LLM cleanup stage
@@ -125,7 +129,7 @@ def build_pipeline(  # noqa: PLR0913
     )
 
     # Optional chunk merge stage
-    if chunk_data:
+    if chunk_data and chunk_length:
         p.add_stage(
             ChunkMergeStage(
                 text_field="cleaned_text",

@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import defaultdict
+
 import pandas as pd
+from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.vllm_model import VLLMModel
@@ -64,21 +67,21 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             cache_dir: Cache directory for model weights. Defaults to None.
             n_tokens_field: Name of the n_tokens field. Defaults to "n_tokens".
         """
+        self._model_kwargs = {
+            "model": model if isinstance(model, str) else model.model,
+            "max_model_len": max_model_len,
+            "temperature": temperature,
+            "top_p": top_p,
+            "top_k": top_k,
+            "min_p": min_p,
+            "max_tokens": max_tokens,
+            "cache_dir": cache_dir,
+        }
         if isinstance(model, VLLMModel):
             self._model = model
             self.model_name = model.model
         else:
             self._model = None
-            self._model_kwargs = {
-                "model": model,
-                "max_model_len": max_model_len,
-                "temperature": temperature,
-                "top_p": top_p,
-                "top_k": top_k,
-                "min_p": min_p,
-                "max_tokens": max_tokens,
-                "cache_dir": cache_dir,
-            }
             self.model_name = model
 
         self.system_prompt = system_prompt
@@ -92,7 +95,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self._final_max_model_len = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.text_field, self.n_tokens_field]
+        return ["data"], [self.text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         if self.classification:
@@ -140,7 +143,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 return DocumentBatch(
                     task_id=batch.task_id,
                     dataset_name=batch.dataset_name,
-                    data=pd.DataFrame(),
+                    data=pd.DataFrame(columns=df.columns),
                     _metadata=batch._metadata,
                     _stage_perf=batch._stage_perf,
                 )
@@ -155,7 +158,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         prompts = []
         for _, row in df.iterrows():
             text = str(row[self.text_field]) if pd.notna(row[self.text_field]) else ""
-            user_prompt = self.system_prompt.format(text=text)
+            user_prompt = self.system_prompt.format_map(defaultdict(str, text=text))
 
             if is_qwen3_only:
                 user_prompt = user_prompt + " /no_think"
@@ -174,10 +177,11 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                         messages,
                         tokenize=False,
                         add_generation_prompt=True,
-                        chat_template_kwargs=({"enable_thinking": False} if is_qwen3_family else {}),
+                        **({"enable_thinking": False} if is_qwen3_family else {}),
                     )
                     prompts.append(formatted_prompt)
-                except (AttributeError, ValueError, TypeError, KeyError):
+                except (AttributeError, ValueError, TypeError, KeyError) as e:
+                    logger.warning(f"apply_chat_template failed, using raw prompt: {e}")
                     prompts.append(user_prompt)
             else:
                 prompts.append(user_prompt)
