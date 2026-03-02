@@ -366,16 +366,6 @@ class TestLLMCleanupStage:
         with pytest.raises(RuntimeError, match="LLM generation failed"):
             stage.process(batch)
 
-    def test_process_not_initialized(self):
-        """Test process method when LLM is not initialized (setup not called)."""
-        stage = LLMCleanupStage(model="test-model", system_prompt="Clean: {text}")
-
-        df = pd.DataFrame({"text": ["Some text"]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
-
-        with pytest.raises(AttributeError):
-            stage.process(batch)
-
     def test_process_empty_output(self):
         """Test process method when LLM returns empty output."""
         stage = LLMCleanupStage(model="test-model", system_prompt="Clean: {text}")

@@ -53,7 +53,7 @@ class TokenSplitterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Load tokenizer from local cache per worker."""
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name, local_files_only=True)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]

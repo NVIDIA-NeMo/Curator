@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ class TestCommonCrawlWARCDownloader:
         assert success is True
         assert error_message is None
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            ["wget", url, "-O", temp_path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -77,7 +77,7 @@ class TestCommonCrawlWARCDownloader:
         assert success is True
         assert error_message is None
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            ["wget", url, "-O", temp_path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"],
             stdout=None,
             stderr=None,
         )
@@ -95,7 +95,7 @@ class TestCommonCrawlWARCDownloader:
         assert success is True
         assert error_message is None
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            ["wget", url, "-O", temp_path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -113,7 +113,7 @@ class TestCommonCrawlWARCDownloader:
         assert success is False
         assert error_message == "Download failed"
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            ["wget", url, "-O", temp_path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )

@@ -66,7 +66,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         """
         if isinstance(model, VLLMModel):
             self._model = model
-            model_name = model.model
+            self.model_name = model.model
         else:
             self._model = None
             self._model_kwargs = {
@@ -79,7 +79,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 "max_tokens": max_tokens,
                 "cache_dir": cache_dir,
             }
-            model_name = model
+            self.model_name = model
 
         self.system_prompt = system_prompt
         self.text_field = text_field
@@ -88,7 +88,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.classification = classification
         self.n_tokens_field = n_tokens_field
         self.resources = Resources(cpus=1.0, gpus=1.0)
-        self.name = format_name_with_suffix(model_name, suffix="_llm_cleanup")
+        self.name = format_name_with_suffix(self.model_name, suffix="_llm_cleanup")
         self._final_max_model_len = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -101,12 +101,11 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Download model weights to local cache once per physical node."""
-        model_name = self._model.model if self._model is not None else self._model_kwargs["model"]
         cache_dir = self._model_kwargs.get("cache_dir") if self._model is None else self._model.cache_dir
 
         from huggingface_hub import snapshot_download
 
-        snapshot_download(repo_id=model_name, cache_dir=cache_dir, local_files_only=False)
+        snapshot_download(repo_id=self.model_name, cache_dir=cache_dir, local_files_only=False)
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         """Create model (if needed) and set up the model wrapper and tokenizer."""
@@ -142,8 +141,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             df = df.sort_values(by=self.n_tokens_field, kind="stable", ignore_index=True)
             df = df.drop(columns=[self.n_tokens_field])
 
-        model_name = self._model.model if hasattr(self._model, "model") else ""
-        is_qwen3_30b_a3b = model_name == "Qwen/Qwen3-30B-A3B"
+        is_qwen3_30b_a3b = self.model_name == "Qwen/Qwen3-30B-A3B"
 
         prompts = []
         for _, row in df.iterrows():
