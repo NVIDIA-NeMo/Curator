@@ -28,13 +28,13 @@ from typing import Any
 
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
+from video_utils import create_video_splitting_argparser
 
 # Add tutorials directory to path to import the pipeline creation function
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tutorials" / "video" / "getting-started"))
 
 from video_split_clip_example import (  # noqa: E402
-    create_video_splitting_argparser,
     create_video_splitting_pipeline,
 )
 
@@ -154,6 +154,9 @@ def main() -> int:
 
     logger.info("=== Video Pipeline Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
+
+    # For backwards-compatibility with the legacy tutorial
+    args.output_clip_path = args.output_path
 
     try:
         results = run_video_pipeline_benchmark(args)

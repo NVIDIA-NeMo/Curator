@@ -19,6 +19,7 @@ metrics collection and various executor support.
 """
 
 import argparse
+import inspect
 import time
 import traceback
 from pathlib import Path
@@ -52,14 +53,26 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
     )
 
     # Stage 1: Read images from webdataset tar files (now runs in parallel)
-    pipeline.add_stage(
-        ImageReaderStage(
-            dali_batch_size=args.batch_size,
-            verbose=args.verbose,  # Force verbose to see debug info
-            num_threads=args.reader_num_threads,  # More threads for I/O
-            num_gpus_per_worker=args.reader_gpus_per_worker,
-        )
-    )
+    # Build ImageReaderStage kwargs for backwards compat: assume newer "dali_batch_size"
+    # argument is supported, then fall back to "batch_size" if not supported, then
+    # "task_batch_size" if not supported.
+    image_reader_kwargs = {
+        "verbose": args.verbose,  # Force verbose to see debug info
+        "num_threads": args.reader_num_threads,  # More threads for I/O
+        "num_gpus_per_worker": args.reader_gpus_per_worker,
+    }
+    irs_params = inspect.signature(ImageReaderStage).parameters
+    if "dali_batch_size" in irs_params:
+        image_reader_kwargs["dali_batch_size"] = args.batch_size
+    elif "batch_size" in irs_params:
+        image_reader_kwargs["batch_size"] = args.batch_size
+    elif "task_batch_size" in irs_params:
+        image_reader_kwargs["task_batch_size"] = args.batch_size
+    else:
+        msg = f"No valid batch size argument found in ImageReaderStage: {irs_params}"
+        raise ValueError(msg)
+
+    pipeline.add_stage(ImageReaderStage(**image_reader_kwargs))
 
     # Stage 2: Generate CLIP embeddings for images
     pipeline.add_stage(

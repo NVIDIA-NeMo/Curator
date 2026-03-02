@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ruff: noqa: E402
+
 import json
 import pickle
 from pathlib import Path
@@ -107,3 +109,95 @@ def convert_paths_to_strings(obj: object) -> object:
     else:
         retval = obj
     return retval
+
+
+########################################################
+# Utils for supporting legacy Curator
+from collections.abc import Mapping
+from typing import Any
+
+from nemo_curator.tasks.tasks import Task, _EmptyTask
+from nemo_curator.tasks.utils import TaskPerfUtils
+from nemo_curator.utils.performance_utils import StagePerfStats
+
+# for pre-26.02 Curator
+try:
+    from nemo_curator.tasks.utils import WorkflowRunResult
+except ImportError:
+    WorkflowRunResult = type(None)
+
+
+def normalize_pipeline_tasks(  # noqa: PLR0912, C901
+    tasks: list[Task] | WorkflowRunResult | Mapping[str, list[Task]] | None,
+) -> dict[str, list[Task]]:
+    """Return a mapping of pipeline name -> list of tasks from various input shapes."""
+    if tasks is not None and isinstance(tasks, WorkflowRunResult):
+        source: Mapping[str, Any] = tasks.pipeline_tasks
+    elif isinstance(tasks, Mapping):
+        if "pipeline_tasks" in tasks and isinstance(tasks["pipeline_tasks"], Mapping):
+            source = tasks["pipeline_tasks"]
+        else:
+            source = tasks
+    elif isinstance(tasks, list):
+        return {"": list(tasks)}
+    elif tasks is None:
+        return {"": []}
+    else:
+        msg = (
+            "tasks must be a list of Task objects, a mapping of pipeline_name -> tasks, "
+            "a workflow result dict, or WorkflowRunResult instance."
+        )
+        raise TypeError(msg)
+
+    normalized: dict[str, list[Task]] = {}
+    for pipeline_name, pipeline_tasks in source.items():
+        if pipeline_tasks is None:
+            normalized[str(pipeline_name)] = []
+        elif isinstance(pipeline_tasks, list):
+            normalized[str(pipeline_name)] = pipeline_tasks
+        elif isinstance(pipeline_tasks, Task):
+            normalized[str(pipeline_name)] = [pipeline_tasks]
+        elif hasattr(pipeline_tasks, "__iter__") and not isinstance(pipeline_tasks, (str, bytes, dict)):
+            normalized[str(pipeline_name)] = list(pipeline_tasks)
+        else:
+            # If here, the tasks obj passed in is just a map of metadata:values.
+            # Convert it to a map of pipeline names -> list of tasks with one task
+            t = _EmptyTask(task_id="", dataset_name="", data=None)
+            custom_metrics = {metadata: value for metadata, value in source.items() if isinstance(value, (int, float))}
+            t.add_stage_perf(StagePerfStats(stage_name="", custom_metrics=custom_metrics))
+            normalized = {"": [t]}
+            break
+
+    return normalized or {"": []}
+
+
+def aggregate_task_metrics(
+    tasks: list[Task] | WorkflowRunResult | Mapping[str, list[Task]] | None,
+    prefix: str | None = None,
+) -> dict[str, Any]:
+    """Aggregate task metrics by computing mean/std/sum."""
+    import numpy as np
+
+    metrics: dict[str, float] = {}
+    pipeline_task_map = normalize_pipeline_tasks(tasks)
+    multiple_pipelines = len(pipeline_task_map) > 1
+
+    for pipeline_name, pipeline_tasks in pipeline_task_map.items():
+        stage_metrics = TaskPerfUtils.collect_stage_metrics(pipeline_tasks)
+        if prefix:
+            stage_prefix = f"{prefix}_{pipeline_name}" if pipeline_name else prefix
+        elif pipeline_name and multiple_pipelines:
+            stage_prefix = pipeline_name
+        else:
+            stage_prefix = None
+
+        for stage_name, stage_data in stage_metrics.items():
+            resolved_stage_name = stage_name if stage_prefix is None else f"{stage_prefix}_{stage_name}"
+            for metric_name, values in stage_data.items():
+                for agg_name, agg_func in [("sum", np.sum), ("mean", np.mean), ("std", np.std)]:
+                    metric_key = f"{resolved_stage_name}_{metric_name}_{agg_name}"
+                    if len(values) > 0:
+                        metrics[metric_key] = float(agg_func(values))
+                    else:
+                        metrics[metric_key] = 0.0
+    return metrics

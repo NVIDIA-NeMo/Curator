@@ -63,6 +63,7 @@ docker run \
   \
   ${VOLUME_MOUNTS} \
   \
+  --env=NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
   --env=IMAGE_DIGEST=${IMAGE_DIGEST} \
   --env=MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
   --env=SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN} \

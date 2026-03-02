@@ -83,11 +83,11 @@ def run_removal_benchmark(  # noqa: PLR0913
         ids_to_remove_path=ids_to_remove_path,
         output_path=output_path,
         input_filetype=input_filetype,  # jsonl or parquet
-        id_field=id_field,
+        input_id_field=id_field,
         input_files_per_partition=files_per_partition,
         input_blocksize=blocksize,
         input_task_limit=limit,
-        duplicate_id_field=duplicate_id_field,
+        ids_to_remove_duplicate_id_field=duplicate_id_field,
         output_filetype=output_filetype,
         id_generator_path=id_generator_path,
         input_kwargs={},
@@ -115,18 +115,29 @@ def run_removal_benchmark(  # noqa: PLR0913
     workflow_run_result = workflow.run(executor_obj, initial_tasks=initial_tasks)
 
     run_time_taken = time.perf_counter() - run_start_time
-    num_duplicates_removed = workflow_run_result.get_metadata("num_duplicates_removed") or 0
+    if isinstance(workflow_run_result, dict):
+        num_duplicates_removed = workflow_run_result.get("num_duplicates_removed") or 0
+    else:
+        num_duplicates_removed = 0
+        for task in workflow_run_result or []:
+            metadata = getattr(task, "_metadata", {}) or {}
+            num_duplicates_removed += metadata.get("num_removed", 0)
 
     logger.success(f"Benchmark completed in {run_time_taken:.2f}s, removed {num_duplicates_removed} duplicates")
     # Measuring I/O time
-    task_metrics = {
-        k.replace("_process_time_mean", ""): v
-        for k, v in TaskPerfUtils.aggregate_task_metrics(workflow_run_result).items()
-        if k.endswith("_process_time_mean")
-    }
-    io_percentage = round(
-        (task_metrics["jsonl_reader"] + task_metrics["parquet_writer"]) * 100 / sum(task_metrics.values()), 2
-    )
+    try:
+        task_metrics = {
+            k.replace("_process_time_mean", ""): v
+            for k, v in TaskPerfUtils.aggregate_task_metrics(workflow_run_result).items()
+            if k.endswith("_process_time_mean")
+        }
+        io_percentage = round(
+            (task_metrics["jsonl_reader"] + task_metrics["parquet_writer"]) * 100 / sum(task_metrics.values()), 2
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Failed to aggregate task metrics: {e}")
+        task_metrics = {}
+        io_percentage = None
 
     return {
         "metrics": {

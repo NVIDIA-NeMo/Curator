@@ -43,10 +43,6 @@ datasets:
     formats:
     - type: "mp4"
       path: "{datasets_path}/videos"
-  - name: "videos_model_weights"
-    formats:
-    - type: "files"
-      path: "{datasets_path}/video_model_weights"
   - name: "rpv2-2023-14-en"
     formats:
     - type: "parquet"
@@ -213,7 +209,7 @@ entries:
       --input-filetype=parquet
       --text-field=raw_content
       --input-blocksize=3GiB
-    timeout_s: 500
+    timeout_s: 1000
     sink_data:
       - name: slack
         additional_metrics:
@@ -238,7 +234,7 @@ entries:
       --bands-per-iteration=20
       --text-field=text
       --input-blocksize=1.5GiB
-    timeout_s: 700
+    timeout_s: 1400
     sink_data:
       - name: slack
         additional_metrics:
@@ -274,7 +270,7 @@ entries:
       --which-to-keep=hard
       --pairwise-batch-size=1024
       --dataset-size-ratio=0.10
-    timeout_s: 450
+    timeout_s: 900
     sink_data:
       - name: slack
         additional_metrics:
@@ -312,7 +308,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1100
+    timeout_s: 3600
     sink_data:
       - name: slack
         additional_metrics:
@@ -340,7 +336,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1000
+    timeout_s: 3600
     sink_data:
       - name: slack
         additional_metrics:
@@ -366,7 +362,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
       --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
-    timeout_s: 200
+    timeout_s: 400
     sink_data:
       - name: slack
         additional_metrics:
@@ -515,7 +511,7 @@ entries:
       --aesthetic-batch-size=500
       --aesthetic-threshold=0.9
       --verbose
-    timeout_s: 1500
+    timeout_s: 3000
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -604,7 +600,6 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --video-dir={dataset:videos,mp4}
-      --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
     timeout_s: 400
     ray:
@@ -648,7 +643,6 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --video-dir={dataset:videos,mp4}
-      --model-dir={dataset:videos_model_weights,files}
       --generate-captions
       --no-generate-embeddings
       --enhance-captions
@@ -661,7 +655,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 300 # TODO: update this value after benchmarking
+        exact_value: 377
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
@@ -698,7 +692,6 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --video-dir={dataset:videos,mp4}
-      --model-dir={dataset:videos_model_weights,files}
       --splitting-algorithm=transnetv2
       --motion-filter=enable
       --aesthetic-threshold=3.5

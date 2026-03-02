@@ -57,6 +57,8 @@ def print_help(script_name: str) -> None:
 
   Options:
       --use-host-curator       Mount $HOST_CURATOR_DIR into the container for benchmarking/debugging curator sources without rebuilding the image.
+      --use-host-curator-benchmarking
+                               Like --use-host-curator, but only for the benchmarking directory. This is useful for using the host benchmarking tools to benchmark Curator installed in the container.
       --shell                  Start an interactive bash shell instead of running benchmarks. ARGS, if specified, will be passed to 'bash -c'.
                                For example: '--shell uv pip list | grep cugraph' will run 'uv pip list | grep cugraph' to display the version of cugraph installed in the container.
       --config <path>          Path to a YAML config file. Can be specified multiple times to merge configs. This arg is required if not using --shell.
@@ -113,16 +115,27 @@ def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0
         add_help=False,
     )
     parser.add_argument("--use-host-curator", action="store_true")
+    parser.add_argument("--use-host-curator-benchmarking", action="store_true")
     parser.add_argument("--shell", action="store_true")
     parser.add_argument("--config", action="append", type=Path, default=[])
 
     args, unknown_args = parser.parse_known_args(argv[1:])
 
-    # Set volume mount for host curator directory.
+    # Set volume mount for host curator or benchmark tools directories.
     if args.use_host_curator:
+        if args.use_host_curator_benchmarking:
+            msg = "Cannot use --use-host-curator and --use-host-curator-benchmarking together."
+            raise RuntimeError(msg)
         # Do not use combine_dir_paths here since CONTAINER_CURATOR_DIR is assumed to be a unique absolute
         # path (e.g., /opt/Curator from Dockerfile).
         volume_mounts.append(f"--volume {Path(HOST_CURATOR_DIR).absolute()}:{CONTAINER_CURATOR_DIR}")
+
+    if args.use_host_curator_benchmarking:
+        # Do not use combine_dir_paths here since CONTAINER_CURATOR_DIR is assumed to be a unique absolute
+        # path (e.g., /opt/Curator from Dockerfile).
+        volume_mounts.append(
+            f"--volume {(Path(HOST_CURATOR_DIR) / 'benchmarking').absolute()}:{Path(CONTAINER_CURATOR_DIR) / 'benchmarking'}"
+        )
 
     # Set entrypoint to bash if --shell is passed.
     if args.shell:
