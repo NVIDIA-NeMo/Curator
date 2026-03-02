@@ -21,6 +21,7 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.column_utils import resolve_filename_column
@@ -59,6 +60,8 @@ class DocumentIterateExtractStage(ProcessingStage[FileGroupTask, DocumentBatch])
     extractor: DocumentExtractor | None = None
     record_limit: int | None = None
     add_filename_column: bool | str = True
+    # Restart worker Process every N tasks to mitigate memory fragmentation
+    max_calls_per_worker: int | None = None  # Only used if executor is Ray Data
 
     def __post_init__(self):
         """Initialize the stage."""
@@ -75,9 +78,22 @@ class DocumentIterateExtractStage(ProcessingStage[FileGroupTask, DocumentBatch])
     def outputs(self) -> tuple[list[str], list[str]]:
         """Define output - produces DocumentBatch with processed records."""
         if self.extractor:
-            return (["data"], self.extractor.output_columns() + ([self.filename_col] if self.add_filename_column else []))
+            return (
+                ["data"],
+                self.extractor.output_columns() + ([self.filename_col] if self.add_filename_column else []),
+            )
         else:
-            return (["data"], self.iterator.output_columns() + ([self.filename_col] if self.add_filename_column else []))
+            return (
+                ["data"],
+                self.iterator.output_columns() + ([self.filename_col] if self.add_filename_column else []),
+            )
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        """Get Ray configuration for this stage."""
+        spec = {}
+        if self.max_calls_per_worker is not None:
+            spec[RayStageSpecKeys.MAX_CALLS_PER_WORKER] = self.max_calls_per_worker
+        return spec
 
     def process(self, task: FileGroupTask) -> DocumentBatch:
         """Iterate through files and extract structured content.

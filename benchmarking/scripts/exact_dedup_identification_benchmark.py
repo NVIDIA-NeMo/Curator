@@ -21,12 +21,21 @@ and logs results to configured sinks.
 import argparse
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
 from utils import write_benchmark_results
 
 from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
+
+
+def _parse_memory_arg(value: str) -> int | Literal["auto"] | None:
+    """Parse a memory argument that can be an int, 'auto', or None."""
+    if value.lower() == "none":
+        return None
+    if value.lower() == "auto":
+        return "auto"
+    return int(value)
 
 
 def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
@@ -37,6 +46,9 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
     input_blocksize: str = "2GiB",
     assign_id: bool = True,
     id_field: str | None = None,
+    total_nparts: int | None = None,
+    rmm_pool_size: int | Literal["auto"] | None = "auto",
+    spill_memory_limit: int | Literal["auto"] | None = "auto",
 ) -> dict[str, Any]:
     """Run the exact duplicate identification benchmark and collect comprehensive metrics."""
 
@@ -56,6 +68,9 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
             input_blocksize=input_blocksize,
             assign_id=assign_id,
             id_field=id_field,
+            total_nparts=total_nparts,
+            rmm_pool_size=rmm_pool_size,
+            spill_memory_limit=spill_memory_limit,
         )
         workflow_result = workflow.run(initial_tasks=None)
         run_time_taken = time.perf_counter() - run_start_time
@@ -86,6 +101,9 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
             "input_blocksize": input_blocksize,
             "assign_id": assign_id,
             "id_field": id_field,
+            "total_nparts": total_nparts,
+            "rmm_pool_size": rmm_pool_size,
+            "spill_memory_limit": spill_memory_limit,
         },
         "metrics": {
             "is_success": success,
@@ -126,7 +144,21 @@ def main() -> int:
         default=None,
         help="Existing id field name if not automatically assigning a new id",
     )
-
+    parser.add_argument(
+        "--total-nparts",
+        type=int,
+        default=None,
+        help="Total number of output partitions",
+    )
+    parser.add_argument(
+        "--rmm-pool-size", type=_parse_memory_arg, default="auto", help="Size of the RMM GPU memory pool in bytes"
+    )
+    parser.add_argument(
+        "--spill-memory-limit",
+        type=_parse_memory_arg,
+        default="auto",
+        help="Device memory limit in bytes for spilling to host",
+    )
     args = parser.parse_args()
 
     logger.info("=== Exact Duplicate Identification Benchmark Starting ===")
@@ -141,6 +173,9 @@ def main() -> int:
             input_blocksize=args.input_blocksize,
             assign_id=args.assign_id,
             id_field=args.id_field,
+            total_nparts=args.total_nparts,
+            rmm_pool_size=args.rmm_pool_size,
+            spill_memory_limit=args.spill_memory_limit,
         )
 
     except Exception as e:

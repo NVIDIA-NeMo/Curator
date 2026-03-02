@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -167,7 +167,7 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
     return False
 
 
-def _build_ray_command(temp_dir: str, num_cpus: int, num_gpus: int, object_store_memory: int) -> tuple[list[str], int]:
+def build_ray_command(temp_dir: str, num_cpus: int, num_gpus: int, object_store_memory: int) -> tuple[list[str], int]:
     """Build the Ray start command with the given configuration."""
     ray_port = find_free_port()
     dashboard_port = find_free_port()
@@ -236,7 +236,7 @@ def shared_ray_cluster(tmp_path_factory: pytest.TempPathFactory, pytestconfig: p
     temp_dir = tmp_path_factory.mktemp("ray")
 
     # Build and execute Ray command
-    cmd_to_run, ray_port = _build_ray_command(str(temp_dir), num_cpus, num_gpus, object_store_memory)
+    cmd_to_run, ray_port = build_ray_command(str(temp_dir), num_cpus, num_gpus, object_store_memory)
 
     logger.info(f"Starting Ray cluster with {num_gpus} GPUs")
     logger.info(f"Running Ray command: {' '.join(cmd_to_run)}")

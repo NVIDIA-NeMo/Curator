@@ -61,6 +61,9 @@ class ExactDeduplicationWorkflow(WorkflowBase):
         id_field: str | None = None,
         text_field: str = "text",
         perform_removal: bool = False,
+        total_nparts: int | None = None,
+        rmm_pool_size: int | Literal["auto"] | None = "auto",
+        spill_memory_limit: int | Literal["auto"] | None = "auto",
         env_vars: dict[str, Any] | None = None,
     ):
         """
@@ -97,6 +100,16 @@ class ExactDeduplicationWorkflow(WorkflowBase):
             Field containing the text to deduplicate.
         perform_removal: bool
             Whether to remove the duplicates from the original dataset.
+        total_nparts: int | None = None
+            Total number of output partitions. If None, will be set automatically by the executor.
+        rmm_pool_size: int | Literal["auto"] | None = "auto"
+            Size of the RMM GPU memory pool in bytes.
+            If "auto", the memory pool is set to 90% of the free GPU memory.
+            If None, the memory pool is set to 50% of the free GPU memory that can expand if needed.
+        spill_memory_limit: int | Literal["auto"] | None = "auto"
+            Device memory limit in bytes for spilling to host.
+            If "auto", the limit is set to 80% of the RMM pool size.
+            If None spilling is disabled.
         env_vars: dict[str, Any] | None = None
             Environment variables to pass to the pipeline.
         """
@@ -112,6 +125,9 @@ class ExactDeduplicationWorkflow(WorkflowBase):
         self.assign_id = assign_id
         self.id_field = id_field
         self.perform_removal = perform_removal
+        self.total_nparts = total_nparts
+        self.rmm_pool_size = rmm_pool_size
+        self.spill_memory_limit = spill_memory_limit
 
         self.env_vars = env_vars
 
@@ -150,7 +166,9 @@ class ExactDeduplicationWorkflow(WorkflowBase):
                     assign_id=self.assign_id,
                     id_field=self.id_field,
                     # Matches previous implementation to write out to 1/3 the number of input tasks
-                    total_nparts=max(1, num_input_tasks // 3),
+                    total_nparts=max(1, num_input_tasks // 3) if self.total_nparts is None else max(1, self.total_nparts),
+                    rmm_pool_size=self.rmm_pool_size,
+                    spill_memory_limit=self.spill_memory_limit,
                 ),
             ],
         )
