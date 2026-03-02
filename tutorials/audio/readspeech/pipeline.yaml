@@ -1,0 +1,90 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  DNS Challenge Read Speech Audio Data Filtration Pipeline
+  #########################################################
+
+  This config processes the DNS Challenge Read Speech dataset (Track 1 Headset):
+  https://github.com/microsoft/DNS-Challenge
+
+  The dataset contains ~14,000+ clean read speech WAV files at 48kHz.
+
+  **Auto-Download Support**:
+  * **auto_download**: Automatically downloads and extracts dataset (default: true)
+  * **download_parts**: Number of parts to download (1=~30GB, 6=~182GB full)
+  * The pipeline will automatically download the dataset on first run
+
+  **Required arguments**:
+  * **raw_data_dir**: Directory where data will be downloaded to (if auto_download=true)
+                      or directory containing read_speech WAV files (if auto_download=false)
+
+  **Output format**:
+  Results are saved to ``${output_dir}`` as JSONL with:
+  * **audio_filepath**: Path to the audio file
+  * **sample_rate**: 48000
+  * **book_id**: Extracted book ID from filename
+  * **reader_id**: Extracted reader ID from filename
+  * **original_start_ms**: Start position in original file
+  * **original_end_ms**: End position in original file
+  * **duration_sec**: Segment duration
+  * Quality scores (nisqa_*, sigmos_*, band_*) if enabled
+
+processors_to_run: all
+raw_data_dir: ???
+output_dir: ${raw_data_dir}/result
+
+max_samples: 5000
+auto_download: true
+download_parts: 1  # 1=~30GB partial, 6=~182GB full
+
+sample_rate: 48000
+batch_size: 1
+
+gpus: 1.0
+cpus: 1.0
+
+processors:
+  - _target_: nemo_curator.stages.audio.datasets.readspeech.CreateInitialManifestReadSpeechStage
+    raw_data_dir: ${raw_data_dir}
+    max_samples: ${max_samples}
+    auto_download: ${auto_download}
+    download_parts: ${download_parts}
+    batch_size: ${batch_size}
+
+  - _target_: nemo_curator.stages.audio.AudioDataFilterStage
+    config:
+      _target_: nemo_curator.stages.audio.AudioDataFilterConfig
+      cpus: ${cpus}
+      gpus: ${gpus}
+      sample_rate: ${sample_rate}
+      enable_vad: true
+      vad_min_duration_sec: 2.0
+      vad_max_duration_sec: 60.0
+      vad_threshold: 0.5
+      enable_band_filter: true
+      band_value: "full_band"
+      enable_nisqa: true
+      nisqa_mos_threshold: 4.5
+      nisqa_noi_threshold: 4.3
+      enable_sigmos: true
+      sigmos_noise_threshold: 4.0
+      sigmos_ovrl_threshold: 3.5
+      enable_speaker_separation: true
+      speaker_exclude_overlaps: true
+      speaker_min_duration: 0.8
+
+  - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
+
+  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
+    path: ${output_dir}
+    write_kwargs:
+      force_ascii: false
+

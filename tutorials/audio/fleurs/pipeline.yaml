@@ -43,7 +43,6 @@ data_split: dev
 output_dir: ${raw_data_dir}/result
 
 processors:
-  # Getting data for Armenian dev set
   - _target_: nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.CreateInitialManifestFleursStage
     lang: "hy_am"
     split: ${data_split}

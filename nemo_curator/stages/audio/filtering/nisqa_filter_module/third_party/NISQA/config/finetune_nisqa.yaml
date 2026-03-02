@@ -1,0 +1,53 @@
+# Config example for transfer-learning or finetuning of NISQA or NISQA-TTS: 
+
+# Runname and paths
+name: training_run_name # name of current training run
+data_dir: C:/Users/Name/Downloads/NISQA_Corpus # main input dir with dataset samples and csv files
+output_dir: C:/Users/Name/Downloads/trained_models # output dir, a new subfolder for current run will be created with yaml, results csv, and stored model weights
+pretrained_model: weights/nisqa_mos_only.tar # absolute path to pretrained model | path to pretrained model relative to current folder
+
+# Dataset options
+csv_file: NISQA_corpus_file.csv # csv-file with MOS labels and filepaths of all datasets, must be placed in 'data_dir', must contain columns 'mos', 'noi', 'dis', 'col', 'loud' with overall and dimension quality ratings
+csv_con: null # csv-file with per-condition MOS used for evaluation (optional)
+csv_deg: filepath_deg # csv column name of filepath to degraded speech sample, path must be relative to 'data_dir'
+csv_mos_train: mos # csv column name of target training value (usually MOS)
+csv_mos_val: mos # csv column name of target validation value (usually MOS)
+csv_db_train: # dataset names of training sets, the dataset names must be in 'db' column of csv file
+    - NISQA_TRAIN_SIM
+    - NISQA_TRAIN_LIVE
+csv_db_val:  # dataset names of validation sets, the dataset names must be in 'db' column of csv file
+    - NISQA_VAL_SIM
+    - NISQA_VAL_LIVE
+
+# Training options
+tr_epochs: 500 # number of max training epochs
+tr_early_stop: 20 # stop training if neither validation RMSE nor correlation 'r_p' does improve for 'tr_early_stop' epochs
+tr_bs: 40 # training dataset mini-batch size (should be increased to 100-200 if enough GPU memory available)
+tr_bs_val: 40 # validation dataset mini-batch size (should be increased to 100-200 if enough GPU memory available)
+tr_lr: 0.001 # learning rate of ADAM optimiser
+tr_lr_patience: 15  # learning rate patience, decrease learning rate if loss does not improve for 'tr_lr_patience' epochs
+tr_num_workers: 4 # number of workers to be used by PyTorch Dataloader (may cause problems on Windows machines -> set to 0)
+tr_parallel: True # use PyTorch DataParallel for training on multiple GPUs
+tr_ds_to_memory: False # load dataset in CPU RAM before starting training (increases speed on some systems, 'tr_num_workers' should be set to 0 or 1)
+tr_ds_to_memory_workers: 0  # number of workers used for loading data into CPU RAM (experimental)
+tr_device: null # train on 'cpu' or 'cuda', if null 'cuda' is used if available.
+tr_checkpoint: every_epoch # 'every_epoch' stores model weights at each training epoch | 'best_only' stores only the weights with best validation correlation | 'null' only stores results but no model weights
+tr_verbose: 2 # '0' only basic results after each epoch | '1' more detailed results and bias loss information | '2' adds progression bar
+ms_max_segments: 1300 # if samples of different duration are used they will be padded. one segment corresponds to 40ms -> 0.04*1300=52sec max sample duration. increase if you apply the model to longer samples
+ms_channel: null # audio channel in case of stereo file (0->left, 1->right). if null, mono mix is used
+
+# Bias loss options (optional)
+tr_bias_mapping: null # set to 'first_order' if bias loss should be applied, otherwise 'null'
+tr_bias_min_r: null # minimum correlation threshold to be reached before estimating bias (e.g. 0.7), set to 'null' if no bias loss should be applied
+tr_bias_anchor_db: null # name of anchor dataset (optional)
+
+
+
+
+
+
+
+
+
+
+
