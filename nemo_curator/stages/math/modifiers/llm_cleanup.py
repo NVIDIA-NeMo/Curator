@@ -99,24 +99,30 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             return ["data"], ["label"]
         return ["data"], [self.output_field]
 
+    def _initialize_model(self) -> None:
+        """Create and initialize the VLLMModel."""
+        if self._model is None:
+            self._model = VLLMModel(**self._model_kwargs)
+        self._model.setup()
+        if hasattr(self._model, "_final_max_model_len"):
+            self._final_max_model_len = self._model._final_max_model_len
+        else:
+            self._final_max_model_len = self.max_model_len
+
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
-        """Download model weights to local cache once per physical node."""
+        """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
         cache_dir = self._model_kwargs.get("cache_dir") if self._model is None else self._model.cache_dir
 
         from huggingface_hub import snapshot_download
 
         snapshot_download(repo_id=self.model_name, cache_dir=cache_dir, local_files_only=False)
+        self._initialize_model()
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        """Create model (if needed) and set up the model wrapper and tokenizer."""
-        if self._model is None:
-            self._model = VLLMModel(**self._model_kwargs)
-        self._model.setup()
+        """Load tokenizer per worker. Falls back to full init if setup_on_node was not called."""
+        if self._model is None or not hasattr(self._model, "_llm") or self._model._llm is None:
+            self._initialize_model()
         self._tokenizer = self._model.get_tokenizer()
-        if hasattr(self._model, "_final_max_model_len"):
-            self._final_max_model_len = self._model._final_max_model_len
-        else:
-            self._final_max_model_len = self.max_model_len
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
@@ -141,14 +147,17 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             df = df.sort_values(by=self.n_tokens_field, kind="stable", ignore_index=True)
             df = df.drop(columns=[self.n_tokens_field])
 
-        is_qwen3_30b_a3b = self.model_name == "Qwen/Qwen3-30B-A3B"
+        # Qwen3 supports /no_think as an inline prompt switch to disable chain-of-thought.
+        # Qwen3.5+ dropped this; use enable_thinking=False in chat template instead.
+        is_qwen3_family = "Qwen3" in self.model_name or "qwen3" in self.model_name.lower()
+        is_qwen3_only = is_qwen3_family and "Qwen3." not in self.model_name and "qwen3." not in self.model_name.lower()
 
         prompts = []
         for _, row in df.iterrows():
             text = str(row[self.text_field]) if pd.notna(row[self.text_field]) else ""
             user_prompt = self.system_prompt.format(text=text)
 
-            if is_qwen3_30b_a3b:
+            if is_qwen3_only:
                 user_prompt = user_prompt + " /no_think"
                 system_content = " /no_think"
             else:
@@ -165,7 +174,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                         messages,
                         tokenize=False,
                         add_generation_prompt=True,
-                        chat_template_kwargs=({"enable_thinking": False} if is_qwen3_30b_a3b else {}),
+                        chat_template_kwargs=({"enable_thinking": False} if is_qwen3_family else {}),
                     )
                     prompts.append(formatted_prompt)
                 except (AttributeError, ValueError, TypeError, KeyError):

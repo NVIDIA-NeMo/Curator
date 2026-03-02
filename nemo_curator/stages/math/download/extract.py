@@ -235,10 +235,15 @@ class MathExtractStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             if self.filename_col and self.filename_col in row_dict:
                 extracted[self.filename_col] = row_dict[self.filename_col]
             records.append(extracted)
+
+        output_cols = self.extractor.output_columns()
+        if self.filename_col:
+            output_cols = [*output_cols, self.filename_col]
+
         return DocumentBatch(
             task_id=batch.task_id,
             dataset_name=batch.dataset_name,
-            data=pd.DataFrame(records),
+            data=pd.DataFrame(records) if records else pd.DataFrame(columns=output_cols),
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
