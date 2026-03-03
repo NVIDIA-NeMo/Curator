@@ -268,13 +268,17 @@ class ALMDataBuilderStage(LegacySpeechStage):
             window_dur = window_end - window_start
 
             if not (self.min_duration <= window_dur <= self.max_duration):
-                _record_window_loss(stat, seg, segments, start_idx, curr_idx, window_segs, self._drop_fields_set, self.min_bandwidth)
+                _record_window_loss(
+                    stat, seg, segments, start_idx, curr_idx, window_segs, self._drop_fields_set, self.min_bandwidth
+                )
                 continue
 
             if len(window_segs) < MIN_SEGMENTS_PER_WINDOW or any(
                 _get_bandwidth(s) < self.min_bandwidth for s in window_segs
             ):
-                _record_window_loss(stat, seg, segments, start_idx, curr_idx, window_segs, self._drop_fields_set, self.min_bandwidth)
+                _record_window_loss(
+                    stat, seg, segments, start_idx, curr_idx, window_segs, self._drop_fields_set, self.min_bandwidth
+                )
                 continue
 
             spk_durs = _compute_speaker_durations(window_segs)
@@ -286,10 +290,12 @@ class ALMDataBuilderStage(LegacySpeechStage):
             spk_durations = sorted(spk_durs.values(), reverse=True)[:5]
             spk_durations += [0.0] * (5 - len(spk_durations))
 
-            valid_windows.append({
-                "segments": window_segs,
-                "speaker_durations": spk_durations,
-            })
+            valid_windows.append(
+                {
+                    "segments": window_segs,
+                    "speaker_durations": spk_durations,
+                }
+            )
 
         result = {k: v for k, v in entry_data.items() if k not in self._drop_fields_top_level_set}
         result["windows"] = valid_windows

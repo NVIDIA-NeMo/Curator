@@ -32,6 +32,7 @@ from typing import Any
 
 import yaml
 from loguru import logger
+from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm import (
@@ -41,7 +42,6 @@ from nemo_curator.stages.audio.alm import (
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioBatch
-from utils import setup_executor, write_benchmark_results
 
 
 class _RepeatEntriesStage(ProcessingStage[AudioBatch, AudioBatch]):
@@ -219,7 +219,9 @@ def main() -> int:
     parser.add_argument("--min-speakers", type=int, default=2, help="Minimum speakers per window")
     parser.add_argument("--max-speakers", type=int, default=5, help="Maximum speakers per window")
     parser.add_argument("--overlap-percentage", type=int, default=50, help="Overlap filter percentage (0-100)")
-    parser.add_argument("--repeat-factor", type=int, default=1, help="Multiply manifest entries by this factor for scale testing")
+    parser.add_argument(
+        "--repeat-factor", type=int, default=1, help="Multiply manifest entries by this factor for scale testing"
+    )
 
     pre_args, remaining = parser.parse_known_args()
 

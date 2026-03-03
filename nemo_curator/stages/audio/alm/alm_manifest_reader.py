@@ -45,12 +45,14 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioBatch]):
         paths = task.data
         entries: list[dict[str, Any]] = []
         for manifest in paths:
+            manifest_entries: list[dict[str, Any]] = []
             fs, resolved = url_to_fs(manifest)
             with fs.open(resolved, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
-                        entries.append(json.loads(line.strip()))
-            logger.info(f"ALMManifestReaderStage: loaded {len(entries)} entries from {manifest}")
+                        manifest_entries.append(json.loads(line.strip()))
+            entries.extend(manifest_entries)
+            logger.info(f"ALMManifestReaderStage: loaded {len(manifest_entries)} entries from {manifest}")
 
         return [
             AudioBatch(

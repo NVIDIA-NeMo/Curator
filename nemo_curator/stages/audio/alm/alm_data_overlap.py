@@ -45,9 +45,7 @@ def _calculate_total_dur(windows: list[dict[str, Any]]) -> float:
 def _calculate_duration_list(windows: list[dict[str, Any]]) -> list[float]:
     """Calculate list of durations from windows data."""
     try:
-        return [
-            seg[-1]["end"] - seg[0]["start"] for window in windows for seg in [window.get("segments", [])] if seg
-        ]
+        return [seg[-1]["end"] - seg[0]["start"] for window in windows for seg in [window.get("segments", [])] if seg]
     except (KeyError, IndexError, TypeError):
         return []
 
@@ -55,9 +53,7 @@ def _calculate_duration_list(windows: list[dict[str, Any]]) -> list[float]:
 def _calculate_timestamps(windows: list[dict[str, Any]]) -> list[tuple[float, float]]:
     """Calculate (end, start) timestamp pairs from windows data."""
     try:
-        return [
-            (seg[-1]["end"], seg[0]["start"]) for window in windows for seg in [window.get("segments", [])] if seg
-        ]
+        return [(seg[-1]["end"], seg[0]["start"]) for window in windows for seg in [window.get("segments", [])] if seg]
     except (KeyError, IndexError, TypeError):
         return []
 
@@ -219,12 +215,17 @@ class ALMDataOverlapStage(LegacySpeechStage):
 
         windows = entry.get("windows", [])
         if not windows:
-            entry.setdefault("filtered_windows", [])
-            entry.setdefault("filtered_dur", 0.0)
-            entry.setdefault("filtered_dur_list", [])
-            entry.setdefault("total_dur_window", 0.0)
-            entry.setdefault("total_dur_list_window", [])
-            return entry
+            result = entry.copy()
+            result.setdefault("filtered_windows", [])
+            result.setdefault("filtered_dur", 0.0)
+            result.setdefault("filtered_dur_list", [])
+            result.setdefault("total_dur_window", 0.0)
+            result.setdefault("total_dur_list_window", [])
+            result.setdefault("total_dur_list_window_timestamps", [])
+            result.setdefault("filtered", [])
+            result.setdefault("manifest_filepath", None)
+            result.setdefault("swift_filepath", None)
+            return result
 
         total_dur_window = _calculate_total_dur(windows)
         total_dur_list_window = _calculate_duration_list(windows)

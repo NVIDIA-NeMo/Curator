@@ -109,8 +109,7 @@ class TestALMDataBuilder:
         entry = sample_entry.copy()
         entry["words"] = [{"word": "test", "start": 0, "end": 1}]
         entry["segments"] = [
-            {**seg, "words": [{"word": "test", "start": seg["start"], "end": seg["end"]}]}
-            for seg in entry["segments"]
+            {**seg, "words": [{"word": "test", "start": seg["start"], "end": seg["end"]}]} for seg in entry["segments"]
         ]
 
         stage = ALMDataBuilderStage(

@@ -165,7 +165,7 @@ class TestALMManifestReaderDirectory:
         stage = ALMManifestReaderStage()
         result = stage.process(_make_file_group_task(all_files))
 
-        assert len(result) == 20  # 4 files × 5 entries each
+        assert len(result) == 20  # 4 files x 5 entries each
         assert all(isinstance(r, AudioBatch) for r in result)
 
     def test_reads_from_subdirectory_a(self) -> None:
@@ -174,7 +174,7 @@ class TestALMManifestReaderDirectory:
         stage = ALMManifestReaderStage()
         result = stage.process(_make_file_group_task(files))
 
-        assert len(result) == 10  # 2 files × 5 entries each
+        assert len(result) == 10  # 2 files x 5 entries each
 
     def test_reads_from_subdirectory_b(self) -> None:
         subdir = self._nested_dir() / "subdir_b"
@@ -182,7 +182,7 @@ class TestALMManifestReaderDirectory:
         stage = ALMManifestReaderStage()
         result = stage.process(_make_file_group_task(files))
 
-        assert len(result) == 10  # 2 files × 5 entries each
+        assert len(result) == 10  # 2 files x 5 entries each
 
     def test_composite_discovers_nested_directory(self) -> None:
         nested = self._nested_dir()
@@ -230,14 +230,16 @@ class TestALMManifestReaderIntegration:
 
         pipeline = Pipeline(name="test_dir_e2e", description="Directory discovery end-to-end test")
         pipeline.add_stage(ALMManifestReader(manifest_path=str(nested)))
-        pipeline.add_stage(ALMDataBuilderStage(
-            target_window_duration=120.0,
-            tolerance=0.1,
-            min_sample_rate=16000,
-            min_bandwidth=8000,
-            min_speakers=2,
-            max_speakers=5,
-        ))
+        pipeline.add_stage(
+            ALMDataBuilderStage(
+                target_window_duration=120.0,
+                tolerance=0.1,
+                min_sample_rate=16000,
+                min_bandwidth=8000,
+                min_speakers=2,
+                max_speakers=5,
+            )
+        )
         pipeline.add_stage(ALMDataOverlapStage(overlap_percentage=50, target_duration=120.0))
 
         executor = XennaExecutor()
@@ -247,8 +249,8 @@ class TestALMManifestReaderIntegration:
         for task in results or []:
             output_entries.extend(task.data)
 
-        assert len(output_entries) == 20  # 4 files × 5 entries
+        assert len(output_entries) == 20  # 4 files x 5 entries
         total_windows = sum(len(e.get("filtered_windows", [])) for e in output_entries)
-        assert total_windows == 100  # 25 per file × 4 files
+        assert total_windows == 100  # 25 per file x 4 files
         total_dur = sum(e.get("filtered_dur", 0) for e in output_entries)
         assert abs(total_dur - 12142.0) < 1.0

@@ -82,7 +82,9 @@ def main(cfg: DictConfig) -> None:
     stage_metrics = TaskPerfUtils.collect_stage_metrics(results)
     for stage_name, metrics in stage_metrics.items():
         logger.info(f"  [{stage_name}]")
-        logger.info(f"    process_time: mean={metrics['process_time'].mean():.4f}s, total={metrics['process_time'].sum():.2f}s")
+        logger.info(
+            f"    process_time: mean={metrics['process_time'].mean():.4f}s, total={metrics['process_time'].sum():.2f}s"
+        )
         logger.info(f"    items_processed: {metrics['num_items_processed'].sum():.0f}")
         if "custom.windows_created" in metrics:
             logger.info(f"    windows_created: {metrics['custom.windows_created'].sum():.0f}")
