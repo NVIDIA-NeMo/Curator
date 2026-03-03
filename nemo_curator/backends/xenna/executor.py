@@ -73,7 +73,7 @@ class XennaExecutor(BaseExecutor):
         stage_specs = []
 
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
-        initial_tasks = initial_tasks if initial_tasks else [EmptyTask]
+        initial_tasks = initial_tasks or [EmptyTask]
 
         for stage in stages:
             # Get stage configuration
@@ -152,7 +152,7 @@ class XennaExecutor(BaseExecutor):
         finally:
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
             ray.shutdown()
-        return results if results else []
+        return results or []
 
     def _get_pipeline_config(self, key: str) -> Any:  # noqa: ANN401
         """Get configuration value with fallback to defaults."""
