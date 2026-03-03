@@ -14,15 +14,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
 from nemo_curator.models.clip import CLIPImageEmbeddings
-from nemo_curator.stages.multimodal.filter.blur_filter import _image_bytes_to_array
-from nemo_curator.stages.multimodal.stages import BaseMultimodalFilterStage
+from nemo_curator.stages.interleaved.filter.blur_filter import _image_bytes_to_array
+from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import MultiBatchTask
+from nemo_curator.tasks import InterleavedBatch
 
 
 def _sample_texts_list_from_df(df: pd.DataFrame, sample_id: str) -> list[str]:
@@ -36,8 +36,8 @@ def _sample_texts_list_from_df(df: pd.DataFrame, sample_id: str) -> list[str]:
 
 
 @dataclass
-class MultimodalCLIPScoreFilterStage(BaseMultimodalFilterStage):
-    """Filter multimodal image rows by CLIP image-text relevance score.
+class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
+    """Filter interleaved image rows by CLIP image-text relevance score.
 
     For each image row, all text rows with the same sample_id form (image, text)
     pairs. CLIP similarity is computed for each pair. An image is kept only if at
@@ -47,23 +47,23 @@ class MultimodalCLIPScoreFilterStage(BaseMultimodalFilterStage):
     model_dir: str | None = None
     min_score: float = 0.15
     image_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg", "image/png")
-    name: str = "multimodal_clip_score_filter"
+    name: str = "interleaved_clip_score_filter"
+    resources: Resources = field(default_factory=lambda: Resources(gpus=0.25))
 
     def __post_init__(self) -> None:
         self._model: CLIPImageEmbeddings | None = None
-        self.resources = Resources(gpus=0.25)
 
     def _ensure_model(self) -> None:
         if self._model is not None:
             return
         if self.model_dir is None:
-            msg = "MultimodalCLIPScoreFilterStage requires model_dir to be set"
+            msg = "InterleavedCLIPScoreFilterStage requires model_dir to be set"
             raise RuntimeError(msg)
         CLIPImageEmbeddings.download_weights_on_node(self.model_dir)
         self._model = CLIPImageEmbeddings(self.model_dir)
         self._model.setup()
 
-    def content_keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
+    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
         keep_mask = pd.Series(True, index=df.index, dtype=bool)
         image_mask = (df["modality"] == "image") & (df["content_type"].isin(self.image_content_types))
         if not image_mask.any():
@@ -88,9 +88,6 @@ class MultimodalCLIPScoreFilterStage(BaseMultimodalFilterStage):
             img_emb = self._model([image])
             text_emb = self._model.encode_text(texts)
             scores = img_emb @ text_emb.T
-            from loguru import logger
-
-            logger.info(f"scores: {scores}")
             max_score = scores.max()
             keep_mask.loc[idx] = (max_score >= self.min_score).item()
         return keep_mask

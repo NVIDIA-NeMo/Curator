@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.multimodal.filter.blur_filter import MultimodalBlurFilterStage
-from nemo_curator.stages.multimodal.filter.clip_score_filter import MultimodalCLIPScoreFilterStage
-from nemo_curator.stages.multimodal.filter.image_to_text_ratio_filter import (
-    MultimodalImageToTextRatioFilterStage,
+from nemo_curator.stages.interleaved.filter.blur_filter import InterleavedBlurFilterStage
+from nemo_curator.stages.interleaved.filter.clip_score_filter import InterleavedCLIPScoreFilterStage
+from nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter import (
+    InterleavedImageToTextRatioFilterStage,
 )
-from nemo_curator.stages.multimodal.filter.qrcode_filter import MultimodalQRCodeFilterStage
+from nemo_curator.stages.interleaved.filter.qrcode_filter import InterleavedQRCodeFilterStage
 
 __all__ = [
-    "MultimodalBlurFilterStage",
-    "MultimodalCLIPScoreFilterStage",
-    "MultimodalImageToTextRatioFilterStage",
-    "MultimodalQRCodeFilterStage",
+    "InterleavedBlurFilterStage",
+    "InterleavedCLIPScoreFilterStage",
+    "InterleavedImageToTextRatioFilterStage",
+    "InterleavedQRCodeFilterStage",
 ]

@@ -16,16 +16,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import cv2
 import numpy as np
 import pandas as pd
 
-from nemo_curator.stages.multimodal.stages import BaseMultimodalFilterStage
-from nemo_curator.tasks import MultiBatchTask
-
-try:
-    import cv2
-except ImportError:
-    cv2 = None
+from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
+from nemo_curator.tasks import InterleavedBatch
 
 
 def _sharpness_score(image: np.ndarray) -> float:
@@ -34,24 +30,26 @@ def _sharpness_score(image: np.ndarray) -> float:
 
 
 def _image_bytes_to_array(image_bytes: bytes) -> np.ndarray | None:
-    """Decode image bytes to BGR numpy array for cv2, or None on failure."""
+    """Decode image bytes to RGB numpy array for OpenCV, or None on failure."""
     try:
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
         image = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     except Exception:  # noqa: BLE001
         return None
+    if image is None:
+        return None
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
 
 @dataclass
-class MultimodalBlurFilterStage(BaseMultimodalFilterStage):
-    """Filter multimodal rows by image sharpness (Laplacian variance); drop blurry images."""
+class InterleavedBlurFilterStage(BaseInterleavedFilterStage):
+    """Filter interleaved image rows by sharpness (Laplacian variance); drop blurry images."""
 
     score_threshold: float = 100.0
     image_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg", "image/png")
-    name: str = "multimodal_blur_filter"
+    name: str = "interleaved_blur_filter"
 
-    def content_keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
+    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
         keep_mask = pd.Series(True, index=df.index, dtype=bool)
         image_mask = (df["modality"] == "image") & (df["content_type"].isin(self.image_content_types))
         if not image_mask.any():

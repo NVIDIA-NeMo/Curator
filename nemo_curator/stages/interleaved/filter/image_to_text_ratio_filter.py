@@ -18,8 +18,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from nemo_curator.stages.multimodal.stages import BaseMultimodalFilterStage
-from nemo_curator.tasks import MultiBatchTask
+from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
+from nemo_curator.tasks import InterleavedBatch
 
 
 def _text_word_count(text: str | None) -> int:
@@ -30,8 +30,8 @@ def _text_word_count(text: str | None) -> int:
 
 
 @dataclass
-class MultimodalImageToTextRatioFilterStage(BaseMultimodalFilterStage):
-    """Filter multimodal samples by image-to-text ratio (images per word).
+class InterleavedImageToTextRatioFilterStage(BaseInterleavedFilterStage):
+    """Filter interleaved samples by image-to-text ratio (images per word).
 
     Groups rows by sample_id. For each sample:
     - image_count = number of rows with modality == 'image'
@@ -43,9 +43,9 @@ class MultimodalImageToTextRatioFilterStage(BaseMultimodalFilterStage):
 
     min_ratio: float = 0.0
     max_ratio: float = float("inf")
-    name: str = "multimodal_image_to_text_ratio_filter"
+    name: str = "interleaved_image_to_text_ratio_filter"
 
-    def content_keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
+    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
         keep_mask = pd.Series(True, index=df.index, dtype=bool)
         if "sample_id" not in df.columns:
             return keep_mask

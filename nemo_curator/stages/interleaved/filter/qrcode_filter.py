@@ -20,9 +20,9 @@ import cv2
 import numpy as np
 import pandas as pd
 
-from nemo_curator.stages.multimodal.filter.blur_filter import _image_bytes_to_array
-from nemo_curator.stages.multimodal.stages import BaseMultimodalFilterStage
-from nemo_curator.tasks import MultiBatchTask
+from nemo_curator.stages.interleaved.filter.blur_filter import _image_bytes_to_array
+from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
+from nemo_curator.tasks import InterleavedBatch
 
 
 def _qr_code_ratio(image: np.ndarray) -> float:
@@ -34,8 +34,8 @@ def _qr_code_ratio(image: np.ndarray) -> float:
     detector = cv2.QRCodeDetector()
     retval, _decoded_info, points, _ = detector.detectAndDecodeMulti(image)
     if not retval or points is None or points.size == 0:
-        data, points, _ = detector.detectAndDecode(image)
-        if not data or points is None or points.size == 0:
+        decoded, points, _ = detector.detectAndDecode(image)
+        if not decoded or points is None or points.size == 0:
             return 0.0
         points = [np.asarray(points, dtype=np.float32)]
     points = np.asarray(points, dtype=np.float32)
@@ -47,14 +47,14 @@ def _qr_code_ratio(image: np.ndarray) -> float:
 
 
 @dataclass
-class MultimodalQRCodeFilterStage(BaseMultimodalFilterStage):
-    """Filter multimodal rows by QR code area ratio; drop images with high QR coverage."""
+class InterleavedQRCodeFilterStage(BaseInterleavedFilterStage):
+    """Filter interleaved image rows by QR code area ratio; drop images with high QR coverage."""
 
     score_threshold: float = 0.05
     image_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg", "image/png")
-    name: str = "multimodal_qrcode_filter"
+    name: str = "interleaved_qrcode_filter"
 
-    def content_keep_mask(self, task: MultiBatchTask, df: pd.DataFrame) -> pd.Series:
+    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
         keep_mask = pd.Series(True, index=df.index, dtype=bool)
         image_mask = (df["modality"] == "image") & (df["content_type"].isin(self.image_content_types))
         if not image_mask.any():
