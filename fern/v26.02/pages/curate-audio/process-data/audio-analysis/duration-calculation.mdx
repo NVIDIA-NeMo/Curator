@@ -1,7 +1,14 @@
 ---
-title: Duration Calculation
 description: "Calculate precise audio duration using soundfile library for quality assessment and metadata generation"
+categories: ["processors"]
+tags: ["audio-analysis", "duration", "soundfile", "metadata", "quality-control"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
 ---
+
+# Duration Calculation
 
 Calculate precise audio duration using the `soundfile` library for quality assessment and metadata generation in audio curation pipelines.
 
@@ -129,6 +136,38 @@ pipeline.add_stage(PreserveByValueStage(
     target_value=30.0,
     operator="le"  # less than or equal
 ))
+```
+
+### Batch Processing
+
+```python
+from nemo_curator.stages.audio.common import GetAudioDurationStage
+from nemo_curator.tasks import AudioBatch
+
+# Process multiple samples in a batch
+audio_data_list = [
+    {"audio_filepath": "/path/to/file1.wav", "text": "Sample 1"},
+    {"audio_filepath": "/path/to/file2.wav", "text": "Sample 2"},
+    {"audio_filepath": "/path/to/file3.wav", "text": "Sample 3"}
+]
+
+# Create batch
+audio_batch = AudioBatch(data=audio_data_list)
+
+# Process entire batch
+duration_stage = GetAudioDurationStage(
+    audio_filepath_key="audio_filepath",
+    duration_key="duration"
+)
+
+# Process returns list of AudioBatch objects
+result_batches = duration_stage.process(audio_batch)
+
+# Extract processed data
+for batch in result_batches:
+    for sample in batch.data:
+        print(f"File: {sample['audio_filepath']}")
+        print(f"Duration: {sample['duration']:.3f} seconds")
 ```
 
 ## Output Format

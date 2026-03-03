@@ -1,7 +1,14 @@
 ---
-title: Duration Filtering
 description: "Filter audio samples by duration ranges, speech rate metrics, and temporal characteristics for optimal dataset quality"
+categories: ["audio-processing"]
+tags: ["duration-filtering", "speech-rate", "temporal-filtering", "audio-length", "quality-control"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-only"
 ---
+
+# Duration Filtering
 
 Filter audio samples by duration ranges, speech rate metrics, and temporal characteristics to create optimal datasets for ASR training and speech processing applications.
 
@@ -138,7 +145,6 @@ pipeline.add_stage(
 This example assumes you have already calculated and stored speech rate metrics in your audio data. The built-in stages do not automatically calculate speech rates - you would need to create a custom stage for that functionality.
 </Note>
 
-
 ## Filtering by Speech Rate
 
 After you calculate speech rate metrics, filter samples to keep those with appropriate speaking speeds:
@@ -188,8 +194,7 @@ Typical speech rates for different contexts:
 | Slow/Clear Speech | 1.5 - 2.5 | 8 - 15 | Educational content, accessibility |
 | Normal Conversation | 2.5 - 4.0 | 15 - 24 | General ASR training |
 | Fast Speech | 4.0 - 5.0 | 24 - 30 | News, presentations |
-| Very Fast | > 5.0 | > 30 | May indicate errors or problematic samples |
-
+| Very Fast | &gt;5.0 | &gt;30 | May indicate errors or problematic samples |
 
 ## Best Practices
 
@@ -212,7 +217,6 @@ if retention_rate < 0.5:  # Less than 50% retained
 ```
 
 **Under-Filtering**: Keeping problematic samples that may negatively impact training or processing efficiency.
-
 
 ## Real Working Example
 
@@ -286,6 +290,6 @@ This example comes directly from `tutorials/audio/fleurs/pipeline.py` and shows 
 
 ## Related Topics
 
-- [Quality Assessment Overview](/curate-audio/process-data/quality-assessment) - Complete quality filtering workflow
-- [WER Filtering](/curate-audio/process-data/quality-assessment/wer-filtering) - Transcription accuracy filtering
-- [Audio Analysis](/curate-audio/process-data/audio-analysis) - Duration calculation and analysis
+- **[Quality Assessment Overview](/index)**: Complete quality filtering workflow
+- **[WER Filtering](/wer-filtering)**: Transcription accuracy filtering
+- **[Audio Analysis](/audio-analysis/index)**: Duration calculation and analysis

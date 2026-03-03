@@ -1,7 +1,14 @@
 ---
-title: Key Features
 description: "Comprehensive overview of NeMo Curator's key features for text, image, video, and audio data curation with deployment options"
+categories: ["concepts-architecture"]
+tags: ["features", "benchmarks", "deduplication", "classification", "gpu-accelerated", "distributed", "deployment-operations"]
+personas: ["data-scientist-focused", "mle-focused", "admin-focused", "devops-focused"]
+difficulty: "beginner"
+content_type: "concept"
+modality: "universal"
 ---
+
+# Key Features
 
 NeMo Curator is an enterprise-grade platform for scalable, privacy-aware data curation across text, image, video, and audio. It empowers teams to prepare high-quality, compliant datasets for LLM and AI training, with robust support for distributed, cloud-native, and on-premises workflows. Leading organizations trust NeMo Curator for its modular pipelines, advanced filtering, and seamless integration with modern MLOps environments.
 
@@ -26,11 +33,11 @@ NeMo Curator offers advanced tools for text data loading, cleaning, filtering, d
 
 <Cards>
 
-<Card title="Data Loading" href="/about/concepts/text/data-loading-concepts">
+<Card title="Data Loading" href="/about/concepts/text/data/loading">
 Efficiently load and manage massive text datasets, with support for common formats and scalable streaming.
 </Card>
 
-<Card title="Data Processing" href="/about/concepts/text/data-processing-concepts">
+<Card title="Data Processing" href="/about/concepts/text/data/processing">
 Advanced filtering, deduplication, classification, and pipeline design for high-quality text curation.
 </Card>
 
@@ -39,6 +46,7 @@ Set up your environment and run your first text curation pipeline with NeMo Cura
 </Card>
 
 </Cards>
+
 ---
 
 ## Image Data Curation
@@ -47,15 +55,15 @@ NeMo Curator supports scalable image dataset loading, embedding, classification 
 
 <Cards>
 
-<Card title="Data Loading" href="/about/concepts/image/data-loading-concepts">
+<Card title="Data Loading" href="/about/concepts/image/data/loading">
 Load and manage large-scale image datasets for curation workflows.
 </Card>
 
-<Card title="Data Processing" href="/about/concepts/image/data-processing-concepts">
+<Card title="Data Processing" href="/about/concepts/image/data/processing">
 Embedding generation, classification (aesthetic, NSFW), filtering, and deduplication for images.
 </Card>
 
-<Card title="Data Export" href="/about/concepts/image/data-export-concepts">
+<Card title="Data Export" href="/about/concepts/image/data/export">
 Export, save, and reshard curated image datasets for downstream use.
 </Card>
 
@@ -64,6 +72,7 @@ Set up your environment and install NeMo Curator's image modules.
 </Card>
 
 </Cards>
+
 ---
 
 ## Audio Data Curation
@@ -72,15 +81,15 @@ NeMo Curator provides speech and audio curation capabilities designed for prepar
 
 <Cards>
 
-<Card title="Data Loading" href="/about/concepts/audio/manifests-ingest">
+<Card title="Data Loading" href="/about/concepts/audio/manifests/ingest">
 Load and manage audio datasets with manifests, file paths, and transcriptions for curation workflows.
 </Card>
 
-<Card title="ASR Processing" href="/about/concepts/audio/asr-pipeline">
+<Card title="ASR Processing" href="/about/concepts/audio/asr/pipeline">
 Automatic speech recognition inference, quality assessment, and transcription using NeMo Framework models.
 </Card>
 
-<Card title="Quality Assessment" href="/about/concepts/audio/quality-metrics">
+<Card title="Quality Assessment" href="/about/concepts/audio/quality/metrics">
 Word Error Rate (WER) calculation, duration analysis, and quality-based filtering for speech data.
 </Card>
 
@@ -89,6 +98,7 @@ Set up your environment and run your first audio curation pipeline with NeMo Cur
 </Card>
 
 </Cards>
+
 ---
 
 ## Video Data Curation
@@ -98,14 +108,17 @@ NeMo Curator provides distributed video curation pipelines, supporting scalable 
 <Cards>
 
 <Card title="Architecture" href="/about/concepts/video/architecture">
+
 Distributed processing, Ray-based foundation, and autoscaling for video curation.
 </Card>
 
 <Card title="Key Abstractions" href="/about/concepts/video/abstractions">
+
 Stages, pipelines, and execution modes in video curation workflows.
 </Card>
 
-<Card title="Data Flow" href="/about/concepts/video/data-flow">
+<Card title="Data Flow" href="/about/concepts/video/data/flow">
+
 How data moves through the system, from ingestion to output, for efficient large-scale video curation.
 </Card>
 
@@ -114,27 +127,27 @@ Set up your environment and run your first video curation pipeline with NeMo Cur
 </Card>
 
 </Cards>
+
 ## Deployment and Integration
 
 NeMo Curator is designed for distributed, cloud-native, and on-premises deployments. It integrates easily with your existing MLOps pipelines. Modular APIs enable flexible orchestration and automation.
 
 <Cards>
 
-<Card title="Deployment Options" href="/admin/deployment">
+<Card title="Deployment Options" href="/admin/overview">
 See the Admin Guide for deployment guidance and infrastructure recommendations.
 </Card>
 
-<Card title="Memory Management" href="/reference/infrastructure/memory-management">
+<Card title="Memory Management" href="/reference/infra/memory/management">
 Optimize memory usage and partitioning for large-scale curation workflows.
 </Card>
 
-<Card title="GPU Acceleration" href="/reference/infrastructure/gpu-processing">
+<Card title="GPU Acceleration" href="/reference/infra/gpu/processing">
 Leverage NVIDIA GPUs for faster data processing and pipeline acceleration.
 </Card>
 
-<Card title="Resumable Processing" href="/reference/infrastructure/resumable-processing">
+<Card title="Resumable Processing" href="/reference/infra/resumable/processing">
 Continue interrupted operations and recover large dataset processing with checkpointing and batching.
 </Card>
 
 </Cards>
-

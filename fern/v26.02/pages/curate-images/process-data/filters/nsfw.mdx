@@ -1,7 +1,14 @@
 ---
-title: NSFW Filter
 description: "NSFW filter for detecting inappropriate content in images using CLIP embeddings and MLP architecture"
+categories: ["how-to-guides"]
+tags: ["nsfw", "filtering", "clip", "safety", "content-filtering"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "image-only"
 ---
+
+# NSFW Filter
 
 The NSFW (Not Safe For Work) Filter detects the likelihood that an image contains explicit or unsafe content. It outputs a probability score from 0 (safe) to 1 (NSFW), helping you filter or flag images in your datasets.
 
@@ -11,7 +18,7 @@ The NSFW (Not Safe For Work) Filter detects the likelihood that an image contain
 - **Source**: [CLIP-based NSFW Detector](https://github.com/LAION-AI/CLIP-based-NSFW-Detector)
 - **Output Field:** `nsfw_score`
 - **Score Range:** 0–1 (higher scores show NSFW content)
-- **Embeddings:** Requires CLIP ViT-L/14 (see [Image Embedding](/curate-images/process-data/embeddings))
+- **Embeddings:** Requires CLIP ViT-L/14 (see [image-process-data-embeddings](/about/release-notes/migration-guide))
 
 ## How It Works
 
@@ -28,9 +35,7 @@ The NSFW detector model weights are automatically downloaded from the LAION repo
 2. Cache the model for subsequent runs
 3. Load the model onto GPU (or CPU if GPU unavailable)
 
-<Note>
-The initial model download is quick (under 1 minute on most connections). Subsequent runs will use the cached model.
-</Note>
+**First-time setup:** The initial model download is quick (under 1 minute on most connections). Subsequent runs will use the cached model.
 
 ### Required Input
 
@@ -38,6 +43,9 @@ The initial model download is quick (under 1 minute on most connections). Subseq
 - **Embedding Format:** CLIP ViT-L/14 768-dimensional vectors stored in `ImageObject.embedding`
 
 ## Usage
+
+<Tabs>
+<Tab title="Python">
 
 ```python
 from nemo_curator.pipeline import Pipeline
@@ -81,10 +89,14 @@ pipeline.add_stage(ImageNSFWFilterStage(
 results = pipeline.run()
 ```
 
+</Tab>
+
+</Tabs>
+
 ## Parameters
 
 | Parameter | Type | Default | Description |
-| --------- | ---- | ------- | ----------- |
+| --- | --- | --- | --- |
 | `model_dir` | str | None | Path to directory containing model weights |
 | `score_threshold` | float | 0.5 | NSFW score threshold for filtering (filters out images above this value) |
 | `model_inference_batch_size` | int | 32 | Batch size for model inference |

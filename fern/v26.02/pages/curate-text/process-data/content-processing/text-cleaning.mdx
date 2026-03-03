@@ -1,7 +1,14 @@
 ---
-title: Text Cleaning
 description: "Remove undesirable text including improperly decoded Unicode characters, inconsistent spacing, and excessive URLs"
+categories: ["how-to-guides"]
+tags: ["text-cleaning", "unicode", "normalization", "url-removal", "preprocessing", "ftfy"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
 ---
+
+# Text Cleaning
 
 Remove undesirable text such as improperly decoded Unicode characters, inconsistent line spacing, or excessive URLs from documents being pre-processed for your dataset using NeMo Curator.
 
@@ -25,6 +32,7 @@ You can use these modules individually or sequentially in a cleaning pipeline.
 
 <Tabs>
 <Tab title="Python">
+
 Consider the following example, which loads a dataset from a directory (`books/`), steps through each module in a cleaning pipeline, and outputs the processed dataset to `cleaned_books/`:
 
 ```python
@@ -69,6 +77,7 @@ if __name__ == "__main__":
 </Tab>
 
 </Tabs>
+
 ## Custom Text Cleaner
 
 You can create your own custom text cleaner by extending the `DocumentModifier` class. The implementation of `UrlRemover` demonstrates this approach:
@@ -93,4 +102,3 @@ class UrlRemover(DocumentModifier):
 ```
 
 To create a custom text cleaner, inherit from the `DocumentModifier` class and implement the constructor and `modify_document` method.
-

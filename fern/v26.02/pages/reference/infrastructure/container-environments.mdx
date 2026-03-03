@@ -8,8 +8,6 @@ content_type: "reference"
 modality: "universal"
 ---
 
-(reference-infrastructure-container-environments)=
-
 # Container Environments
 
 Deploy NeMo Curator in containerized environments for reproducible, scalable data curation pipelines with pre-configured dependencies and optimized runtime settings.
@@ -37,7 +35,7 @@ NeMo Curator provides official Docker containers with all dependencies pre-insta
 
 The primary container includes comprehensive support for all curation modalities:
 
-**Container registry:** `nvcr.io/nvidia/nemo-curator:26.02`
+**Container registry:** `nvcr.io/nvidia/nemo-curator:{{ container_version }}`
 
 **Supported modalities:**
 - ✅ Text curation (CPU/GPU)
@@ -53,35 +51,19 @@ The primary container includes comprehensive support for all curation modalities
 - Ray, Dask, and distributed computing frameworks
 - NVIDIA optimized Python packages
 
-(reference-infrastructure-container-environments-curator)=
-
 ### Curator Environment
 
-```{list-table} Curator Environment Configuration
-:header-rows: 1
-:widths: 25 75
-
-* - Property
-  - Value
-* - Python Version
-  - 3.12
-* - CUDA Version
-  - 12.8.1 (configurable)
-* - Operating System
-  - Ubuntu 24.04 (configurable)
-* - Base Image
-  - `nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER}`
-* - Package Manager
-  - uv (Ultrafast Python package installer)
-* - Installation
-  - NeMo Curator installed with all optional dependencies (`[all]` extras) using uv with NVIDIA index
-* - Environment Path
-  - Virtual environment at `/opt/venv`. Activate with `source /opt/venv/env.sh` after entering the container.
-```
+| Property | Value |
+| --- | --- |
+| Python Version | 3.12 |
+| CUDA Version | 12.8.1 (configurable) |
+| Operating System | Ubuntu 24.04 (configurable) |
+| Base Image | `nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER}` |
+| Package Manager | uv (Ultrafast Python package installer) |
+| Installation | NeMo Curator installed with all optional dependencies (`[all]` extras) using uv with NVIDIA index |
+| Environment Path | Virtual environment at `/opt/venv`. Activate with `source /opt/venv/env.sh` after entering the container. |
 
 ---
-
-(reference-infrastructure-container-environments-build-args)=
 
 ## Container Build Arguments
 
@@ -97,17 +79,11 @@ The main container accepts these build-time arguments for environment customizat
 
 ---
 
-(reference-infrastructure-container-environments-usage)=
-
 ## Environment Usage Examples
-
-(reference-infrastructure-container-environments-usage-text)=
 
 ### Text Curation
 
 Uses the default container environment with CPU or GPU workers depending on the module.
-
-(reference-infrastructure-container-environments-usage-image)=
 
 ### Image Curation
 

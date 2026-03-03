@@ -8,8 +8,6 @@ content_type: "howto"
 modality: "video-only"
 ---
 
-(video-save-export)=
-
 # Save and Export
 
 NeMo Curator writes clips, metadata, previews, and embeddings to a structured output directory. Use this guide to add the writer to your pipeline, understand the directories it creates, and prepare artifacts for training.
@@ -40,52 +38,21 @@ pipeline.add_stage(
 
 ### Parameters
 
-```{list-table}
-:header-rows: 1
-
-* - Parameter
-  - Type
-  - Description
-* - `output_path`
-  - `str`
-  - Base directory or URI for outputs.
-* - `input_path`
-  - `str`
-  - Root of input videos; used to derive processed metadata paths. Must be a prefix of input video paths.
-* - `upload_clips`
-  - `bool`
-  - Write `.mp4` clips to `clips/` and filtered clips to `filtered_clips/`.
-* - `dry_run`
-  - `bool`
-  - Skip writing clip bytes, preview images, embeddings, and per-clip metadata. The stage still writes video-level and chunk-level metadata.
-* - `generate_embeddings`
-  - `bool`
-  - When true, the stage logs errors if embeddings for the selected algorithm are missing. When embeddings exist, the stage writes per-clip pickles and per-chunk Parquet files.
-* - `generate_previews`
-  - `bool`
-  - When true, the stage logs errors for missing preview bytes and writes `.webp` images when present.
-* - `generate_captions`
-  - `bool`
-  - The stage includes captions in metadata when upstream stages provide them.
-* - `embedding_algorithm`
-  - `str`
-  - Accepted: `cosmos-embed1-224p`, `cosmos-embed1-336p`, or `cosmos-embed1-448p`. Default: `cosmos-embed1-224p`.
-* - `caption_models`
-  - `list[str] | None`
-  - Ordered caption models to emit. Use `[]` when not using captions.
-* - `enhanced_caption_models`
-  - `list[str] | None`
-  - Ordered enhancement models to emit. Use `[]` when not using enhanced captions.
-* - `verbose`
-  - `bool`
-  - Emit detailed logs.
-* - `max_workers`
-  - `int`
-  - Thread pool size for writing.
-* - `log_stats`
-  - `bool`
-  - Reserved for future detailed stats logging.
-```
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `output_path` | `str` | Base directory or URI for outputs. |
+| `input_path` | `str` | Root of input videos; used to derive processed metadata paths. Must be a prefix of input video paths. |
+| `upload_clips` | `bool` | Write `.mp4` clips to `clips/` and filtered clips to `filtered_clips/`. |
+| `dry_run` | `bool` | Skip writing clip bytes, preview images, embeddings, and per-clip metadata. The stage still writes video-level and chunk-level metadata. |
+| `generate_embeddings` | `bool` | When true, the stage logs errors if embeddings for the selected algorithm are missing. When embeddings exist, the stage writes per-clip pickles and per-chunk Parquet files. |
+| `generate_previews` | `bool` | When true, the stage logs errors for missing preview bytes and writes `.webp` images when present. |
+| `generate_captions` | `bool` | The stage includes captions in metadata when upstream stages provide them. |
+| `embedding_algorithm` | `str` | Accepted: `cosmos-embed1-224p`, `cosmos-embed1-336p`, or `cosmos-embed1-448p`. Default: `cosmos-embed1-224p`. |
+| `caption_models` | `list[str] \| None` | Ordered caption models to emit. Use `[]` when not using captions. |
+| `enhanced_caption_models` | `list[str] \| None` | Ordered enhancement models to emit. Use `[]` when not using enhanced captions. |
+| `verbose` | `bool` | Emit detailed logs. |
+| `max_workers` | `int` | Thread pool size for writing. |
+| `log_stats` | `bool` | Reserved for future detailed stats logging. |
 
 ## Output Directories
 

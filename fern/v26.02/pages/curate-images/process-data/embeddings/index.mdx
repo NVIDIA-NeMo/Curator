@@ -1,7 +1,14 @@
 ---
-title: Image Embedding
 description: "Generate image embeddings using built-in embedders for classification, filtering, and similarity search"
+categories: ["workflows"]
+tags: ["embedding", "clip", "gpu-accelerated", "similarity-search"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "workflow"
+modality: "image-only"
 ---
+
+# Image Embedding
 
 Generate image embeddings for large-scale datasets using NeMo Curator's built-in embedders. Image embeddings enable downstream tasks such as classification, filtering, duplicate removal, and similarity search.
 
@@ -16,10 +23,16 @@ Image embedding in NeMo Curator typically follows these steps:
 
 The embedding stage integrates seamlessly into NeMo Curator's pipeline architecture.
 
+---
+
 ## Available Embedding Tools
 
 <Cards>
-  <Card title="ImageEmbeddingStage" href="/curate-images/process-data/embeddings/clip-embedder">
-    Generate CLIP embeddings using OpenAI's ViT-L/14 model for high-quality image representations.
-  </Card>
+
+<Card title="ImageEmbeddingStage" href="/clip-embedder">
+Generate CLIP embeddings using OpenAI's ViT-L/14 model for high-quality image representations.
+</Card>
+
 </Cards>
+
+---

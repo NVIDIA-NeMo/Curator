@@ -1,7 +1,14 @@
 ---
-title: Memory Management Guide
 description: "Strategies and best practices for managing memory when processing large datasets with NeMo Curator"
+categories: ["reference"]
+tags: ["memory-management", "optimization", "large-scale", "batch-processing", "monitoring", "performance"]
+personas: ["mle-focused", "admin-focused"]
+difficulty: "intermediate"
+content_type: "reference"
+modality: "universal"
 ---
+
+# Memory Management Guide
 
 This guide explains existing implementations and strategies for managing memory when processing large text datasets with NVIDIA NeMo Curator.
 
@@ -100,7 +107,7 @@ executor = XennaExecutor(config={
 pipeline.run(executor=executor)
 ```
 
-Refer to the [Pipeline Execution Backends](/reference/infrastructure/execution-backends) page for more information about Curator's executors.
+Refer to the [Pipeline Execution Backends ](/reference-execution-backends) page for more information about Curator's executors.
 
 **4. Worker Management**
 
@@ -273,4 +280,3 @@ Refer to [NeMo Curator Metrics](https://github.com/NVIDIA-NeMo/Curator/tree/main
    - **Clean Up Large Objects**: When working with large datasets in custom stages, explicitly delete temporary objects (e.g., `del large_dataframe`) and consider calling `gc.collect()` after processing large batches to free memory immediately rather than waiting for automatic garbage collection.
    - **GPU Memory**: For GPU-based stages, PyTorch may cache GPU memory. If you encounter GPU out-of-memory errors despite having sufficient GPU capacity, try `torch.cuda.empty_cache()` between stages to clear the cache.
    - **Worker Lifecycle**: Xenna automatically recycles workers periodically (controlled by `worker_max_lifetime_m` and `worker_restart_interval_m` in stage configs) to prevent memory leaks from accumulating during long-running pipelines.
-

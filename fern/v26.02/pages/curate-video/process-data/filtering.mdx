@@ -8,8 +8,6 @@ content_type: "howto"
 modality: "video-only"
 ---
 
-(video-process-filtering)=
-
 # Filtering
 
 Apply motion-based filtering to clips and aesthetic filtering to frames to prune low-quality assets during curation.
@@ -23,7 +21,7 @@ Filtering runs in two passes that balance speed and quality:
 
 ## Before You Start
 
-Motion decoding and aesthetic scoring operate on clip buffers. You must run [clipping](video-process-clipping) and [encoding](video-process-transcoding) first so each clip has a valid `buffer` (bytes). 
+Motion decoding and aesthetic scoring operate on clip buffers. You must run [clipping](/video-process-clipping) and [encoding](/video-process-transcoding) first so each clip has a valid `buffer` (bytes). 
 
 ---
 
@@ -147,80 +145,35 @@ Motion filtering is a two‑step process: first decode motion vectors, then filt
 <Tabs>
 <Tab title="MotionVectorDecodeStage">
 
-```{list-table} Motion vector decoding parameters
-:header-rows: 1
-:widths: 22 12 12 54
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `num_cpus_per_worker`
-  - float
-  - 6.0
-  - CPU cores reserved per worker for decoding motion vectors.
-* - `target_fps`
-  - float
-  - 2.0
-  - Target frames per second for sampling motion vectors.
-* - `target_duration_ratio`
-  - float
-  - 0.5
-  - Fraction of each clip's duration to decode for motion analysis.
-* - `verbose`
-  - bool
-  - `False`
-  - Log warnings and per‑clip issues during decoding.
-```
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `num_cpus_per_worker` | float | 6.0 | CPU cores reserved per worker for decoding motion vectors. |
+| `target_fps` | float | 2.0 | Target frames per second for sampling motion vectors. |
+| `target_duration_ratio` | float | 0.5 | Fraction of each clip's duration to decode for motion analysis. |
+| `verbose` | bool | `False` | Log warnings and per‑clip issues during decoding. |
 
 </Tab>
 
 <Tab title="MotionFilterStage">
 
-```{list-table} Motion filtering parameters
-:header-rows: 1
-:widths: 22 12 12 54
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `score_only`
-  - bool
-  - `False`
-  - Compute motion scores without filtering out clips.
-* - `global_mean_threshold`
-  - float
-  - 0.00098
-  - Threshold on the global mean motion score; lower implies less motion.
-* - `per_patch_min_256_threshold`
-  - float
-  - 0.000001
-  - Threshold on the minimum per‑patch score over 256 patches.
-* - `motion_filter_batch_size`
-  - int
-  - 256
-  - Batch size for GPU computation; decrease to reduce memory usage.
-* - `num_gpus_per_worker`
-  - float
-  - 0.0
-  - GPUs reserved per worker for motion scoring (0 uses CPU path).
-* - `verbose`
-  - bool
-  - `False`
-  - Log per‑clip decisions and scores.
-```
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `score_only` | bool | `False` | Compute motion scores without filtering out clips. |
+| `global_mean_threshold` | float | 0.00098 | Threshold on the global mean motion score; lower implies less motion. |
+| `per_patch_min_256_threshold` | float | 0.000001 | Threshold on the minimum per‑patch score over 256 patches. |
+| `motion_filter_batch_size` | int | 256 | Batch size for GPU computation; decrease to reduce memory usage. |
+| `num_gpus_per_worker` | float | 0.0 | GPUs reserved per worker for motion scoring (0 uses CPU path). |
+| `verbose` | bool | `False` | Log per‑clip decisions and scores. |
 
 </Tab>
 
 </Tabs>
 
-(video-process-filtering-aesthetic)=
 ### Aesthetic Filtering
 
 Aesthetic filtering works best when you prepare frames first, then score clips using a CLIP‑based aesthetic model.
 
-1. Extract frames earlier in the pipeline. Use a frame extraction stage with a `sequence` policy and set a `target_fps` that matches the aesthetic stage. Refer to [Frame Extraction](video-process-frame-extraction) for guidance.
+1. Extract frames earlier in the pipeline. Use a frame extraction stage with a `sequence` policy and set a `target_fps` that matches the aesthetic stage. Refer to [Frame Extraction](/video-process-frame-extraction) for guidance.
 
    ```python
    # Example: upstream frame extraction snippet (pseudocode)
@@ -254,36 +207,11 @@ Aesthetic filtering works best when you prepare frames first, then score clips u
 
 #### Parameters
 
-```{list-table} CLIP aesthetic filtering parameters
-:header-rows: 1
-:widths: 22 12 12 54
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `model_dir`
-  - str
-  - `"models/clip_aesthetic"`
-  - Directory for model weights; downloaded on each node if missing.
-* - `score_threshold`
-  - float
-  - 0.5
-  - Minimum aesthetic score required to keep a clip.
-* - `reduction`
-  - {"mean", "min"}
-  - `"min"`
-  - Aggregate frame‑level scores using mean or minimum.
-* - `target_fps`
-  - float
-  - 1.0
-  - Frame sampling rate expected to match extracted frames.
-* - `num_gpus_per_worker`
-  - float
-  - 0.25
-  - GPUs reserved per worker for aesthetic scoring.
-* - `verbose`
-  - bool
-  - `False`
-  - Log per‑clip aesthetic scores and decisions.
-```
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_dir` | str | `"models/clip_aesthetic"` | Directory for model weights; downloaded on each node if missing. |
+| `score_threshold` | float | 0.5 | Minimum aesthetic score required to keep a clip. |
+| `reduction` | {"mean", "min"} | `"min"` | Aggregate frame‑level scores using mean or minimum. |
+| `target_fps` | float | 1.0 | Frame sampling rate expected to match extracted frames. |
+| `num_gpus_per_worker` | float | 0.25 | GPUs reserved per worker for aesthetic scoring. |
+| `verbose` | bool | `False` | Log per‑clip aesthetic scores and decisions. |

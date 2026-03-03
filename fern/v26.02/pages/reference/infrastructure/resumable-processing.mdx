@@ -1,7 +1,14 @@
 ---
-title: Resumable Processing
 description: "Implementation guide for resumable processing to handle interrupted large-scale data operations in NeMo Curator"
+categories: ["reference"]
+tags: ["batch-processing", "large-scale", "optimization", "python-api", "configuration", "monitoring"]
+personas: ["mle-focused", "admin-focused"]
+difficulty: "intermediate"
+content_type: "reference"
+modality: "universal"
 ---
+
+# Resumable Processing
 
 This guide explains strategies to make large-scale data operations resumable.
 
@@ -109,4 +116,3 @@ pipeline.add_stage(writer)
 # Execute pipeline - processes files in batches automatically
 pipeline.run()
 ```
-

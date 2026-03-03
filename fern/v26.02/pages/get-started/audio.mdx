@@ -8,8 +8,6 @@ content_type: "tutorial"
 modality: "audio-only"
 ---
 
-(gs-audio)=
-
 # Get Started with Audio Curation
 
 This guide helps you set up and get started with NeMo Curator's audio curation capabilities. Follow these steps to prepare your environment and run your first audio curation pipeline using the FLEURS dataset.
@@ -19,7 +17,7 @@ This guide helps you set up and get started with NeMo Curator's audio curation c
 To use NeMo Curator's audio curation modules, ensure you meet the following requirements:
 
 * Python 3.10, 3.11, or 3.12
-  * packaging >= 22.0
+  * packaging &gt;= 22.0
 * uv (for package management and installation)
 * Ubuntu 22.04/20.04
 * NVIDIA GPU (recommended for ASR inference)
@@ -28,7 +26,7 @@ To use NeMo Curator's audio curation modules, ensure you meet the following requ
 * Audio processing libraries (automatically installed with audio extras)
 
 <Tip>
-If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
+If you don't have `uv` installed, refer to the [Installation Guide](/admin/installation) for setup instructions, or install it quickly with:
 
 ```bash
 curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
@@ -82,14 +80,14 @@ NeMo Curator is available as a standalone container:
 
 ```bash
 # Pull the container
-docker pull nvcr.io/nvidia/nemo-curator:26.02
+docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
 
 # Run the container
-docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:26.02
+docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version }}
 ```
 
 <Note>
-For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments).
+For details on container environments and configurations, see [Container Environments](/reference-infrastructure-container-environments).
 
 </Note>
 
@@ -163,7 +161,7 @@ pipeline.add_stage(
     )
 )
 
-# 5. Filter by WER threshold (keep samples with WER <= 75%)
+# 5. Filter by WER threshold (keep samples with WER &lt;= 75%)
 pipeline.add_stage(
     PreserveByValueStage(
         input_value_key="wer",
@@ -216,10 +214,10 @@ Each output entry contains:
 
 ## Next Steps
 
-Explore the [Audio Curation documentation](audio-overview) for more advanced processing techniques and customization options.
+Explore the [Audio Curation documentation](/audio-overview) for more advanced processing techniques and customization options.
 
 Key areas to explore next:
 
-* **[Custom Audio Manifests](../curate-audio/load-data/custom-manifests.md)** - Load your own audio datasets
-* **[Quality Assessment](../curate-audio/process-data/quality-assessment/index.md)** - Advanced filtering and quality metrics
-* **[Text Integration](../curate-audio/process-data/text-integration/index.md)** - Combine with text processing workflows
+* **[Custom Audio Manifests](/curate-audio/load-data/custom-manifests)** - Load your own audio datasets
+* **[Quality Assessment](/curate-audio/process-data/quality-assessment/index)** - Advanced filtering and quality metrics
+* **[Text Integration](/curate-audio/process-data/text-integration/index)** - Combine with text processing workflows

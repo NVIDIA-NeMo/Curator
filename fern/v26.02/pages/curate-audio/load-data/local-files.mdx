@@ -1,7 +1,14 @@
 ---
-title: Load Local Audio Files
 description: "Load audio files from local directories by creating custom manifests"
+categories: ["data-loading"]
+tags: ["local-files", "custom-manifests", "audio-discovery"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-only"
 ---
+
+# Load Local Audio Files
 
 Load audio files from local directories by creating custom manifests that reference your audio files. This guide covers supported formats and basic approaches for organizing local audio data for NeMo Curator processing.
 
@@ -249,4 +256,3 @@ def validate_manifest(manifest_path: str):
 if validate_manifest("local_manifest.jsonl"):
     process_local_audio_manifest("local_manifest.jsonl", "/output")
 ```
-

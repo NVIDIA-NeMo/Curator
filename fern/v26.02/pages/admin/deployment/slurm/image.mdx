@@ -1,14 +1,15 @@
 ---
-title: Deploy Image Curation on Slurm
-description: "Full image curation pipeline on Slurm including model download, embedding generation, classification, filtering, and deduplication"
+title: "Deploy Image Curation on Slurm"
+description: ""
 ---
 
-# Deploy Image Curation on Slurm
+{/* Note: This documentation has been verified against NeMo Curator source code for technical accuracy */}
 
-This workflow covers the full image curation pipeline on Slurm, including model download, embedding generation, classification, filtering, and deduplication.
+This workflow covers the full image curation pipeline on Slurm, including model download, embedding generation, classification, filtering, and deduplication. 
 
 <Note>
-For details on image container environments and Slurm environment variables, see [Container Environments](/reference/infrastructure/container-environments).
+For details on image container environments and Slurm environment variables, see [Container Environments](/reference-infrastructure-container-environments).
+
 </Note>
 
 ## Prerequisites
@@ -21,57 +22,59 @@ For details on image container environments and Slurm environment variables, see
   mkdir $HOME/nemo_curator_local_workspace
   ```
 
-- Prepare configuration files:
+**Prepare configuration files:**
 
-  <Tabs>
-  <Tab title="AWS Credentials">
-  `$HOME/.aws/credentials` (for S3 access)
+<Tabs>
+<Tab title="AWS Credentials">
+`$HOME/.aws/credentials` (for S3 access)
 
-  See configuration files in the repository.
-  </Tab>
+See configuration files in the repository.
+</Tab>
 
-  <Tab title="NeMo Curator Configuration">
-  `$HOME/.config/nemo_curator/config.yaml` (for HuggingFace API key)
+<Tab title="NeMo Curator Configuration">
+`$HOME/.config/nemo_curator/config.yaml` (for HuggingFace API key)
 
-  See configuration files in the repository.
-  </Tab>
+See configuration files in the repository.
+</Tab>
 
-  <Tab title="Image Processing Configuration">
-  `$HOME/nemo_curator_local_workspace/image_config.yaml` (image processing parameters)
+<Tab title="Image Processing Configuration">
+`$HOME/nemo_curator_local_workspace/image_config.yaml` (image processing parameters)
 
-  ```yaml
-  # Image curation configuration
-  embedding:
-    model_name: "vit_large_patch14_clip_quickgelu_224.openai"
-    batch_size: 1024
-    num_threads_per_worker: 16
-    normalize_embeddings: true
-    autocast: false
+```yaml
+# Image curation configuration
+embedding:
+  model_name: "vit_large_patch14_clip_quickgelu_224.openai"
+  batch_size: 1024
+  num_threads_per_worker: 16
+  normalize_embeddings: true
+  autocast: false
 
-  aesthetic_classifier:
-    score_threshold: 6.0
-    batch_size: 512
+aesthetic_classifier:
+  score_threshold: 6.0
+  batch_size: 512
 
-  nsfw_classifier:
-    score_threshold: 0.2
-    batch_size: 512
+nsfw_classifier:
+  score_threshold: 0.2
+  batch_size: 512
 
-  semantic_deduplication:
-    max_iter: 100
-    n_clusters: 50000
-    random_state: 42
-    eps_thresholds: [0.9, 0.95, 0.99]
-    eps_to_extract: 0.95
-    which_to_keep: "hard"
+semantic_deduplication:
+  max_iter: 100
+  n_clusters: 50000
+  random_state: 42
+  eps_thresholds: [0.9, 0.95, 0.99]
+  eps_to_extract: 0.95
+  which_to_keep: "hard"
 
-  filtering:
-    min_resolution: 256
-    max_aspect_ratio: 3.0
-    min_aesthetic_score: 6.0
-    max_nsfw_score: 0.2
-  ```
-  </Tab>
-  </Tabs>
+filtering:
+  min_resolution: 256
+  max_aspect_ratio: 3.0
+  min_aesthetic_score: 6.0
+  max_nsfw_score: 0.2
+```
+
+</Tab>
+
+</Tabs>
 
 ---
 
@@ -217,6 +220,7 @@ dataset.to_webdataset('${OUTPUT_DATA_PATH}')
 client.close()
 "
 ```
+
 </Tab>
 
 <Tab title="2. Filtering">
@@ -278,11 +282,11 @@ filters = []
 
 # Aesthetic score filter
 if 'min_aesthetic_score' in filter_params:
-    filters.append(f\"aesthetic_score >= {filter_params['min_aesthetic_score']}\")
+    filters.append(f\"aesthetic_score &gt;= {filter_params['min_aesthetic_score']}\")
 
 # NSFW score filter  
 if 'max_nsfw_score' in filter_params:
-    filters.append(f\"nsfw_score <= {filter_params['max_nsfw_score']}\")
+    filters.append(f\"nsfw_score &lt;= {filter_params['max_nsfw_score']}\")
 
 # Apply combined filter
 if filters:
@@ -298,6 +302,7 @@ print(f'Filtering completed. Applied filters: {filter_expression if filters else
 client.close()
 "
 ```
+
 </Tab>
 
 <Tab title="3. Deduplication">
@@ -408,7 +413,9 @@ else:
 client.close()
 "
 ```
+
 </Tab>
+
 </Tabs>
 
 1. **Update** all `# Update Me!` sections in the scripts for your environment (paths, usernames, S3 buckets, etc).

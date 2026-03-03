@@ -1,7 +1,15 @@
 ---
-title: Adding Custom Code
 description: "Tutorial for adding custom code to video curation pipelines for specialized processing requirements"
+categories: ["video-curation"]
+tags: ["customization", "custom-code", "pipeline", "advanced", "development"]
+personas: ["mle-focused"]
+difficulty: "advanced"
+content_type: "tutorial"
+modality: "video-only"
+
 ---
+
+# Adding Custom Code
 
 Learn how to extend NeMo Curator by adding custom code to a new or existing stage.
 
@@ -11,10 +19,10 @@ The NeMo Curator container includes a robust set of default pipelines with commo
 
 Before you begin adding custom code, make sure that you have:
 
-* Reviewed the [pipeline concepts and diagrams](/about/concepts/video).  
+* Reviewed the [pipeline concepts and diagrams](/about-concepts-video).  
 * A working NeMo Curator development environment.  
 * Optionally prepared a container image that includes your dependencies.  
-* Optionally [created a custom environment](/curate-video/tutorials/pipeline-customization/add-cust-env) to support your new custom code.
+* Optionally [created a custom environment](/video-tutorials-pipeline-cust-env) to support your new custom code.
 
 ---
 
@@ -26,13 +34,13 @@ Before you begin adding custom code, make sure that you have:
 2. Create a new folder for your environment, for example: `new_stage/`.
 3. Create a new file, for example `my_file.py`. This file must define a class (`MyClass`) made available for import.
 
-   ```python
+   ```py
    # your code here
    ```
 
 4. Import the class in your stage or pipeline code to use it.
 
-   ```python
+   ```py
    from my_code.my_file import MyClass
 
    ...
@@ -44,7 +52,7 @@ Before you begin adding custom code, make sure that you have:
 
 Create or edit a stage to use your code, then assemble a pipeline and run it in Python:
 
-```python
+```py
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks.video import VideoTask
@@ -86,4 +94,4 @@ To containerize, use a Dockerfile to copy your code and install dependencies, th
 
 ## Next Steps
 
-Now that you have created custom code, you can [create a custom stage](/curate-video/tutorials/pipeline-customization/add-cust-stage) that uses your code.
+Now that you have created custom code, you can [create a custom stage](/video-tutorials-pipeline-cust-add-stage) that uses your code.

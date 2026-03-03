@@ -1,7 +1,14 @@
 ---
-title: Text Integration for Audio Data
 description: "Convert processed audio data to DocumentBatch format for downstream processing"
+categories: ["audio-processing"]
+tags: ["format-conversion", "audio-to-text", "documentbatch"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-text"
 ---
+
+# Text Integration for Audio Data
 
 Convert processed audio data from `AudioBatch` to `DocumentBatch` format using the built-in `AudioToDocumentStage`. This enables you to export audio processing results or integrate with custom text processing workflows.
 
@@ -142,7 +149,6 @@ While `AudioToDocumentStage` converts audio data to `DocumentBatch` format, NeMo
 
 ### Example: Custom Text Processing
 
-
 ```python
 from nemo_curator.stages.function_decorators import processing_stage
 from nemo_curator.tasks import DocumentBatch
@@ -156,7 +162,7 @@ def filter_transcriptions(document_batch: DocumentBatch) -> DocumentBatch:
     df = document_batch.data
 
     # Example: Filter by transcription length
-    df = df[df['pred_text'].str.len() > 10]  # Keep transcriptions > 10 chars
+    df = df[df['pred_text'].str.len() &gt;10]  # Keep transcriptions &gt;10 chars
 
     # Example: Filter by WER if available
     if 'wer' in df.columns:
@@ -186,7 +192,7 @@ document_batch.data  # pandas DataFrame with columns:
 
 ## Limitations
 
-<Warning>
+<Info>
 **Text Processing Integration**: NeMo Curator's text processing stages are designed for `DocumentBatch` inputs (text documents such as articles, web pages), but they are not designed for audio-derived transcriptions. You should implement custom processing stages for audio-specific workflows.
 
 **Reasons for incompatibility:**
@@ -195,10 +201,10 @@ document_batch.data  # pandas DataFrame with columns:
 - Audio-specific metrics (WER, duration, speech rate) require custom filtering logic
 
 **Recommendation:** Use `PreserveByValueStage` for audio quality filtering, or create custom stages for transcription-specific processing.
-</Warning>
+</Info>
 
 ## Related Topics
 
-- [Audio Processing Overview](/curate-audio/process-data) - Complete audio processing workflow
-- [Quality Assessment](/curate-audio/process-data/quality-assessment) - Audio quality metrics and filtering
-- [ASR Inference](/curate-audio/process-data/asr-inference) - Speech recognition processing
+- **[Audio Processing Overview](/index)** - Complete audio processing workflow
+- **[Quality Assessment](/quality-assessment/index)** - Audio quality metrics and filtering
+- **[ASR Inference](/asr-inference/index)** - Speech recognition processing

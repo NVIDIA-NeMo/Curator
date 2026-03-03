@@ -1,7 +1,14 @@
 ---
-title: WER Filtering
 description: "Filter audio samples based on Word Error Rate thresholds to ensure high-quality transcription accuracy"
+categories: ["audio-processing"]
+tags: ["wer-filtering", "quality-filtering", "transcription-accuracy", "threshold-based", "speech-quality"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-only"
 ---
+
+# WER Filtering
 
 Filter audio samples based on Word Error Rate (WER) thresholds to ensure high-quality transcription accuracy in your speech datasets. WER filtering is the primary quality control mechanism for ASR-based audio curation.
 
@@ -87,7 +94,7 @@ pipeline.add_stage(wer_filter)
 
 - `input_value_key`: Field containing WER values (matches `wer_key` from previous stage)
 - `target_value`: WER threshold (percentage as float, e.g., `30.0` for 30%)
-- `operator`: Comparison operator (`"le"` for ≤, `"lt"` for \<, `"ge"` for ≥, `"gt"` for \>)
+- `operator`: Comparison operator (`"le"` for ≤, `"lt"` for &lt;, `"ge"` for ≥, `"gt"` for &gt;)
 
 The stage preserves samples meeting the threshold criteria and filters out others.
 
@@ -235,6 +242,6 @@ pipeline.run(executor)
 
 ## Related Topics
 
-- [Quality Assessment Overview](/curate-audio/process-data/quality-assessment) - Complete guide to audio quality assessment
-- [Duration Filtering](/curate-audio/process-data/quality-assessment/duration-filtering) - Filter by audio length and speech rate
-- [ASR Inference](/curate-audio/process-data/asr-inference) - Generate ASR predictions for WER calculation
+- **[Quality Assessment Overview](/index)** - Complete guide to audio quality assessment
+- **[Duration Filtering](/duration-filtering)** - Filter by audio length and speech rate
+- **[ASR Inference](/asr-inference/index)** - Generate ASR predictions for WER calculation

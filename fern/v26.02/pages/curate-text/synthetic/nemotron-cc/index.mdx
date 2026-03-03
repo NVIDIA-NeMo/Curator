@@ -1,6 +1,11 @@
 ---
-title: Nemotron-CC Pipelines
 description: "Advanced synthetic data generation using Nemotron-CC pipelines for text transformation and knowledge extraction"
+categories: ["workflows"]
+tags: ["nemotron-cc", "paraphrasing", "knowledge-extraction", "distillation"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "advanced"
+content_type: "workflow"
+modality: "text-only"
 ---
 
 # Nemotron-CC Pipelines
@@ -49,7 +54,7 @@ Before running a Nemotron-CC pipeline, prepare your input data as Parquet files 
 ### Required Schema
 
 | Column | Type | Description |
-|--------|------|-------------|
+| --- | --- | --- |
 | `id` | `int64` | Unique document identifier. Required by the preprocessing pipeline to reassemble document segments after splitting. |
 | `text` | `string` | Document content to transform. This is the primary input field for all Nemotron-CC stages. |
 | `bucketed_results` | `int64` | Quality score used to route documents to appropriate pipelines. Values typically range from 0-20, where higher scores indicate higher quality content. |
@@ -58,8 +63,8 @@ Before running a Nemotron-CC pipeline, prepare your input data as Parquet files 
 
 The `bucketed_results` field contains quality scores that determine which pipeline processes each document:
 
-- **High-quality documents** (`bucketed_results > 11`): Process with DiverseQA, Distill, ExtractKnowledge, or KnowledgeList tasks
-- **Low-quality documents** (`bucketed_results <= 11`): Process with WikipediaParaphrasing to improve text quality
+- **High-quality documents** (`bucketed_results &gt;11`): Process with DiverseQA, Distill, ExtractKnowledge, or KnowledgeList tasks
+- **Low-quality documents** (`bucketed_results &lt;= 11`): Process with WikipediaParaphrasing to improve text quality
 
 ### Generating Quality Scores
 
@@ -94,15 +99,16 @@ pipeline.add_stage(ParquetWriter(path="scored_data/"))
 results = pipeline.run()
 ```
 
-<Note>
+<Tip>
 The example above uses `FineWebEduClassifier` which outputs scores 0-5. For the Nemotron-CC threshold of 11, you can either:
 - Scale the scores (e.g., multiply by 4)
 - Adjust the filter threshold in your SDG pipeline
 - Use a different classifier that outputs scores in the 0-20 range
-</Note>
+</Tip>
 
 <Note>
-For detailed information on quality scoring options, see [Quality Assessment & Filtering](/curate-text/process-data/quality-assessment).
+For detailed information on quality scoring options, see [Quality Assessment & Filtering ](/text-process-data-filter).
+
 </Note>
 
 ### Example Data
@@ -130,7 +136,7 @@ print(df.head(2))
 Nemotron-CC provides five specialized generation tasks, each designed for specific data transformation needs:
 
 | Task | Stage Class | Purpose | Use Case |
-|------|-------------|---------|----------|
+| --- | --- | --- | --- |
 | Wikipedia Paraphrasing | `WikipediaParaphrasingStage` | Rewrite text as Wikipedia-style prose | Improving noisy web data |
 | Diverse QA | `DiverseQAStage` | Generate diverse Q&A pairs | Reading comprehension training |
 | Distill | `DistillStage` | Create condensed, informative paraphrases | Knowledge distillation |
@@ -152,10 +158,10 @@ For documents with high quality scores, use tasks that leverage the existing qua
 ```python
 from nemo_curator.stages.text.modules.score_filter import Filter
 
-# Filter for high-quality documents (score > 11)
+# Filter for high-quality documents (score &gt;11)
 pipeline.add_stage(
     Filter(
-        filter_fn=lambda x: int(x) > 11,
+        filter_fn=lambda x: int(x) &gt;11,
         filter_field="bucketed_results",
     ),
 )
@@ -166,10 +172,10 @@ pipeline.add_stage(
 For documents with lower quality scores, use Wikipedia Paraphrasing to improve text quality:
 
 ```python
-# Filter for low-quality documents (score <= 11)
+# Filter for low-quality documents (score &lt;= 11)
 pipeline.add_stage(
     Filter(
-        filter_fn=lambda x: int(x) <= 11,
+        filter_fn=lambda x: int(x) &lt;= 11,
         filter_field="bucketed_results",
     ),
 )
@@ -229,7 +235,7 @@ pipeline = add_diverse_qa_postprocessing_pipeline(
 Each task has specific token count and preprocessing requirements:
 
 | Task | Min Doc Tokens | Min Segment Tokens | Max Input Tokens | Max Output Tokens |
-|------|----------------|-------------------|------------------|-------------------|
+| --- | --- | --- | --- | --- |
 | Diverse QA | 30 | 30 | 1000 | 600 |
 | Distill | 30 | 10 | 2000 | 1600 |
 | Extract Knowledge | 30 | 30 | 1400 | 1400 |
@@ -298,8 +304,10 @@ client.stop()
 
 <Cards>
 
-<Card title="Task Reference" href="/curate-text/synthetic/nemotron-cc/tasks">
+<Card title="Task Reference" href="/tasks">
 Detailed reference for each Nemotron-CC stage, prompts, and post-processing
+reference
+api
 </Card>
 
 </Cards>

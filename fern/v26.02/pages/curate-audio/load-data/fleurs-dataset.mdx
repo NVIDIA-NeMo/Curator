@@ -1,7 +1,14 @@
 ---
-title: Load FLEURS Dataset
 description: "Load and process the multilingual FLEURS speech dataset with automated download and manifest creation"
+categories: ["data-loading"]
+tags: ["fleurs", "multilingual", "speech-corpus", "automated-download", "huggingface"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-only"
 ---
+
+# Load FLEURS Dataset
 
 The [FLEURS dataset](https://huggingface.co/datasets/google/fleurs) is a multilingual speech dataset covering 102 languages, built on top of the FLoRes machine translation benchmark. NeMo Curator provides automated tools to download, extract, and prepare FLEURS data for audio curation pipelines.
 
@@ -125,4 +132,3 @@ After processing, your directory structure will look like:
 └── result/             # Processed JSONL manifests (if using full pipeline)
     └── *.jsonl
 ```
-

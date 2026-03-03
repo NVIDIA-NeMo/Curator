@@ -1,7 +1,14 @@
 ---
-title: Specialized Processing
 description: "Domain-specific processing for code and advanced curation tasks with specialized modules"
+categories: ["workflows"]
+tags: ["specialized-processing", "code", "advanced"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "advanced"
+content_type: "workflow"
+modality: "text-only"
 ---
+
+# Specialized Processing
 
 Domain-specific processing for code and advanced curation tasks using NeMo Curator's specialized modules.
 
@@ -13,7 +20,7 @@ Specialized processing modules in NeMo Curator are designed for specific data ty
 
 - **Code Processing**: Handles programming languages with syntax-aware filtering
 
-Each specialized processor understands the unique characteristics of its target domain and applies appropriate metrics and thresholds within the broader [data processing framework](/about/concepts/text/data-processing-concepts).
+Each specialized processor understands the unique characteristics of its target domain and applies appropriate metrics and thresholds within the broader [data processing framework ](/about-concepts-text-data-processing).
 
 ---
 
@@ -21,17 +28,23 @@ Each specialized processor understands the unique characteristics of its target 
 
 <Cards>
 
-<Card title="Code Processing" href="/curate-text/process-data/specialized-processing/code">
+<Card title="Code Processing" href="/code">
 Specialized filters for programming content and source code
+programming
+syntax
+comments
+languages
 </Card>
 
 </Cards>
+
 ## Usage
 
 ### Quick Examples
 
 <Tabs>
 <Tab title="Code Processing">
+
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.modules import ScoreFilter
@@ -63,7 +76,9 @@ code_pipeline = Pipeline(
 
 results = code_pipeline.run()
 ```
+
 </Tab>
+
 </Tabs>
 
 ## When to Use Specialized Processing
@@ -73,5 +88,3 @@ results = code_pipeline.run()
 ## Performance Considerations
 
 - **Code processing**: Fast heuristic-based filtering, suitable for large code repositories
-
-

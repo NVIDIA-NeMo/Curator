@@ -9,7 +9,6 @@ modality: "video-only"
 
 ---
 
-(video-tutorials-beginner)=
 # Create a Video Pipeline
 
 Learn the basics of creating a video pipeline in Curator by following a split-and-clip pipeline example.
@@ -21,7 +20,7 @@ Learn the basics of creating a video pipeline in Curator by following a split-an
 
 ## Before You Start
 
-- Follow the [Get Started guide](gs-video) to install the package, prepare the model directory, and set up your data paths.
+- Follow the [Get Started guide](/gs-video) to install the package, prepare the model directory, and set up your data paths.
 
 ### Concepts and Mental Model
 
@@ -50,7 +49,7 @@ flowchart LR
   - **Embeddings**: Cosmos-Embed1
 - **Outputs**: Clips (mp4), previews (optional), and parquet embeddings for downstream tasks (such as semantic duplicate removal).
 
-For more information, refer to the [Video Concepts](about-concepts-video) section.
+For more information, refer to the [Video Concepts](/about-concepts-video) section.
 
 ---
 
@@ -105,7 +104,7 @@ pipeline.add_stage(
 
 ### Split into Clips
 
-[Create clip windows](video-process-clipping) using fixed intervals or scene-change detection.
+[Create clip windows](/video-process-clipping) using fixed intervals or scene-change detection.
 
 <Tabs>
 <Tab title="Fixed stride">
@@ -151,7 +150,7 @@ pipeline.add_stage(
 
 ### Encode Clips
 
-Convert clip buffers to H.264 using the selected encoder and settings. Refer to [Clip Encoding](video-process-transcoding) for encoder choices and NVENC setup.
+Convert clip buffers to H.264 using the selected encoder and settings. Refer to [Clip Encoding](/video-process-transcoding) for encoder choices and NVENC setup.
 
 ```python
 pipeline.add_stage(
@@ -170,7 +169,7 @@ pipeline.add_stage(
 
 ### Prepare Frames for Embeddings (Optional)
 
-[Extract frames](video-process-frame-extraction) at target rates for downstream embedding models.
+[Extract frames](/video-process-frame-extraction) at target rates for downstream embedding models.
 
 ```python
 pipeline.add_stage(
@@ -198,7 +197,7 @@ pipeline.add_stage(
 
 ### Write Clips and Metadata
 
-Write clips, embeddings, and metadata to the output directory. Refer to [Save & Export](video-save-export) for a full list of parameters.
+Write clips, embeddings, and metadata to the output directory. Refer to [Save & Export](/video-save-export) for a full list of parameters.
 
 <Tabs>
 <Tab title="ClipWriterStage">

@@ -1,14 +1,26 @@
 ---
-title: Create an Image Curation Pipeline
 description: "Beginner-friendly tutorial for creating your first image curation pipeline with quality filtering and NSFW detection"
+categories: ["image-curation"]
+tags: ["beginner", "tutorial", "quickstart", "pipeline", "image-processing", "quality-filtering", "nsfw-detection"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "tutorial"
+modality: "image-only"
+
 ---
+
+# Create an Image Curation Pipeline
 
 Learn the basics of creating an image curation pipeline in Curator by following a complete workflow that filters images by aesthetic quality and NSFW content.
 
+```{contents} Tutorial Steps:
+:local:
+:depth: 2
+```
 
 ## Before You Start
 
-- Follow the [Get Started guide](/get-started/image) to install the package, prepare the model directory, and set up your data paths.
+- Follow the [Get Started guide](/gs-image) to install the package, prepare the model directory, and set up your data paths.
 
 ### Concepts and Mental Model
 
@@ -36,7 +48,7 @@ flowchart LR
   - **Thresholds**: Configurable scoring thresholds for filtering
 - **Outputs**: Filtered tar archives with embeddings, quality scores, and image data.
 
-For more information, refer to the [Image Concepts](/about/concepts/image) section.
+For more information, refer to the [Image Concepts](/about-concepts-image) section.
 
 ---
 
@@ -122,7 +134,7 @@ pipeline.add_stage(ImageAestheticFilterStage(
     model_dir=MODEL_DIR,
     num_gpus_per_worker=0.25,
     model_inference_batch_size=32,
-    score_threshold=0.5,  # Keep images with score >= 0.5
+    score_threshold=0.5,  # Keep images with score &gt;= 0.5
     verbose=True,
 ))
 ```
@@ -136,7 +148,7 @@ pipeline.add_stage(ImageNSFWFilterStage(
     model_dir=MODEL_DIR,
     num_gpus_per_worker=0.25,
     model_inference_batch_size=32,
-    score_threshold=0.5,  # Filter images with NSFW score >= 0.5
+    score_threshold=0.5,  # Filter images with NSFW score &gt;= 0.5
     verbose=True,
 ))
 ```
@@ -280,8 +292,7 @@ After running this basic curation pipeline, you can:
 
 1. **Adjust thresholds**: Experiment with different aesthetic and NSFW score thresholds
 2. **Add custom filters**: Create domain-specific quality filters
-3. **Run duplicate removal**: Remove similar or duplicate images using [semantic duplicate removal](/curate-images/tutorials/dedup-workflow)
+3. **Run duplicate removal**: Remove similar or duplicate images using [semantic duplicate removal](/image-tutorials-dedup)
 4. **Export for training**: Prepare curated data for downstream ML training tasks
 
-For more advanced workflows, refer to the [Image Duplicate Removal Tutorial](/curate-images/tutorials/dedup-workflow).
-
+For more advanced workflows, refer to the [Image Duplicate Removal Tutorial](/image-tutorials-dedup).

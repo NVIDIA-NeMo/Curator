@@ -1,7 +1,14 @@
 ---
-title: Audio Quality Metrics
 description: "Core concepts for evaluating speech transcription quality using WER, CER, duration analysis, and speech rate metrics"
+categories: ["concepts-architecture"]
+tags: ["quality-metrics", "wer", "cer", "speech-quality", "transcription-accuracy"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "concept"
+modality: "audio-only"
 ---
+
+# Audio Quality Metrics
 
 This guide covers the quality metrics used in NeMo Curator for evaluating speech transcription accuracy, audio characteristics, and overall dataset quality.
 
@@ -23,7 +30,7 @@ WER = (Substitutions + Deletions + Insertions) / Total_Words × 100
 - **WER ≤ 10%**: Excellent quality (production-ready)
 - **WER ≤ 25%**: Good quality (suitable for most training)
 - **WER ≤ 50%**: Moderate quality (may need review)
-- **WER > 75%**: Poor quality (consider filtering)
+- **WER &gt;75%**: Poor quality (consider filtering)
 
 **Example**:
 ```python
@@ -149,18 +156,18 @@ def calculate_composite_quality(wer: float, duration: float, text: str) -> float
     wer_score = max(0, 100 - wer)
     
     # Duration component (30% weight) 
-    if 1.0 <= duration <= 15.0:
+    if 1.0 &lt;= duration &lt;= 15.0:
         duration_score = 100
-    elif 0.5 <= duration < 1.0 or 15.0 < duration <= 30.0:
+    elif 0.5 &lt;= duration < 1.0 or 15.0 < duration &lt;= 30.0:
         duration_score = 75
     else:
         duration_score = 25
     
     # Text length component (20% weight)
     word_count = len(text.split())
-    if word_count >= 5:
+    if word_count &gt;= 5:
         length_score = 100
-    elif word_count >= 3:
+    elif word_count &gt;= 3:
         length_score = 75
     else:
         length_score = 50
@@ -223,10 +230,10 @@ def analyze_quality_distribution(manifest_data: list) -> dict:
             "total_hours": sum(duration_values) / 3600
         },
         "quality_bins": {
-            "excellent": sum(1 for wer in wer_values if wer <= 10),
-            "good": sum(1 for wer in wer_values if 10 < wer <= 25),
-            "fair": sum(1 for wer in wer_values if 25 < wer <= 50),
-            "poor": sum(1 for wer in wer_values if wer > 50)
+            "excellent": sum(1 for wer in wer_values if wer &lt;= 10),
+            "good": sum(1 for wer in wer_values if 10 < wer &lt;= 25),
+            "fair": sum(1 for wer in wer_values if 25 < wer &lt;= 50),
+            "poor": sum(1 for wer in wer_values if wer &gt;50)
         }
     }
 ```
@@ -264,4 +271,3 @@ This distribution function is a documentation example, not part of the shipped A
 **High Coverage (Lenient Filtering)**:
 - Pros: Maximum data utilization, diverse content
 - Cons: Lower average quality, potential model degradation
-

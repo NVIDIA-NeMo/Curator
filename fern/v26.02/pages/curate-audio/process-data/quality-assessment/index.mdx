@@ -1,7 +1,14 @@
 ---
-title: Quality Assessment for Audio Data
 description: "Assess and filter audio quality using transcription accuracy metrics, duration analysis, and custom quality measures"
+categories: ["audio-processing"]
+tags: ["quality-assessment", "wer-filtering", "duration-filtering", "quality-metrics", "speech-quality"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "workflow"
+modality: "audio-only"
 ---
+
+# Quality Assessment for Audio Data
 
 Filter audio quality using transcription accuracy metrics, duration analysis, and custom quality measures to ensure high-quality speech datasets for ASR training.
 
@@ -35,11 +42,11 @@ WER measures the percentage of words that differ between ground truth and predic
 - **WER = 0%**: Perfect transcription match
 - **WER = 25%**: Good quality (1 in 4 words incorrect)
 - **WER = 50%**: Moderate quality
-- **WER > 75%**: Poor quality (consider filtering)
+- **WER &gt;75%**: Poor quality (consider filtering)
 
 ### Character Error Rate (CER)
 
-More granular accuracy measurement at the character level. The `get_cer()` function is a utility for calculating CER programmatically:
+More granular accuracy measurement at the character level.  The `get_cer()` function is a utility for calculating CER programmatically::
 
 ```python
 from nemo_curator.stages.audio.metrics.get_wer import get_cer
@@ -65,8 +72,9 @@ word_rate = get_wordrate("hello world example", 2.5)  # 1.2 words/second
 # Calculate characters per second
 char_rate = get_charrate("hello world", 2.0)  # 5.5 chars/second
 ```
-
-For a complete example of using speech rate metrics in a pipeline, refer to the [Duration Filtering](/curate-audio/process-data/quality-assessment/duration-filtering) guide.
+<Note>
+For a complete example of using speech rate metrics in a pipeline, refer to the **[Duration Filtering](/duration-filtering)** guide.
+</Note>
 
 ## Filtering Strategies
 
@@ -77,14 +85,14 @@ Filter audio samples based on transcription accuracy:
 ```python
 from nemo_curator.stages.audio.common import PreserveByValueStage
 
-# Keep samples with WER <= 30% (high quality)
+# Keep samples with WER &lt;= 30% (high quality)
 high_quality_filter = PreserveByValueStage(
     input_value_key="wer",
     target_value=30.0,
     operator="le"  # less than or equal
 )
 
-# Remove samples with WER >= 80% (very poor quality)
+# Remove samples with WER &gt;= 80% (very poor quality)
 poor_quality_filter = PreserveByValueStage(
     input_value_key="wer",
     target_value=80.0,
@@ -133,9 +141,9 @@ quality_pipeline.add_stage(GetAudioDurationStage(
 
 # Apply filters in sequence
 filters = [
-    PreserveByValueStage("wer", 50.0, "le"),        # WER <= 50%
-    PreserveByValueStage("duration", 1.0, "ge"),     # Duration >= 1s
-    PreserveByValueStage("duration", 20.0, "le"),    # Duration <= 20s
+    PreserveByValueStage("wer", 50.0, "le"),        # WER &lt;= 50%
+    PreserveByValueStage("duration", 1.0, "ge"),     # Duration &gt;= 1s
+    PreserveByValueStage("duration", 20.0, "le"),    # Duration &lt;= 20s
 ]
 
 for filter_stage in filters:
@@ -196,19 +204,19 @@ pipeline.add_stage(GetAudioDurationStage(
 pipeline.add_stage(PreserveByValueStage(
     input_value_key="wer",
     target_value=75.0,
-    operator="le"  # Keep WER <= 75%
+    operator="le"  # Keep WER &lt;= 75%
 ))
 
 pipeline.add_stage(PreserveByValueStage(
     input_value_key="duration",
     target_value=1.0,
-    operator="ge"  # Keep duration >= 1s
+    operator="ge"  # Keep duration &gt;= 1s
 ))
 
 pipeline.add_stage(PreserveByValueStage(
     input_value_key="duration",
     target_value=30.0,
-    operator="le"  # Keep duration <= 30s
+    operator="le"  # Keep duration &lt;= 30s
 ))
 
 # 5. Export high-quality results
@@ -222,6 +230,6 @@ pipeline.run(executor)
 
 ## Related Topics
 
-- [WER Filtering](/curate-audio/process-data/quality-assessment/wer-filtering) - Detailed guide to Word Error Rate filtering
-- [Duration Filtering](/curate-audio/process-data/quality-assessment/duration-filtering) - Audio length and speech rate filtering
-- [Audio Analysis](/curate-audio/process-data/audio-analysis) - Audio file analysis and validation
+- **[WER Filtering](/wer-filtering)** - Detailed guide to Word Error Rate filtering
+- **[Duration Filtering](/duration-filtering)** - Audio length and speech rate filtering
+- **[Audio Analysis](/audio-analysis/index)** - Audio file analysis and validation

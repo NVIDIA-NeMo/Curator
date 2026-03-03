@@ -1,7 +1,14 @@
 ---
-title: Data Processing Concepts (Image)
 description: "Core concepts for processing image data including embedding generation, filtering, and deduplication"
+categories: ["concepts-architecture"]
+tags: ["data-processing", "embedding", "filtering", "deduplication", "gpu-accelerated", "pipeline"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "image-only"
 ---
+
+# Data Processing Concepts (Image)
 
 This page covers the core concepts for processing image data in NeMo Curator.
 
@@ -112,7 +119,8 @@ pipeline.add_stage(ImageDuplicatesRemovalStage(
 ```
 
 <Note>
-For a complete end-to-end workflow, refer to the Image Duplicate Removal Tutorial.
+For a complete end-to-end workflow, refer to the [Image Duplicate Removal Tutorial](/image-tutorials-dedup).
+
 </Note>
 
 ## Pipeline Flow
@@ -156,6 +164,5 @@ results = pipeline.run()
 This modular pipeline approach allows you to customize or skip stages based on your workflow needs. Filtering stages (aesthetic and NSFW filtering) must always follow embedding generation, as they require pre-computed embeddings as input.
 
 <Note>
-For duplicate removal, you'll need to run the semantic deduplication workflow separately between embedding generation and the removal stage. See the [Image Duplicate Removal Tutorial](/curate-images/tutorials/dedup-workflow) for the complete three-step process: embedding generation → semantic deduplication → duplicate removal.
+For duplicate removal, you'll need to run the semantic deduplication workflow separately between embedding generation and the removal stage. See the [Image Duplicate Removal Tutorial](/image-tutorials-dedup) for the complete three-step process: embedding generation → semantic deduplication → duplicate removal.
 </Note>
-

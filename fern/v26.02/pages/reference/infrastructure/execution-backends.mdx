@@ -8,8 +8,6 @@ content_type: "reference"
 modality: "universal"
 ---
 
-(reference-execution-backends)=
-
 # Pipeline Execution Backends
 
 Configure and optimize execution backends to run NeMo Curator pipelines efficiently across single machines, multi-GPU systems, and distributed clusters.
@@ -118,7 +116,7 @@ For more details, refer to the official [NVIDIA Cosmos-Xenna project](https://gi
 - **RAFT support**: Native integration with [RAFT](https://github.com/rapidsai/raft) (RAPIDS Analytics Framework Toolbox) for GPU-accelerated clustering and nearest-neighbor operations
 - **Head node exclusion**: Optional `ignore_head_node` parameter to reserve the Ray cluster's [head node](https://docs.ray.io/en/latest/cluster/key-concepts.html#head-node) for coordination tasks only
 
-:::{dropdown} Example: Fuzzy Deduplication
+<Accordion title="Example: Fuzzy Deduplication">
 
 ```python
 from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
@@ -138,6 +136,7 @@ results = workflow.run()
 ```
 
 For more details, refer to [Text Deduplication ](/text-process-data-dedup).
+</Accordion>
 
 ### `RayDataExecutor`
 

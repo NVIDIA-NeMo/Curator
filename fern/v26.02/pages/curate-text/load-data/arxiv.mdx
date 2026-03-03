@@ -1,7 +1,14 @@
 ---
-title: ArXiv
 description: "Download and extract text from arXiv using Curator."
+categories: ["how-to-guides"]
+tags: ["arxiv", "academic-papers", "latex", "data-loading", "scientific-data"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
 ---
+
+# ArXiv
 
 Download and extract text from ArXiv LaTeX source bundles using Curator.
 
@@ -77,18 +84,16 @@ if __name__ == "__main__":
     main()
 ```
 
-For executor options and configuration, refer to [Reference Execution Backends](/docs/reference/execution/backends).
+For executor options and configuration, refer to [reference-execution-backends](/about/release-notes/migration-guide).
 
 ### Parameters
 
-**ArxivDownloadExtractStage Parameters**
-
 | Parameter | Type | Description | Default |
-| --------- | ---- | ----------- | ------- |
+| --- | --- | --- | --- |
 | `download_dir` | str | Directory to store downloaded `.tar` files | "./arxiv_downloads" |
-| `url_limit` | int | None | Maximum number of ArXiv tar files to download (useful for testing) | None |
-| `record_limit` | int | None | Maximum number of papers to extract per tar file | None |
-| `add_filename_column` | bool | str | Whether to add a source filename column to output; if str, use it as the column name | True (column name defaults to `file_name`) |
+| `url_limit` | int \| None | Maximum number of ArXiv tar files to download (useful for testing) | None |
+| `record_limit` | int \| None | Maximum number of papers to extract per tar file | None |
+| `add_filename_column` | bool \| str | Whether to add a source filename column to output; if str, use it as the column name | True (column name defaults to `file_name`) |
 | `log_frequency` | int | How often to log progress while iterating papers | 1000 |
 | `verbose` | bool | Enable verbose logging during download | False |
 
@@ -103,12 +108,9 @@ The extractor returns per-paper text; the filename column is optionally added by
 }
 ```
 
-**Output Fields**
-
 | Field | Description |
-| ----- | ----------- |
+| --- | --- |
 | `text` | Extracted and cleaned paper text (LaTeX macros inlined where supported, comments and references removed) |
 | `file_name` | Optional. Name of the source tar file (enabled by `add_filename_column`) |
 
 During iteration the pipeline yields `id` (ArXiv identifier), `source_id` (tar base name), and `content` (a list of LaTeX file contents as strings; one element per `.tex` file). The final extractor stage emits `text` plus the optional filename column.
-

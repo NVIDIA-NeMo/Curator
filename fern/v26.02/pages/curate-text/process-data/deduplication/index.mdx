@@ -8,8 +8,6 @@ content_type: "explanation"
 modality: "text-only"
 ---
 
-(text-process-data-dedup)=
-
 # Deduplication
 
 Remove duplicate and near-duplicate documents from text datasets using NeMo Curator's GPU-accelerated deduplication workflows. Removing duplicates prevents overrepresentation of repeated content in language model training.
@@ -29,7 +27,7 @@ NeMo Curator provides three deduplication approaches, each optimized for differe
 
 Computes MD5 hashes for each document's text content and groups documents with identical hashes. Best for removing exact copies.
 
-:::{dropdown} Code Example
+<Accordion title="Code Example">
 
 ```python
 from nemo_curator.core.client import RayClient
@@ -50,6 +48,7 @@ exact_workflow.run()
 ```
 
 For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Exact Duplicate Removal ](/text-process-data-dedup-exact) for details.
+</Accordion>
 </Tab>
 
 </Tabs>
@@ -62,7 +61,7 @@ For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate ID
 
 Generates MinHash signatures and uses LSH to find similar documents. Best for detecting documents with small formatting differences or typos.
 
-:::{dropdown} Code Example
+<Accordion title="Code Example">
 
 ```python
 from nemo_curator.core.client import RayClient
@@ -87,9 +86,8 @@ fuzzy_workflow.run()
 ```
 
 For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Fuzzy Duplicate Removal ](/text-process-data-dedup-fuzzy) for details.
+</Accordion>
 </Tab>
-
-</Tabs>
 
 <Tab title="Semantic">
 
@@ -99,7 +97,7 @@ For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate ID
 
 Generates embeddings using transformer models, clusters them, and computes pairwise similarities. Best for meaning-based deduplication.
 
-:::{dropdown} Code Example
+<Accordion title="Code Example">
 
 ```python
 from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
@@ -123,9 +121,10 @@ text_workflow.run()
 - `SemanticDeduplicationWorkflow`: For pre-computed embeddings
 
 See [Semantic Deduplication ](/text-process-data-format-sem-dedup) for details.
+</Accordion>
 </Tab>
 
-:::{dropdown} Advanced: Step-by-Step Semantic Deduplication
+<Accordion title="Advanced: Step-by-Step Semantic Deduplication">
 
 For fine-grained control, break semantic deduplication into separate stages:
 
@@ -166,10 +165,7 @@ semantic_out = semantic_workflow.run()
 ```
 
 This approach enables analysis of intermediate results and fine-grained control.
-
-</Tabs>
-
-</Tabs>
+</Accordion>
 
 ---
 
@@ -179,35 +175,29 @@ Choose a deduplication method based on your needs:
 
 <Cards>
 
-<Card title="{octicon}`git-pull-request;1.5em;sd-mr-1` Exact Duplicate Removal" href="exact">
+<Card title="Exact Duplicate Removal" href="/exact">
 Identify and remove character-for-character duplicates using MD5 hashing
-+++
-{bdg-secondary}`hashing`
-{bdg-secondary}`fast`
-{bdg-secondary}`gpu-accelerated`
-
+hashing
+fast
+gpu-accelerated
 </Card>
 
-<Card title="{octicon}`git-compare;1.5em;sd-mr-1` Fuzzy Duplicate Removal" href="fuzzy">
+<Card title="Fuzzy Duplicate Removal" href="/fuzzy">
 Identify and remove near-duplicates using MinHash and LSH similarity
-+++
-{bdg-secondary}`minhash`
-{bdg-secondary}`lsh`
-{bdg-secondary}`gpu-accelerated`
-
+minhash
+lsh
+gpu-accelerated
 </Card>
 
-<Card title="{octicon}`repo-clone;1.5em;sd-mr-1` Semantic Deduplication" href="semdedup">
+<Card title="Semantic Deduplication" href="/semdedup">
 Remove semantically similar documents using embeddings
-+++
-{bdg-secondary}`embeddings`
-{bdg-secondary}`gpu-accelerated`
-{bdg-secondary}`meaning-based`
-{bdg-secondary}`advanced`
+embeddings
+gpu-accelerated
+meaning-based
+advanced
+</Card>
 
-</Tabs>
-
-(text-process-data-dedup-common-ops)=
+</Cards>
 
 ## Common Operations
 
@@ -240,7 +230,7 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
 removal_workflow.run()
 ```
 
-:::{dropdown} ID Field Configuration
+<Accordion title="ID Field Configuration">
 
 **When `assign_id=True`** (IDs auto-assigned):
 
@@ -253,32 +243,17 @@ removal_workflow.run()
 - Duplicate IDs file contains the column specified by `id_field` (e.g., `"id"`)
 - Set `ids_to_remove_duplicate_id_field` to match your `id_field` value
 - `id_generator_path` not required
+</Accordion>
 
 ### Outputs and Artifacts
 
 Each deduplication method produces specific output files and directories:
 
-```{list-table} Output Locations
-:header-rows: 1
-:name: output-locations
-
-* - Method
-  - Duplicate IDs Location
-  - ID Generator File
-  - Deduplicated Output
-* - Exact
-  - `ExactDuplicateIds/` (parquet)
-  - `exact_id_generator.json` (if `assign_id=True`)
-  - Via `TextDuplicatesRemovalWorkflow`
-* - Fuzzy
-  - `FuzzyDuplicateIds/` (parquet)
-  - `fuzzy_id_generator.json` (if IDs auto-assigned)
-  - Via `TextDuplicatesRemovalWorkflow`
-* - Semantic
-  - `output_path/duplicates/` (parquet)
-  - N/A
-  - `output_path/deduplicated/` (if `perform_removal=True`)
-```
+| Method | Duplicate IDs Location | ID Generator File | Deduplicated Output |
+| --- | --- | --- | --- |
+| Exact | `ExactDuplicateIds/` (parquet) | `exact_id_generator.json` (if `assign_id=True`) | Via `TextDuplicatesRemovalWorkflow` |
+| Fuzzy | `FuzzyDuplicateIds/` (parquet) | `fuzzy_id_generator.json` (if IDs auto-assigned) | Via `TextDuplicatesRemovalWorkflow` |
+| Semantic | `output_path/duplicates/` (parquet) | N/A | `output_path/deduplicated/` (if `perform_removal=True`) |
 
 **Column names**:
 
@@ -289,31 +264,11 @@ Each deduplication method produces specific output files and directories:
 
 Compare deduplication methods to select the best approach for your dataset:
 
-```{list-table} Method Comparison
-:header-rows: 1
-:name: method-comparison
-
-* - Method
-  - Best For
-  - Speed
-  - Duplicate Types
-  - GPU Required
-* - **Exact**
-  - Identical copies
-  - Very fast
-  - Character-for-character matches
-  - Required
-* - **Fuzzy**
-  - Near-duplicates with small changes
-  - Fast
-  - Minor edits, reformatting (~80% similarity)
-  - Required
-* - **Semantic**
-  - Similar meaning, different words
-  - Moderate
-  - Paraphrases, translations, rewrites
-  - Required
-```
+| Method | Best For | Speed | Duplicate Types | GPU Required |
+| --- | --- | --- | --- | --- |
+| **Exact** | Identical copies | Very fast | Character-for-character matches | Required |
+| **Fuzzy** | Near-duplicates with small changes | Fast | Minor edits, reformatting (~80% similarity) | Required |
+| **Semantic** | Similar meaning, different words | Moderate | Paraphrases, translations, rewrites | Required |
 
 ### Quick Decision Guide
 
@@ -323,7 +278,7 @@ Use this guide to quickly select the right method:
 - **Use Fuzzy** if you need to catch near-duplicates with minor formatting differences
 - **Use Semantic** for meaning-based deduplication on large, diverse datasets
 
-:::{dropdown} When to Use Each Method
+<Accordion title="When to Use Each Method">
 
 **Exact Deduplication**:
 
@@ -345,8 +300,9 @@ Use this guide to quickly select the right method:
 - Large, diverse web-scale datasets
 - When meaning-based deduplication is more important than speed
 - Advanced use cases requiring embedding-based similarity detection
+</Accordion>
 
-:::{dropdown} Combining Methods
+<Accordion title="Combining Methods">
 
 You can combine deduplication methods for comprehensive duplicate removal:
 
@@ -355,6 +311,7 @@ You can combine deduplication methods for comprehensive duplicate removal:
 3. **Fuzzy → Semantic**: Use fuzzy for near-duplicates, then semantic for paraphrases
 
 Run each method independently, then combine duplicate IDs before removal.
+</Accordion>
 
 For detailed implementation guides, see:
 
@@ -362,7 +319,7 @@ For detailed implementation guides, see:
 - [Fuzzy Duplicate Removal ](/text-process-data-dedup-fuzzy)
 - [Semantic Deduplication ](/text-process-data-format-sem-dedup)
 
-:::{dropdown} Performance Considerations
+<Accordion title="Performance Considerations">
 
 ### GPU Acceleration
 
@@ -428,6 +385,7 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
 ```
 
 The ID Generator ensures consistent IDs across workflow stages.
+</Accordion>
 
 ## Next Steps
 

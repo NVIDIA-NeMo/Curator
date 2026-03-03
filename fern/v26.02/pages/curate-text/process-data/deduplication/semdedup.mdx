@@ -8,7 +8,6 @@ content_type: "how-to"
 modality: "text-only"
 ---
 
-(text-process-data-format-sem-dedup)=
 # Semantic Deduplication
 
 Detect and remove semantically redundant data from your large text datasets using NeMo Curator.
@@ -74,7 +73,7 @@ results = workflow.run(executor)
 
 Configure semantic deduplication using these key parameters:
 
-:::{dropdown} Step-by-Step Workflow
+<Accordion title="Step-by-Step Workflow">
 
 For fine-grained control, break semantic deduplication into separate stages:
 
@@ -123,92 +122,34 @@ semantic_out = semantic_workflow.run()
 ```
 
 This approach enables analysis of intermediate results and parameter tuning.
+</Accordion>
 
 ### Comparison with Other Deduplication Methods
 
 Compare semantic deduplication with other methods:
 
-```{list-table} Deduplication Method Behavior Comparison
-:header-rows: 1
-:widths: 25 25 25 25
-
-* - Method
-  - Return Value Options
-  - perform_removal Parameter
-  - Workflow
-* - ExactDuplicates
-  - Duplicates (ID list only)
-  - ❌ Not supported (must remain `False`; use `TextDuplicatesRemovalWorkflow`)
-  - Two-step (identification + removal workflow)
-* - FuzzyDuplicates
-  - Duplicates (ID list only)  
-  - ❌ Not supported (must remain `False`; use `TextDuplicatesRemovalWorkflow`)
-  - Two-step (identification + removal workflow)
-* - TextSemanticDeduplicationWorkflow
-  - Duplicates or Clean Dataset
-  - ✅ Available
-  - One-step or two-step
-```
+| Method | Return Value Options | perform_removal Parameter | Workflow |
+| --- | --- | --- | --- |
+| ExactDuplicates | Duplicates (ID list only) | ❌ Not supported (must remain `False`; use `TextDuplicatesRemovalWorkflow`) | Two-step (identification + removal workflow) |
+| FuzzyDuplicates | Duplicates (ID list only) | ❌ Not supported (must remain `False`; use `TextDuplicatesRemovalWorkflow`) | Two-step (identification + removal workflow) |
+| TextSemanticDeduplicationWorkflow | Duplicates or Clean Dataset | ✅ Available | One-step or two-step |
 
 ### Key Parameters
 
-```{list-table} Key Configuration Parameters
-:header-rows: 1
-:widths: 25 15 20 40
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `model_identifier`
-  - str
-  - "sentence-transformers/all-MiniLM-L6-v2"
-  - Pre-trained model for embedding generation
-* - `embedding_model_inference_batch_size`
-  - int
-  - 256
-  - Number of samples per embedding batch
-* - `n_clusters`
-  - int
-  - 100
-  - Number of clusters for k-means clustering
-* - `kmeans_max_iter`
-  - int
-  - 300
-  - Maximum iterations for clustering
-* - `eps`
-  - float
-  - 0.01
-  - Threshold for deduplication (higher = more aggressive)
-* - `which_to_keep`
-  - str
-  - "hard"
-  - Strategy for keeping duplicates ("hard"/"easy"/"random")
-* - `pairwise_batch_size`
-  - int
-  - 1024
-  - Batch size for similarity computation
-* - `distance_metric`
-  - str
-  - "cosine"
-  - Distance metric for similarity ("cosine" or "l2")
-* - `embedding_pooling`
-  - str
-  - "mean_pooling"
-  - Pooling strategy ("mean_pooling" or "last_token")
-* - `perform_removal`
-  - bool
-  - true
-  - Whether to perform duplicate removal
-* - `text_field`
-  - str
-  - "text"
-  - Name of the text field in input data
-* - `id_field`
-  - str
-  - "_curator_dedup_id"
-  - Name of the ID field in the data
-```
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_identifier` | str | "sentence-transformers/all-MiniLM-L6-v2" | Pre-trained model for embedding generation |
+| `embedding_model_inference_batch_size` | int | 256 | Number of samples per embedding batch |
+| `n_clusters` | int | 100 | Number of clusters for k-means clustering |
+| `kmeans_max_iter` | int | 300 | Maximum iterations for clustering |
+| `eps` | float | 0.01 | Threshold for deduplication (higher = more aggressive) |
+| `which_to_keep` | str | "hard" | Strategy for keeping duplicates ("hard"/"easy"/"random") |
+| `pairwise_batch_size` | int | 1024 | Batch size for similarity computation |
+| `distance_metric` | str | "cosine" | Distance metric for similarity ("cosine" or "l2") |
+| `embedding_pooling` | str | "mean_pooling" | Pooling strategy ("mean_pooling" or "last_token") |
+| `perform_removal` | bool | true | Whether to perform duplicate removal |
+| `text_field` | str | "text" | Name of the text field in input data |
+| `id_field` | str | "_curator_dedup_id" | Name of the ID field in the data |
 
 ### Similarity Threshold
 
@@ -219,7 +160,7 @@ Control deduplication aggressiveness with `eps`:
 
 Experiment with different values to balance data reduction and dataset diversity.
 
-:::{dropdown} Embedding Models
+<Accordion title="Embedding Models">
 
 **Sentence Transformers** (recommended for text):
 
@@ -245,8 +186,9 @@ workflow = TextSemanticDeduplicationWorkflow(
 - Adjust `embedding_model_inference_batch_size` for memory requirements
 - Choose models appropriate for your language or domain
 - Avoid generic decoder-only LLMs (e.g., OPT/GPT) for embeddings; prefer models trained for sentence embeddings (e.g., E5/BGE/SBERT)
+</Accordion>
 
-:::{dropdown} Advanced Configuration
+<Accordion title="Advanced Configuration">
 
 ```python
 workflow = TextSemanticDeduplicationWorkflow(
@@ -276,6 +218,7 @@ workflow = TextSemanticDeduplicationWorkflow(
     perform_removal=True
 )
 ```
+</Accordion>
 
 ## Output Format
 
@@ -321,7 +264,7 @@ The workflow produces these output files:
 
  
 
-:::{dropdown} Performance Considerations
+<Accordion title="Performance Considerations">
 
 **Performance characteristics**:
 
@@ -332,7 +275,7 @@ The workflow produces these output files:
 **GPU requirements**:
 
 - NVIDIA GPU with CUDA support
-- Sufficient GPU memory (recommended: >8GB for medium datasets)
+- Sufficient GPU memory (recommended: &gt;8GB for medium datasets)
 - RAPIDS libraries (cuDF) for GPU-accelerated dataframe operations
 - CPU-only processing not supported
 
@@ -342,31 +285,16 @@ The workflow produces these output files:
 - Use batched cosine similarity to reduce memory requirements
 - Consider distributed processing for very large datasets
 
-```{list-table} Performance Scaling (Example)
-:header-rows: 1
-:name: semantic-performance
-
-* - Dataset Size
-  - GPU Memory
-  - Processing Time
-  - Recommended GPUs
-* - <100K docs
-  - 4-8 GB
-  - 1-2 hours
-  - RTX 3080, A100
-* - 100K-1M docs
-  - 8-16 GB
-  - 2-8 hours
-  - RTX 4090, A100
-* - >1M docs
-  - >16 GB
-  - 8+ hours
-  - A100, H100
-```
+| Dataset Size | GPU Memory | Processing Time | Recommended GPUs |
+| --- | --- | --- | --- |
+| &lt;100K docs | 4-8 GB | 1-2 hours | RTX 3080, A100 |
+| 100K-1M docs | 8-16 GB | 2-8 hours | RTX 4090, A100 |
+| &gt;1M docs | &gt;16 GB | 8+ hours | A100, H100 |
 
 For more details, see the [SemDeDup paper](https://arxiv.org/pdf/2303.09540) by Abbas et al.
+</Accordion>
 
-:::{dropdown} Advanced Configuration
+<Accordion title="Advanced Configuration">
 
 **ID Generator for large-scale operations**:
 
@@ -423,3 +351,4 @@ finally:
 ```
 
 Provides distributed processing, memory management, and fault tolerance.
+</Accordion>

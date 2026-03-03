@@ -8,8 +8,6 @@ content_type: "workflow"
 modality: "video-only"
 ---
 
-(video-process-data)=
-
 # Process Data
 
 Use NeMo Curator stages to split videos into clips, encode them, generate embeddings or captions, and remove duplicates.
@@ -24,73 +22,61 @@ Choose from the following stages to split, encode, filter, embed, caption, previ
 
 <Cards>
 
-<Card title="{octicon}`versions;1.5em;sd-mr-1` Clip Videos" href="video-process-clipping">
+<Card title="Clip Videos" href="/video/process/clipping">
 Split long videos into shorter clips using fixed stride or scene-change detection.
-+++
-{bdg-primary}`clips`
-{bdg-secondary}`fixed-stride`
-{bdg-secondary}`transnetv2`
-
+clips
+fixed-stride
+transnetv2
 </Card>
 
-<Card title="{octicon}`gear;1.5em;sd-mr-1` Encode Clips" href="video-process-transcoding">
+<Card title="Encode Clips" href="/video/process/transcoding">
 Encode clips to H.264 using CPU or GPU encoders and tune performance.
-+++
-{bdg-primary}`clips`
-{bdg-secondary}`h264_nvenc`
-{bdg-secondary}`libopenh264`
-
+clips
+h264_nvenc
+libopenh264
 </Card>
 
-<Card title="{octicon}`filter;1.5em;sd-mr-1` Filter Clips and Frames" href="video-process-filtering">
+<Card title="Filter Clips and Frames" href="/video/process/filtering">
 Apply motion-based filtering and aesthetic filtering to improve dataset quality.
-+++
-{bdg-primary}`clips`
-{bdg-primary}`frames`
-{bdg-secondary}`motion`
-{bdg-secondary}`aesthetic`
-
+clips
+frames
+motion
+aesthetic
 </Card>
 
-<Card title="{octicon}`device-camera;1.5em;sd-mr-1` Extract Frames" href="video-process-frame-extraction">
+<Card title="Extract Frames" href="/video/process/frame/extraction">
 Extract frames from clips or full videos for embeddings, filtering, and analysis.
-+++
-{bdg-primary}`frames`
-{bdg-secondary}`frames`
-{bdg-secondary}`fps`
-
+frames
+frames
+fps
 </Card>
 
-<Card title="{octicon}`graph;1.5em;sd-mr-1` Create Embeddings" href="video-process-embeddings">
+<Card title="Create Embeddings" href="/video/process/embeddings">
 Generate clip-level embeddings with Cosmos-Embed1 for search and duplicate removal.
-+++
-{bdg-primary}`clips`
-{bdg-secondary}`cosmos-embed1`
-
+clips
+cosmos-embed1
 </Card>
 
-<Card title="{octicon}`comment-discussion;1.5em;sd-mr-1` Create Captions & Preview" href="video-process-captions-preview">
+<Card title="Create Captions & Preview" href="/video/process/captions/preview">
 Produce clip captions and optional preview images for review workflows.
-+++
-{bdg-primary}`clips`
-{bdg-primary}`frames`
-{bdg-secondary}`captions`
-{bdg-secondary}`preview`
-
+clips
+frames
+captions
+preview
 </Card>
 
-<Card title="{octicon}`git-branch;1.5em;sd-mr-1` Remove Duplicate Embeddings" href="video-process-dedup">
+<Card title="Remove Duplicate Embeddings" href="/video/process/dedup">
 Remove near-duplicates using semantic clustering and similarity with generated embeddings.
-+++
-{bdg-primary}`clips`
-{bdg-secondary}`semantic`
-{bdg-secondary}`pairwise`
+clips
+semantic
+pairwise
+</Card>
 
-</Tabs>
+</Cards>
 
 ## Write Outputs
 
-Persist clips, embeddings, previews, and metadata at the end of the pipeline using `ClipWriterStage`. Refer to [Save & Export](video-save-export) for directory layout and examples.
+Persist clips, embeddings, previews, and metadata at the end of the pipeline using `ClipWriterStage`. Refer to [Save & Export](/video-save-export) for directory layout and examples.
 
 Example (place as the final stage):
 

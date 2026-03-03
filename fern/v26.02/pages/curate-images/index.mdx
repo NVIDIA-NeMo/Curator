@@ -1,7 +1,14 @@
 ---
-title: About Image Curation
 description: "Overview of image data curation with NeMo Curator including loading, processing, filtering, and export workflows"
+categories: ["workflows"]
+tags: ["image-curation", "tar-archives", "filtering", "embedding", "workflows"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "workflow"
+modality: "image-only"
 ---
+
+# About Image Curation
 
 Learn how to curate high-quality image datasets using NeMo Curator's powerful image processing pipeline. NeMo Curator enables you to efficiently process large-scale image-text datasets, applying quality filtering, content filtering, and semantic deduplication at scale.
 
@@ -52,13 +59,20 @@ Master the fundamentals of NeMo Curator's image curation pipeline and set up you
 
 <Card title="Concepts" href="/about/concepts/image">
 Learn about ImageBatch, ImageObject, and pipeline stages for efficient image curation
+data-structures
+distributed
+architecture
 </Card>
 
 <Card title="Get Started" href="/get-started/image">
 Learn prerequisites, setup instructions, and initial configuration for image curation
+setup
+configuration
+quickstart
 </Card>
 
 </Cards>
+
 ## Curation Tasks
 
 ### Load Data
@@ -67,46 +81,77 @@ Load and process large-scale image datasets from local storage using tar archive
 
 <Cards>
 
-<Card title="Tar Archives" href="/curate-images/load-data/tar-archives">
+<Card title="Tar Archives" href="/image/load/data/tar/archives">
 Load and process JPEG images from tar archives using DALI
+tar-archives
+dali
+gpu-accelerated
 </Card>
 
 </Cards>
+
 ### Process Data
 
 Transform and enhance your image data through embeddings, classification, and filters.
 
 <Cards>
 
-<Card title="Process Data" href="/curate-images/process-data">
-Generate embeddings, apply filters, and prepare images for training
+<Card title="Embeddings" href="/image/process/data/embeddings">
+
+Generate image embeddings using CLIP models.
+embeddings
+
 </Card>
 
-<Card title="Deduplication Tutorial" href="/curate-images/tutorials/dedup-workflow">
-Remove duplicate images using semantic similarity and clustering
+<Card title="Filters" href="/image/process/data/filters">
+
+Apply built-in filters for aesthetic quality and NSFW content filtering.
+Aesthetic NSFW quality filtering
+
+</Card>
+
+<Card title="Deduplication" href="/image/tutorials/dedup">
+
+Remove duplicate images using semantic similarity and clustering.
+deduplication semantic clustering
+
 </Card>
 
 </Cards>
+
 ### Pipeline Management
 
 Optimize and manage your image curation pipelines with advanced execution backends and resource management.
 
 <Cards>
 
-<Card title="Execution Backends" href="/reference/infrastructure/execution-backends">
-Configure Ray-based executors for distributed processing and resource management
+<Card title="Execution Backends" href="/reference/execution/backends">
+
+Configure Ray-based executors for distributed processing and resource management.
+ray distributed resource-management
+
+</Card>
+
+<Card title="Performance Optimization" href="/image/load/data/tar/archives">
+
+Optimize performance with DALI GPU acceleration and efficient resource allocation.
+dali gpu-acceleration performance
+
 </Card>
 
 </Cards>
+
 ### Save & Export
 
 Export your curated image datasets with metadata preservation, custom resharding options, and support for downstream training pipelines.
 
 <Cards>
 
-<Card title="Save & Export" href="/curate-images/save-export">
-Save metadata to Parquet and export filtered datasets with custom resharding
+<Card title="Save & Export" href="/image/save/export">
+
+Save metadata to Parquet and export filtered datasets with custom resharding.
+parquet tar-archives resharding
+
 </Card>
 
 </Cards>
-

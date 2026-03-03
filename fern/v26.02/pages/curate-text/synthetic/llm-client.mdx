@@ -1,6 +1,11 @@
 ---
-title: LLM Client Configuration
 description: "Configure LLM clients for synthetic data generation with NVIDIA APIs or custom endpoints"
+categories: ["how-to-guides"]
+tags: ["llm-client", "openai", "nvidia-api", "configuration"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "text-only"
 ---
 
 # LLM Client Configuration
@@ -65,7 +70,7 @@ config = GenerationConfig(
 ```
 
 | Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
+| --- | --- | --- | --- |
 | `max_tokens` | int | 2048 | Maximum tokens to generate per request |
 | `temperature` | float | 0.0 | Sampling temperature (0.0-2.0). Higher values increase randomness |
 | `top_p` | float | 0.95 | Nucleus sampling parameter (0.0-1.0) |
@@ -192,5 +197,5 @@ client = AsyncOpenAIClient(
 
 ## Next Steps
 
-- [Generate multilingual Q&A pairs](/curate-text/synthetic/multilingual-qa): Generate multilingual Q&A pairs
-- [Nemotron-CC Pipelines](/curate-text/synthetic/nemotron-cc): Advanced text transformation pipelines
+- [multilingual-qa-tutorial](/about/release-notes/migration-guide): Generate multilingual Q&A pairs
+- [nemotron-cc-overview](/about/release-notes/migration-guide): Advanced text transformation pipelines

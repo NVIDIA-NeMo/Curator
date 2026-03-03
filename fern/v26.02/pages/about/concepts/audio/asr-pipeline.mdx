@@ -1,7 +1,14 @@
 ---
-title: ASR Pipeline Architecture
 description: "Comprehensive overview of the automatic speech recognition pipeline architecture and workflow in NeMo Curator"
+categories: ["concepts-architecture"]
+tags: ["asr-pipeline", "speech-recognition", "architecture", "workflow", "nemo-toolkit"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "concept"
+modality: "audio-only"
 ---
+
+# ASR Pipeline Architecture
 
 This guide provides a comprehensive overview of NeMo Curator's Automatic Speech Recognition (ASR) pipeline architecture, covering audio input processing through transcription generation and quality assessment.
 
@@ -218,7 +225,7 @@ valid_samples = [item for item in audio_batch.data if audio_batch.validate_item(
 
 ### Pipeline Recovery
 
-For guidance on resumable processing and recovery at the executor and backend level, refer to [Resumable Processing](../../../reference/infrastructure/resumable-processing.md).
+For guidance on resumable processing and recovery at the executor and backend level, refer to [Resumable Processing](/reference/infrastructure/resumable-processing).
 
 ## Integration Points
 
@@ -234,4 +241,3 @@ audio_to_text = [
     # Continue with text processing stages...
 ]
 ```
-

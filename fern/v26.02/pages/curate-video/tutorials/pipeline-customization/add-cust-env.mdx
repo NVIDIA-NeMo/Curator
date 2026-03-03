@@ -9,20 +9,19 @@ modality: "video-only"
 
 ---
 
-(video-tutorials-pipeline-cust-env)=
 # Add Custom Environment
 
 Learn how to package dependencies for NeMo Curator using a container image.
 
-The NeMo Curator container provides a primary `curator` conda environment with pre-installed dependencies. If your pipeline needs additional system or Python packages, create a custom image. Refer to the [container environments](reference-infrastructure-container-environments) reference for defaults and build arguments.
+The NeMo Curator container provides a primary `curator` conda environment with pre-installed dependencies. If your pipeline needs additional system or Python packages, create a custom image. Refer to the [container environments](/reference-infrastructure-container-environments) reference for defaults and build arguments.
 
 ## Before You Start
 
 Before you begin, make sure that you have:
 
-* Reviewed the [pipeline concepts and diagrams](about-concepts-video).  
+* Reviewed the [pipeline concepts and diagrams](/about-concepts-video).  
 * A base container image suitable for NeMo Curator.  
-* Optionally [created custom code](video-tutorials-pipeline-cust-add-code) that defines your new requirements.  
+* Optionally [created custom code](/video-tutorials-pipeline-cust-add-code) that defines your new requirements.  
 
 ---
 
@@ -50,7 +49,7 @@ Before you begin, make sure that you have:
    # RUN pip install cvcuda_cu12
 
    # Optional: vLLM / FlashAttention (see platform markers in pyproject)
-   # RUN pip install vllm==0.9.2 flash-attn<=2.8.3
+   # RUN pip install vllm==0.9.2 flash-attn&lt;=2.8.3
 
    # Copy your code if needed
    COPY . /workspace
@@ -69,4 +68,4 @@ docker build -t my-ray-curator:latest .
 
 ## Next Steps
 
-Now that you have created a custom environment, you can [create custom code](video-tutorials-pipeline-cust-add-code) for that environment.
+Now that you have created a custom environment, you can [create custom code](/video-tutorials-pipeline-cust-add-code) for that environment.

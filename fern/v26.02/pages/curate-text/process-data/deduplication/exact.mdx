@@ -1,11 +1,18 @@
 ---
-title: Exact Duplicate Removal
 description: "Identify and remove exact duplicates using MD5 hashing in a Ray-based workflow"
+categories: ["how-to-guides"]
+tags: ["exact-dedup", "hashing", "md5", "gpu", "ray"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
 ---
+
+# Exact Duplicate Removal
 
 Remove character-for-character duplicate documents using NeMo Curator's exact duplicate removal workflow. This method computes MD5 hashes for each document's text and identifies documents with identical hashes as duplicates.
 
-For an overview of all duplicate removal options, refer to [Deduplication](/curate-text/process-data/deduplication).
+For an overview of all duplicate removal options, refer to [Deduplication ](/text-process-data-dedup).
 
 ## How It Works
 
@@ -66,17 +73,15 @@ removal_workflow.run()
 
 Configure exact deduplication using these key parameters:
 
-**Key Configuration Parameters**
-
 | Parameter | Type | Default | Description |
-| --------- | ---- | ------- | ----------- |
-| `input_path` | str | list[str] | None | Path(s) to input files or directories |
+| --- | --- | --- | --- |
+| `input_path` | str \| list[str] | None | Path(s) to input files or directories |
 | `output_path` | str | Required | Directory to write duplicate IDs and ID generator |
 | `text_field` | str | "text" | Name of the text field in input data |
 | `assign_id` | bool | True | Whether to automatically assign unique IDs |
-| `id_field` | str | None | None | Existing ID field name (if assign_id=False) |
+| `id_field` | str \| None | None | Existing ID field name (if assign_id=False) |
 | `input_filetype` | str | "parquet" | Input file format ("parquet" or "jsonl") |
-| `input_blocksize` | str | int | "2GiB" | Size of input blocks for processing |
+| `input_blocksize` | str \| int | "2GiB" | Size of input blocks for processing |
 | `perform_removal` | bool | False | Reserved; must remain `False`. Exact removal is performed with `TextDuplicatesRemovalWorkflow`. |
 
 ## Removing Duplicates
@@ -103,6 +108,7 @@ removal_workflow.run()
 ```
 
 <Accordion title="ID Field Configuration">
+
 **When `assign_id=True`**:
 
 - Duplicate IDs file contains `_curator_dedup_id` column
@@ -145,6 +151,7 @@ The workflow produces these output files:
    - Ensures consistent ID mapping across workflow stages
 
 <Accordion title="Performance Considerations">
+
 **Performance characteristics**:
 
 - Uses MD5 hashing over the configured text field to derive duplicate groups
@@ -158,5 +165,4 @@ The workflow produces these output files:
 - Use `assign_id=True` for consistent ID tracking
 </Accordion>
 
-For comparison with other deduplication methods and guidance on when to use exact deduplication, refer to the [Deduplication overview](/curate-text/process-data/deduplication).
-
+For comparison with other deduplication methods and guidance on when to use exact deduplication, refer to the [Deduplication overview ](/text-process-data-dedup).

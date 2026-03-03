@@ -1,15 +1,27 @@
 ---
-title: Image Duplicate Removal Workflow
 description: "End-to-end workflow tutorial covering the image curation process from embedding generation through semantic deduplication"
+categories: ["image-curation"]
+tags: ["workflow", "pipeline", "image-embeddings", "deduplication", "semantic", "clustering"]
+personas: ["mle-focused", "data-scientist-focused"]
+difficulty: "intermediate"
+content_type: "tutorial"
+modality: "image-only"
+
 ---
+
+# Image Duplicate Removal Workflow
 
 Learn how to run a complete image duplicate removal workflow that generates embeddings, identifies semantic duplicates, and removes similar images from your dataset.
 
+```{contents} Tutorial Steps:
+:local:
+:depth: 2
+```
 
 ## Before You Start
 
-- Complete the [Get Started guide](/get-started/image).
-- Understand basic pipeline concepts from the [Image Beginner Tutorial](/curate-images/tutorials/beginner).
+- Complete the [Get Started guide](/gs-image).
+- Understand basic pipeline concepts from the [Image Beginner Tutorial](/image-tutorials-beginner).
 
 ---
 
@@ -93,28 +105,35 @@ The pipeline writes embeddings to Parquet with two columns:
 
 <Tabs>
 <Tab title="Directory layout">
+
 ```text
 /path/to/embeddings/
   part-00000-....parquet
   part-00001-....parquet
   part-00002-....parquet
 ```
+
 </Tab>
 
 <Tab title="Schema">
+
 ```text
 image_id: string
 embedding: list<float32>  # length = 768 for CLIP ViT-L/14
 ```
+
 </Tab>
 
 <Tab title="Sample row">
+
 ```
 {"image_id": "00001234", "embedding": [0.0123, -0.0456, 0.0031, 0.1279, ...]}
 ```
+
 </Tab>
 
 <Tab title="Read example">
+
 ```python
 import pyarrow.parquet as pq
 
@@ -123,9 +142,11 @@ df = table.to_pandas()
 print(df.head())  # columns: image_id, embedding (list[float])
 print(f"Embedding dimension: {len(df.iloc[0]['embedding'])}")
 ```
+
 </Tab>
 
 </Tabs>
+
 ---
 
 ## 2. Run Semantic Duplicate Removal
@@ -366,4 +387,3 @@ After running image deduplication:
 2. **Combine with filtering**: Run aesthetic/NSFW filtering on deduplicated data
 3. **Export for training**: Prepare final curated dataset for ML training
 4. **Monitor metrics**: Track deduplication rates across different image types
-

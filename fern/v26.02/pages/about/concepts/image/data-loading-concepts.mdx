@@ -1,7 +1,14 @@
 ---
-title: Data Loading Concepts (Image)
 description: "Core concepts for loading and managing image datasets from tar archives with cloud storage support"
+categories: ["concepts-architecture"]
+tags: ["data-loading", "tar-archives", "dali", "cloud-storage", "gpu-accelerated"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "image-only"
 ---
+
+# Data Loading Concepts (Image)
 
 This page covers the core concepts for loading and managing image datasets in NeMo Curator.
 
@@ -80,4 +87,3 @@ The `ImageReaderStage` uses [NVIDIA DALI](https://docs.nvidia.com/deeplearning/d
 - Use sharding to enable distributed and parallel processing.
 - Watch GPU memory and adjust batch size as needed.
 - If you encounter loading errors, check for missing or mismatched files in your dataset structure.
-

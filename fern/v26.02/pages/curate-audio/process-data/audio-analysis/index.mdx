@@ -1,7 +1,13 @@
 ---
-title: Audio Analysis
 description: "Extract and analyze audio file characteristics including duration calculation, format validation, and metadata extraction"
+categories: ["audio-processing"]
+tags: ["audio-analysis", "duration-calculation", "format-validation", "metadata-extraction", "file-validation"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "workflow"
+modality: "audio-only"
 ---
+# Audio Analysis
 
 Extract and analyze audio file characteristics for quality control, metadata generation, and dataset validation. Audio analysis provides essential information about audio files before and during processing.
 
@@ -74,11 +80,11 @@ max_duration_filter = PreserveByValueStage(
 )
 ```
 
-Refer to [Duration Filtering](/curate-audio/process-data/quality-assessment/duration-filtering) for end-to-end examples.
+Refer to [Duration Filtering](/quality-assessment/duration-filtering) for end-to-end examples.
 
 ## Format Validation
 
-NeMo Curator infers basic format validity during duration extraction using `soundfile.read`. If `soundfile`/`libsndfile` cannot read a file, `GetAudioDurationStage` sets `duration = -1.0`, which you can filter out. Refer to [Format Validation](/curate-audio/process-data/audio-analysis/format-validation) for behavior and supported formats.
+NeMo Curator infers basic format validity during duration extraction using `soundfile.read`. If `soundfile`/`libsndfile` cannot read a file, `GetAudioDurationStage` sets `duration = -1.0`, which you can filter out. Refer to [Format Validation](/format-validation) for behavior and supported formats.
 
 ### Basic Format Check
 
@@ -115,13 +121,13 @@ pipeline.add_stage(GetAudioDurationStage(
 pipeline.add_stage(PreserveByValueStage(
     input_value_key="duration",
     target_value=1.0,
-    operator="ge"  # >= 1 second
+    operator="ge"  # &gt;= 1 second
 ))
 
 pipeline.add_stage(PreserveByValueStage(
     input_value_key="duration", 
     target_value=15.0,
-    operator="le"  # <= 15 seconds
+    operator="le"  # &lt;= 15 seconds
 ))
 
 # 3. Continue with ASR inference on validated files

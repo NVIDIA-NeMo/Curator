@@ -1,12 +1,16 @@
 ---
-title: Generate Multilingual Q&A Data
 description: "Generate multilingual Q&A pairs using LLMs with NeMo Curator's synthetic data pipeline"
+categories: ["tutorials"]
+tags: ["multilingual", "qa-generation", "synthetic-data", "quickstart"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "text-only"
 ---
 
 # Generate Multilingual Q&A Data
 
 This guide shows how to generate synthetic Q&A pairs across multiple languages using NeMo Curator's `QAMultilingualSyntheticStage`. You'll learn to configure an LLM client, create a generation pipeline, and optionally filter the output.
-
 
 ## What You'll Build
 
@@ -144,7 +148,6 @@ If your prompt includes language prefixes, you can filter to keep only specific 
 from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
 from nemo_curator.stages.text.modules.score_filter import ScoreFilter
 
-
 class BeginsWithLanguageFilter(DocumentFilter):
     """Filter documents based on language prefix codes."""
 
@@ -160,7 +163,6 @@ class BeginsWithLanguageFilter(DocumentFilter):
 
     def keep_document(self, score: float) -> bool:
         return score == 1.0
-
 
 # Add filter to keep only English outputs
 pipeline.add_stage(
@@ -235,7 +237,7 @@ python synthetic_data_generation_example.py \
 ### Available Arguments
 
 | Argument | Default | Description |
-|----------|---------|-------------|
+| --- | --- | --- |
 | `--api-key` | env var | NVIDIA API key (or set NVIDIA_API_KEY) |
 | `--base-url` | NVIDIA API | Base URL for the API endpoint |
 | `--model-name` | meta/llama-3.3-70b-instruct | Model to use for generation |
@@ -266,5 +268,5 @@ Generated documents contain a `text` field with the LLM response:
 
 ## Next Steps
 
-- [LLM Client Configuration](/curate-text/synthetic/llm-client): Advanced client configuration and performance tuning
-- [Nemotron-CC Pipelines](/curate-text/synthetic/nemotron-cc): Advanced pipelines for text transformation and knowledge extraction
+- [synthetic-llm-client](/about/release-notes/migration-guide): Advanced client configuration and performance tuning
+- [nemotron-cc-overview](/about/release-notes/migration-guide): Advanced pipelines for text transformation and knowledge extraction

@@ -1,7 +1,14 @@
 ---
-title: Common Crawl
 description: "Download and extract text from Common Crawl web archives using Curator."
+categories: ["how-to-guides"]
+tags: ["common-crawl", "web-data", "warc", "language-detection", "distributed", "html-extraction", "pipeline"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
 ---
+
+# Common Crawl
 
 Download and extract text from Common Crawl snapshots using Curator.
 
@@ -82,7 +89,7 @@ if __name__ == "__main__":
     main()
 ```
 
-For executor options and configuration, refer to [Reference Execution Backends](/docs/reference/execution/backends).
+For executor options and configuration, refer to [reference-execution-backends](/about/release-notes/migration-guide).
 
 ### Writing to Parquet
 
@@ -98,22 +105,20 @@ pipeline.add_stage(writer)
 
 ### Parameters
 
-**CommonCrawlDownloadExtractStage Parameters**
-
 | Parameter | Type | Description | Default |
-| --------- | ---- | ----------- | ------- |
+| --- | --- | --- | --- |
 | `start_snapshot` | str | First snapshot to include (format: "YYYY-WW" for main, "YYYY-MM" for news). Not every year and week has a snapshot; refer to the official list at [https://data.commoncrawl.org/](https://data.commoncrawl.org/). | Required |
 | `end_snapshot` | str | Last snapshot to include (same format as `start_snapshot`). Ensure your range includes at least one valid snapshot. | Required |
 | `download_dir` | str | Directory to store downloaded WARC files | Required |
 | `crawl_type` | Literal["main", "news"] | Whether to use CC-MAIN or CC-NEWS dataset | "main" |
-| `html_extraction` | HTMLExtractorAlgorithm | str | None | Text extraction algorithm to use. Defaults to `JusTextExtractor()` if not specified. | JusTextExtractor() if not specified |
-| `html_extraction_kwargs` | dict | None | Additional arguments for the HTML extractor. Ignored when `html_extraction` is a concrete extractor object (for example, `JusTextExtractor()`); pass kwargs to the extractor constructor instead. When `html_extraction` is a string ("justext", "resiliparse", or "trafilatura"), kwargs are forwarded. | None |
-| `stop_lists` | dict[str, frozenset[str]] | None | Language-specific stop words for text quality assessment. If not provided, Curator uses jusText defaults with additional support for Thai, Chinese, and Japanese languages. | None |
+| `html_extraction` | HTMLExtractorAlgorithm \| str \| None | Text extraction algorithm to use. Defaults to `JusTextExtractor()` if not specified. | JusTextExtractor() if not specified |
+| `html_extraction_kwargs` | dict \| None | Additional arguments for the HTML extractor. Ignored when `html_extraction` is a concrete extractor object (for example, `JusTextExtractor()`); pass kwargs to the extractor constructor instead. When `html_extraction` is a string ("justext", "resiliparse", or "trafilatura"), kwargs are forwarded. | None |
+| `stop_lists` | dict[str, frozenset[str]] \| None | Language-specific stop words for text quality assessment. If not provided, Curator uses jusText defaults with additional support for Thai, Chinese, and Japanese languages. | None |
 | `use_aws_to_download` | bool | Use S3 downloads via s5cmd instead of HTTPS (requires s5cmd installation) | False |
 | `verbose` | bool | Enable verbose logging for download operations | False |
-| `url_limit` | int | None | Maximum number of WARC files to download (useful for testing) | None |
-| `record_limit` | int | None | Maximum number of records to extract per WARC file | None |
-| `add_filename_column` | bool | str | Whether to add source filename column to output; if str, uses it as the column name (default name: "file_name") | True |
+| `url_limit` | int \| None | Maximum number of WARC files to download (useful for testing) | None |
+| `record_limit` | int \| None | Maximum number of records to extract per WARC file | None |
+| `add_filename_column` | bool \| str | Whether to add source filename column to output; if str, uses it as the column name (default name: "file_name") | True |
 
 ## Output Format
 
@@ -129,10 +134,8 @@ The pipeline processes Common Crawl data through several stages, ultimately prod
 }
 ```
 
-**Output Fields**
-
 | Field | Description |
-| ----- | ----------- |
+| --- | --- |
 | `url` | Original URL of the web page |
 | `warc_id` | Unique identifier for the WARC record |
 | `source_id` | Name of the source WARC file |
@@ -147,10 +150,8 @@ If you enable `add_filename_column`, the output includes an extra field `file_na
 
 Curator supports several HTML text extraction algorithms:
 
-**Available HTML Extractors**
-
 | Extractor | Library |
-| --------- | ------- |
+| --- | --- |
 | `JusTextExtractor` | [jusText](https://github.com/miso-belica/jusText) |
 | `ResiliparseExtractor` | [Resiliparse](https://github.com/chatnoir-eu/chatnoir-resiliparse) |
 | `TrafilaturaExtractor` | [Trafilatura](https://trafilatura.readthedocs.io/) |
@@ -236,4 +237,3 @@ cc_stage = CommonCrawlDownloadExtractStage(
     # record_limit=None
 )
 ```
-

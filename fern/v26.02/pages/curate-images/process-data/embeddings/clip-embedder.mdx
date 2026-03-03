@@ -1,7 +1,14 @@
 ---
-title: CLIP ImageEmbeddingStage
 description: "Generate CLIP embeddings for images using OpenAI's ViT-L/14 model for downstream classification and filtering tasks"
+categories: ["how-to-guides"]
+tags: ["embedding", "clip", "vit", "gpu-accelerated", "pipeline-stage"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "image-only"
 ---
+
+# CLIP ImageEmbeddingStage
 
 The `ImageEmbeddingStage` generates CLIP embeddings for images using OpenAI's ViT-L/14 model. These embeddings are essential for downstream tasks such as aesthetic filtering, NSFW detection, and semantic deduplication.
 
@@ -27,9 +34,7 @@ The CLIP model weights are automatically downloaded from HuggingFace on first us
 2. Cache the model for subsequent runs
 3. Load the model onto GPU (or CPU if GPU unavailable)
 
-<Note>
-The initial model download may take several minutes depending on your internet connection. Subsequent runs will use the cached model.
-</Note>
+**First-time setup:** The initial model download may take several minutes depending on your internet connection. Subsequent runs will use the cached model.
 
 ### System Requirements
 
@@ -79,7 +84,7 @@ results = pipeline.run()
 ## Parameters
 
 | Parameter | Type | Default | Description |
-| --------- | ---- | ------- | ----------- |
+| --- | --- | --- | --- |
 | `model_dir` | str | None | Path to directory containing CLIP model weights |
 | `model_inference_batch_size` | int | 32 | Batch size for model inference |
 | `num_gpus_per_worker` | float | 0.25 | GPU allocation per worker (0.25 = 1/4 GPU) |

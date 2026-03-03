@@ -1,7 +1,14 @@
 ---
-title: Create and Load Custom Audio Manifests
 description: "Create and load custom audio manifests in JSONL format for NeMo Curator audio processing"
+categories: ["data-loading"]
+tags: ["custom-manifests", "jsonl", "audio-metadata"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-only"
 ---
+
+# Create and Load Custom Audio Manifests
 
 Create and load custom audio manifests in JSONL format for your speech datasets. This guide covers the required manifest format and how to load manifests into NeMo Curator pipelines.
 
@@ -151,7 +158,7 @@ def create_custom_audio_pipeline(manifest_path: str, output_path: str) -> Pipeli
         duration_key="duration"
     ))
     
-    # Filter by quality (keep WER <= 40%)
+    # Filter by quality (keep WER &lt;= 40%)
     pipeline.add_stage(PreserveByValueStage(
         input_value_key="wer",
         target_value=40.0,
@@ -173,7 +180,6 @@ pipeline = create_custom_audio_pipeline(
 
 ## Related Topics
 
-- **[Audio Processing Overview](../../index.md)** - Complete audio processing workflow
-- **[FLEURS Dataset](fleurs-dataset.md)** - Example of automated dataset loading
-- **[Local Files](local-files.md)** - Loading audio files from local directories
-
+- **[Audio Processing Overview](/index)** - Complete audio processing workflow
+- **[FLEURS Dataset](/fleurs-dataset)** - Example of automated dataset loading
+- **[Local Files](/local-files)** - Loading audio files from local directories

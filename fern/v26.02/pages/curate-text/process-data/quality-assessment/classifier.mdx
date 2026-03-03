@@ -1,7 +1,14 @@
 ---
-title: Classifier-Based Filtering
 description: "Filter text using trained quality classifiers including FastText models and pre-trained language classification"
+categories: ["how-to-guides"]
+tags: ["classifier-filtering", "fasttext", "ml-models", "quality", "training", "scoring"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
 ---
+
+# Classifier-Based Filtering
 
 Classifier-based filtering uses machine learning models to differentiate between high-quality and low-quality documents. NVIDIA NeMo Curator implements an approach similar to the one described in [Brown et al., 2020](https://arxiv.org/abs/2005.14165), which trains a binary skip-gram classifier to distinguish between curated high-quality data and lower-quality data.
 
@@ -41,6 +48,7 @@ If you need to train custom fastText models for specific domains or requirements
 
 <Tabs>
 <Tab title="DeBERTa Quality Classification">
+
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
@@ -66,9 +74,11 @@ pipeline.add_stage(write_stage)
 # Execute pipeline
 results = pipeline.run()
 ```
+
 </Tab>
 
 <Tab title="FastText Quality Filter">
+
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
@@ -100,9 +110,11 @@ pipeline.add_stage(write_stage)
 # Execute pipeline
 results = pipeline.run()
 ```
+
 </Tab>
 
 <Tab title="Configuration">
+
 You can configure quality classifiers and filters with different parameters:
 
 ```python
@@ -139,9 +151,11 @@ selective_fasttext_filter = FastTextQualityFilter(
     seed=42
 )
 ```
+
 </Tab>
 
 </Tabs>
+
 ## Quality Classifier and Filter Parameters
 
 ### QualityClassifier (DeBERTa)
@@ -173,4 +187,3 @@ For effective classifier-based filtering:
 4. **Batch size optimization**: Tune `model_inference_batch_size` for DeBERTa models based on your available memory
 5. **Combination with heuristics**: Consider using heuristic filters as a pre-filter to improve efficiency
 6. **Domain adaptation**: For specialized corpora, consider training custom models using domain-specific data
-

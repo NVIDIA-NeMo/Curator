@@ -1,7 +1,14 @@
 ---
-title: Loading Images from Tar Archives
 description: "Load and process JPEG images from tar archives using DALI-powered GPU acceleration with distributed processing"
+categories: ["how-to-guides"]
+tags: ["tar-archives", "data-loading", "dali", "gpu-acceleration", "distributed"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "image-only"
 ---
+
+# Loading Images from Tar Archives
 
 Load and process JPEG images from tar archives using NeMo Curator's DALI-powered `ImageReaderStage`.
 
@@ -103,10 +110,8 @@ The `ImageReaderStage` is the core component that handles tar archive loading wi
 
 ### ImageReaderStage Parameters
 
-**:header-rows: 1**
-
 | Parameter | Type | Default | Description |
-| --------- | ---- | ------- | ----------- |
+| --- | --- | --- | --- |
 | `batch_size` | int | 100 | Number of images per ImageBatch for processing |
 | `verbose` | bool | True | Enable verbose logging for debugging |
 | `num_threads` | int | 8 | Number of threads for DALI operations |
@@ -135,4 +140,3 @@ ImageObject(
 ```
 
 **Note**: Only JPEG images are extracted from tar files. Other content (text files, JSON metadata, etc.) within the tar archives is ignored during processing.
-

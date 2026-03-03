@@ -1,7 +1,14 @@
 ---
-title: Stop Words in Text Processing
 description: "Manage high-frequency words to enhance text extraction and content detection with language-specific stop word lists"
+categories: ["how-to-guides"]
+tags: ["stop-words", "preprocessing", "filtering", "language-specific", "text-extraction", "content-detection"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
 ---
+
+# Stop Words in Text Processing
 
 Stop words are common words that are often filtered out in natural language processing (NLP) tasks because they typically don't carry significant meaning. Curator provides built-in stop word lists for several languages to support text analysis and extraction processes.
 
@@ -109,7 +116,7 @@ from nemo_curator.stages.text.download.html_extractors.trafilatura import Trafil
 
 # Resiliparse with custom stop word density
 resiliparse = ResiliparseExtractor(
-    required_stopword_density=0.32  # Only keep paragraphs with >= 32% stop words
+    required_stopword_density=0.32  # Only keep paragraphs with &gt;= 32% stop words
 )
 
 # Trafilatura with custom stop word density
@@ -172,4 +179,3 @@ results = pipeline.run()
 - [JusText algorithm overview](https://corpus.tools/wiki/Justext/Algorithm)
 - [HTML2Text extraction docs](https://resiliparse.chatnoir.eu/en/latest/man/extract/html2text.html)
 - [Web text extraction docs](https://trafilatura.readthedocs.io/en/latest/)
-

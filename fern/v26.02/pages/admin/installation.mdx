@@ -8,8 +8,6 @@ content_type: "how-to"
 modality: "universal"
 ---
 
-(admin-installation)=
-
 # Installation Guide
 
 This guide covers installing NeMo Curator with support for **all modalities** and verifying your installation is working correctly.
@@ -18,7 +16,7 @@ This guide covers installing NeMo Curator with support for **all modalities** an
 
 ### System Requirements
 
-For comprehensive system requirements and production deployment specifications, refer to [Production Deployment Requirements](deployment/requirements.md).
+For comprehensive system requirements and production deployment specifications, refer to [Production Deployment Requirements](/deployment/requirements).
 
 **Quick Start Requirements:**
 
@@ -33,8 +31,8 @@ For comprehensive system requirements and production deployment specifications, 
 | Use Case | Requirements | See |
 |----------|-------------|-----|
 | **Local Development** | Minimum specs listed above | Continue below |
-| **Production Clusters** | Detailed hardware, network, storage specs | [Deployment Requirements](deployment/requirements.md) |
-| **Multi-node Setup** | Advanced infrastructure planning | [Deployment Options](deployment/index.md) |
+| **Production Clusters** | Detailed hardware, network, storage specs | [Deployment Requirements](/deployment/requirements) |
+| **Multi-node Setup** | Advanced infrastructure planning | [Deployment Options](/deployment/index) |
 
 ---
 
@@ -99,10 +97,10 @@ NeMo Curator is available as a standalone container on NGC: https://catalog.ngc.
 
 ```bash
 # Pull the container from NGC
-docker pull nvcr.io/nvidia/nemo-curator:26.02
+docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
 
 # Run the container with GPU support
-docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:26.02
+docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version }}
 ```
 
 <Info>
@@ -178,38 +176,16 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 
 NeMo Curator provides several installation extras to install only the components you need:
 
-```{list-table} Available Package Extras
-:header-rows: 1
-:widths: 20 30 50
-
-* - Extra
-  - Installation Command
-  - Description
-* - **text_cpu**
-  - `uv pip install nemo-curator[text_cpu]`
-  - CPU-only text processing and filtering
-* - **text_cuda12**
-  - `uv pip install nemo-curator[text_cuda12]`
-  - GPU-accelerated text processing with RAPIDS
-* - **audio_cpu**
-  - `uv pip install nemo-curator[audio_cpu]`
-  - CPU-only audio curation with NeMo Toolkit ASR
-* - **audio_cuda12**
-  - `uv pip install nemo-curator[audio_cuda12]`
-  - GPU-accelerated audio curation. When using `uv`, requires `transformers==4.55.2` override.
-* - **image_cpu**
-  - `uv pip install nemo-curator[image_cpu]`
-  - CPU-only image processing
-* - **image_cuda12**
-  - `uv pip install nemo-curator[image_cuda12]`
-  - GPU-accelerated image processing with NVIDIA DALI
-* - **video_cpu**
-  - `uv pip install nemo-curator[video_cpu]`
-  - CPU-only video processing
-* - **video_cuda12**
-  - `uv pip install --no-build-isolation nemo-curator[video_cuda12]`
-  - GPU-accelerated video processing with CUDA libraries. Requires FFmpeg and additional build dependencies when using `uv`.
-```
+| Extra | Installation Command | Description |
+| --- | --- | --- |
+| **text_cpu** | `uv pip install nemo-curator[text_cpu]` | CPU-only text processing and filtering |
+| **text_cuda12** | `uv pip install nemo-curator[text_cuda12]` | GPU-accelerated text processing with RAPIDS |
+| **audio_cpu** | `uv pip install nemo-curator[audio_cpu]` | CPU-only audio curation with NeMo Toolkit ASR |
+| **audio_cuda12** | `uv pip install nemo-curator[audio_cuda12]` | GPU-accelerated audio curation. When using `uv`, requires `transformers==4.55.2` override. |
+| **image_cpu** | `uv pip install nemo-curator[image_cpu]` | CPU-only image processing |
+| **image_cuda12** | `uv pip install nemo-curator[image_cuda12]` | GPU-accelerated image processing with NVIDIA DALI |
+| **video_cpu** | `uv pip install nemo-curator[video_cpu]` | CPU-only video processing |
+| **video_cuda12** | `uv pip install --no-build-isolation nemo-curator[video_cuda12]` | GPU-accelerated video processing with CUDA libraries. Requires FFmpeg and additional build dependencies when using `uv`. |
 
 <Note>
 **Development Dependencies**: For development tools (pre-commit, ruff, pytest), use `uv sync --group dev --group linting --group test` instead of pip extras. Development dependencies are managed as dependency groups, not optional dependencies.
@@ -259,7 +235,7 @@ except ImportError as e:
 
 Try a modality-specific quickstart to see NeMo Curator in action:
 
-- [Text Curation Quickstart](gs-text) - Set up and run your first text curation pipeline
-- [Audio Curation Quickstart](gs-audio) - Get started with audio dataset curation
-- [Image Curation Quickstart](gs-image) - Curate image-text datasets for generative models
-- [Video Curation Quickstart](gs-video) - Split, encode, and curate video clips at scale
+- [Text Curation Quickstart](/gs-text) - Set up and run your first text curation pipeline
+- [Audio Curation Quickstart](/gs-audio) - Get started with audio dataset curation
+- [Image Curation Quickstart](/gs-image) - Curate image-text datasets for generative models
+- [Video Curation Quickstart](/gs-video) - Split, encode, and curate video clips at scale

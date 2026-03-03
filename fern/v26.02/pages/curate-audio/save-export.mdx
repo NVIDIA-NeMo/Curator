@@ -1,7 +1,14 @@
 ---
-title: Save & Export Audio Data
 description: "Export processed audio data and transcriptions in formats optimized for ASR training and multimodal applications"
+categories: ["data-export"]
+tags: ["output-formats", "manifests", "jsonl", "metadata", "asr-training"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-only"
 ---
+
+# Save & Export Audio Data
 
 Export processed audio data and transcriptions in formats optimized for ASR model training, audio-and-text applications, and downstream analysis workflows.
 
@@ -35,6 +42,7 @@ Standard fields included in audio manifests:
 
 <Tabs>
 <Tab title="Using JsonlWriter">
+
 ```python
 from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
@@ -50,9 +58,11 @@ pipeline.add_stage(
     )
 )
 ```
+
 </Tab>
 
 </Tabs>
+
 ## Directory Structure
 
 ### Standard Output Layout
@@ -77,7 +87,7 @@ from nemo_curator.stages.audio.common import PreserveByValueStage
 
 # Filter by quality thresholds
 quality_filters = [
-    # Keep samples with WER <= 50%
+    # Keep samples with WER &lt;= 50%
     PreserveByValueStage(
         input_value_key="wer",
         target_value=50.0,
@@ -99,4 +109,3 @@ quality_filters = [
 for filter_stage in quality_filters:
     pipeline.add_stage(filter_stage)
 ```
-

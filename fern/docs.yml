@@ -1,3 +1,7 @@
+# Variables (replaced at sync time by convert_curator_specific.py):
+#   {current_release}, {{ current_release }}, <release/> -> version from file path (e.g. 26.02)
+#   Use in source: # NeMo Curator Release Notes: {{ current_release }}  or  <release/>
+
 instances:
   - url: https://nemo-curator.docs.buildwithfern.com
 

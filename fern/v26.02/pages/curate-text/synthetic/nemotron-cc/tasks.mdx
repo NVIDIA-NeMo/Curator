@@ -1,6 +1,11 @@
 ---
-title: Nemotron-CC Task Reference
 description: "Reference documentation for Nemotron-CC synthetic data generation tasks and stages"
+categories: ["reference"]
+tags: ["nemotron-cc", "stages", "api-reference"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "advanced"
+content_type: "reference"
+modality: "text-only"
 ---
 
 # Nemotron-CC Task Reference
@@ -305,7 +310,6 @@ To use custom prompts while maintaining Nemotron-CC infrastructure, subclass `Ba
 ```python
 from dataclasses import dataclass
 from nemo_curator.stages.synthetic.nemotron_cc.base import BaseSyntheticStage
-
 
 @dataclass
 class CustomSyntheticStage(BaseSyntheticStage):

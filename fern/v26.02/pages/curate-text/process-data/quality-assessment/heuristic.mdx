@@ -8,7 +8,6 @@ content_type: "how-to"
 modality: "text-only"
 ---
 
-(text-process-data-filter-heuristic)=
 # Heuristic Filtering
 
 Heuristic filtering uses simple, rule-based metrics to identify and filter out low-quality documents from your dataset. NVIDIA NeMo Curator provides a variety of pre-built heuristic filters that can be configured and combined to meet your specific needs.
@@ -391,7 +390,7 @@ plt.savefig("score_distributions.png")
 # Print statistics
 print(f"Total documents: {len(scored_data)}")
 print(f"Documents below word count threshold: {(scored_data['word_count'] < 80).sum()}")
-print(f"Documents above ngram threshold: {(scored_data['ngram_ratio'] > 0.18).sum()}")
+print(f"Documents above ngram threshold: {(scored_data['ngram_ratio'] &gt;0.18).sum()}")
 ```
 
 For large datasets, consider sampling or using Ray, Dask, or Polars for memory-efficient analysis.

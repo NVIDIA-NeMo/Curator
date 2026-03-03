@@ -1,7 +1,14 @@
 ---
-title: Process Data for Audio Curation
 description: "Process audio data using ASR inference, quality assessment, audio analysis, and text integration for high-quality speech datasets"
+categories: ["workflows"]
+tags: ["audio-processing", "asr-inference", "quality-assessment", "audio-analysis", "text-integration", "gpu-accelerated"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "workflow"
+modality: "audio-only"
 ---
+
+# Process Data for Audio Curation
 
 Process audio data you've loaded into `AudioBatch` objects using NeMo Curator's comprehensive audio processing capabilities.
 
@@ -26,12 +33,18 @@ Transcribe audio files using NeMo Framework's state-of-the-art ASR models with G
 
 <Cards>
 
-<Card title="NeMo ASR Models" href="/curate-audio/process-data/asr-inference/nemo-models">
+<Card title="NeMo ASR Models" href="/asr-inference/nemo-models">
 Use pretrained NeMo ASR models for accurate speech recognition
+pretrained
+multilingual
+gpu-accelerated
 </Card>
 
-<Card title="Batch Processing" href="/curate-audio/process-data/asr-inference">
+<Card title="Batch Processing" href="/asr-inference/index">
 Efficiently process large audio datasets with configurable batch sizes
+batch-inference
+memory-optimization
+scalable
 </Card>
 
 </Cards>
@@ -42,12 +55,18 @@ Evaluate and filter audio quality using transcription accuracy and audio charact
 
 <Cards>
 
-<Card title="WER Filtering" href="/curate-audio/process-data/quality-assessment/wer-filtering">
+<Card title="WER Filtering" href="/quality-assessment/wer-filtering">
 Filter audio samples based on Word Error Rate thresholds
+accuracy
+quality-metrics
+filtering
 </Card>
 
-<Card title="Duration Filtering" href="/curate-audio/process-data/quality-assessment/duration-filtering">
+<Card title="Duration Filtering" href="/quality-assessment/duration-filtering">
 Filter audio samples by duration ranges and speech rate metrics
+duration
+speech-rate
+range-filtering
 </Card>
 
 </Cards>
@@ -58,12 +77,18 @@ Extract and analyze audio file characteristics for quality control and metadata 
 
 <Cards>
 
-<Card title="Duration Calculation" href="/curate-audio/process-data/audio-analysis/duration-calculation">
+<Card title="Duration Calculation" href="/audio-analysis/duration-calculation">
 Calculate precise audio duration using soundfile library
+soundfile
+precision
+metadata
 </Card>
 
-<Card title="Format Validation" href="/curate-audio/process-data/audio-analysis/format-validation">
+<Card title="Format Validation" href="/audio-analysis/format-validation">
 Validate audio file formats and detect corrupted files
+validation
+error-handling
+format-support
 </Card>
 
 </Cards>
@@ -74,8 +99,11 @@ Convert processed audio data to text processing workflows for multimodal applica
 
 <Cards>
 
-<Card title="Audio-to-Text Conversion" href="/curate-audio/process-data/text-integration">
+<Card title="Audio-to-Text Conversion" href="/text-integration/index">
 Convert AudioBatch objects to DocumentBatch for text processing
+format-conversion
+pipeline-integration
+multimodal
 </Card>
 
 </Cards>

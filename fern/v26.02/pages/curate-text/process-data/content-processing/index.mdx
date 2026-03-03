@@ -1,7 +1,14 @@
 ---
-title: Content Processing & Cleaning
 description: "Clean, normalize, and transform text content to meet specific requirements including text cleaning and normalization"
+categories: ["workflows"]
+tags: ["content-processing", "text-cleaning", "unicode", "normalization"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "workflow"
+modality: "text-only"
 ---
+
+# Content Processing & Cleaning
 
 Clean, normalize, and transform text content to meet specific requirements for training language models using NeMo Curator's tools and utilities.
 
@@ -23,15 +30,24 @@ You can combine processing tools in sequence or use them alongside other curatio
 
 <Cards>
 
-<Card title="Document IDs" href="/curate-text/process-data/content-processing/add-id">
+<Card title="Document IDs" href="/add-id">
 Add unique identifiers to documents for tracking and deduplication
+identifiers
+tracking
+preprocessing
+deduplication
 </Card>
 
-<Card title="Text Cleaning" href="/curate-text/process-data/content-processing/text-cleaning">
+<Card title="Text Cleaning" href="/text-cleaning">
 Fix Unicode issues, standardize spacing, and remove URLs
+unicode
+normalization
+preprocessing
+urls
 </Card>
 
 </Cards>
+
 ## Usage
 
 Here's an example of a typical content processing pipeline:
@@ -99,5 +115,3 @@ ray_client.stop()
 - Ensure consistent text encoding
 - Normalize punctuation and spacing
 - Standardize document structure
-
-

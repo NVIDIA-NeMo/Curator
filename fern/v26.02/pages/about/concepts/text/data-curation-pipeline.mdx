@@ -1,7 +1,14 @@
 ---
-title: Text Data Curation Pipeline
 description: "Comprehensive overview of NeMo Curator's text curation pipeline architecture including data acquisition and processing"
+categories: ["concepts-architecture"]
+tags: ["pipeline", "architecture", "text-curation", "distributed", "gpu-accelerated", "overview"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "concept"
+modality: "text-only"
 ---
+
+# Text Data Curation Pipeline
 
 This guide provides a comprehensive overview of NeMo Curator's text curation pipeline architecture, from data acquisition through final dataset preparation.
 
@@ -85,19 +92,23 @@ The pipeline leverages several core component types:
 
 <Cards>
 
-<Card title="Data Loading" href="about/concepts/text/data-loading-concepts">
+<Card title="Data Loading" href="/about/concepts/text/data/loading">
+
 Core concepts for loading and managing text datasets from local files
 </Card>
 
-<Card title="Data Acquisition" href="about/concepts/text/data-acquisition-concepts">
+<Card title="Data Acquisition" href="/about/concepts/text/data/acquisition">
+
 Components for downloading and extracting data from remote sources
 </Card>
 
-<Card title="Data Processing" href="about/concepts/text/data-processing-concepts">
+<Card title="Data Processing" href="/about/concepts/text/data/processing">
+
 Concepts for filtering, deduplication, and classification
 </Card>
 
 </Cards>
+
 ## Processing Modes
 
 The pipeline supports different processing approaches:
@@ -125,5 +136,4 @@ The architecture scales from single machines to large clusters:
 
 ---
 
-For hands-on experience, refer to the [Text Curation Getting Started Guide](/docs/get-started/text).
-
+For hands-on experience, refer to the [Text Curation Getting Started Guide ](/gs-text).

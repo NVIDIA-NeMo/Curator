@@ -8,8 +8,6 @@ content_type: "howto"
 modality: "video-only"
 ---
 
-(video-process-captions-preview)=
-
 # Captions and Preview
 
 Prepare inputs, generate captions, optionally enhance them, and produce preview images.
@@ -122,92 +120,30 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 <Tabs>
 <Tab title="CaptionPreparationStage">
 
-```{list-table} Caption preparation parameters
-:header-rows: 1
-:widths: 22 12 12 54
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `model_variant`
-  - str
-  - `"qwen"`
-  - Vision‑language model used to format inputs for captioning (currently `qwen`).
-* - `prompt_variant`
-  - {"default", "av", "av-surveillance"}
-  - `"default"`
-  - Built‑in prompt to steer caption content when `prompt_text` is not provided.
-* - `prompt_text`
-  - str | None
-  - `None`
-  - Custom prompt text. When set, overrides `prompt_variant`.
-* - `sampling_fps`
-  - float
-  - 2.0
-  - Source sampling rate for creating per‑window inputs.
-* - `window_size`
-  - int
-  - 256
-  - Number of frames per window before captioning.
-* - `remainder_threshold`
-  - int
-  - 128
-  - Minimum leftover frames required to create a final shorter window.
-* - `model_does_preprocess`
-  - bool
-  - `False`
-  - Whether the downstream model performs its own preprocessing.
-* - `preprocess_dtype`
-  - str
-  - `"float32"`
-  - Data type for any preprocessing performed here.
-* - `generate_previews`
-  - bool
-  - `True`
-  - When `True`, return per‑window `mp4` bytes to enable preview generation.
-* - `verbose`
-  - bool
-  - `False`
-  - Log additional setup and per‑clip details.
-```
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_variant` | str | `"qwen"` | Vision‑language model used to format inputs for captioning (currently `qwen`). |
+| `prompt_variant` | {"default", "av", "av-surveillance"} | `"default"` | Built‑in prompt to steer caption content when `prompt_text` is not provided. |
+| `prompt_text` | str \| None | `None` | Custom prompt text. When set, overrides `prompt_variant`. |
+| `sampling_fps` | float | 2.0 | Source sampling rate for creating per‑window inputs. |
+| `window_size` | int | 256 | Number of frames per window before captioning. |
+| `remainder_threshold` | int | 128 | Minimum leftover frames required to create a final shorter window. |
+| `model_does_preprocess` | bool | `False` | Whether the downstream model performs its own preprocessing. |
+| `preprocess_dtype` | str | `"float32"` | Data type for any preprocessing performed here. |
+| `generate_previews` | bool | `True` | When `True`, return per‑window `mp4` bytes to enable preview generation. |
+| `verbose` | bool | `False` | Log additional setup and per‑clip details. |
 
 </Tab>
 <Tab title="PreviewStage">
 
-```{list-table} Preview generation parameters
-:header-rows: 1
-:widths: 22 12 12 54
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `target_fps`
-  - float
-  - 1.0
-  - Frames per second for preview encoding.
-* - `target_height`
-  - int
-  - 240
-  - Output height in pixels; width auto‑scales to preserve aspect ratio.
-* - `compression_level`
-  - int (0–6)
-  - 6
-  - WebP compression level (`0` = lossless, higher = smaller files).
-* - `quality`
-  - int (0–100)
-  - 50
-  - WebP quality factor (`100` = best quality, larger files).
-* - `num_cpus_per_worker`
-  - float
-  - 4.0
-  - CPU threads mapped to `ffmpeg -threads` for encoding.
-* - `verbose`
-  - bool
-  - `False`
-  - Log warnings and per‑window encoding details.
-```
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `target_fps` | float | 1.0 | Frames per second for preview encoding. |
+| `target_height` | int | 240 | Output height in pixels; width auto‑scales to preserve aspect ratio. |
+| `compression_level` | int (0–6) | 6 | WebP compression level (`0` = lossless, higher = smaller files). |
+| `quality` | int (0–100) | 50 | WebP quality factor (`100` = best quality, larger files). |
+| `num_cpus_per_worker` | float | 4.0 | CPU threads mapped to `ffmpeg -threads` for encoding. |
+| `verbose` | bool | `False` | Log warnings and per‑window encoding details. |
 
 </Tab>
 
@@ -255,101 +191,33 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 <Tabs>
 <Tab title="CaptionGenerationStage">
 
-```{list-table} Caption generation parameters
-:header-rows: 1
-:widths: 22 12 12 54
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `model_dir`
-  - str
-  - `"models/qwen"`
-  - Directory for model weights; downloaded on each node if missing.
-* - `model_variant`
-  - {"qwen"}
-  - `"qwen"`
-  - Vision‑language model variant.
-* - `caption_batch_size`
-  - int
-  - 16
-  - Batch size for caption generation.
-* - `fp8`
-  - bool
-  - `False`
-  - Use FP8 weights when available.
-* - `max_output_tokens`
-  - int
-  - 512
-  - Maximum number of tokens to generate per caption.
-* - `model_does_preprocess`
-  - bool
-  - `False`
-  - Whether the model performs its own preprocessing.
-* - `disable_mmcache`
-  - bool
-  - `False`
-  - Disable multimodal cache for generation backends that support it.
-* - `generate_stage2_caption`
-  - bool
-  - `False`
-  - Enable a second‑pass caption for refinement.
-* - `stage2_prompt_text`
-  - str | None
-  - `None`
-  - Custom prompt for stage‑2 caption refinement.
-* - `verbose`
-  - bool
-  - `False`
-  - Emit additional logs during generation.
-```
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_dir` | str | `"models/qwen"` | Directory for model weights; downloaded on each node if missing. |
+| `model_variant` | {"qwen"} | `"qwen"` | Vision‑language model variant. |
+| `caption_batch_size` | int | 16 | Batch size for caption generation. |
+| `fp8` | bool | `False` | Use FP8 weights when available. |
+| `max_output_tokens` | int | 512 | Maximum number of tokens to generate per caption. |
+| `model_does_preprocess` | bool | `False` | Whether the model performs its own preprocessing. |
+| `disable_mmcache` | bool | `False` | Disable multimodal cache for generation backends that support it. |
+| `generate_stage2_caption` | bool | `False` | Enable a second‑pass caption for refinement. |
+| `stage2_prompt_text` | str \| None | `None` | Custom prompt for stage‑2 caption refinement. |
+| `verbose` | bool | `False` | Emit additional logs during generation. |
 
 </Tab>
 
 <Tab title="CaptionEnhancementStage">
 
-```{list-table} Caption enhancement parameters
-:header-rows: 1
-:widths: 22 12 12 54
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `model_dir`
-  - str
-  - `"models/qwen"`
-  - Directory for language‑model weights; downloaded per node if missing.
-* - `model_variant`
-  - {"qwen"}
-  - `"qwen"`
-  - Language‑model variant.
-* - `prompt_variant`
-  - {"default", "av-surveillance"}
-  - `"default"`
-  - Built‑in enhancement prompt when `prompt_text` is not provided.
-* - `prompt_text`
-  - str | None
-  - `None`
-  - Custom enhancement prompt. When set, overrides `prompt_variant`.
-* - `model_batch_size`
-  - int
-  - 128
-  - Batch size for enhancement generation.
-* - `fp8`
-  - bool
-  - `False`
-  - Use FP8 weights when available.
-* - `max_output_tokens`
-  - int
-  - 512
-  - Maximum number of tokens to generate per enhanced caption.
-* - `verbose`
-  - bool
-  - `False`
-  - Emit additional logs during enhancement.
-```
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_dir` | str | `"models/qwen"` | Directory for language‑model weights; downloaded per node if missing. |
+| `model_variant` | {"qwen"} | `"qwen"` | Language‑model variant. |
+| `prompt_variant` | {"default", "av-surveillance"} | `"default"` | Built‑in enhancement prompt when `prompt_text` is not provided. |
+| `prompt_text` | str \| None | `None` | Custom enhancement prompt. When set, overrides `prompt_variant`. |
+| `model_batch_size` | int | 128 | Batch size for enhancement generation. |
+| `fp8` | bool | `False` | Use FP8 weights when available. |
+| `max_output_tokens` | int | 512 | Maximum number of tokens to generate per enhanced caption. |
+| `verbose` | bool | `False` | Emit additional logs during enhancement. |
 
 </Tab>
 </Tabs>
@@ -396,7 +264,7 @@ from nemo_curator.stages.video.io.clip_writer import ClipWriterStage
 previews_dir = ClipWriterStage.get_output_path_previews("/outputs")
 ```
 
-Refer to Save & Export for directory structure and file locations: [Save & Export](video-save-export).
+Refer to Save & Export for directory structure and file locations: [Save & Export](/video-save-export).
 
 ### Requirements and Troubleshooting
 

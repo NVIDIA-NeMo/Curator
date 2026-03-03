@@ -1,7 +1,14 @@
 ---
-title: Text Processing Concepts
 description: "Text processing workflows including quality filtering, fuzzy deduplication, content cleaning, and pipeline design"
+categories: ["concepts-architecture"]
+tags: ["data-processing", "quality-filtering", "deduplication", "pipeline", "distributed"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "text-only"
 ---
+
+# Text Processing Concepts
 
 This guide covers the most common text processing workflows in NVIDIA NeMo Curator, based on real-world usage patterns from production data curation pipelines.
 
@@ -33,7 +40,7 @@ Basic text normalization and cleaning operations:
 
 ### 3. Deduplication
 
-Remove duplicate and near-duplicate content. For comprehensive coverage of all deduplication approaches, refer to Curator's [Deduplication](/curate-text/process-data/deduplication) documentation.
+Remove duplicate and near-duplicate content. For comprehensive coverage of all deduplication approaches, refer to Curator's [Deduplication Concepts](/about-concepts-deduplication).
 
 #### Exact Deduplication
 
@@ -58,10 +65,8 @@ Remove semantically similar content using embeddings for more sophisticated dupl
 
 NeMo Curator uses these fundamental building blocks that users combine into pipelines:
 
-**:header-rows: 1**
-
 | Component | Purpose | Usage Pattern |
-| --------- | ------- | ------------- |
+| --- | --- | --- |
 | **`Pipeline`** | Orchestrate processing stages | Add processing stages, typically starting with a read and completing with a write |
 | **`ScoreFilter`** | Apply filters with optional scoring | Chain multiple quality filters |
 | **`Modify`** | Transform document content | Clean and normalize text |
@@ -267,12 +272,10 @@ fuzzy_workflow.run()
 ray_client.stop()
 ```
 
-</Accordion>
-
 ### Removing Identified Duplicates
 
 The identified duplicates can be removed using a separate workflow:
-
+</Accordion>
 <Accordion title="Duplicate Removal Code Example">
 
 ```python
@@ -300,6 +303,4 @@ removal_workflow.run()
 # Cleanup Ray when done
 ray_client.stop()
 ```
-
 </Accordion>
-

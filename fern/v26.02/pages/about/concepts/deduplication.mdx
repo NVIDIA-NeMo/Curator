@@ -1,7 +1,14 @@
 ---
-title: Deduplication Concepts
 description: "Comprehensive overview of deduplication techniques across text, image, and video modalities including exact, fuzzy, and semantic approaches"
+categories: ["concepts-architecture"]
+tags: ["deduplication", "exact-dedup", "fuzzy-dedup", "semantic-dedup", "multimodal", "gpu-accelerated"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "multimodal"
 ---
+
+# Deduplication Concepts
 
 This guide covers deduplication techniques available across all modalities in NeMo Curator, from exact hash-based matching to semantic similarity detection using embeddings.
 
@@ -109,10 +116,8 @@ All deduplication workflows leverage distributed computing frameworks:
 
 ### Scalability Characteristics
 
-**Deduplication Scalability**
-
 | Method | Dataset Size | Memory Requirements | Processing Time |
-| ------ | ------------ | ------------------- | --------------- |
+| --- | --- | --- | --- |
 | Exact | Unlimited | Low (hash storage) | Linear with data size |
 | Fuzzy | Petabyte-scale | Moderate (LSH tables) | Sub-linear with LSH |
 | Semantic | Terabyte-scale | High (embeddings) | Depends on model inference |
@@ -181,4 +186,3 @@ pipeline_2.add_stage(...)
 pipeline_2.add_stage(JsonlWriter(...))
 pipeline_2.run()
 ```
-

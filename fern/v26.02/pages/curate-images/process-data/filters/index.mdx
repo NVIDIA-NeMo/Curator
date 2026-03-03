@@ -1,7 +1,14 @@
 ---
-title: Image Filters
 description: "Image filtering tools including aesthetic and NSFW filters for dataset quality control"
+categories: ["workflows"]
+tags: ["filtering", "aesthetic", "nsfw", "quality-filtering", "gpu-accelerated"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "workflow"
+modality: "image-only"
 ---
+
+# Image Filters
 
 NeMo Curator provides filters for image curation, including aesthetic and NSFW filters. These models help you filter, score, and curate large image datasets for downstream tasks such as generative model training and dataset quality control.
 
@@ -31,13 +38,22 @@ from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFil
 from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
 ```
 
+---
+
 ## Available Filters
 
 <Cards>
-  <Card title="Aesthetic Filter Stage" href="/curate-images/process-data/filters/aesthetic">
-    Assess the subjective quality of images using a model trained on human aesthetic preferences. Filters images below a configurable aesthetic score threshold (0.0 to 1.0).
-  </Card>
-  <Card title="NSFW Filter Stage" href="/curate-images/process-data/filters/nsfw">
-    Detect not-safe-for-work (NSFW) content in images using a CLIP-based filter. Removes images above a configurable NSFW probability threshold (0.0 to 1.0).
-  </Card>
+
+<Card title="Aesthetic Filter Stage" href="/image/process/data/filters/aesthetic">
+
+Assess the subjective quality of images using a model trained on human aesthetic preferences. Filters images below a configurable aesthetic score threshold (0.0 to 1.0).
+ImageAestheticFilterStage aesthetic_score
+</Card>
+
+<Card title="NSFW Filter Stage" href="/image/process/data/filters/nsfw">
+
+Detect not-safe-for-work (NSFW) content in images using a CLIP-based filter. Removes images above a configurable NSFW probability threshold (0.0 to 1.0).
+ImageNSFWFilterStage nsfw_score
+</Card>
+
 </Cards>

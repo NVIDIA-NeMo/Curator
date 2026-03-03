@@ -1,7 +1,14 @@
 ---
-title: Read Existing Data
 description: "Read existing JSONL and Parquet datasets using Curator's reader stages."
+categories: ["how-to-guides"]
+tags: ["jsonl", "parquet", "data-loading", "reader", "pipelines"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "text-only"
 ---
+
+# Read Existing Data
 
 Use Curator's `JsonlReader` and `ParquetReader` to read existing datasets into a pipeline, then optionally add processing stages.
 
@@ -48,6 +55,7 @@ results = pipeline.run()
 # Stop Ray client
 ray_client.stop()
 ```
+
 </Tab>
 
 <Tab title="Parquet Reader">
@@ -92,24 +100,24 @@ results = pipeline.run()
 # Stop Ray client
 ray_client.stop()
 ```
+
 </Tab>
 
 </Tabs>
+
 ## Reader Configuration
 
 ### Common Parameters
 
 Both `JsonlReader` and `ParquetReader` support these configuration options:
 
-**:header-rows: 1**
-
 | Parameter | Type | Description | Default |
-| --------- | ---- | ----------- | ------- |
-| `file_paths` | str | list[str] | File paths or glob patterns to read | Required |
-| `files_per_partition` | int | None | Number of files per partition. Overrides `blocksize` if both are provided. | None |
-| `blocksize` | int | str | None | Target partition size (e.g., "128MB"). Ignored if `files_per_partition` is provided. | None |
-| `fields` | list[str] | None | Column names to read (column selection) | None (all columns) |
-| `read_kwargs` | dict[str, Any] | None | Extra arguments for the underlying reader | None |
+| --- | --- | --- | --- |
+| `file_paths` | str \| list[str] | File paths or glob patterns to read | Required |
+| `files_per_partition` | int \| None | Number of files per partition. Overrides `blocksize` if both are provided. | None |
+| `blocksize` | int \| str \| None | Target partition size (e.g., "128MB"). Ignored if `files_per_partition` is provided. | None |
+| `fields` | list[str] \| None | Column names to read (column selection) | None (all columns) |
+| `read_kwargs` | dict[str, Any] \| None | Extra arguments for the underlying reader | None |
 
 ### Parquet-Specific Features
 
@@ -133,4 +141,3 @@ Both readers produce `DocumentBatch` tasks that integrate seamlessly with:
 - **Processing Stages**: Apply filters, transformations, and quality checks
 - **Writer Stages**: Export to JSONL, Parquet, or other formats
 - **Analysis Tools**: Convert to Pandas/PyArrow for inspection and debugging
-

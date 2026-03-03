@@ -1,7 +1,14 @@
 ---
-title: References
 description: "Comprehensive technical reference for NeMo Curator APIs, infrastructure components, and integration tools"
+categories: ["reference"]
+tags: ["python-api", "infrastructure", "integrations-apis", "distributed", "gpu-accelerated"]
+personas: ["mle-focused", "data-scientist-focused", "admin-focused"]
+difficulty: "reference"
+content_type: "reference"
+modality: "universal"
 ---
+
+# References
 
 NeMo Curator's reference documentation provides comprehensive technical details, API references, and integration information to help you maximize your NeMo Curator implementation. Use these resources to understand the technical foundation of NeMo Curator and integrate it with other tools and systems.
 
@@ -11,59 +18,116 @@ Quickly access core NeMo Curator API references. Use these links to jump directl
 
 <Cards>
 
-<Card title="Pipeline" href="/reference/api-reference/pipeline">
-Main orchestrator for executing sequences of processing stages
+<Card title="Classifiers API" href="/../apidocs/classifiers/classifiers.html">
+Core classifier base classes and interfaces.
+classification
+aegis
+prompt-task-complexity
 </Card>
 
-<Card title="ProcessingStage" href="/reference/api-reference/processing-stage">
-Base class for all data processing stages
+<Card title="Datasets API" href="/../apidocs/datasets/datasets.html">
+APIs for document and parallel datasets.
+doc-dataset
+parallel-dataset
+image-text-pair
 </Card>
 
-<Card title="CompositeStage" href="/reference/api-reference/composite-stage">
-High-level stages that decompose into multiple execution stages
+<Card title="Deduplication API" href="/../apidocs/modules/modules.semantic_dedup.html">
+Deduplication and semantic deduplication tools.
+semantic-dedup
+fuzzy-dedup
 </Card>
 
-<Card title="Resources" href="/reference/api-reference/resources">
-CPU and GPU resource configuration for stages
+<Card title="Download API" href="/../apidocs/download/download.html">
+APIs for downloading and building datasets from external sources.
+arxiv
+commoncrawl
+wikipedia
 </Card>
 
-<Card title="Tasks" href="/reference/api-reference">
-Task types for text, image, video, and audio processing
+<Card title="Filters API" href="/../apidocs/filters/filters.html">
+Filtering and quality control APIs.
+classifier-filter
+heuristic-filter
 </Card>
 
-<Card title="Executors" href="/reference/api-reference/executors/xenna-executor">
-Execution backends for running pipelines
+<Card title="Image API" href="/../apidocs/image/image.html">
+Image processing, classifiers, and embedders.
+classifiers
+embedders
+</Card>
+
+<Card title="Modifiers API" href="/../apidocs/modifiers/modifiers.html">
+Text and data modification utilities.
+markdown-remover
+url-remover
+</Card>
+
+<Card title="Services API" href="/../apidocs/services/services.html">
+Service clients and integrations.
+model-client
+openai-client
+</Card>
+
+<Card title="NeMo Run API" href="/../apidocs/nemo_run/nemo_run.html">
+NeMo Run integration for distributed execution.
+distributed
+</Card>
+
+<Card title="Tasks API" href="/../apidocs/tasks/tasks.html">
+Task definitions and metrics.
+metrics
+downstream-task
+</Card>
+
+<Card title="Utils API" href="/../apidocs/utils/utils.html">
+General utility functions and helpers.
+text-utils
+distributed-utils
 </Card>
 
 </Cards>
+
 ## Infrastructure Components
 
 Explore the foundational infrastructure that powers NeMo Curator. Learn how to scale, optimize, and manage large data workflows efficiently.
 
 <Cards>
 
-<Card title="Memory Management" href="/reference/infrastructure/memory-management">
+<Card title="Memory Management" href="/reference/infra/memory/management">
 Optimize memory usage when processing large datasets
+partitioning
+batching
+monitoring
 </Card>
 
-<Card title="GPU Acceleration" href="/reference/infrastructure/gpu-processing">
+<Card title="GPU Acceleration" href="/reference/infra/gpu/processing">
 Leverage NVIDIA GPUs for faster data processing
+cuda
+rmm
+performance
 </Card>
 
-<Card title="Resumable Processing" href="/reference/infrastructure/resumable-processing">
+<Card title="Resumable Processing" href="/reference/infra/resumable/processing">
 Continue interrupted operations across large datasets
+checkpoints
+recovery
+batching
 </Card>
 
 </Cards>
+
 ## Integration & Tools
 
 Discover related tools and integrations in the NVIDIA AI ecosystem that complement NeMo Curator, enabling seamless workflows from data curation to model training and deployment.
 
 <Cards>
 
-<Card title="Related Tools" href="/reference/related-tools">
+<Card title="Related Tools" href="/reference/tools">
 Learn about complementary tools in the NVIDIA ecosystem
+nemo-framework
+triton-server
+tao-toolkit
 </Card>
 
 </Cards>
-

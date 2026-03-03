@@ -1,7 +1,14 @@
 ---
-title: Clip Encoding
 description: "Transcode clips with CPU or GPU encoders and tune for quality and performance"
+categories: ["video-curation"]
+tags: ["transcoding", "encoding", "ffmpeg", "nvenc", "h264"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "howto"
+modality: "video-only"
 ---
+
+# Clip Encoding
 
 Convert extracted clip buffers into compressed media files suitable for storage and training workflows using encoders. NeMo Curator provides both CPU and GPU-based encoders.
 
@@ -23,6 +30,7 @@ Use the pipeline stage or the example script flags to encode clips with CPU or G
 
 <Tabs>
 <Tab title="Pipeline Stage">
+
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorStage, ClipTranscodingStage
@@ -32,24 +40,25 @@ pipe.add_stage(FixedStrideExtractorStage(clip_len_s=10.0, clip_stride_s=10.0))
 pipe.add_stage(ClipTranscodingStage(encoder="libopenh264", encode_batch_size=16, encoder_threads=1, verbose=True))
 pipe.run()
 ```
+
 </Tab>
 
 <Tab title="Script Flags">
+
 ```bash
 python -m ray_curator.examples.video.video_split_clip_example \
   ...
   --transcode-encoder h264_nvenc \
   --transcode-use-hwaccel \
 ```
+
 </Tab>
 </Tabs>
 
 ## Encoder Options
 
-**Encoders**
-
 | Encoder | Hardware | Description |
-| ------- | -------- | ----------- |
+| --- | --- | --- |
 | `libx264` | CPU | Widely available, high quality, CPU-based. |
 | `libopenh264` | CPU | Good quality and throughput balance. Often faster than `libx264` at similar presets. |
 | `h264_nvenc` | NVIDIA GPU (NVENC) | Uses NVENC for high-throughput H.264 encoding on NVIDIA GPU hardware. |
@@ -91,10 +100,8 @@ transcode = ClipTranscodingStage(
 
 ### Parameters
 
-**Common Parameters**
-
 | Parameter | Description |
-| --------- | ----------- |
+| --- | --- |
 | `encoder` | Selects the encoding backend. Recommended defaults: `libopenh264` (CPU) or `h264_nvenc` (GPU). |
 | `use_hwaccel` | Enable when using GPU encoders like `h264_nvenc`. |
 | `encoder_threads` | CPU threads per worker for CPU encoders. Increase to use more CPU. |
@@ -102,7 +109,8 @@ transcode = ClipTranscodingStage(
 | `use_input_bit_rate` | If True, attempts to reuse the input bit rate; otherwise, the encoder uses its default rate control. |
 
 <Note>
-Refer to the quickstart options in the Get Started with Video Curation guide for command-line flags `--transcode-encoder` and `--transcode-use-hwaccel`.
+Refer to the quickstart options in [Get Started with Video Curation](/gs-video) for command-line flags `--transcode-encoder` and `--transcode-use-hwaccel`.
+
 </Note>
 
 ## Troubleshooting
@@ -110,4 +118,3 @@ Refer to the quickstart options in the Get Started with Video Curation guide for
 - "Encoder not found": Your `ffmpeg` build may lack the encoder; verify with `ffmpeg -encoders`.
 - "No NVENC capable devices found": Install NVIDIA drivers/CUDA and ensure the GPU is visible in `nvidia-smi`.
 - Output mismatch or low quality: Revisit encoder defaults; set explicit bit rate/quality settings as needed, or enable `use_input_bit_rate`.
-

@@ -8,8 +8,6 @@ content_type: "howto"
 modality: "video-only"
 ---
 
-(video-process-clipping)=
-
 # Video Clipping
 
 Split long videos into shorter clips for downstream processing.
@@ -124,13 +122,15 @@ stage = FixedStrideExtractorStage(
 )
 ```
 
-:::{tip} If `limit_clips > 0` and the `Video` already has clips, the stage skips processing. It does not cap the number of clips generated within the same run.
+<Tip>
+If `limit_clips` is greater than 0 and the `Video` already has clips, the stage skips processing. It does not cap the number of clips generated within the same run.
+</Tip>
 
 ### TransNetV2 Scene-Change Detection
 
 TransNetV2 is a shot-boundary detection model that identifies transitions between shots. The stage converts those transitions into scenes, applies length/crop rules, and emits clips aligned to scene boundaries.
 
-Using extracted frames of size 27×48×3, the model predicts shot transitions, converts them into scenes, and applies filtering: `min_length_s`, `max_length_s` with `max_length_mode` ("truncate" or "stride"), and optional `crop_s` at both ends. It creates `Clip` objects for the resulting spans, then stops after it reaches `limit_clips` (> 0), and releases frames from memory after processing.
+Using extracted frames of size 27×48×3, the model predicts shot transitions, converts them into scenes, and applies filtering: `min_length_s`, `max_length_s` with `max_length_mode` ("truncate" or "stride"), and optional `crop_s` at both ends. It creates `Clip` objects for the resulting spans, then stops after it reaches `limit_clips` (greater than 0), and releases frames from memory after processing.
 
 1. Run `VideoFrameExtractionStage` first to populate `video.frame_array`.
 

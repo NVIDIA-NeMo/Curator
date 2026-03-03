@@ -1,7 +1,15 @@
 ---
-title: Architecture
 description: "Architecture overview of NeMo Curator's Ray-based distributed video curation system with autoscaling"
+categories: ["concepts-architecture"]
+tags: ["architecture", "distributed", "ray", "autoscaling", "video-curation", "performance"]
+personas: ["data-scientist-focused", "mle-focused", "admin-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "video-only"
+only: not ga
 ---
+
+# Architecture
 
 NeMo Curator's video curation system builds on Ray, a distributed framework for scalable, high‑throughput data processing across machine clusters.
 
@@ -33,4 +41,3 @@ Key executor configuration (actual keys):
 - `autoscale_interval_s`: Auto-scaling interval in seconds (applies in streaming mode; default: 180)
 
 Use `Pipeline.describe()` to review stage resources and input/output requirements at a glance during development.
-

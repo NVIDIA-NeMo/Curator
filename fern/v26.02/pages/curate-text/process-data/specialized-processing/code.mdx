@@ -1,6 +1,6 @@
 ---
-title: Code Filtering
-description: "Specialized filters for assessing and filtering code snippets and programming files with quality standards and pattern detection"
+title: "Code Filtering"
+description: ""
 ---
 
 NVIDIA NeMo Curator provides specialized filters for assessing and filtering code snippets and programming files. These filters help ensure that code included in your training dataset meets quality standards and doesn't contain problematic patterns. Code filtering addresses specific challenges related to programming content, including code quality assessment, detection of non-code content mislabeled as code, identification of embedded data structures or boilerplate, language-specific filtering considerations, and token efficiency for code. These filters are particularly important when preparing datasets for code language models or programming assistants.
@@ -255,9 +255,9 @@ When filtering code datasets, consider these best practices:
    ))
    ```
 
-<Note>
-The `FastTextLangId` filter requires downloading the FastText language identification model from [fasttext.cc](https://fasttext.cc/docs/en/language-identification.html).
-</Note>
+   <Note>
+   The `FastTextLangId` filter requires downloading the FastText language identification model from [fasttext.cc](https://fasttext.cc/docs/en/language-identification.html).
+   </Note>
 
 4. **Avoid over-filtering**: Track rejection rates and adjust thresholds as needed
 
@@ -283,6 +283,7 @@ The `FastTextLangId` filter requires downloading the FastText language identific
 
 <Tabs>
 <Tab title="Cleaning Open Source Code Datasets">
+
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.modules import ScoreFilter
@@ -309,9 +310,11 @@ pipeline.add_stage(ScoreFilter(
     text_field="content"
 ))
 ```
+
 </Tab>
 
 <Tab title="Training Data Preparation">
+
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.modules import ScoreFilter
@@ -338,8 +341,9 @@ pipeline.add_stage(ScoreFilter(
     text_field="content"
 ))
 ```
+
 </Tab>
 
 </Tabs>
-By applying these specialized code filters, you can improve the quality of code in your training datasets, leading to better model performance for code-related tasks.
 
+By applying these specialized code filters, you can improve the quality of code in your training datasets, leading to better model performance for code-related tasks.

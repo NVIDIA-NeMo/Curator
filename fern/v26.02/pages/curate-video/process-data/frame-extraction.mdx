@@ -8,8 +8,6 @@ content_type: "howto"
 modality: "video-only"
 ---
 
-(video-process-frame-extraction)=
-
 # Frame Extraction
 
 Extract frames from clips or full videos at target rates and resolutions. Use frames for embeddings (such as Cosmos‑Embed1), aesthetic filtering, previews, and custom analysis.
@@ -23,7 +21,7 @@ Extract frames from clips or full videos at target rates and resolutions. Use fr
 
 ## Before You Start
 
-If you need saved media files, frame extraction is optional. [Embeddings](video-process-embeddings) and [aesthetic filtering](video-process-filtering-aesthetic) require frames.
+If you need saved media files, frame extraction is optional. [Embeddings](/video-process-embeddings) and [aesthetic filtering](/video-process-filtering-aesthetic) require frames.
 
 ---
 
@@ -126,28 +124,16 @@ frame_extractor = VideoFrameExtractionStage(
 
 ## Parameters
 
-```{list-table} Common Parameters
-:header-rows: 1
-
-* - Parameter
-  - Description
-* - `extraction_policies`
-  - Frame selection strategy. Use `sequence` for uniform sampling. `middle` selects a single middle frame.
-* - `target_fps`
-  - For clips: sampling rate in frames per second. If you provide several integer values, the stage uses LCM sampling.
-* - `extract_purposes`
-  - Shortcut that sets default FPS for specific purposes (such as embeddings). You can still pass `target_fps` to override.
-* - `target_res`
-  - Output frame resolution `(height, width)`. Use `(-1, -1)` to keep original.
-* - `num_cpus`
-  - Number of CPU cores for frame extraction. Default: `3`.
-* - `decoder_mode`
-  - For full‑video extraction: `pynvc` (NVDEC), `ffmpeg_gpu`, or `ffmpeg_cpu`.
-* - `output_hw`
-  - For full‑video extraction: `(height, width)` tuple for frame dimensions. Default: `(27, 48)`.
-* - `pyncv_batch_size`
-  - For full‑video extraction: batch size for PyNvCodec processing. Default: `64`.
-```
+| Parameter | Description |
+| --- | --- |
+| `extraction_policies` | Frame selection strategy. Use `sequence` for uniform sampling. `middle` selects a single middle frame. |
+| `target_fps` | For clips: sampling rate in frames per second. If you provide several integer values, the stage uses LCM sampling. |
+| `extract_purposes` | Shortcut that sets default FPS for specific purposes (such as embeddings). You can still pass `target_fps` to override. |
+| `target_res` | Output frame resolution `(height, width)`. Use `(-1, -1)` to keep original. |
+| `num_cpus` | Number of CPU cores for frame extraction. Default: `3`. |
+| `decoder_mode` | For full‑video extraction: `pynvc` (NVDEC), `ffmpeg_gpu`, or `ffmpeg_cpu`. |
+| `output_hw` | For full‑video extraction: `(height, width)` tuple for frame dimensions. Default: `(27, 48)`. |
+| `pyncv_batch_size` | For full‑video extraction: batch size for PyNvCodec processing. Default: `64`. |
 
 ### LCM Sampling for Several FPS Values
 
@@ -168,9 +154,9 @@ ClipFrameExtractionStage(
 
 ## Downstream Dependencies
 
-- **Embeddings**: Cosmos‑Embed1 expects frames at specific rates. Refer to [Embeddings](video-process-embeddings).
-- **Aesthetic Filtering**: Requires frames extracted earlier. Refer to [Filtering](video-process-filtering).
-- **Clipping with TransNetV2**: Uses full‑video frame extraction before scene‑change detection. Refer to [Clipping](video-process-clipping).
+- **Embeddings**: Cosmos‑Embed1 expects frames at specific rates. Refer to [Embeddings](/video-process-embeddings).
+- **Aesthetic Filtering**: Requires frames extracted earlier. Refer to [Filtering](/video-process-filtering).
+- **Clipping with TransNetV2**: Uses full‑video frame extraction before scene‑change detection. Refer to [Clipping](/video-process-clipping).
 
 ## Troubleshooting
 

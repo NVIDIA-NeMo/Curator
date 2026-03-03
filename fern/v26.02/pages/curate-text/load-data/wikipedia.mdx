@@ -1,7 +1,14 @@
 ---
-title: Wikipedia
 description: "Download and extract text from Wikipedia dumps using Curator."
+categories: ["how-to-guides"]
+tags: ["wikipedia", "dumps", "multilingual", "articles", "data-loading"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
 ---
+
+# Wikipedia
 
 Download and extract text from [Wikipedia Dumps](https://dumps.wikimedia.org/backup-index.html) using Curator.
 
@@ -72,14 +79,12 @@ results = pipeline.run()
 ray_client.stop()
 ```
 
-For executor options and configuration, refer to [Reference Execution Backends](/docs/reference/execution/backends).
+For executor options and configuration, refer to [reference-execution-backends](/about/release-notes/migration-guide).
 
 ### Parameters
 
-**WikipediaDownloadExtractStage Parameters**
-
 | Parameter | Type | Default | Description |
-| --------- | ---- | ------- | ----------- |
+| --- | --- | --- | --- |
 | `language` | str | "en" | Language code for Wikipedia dump (for example, `en`, `es`, `fr`). Most follow ISO 639‑1, with project-specific exceptions such as `simple`. Refer to Meta‑Wiki [List of Wikipedia language editions](https://meta.wikimedia.org/wiki/List_of_Wikipedias) for supported edition codes and [List of ISO 639 language codes](https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes) for general codes. |
 | `download_dir` | str | "./wikipedia_downloads" | Directory to store downloaded `.bz2` files |
 | `dump_date` | Optional[str] | None | Specific dump date in "YYYYMMDD" format (for example, "20240401"). Dumps are published around the first and twentieth of each month. If None, uses the latest available dump |
@@ -87,7 +92,7 @@ For executor options and configuration, refer to [Reference Execution Backends](
 | `verbose` | bool | False | Enable verbose logging during download |
 | `url_limit` | Optional[int] | None | Maximum number of dump URLs to process (useful for testing) |
 | `record_limit` | Optional[int] | None | Maximum number of articles to extract per dump file |
-| `add_filename_column` | bool | str | True | Whether to add source filename column to output; if str, uses it as the column name (default name: "file_name") |
+| `add_filename_column` | bool \| str | True | Whether to add source filename column to output; if str, uses it as the column name (default name: "file_name") |
 | `log_frequency` | int | 1000 | How often to log progress during article processing |
 
 ## Output Format
@@ -115,4 +120,3 @@ If you enable `add_filename_column`, the output includes an extra field `file_na
   "source_id": "enwiki-20240401-pages-articles-multistream1.xml"
 }
 ```
-

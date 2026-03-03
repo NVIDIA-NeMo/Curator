@@ -1,7 +1,14 @@
 ---
-title: Language Identification
 description: "Identify document languages accurately using FastText models supporting 176 languages for multilingual text processing"
+categories: ["how-to-guides"]
+tags: ["language-identification", "fasttext", "multilingual", "176-languages", "detection", "classification"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
 ---
+
+# Language Identification
 
 Large unlabeled text corpora often contain a variety of languages. NVIDIA NeMo Curator provides tools to accurately identify the language of each document, which is essential for language-specific curation tasks and building high-quality monolingual datasets.
 
@@ -35,6 +42,7 @@ The following example demonstrates how to create a language identification pipel
 
 <Tabs>
 <Tab title="Python">
+
 ```python
 """Language identification using Curator."""
 
@@ -90,7 +98,7 @@ def main():
 
     # Access language scores
     for i, batch in enumerate(results):
-        if batch.num_items > 0:
+        if batch.num_items &gt;0:
             df = batch.to_pandas()
             print(f"Batch {i} columns: {list(df.columns)}")
             # Language scores are now in the 'language' field
@@ -98,8 +106,10 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+
 </Tab>
 </Tabs>
+
 ## Understanding Results
 
 The language identification process adds a score field to each document batch:
@@ -119,6 +129,5 @@ for batch in results:
 ```
 
 <Tip>
-For quick exploratory inspection, converting a `DocumentBatch` to a Pandas DataFrame is fine. For performance and scalability, write transformations as `ProcessingStage`s (or with the `@processing_stage` decorator) and run them inside a `Pipeline` with an executor. Curator's parallelism and resource scheduling apply when code runs as pipeline stages; ad‑hoc Pandas code executes on the driver and will not scale.
+For quick exploratory inspection, converting a `DocumentBatch` to a Pandas DataFrame is fine. For performance and scalability, write transformations as `ProcessingStage`s (or with the `@processing_stage` decorator) and run them inside a `Pipeline` with an executor. Curator’s parallelism and resource scheduling apply when code runs as pipeline stages; ad‑hoc Pandas code executes on the driver and will not scale.
 </Tip>
-

@@ -1,7 +1,14 @@
 ---
-title: Process Data for Image Curation
 description: "Process image data using embeddings, filters, and filtering for high-quality dataset curation"
+categories: ["workflows"]
+tags: ["data-processing", "embedding", "filtering", "gpu-accelerated"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "workflow"
+modality: "image-only"
 ---
+
+# Process Data for Image Curation
 
 Process image data you've loaded from tar archives using NeMo Curator's suite of tools. These tools help you generate embeddings, filter images, and prepare your dataset to produce high-quality data for downstream AI tasks such as generative model training, dataset analysis, or quality control.
 
@@ -21,9 +28,30 @@ Each stage processes `ImageBatch` objects containing images, metadata, and proce
 
 ## Embedding Options
 
+<Cards>
+
+<Card title="CLIP Embedding Stage" href="/image/process/data/embeddings/clip">
+
 Generate image embeddings using CLIP models with GPU acceleration. Supports various CLIP architectures and automatic model downloading.
+ImageEmbeddingStage CLIP GPU-accelerated
+</Card>
+
+</Cards>
 
 ## Filter Options
 
-- **Aesthetic Filter Stage**: Assess the subjective quality of images using a model trained on human aesthetic preferences. Filters images based on aesthetic score thresholds.
-- **NSFW Filter Stage**: Detect not-safe-for-work (NSFW) content in images using a CLIP-based filter. Filters explicit material from your datasets.
+<Cards>
+
+<Card title="Aesthetic Filter Stage" href="/image/process/data/filters/aesthetic">
+
+Assess the subjective quality of images using a model trained on human aesthetic preferences. Filters images based on aesthetic score thresholds.
+ImageAestheticFilterStage aesthetic_score
+</Card>
+
+<Card title="NSFW Filter Stage" href="/image/process/data/filters/nsfw">
+
+Detect not-safe-for-work (NSFW) content in images using a CLIP-based filter. Filters explicit material from your datasets.
+ImageNSFWFilterStage nsfw_score
+</Card>
+
+</Cards>

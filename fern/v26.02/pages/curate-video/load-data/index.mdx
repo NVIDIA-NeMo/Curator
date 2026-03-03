@@ -8,8 +8,6 @@ content_type: "howto"
 modality: "video-only"
 ---
 
-(video-load-data)=
-
 # Video Data Loading
 
 Load video data for curation using NeMo Curator.
@@ -35,8 +33,6 @@ You can set
 
 ---
 
-(video-load-data-local-cloud)=
-
 ## Local and Cloud
 
 Use `VideoReader` to load videos from local paths or remote URLs.
@@ -51,8 +47,6 @@ pipe = Pipeline(name="video_read", description="Read videos and extract metadata
 pipe.add_stage(VideoReader(input_video_path="s3://my-bucket/videos/", video_limit=None, verbose=True))
 pipe.run()
 ```
-
-(video-load-data-json-list)=
 
 ## Explicit File List (JSON)
 
