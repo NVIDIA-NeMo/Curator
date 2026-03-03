@@ -52,3 +52,25 @@ Following the header, the file contains **20 bytes per document** structured as 
   - **8 bytes**: The document index
 
 For more details about Megatron's DataLoading solution and tokenization pipeline refer to [`megatron.core.datasets`](https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/datasets) README.
+
+## Merge multiple file prefixes
+
+The `MegatronTokenizerWriter` will generate one file prefix per worker. For large-scale training runs with Megatron-LM, it is recommended to consolidate multiple file prefixes into larger files (typically 5-100GB each) to reduce the number of file accesses during training.
+
+To address this, we provide the `merge_datasets.py` script in this tutorial directory. This script is a simplified version of the [`tools/merge_datasets.py`](https://github.com/NVIDIA/Megatron-LM/blob/main/tools/merge_datasets.py) script found in the Megatron-LM repository, with the key advantage that it does not require any Megatron dependencies.
+
+### Usage
+
+The script takes a directory containing multiple file prefixes and merges them into a single output prefix:
+
+```bash
+python tutorials/text/megatron-tokenizer/merge_datasets.py \
+    --input-dir /path/to/tokenized/files \
+    --output-prefix /path/to/output/merged
+```
+
+**Arguments:**
+- `--input-dir`: Path to the directory containing all the tokenized file prefixes (`.bin` and `.idx` pairs) to merge
+- `--output-prefix`: Path and filename prefix for the merged output (will create `<output-prefix>.bin` and `<output-prefix>.idx`)
+
+The script automatically detects all valid file prefix pairs in the input directory and merges them in sorted order, producing a single consolidated file prefix ready for use with Megatron-LM.
