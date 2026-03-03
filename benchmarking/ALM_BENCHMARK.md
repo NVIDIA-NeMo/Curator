@@ -139,11 +139,11 @@ Results from running on a single workstation:
 | Builder windows | 362,000 |
 | Filtered windows | 50,000 |
 | Total filtered duration | 6,071,000s |
-| Execution time | 77.32s |
-| Throughput (entries/sec) | 129.33 |
-| Throughput (windows/sec) | 4,683.27 |
+| Execution time | 109.82s |
+| Throughput (entries/sec) | 91.06 |
+| Throughput (windows/sec) | 3,296.30 |
 
-The pipeline scales well with XennaExecutor auto-allocating workers per stage via the CompositeStage reader (FilePartitioningStage + ALMManifestReaderStage). Throughput increases significantly at scale as the executor amortizes startup overhead.
+The `repeat-factor` multiplies entries in-memory after reading (via `_RepeatEntriesStage`), so the manifest file is read only once. The pipeline scales well with XennaExecutor auto-allocating workers per stage via the CompositeStage reader (FilePartitioningStage + ALMManifestReaderStage).
 
 ## Output Files
 

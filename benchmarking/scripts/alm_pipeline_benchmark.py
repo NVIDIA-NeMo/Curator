@@ -39,7 +39,31 @@ from nemo_curator.stages.audio.alm import (
     ALMDataOverlapStage,
     ALMManifestReader,
 )
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioBatch
 from utils import setup_executor, write_benchmark_results
+
+
+class _RepeatEntriesStage(ProcessingStage[AudioBatch, AudioBatch]):
+    """Multiply each AudioBatch entry N times for scale testing.
+
+    Duplicates entries in-memory after reading so the file is only read once.
+    """
+
+    name = "repeat_entries"
+
+    def __init__(self, repeat_factor: int = 1) -> None:
+        self._repeat_factor = repeat_factor
+
+    def process(self, task: AudioBatch) -> list[AudioBatch]:
+        return [
+            AudioBatch(
+                data=task.data,
+                _metadata=task._metadata,
+                _stage_perf=task._stage_perf,
+            )
+            for _ in range(self._repeat_factor)
+        ]
 
 
 def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
@@ -68,11 +92,11 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
     logger.info(f"Speakers: {min_speakers}-{max_speakers}")
     logger.info(f"Overlap percentage: {overlap_percentage}")
 
-    manifest_paths = [input_manifest] * max(repeat_factor, 1)
-    logger.info(f"Manifest paths: {len(manifest_paths)} copies (repeat_factor={repeat_factor})")
-
     pipeline = Pipeline(name="alm_benchmark", description="ALM Reader + Builder + Overlap benchmark pipeline")
-    pipeline.add_stage(ALMManifestReader(manifest_path=manifest_paths))
+    pipeline.add_stage(ALMManifestReader(manifest_path=input_manifest))
+    if repeat_factor > 1:
+        pipeline.add_stage(_RepeatEntriesStage(repeat_factor=repeat_factor))
+        logger.info(f"Repeat factor: {repeat_factor}x (entries multiplied after reading)")
     pipeline.add_stage(
         ALMDataBuilderStage(
             target_window_duration=target_window_duration,
