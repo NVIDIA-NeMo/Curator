@@ -21,8 +21,8 @@ from ray.serve.llm import LLMConfig
 from nemo_curator.core.constants import DEFAULT_SERVE_HEALTH_TIMEOUT_S, DEFAULT_SERVE_PORT
 from nemo_curator.core.serve import ModelConfig, ModelServer, is_ray_serve_active
 
-INTEGRATION_TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"
-INTEGRATION_TEST_MODEL_2 = "HuggingFaceTB/SmolLM-135M-Instruct"
+INTEGRATION_TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"  # pragma: allowlist secret
+INTEGRATION_TEST_MODEL_2 = "HuggingFaceTB/SmolLM-135M-Instruct"  # pragma: allowlist secret
 
 
 class TestModelConfig:
@@ -80,6 +80,54 @@ class TestModelServer:
         server = ModelServer(models=[], port=19876, health_check_timeout_s=2)
         with pytest.raises(TimeoutError, match="did not become ready within 2s"):
             server._wait_for_healthy()
+
+    def test_start_raises_when_another_server_active(self) -> None:
+        """start() raises RuntimeError if another ModelServer is already active."""
+        from nemo_curator.core.serve import _active_servers
+
+        server = ModelServer(models=[ModelConfig(model_identifier="some-model")])
+
+        _active_servers.add("other-app")
+        try:
+            with pytest.raises(RuntimeError, match="already active"):
+                server.start()
+        finally:
+            _active_servers.discard("other-app")
+
+    def test_stop_calls_shutdown(self) -> None:
+        """stop() calls serve.shutdown() when the server was started."""
+        from ray import serve
+
+        from nemo_curator.core.serve import _active_servers
+
+        server = ModelServer(models=[ModelConfig(model_identifier="m")])
+        server._started = True
+        _active_servers.add(server.name)
+        try:
+            with patch.object(serve, "shutdown"):
+                server.stop()
+            assert server._started is False
+            assert server.name not in _active_servers
+        finally:
+            _active_servers.discard(server.name)
+
+    def test_stop_skips_shutdown_when_not_started(self) -> None:
+        """stop() on a not-started server is a no-op — serve.shutdown() is not called."""
+        from ray import serve
+
+        fresh = ModelServer(models=[ModelConfig(model_identifier="m")])
+        fresh._started = False
+        with patch.object(serve, "shutdown") as spy:
+            fresh.stop()
+            spy.assert_not_called()
+
+    def test_stop_is_idempotent(self) -> None:
+        """stop() called twice on a not-started server is safe (atexit double-call)."""
+        fresh = ModelServer(models=[ModelConfig(model_identifier="m")])
+        assert fresh._started is False
+        fresh.stop()
+        fresh.stop()
+        assert fresh._started is False
 
 
 # ---------------------------------------------------------------------------
@@ -140,94 +188,59 @@ class TestModelServerIntegration:
         assert len(response.choices) > 0
         assert len(response.choices[0].message.content) > 0
 
-    def test_resolve_port_reuses_existing_controller(self, model_server: ModelServer) -> None:
-        """A second ModelServer should detect the existing controller's port."""
+    def test_second_start_rejected(self, model_server: ModelServer) -> None:
+        """Cannot start a second ModelServer while one is already active."""
         server2 = ModelServer(
-            models=[ModelConfig(model_identifier="unused")],
-            port=model_server.port + 1,
-            name="second",
+            models=[
+                ModelConfig(
+                    model_identifier=INTEGRATION_TEST_MODEL_2,
+                    deployment_config={"autoscaling_config": {"min_replicas": 1, "max_replicas": 1}},
+                    engine_kwargs={"tensor_parallel_size": 1, "max_model_len": 512, "enforce_eager": True},
+                )
+            ],
+            health_check_timeout_s=600,
         )
-        server2._resolve_port()
-        assert server2.port == model_server.port
+        with pytest.raises(RuntimeError, match="already active"):
+            server2.start()
 
-    def test_stop_never_calls_serve_shutdown(self, model_server: ModelServer) -> None:
-        """Verify serve.shutdown() is never used — only serve.delete()."""
-        from ray import serve
+        # First server is still healthy and unaffected
+        from openai import OpenAI
 
-        # We can't actually stop the shared server, so spy on a fresh one
-        # that was never started — stop() should be a no-op
-        fresh = ModelServer(models=[ModelConfig(model_identifier="m")])
-        fresh._started = False
-        with patch.object(serve, "shutdown") as spy:
-            fresh.stop()
-            spy.assert_not_called()
-
-    def test_stop_is_idempotent(self, model_server: ModelServer) -> None:
-        """stop() on a not-started server is a no-op (safe for atexit double-call)."""
-        fresh = ModelServer(models=[ModelConfig(model_identifier="m")])
-        assert fresh._started is False
-        fresh.stop()  # no-op, no exception
-        fresh.stop()  # second call also no-op
-        assert fresh._started is False
+        client = OpenAI(base_url=model_server.endpoint, api_key="na")
+        assert INTEGRATION_TEST_MODEL in {m.id for m in client.models.list()}
 
     def test_restart_after_stop(self, model_server: ModelServer) -> None:
         """A new ModelServer starts cleanly after the previous one is stopped.
 
-        Since we use serve.delete() (not serve.shutdown()), the controller
-        and HTTP proxy stay alive, so a fresh app deploys without issues.
-
-        This test must run last in the class — it stops the shared fixture's
-        server and starts a replacement.
+        stop() calls serve.shutdown(), so start() must recreate the
+        controller and HTTP proxy from scratch.  This test must run last
+        in the class — it stops the shared fixture's server and starts a
+        replacement.
         """
         from openai import OpenAI
 
-        port = model_server.port
-
-        # Stop the fixture's server (first server)
+        # Stop the fixture's server
         model_server.stop()
         assert not is_ray_serve_active()
 
-        # Start a new server with two models — also request a different port
-        # to verify that _resolve_port detects the existing controller and
-        # reuses its port.
-        common_engine_kwargs = {
-            "tensor_parallel_size": 1,
-            "max_model_len": 512,
-            "enforce_eager": True,
-        }
-        configs = [
-            ModelConfig(
-                model_identifier=INTEGRATION_TEST_MODEL,
-                deployment_config={"autoscaling_config": {"min_replicas": 1, "max_replicas": 1}},
-                engine_kwargs=common_engine_kwargs,
-            ),
-            ModelConfig(
-                model_identifier=INTEGRATION_TEST_MODEL_2,
-                deployment_config={"autoscaling_config": {"min_replicas": 1, "max_replicas": 1}},
-                engine_kwargs=common_engine_kwargs,
-            ),
-        ]
-        server2 = ModelServer(models=configs, port=port + 1, health_check_timeout_s=600)
+        # Start a fresh server from scratch (new controller + proxy)
+        config = ModelConfig(
+            model_identifier=INTEGRATION_TEST_MODEL,
+            deployment_config={"autoscaling_config": {"min_replicas": 1, "max_replicas": 1}},
+            engine_kwargs={"tensor_parallel_size": 1, "max_model_len": 512, "enforce_eager": True},
+        )
+        server2 = ModelServer(models=[config], health_check_timeout_s=600)
         server2.start()
 
-        assert server2.port == port  # reused existing controller, not port + 1
-
         client = OpenAI(base_url=server2.endpoint, api_key="na")
-        model_ids = {m.id for m in client.models.list()}
-        assert INTEGRATION_TEST_MODEL in model_ids
-        assert INTEGRATION_TEST_MODEL_2 in model_ids
+        assert INTEGRATION_TEST_MODEL in {m.id for m in client.models.list()}
 
-        # Both models respond to chat completions
-        for model_name in (INTEGRATION_TEST_MODEL, INTEGRATION_TEST_MODEL_2):
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": "Say hello in one word."}],
-                max_tokens=16,
-                temperature=0.0,
-            )
-            assert len(response.choices) > 0
-            assert len(response.choices[0].message.content) > 0
-
-        assert is_ray_serve_active()
+        response = client.chat.completions.create(
+            model=INTEGRATION_TEST_MODEL,
+            messages=[{"role": "user", "content": "Say hello in one word."}],
+            max_tokens=16,
+            temperature=0.0,
+        )
+        assert len(response.choices[0].message.content) > 0
 
         server2.stop()

@@ -616,6 +616,20 @@ wheels = [
 ]
 
 [[package]]
+name = "boto3"
+version = "1.41.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "botocore" },
+    { name = "jmespath" },
+    { name = "s3transfer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5b/81/450cd4143864959264a3d80f9246175a20de8c1e50ec889c710eaa28cdd9/boto3-1.41.5.tar.gz", hash = "sha256:bc7806bee681dfdff2fe2b74967b107a56274f1e66ebe4d20dc8eee1ea408d17", size = 111594, upload-time = "2025-11-26T20:27:47.021Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3c/56/f47a80254ed4991cce9a2f6d8ae8aafbc8df1c3270e966b2927289e5a12f/boto3-1.41.5-py3-none-any.whl", hash = "sha256:bb278111bfb4c33dca8342bda49c9db7685e43debbfa00cc2a5eb854dd54b745", size = 139344, upload-time = "2025-11-26T20:27:45.571Z" },
+]
+
+[[package]]
 name = "botocore"
 version = "1.41.5"
 source = { registry = "https://pypi.org/simple" }
@@ -4484,6 +4498,7 @@ name = "nemo-curator"
 source = { editable = "." }
 dependencies = [
     { name = "absl-py" },
+    { name = "boto3" },
     { name = "comment-parser" },
     { name = "cosmos-xenna" },
     { name = "fsspec" },
@@ -4735,6 +4750,7 @@ requires-dist = [
     { name = "absl-py", specifier = ">=2.0.0,<3.0.0" },
     { name = "av", marker = "extra == 'video-cpu'", specifier = "==13.1.0" },
     { name = "beautifulsoup4", marker = "extra == 'text-cpu'" },
+    { name = "boto3" },
     { name = "comment-parser" },
     { name = "cosmos-xenna", specifier = "==0.1.2" },
     { name = "cudf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
@@ -7351,6 +7367,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/96/88/e2fc4fc2a618126ac3cea9b16a4abc5a37dff2522067c9730b5d72d67ac3/s3fs-2024.12.0.tar.gz", hash = "sha256:1b0f3a8f5946cca5ba29871d6792ab1e4528ed762327d8aefafc81b73b99fd56", size = 76578, upload-time = "2024-12-19T20:05:42.779Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f7/af/eaec1466887348d7f6cc9d3a668b30b62a4629fb187d0268146118ba3d5e/s3fs-2024.12.0-py3-none-any.whl", hash = "sha256:d8665549f9d1de083151582437a2f10d5f3b3227c1f8e67a2b0b730db813e005", size = 30196, upload-time = "2024-12-19T20:05:40.095Z" },
+]
+
+[[package]]
+name = "s3transfer"
+version = "0.15.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "botocore" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ca/bb/940d6af975948c1cc18f44545ffb219d3c35d78ec972b42ae229e8e37e08/s3transfer-0.15.0.tar.gz", hash = "sha256:d36fac8d0e3603eff9b5bfa4282c7ce6feb0301a633566153cbd0b93d11d8379", size = 152185, upload-time = "2025-11-20T20:28:56.327Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/e1/5ef25f52973aa12a19cf4e1375d00932d7fb354ffd310487ba7d44225c1a/s3transfer-0.15.0-py3-none-any.whl", hash = "sha256:6f8bf5caa31a0865c4081186689db1b2534cef721d104eb26101de4b9d6a5852", size = 85984, upload-time = "2025-11-20T20:28:55.046Z" },
 ]
 
 [[package]]

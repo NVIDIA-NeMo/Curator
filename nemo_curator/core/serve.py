@@ -23,6 +23,9 @@ if TYPE_CHECKING:
     from ray.serve.llm import LLMConfig
 
 from loguru import logger
+from ray import serve
+from ray.serve.llm import build_openai_app
+from ray.serve.schema import LoggingConfig
 
 from nemo_curator.core.constants import DEFAULT_SERVE_HEALTH_TIMEOUT_S, DEFAULT_SERVE_PORT
 from nemo_curator.core.utils import get_free_port
@@ -78,18 +81,15 @@ class ModelServer:
     Requires a running Ray cluster (e.g. via RayClient or RAY_ADDRESS env var).
 
     Cleanup semantics:
-        ``stop()`` only deletes the application owned by this ModelServer
-        (identified by ``name``).  The Serve controller and HTTP proxy are
-        left running so that other applications on the same cluster are not
-        disrupted.  This is the Ray Serve equivalent of ``ray stop`` only
-        killing *your* cluster — we never call ``serve.shutdown()`` because
-        that destroys *all* applications for every user on the cluster.
+        ``stop()`` calls ``serve.shutdown()``, tearing down all applications,
+        the Serve controller, and HTTP proxy.  This is safe because a
+        singleton guard ensures only one ModelServer is active at a time.
+        The overhead of recreating the controller on the next ``start()``
+        is ~2-5 s — negligible compared to model loading time.
 
     Args:
         models: List of ModelConfig instances to deploy.
-        name: Ray Serve application name. Defaults to "default". Only the
-            application with this name is cleaned up on start/stop — other
-            applications on the same cluster are left untouched.
+        name: Ray Serve application name (default ``"default"``).
         port: HTTP port for the OpenAI-compatible endpoint.
         health_check_timeout_s: Seconds to wait for models to become healthy.
         verbose: If True, keep Ray Serve logging at default levels (INFO).
@@ -127,10 +127,21 @@ class ModelServer:
     _started: bool = field(init=False, default=False, repr=False)
 
     def start(self) -> None:
-        """Deploy all models and wait for them to become healthy."""
-        from ray import serve
-        from ray.serve.llm import build_openai_app
-        from ray.serve.schema import LoggingConfig
+        """Deploy all models and wait for them to become healthy.
+
+        Raises:
+            RuntimeError: If another ModelServer is already active in this
+                process.  Only one ModelServer can run at a time because all
+                instances share the same ``/v1`` routes on the Ray Serve HTTP
+                proxy.  Stop the existing server before starting a new one.
+        """
+        if _active_servers:
+            running = ", ".join(sorted(_active_servers))
+            msg = (
+                f"Cannot start ModelServer '{self.name}': another ModelServer is "
+                f"already active (running: {running}). Stop the existing server first."
+            )
+            raise RuntimeError(msg)
 
         # Register atexit handler so that abnormal exits
         atexit.register(self.stop)
@@ -175,29 +186,19 @@ class ModelServer:
         logger.info(f"Ray Serve is ready at {self.endpoint}")
 
     def stop(self) -> None:
-        """Delete this application from Ray Serve.
-
-        Only deletes the application owned by this ModelServer (identified
-        by ``self.name``).  Other applications and the Serve controller /
-        HTTP proxy are left untouched, making this safe in multi-tenant and
-        multi-app environments.
-        """
+        """Shut down Ray Serve (all applications, controller, and HTTP proxy)."""
         if not self._started:
             return
-
-        from ray import serve
-
-        logger.info(f"Deleting Serve application '{self.name}'")
-
+        logger.info("Shutting down Ray Serve")
         try:
-            serve.delete(self.name, _blocking=True)
+            serve.shutdown()
         except Exception:  # noqa: BLE001
-            logger.debug(f"Could not delete '{self.name}' app (may already be gone)")
+            logger.debug("serve.shutdown() failed (cluster may already be gone)")
 
         _active_servers.discard(self.name)
         self._started = False
 
-        logger.info(f"Serve application '{self.name}' deleted successfully")
+        logger.info("Ray Serve stopped")
 
     @property
     def endpoint(self) -> str:
@@ -272,15 +273,15 @@ class ModelServer:
     def _cleanup_failed_deploy(self) -> None:
         """Best-effort cleanup after a failed deploy (e.g. health check timeout).
 
-        Deletes the partially-deployed application so that GPU memory and
-        other resources held by replicas are released.
+        Shuts down Ray Serve so that GPU memory and other resources held by
+        partially-deployed replicas are released.
         """
         from ray import serve
 
         try:
-            serve.delete(self.name, _blocking=True)
+            serve.shutdown()
         except Exception:  # noqa: BLE001
-            logger.debug(f"Cleanup: could not delete '{self.name}' after failed deploy")
+            logger.debug("Cleanup: serve.shutdown() failed after failed deploy")
 
     def _wait_for_healthy(self) -> None:
         """Poll the /v1/models endpoint until all models are ready.
