@@ -60,6 +60,7 @@ class RayStageSpecKeys(str, Enum):
     IS_RAFT_ACTOR = "is_raft_actor"
     IS_LSH_STAGE = "is_lsh_stage"
     IS_SHUFFLE_STAGE = "is_shuffle_stage"
+    MAX_CALLS_PER_WORKER = "max_calls_per_worker"
 
 
 def get_worker_metadata_and_node_id() -> tuple[NodeInfo, WorkerMetadata]:

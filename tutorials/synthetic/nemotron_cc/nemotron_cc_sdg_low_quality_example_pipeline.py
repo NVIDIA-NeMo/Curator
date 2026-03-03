@@ -34,10 +34,10 @@ from nemo_curator.stages.synthetic.nemotron_cc.prompts import (
     NEMOTRON_CC_SYSTEM_PROMPT,
     WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE,
 )
+from nemo_curator.stages.text.filters import Filter
 from nemo_curator.stages.text.io.reader.parquet import ParquetReader
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.stages.text.io.writer.parquet import ParquetWriter
-from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks.document import DocumentBatch
 
 # Threshold used to bucket and filter input examples

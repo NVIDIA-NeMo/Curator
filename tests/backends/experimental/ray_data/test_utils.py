@@ -21,6 +21,7 @@ from nemo_curator.backends.experimental.ray_data.utils import (
     get_available_cpu_gpu_resources,
 )
 from nemo_curator.stages.resources import Resources
+from tests.backends.experimental.test_utils import reset_head_node_cache  # noqa: F401
 
 
 class TestGetAvailableCpuGpuResources:
@@ -36,6 +37,7 @@ class TestGetAvailableCpuGpuResources:
         # Can be 0 (CPU-only) or 2 (GPU-enabled) depending on test selection
         assert gpus in [0.0, 2.0]
 
+    @pytest.mark.usefixtures("reset_head_node_cache")
     def test_get_resources_with_ignore_head_node(
         self,
         shared_ray_client: None,

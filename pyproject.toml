@@ -154,6 +154,18 @@ video_cuda12 = [
     "torchaudio",
 ]
 
+# Math Curation Dependencies
+math_cpu = [
+    "nemo_curator[text_cpu]",  # Math examples use text processing utilities
+]
+
+math_cuda12 = [
+    "nemo_curator[math_cpu]",
+    "nemo_curator[cuda12]",
+    "nemo_curator[deduplication_cuda12]",
+    "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+]
+
 # Synthetic Data Generation (SDG) Dependencies
 sdg_cpu = [
     "data-designer==0.4.0",
@@ -163,6 +175,7 @@ sdg_cpu = [
 all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
+    "nemo_curator[math_cuda12]",
     "nemo_curator[sdg_cpu]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[video_cuda12]",
