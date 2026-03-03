@@ -16,12 +16,34 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import cv2
+import numpy as np
 import pandas as pd
 
-from nemo_curator.stages.image.filters.qrcode_filter import _qr_code_ratio
 from nemo_curator.stages.multimodal.filter.blur_filter import _image_bytes_to_array
 from nemo_curator.stages.multimodal.stages import BaseMultimodalFilterStage
 from nemo_curator.tasks import MultiBatchTask
+
+
+def _qr_code_ratio(image: np.ndarray) -> float:
+    """Return the ratio of image area covered by all detected QR code(s), in [0, 1]."""
+    height, width = image.shape[:2]
+    img_area = float(height * width)
+    if img_area <= 0:
+        return 0.0
+    detector = cv2.QRCodeDetector()
+    retval, _decoded_info, points, _ = detector.detectAndDecodeMulti(image)
+    if not retval or points is None or points.size == 0:
+        data, points, _ = detector.detectAndDecode(image)
+        if not data or points is None or points.size == 0:
+            return 0.0
+        points = [np.asarray(points, dtype=np.float32)]
+    points = np.asarray(points, dtype=np.float32)
+    total_qr_area = 0.0
+    for i in range(len(points)):
+        pts = points[i].reshape(-1, 1, 2)
+        total_qr_area += cv2.contourArea(pts)
+    return total_qr_area / img_area
 
 
 @dataclass

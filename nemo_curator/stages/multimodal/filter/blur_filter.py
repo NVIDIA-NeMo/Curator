@@ -19,7 +19,6 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from nemo_curator.stages.image.filters.blur_filter import _sharpness_score
 from nemo_curator.stages.multimodal.stages import BaseMultimodalFilterStage
 from nemo_curator.tasks import MultiBatchTask
 
@@ -27,6 +26,11 @@ try:
     import cv2
 except ImportError:
     cv2 = None
+
+
+def _sharpness_score(image: np.ndarray) -> float:
+    """Compute Laplacian variance as sharpness score; higher is sharper."""
+    return float(cv2.Laplacian(image, cv2.CV_64F).var())
 
 
 def _image_bytes_to_array(image_bytes: bytes) -> np.ndarray | None:
