@@ -19,7 +19,7 @@ import pandas as pd
 import pyarrow as pa
 
 @dataclass
-class DocumentBatch(Task[pd.DataFrame | pa.Table]):
+class DocumentBatch(Task[pa.Table | pd.DataFrame]):
     """Task containing a batch of text documents.
 
     Attributes:
@@ -30,7 +30,7 @@ class DocumentBatch(Task[pd.DataFrame | pa.Table]):
 
     task_id: str
     dataset_name: str
-    data: pd.DataFrame | pa.Table
+    data: pa.Table | pd.DataFrame
 ```
 
 ## Expected Data Schema
@@ -58,6 +58,33 @@ def num_items(self) -> int:
 
 ## Methods
 
+### `to_pyarrow()`
+
+Convert data to PyArrow table.
+
+```python
+def to_pyarrow(self) -> pa.Table:
+    """Convert data to PyArrow table."""
+```
+
+### `to_pandas()`
+
+Convert data to Pandas DataFrame.
+
+```python
+def to_pandas(self) -> pd.DataFrame:
+    """Convert data to Pandas DataFrame."""
+```
+
+### `get_columns()`
+
+Get column names from the data.
+
+```python
+def get_columns(self) -> list[str]:
+    """Get column names from the data."""
+```
+
 ### `validate()`
 
 Validate the batch structure.
@@ -67,7 +94,7 @@ def validate(self) -> bool:
     """Validate that the batch has required structure.
 
     Returns:
-        True if valid, raises ValueError otherwise.
+        True if valid, False if empty or has no columns (logs warning).
     """
 ```
 
@@ -171,4 +198,4 @@ def process(self, task: DocumentBatch) -> DocumentBatch | None:
 
 ## Source Code
 
-[View source on GitHub](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/tasks/text.py)
+[View source on GitHub](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/tasks/document.py)

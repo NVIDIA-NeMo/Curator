@@ -15,13 +15,14 @@ from nemo_curator.pipeline import Pipeline
 
 ```python
 class Pipeline:
-    """Compose ProcessingStage instances into an executable workflow."""
+    """User-facing pipeline definition for composing processing stages."""
 
     def __init__(
         self,
         name: str,
         description: str | None = None,
         stages: list[ProcessingStage] | None = None,
+        config: dict[str, Any] | None = None,
     ) -> None:
         """Initialize a pipeline.
 
@@ -29,6 +30,7 @@ class Pipeline:
             name: Name identifier for the pipeline.
             description: Optional description of the pipeline's purpose.
             stages: Optional list of processing stages to include.
+            config: Optional pipeline configuration valid across all executors.
         """
 ```
 
@@ -52,27 +54,27 @@ def add_stage(self, stage: ProcessingStage) -> "Pipeline":
 
 ### `build()`
 
-Build an execution plan from the pipeline.
+Build an execution plan from the pipeline. Decomposes composite stages into execution stages and updates the pipeline in place.
 
 ```python
-def build(self) -> list[ProcessingStage]:
+def build(self) -> None:
     """Build the execution plan by decomposing composite stages.
 
-    Returns:
-        List of execution-ready stages.
+    Raises:
+        ValueError: If the pipeline has no stages.
     """
 ```
 
 ### `run()`
 
-Execute the pipeline.
+Execute the pipeline. Calls `build()` before execution.
 
 ```python
 def run(
     self,
     executor: BaseExecutor | None = None,
     initial_tasks: list[Task] | None = None,
-) -> list[Task]:
+) -> list[Task] | None:
     """Execute the pipeline.
 
     Args:
@@ -80,7 +82,7 @@ def run(
         initial_tasks: Initial tasks to start the pipeline.
 
     Returns:
-        List of output tasks from the final stage.
+        List of output tasks from the final stage, or None.
     """
 ```
 
@@ -136,6 +138,15 @@ from nemo_curator.backends.xenna import XennaExecutor
 
 executor = XennaExecutor(config={"execution_mode": "streaming"})
 results = pipeline.run(executor=executor)
+```
+
+### Pipeline Configuration
+
+```python
+pipeline = Pipeline(
+    name="my_pipeline",
+    config={"custom_key": "value"},
+)
 ```
 
 ## Source Code
