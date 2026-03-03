@@ -30,7 +30,9 @@ jobs:
         run: npm install -g fern-api
 
       - name: Substitute variables
-        run: python fern/scripts/substitute_variables.py pages
+        run: |
+          python fern/scripts/substitute_variables.py v25.09 --version 25.09
+          python fern/scripts/substitute_variables.py v26.02 --version 26.02
         working-directory: .
 
       - name: Validate Fern config
@@ -38,7 +40,9 @@ jobs:
         working-directory: fern
 
       - name: Check for unconverted MyST syntax
-        run: bash scripts/check_unconverted.sh pages
+        run: |
+          bash scripts/check_unconverted.sh v25.09
+          bash scripts/check_unconverted.sh v26.02
         working-directory: fern
         continue-on-error: true
 

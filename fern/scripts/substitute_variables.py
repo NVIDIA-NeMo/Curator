@@ -13,8 +13,8 @@ import argparse
 import re
 from pathlib import Path
 
-# Documentation variables - single source of truth
-VARIABLES = {
+# Documentation variables - single source of truth (version overridden via --version)
+DEFAULT_VARIABLES = {
     "product_name": "NeMo Curator",
     "product_name_short": "Curator",
     "company": "NVIDIA",
@@ -30,18 +30,18 @@ VARIABLES = {
 }
 
 
-def substitute_variables(content: str) -> str:
+def substitute_variables(content: str, variables: dict) -> str:
     """Replace {{ variable }} patterns with their values."""
-    for var, value in VARIABLES.items():
+    for var, value in variables.items():
         # Handle both {{ var }} and {{var}} patterns
         content = re.sub(rf"{{\{{\s*{var}\s*}}}}", value, content)
     return content
 
 
-def process_file(filepath: Path, dry_run: bool = False) -> bool:
+def process_file(filepath: Path, variables: dict, dry_run: bool = False) -> bool:
     """Process a single MDX file. Returns True if file was modified."""
     content = filepath.read_text()
-    updated = substitute_variables(content)
+    updated = substitute_variables(content, variables)
 
     if content != updated:
         if dry_run:
@@ -55,7 +55,8 @@ def process_file(filepath: Path, dry_run: bool = False) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(description="Substitute documentation variables in MDX files")
-    parser.add_argument("directory", nargs="?", default="pages", help="Directory to process (default: pages)")
+    parser.add_argument("directory", nargs="?", default="pages", help="Directory to process (e.g. v25.09, v26.02)")
+    parser.add_argument("--version", help="Version string for version/container_version/current_release (e.g. 25.09, 26.02)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be changed without modifying files")
     args = parser.parse_args()
 
@@ -64,9 +65,15 @@ def main():
         print(f"Error: Directory not found: {base_dir}")
         return 1
 
+    variables = dict(DEFAULT_VARIABLES)
+    if args.version:
+        variables["version"] = args.version
+        variables["container_version"] = args.version
+        variables["current_release"] = args.version
+
     modified_count = 0
     for mdx_file in base_dir.rglob("*.mdx"):
-        if process_file(mdx_file, args.dry_run):
+        if process_file(mdx_file, variables, args.dry_run):
             modified_count += 1
 
     print(f"\n{'Would modify' if args.dry_run else 'Modified'}: {modified_count} files")

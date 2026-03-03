@@ -1,0 +1,211 @@
+---
+description: "Comprehensive guide to Ray-based video curation with NeMo Curator including splitting and deduplication pipelines for large-scale processing"
+categories: ["video-curation"]
+tags: ["video-processing", "gpu-accelerated", "pipeline", "distributed", "ray", "splitting", "deduplication", "autoscaling"]
+personas: ["mle-focused", "data-scientist-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "video-only"
+---
+
+(video-overview)=
+
+# About Video Curation
+
+Learn what video curation is and how you use NeMo Curator to turn long videos into high‑quality, searchable clips.
+Depending on the use case, this can involve processing 100+ PB of videos.
+To efficiently process this quantity of videos, NeMo Curator provides highly optimized curation pipelines.
+
+## Use Cases
+
+Identify when to use NeMo Curator by matching your goals to common video curation scenarios.
+
+* Generating clips for video world model training
+* Generating clips for generative video model fine-tuning
+* Creating a rich video database for video retrieval applications
+
+## Architecture
+
+Understand how components work together so you can plan, scale, and troubleshoot video pipelines. The following diagram outlines NeMo Curator's video curation architecture:
+
+```{image} ../about/concepts/video/_images/video-pipeline-diagram.png
+:alt: High-level outline of NeMo Curator's video curation architecture
+```
+
+<Note>
+Video pipelines use the `XennaExecutor` backend by default, which provides optimized support for GPU-accelerated video processing including hardware decoders and encoders. You do not need to import or configure the executor unless you want to use an alternative backend. For more information about customizing backends, refer to [Pipeline Execution Backends](reference-execution-backends).
+</Note>
+
+---
+
+## Introduction
+
+Get oriented and prepare your environment so you can start curating videos with confidence.
+
+<Cards>
+
+<Card title="{octicon}`database;1.5em;sd-mr-1` Concepts" href="about-concepts-video">
+Learn about the architecture, stages, pipelines, and data flow for video curation
++++
+{bdg-secondary}`stages`
+{bdg-secondary}`pipelines`
+{bdg-secondary}`ray`
+
+</Card>
+
+<Card title="{octicon}`rocket;1.5em;sd-mr-1` Get Started" href="gs-video">
+Install NeMo Curator, configure storage, prepare data, and run your first video pipeline.
+
+</Tabs>
+
+---
+
+## Curation Tasks
+
+Follow task-based guides to load, process, and write curated video data end to end.
+
+### Load Data
+
+Bring videos into your pipeline from local paths or remote sources you control.
+
+<Cards>
+
+</Card>
+
+<Card title="{octicon}`download;1.5em;sd-mr-1` Local & Cloud" href="video-load-data-local-cloud">
+Load videos from local paths or S3-compatible and HTTP(S) URLs.
++++
+{bdg-secondary}`local`
+{bdg-secondary}`s3`
+{bdg-secondary}`file-list`
+
+</Card>
+
+<Card title="{octicon}`download;1.5em;sd-mr-1` Remote (JSON)" href="video-load-data-json-list">
+Provide an explicit JSON file list for remote datasets under a root prefix.
++++
+{bdg-secondary}`file-list`
+{bdg-secondary}`s3`
+
+</Tabs>
+
+### Process Data
+
+Transform raw videos into curated clips, frames, embeddings, and metadata you can use.
+
+<Cards>
+
+</Card>
+
+<Card title="{octicon}`versions;1.5em;sd-mr-1` Clip Videos" href="video-process-clipping">
+Split long videos into shorter clips using fixed stride or scene-change detection.
++++
+{bdg-primary}`clips`
+{bdg-secondary}`fixed-stride`
+{bdg-secondary}`transnetv2`
+
+</Card>
+
+<Card title="{octicon}`gear;1.5em;sd-mr-1` Encode Clips" href="video-process-transcoding">
+Encode clips to H.264 using CPU or GPU encoders and tune performance.
++++
+{bdg-primary}`clips`
+{bdg-secondary}`h264_nvenc`
+{bdg-secondary}`libopenh264`
+{bdg-secondary}`libx264`
+
+</Card>
+
+<Card title="{octicon}`filter;1.5em;sd-mr-1` Filter Clips and Frames" href="video-process-filtering">
+Apply motion-based filtering and aesthetic filtering to improve dataset quality.
++++
+{bdg-primary}`clips`
+{bdg-primary}`frames`
+{bdg-secondary}`motion`
+{bdg-secondary}`aesthetic`
+
+</Card>
+
+<Card title="{octicon}`device-camera;1.5em;sd-mr-1` Extract Frames" href="video-process-frame-extraction">
+Extract frames from clips or full videos for embeddings, filtering, and analysis.
++++
+{bdg-primary}`frames`
+{bdg-secondary}`nvdec`
+{bdg-secondary}`ffmpeg`
+{bdg-secondary}`fps`
+
+</Card>
+
+<Card title="{octicon}`graph;1.5em;sd-mr-1` Create Embeddings" href="video-process-embeddings">
+Generate clip-level embeddings with Cosmos-Embed1 for search and duplicate removal.
++++
+{bdg-primary}`clips`
+{bdg-secondary}`cosmos-embed1`
+
+</Card>
+
+<Card title="{octicon}`comment-discussion;1.5em;sd-mr-1` Create Captions & Preview" href="video-process-captions-preview">
+Generate Qwen‑VL captions and optional WebP previews; optionally enhance with Qwen‑LM.
++++
+{bdg-primary}`captions`
+{bdg-primary}`previews`
+{bdg-secondary}`qwen`
+{bdg-secondary}`webp`
+
+</Card>
+
+<Card title="{octicon}`git-branch;1.5em;sd-mr-1` Remove Duplicate Embeddings" href="video-process-dedup">
+Remove near-duplicates using semantic clustering and similarity with generated embeddings.
++++
+{bdg-primary}`clips`
+{bdg-secondary}`semantic`
+{bdg-secondary}`pairwise`
+{bdg-secondary}`kmeans`
+
+</Tabs>
+
+### Write Data
+
+Save outputs in formats your training or retrieval systems can consume at scale.
+
+<Cards>
+
+</Card>
+
+<Card title="{octicon}`device-camera;1.5em;sd-mr-1` Save & Export" href="video-save-export">
+Understand output directories, parquet embeddings, and packaging for training.
++++
+{bdg-secondary}`parquet`
+{bdg-secondary}`webdataset`
+{bdg-secondary}`metadata`
+
+</Tabs>
+
+---
+
+## Tutorials
+
+Practice with guided, hands-on examples to build, customize, and run video pipelines.
+
+<Cards>
+
+</Card>
+
+<Card title="{octicon}`mortar-board;1.5em;sd-mr-1` Beginner Tutorial" href="video-tutorials-beginner">
+Create and run your first video pipeline: read, split, encode, embed, write.
++++
+{bdg-secondary}`splitting`
+{bdg-secondary}`encoding`
+{bdg-secondary}`embeddings`
+
+</Card>
+
+<Card title="{octicon}`mortar-board;1.5em;sd-mr-1` Pipeline Customization Tutorials" href="video-tutorials-pipeline-cust-series">
+Customize environments, code, models, and stages for video pipelines.
++++
+{bdg-secondary}`environments`
+{bdg-secondary}`code`
+{bdg-secondary}`models`
+{bdg-secondary}`stages`
+
+</Tabs>

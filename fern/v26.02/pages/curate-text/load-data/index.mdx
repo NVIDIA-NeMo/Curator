@@ -1,0 +1,82 @@
+---
+title: Download Data
+description: "Load text data from Common Crawl, Wikipedia, and custom datasets using Curator."
+---
+
+Load text data from ArXiv, Common Crawl, Wikipedia, and custom sources using Curator.
+
+Curator provides a task-centric pipeline for downloading and processing large-scale public text datasets. It runs on Ray and converts raw formats like Common Crawl's `.warc.gz` into JSONL.
+
+## How it Works
+
+Curator uses a [4-step pipeline pattern](/about/concepts/text/data-acquisition-concepts) where data flows through stages as tasks. Each step uses a `ProcessingStage` that transforms tasks according to Curator's [pipeline-based architecture](/about/concepts/text/data-loading-concepts).
+
+Data sources provide composite stages that combine these steps into complete download-and-extract pipelines, producing `DocumentBatch` tasks for further processing.
+
+<Tabs>
+<Tab title="Python">
+```python
+from nemo_curator.core.client import RayClient
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.download import CommonCrawlDownloadExtractStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
+# Initialize Ray client
+ray_client = RayClient()
+ray_client.start()
+
+# Create a pipeline for downloading Common Crawl data
+pipeline = Pipeline(
+    name="common_crawl_download",
+    description="Download and process Common Crawl web archives"
+)
+
+# Add data loading stage
+cc_stage = CommonCrawlDownloadExtractStage(
+    start_snapshot="2020-50",
+    end_snapshot="2020-50",
+    download_dir="/tmp/cc_downloads",
+    crawl_type="main",
+    url_limit=10  # Limit for testing
+)
+pipeline.add_stage(cc_stage)
+
+# Add writer stage to save as JSONL
+writer = JsonlWriter(path="/output/folder")
+pipeline.add_stage(writer)
+
+# Execute pipeline
+results = pipeline.run()
+
+# Stop Ray client
+ray_client.stop()
+```
+</Tab>
+</Tabs>
+
+---
+
+## Data Sources & File Formats
+
+Load data from public datasets and custom data sources using Curator stages.
+
+<Cards>
+
+<Card title="Read Existing Data" href="/curate-text/load-data/read-existing">
+Read existing JSONL and Parquet datasets using Curator's reader stages
+</Card>
+
+<Card title="Common Crawl" href="/curate-text/load-data/common-crawl">
+Download and extract web archive data from Common Crawl
+</Card>
+
+<Card title="Wikipedia" href="/curate-text/load-data/wikipedia">
+Download and extract Wikipedia articles from Wikipedia dumps
+</Card>
+
+<Card title="Custom Data Sources" href="/curate-text/load-data/custom">
+Implement a download and extract pipeline for a custom data source
+</Card>
+
+</Cards>
+

@@ -7,19 +7,12 @@ This directory contains the NeMo Curator documentation built with [Fern](https:/
 ```
 fern/
 ├── fern.config.json     # Fern configuration
-├── docs.yml             # Navigation and settings
-├── versions/            # Version configurations
-├── pages/               # MDX documentation pages
-│   ├── index.mdx        # Home page
-│   ├── about/           # About section
-│   ├── get-started/     # Quickstart guides
-│   ├── curate-text/     # Text curation docs
-│   ├── curate-images/   # Image curation docs
-│   ├── curate-video/    # Video curation docs
-│   ├── curate-audio/    # Audio curation docs
-│   ├── admin/           # Setup & deployment
-│   ├── reference/       # Reference docs
-│   └── api-reference/   # API documentation
+├── docs.yml             # Site config and version list
+├── versions/            # Version-specific navigation
+│   ├── v25.09.yml       # 25.09 navigation
+│   └── v26.02.yml       # 26.02 (latest) navigation
+├── v25.09/pages/        # 25.09 documentation (frozen)
+├── v26.02/pages/        # 26.02 documentation (latest)
 ├── assets/              # Images and static files
 ├── scripts/             # Build and conversion scripts
 └── README.md            # This file
@@ -60,10 +53,11 @@ fern generate --docs
 
 ### Variable Substitution
 
-The `scripts/substitute_variables.py` script replaces template variables with their values:
+The `scripts/substitute_variables.py` script replaces template variables with their values. Run for each version:
 
 ```bash
-python scripts/substitute_variables.py pages
+python fern/scripts/substitute_variables.py v25.09 --version 25.09
+python fern/scripts/substitute_variables.py v26.02 --version 26.02
 ```
 
 Variables are defined in the script and include:
@@ -76,7 +70,17 @@ Variables are defined in the script and include:
 Verify all MyST syntax has been converted to Fern format:
 
 ```bash
-bash scripts/check_unconverted.sh pages
+bash fern/scripts/check_unconverted.sh v25.09
+bash fern/scripts/check_unconverted.sh v26.02
+```
+
+### Diff from Release Branch
+
+Compare v26.02 docs against a release branch to see what changed:
+
+```bash
+bash fern/scripts/diff_from_release.sh main
+# Or: bash fern/scripts/diff_from_release.sh origin/main
 ```
 
 ### Convert MyST to Fern
@@ -105,16 +109,16 @@ This documentation was migrated from Sphinx MyST format. See:
 
 ## Contributing
 
-1. Make changes to MDX files in `pages/`
+1. Make changes to MDX files in `v26.02/pages/` (latest version)
 2. Run `fern check` to validate
 3. Test locally with `fern docs dev`
 4. Submit PR for review
 
 ### Adding New Pages
 
-1. Create MDX file in appropriate directory
+1. Create MDX file in `v26.02/pages/` (or appropriate version)
 2. Add frontmatter with `title` and `description`
-3. Add page to `docs.yml` navigation
+3. Add page to `versions/v26.02.yml` navigation
 4. Run `fern check` to validate
 
 ### Frontmatter Format
