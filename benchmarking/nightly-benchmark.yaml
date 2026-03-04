@@ -69,6 +69,10 @@ datasets:
     formats:
     - type: "jsonl"
       path: "{datasets_path}/gretel_symptoms"
+  - name: "multimodal_mint1t"
+    formats:
+    - type: "wds_tar_dir"
+      path: "{datasets_path}/multimodal/mint1t"
 default_timeout_s: 7200
 
 # Optional sinks
@@ -715,3 +719,53 @@ entries:
         exact_value: 113
       - metric: throughput_clips_per_sec
         min_value: 0.25
+
+  - name: multimodal_mint1t_xenna
+    enabled: false
+    script: multimodal_mint1t_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=xenna
+      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --files-per-partition=2
+      --mode=overwrite
+      --no-materialize-on-write
+      --output-max-batch-bytes=2000000
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_rows_per_sec
+          - num_rows
+          - num_output_files
+          - materialize_error_count
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+
+  - name: multimodal_mint1t_xenna_materialize
+    enabled: false
+    script: multimodal_mint1t_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=xenna
+      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --files-per-partition=2
+      --mode=overwrite
+      --materialize-on-write
+      --output-max-batch-bytes=2000000
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_rows_per_sec
+          - num_rows
+          - num_output_files
+          - materialize_error_count
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
