@@ -246,9 +246,8 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         return self._init_lock
     
     def inputs(self) -> Tuple[List[str], List[str]]:
-        """Define required inputs."""
-        return [], ["audio"]
-    
+        return ["data"], []
+
     def outputs(self) -> Tuple[List[str], List[str]]:
         """Define outputs produced by this stage."""
         return [], ["sigmos_noise", "sigmos_ovrl", "sigmos_sig", "sigmos_col", 
@@ -256,6 +255,8 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
     
     def setup(self, worker_metadata=None) -> None:
         """Load SIGMOS model on worker initialization."""
+        from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
+        ensure_cudnn_loaded()
         self._initialize_model()
     
     def teardown(self) -> None:
@@ -492,7 +493,8 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         if self._predict_function is None:
             logger.error("SIGMOS prediction function not available")
-            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
+            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name,
+                             _metadata=task._metadata, _stage_perf=task._stage_perf)
         
         total_items = len(task.data)
         
@@ -568,4 +570,10 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         logger.info(f"[SIGMOSFilter] {task.task_id}: {passed_count}/{total_items} passed (thresholds: {threshold_str}) [{mode}]")
         
-        return AudioBatch(data=results, task_id=task.task_id, dataset_name=task.dataset_name)
+        return AudioBatch(
+            data=results,
+            task_id=task.task_id,
+            dataset_name=task.dataset_name,
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )

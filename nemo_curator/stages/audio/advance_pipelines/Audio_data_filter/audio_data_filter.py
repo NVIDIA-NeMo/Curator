@@ -259,9 +259,7 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         return self._init_lock
     
     def inputs(self) -> Tuple[List[str], List[str]]:
-        # Don't validate data attributes since AudioBatch wraps dict in list
-        # Validation is handled in process() method
-        return [], []
+        return ["data"], []
     
     def outputs(self) -> Tuple[List[str], List[str]]:
         return [], ["original_file", "original_start_ms", "original_end_ms", 
@@ -269,6 +267,10 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
     
     def setup(self, worker_metadata=None) -> None:
         self._initialize_stages()
+        for stage in [self._mono_stage, self._vad_stage, self._band_stage,
+                      self._nisqa_stage, self._sigmos_stage, self._speaker_stage]:
+            if stage is not None:
+                stage.setup(worker_metadata)
     
     def teardown(self) -> None:
         if self._nisqa_stage:

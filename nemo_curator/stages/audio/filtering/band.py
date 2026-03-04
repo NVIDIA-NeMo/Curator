@@ -217,15 +217,16 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         return self._init_lock
     
     def inputs(self) -> Tuple[List[str], List[str]]:
-        """Define required inputs."""
-        return [], ["waveform", "sample_rate"]
-    
+        return ["data"], []
+
     def outputs(self) -> Tuple[List[str], List[str]]:
         """Define outputs produced by this stage."""
         return [], ["band_prediction"]
     
     def setup(self, worker_metadata=None) -> None:
         """Load band predictor on worker initialization."""
+        from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
+        ensure_cudnn_loaded()
         self._initialize_predictor()
     
     def teardown(self) -> None:
@@ -399,7 +400,8 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         if self._predictor is None:
             logger.error("Band predictor not available")
-            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name)
+            return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name,
+                             _metadata=task._metadata, _stage_perf=task._stage_perf)
         
         total_items = len(task.data)
         
@@ -457,4 +459,10 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         logger.info(f"[BandFilter] {task.task_id}: {passed_count}/{total_items} passed ({self.band_value}) [{mode}]")
         
-        return AudioBatch(data=results, task_id=task.task_id, dataset_name=task.dataset_name)
+        return AudioBatch(
+            data=results,
+            task_id=task.task_id,
+            dataset_name=task.dataset_name,
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )

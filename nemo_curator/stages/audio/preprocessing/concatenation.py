@@ -63,7 +63,7 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
     audio_key: str = "audio"
     
     name: str = "SegmentConcatenation"
-    batch_size: int = 1
+    batch_size: int = 10
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     
     def __post_init__(self):
@@ -74,11 +74,11 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
         if self.config is not None:
             self.silence_duration_sec = self.config.silence_duration_sec
             self.audio_key = self.config.audio_key
+            self.batch_size = self.config.batch_size
     
     def inputs(self) -> Tuple[List[str], List[str]]:
-        """Define required inputs."""
-        return [], [self.audio_key]
-    
+        return ["data"], []
+
     def outputs(self) -> Tuple[List[str], List[str]]:
         """Define outputs produced by this stage."""
         return [], [self.audio_key, "num_segments", "total_duration_sec", "concatenated"]
@@ -134,10 +134,13 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 'sample_rate': 48000,
             }
             
+            first_task = tasks[0]
             return [AudioBatch(
                 data=output_data,
                 task_id="concatenated",
-                dataset_name=tasks[0].dataset_name if tasks else "",
+                dataset_name=first_task.dataset_name,
+                _metadata=first_task._metadata,
+                _stage_perf=list(first_task._stage_perf),
             )]
             
         except Exception as e:

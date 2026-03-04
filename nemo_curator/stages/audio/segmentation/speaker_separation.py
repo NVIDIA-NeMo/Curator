@@ -34,7 +34,7 @@ import os
 import tempfile
 import threading
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import torch
 import soundfile as sf
@@ -162,13 +162,16 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         return self._init_lock
     
     def inputs(self) -> Tuple[List[str], List[str]]:
-        """Define required inputs."""
-        return [], ["audio"]
-    
+        return ["data"], []
+
     def outputs(self) -> Tuple[List[str], List[str]]:
         """Define outputs produced by this stage."""
         return [], ["speaker_id", "num_speakers", "duration_sec"]
     
+    def ray_stage_spec(self) -> dict[str, Any]:
+        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+
     def setup(self, worker_metadata=None) -> None:
         """Load NeMo diarization model on worker initialization."""
         self._initialize_separator()
@@ -334,7 +337,9 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
                     results.append(AudioBatch(
                         data=[speaker_data],
                         task_id=f"{task.task_id}_{speaker_id}",
-                        dataset_name=task.dataset_name
+                        dataset_name=task.dataset_name,
+                        _metadata=task._metadata,
+                        _stage_perf=list(task._stage_perf),
                     ))
                         
             except Exception as e:

@@ -29,17 +29,19 @@ class SegmentConcatenationConfig:
     Attributes:
         silence_duration_sec: Duration of silence between segments (seconds)
         audio_key: Key in data dict containing audio
+        batch_size: Number of tasks to collect before concatenating
     
     Example:
         # Default configuration (1 second silence)
         config = SegmentConcatenationConfig()
         
-        # Custom silence duration
-        config = SegmentConcatenationConfig(silence_duration_sec=0.5)
+        # Custom silence duration and batch size
+        config = SegmentConcatenationConfig(silence_duration_sec=0.5, batch_size=10)
     """
     
     silence_duration_sec: float = 1.0
     audio_key: str = "audio"
+    batch_size: int = 10
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""

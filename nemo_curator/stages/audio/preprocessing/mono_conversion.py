@@ -88,9 +88,8 @@ class MonoConversionStage(ProcessingStage[AudioBatch, AudioBatch]):
             self.strict_sample_rate = self.config.strict_sample_rate
     
     def inputs(self) -> Tuple[List[str], List[str]]:
-        """Define required inputs."""
-        return [], [self.audio_filepath_key]
-    
+        return ["data"], []
+
     def outputs(self) -> Tuple[List[str], List[str]]:
         """Define outputs produced by this stage."""
         return [], ["waveform", "sample_rate", "is_mono", "duration", "num_samples"]
@@ -155,7 +154,10 @@ class MonoConversionStage(ProcessingStage[AudioBatch, AudioBatch]):
                 logger.error(f"Error processing {audio_filepath}: {e}")
                 continue
         
-        if not results:
-            return None
-        
-        return AudioBatch(data=results, task_id=task.task_id, dataset_name=task.dataset_name)
+        return AudioBatch(
+            data=results,
+            task_id=task.task_id,
+            dataset_name=task.dataset_name,
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )

@@ -342,48 +342,36 @@ Examples:
     
     try:
         from datetime import datetime
+        from nemo_curator.backends.xenna import XennaExecutor
+
         start_time = datetime.now()
         
-        pipeline.build()
-        stages = pipeline.stages
-        
-        all_results = []
-        for stage in stages:
-            stage.setup()
-        
-        try:
-            for i, task in enumerate(tasks):
-                logger.info(f"Processing {i+1}/{len(tasks)}: {task.task_id}")
-                result = task
-                for stage in stages:
-                    if result is None:
-                        break
-                    result = stage.process(result)
-                
-                if result is not None:
-                    if isinstance(result.data, list):
-                        all_results.extend(result.data)
-                    else:
-                        all_results.append(result.data)
-        finally:
-            for stage in stages:
-                stage.teardown()
+        executor = XennaExecutor()
+        result_tasks = pipeline.run(executor, initial_tasks=tasks)
         
         duration = (datetime.now() - start_time).total_seconds()
+        
+        all_results = []
+        for task in result_tasks:
+            if task is not None and hasattr(task, 'data'):
+                if isinstance(task.data, list):
+                    all_results.extend(task.data)
+                else:
+                    all_results.append(task.data)
+        
         logger.info(f"Completed in {duration:.2f}s, {len(all_results)} segments")
         
         if all_results:
             save_results(all_results, args.output_dir)
             
-            if all_results:
-                sample = all_results[0]
-                logger.info("Sample output (showing timestamp mapping):")
-                logger.info(f"  original_file: {sample.get('original_file', 'N/A')}")
-                logger.info(f"  original_start_ms: {sample.get('original_start_ms', 'N/A')}")
-                logger.info(f"  original_end_ms: {sample.get('original_end_ms', 'N/A')}")
-                logger.info(f"  duration_sec: {sample.get('duration_sec', 'N/A')}")
-                if 'speaker_id' in sample:
-                    logger.info(f"  speaker_id: {sample.get('speaker_id')}")
+            sample = all_results[0]
+            logger.info("Sample output (showing timestamp mapping):")
+            logger.info(f"  original_file: {sample.get('original_file', 'N/A')}")
+            logger.info(f"  original_start_ms: {sample.get('original_start_ms', 'N/A')}")
+            logger.info(f"  original_end_ms: {sample.get('original_end_ms', 'N/A')}")
+            logger.info(f"  duration_sec: {sample.get('duration_sec', 'N/A')}")
+            if 'speaker_id' in sample:
+                logger.info(f"  speaker_id: {sample.get('speaker_id')}")
         else:
             logger.warning("No segments passed filters")
             

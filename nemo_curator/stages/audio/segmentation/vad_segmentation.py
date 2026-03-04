@@ -40,7 +40,7 @@ import os
 import threading
 import warnings
 from dataclasses import dataclass, field
-from typing import List, Dict, Tuple, Optional
+from typing import Any, List, Dict, Tuple, Optional
 
 import numpy as np
 import torch
@@ -186,13 +186,16 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
         return self._init_lock
     
     def inputs(self) -> Tuple[List[str], List[str]]:
-        """Define required inputs."""
-        return [], [self.waveform_key, self.sample_rate_key]
-    
+        return ["data"], []
+
     def outputs(self) -> Tuple[List[str], List[str]]:
         """Define outputs."""
         return [], ['audio', 'waveform', 'sample_rate', 'start_ms', 'end_ms', 'segment_num', 'duration_sec']
     
+    def ray_stage_spec(self) -> dict[str, Any]:
+        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+
     def setup(self, worker_metadata=None) -> None:
         """Load VAD model on worker initialization."""
         self._initialize_model()
@@ -334,11 +337,12 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
                         if key in item:
                             segment_data[key] = item[key]
                     
-                    # Create new AudioBatch for this segment
                     output_tasks.append(AudioBatch(
                         data=segment_data,
                         task_id=f"{task.task_id}_seg_{i}",
                         dataset_name=task.dataset_name,
+                        _metadata=task._metadata,
+                        _stage_perf=list(task._stage_perf),
                     ))
                 
                 # Log with more context
