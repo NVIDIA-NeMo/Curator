@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 # Licensed under the Apache License, Version 2.0
 
 """Configuration for Audio Data Filter Stage."""
@@ -38,11 +38,8 @@ class AudioDataFilterConfig:
     - Resource allocation for parallel processing
     
     Resource Allocation:
-        cpus: Number of CPU cores for parallel processing
+        cpus: Number of CPU cores to reserve
         gpus: Number of GPUs (0.0-1.0 for fractional, >1 for multiple)
-        
-        When cpus > 1 and gpus == 0: Uses CPU parallel processing (ThreadPoolExecutor)
-        When gpus > 0: Uses GPU for model inference
     
     Example:
         # GPU processing (default)

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,7 +32,6 @@ Example:
 
 import os
 import tempfile
-import threading
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Tuple
 
@@ -123,7 +122,6 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         """Initialize after dataclass fields are set."""
         super().__init__()
         self._separator = None
-        self._init_lock = None  # Lazy initialization to avoid pickle issues
         
         # Apply config if provided
         if self.config is not None:
@@ -140,26 +138,6 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
             # Apply resources from config
             if hasattr(self.config, 'cpus') and hasattr(self.config, 'gpus'):
                 self.resources = Resources(cpus=self.config.cpus, gpus=self.config.gpus)
-    
-    def __getstate__(self):
-        """Return state for pickling, excluding unpicklable objects."""
-        state = self.__dict__.copy()
-        # Remove the lock and separator - they'll be recreated
-        state['_init_lock'] = None
-        state['_separator'] = None
-        return state
-    
-    def __setstate__(self, state):
-        """Restore state after unpickling."""
-        self.__dict__.update(state)
-        self._init_lock = None
-        self._separator = None
-    
-    def _get_lock(self):
-        """Get or create the initialization lock (lazy initialization)."""
-        if self._init_lock is None:
-            self._init_lock = threading.Lock()
-        return self._init_lock
     
     def inputs(self) -> Tuple[List[str], List[str]]:
         return ["data"], []
@@ -204,41 +182,35 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         return os.path.join(module_dir, self.model_path)
     
     def _initialize_separator(self):
-        """Initialize the NeMo speaker separator (thread-safe)."""
+        """Initialize the NeMo speaker separator."""
         if self._separator is None:
-            with self._get_lock():
-                if self._separator is None:
-                    try:
-                        # Import from local speaker_separation_module
-                        from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import SpeakerSeparator
-                        
-                        model_path = self._resolve_model_path()
-                        
-                        # Determine GPU usage based on resources
-                        use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
-                        
-                        # Create config for the separator
-                        separator_config = {
-                            'speaker_model_path': model_path,
-                            'speaker_gap_threshold': self.gap_threshold,
-                            'speaker_exclude_overlaps': self.exclude_overlaps,
-                            'speaker_min_duration': self.min_duration,
-                            'speaker_buffer_time': self.buffer_time,
-                            'use_gpu': use_gpu,
-                        }
-                        
-                        self._separator = SpeakerSeparator(
-                            model_name=model_path,
-                            config=separator_config
-                        )
-                        
-                        logger.info(f"NeMo speaker separator loaded from {model_path}")
-                    except ImportError as e:
-                        logger.error(f"Failed to import speaker separation module: {e}")
-                        raise
-                    except Exception as e:
-                        logger.error(f"Failed to load speaker separator: {e}")
-                        raise
+            try:
+                from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import SpeakerSeparator
+                
+                model_path = self._resolve_model_path()
+                use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
+                
+                separator_config = {
+                    'speaker_model_path': model_path,
+                    'speaker_gap_threshold': self.gap_threshold,
+                    'speaker_exclude_overlaps': self.exclude_overlaps,
+                    'speaker_min_duration': self.min_duration,
+                    'speaker_buffer_time': self.buffer_time,
+                    'use_gpu': use_gpu,
+                }
+                
+                self._separator = SpeakerSeparator(
+                    model_name=model_path,
+                    config=separator_config
+                )
+                
+                logger.info(f"NeMo speaker separator loaded from {model_path}")
+            except ImportError as e:
+                logger.error(f"Failed to import speaker separation module: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"Failed to load speaker separator: {e}")
+                raise
     
     def process(self, task: AudioBatch) -> List[AudioBatch]:
         """

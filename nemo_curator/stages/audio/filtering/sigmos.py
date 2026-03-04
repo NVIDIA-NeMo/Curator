@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,10 +33,9 @@ Example:
 
 import os
 import tempfile
-import threading
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
+
 import torch
 from loguru import logger
 from pydub import AudioSegment
@@ -46,97 +45,6 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
 from ..configs import SIGMOSConfig
-
-
-def _sigmos_process_on_gpu(
-    item_data: Tuple[Dict[str, Any], str, str, dict],
-    gpu_id: int,
-) -> Optional[Dict[str, Any]]:
-    """
-    Process a single item on a specific GPU.
-    
-    This function is designed to be called in a separate thread
-    with a specific GPU assignment.
-    """
-    item, task_id, model_path, thresholds = item_data
-    
-    try:
-        # Set GPU for this thread
-        if torch.cuda.is_available():
-            torch.cuda.set_device(gpu_id)
-        
-        # Import and get prediction function
-        from nemo_curator.stages.audio.filtering.sigmos_filter_module.sigmos_pipeline import SIGMOSPipeline
-        
-        audio = item.get('audio')
-        if audio is None:
-            audio_filepath = item.get('audio_filepath')
-            if audio_filepath and os.path.exists(audio_filepath):
-                audio = AudioSegment.from_file(audio_filepath)
-                item['audio'] = audio
-            else:
-                return None
-        
-        temp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
-                temp_path = temp_file.name
-            
-            audio.export(temp_path, format="wav")
-            
-            pipeline_config = {'model_path': model_path}
-            pipeline = SIGMOSPipeline(gpu_id=gpu_id, config=pipeline_config)
-            
-            score_data = pipeline.predict_file(temp_path)
-            
-            if isinstance(score_data, dict):
-                noise = score_data.get('MOS_NOISE', 0)
-                ovrl = score_data.get('MOS_OVRL', 0)
-                sig = score_data.get('MOS_SIG', 0)
-                col = score_data.get('MOS_COL', 0)
-                disc = score_data.get('MOS_DISC', 0)
-                loud = score_data.get('MOS_LOUD', 0)
-                reverb = score_data.get('MOS_REVERB', 0)
-            else:
-                ovrl = float(score_data)
-                noise = sig = col = disc = loud = reverb = 0
-            
-            # Check thresholds
-            passed = True
-            if thresholds.get('noise') is not None and noise < thresholds['noise']:
-                passed = False
-            if thresholds.get('ovrl') is not None and ovrl < thresholds['ovrl']:
-                passed = False
-            if thresholds.get('sig') is not None and sig < thresholds['sig']:
-                passed = False
-            if thresholds.get('col') is not None and col < thresholds['col']:
-                passed = False
-            if thresholds.get('disc') is not None and disc < thresholds['disc']:
-                passed = False
-            if thresholds.get('loud') is not None and loud < thresholds['loud']:
-                passed = False
-            if thresholds.get('reverb') is not None and reverb < thresholds['reverb']:
-                passed = False
-            
-            if passed:
-                item['sigmos_noise'] = noise
-                item['sigmos_ovrl'] = ovrl
-                item['sigmos_sig'] = sig
-                item['sigmos_col'] = col
-                item['sigmos_disc'] = disc
-                item['sigmos_loud'] = loud
-                item['sigmos_reverb'] = reverb
-                return item
-            else:
-                return None
-                
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
-                
-    except Exception as e:
-        logger.error(f"[{task_id}] Error in multi-GPU SIGMOS processing on GPU {gpu_id}: {e}")
-        return None
 
 
 def _load_audio_as_pydub(audio_path: str) -> AudioSegment:
@@ -210,7 +118,6 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         """Initialize after dataclass fields are set."""
         super().__init__()
         self._predict_function = None
-        self._init_lock = None  # Lazy initialization to avoid pickle issues
         
         # Apply config if provided
         if self.config is not None:
@@ -224,26 +131,6 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             self.reverb_threshold = self.config.reverb_threshold
             # Apply resources from config
             self.resources = Resources(cpus=self.config.cpus, gpus=self.config.gpus)
-    
-    def __getstate__(self):
-        """Return state for pickling, excluding unpicklable objects."""
-        state = self.__dict__.copy()
-        # Remove the lock and predict function - they'll be recreated
-        state['_init_lock'] = None
-        state['_predict_function'] = None
-        return state
-    
-    def __setstate__(self, state):
-        """Restore state after unpickling."""
-        self.__dict__.update(state)
-        self._init_lock = None
-        self._predict_function = None
-    
-    def _get_lock(self):
-        """Get or create the initialization lock (lazy initialization)."""
-        if self._init_lock is None:
-            self._init_lock = threading.Lock()
-        return self._init_lock
     
     def inputs(self) -> Tuple[List[str], List[str]]:
         return ["data"], []
@@ -266,18 +153,15 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             torch.cuda.empty_cache()
     
     def _initialize_model(self):
-        """Initialize the SIGMOS prediction function (thread-safe)."""
+        """Initialize the SIGMOS prediction function."""
         if self._predict_function is None:
-            with self._get_lock():
-                if self._predict_function is None:
-                    try:
-                        # Import from local sigmos_filter_module (same directory)
-                        from nemo_curator.stages.audio.filtering.sigmos_filter_module.sigmos_pipeline import predict_batch_mos
-                        self._predict_function = predict_batch_mos
-                        logger.info("SIGMOS prediction function loaded successfully")
-                    except ImportError as e:
-                        logger.error(f"Failed to import SIGMOS module: {e}")
-                        raise
+            try:
+                from nemo_curator.stages.audio.filtering.sigmos_filter_module.sigmos_pipeline import predict_batch_mos
+                self._predict_function = predict_batch_mos
+                logger.info("SIGMOS prediction function loaded successfully")
+            except ImportError as e:
+                logger.error(f"Failed to import SIGMOS module: {e}")
+                raise
     
     def _resolve_model_path(self) -> str:
         """Resolve model path to absolute path."""
@@ -412,76 +296,9 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    def _process_multi_gpu(self, task: AudioBatch, num_gpus: int) -> List[Dict[str, Any]]:
-        """
-        Process items in parallel across multiple GPUs.
-        
-        Args:
-            task: AudioBatch with multiple items
-            num_gpus: Number of GPUs to use
-            
-        Returns:
-            List of processed items that passed thresholds
-        """
-        total_items = len(task.data)
-        model_path = self._resolve_model_path()
-        
-        # Prepare thresholds dict
-        thresholds = {
-            'noise': self.noise_threshold,
-            'ovrl': self.ovrl_threshold,
-            'sig': self.sig_threshold,
-            'col': self.col_threshold,
-            'disc': self.disc_threshold,
-            'loud': self.loud_threshold,
-            'reverb': self.reverb_threshold,
-        }
-        
-        # Prepare item data tuples for the worker function
-        item_data_list = [
-            (item, task.task_id, model_path, thresholds)
-            for item in task.data
-        ]
-        
-        # Get available GPU IDs
-        available_gpus = list(range(num_gpus))
-        
-        results = []
-        
-        # Use ThreadPoolExecutor with GPU round-robin assignment
-        max_workers = min(num_gpus, total_items)
-        
-        logger.info(f"[SIGMOSFilter] Using multi-GPU parallel processing: {max_workers} GPUs for {total_items} items")
-        
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
-            for i, item_data in enumerate(item_data_list):
-                gpu_id = available_gpus[i % num_gpus]  # Round-robin GPU assignment
-                future = executor.submit(_sigmos_process_on_gpu, item_data, gpu_id)
-                futures.append(future)
-            
-            for future in futures:
-                try:
-                    result = future.result()
-                    if result is not None:
-                        results.append(result)
-                except Exception as e:
-                    logger.error(f"[{task.task_id}] Error in multi-GPU SIGMOS processing: {e}")
-        
-        return results
-
     def process(self, task: AudioBatch) -> Optional[AudioBatch]:
         """
         Filter audio based on SIGMOS quality scores.
-        
-        Automatically uses parallel processing when:
-        - Multiple items in task.data (> 1)
-        - Resources specify cpus > 1 (CPU parallelism via ThreadPoolExecutor)
-        - Resources specify gpus > 1 (Multi-GPU parallelism)
-        - Resources specify gpus > 0 and gpus <= 1 (Single GPU sequential)
-        
-        The stage discovers its allocated resources via self._resources
-        (set via .with_(resources=Resources(...))) and optimizes accordingly.
         
         Args:
             task: AudioBatch with audio data
@@ -498,59 +315,14 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         total_items = len(task.data)
         
-        # Determine processing strategy based on resources and item count
-        num_gpus = int(self._resources.gpus) if self._resources.gpus >= 1 else (1 if self._resources.gpus > 0 else 0)
-        
-        # Multi-GPU parallel processing
-        use_multi_gpu = (
-            total_items > 1 and
-            num_gpus > 1 and
-            torch.cuda.is_available() and
-            torch.cuda.device_count() >= num_gpus
-        )
-        
-        # CPU parallel processing (only when no GPU)
-        use_cpu_parallel = (
-            total_items > 1 and 
-            self._resources.cpus > 1 and 
-            self._resources.gpus == 0
-        )
-        
-        if use_multi_gpu:
-            # Multi-GPU parallel processing
-            results = self._process_multi_gpu(task, num_gpus)
-            mode = f"multi-GPU ({num_gpus} GPUs)"
-        elif use_cpu_parallel:
-            # CPU parallel processing using ThreadPoolExecutor
-            max_workers = min(int(self._resources.cpus), total_items)
-            logger.debug(f"[SIGMOSFilter] Using CPU parallel processing with {max_workers} workers for {total_items} items")
-            
-            results = []
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = [
-                    executor.submit(self._process_single_item, item, task.task_id)
-                    for item in task.data
-                ]
-                for future in futures:
-                    try:
-                        result = future.result()
-                        if result is not None:
-                            results.append(result)
-                    except Exception as e:
-                        logger.error(f"[{task.task_id}] Error in parallel SIGMOS processing: {e}")
-            mode = "CPU parallel"
-        else:
-            # Sequential processing (default, or single GPU)
-            results = []
-            for item in task.data:
-                result = self._process_single_item(item, task.task_id)
-                if result is not None:
-                    results.append(result)
-            mode = "GPU" if self._resources.gpus > 0 else "sequential"
+        results = []
+        for item in task.data:
+            result = self._process_single_item(item, task.task_id)
+            if result is not None:
+                results.append(result)
         
         passed_count = len(results)
         
-        # Log summary
         threshold_parts = []
         if self.noise_threshold is not None:
             threshold_parts.append(f"NOISE>={self.noise_threshold}")
@@ -568,7 +340,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             threshold_parts.append(f"REVERB>={self.reverb_threshold}")
         threshold_str = ", ".join(threshold_parts) if threshold_parts else "none"
         
-        logger.info(f"[SIGMOSFilter] {task.task_id}: {passed_count}/{total_items} passed (thresholds: {threshold_str}) [{mode}]")
+        logger.info(f"[SIGMOSFilter] {task.task_id}: {passed_count}/{total_items} passed (thresholds: {threshold_str})")
         
         return AudioBatch(
             data=results,

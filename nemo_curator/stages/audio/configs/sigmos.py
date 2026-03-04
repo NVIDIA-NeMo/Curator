@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,19 +35,12 @@ class SIGMOSConfig:
     Set threshold to None to disable that check.
     
     Resource Allocation:
-        cpus: Number of CPU cores for parallel processing
-        gpus: Number of GPUs for parallel segment processing
-        
-        Processing Modes:
-        - gpus == 0, cpus > 1: CPU parallel processing (ThreadPoolExecutor)
-        - gpus > 0 and gpus < 1: Single GPU, sequential processing
-        - gpus >= 1: Single GPU, sequential processing
-        - gpus >= 2: Multi-GPU parallel processing (segments distributed across GPUs)
+        cpus: Number of CPU cores to reserve for this stage
+        gpus: GPU fraction or count to reserve for this stage
     
     Attributes:
-        cpus: CPU cores for parallel processing (default: 1.0)
+        cpus: CPU cores to reserve (default: 1.0)
         gpus: GPU allocation for model inference (default: 0.3)
-              Set to N (integer >= 2) for multi-GPU parallel processing
         model_path: Path to SIGMOS ONNX model
         noise_threshold: Minimum noise score (None to disable)
         ovrl_threshold: Minimum overall score (None to disable)
@@ -60,12 +53,6 @@ class SIGMOSConfig:
     Example:
         # Single GPU processing (default)
         config = SIGMOSConfig(noise_threshold=4.0, ovrl_threshold=3.5)
-        
-        # Multi-GPU parallel processing (8 GPUs)
-        config = SIGMOSConfig(gpus=8.0, noise_threshold=4.0)
-        
-        # CPU parallel processing with 4 workers
-        config = SIGMOSConfig(cpus=4.0, gpus=0.0, noise_threshold=4.0)
     """
     
     # Resource allocation
