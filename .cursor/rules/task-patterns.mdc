@@ -18,6 +18,7 @@ Tasks are the fundamental unit of data processed through stages and pipelines. A
 - **DocumentBatch**: For text document processing (`data: pa.Table | pd.DataFrame`)
 - **VideoTask**: For video processing (`data: nemo_curator.tasks.video.Video`)
 - **ImageBatch**: For image processing (`data: list[nemo_curator.tasks.image.ImageObject]`)
+- **InterleavedBatch**: For interleaved multimodal processing (`data: pa.Table | pd.DataFrame`)
 - **AudioBatch**: For audio processing (`data: dict | list[dict]`)
 - **FileGroupTask**: Represents a list of file names (`data: list[str]`)
 - **_EmptyTask**: A singleton dummy task (`data: None`) used as input for stages that **generate** data rather than transform it. Commonly used for:

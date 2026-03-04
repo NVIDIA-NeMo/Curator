@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,12 +14,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
+from contextlib import suppress
+
 import pytest
 
-cudf = pytest.importorskip("cudf")
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    import cudf
 
-from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
 
 
 @pytest.mark.gpu
@@ -116,7 +123,7 @@ class TestRankingStrategy:
 
         strategy = RankingStrategy(metadata_cols=["missing_col"], ascending=True)
 
-        with pytest.raises(ValueError, match="Required columns.*not found"):
+        with pytest.raises(ValueError, match=r"Required columns.*not found"):
             strategy.rank_cluster(test_data)
 
     def test_invalid_strategy_error(self) -> None:
@@ -130,7 +137,7 @@ class TestRankingStrategy:
 
     def test_mismatched_ascending_length(self) -> None:
         """Test error when ascending list length doesn't match metadata_cols."""
-        with pytest.raises(ValueError, match="Length of ascending.*must match"):
+        with pytest.raises(ValueError, match=r"Length of ascending.*must match"):
             RankingStrategy(
                 metadata_cols=["col1", "col2"],
                 ascending=[True],  # Only one bool for two columns

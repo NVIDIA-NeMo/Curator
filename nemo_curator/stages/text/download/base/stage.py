@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,20 +18,19 @@ from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import DocumentBatch, _EmptyTask
 
 from .download import DocumentDownloader, DocumentDownloadStage
-from .extract import DocumentExtractor, DocumentExtractStage
-from .iterator import DocumentIterateStage, DocumentIterator
+from .extract import DocumentExtractor
+from .iterator import DocumentIterateExtractStage, DocumentIterator
 from .url_generation import URLGenerationStage, URLGenerator
 
 
 @dataclass
 class DocumentDownloadExtractStage(CompositeStage[_EmptyTask, DocumentBatch]):
-    """Composite stage that combines URL generation, download, iterate, and extract stages.
+    """Composite stage that combines URL generation, download, and iterate-extract stages.
 
-    This supports the full 4-step pipeline pattern like Common Crawl:
+    This supports the full 3-step pipeline pattern like Common Crawl:
     1. Generate URLs from minimal input
     2. Download files from URLs
-    3. Iterate through files to extract raw records
-    4. Extract structured content from raw records
+    3. Iterate through files to extract structured content
 
     """
 
@@ -42,6 +41,9 @@ class DocumentDownloadExtractStage(CompositeStage[_EmptyTask, DocumentBatch]):
     url_limit: int | None = None
     record_limit: int | None = None
     add_filename_column: bool | str = True
+    # Restart worker Process every N tasks to mitigate memory fragmentation
+    # Only used if executor is Ray Data
+    extractor_max_calls_per_worker: int | None = None
 
     def __post_init__(self):
         """Initialize the constituent stages."""
@@ -56,22 +58,16 @@ class DocumentDownloadExtractStage(CompositeStage[_EmptyTask, DocumentBatch]):
             downloader=self.downloader,
         )
 
-        # Iterate stage
-        iterate_stage = DocumentIterateStage(
+        # Iterate-extract stage
+        iterate_extract_stage = DocumentIterateExtractStage(
             iterator=self.iterator,
+            extractor=self.extractor,
             record_limit=self.record_limit,
             add_filename_column=self.add_filename_column,
+            max_calls_per_worker=self.extractor_max_calls_per_worker,
         )
 
-        # Extract stage (if extractor provided)
-        stages = [url_stage, download_stage, iterate_stage]
-        if self.extractor:
-            extract_stage = DocumentExtractStage(
-                extractor=self.extractor,
-                add_filename_column=self.add_filename_column,
-            )
-            stages.append(extract_stage)
-
+        stages = [url_stage, download_stage, iterate_extract_stage]
         self.stages = stages
 
         url_generator_name = self.url_generator.__class__.__name__.lower()

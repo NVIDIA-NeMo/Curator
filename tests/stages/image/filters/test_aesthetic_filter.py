@@ -490,8 +490,7 @@ class TestImageAestheticFilterStage:
 # GPU integration test appended to CPU suite
 @pytest.mark.gpu
 def test_image_aesthetic_filter_on_gpu() -> None:
-    if not torch.cuda.is_available():  # pragma: no cover - CPU CI
-        pytest.skip("CUDA not available; skipping GPU aesthetic test")
+    """Test image aesthetic filter on GPU."""
 
     class _DummyAestheticScorer:
         def __init__(self, _model_dir: str | None = None, **_kwargs: object) -> None:

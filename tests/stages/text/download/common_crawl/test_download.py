@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ from unittest import mock
 import pytest
 
 from nemo_curator.stages.text.download.common_crawl.download import CommonCrawlWARCDownloader
+from nemo_curator.stages.text.download.utils import check_s5cmd_installed
 
 
 class TestCommonCrawlWARCDownloader:
@@ -37,14 +38,14 @@ class TestCommonCrawlWARCDownloader:
         assert success is True
         assert error_message is None
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            ["wget", url, "-O", temp_path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
 
-    @mock.patch.object(CommonCrawlWARCDownloader, "_check_s5cmd_installed", return_value=True)
+    @mock.patch("nemo_curator.stages.text.download.common_crawl.download.check_s5cmd_installed", return_value=True)
     @mock.patch("subprocess.run", return_value=mock.Mock(returncode=0))
-    def test_download_to_path_s3(self, mock_run: mock.Mock, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
+    def test_download_to_path_s3(self, mock_run: mock.Mock, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:
         """Test _download_to_path with s5cmd (use_aws_to_download=True)."""
 
         downloader = CommonCrawlWARCDownloader(str(tmp_path), use_aws_to_download=True, verbose=False)
@@ -76,7 +77,7 @@ class TestCommonCrawlWARCDownloader:
         assert success is True
         assert error_message is None
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            ["wget", url, "-O", temp_path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"],
             stdout=None,
             stderr=None,
         )
@@ -94,7 +95,7 @@ class TestCommonCrawlWARCDownloader:
         assert success is True
         assert error_message is None
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            ["wget", url, "-O", temp_path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -112,30 +113,26 @@ class TestCommonCrawlWARCDownloader:
         assert success is False
         assert error_message == "Download failed"
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            ["wget", url, "-O", temp_path, "--retry-on-http-error=503", "--waitretry=5", "--tries=5"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
 
-    def test_check_s5cmd_installed_true(self, tmp_path: Path) -> None:
-        """Test _check_s5cmd_installed when s5cmd is available."""
-        downloader = CommonCrawlWARCDownloader(str(tmp_path), use_aws_to_download=False, verbose=False)
-
-        with mock.patch("subprocess.run") as mock_run:
+    def test_check_s5cmd_installed_true(self) -> None:
+        """Test check_s5cmd_installed when s5cmd is available."""
+        with mock.patch("nemo_curator.stages.text.download.utils.subprocess.run") as mock_run:
             mock_run.return_value = None
-            result = downloader._check_s5cmd_installed()
+            result = check_s5cmd_installed()
             assert result is True
 
-    def test_check_s5cmd_installed_false(self, tmp_path: Path) -> None:
-        """Test _check_s5cmd_installed when s5cmd is not available."""
-        downloader = CommonCrawlWARCDownloader(str(tmp_path), use_aws_to_download=False, verbose=False)
-
-        with mock.patch("subprocess.run", side_effect=FileNotFoundError):
-            result = downloader._check_s5cmd_installed()
+    def test_check_s5cmd_installed_false(self) -> None:
+        """Test check_s5cmd_installed when s5cmd is not available."""
+        with mock.patch("nemo_curator.stages.text.download.utils.subprocess.run", side_effect=FileNotFoundError):
+            result = check_s5cmd_installed()
             assert result is False
 
-    @mock.patch.object(CommonCrawlWARCDownloader, "_check_s5cmd_installed", return_value=False)
-    def test_init_aws_download_without_s5cmd(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
+    @mock.patch("nemo_curator.stages.text.download.common_crawl.download.check_s5cmd_installed", return_value=False)
+    def test_init_aws_download_without_s5cmd(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:
         """Test initialization with AWS download but s5cmd not installed."""
         with pytest.raises(RuntimeError, match="s5cmd is not installed"):
             CommonCrawlWARCDownloader(str(tmp_path), use_aws_to_download=True, verbose=False)

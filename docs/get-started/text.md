@@ -66,7 +66,7 @@ Install the latest version directly from GitHub:
 git clone https://github.com/NVIDIA-NeMo/Curator.git
 cd Curator
 uv sync --extra text_cuda12 --all-groups
-source .venv/bin/activate 
+source .venv/bin/activate
 ```
 
 ```{note}
@@ -88,7 +88,7 @@ docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version 
 ```
 
 ```{seealso}
-For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments-main).
+For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments).
 ```
 
 :::
@@ -108,7 +108,15 @@ mkdir -p ~/nemo_curator/data/curated
 ```
 
 ```{note}
-For this example, you'll need sample JSONL files in `~/nemo_curator/data/sample/`. Each line should be a JSON object with at least `text` and `id` fields. You can create test data or refer to {ref}`Read Existing Data <text-load-data-read-existing>` and {ref}`Data Loading <text-load-data>` for information on downloading data.
+For this example, you need sample JSONL files in `~/nemo_curator/data/sample/`. Each line should be a JSON object with at least `text` and `id` fields. You can create test data or refer to {ref}`Read Existing Data <text-load-data-read-existing>` and {ref}`Data Loading <text-load-data>` for information on downloading data.
+```
+
+```{tip}
+**Set your HuggingFace token** to avoid rate limiting when downloading models or datasets:
+
+    export HF_TOKEN="your_token_here"
+
+Without a token, repeated downloads from Hugging Face may result in `429 Client Error` (rate limiting). Get a free token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
 ```
 
 ## Basic Text Curation Example
@@ -119,8 +127,8 @@ Here's a simple example to get started with NeMo Curator's pipeline-based archit
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules.score_filter import ScoreFilter
-from nemo_curator.stages.text.filters import WordCountFilter, NonAlphaNumericFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter, NonAlphaNumericFilter
 
 # Create a pipeline for text curation
 pipeline = Pipeline(

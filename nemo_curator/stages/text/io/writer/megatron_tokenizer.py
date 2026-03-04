@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from typing import BinaryIO
 
 import numpy as np
-from huggingface_hub import snapshot_download
 from loguru import logger
 from transformers import AutoTokenizer
 
@@ -58,10 +57,11 @@ class MegatronTokenizerWriter(BaseWriter):
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
-            snapshot_download(
-                repo_id=self.model_identifier,
+            # download the relevant tokenizer files once
+            _ = AutoTokenizer.from_pretrained(
+                self.model_identifier,
                 cache_dir=self.cache_dir,
-                token=self.hf_token,
+                token=self.hf_token
             )
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"

@@ -21,13 +21,14 @@ from nemo_curator.backends.experimental.ray_data.utils import (
     get_available_cpu_gpu_resources,
 )
 from nemo_curator.stages.resources import Resources
+from tests.backends.experimental.test_utils import reset_head_node_cache  # noqa: F401
 
 
 class TestGetAvailableCpuGpuResources:
     # TODO: Move this to tests/backends/experimental/test_utils.py
     """Test class for utility functions in ray_data backend."""
 
-    def test_get_available_cpu_gpu_resources_conftest(self, shared_ray_client: None):  # noqa: ARG002
+    def test_get_available_cpu_gpu_resources_conftest(self, shared_ray_client: None):
         """Test get_available_cpu_gpu_resources function."""
         # Test with Ray resources from conftest.py
         cpus, gpus = get_available_cpu_gpu_resources()
@@ -36,9 +37,10 @@ class TestGetAvailableCpuGpuResources:
         # Can be 0 (CPU-only) or 2 (GPU-enabled) depending on test selection
         assert gpus in [0.0, 2.0]
 
+    @pytest.mark.usefixtures("reset_head_node_cache")
     def test_get_resources_with_ignore_head_node(
         self,
-        shared_ray_client: None,  # noqa: ARG002
+        shared_ray_client: None,
     ):
         """Test get_available_cpu_gpu_resources with ignore_head_node=True to skip head node.
         Since this test is run with the head node, the resources should be 0."""

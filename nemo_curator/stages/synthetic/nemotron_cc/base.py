@@ -41,10 +41,7 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     client: AsyncLLMClient | LLMClient = None
     model_name: str = None
     generation_config: GenerationConfig | None = None
-
-    @property
-    def name(self) -> str:
-        return "NemotronCCBaseStage"
+    name: str = "NemotronCCBaseStage"
 
     def __post_init__(self) -> None:
         self.is_async_client = isinstance(self.client, AsyncLLMClient)

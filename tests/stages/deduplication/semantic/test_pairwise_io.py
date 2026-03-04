@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,17 +14,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
+from contextlib import suppress
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
-cudf = pytest.importorskip("cudf")
-cupy = pytest.importorskip("cupy")
-
-from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
+    from nemo_curator.tasks import FileGroupTask, _EmptyTask
 
 
 @pytest.mark.gpu  # TODO : Remove this once we figure out how to import semantic on CPU

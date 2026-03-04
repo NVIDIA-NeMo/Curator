@@ -18,7 +18,7 @@ This guide covers installing NeMo Curator with support for **all modalities** an
 
 ### System Requirements
 
-For comprehensive system requirements and production deployment specifications, see [Production Deployment Requirements](deployment/requirements.md).
+For comprehensive system requirements and production deployment specifications, refer to [Production Deployment Requirements](deployment/requirements.md).
 
 **Quick Start Requirements:**
 
@@ -26,6 +26,7 @@ For comprehensive system requirements and production deployment specifications, 
 - **Python**: 3.10, 3.11, or 3.12
 - **Memory**: 16GB+ RAM for basic text processing
 - **GPU** (optional): NVIDIA GPU with 16GB+ VRAM for acceleration
+- **CUDA 12** (required for `audio_cuda12`, `video_cuda12`, `image_cuda12`, and `text_cuda12` extras)
 
 ### Development vs Production
 
@@ -41,9 +42,13 @@ For comprehensive system requirements and production deployment specifications, 
 
 Choose one of the following installation methods based on your needs:
 
+:::{tip}
+**Docker is the recommended installation method** for video and audio workflows. The NeMo Curator container includes FFmpeg (with NVENC support) pre-configured, avoiding manual dependency setup. Refer to the [Container Installation](#container-installation) tab below.
+:::
+
 ::::{tab-set}
 
-:::{tab-item} PyPI Installation (Recommended)
+:::{tab-item} PyPI Installation
 
 Install NeMo Curator from the Python Package Index using `uv` for proper dependency resolution.
 
@@ -66,7 +71,7 @@ Install NeMo Curator from the Python Package Index using `uv` for proper depende
    ```bash
    uv pip install torch wheel_stub psutil setuptools setuptools_scm
    echo "transformers==4.55.2" > override.txt
-   uv pip install  https://pypi.nvidia.com --no-build-isolation "nemo-curator[all]" --override override.txt
+   uv pip install --no-build-isolation "nemo-curator[all]" --override override.txt
    ```
 
 :::
@@ -87,22 +92,29 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --all-extras --all-groups
 ```
 
-Optional InternVideo2 installation steps:
-
-```bash
-bash external/intern_video2_installation.sh
-uv add InternVideo/InternVideo2/multi_modality
-```
-
 :::
 
-:::{tab-item} Container Installation
+:::{tab-item} Container Installation (Recommended for Video/Audio)
 
-NeMo Curator is available as a standalone container:
+NeMo Curator is available as a standalone container on NGC: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator. The container includes NeMo Curator with all dependencies pre-installed, including FFmpeg with NVENC support.
 
-```{note}
-**Container Build**: You can build the NeMo Curator container locally using the provided Dockerfile. A pre-built container will be available on NGC in the future.
+```bash
+# Pull the container from NGC
+docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
+
+# Run the container with GPU support
+docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version }}
 ```
+
+```{important}
+After entering the container, activate the virtual environment before running any NeMo Curator commands:
+
+    source /opt/venv/env.sh
+
+The container uses a virtual environment at `/opt/venv`. If you see `No module named nemo_curator`, the environment has not been activated.
+```
+
+Alternatively, you can build the NeMo Curator container locally using the provided Dockerfile:
 
 ```bash
 # Build the container locally
@@ -112,14 +124,11 @@ docker build -t nemo-curator:latest -f docker/Dockerfile .
 
 # Run the container with GPU support
 docker run --gpus all -it --rm nemo-curator:latest
-
-# The container includes NeMo Curator with all dependencies pre-installed
-# Environment is activated automatically at /opt/venv
 ```
 
 **Benefits:**
 
-- Pre-configured environment with all dependencies
+- Pre-configured environment with all dependencies (FFmpeg, CUDA libraries)
 - Consistent runtime across different systems
 - Ideal for production deployments
 
@@ -161,39 +170,9 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 :::
 ::::
 
-### InternVideo2 Support (Optional for Video)
-
-Video processing includes optional support for InternVideo2. To install InternVideo2, run these commands before installing NeMo Curator based on whether you install via PyPI or from source:
-
-::::{tab-set}
-
-:::{tab-item} PyPI Installation
-```bash
-# Clone and set up InternVideo2
-git clone https://github.com/OpenGVLab/InternVideo.git
-cd InternVideo
-git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7
-
-# Download and apply NeMo Curator patch
-curl -fsSL https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/external/intern_video2_multimodal.patch -o intern_video2_multimodal.patch
-patch -p1 < intern_video2_multimodal.patch
-cd ..
-
-# Add InternVideo2 to the environment
-uv add InternVideo/InternVideo2/multi_modality
+```{note}
+**FFmpeg build requires CUDA toolkit (nvcc):** If you encounter `ERROR: failed checking for nvcc` during FFmpeg installation, ensure that the CUDA toolkit is installed and `nvcc` is available on your `PATH`. You can verify with `nvcc --version`. If using the NeMo Curator container, FFmpeg is pre-installed with NVENC support.
 ```
-
-:::
-
-:::{tab-item} Source Installation
-```bash
-# Inside the NeMo Curator folder
-bash external/intern_video2_installation.sh
-uv add InternVideo/InternVideo2/multi_modality
-```
-
-:::
-::::
 
 ---
 
@@ -208,43 +187,34 @@ NeMo Curator provides several installation extras to install only the components
 * - Extra
   - Installation Command
   - Description
-* - **Base**
-  - `uv pip install nemo-curator`
-  - CPU-only basic modules
-* - **deduplication_cuda12**
-  - `uv pip install  https://pypi.nvidia.com nemo-curator[deduplication_cuda12]`
-  - RAPIDS libraries for GPU deduplication
 * - **text_cpu**
   - `uv pip install nemo-curator[text_cpu]`
   - CPU-only text processing and filtering
 * - **text_cuda12**
-  - `uv pip install  https://pypi.nvidia.com nemo-curator[text_cuda12]`
+  - `uv pip install nemo-curator[text_cuda12]`
   - GPU-accelerated text processing with RAPIDS
 * - **audio_cpu**
   - `uv pip install nemo-curator[audio_cpu]`
   - CPU-only audio curation with NeMo Toolkit ASR
 * - **audio_cuda12**
-  - `uv pip install  https://pypi.nvidia.com nemo-curator[audio_cuda12]`
+  - `uv pip install nemo-curator[audio_cuda12]`
   - GPU-accelerated audio curation. When using `uv`, requires `transformers==4.55.2` override.
 * - **image_cpu**
   - `uv pip install nemo-curator[image_cpu]`
   - CPU-only image processing
 * - **image_cuda12**
-  - `uv pip install  https://pypi.nvidia.com nemo-curator[image_cuda12]`
+  - `uv pip install nemo-curator[image_cuda12]`
   - GPU-accelerated image processing with NVIDIA DALI
 * - **video_cpu**
   - `uv pip install nemo-curator[video_cpu]`
   - CPU-only video processing
 * - **video_cuda12**
-  - `uv pip install  https://pypi.nvidia.com nemo-curator[video_cuda12]`
+  - `uv pip install --no-build-isolation nemo-curator[video_cuda12]`
   - GPU-accelerated video processing with CUDA libraries. Requires FFmpeg and additional build dependencies when using `uv`.
-* - **all**
-  - `uv pip install  https://pypi.nvidia.com nemo-curator[all]`
-  - All GPU-accelerated modules (recommended for full functionality). When using `uv`, requires transformers override and build dependencies.
 ```
 
 ```{note}
-**Development Dependencies**: For development tools (pre-commit, ruff, pytest), use `uv sync --group dev` instead of pip extras. Development dependencies are managed as dependency groups, not optional dependencies.
+**Development Dependencies**: For development tools (pre-commit, ruff, pytest), use `uv sync --group dev --group linting --group test` instead of pip extras. Development dependencies are managed as dependency groups, not optional dependencies.
 ```
 
 ---
@@ -295,4 +265,3 @@ Try a modality-specific quickstart to see NeMo Curator in action:
 - [Audio Curation Quickstart](gs-audio) - Get started with audio dataset curation
 - [Image Curation Quickstart](gs-image) - Curate image-text datasets for generative models
 - [Video Curation Quickstart](gs-video) - Split, encode, and curate video clips at scale
-

@@ -31,6 +31,7 @@ from loguru import logger
 # Nemo Curator imports
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
     create_id_generator_actor,
@@ -43,6 +44,7 @@ from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicat
 from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
+from nemo_curator.tasks import Task
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
 
@@ -222,7 +224,7 @@ class TextSemanticDeduplicationWorkflow:
                 self.deduplicated_output_path, storage_options=self.write_kwargs.get("storage_options")
             )
 
-    def _run_embedding_generation(self, executor: BaseExecutor) -> list[Any]:
+    def _run_embedding_generation(self, executor: BaseExecutor) -> list[Task]:
         """Run embedding generation stage."""
         if self.verbose:
             logger.info("Starting embedding generation stage...")
@@ -293,7 +295,7 @@ class TextSemanticDeduplicationWorkflow:
 
     def _run_semantic_deduplication(
         self, kmeans_executor: BaseExecutor, pairwise_executor: BaseExecutor
-    ) -> dict[str, Any]:
+    ) -> WorkflowRunResult:
         """Run semantic deduplication stage."""
         if self.verbose:
             logger.debug("Starting semantic deduplication stage...")
@@ -333,12 +335,12 @@ class TextSemanticDeduplicationWorkflow:
 
         return workflow.run(kmeans_executor=kmeans_executor, pairwise_executor=pairwise_executor)
 
-    def _run_duplicate_removal(self, executor: BaseExecutor) -> list[Any]:
+    def _run_duplicate_removal(self, executor: BaseExecutor) -> WorkflowRunResult | None:
         """Run duplicate removal stage."""
         if not self.perform_removal:
             if self.verbose:
                 logger.info("Skipping duplicate removal (perform_removal=False)")
-            return []
+            return None
 
         if self.verbose:
             logger.debug("Starting duplicate removal stage...")
@@ -350,14 +352,14 @@ class TextSemanticDeduplicationWorkflow:
             ids_to_remove_path=self.duplicates_path,
             output_path=self.deduplicated_output_path,
             input_filetype=self.input_filetype,
-            input_id_field=self.id_field,
+            id_field=self.id_field,
             input_files_per_partition=self.input_files_per_partition,
             input_blocksize=self.input_blocksize,
             input_file_extensions=self.input_file_extensions,
             input_kwargs=self.read_kwargs,
             # Ids to remove args
-            ids_to_remove_duplicate_id_field="id",
-            ids_to_remove_read_kwargs=self.write_kwargs,
+            duplicate_id_field="id",
+            duplicate_id_read_kwargs=self.write_kwargs,
             # ID generator parameters
             id_generator_path=self.id_generator_state_file if self.use_id_generator else None,
             id_generator_storage_options=self.write_kwargs.get("storage_options"),
@@ -410,12 +412,12 @@ class TextSemanticDeduplicationWorkflow:
         self,
         streaming_executor: BaseExecutor | tuple[BaseExecutor, BaseExecutor, BaseExecutor] | None = None,
         batch_executor: BaseExecutor | None = None,
-    ) -> dict[str, Any]:
+    ) -> WorkflowRunResult:
         """
         Run the complete text semantic deduplication workflow.
 
         Returns:
-            Dictionary with results and timing information from all stages
+            WorkflowRunResult object containing the results and timing information from all stages
         """
 
         if isinstance(streaming_executor, tuple):
@@ -443,6 +445,8 @@ class TextSemanticDeduplicationWorkflow:
         self.removal_executor = removal_executor
 
         total_start_time = time.time()
+        workflow_result = WorkflowRunResult(workflow_name="text_semantic_deduplication")
+        num_duplicates_identified = 0
 
         try:
             # Setup
@@ -466,6 +470,7 @@ class TextSemanticDeduplicationWorkflow:
             embedding_results = self._run_embedding_generation(embedding_executor)
             embedding_end_time = time.time()
             embedding_time = embedding_end_time - embedding_start_time
+            workflow_result.add_pipeline_tasks("embeddings", embedding_results)
             logger.success(f"Embedding generation completed in {embedding_time:.2f} seconds")
 
             if self.use_id_generator:
@@ -488,17 +493,31 @@ class TextSemanticDeduplicationWorkflow:
             )
             semantic_end_time = time.time()
             semantic_time = semantic_end_time - semantic_start_time
+            # Merge pipeline tasks from semantic_results
+            for pipeline_name, tasks in semantic_results.pipeline_tasks.items():
+                workflow_result.add_pipeline_tasks(pipeline_name, tasks)
+            # Preserve semantic stage metadata without clobbering keys from other stages
+            semantic_metadata = semantic_results.metadata or {}
+            workflow_result.add_metadata("kmeans_time", semantic_metadata.get("kmeans_time"))
+            workflow_result.add_metadata("pairwise_time", semantic_metadata.get("pairwise_time"))
+            num_duplicates_identified = semantic_metadata.get("num_duplicates", 0) or 0
+            workflow_result.add_metadata("num_duplicates", num_duplicates_identified)
 
             logger.success(f"Semantic deduplication completed in {semantic_time:.2f} seconds")
 
             # Stage 3: Duplicate removal (optional)
-            removal_results = []
             removal_time = 0.0
             if self.perform_removal:
                 removal_start_time = time.time()
                 removal_results = self._run_duplicate_removal(removal_executor)
                 removal_end_time = time.time()
                 removal_time = removal_end_time - removal_start_time
+                if removal_results is not None:
+                    for pipeline_name, tasks in removal_results.pipeline_tasks.items():
+                        workflow_result.add_pipeline_tasks(pipeline_name, tasks)
+                    removal_metadata = removal_results.metadata or {}
+                    num_duplicates_removed = removal_metadata.get("num_duplicates_removed")
+                    workflow_result.add_metadata("num_duplicates_removed", num_duplicates_removed)
 
                 logger.success(f"Duplicate removal completed in {removal_time:.2f} seconds")
 
@@ -515,26 +534,29 @@ class TextSemanticDeduplicationWorkflow:
                 logger.info(f"Embedding generation time: {embedding_time:.2f} seconds")
                 logger.info(f"Semantic deduplication time: {semantic_time:.2f} seconds")
                 if self.perform_removal:
-                    logger.info(f"Duplicate removal time: {removal_time:.2f} seconds (removed {removal_results} rows)")
-                if semantic_results.get("total_duplicates_identified", 0) > 0:
-                    logger.success(
-                        f"Total documents identified as duplicates: {semantic_results['total_duplicates_identified']}"
-                    )
+                    logger.info(f"Duplicate removal time: {removal_time:.2f} seconds")
+                num_duplicates_identified = semantic_results.get_metadata("num_duplicates") or 0
+                if num_duplicates_identified > 0:
+                    logger.success(f"Total documents identified as duplicates: {num_duplicates_identified:,}")
             logger.success("=" * 80)
 
         except Exception as e:
             logger.error(f"Text semantic deduplication workflow failed: {e}")
             raise
 
-        return {
-            "total_execution_time": total_time,
-            "embedding_execution_time": embedding_time,
-            "semantic_execution_time": semantic_time,
-            "removal_execution_time": removal_time,
-            "embedding_results": embedding_results,
-            "semantic_results": semantic_results,
-            "removal_results": removal_results,
-            "embeddings_path": self.embeddings_path,
-            "semantic_dedup_path": self.semantic_dedup_path,
-            "final_output_path": self.deduplicated_output_path if self.perform_removal else None,
-        }
+        # Record consolidated metadata with clear, non-overlapping keys
+        workflow_result.extend_metadata(
+            {
+                "total_time": total_time,
+                # Stage timings
+                "embedding_time": embedding_time,
+                "identification_time": semantic_time,
+                "removal_time": removal_time,
+                # paths
+                "embeddings_path": self.embeddings_path,
+                "semantic_dedup_path": self.semantic_dedup_path,
+                "final_output_path": self.deduplicated_output_path if self.perform_removal else None,
+                "id_generator_path": self.id_generator_state_file if self.use_id_generator else None,
+            }
+        )
+        return workflow_result

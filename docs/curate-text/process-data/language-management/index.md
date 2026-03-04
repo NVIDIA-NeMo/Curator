@@ -32,8 +32,8 @@ Language management in NeMo Curator typically follows this pattern using the Pip
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import FastTextLangId
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.fasttext import FastTextLangId
 
 # 1) Build the pipeline
 pipeline = Pipeline(name="language_management")
