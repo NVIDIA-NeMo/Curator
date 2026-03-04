@@ -31,6 +31,7 @@ class TestModelConfig:
         assert default.model_name is None
         assert default.deployment_config == {}
         assert default.engine_kwargs == {}
+        assert default.runtime_env == {}
 
         # to_llm_config falls back to identifier when no model_name
         result = default.to_llm_config()
@@ -50,6 +51,29 @@ class TestModelConfig:
         assert result.model_loading_config.model_id == "gemma-27b"
         assert result.model_loading_config.model_source == "google/gemma-3-27b-it"
         assert result.engine_kwargs == {"tensor_parallel_size": 4}
+
+    def test_to_llm_config_quiet_env_merges_with_user_runtime_env(self) -> None:
+        """Quiet env vars override user's logging vars but preserve other runtime_env keys."""
+        config = ModelConfig(
+            model_identifier="some-model",
+            runtime_env={
+                "pip": ["my-package"],
+                "env_vars": {"MY_VAR": "1", "VLLM_LOGGING_LEVEL": "DEBUG"},
+            },
+        )
+        quiet_env = ModelServer._quiet_runtime_env()
+        result = config.to_llm_config(quiet_runtime_env=quiet_env)
+
+        assert result.runtime_env["pip"] == ["my-package"]
+        assert result.runtime_env["env_vars"]["MY_VAR"] == "1"
+        # quiet overrides the user's DEBUG with WARNING
+        assert result.runtime_env["env_vars"]["VLLM_LOGGING_LEVEL"] == "WARNING"
+        assert result.runtime_env["env_vars"]["RAY_SERVE_LOG_TO_STDERR"] == "0"
+
+        # Without quiet_env, user's runtime_env is passed through as-is
+        result_verbose = config.to_llm_config()
+        assert result_verbose.runtime_env["env_vars"]["VLLM_LOGGING_LEVEL"] == "DEBUG"
+        assert "RAY_SERVE_LOG_TO_STDERR" not in result_verbose.runtime_env["env_vars"]
 
 
 class TestModelServer:

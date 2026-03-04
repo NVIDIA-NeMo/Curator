@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 from loguru import logger
 from ray import serve
 from ray.serve.llm import build_openai_app
-from ray.serve.schema import LoggingConfig
 
 from nemo_curator.core.constants import DEFAULT_SERVE_HEALTH_TIMEOUT_S, DEFAULT_SERVE_PORT
 from nemo_curator.core.utils import get_free_port
@@ -59,10 +58,20 @@ class ModelConfig:
     model_name: str | None = None
     deployment_config: dict[str, Any] = field(default_factory=dict)
     engine_kwargs: dict[str, Any] = field(default_factory=dict)
+    runtime_env: dict[str, Any] = field(default_factory=dict)
 
-    def to_llm_config(self) -> "LLMConfig":
-        """Convert to a Ray Serve LLMConfig."""
+    def to_llm_config(self, quiet_runtime_env: dict[str, Any] | None = None) -> "LLMConfig":
+        """Convert to a Ray Serve LLMConfig.
+
+        Args:
+            quiet_runtime_env: Optional runtime environment with quiet/logging
+                overrides.  Merged on top of ``self.runtime_env`` so that
+                quiet env vars take precedence while preserving user-provided
+                keys (e.g. ``pip``, ``working_dir``).
+        """
         from ray.serve.llm import LLMConfig
+
+        merged_env = self._merge_runtime_envs(self.runtime_env, quiet_runtime_env)
 
         return LLMConfig(
             model_loading_config={
@@ -71,7 +80,33 @@ class ModelConfig:
             },
             deployment_config=self.deployment_config,
             engine_kwargs=self.engine_kwargs,
+            runtime_env=merged_env or None,
         )
+
+    @staticmethod
+    def _merge_runtime_envs(
+        base: dict[str, Any],
+        override: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Merge two runtime_env dicts, with special handling for ``env_vars``.
+
+        Top-level keys from *override* win, except ``env_vars`` which is
+        merged key-by-key (override env vars take precedence over base).
+        """
+        if not base and not override:
+            return {}
+        if not override:
+            return {**base}
+        if not base:
+            return {**override}
+
+        merged = {**base, **override}
+        # Merge env_vars from both dicts rather than clobbering
+        base_env_vars = base.get("env_vars", {})
+        override_env_vars = override.get("env_vars", {})
+        if base_env_vars or override_env_vars:
+            merged["env_vars"] = {**base_env_vars, **override_env_vars}
+        return merged
 
 
 @dataclass
@@ -92,11 +127,11 @@ class ModelServer:
         name: Ray Serve application name (default ``"default"``).
         port: HTTP port for the OpenAI-compatible endpoint.
         health_check_timeout_s: Seconds to wait for models to become healthy.
-        verbose: If True, keep Ray Serve logging at default levels (INFO).
-            If False (default), set Ray Serve replica log level to WARNING
-            and disable per-request HTTP access logs via
-            ``LoggingConfig``.  Note: vLLM model-loading logs are emitted
-            by Ray actor subprocesses and are not affected by this flag.
+        verbose: If True, keep Ray Serve and vLLM logging at default levels.
+            If False (default), suppress per-request logs from both vLLM
+            (``VLLM_LOGGING_LEVEL=WARNING``) and Ray Serve access logs
+            (``RAY_SERVE_LOG_TO_STDERR=0``).  Serve logs still go to
+            files under the Ray session log directory.
 
     Example::
 
@@ -153,11 +188,22 @@ class ModelServer:
         # we reuse its port; otherwise we find a free one.
         self._resolve_port()
 
-        llm_configs = [m.to_llm_config() for m in self.models]
         model_names = [m.model_name or m.model_identifier for m in self.models]
         logger.info(f"Starting Ray Serve with models: {model_names} on port {self.port}")
 
-        # LoggingConfig is applied inside the Ray Serve replica actors via serve.run().
+        quiet_env = self._quiet_runtime_env() if not self.verbose else None
+
+        llm_configs = [m.to_llm_config(quiet_runtime_env=quiet_env) for m in self.models]
+
+        build_args: dict[str, Any] = {"llm_configs": llm_configs}
+        if quiet_env:
+            # Suppress access logs on the OpenAI ingress deployment too.
+            build_args["ingress_deployment_config"] = {
+                "ray_actor_options": {"runtime_env": quiet_env},
+            }
+
+        from ray.serve.schema import LoggingConfig
+
         logging_config = None
         if not self.verbose:
             logging_config = LoggingConfig(
@@ -165,13 +211,13 @@ class ModelServer:
                 enable_access_log=False,
             )
 
+        app = build_openai_app(build_args)
         # Start the Serve controller and HTTP proxy (idempotent — reuses
         # existing controller if one is already running).
         # We do this before serve.run() because serve.run() does not accept
         # http_options and would default to port 8000.
         serve.start(http_options={"port": self.port})
 
-        app = build_openai_app({"llm_configs": llm_configs})
         try:
             serve.run(app, name=self.name, blocking=False, logging_config=logging_config)
             self._wait_for_healthy()
@@ -269,6 +315,31 @@ class ModelServer:
             serve.delete(self.name, _blocking=True)
         except Exception:  # noqa: BLE001
             logger.warning(f"Failed to delete existing Serve application '{self.name}'")
+
+    @staticmethod
+    def _quiet_runtime_env() -> dict[str, Any]:
+        """Return a ``runtime_env`` dict that suppresses per-request logs.
+
+        Works around two upstream bugs in Ray Serve (as of Ray 2.44+):
+
+        1. **vLLM request logs** (``Added request chatcmpl-...``):
+           ``_start_async_llm_engine`` creates ``AsyncLLM()`` without passing
+           ``log_requests``, so it defaults to ``True``.
+           Workaround: ``VLLM_LOGGING_LEVEL=WARNING``.
+
+        2. **Ray Serve access logs** (``POST /v1/... 200 Xms``):
+           ``configure_component_logger()`` only adds the access-log filter
+           to the *file* handler, not the stderr stream handler, so
+           ``LoggingConfig(enable_access_log=False)`` has no effect on
+           console output.  Workaround: ``RAY_SERVE_LOG_TO_STDERR=0``
+           (logs still go to files under the Ray session log directory).
+        """
+        return {
+            "env_vars": {
+                "VLLM_LOGGING_LEVEL": "WARNING",
+                "RAY_SERVE_LOG_TO_STDERR": "0",
+            },
+        }
 
     def _cleanup_failed_deploy(self) -> None:
         """Best-effort cleanup after a failed deploy (e.g. health check timeout).
