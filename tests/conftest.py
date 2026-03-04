@@ -60,7 +60,7 @@ def gpu_available() -> bool:
             gpu_count = int(result.stdout.strip())
             logger.info(f"Detected {gpu_count} GPU(s) via nvidia-smi")
             return gpu_count > 0
-    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, OSError):
         pass
 
     logger.warning("No GPU detected")
@@ -195,7 +195,6 @@ def shared_ray_cluster(tmp_path_factory: pytest.TempPathFactory, pytestconfig: p
     logger.info(f"Configuring Ray cluster with {'GPU' if needs_gpu else 'CPU-only'} support")
 
     temp_dir = tmp_path_factory.mktemp("ray")
-    os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
 
     ray_client = RayClient(
         num_cpus=num_cpus,
