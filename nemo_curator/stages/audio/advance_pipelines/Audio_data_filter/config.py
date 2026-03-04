@@ -35,23 +35,10 @@ class AudioDataFilterConfig:
     - Quality filtering (NISQA, SIGMOS, Band)
     - Speaker separation
     - Timestamp tracking
-    - Resource allocation for parallel processing
-    
-    Resource Allocation:
-        cpus: Number of CPU cores to reserve
-        gpus: Number of GPUs (0.0-1.0 for fractional, >1 for multiple)
     
     Example:
-        # GPU processing (default)
         config = AudioDataFilterConfig(enable_nisqa=True)
-        
-        # CPU parallel processing with 4 workers
-        config = AudioDataFilterConfig(cpus=4.0, gpus=0.0)
     """
-    
-    # Resource allocation
-    cpus: float = 1.0
-    gpus: float = 1.0
     
     # General settings
     sample_rate: int = 48000

@@ -34,13 +34,7 @@ class SIGMOSConfig:
     
     Set threshold to None to disable that check.
     
-    Resource Allocation:
-        cpus: Number of CPU cores to reserve for this stage
-        gpus: GPU fraction or count to reserve for this stage
-    
     Attributes:
-        cpus: CPU cores to reserve (default: 1.0)
-        gpus: GPU allocation for model inference (default: 0.3)
         model_path: Path to SIGMOS ONNX model
         noise_threshold: Minimum noise score (None to disable)
         ovrl_threshold: Minimum overall score (None to disable)
@@ -54,10 +48,6 @@ class SIGMOSConfig:
         # Single GPU processing (default)
         config = SIGMOSConfig(noise_threshold=4.0, ovrl_threshold=3.5)
     """
-    
-    # Resource allocation
-    cpus: float = 1.0
-    gpus: float = 0.3
     
     model_path: str = "model/model-sigmos_1697718653_41d092e8-epo-200.onnx"
     noise_threshold: Optional[float] = 4.0
@@ -79,8 +69,6 @@ class SIGMOSConfig:
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         return {
-            'cpus': self.cpus,
-            'gpus': self.gpus,
             'model_path': self.model_path,
             'noise_threshold': self.noise_threshold,
             'ovrl_threshold': self.ovrl_threshold,

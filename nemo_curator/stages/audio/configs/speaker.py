@@ -26,16 +26,7 @@ class SpeakerSeparationConfig:
     Uses NeMo's speaker diarization to separate audio by speaker.
     Produces multiple outputs - one AudioBatch per detected speaker.
     
-    Resource Allocation:
-        cpus: Number of CPU cores for parallel processing
-        gpus: Number of GPUs (0.0-1.0 for fractional)
-        
-        Speaker diarization models typically require GPU.
-        When gpus > 0: Uses GPU for NeMo diarization model
-    
     Attributes:
-        cpus: CPU cores for parallel processing (default: 1.0)
-        gpus: GPU allocation for diarization (default: 0.5)
         model_path: Path to NeMo model (.nemo) or NGC model name
         gap_threshold: Minimum gap between segments to merge (seconds)
         exclude_overlaps: If True, exclude overlapping speech regions
@@ -46,13 +37,7 @@ class SpeakerSeparationConfig:
         # GPU processing (default)
         config = SpeakerSeparationConfig(exclude_overlaps=True)
         
-        # Custom GPU allocation
-        config = SpeakerSeparationConfig(gpus=1.0, exclude_overlaps=True)
     """
-    
-    # Resource allocation
-    cpus: float = 1.0
-    gpus: float = 0.5  # Diarization typically needs GPU
     
     model_path: str = "model/diar_sortformer_4spk-v1.nemo"
     gap_threshold: float = 0.1
@@ -71,8 +56,6 @@ class SpeakerSeparationConfig:
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         return {
-            'cpus': self.cpus,
-            'gpus': self.gpus,
             'model_path': self.model_path,
             'gap_threshold': self.gap_threshold,
             'exclude_overlaps': self.exclude_overlaps,

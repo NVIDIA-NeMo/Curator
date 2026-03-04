@@ -42,6 +42,7 @@ from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import AudioDataFilterConfig, AudioDataFilterStage
 from nemo_curator.stages.audio.datasets.readspeech import CreateInitialManifestReadSpeechStage
+from nemo_curator.stages.resources import Resources
 
 
 def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -68,11 +69,6 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
 
     # Stage 2: AudioDataFilterStage for quality filtering
     config = AudioDataFilterConfig(
-        # Resource allocation
-        cpus=args.cpus,
-        gpus=args.gpus,
-
-        # General
         sample_rate=args.sample_rate,
 
         # VAD
@@ -97,6 +93,7 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
 
     audio_filter_stage = AudioDataFilterStage(config=config).with_(
         batch_size=args.batch_size,
+        resources=Resources(cpus=args.cpus, gpus=args.gpus),
     )
 
     pipeline.add_stage(audio_filter_stage)

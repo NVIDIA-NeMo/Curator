@@ -32,13 +32,7 @@ class NISQAConfig:
     
     Set threshold to None to disable that check.
     
-    Resource Allocation:
-        cpus: Number of CPU cores to reserve for this stage
-        gpus: GPU fraction or count to reserve for this stage
-    
     Attributes:
-        cpus: CPU cores to reserve (default: 1.0)
-        gpus: GPU allocation for model inference (default: 0.3)
         model_path: Path to NISQA model weights
         mos_threshold: Minimum MOS score (None to disable)
         noi_threshold: Minimum noisiness score (None to disable)
@@ -50,10 +44,6 @@ class NISQAConfig:
         # Single GPU processing (default)
         config = NISQAConfig(mos_threshold=4.5, noi_threshold=4.3)
     """
-    
-    # Resource allocation
-    cpus: float = 1.0
-    gpus: float = 0.3
     
     model_path: str = "model/nisqa.tar"
     mos_threshold: Optional[float] = 4.5
@@ -73,8 +63,6 @@ class NISQAConfig:
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         return {
-            'cpus': self.cpus,
-            'gpus': self.gpus,
             'model_path': self.model_path,
             'mos_threshold': self.mos_threshold,
             'noi_threshold': self.noi_threshold,

@@ -129,8 +129,6 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             self.disc_threshold = self.config.disc_threshold
             self.loud_threshold = self.config.loud_threshold
             self.reverb_threshold = self.config.reverb_threshold
-            # Apply resources from config
-            self.resources = Resources(cpus=self.config.cpus, gpus=self.config.gpus)
     
     def inputs(self) -> Tuple[List[str], List[str]]:
         return ["data"], []

@@ -78,10 +78,12 @@ speaker_exclude_overlaps: true
 
 processors:
   - _target_: nemo_curator.stages.audio.AudioDataFilterStage
-    config:
-      _target_: nemo_curator.stages.audio.AudioDataFilterConfig
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
       cpus: ${cpus}
       gpus: ${gpus}
+    config:
+      _target_: nemo_curator.stages.audio.AudioDataFilterConfig
       sample_rate: ${sample_rate}
       output_format: ${output_format}
       enable_vad: ${enable_vad}

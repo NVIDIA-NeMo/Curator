@@ -136,8 +136,6 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
             if hasattr(self.config, 'buffer_time'):
                 self.buffer_time = self.config.buffer_time
             # Apply resources from config
-            if hasattr(self.config, 'cpus') and hasattr(self.config, 'gpus'):
-                self.resources = Resources(cpus=self.config.cpus, gpus=self.config.gpus)
     
     def inputs(self) -> Tuple[List[str], List[str]]:
         return ["data"], []

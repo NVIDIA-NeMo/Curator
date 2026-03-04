@@ -40,14 +40,3 @@ ms_channel: null # audio channel in case of stereo file (0->left, 1->right). if 
 tr_bias_mapping: null # set to 'first_order' if bias loss should be applied, otherwise 'null'
 tr_bias_min_r: null # minimum correlation threshold to be reached before estimating bias (e.g. 0.7), set to 'null' if no bias loss should be applied
 tr_bias_anchor_db: null # name of anchor dataset (optional)
-
-
-
-
-
-
-
-
-
-
-

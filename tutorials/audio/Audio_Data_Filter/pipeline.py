@@ -82,8 +82,6 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
     )
     
     config = AudioDataFilterConfig(
-        cpus=args.cpus,
-        gpus=args.gpus,
         sample_rate=args.sample_rate,
         enable_vad=args.enable_vad,
         vad_min_duration_sec=args.vad_min_duration,
@@ -108,6 +106,7 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
     
     audio_filter_stage = AudioDataFilterStage(config=config).with_(
         batch_size=args.batch_size,
+        resources=Resources(cpus=args.cpus, gpus=args.gpus),
     )
     
     pipeline.add_stage(audio_filter_stage)

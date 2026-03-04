@@ -28,16 +28,10 @@ class BandFilterConfig:
     telephone or compressed audio.
     
     Note: The band classifier uses a scikit-learn model (RandomForest) which
-    runs on CPU. However, feature extraction uses PyTorch and can benefit
-    from GPU acceleration and multi-GPU parallelization.
-    
-    Resource Allocation:
-        cpus: Number of CPU cores to reserve for this stage
-        gpus: GPU fraction or count to reserve for this stage
+    runs on CPU. Feature extraction uses PyTorch and can benefit
+    from GPU acceleration.
     
     Attributes:
-        cpus: CPU cores to reserve (default: 1.0)
-        gpus: GPU allocation (default: 0.0, CPU-only by default)
         model_path: Path to band classifier model (.joblib)
         feature_group: Feature extraction group
         n_workers: Number of parallel workers for feature extraction
@@ -48,10 +42,6 @@ class BandFilterConfig:
         # CPU processing (default)
         config = BandFilterConfig(band_value="full_band")
     """
-    
-    # Resource allocation
-    cpus: float = 1.0
-    gpus: float = 0.0  # Band filter is CPU-only by default
     
     model_path: str = "model/band_classifier_model_band_7000_samples.joblib"
     feature_group: str = "band"
@@ -70,8 +60,6 @@ class BandFilterConfig:
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         return {
-            'cpus': self.cpus,
-            'gpus': self.gpus,
             'model_path': self.model_path,
             'feature_group': self.feature_group,
             'n_workers': self.n_workers,

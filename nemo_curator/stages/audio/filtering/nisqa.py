@@ -117,8 +117,6 @@ class NISQAFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             self.col_threshold = self.config.col_threshold
             self.dis_threshold = self.config.dis_threshold
             self.loud_threshold = self.config.loud_threshold
-            # Apply resources from config
-            self.resources = Resources(cpus=self.config.cpus, gpus=self.config.gpus)
     
     def inputs(self) -> Tuple[List[str], List[str]]:
         return ["data"], []

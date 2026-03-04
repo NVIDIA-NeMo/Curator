@@ -103,13 +103,6 @@ Output: manifest.jsonl
 
 All parameters available in `AudioDataFilterConfig` (usable via YAML or Python code).
 
-### Resource Allocation
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `cpus` | `float` | `1.0` | CPU cores for parallel processing |
-| `gpus` | `float` | `1.0` | GPU allocation (0.0-1.0 fractional, >1 for multiple) |
-
 ### General
 
 | Parameter | Type | Default | Description |

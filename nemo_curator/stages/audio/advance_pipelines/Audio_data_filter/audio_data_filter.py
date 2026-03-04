@@ -233,8 +233,6 @@ class AudioDataFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         self._init_lock = None
         self._initialized = False
         
-        # Apply resources from config
-        self.resources = Resources(cpus=self.config.cpus, gpus=self.config.gpus)
     
     def __getstate__(self):
         state = self.__dict__.copy()

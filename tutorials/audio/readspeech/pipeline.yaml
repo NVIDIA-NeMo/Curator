@@ -60,10 +60,12 @@ processors:
     batch_size: ${batch_size}
 
   - _target_: nemo_curator.stages.audio.AudioDataFilterStage
-    config:
-      _target_: nemo_curator.stages.audio.AudioDataFilterConfig
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
       cpus: ${cpus}
       gpus: ${gpus}
+    config:
+      _target_: nemo_curator.stages.audio.AudioDataFilterConfig
       sample_rate: ${sample_rate}
       enable_vad: true
       vad_min_duration_sec: 2.0

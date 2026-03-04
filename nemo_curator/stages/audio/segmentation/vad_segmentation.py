@@ -153,8 +153,6 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
             self.max_duration_sec = self.config.max_duration_sec
             self.threshold = self.config.threshold
             self.speech_pad_ms = self.config.speech_pad_ms
-            # Apply resources from config
-            self.resources = Resources(cpus=self.config.cpus, gpus=self.config.gpus)
         
         self._vad_model = None
         self._vad_utils = None

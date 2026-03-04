@@ -115,8 +115,6 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             self.n_workers = self.config.n_workers
             self.feature_cache_size = self.config.feature_cache_size
             self.band_value = self.config.band_value
-            # Apply resources from config
-            self.resources = Resources(cpus=self.config.cpus, gpus=self.config.gpus)
     
     def inputs(self) -> Tuple[List[str], List[str]]:
         return ["data"], []

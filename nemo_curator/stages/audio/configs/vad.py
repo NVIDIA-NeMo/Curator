@@ -26,17 +26,7 @@ class VADConfig:
     Controls how audio is segmented based on speech activity.
     Uses Silero VAD model which supports both CPU and GPU execution.
     
-    Resource Allocation:
-        cpus: Number of CPU cores for parallel processing
-        gpus: Number of GPUs (0.0-1.0 for fractional)
-        
-        Silero VAD is lightweight, so gpus=0.1 is usually sufficient.
-        When cpus > 1 and gpus == 0: Uses CPU parallel processing
-        When gpus > 0: Uses GPU for VAD model inference
-    
     Attributes:
-        cpus: CPU cores for parallel processing (default: 1.0)
-        gpus: GPU allocation for VAD inference (default: 0.1)
         min_interval_ms: Minimum silence interval between segments (ms)
         min_duration_sec: Minimum segment duration to keep (seconds)
         max_duration_sec: Maximum segment duration (seconds)
@@ -47,13 +37,7 @@ class VADConfig:
         # GPU execution (default, lightweight)
         config = VADConfig(min_duration_sec=2.0, max_duration_sec=30.0)
         
-        # CPU-only execution
-        config = VADConfig(cpus=4.0, gpus=0.0, min_duration_sec=2.0)
     """
-    
-    # Resource allocation
-    cpus: float = 1.0
-    gpus: float = 0.1  # Silero VAD is lightweight
     
     min_interval_ms: int = 500
     min_duration_sec: float = 2.0
@@ -72,8 +56,6 @@ class VADConfig:
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         return {
-            'cpus': self.cpus,
-            'gpus': self.gpus,
             'min_interval_ms': self.min_interval_ms,
             'min_duration_sec': self.min_duration_sec,
             'max_duration_sec': self.max_duration_sec,
