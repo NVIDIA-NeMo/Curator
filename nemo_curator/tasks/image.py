@@ -15,7 +15,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar, Generic
+import dataclasses
+from pathlib import Path
+T = TypeVar("T")
 
 if TYPE_CHECKING:
     import numpy as np
@@ -67,3 +70,55 @@ class ImageBatch(Task):
     def num_items(self) -> int:
         """Number of images in this batch."""
         return len(self.data)
+
+@dataclass(kw_only=True)
+class ImageTaskData:
+    """Task data for image processing."""
+    image_path: Path | str
+    image_id: str | None = None
+    is_valid: bool = True
+    error: str | None = None
+
+    @staticmethod
+    def _to_dict_value(value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        if dataclasses.is_dataclass(value):
+            if hasattr(value, "to_dict"):
+                return value.to_dict()
+            else:
+                return dataclasses.asdict(value)
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, list):
+            return [ImageTaskData._to_dict_value(item) for item in value]
+        if isinstance(value, dict):
+            return {k: ImageTaskData._to_dict_value(v) for k, v in value.items()}
+        return value
+    
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            field.name: self._to_dict_value(getattr(self, field.name))
+            for field in dataclasses.fields(self)
+        }
+
+@dataclass(kw_only=True)
+class SingleDataTask(Task[T], Generic[T]):
+    """Task that contains a single data item."""
+    data: T
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {"data": self.data.to_dict()}
+    
+    def validate(self) -> bool:
+        """Validate the task data."""
+        return True
+    
+    @property
+    def num_items(self) -> int:
+        """Number of items in the task."""
+        return 1
