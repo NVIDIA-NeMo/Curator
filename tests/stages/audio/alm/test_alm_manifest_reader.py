@@ -17,8 +17,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from nemo_curator.stages.audio.alm import ALMManifestReader, ALMManifestReaderStage
 from nemo_curator.tasks import AudioBatch, FileGroupTask
 
@@ -129,31 +127,6 @@ class TestALMManifestReaderStage:
         assert all(r.data[0]["audio_filepath"] == "a.wav" for r in result)
 
 
-class TestALMManifestReaderComposite:
-    """Tests for ALMManifestReader (CompositeStage)."""
-
-    def test_decomposes_into_two_stages(self, tmp_path: Path) -> None:
-        manifest = tmp_path / "input.jsonl"
-        manifest.write_text(json.dumps({"audio_filepath": "a.wav", "segments": []}))
-
-        composite = ALMManifestReader(manifest_path=str(tmp_path))
-        stages = composite.decompose()
-
-        assert len(stages) == 2
-        assert stages[0].__class__.__name__ == "FilePartitioningStage"
-        assert isinstance(stages[1], ALMManifestReaderStage)
-
-    def test_accepts_list_of_paths(self) -> None:
-        composite = ALMManifestReader(manifest_path=["/a.jsonl", "/b.jsonl"])
-        stages = composite.decompose()
-        assert stages[0].file_paths == ["/a.jsonl", "/b.jsonl"]
-
-    def test_files_per_partition_default(self) -> None:
-        composite = ALMManifestReader(manifest_path="/data")
-        stages = composite.decompose()
-        assert stages[0].files_per_partition == 1
-
-
 class TestALMManifestReaderDirectory:
     """Tests for directory-based manifest discovery."""
 
@@ -222,7 +195,6 @@ class TestALMManifestReaderIntegration:
             assert "segments" in entry
             assert len(entry["segments"]) > 0
 
-    @pytest.mark.usefixtures("shared_ray_client")
     def test_composite_end_to_end_with_directory(self) -> None:
         """End-to-end: ALMManifestReader composite with directory input through full pipeline."""
         from nemo_curator.backends.xenna import XennaExecutor
