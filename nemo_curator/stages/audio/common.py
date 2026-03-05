@@ -16,6 +16,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from operator import eq, ge, gt, le, lt, ne
 
+import soundfile
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
@@ -64,8 +65,6 @@ class GetAudioDurationStage(LegacySpeechStage):
     duration_key: str
 
     def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
-        import soundfile
-
         audio_filepath = data_entry[self.audio_filepath_key]
         try:
             data, samplerate = soundfile.read(audio_filepath)

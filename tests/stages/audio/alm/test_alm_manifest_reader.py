@@ -17,6 +17,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from nemo_curator.stages.audio.alm import ALMManifestReader, ALMManifestReaderStage
 from nemo_curator.tasks import AudioBatch, FileGroupTask
 
@@ -220,6 +222,7 @@ class TestALMManifestReaderIntegration:
             assert "segments" in entry
             assert len(entry["segments"]) > 0
 
+    @pytest.mark.usefixtures("shared_ray_client")
     def test_composite_end_to_end_with_directory(self) -> None:
         """End-to-end: ALMManifestReader composite with directory input through full pipeline."""
         from nemo_curator.backends.xenna import XennaExecutor
