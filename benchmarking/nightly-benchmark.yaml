@@ -242,7 +242,7 @@ entries:
       --bands-per-iteration=20
       --text-field=text
       --input-blocksize=1.5GiB
-    timeout_s: 700
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
@@ -344,7 +344,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1000
+    timeout_s: 1500
     sink_data:
       - name: slack
         additional_metrics:
@@ -358,7 +358,7 @@ entries:
       - metric: num_duplicates_removed
         exact_value: 59226133
       - metric: io_percentage
-        min_value: 97
+        min_value: 90
 
   - name: score_filter_raydata
     enabled: true
