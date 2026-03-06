@@ -52,6 +52,8 @@ class ModelConfig:
             Passed directly to LLMConfig.deployment_config.
         engine_kwargs: vLLM engine keyword arguments (tensor_parallel_size, etc.).
             Passed directly to LLMConfig.engine_kwargs.
+        runtime_env: Ray runtime environment configuration (pip packages, env_vars, working_dir, etc.).
+            Merged with quiet logging overrides when ``verbose=False`` on the ModelServer.
     """
 
     model_identifier: str
@@ -166,9 +168,14 @@ class ModelServer:
 
         Raises:
             RuntimeError: If another ModelServer is already active in this
-                process.  Only one ModelServer can run at a time because all
-                instances share the same ``/v1`` routes on the Ray Serve HTTP
-                proxy.  Stop the existing server before starting a new one.
+                process.  Only one ModelServer can run at a time because
+                Ray Serve uses a single HTTP proxy per cluster, and all
+                models are deployed as a single application sharing the
+                same ``/v1`` routes.  You can deploy multiple models in one
+                ModelServer (via the ``models`` list) — clients select a
+                model by passing ``model="<model_name>"`` in the API
+                request body.  Stop the existing server before starting a
+                new one.
         """
         if _active_servers:
             running = ", ".join(sorted(_active_servers))
@@ -248,7 +255,12 @@ class ModelServer:
 
     @property
     def endpoint(self) -> str:
-        """OpenAI-compatible base URL for the served models."""
+        """OpenAI-compatible base URL for the served models.
+
+        When multiple models are deployed, clients select a model by passing
+        ``model="<model_name>"`` in the request body (standard OpenAI API
+        convention).  The ``/v1/models`` endpoint lists all available models.
+        """
         return f"http://localhost:{self.port}/v1"
 
     # ------------------------------------------------------------------
