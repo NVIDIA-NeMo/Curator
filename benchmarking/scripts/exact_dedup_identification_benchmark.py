@@ -44,6 +44,7 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
     input_filetype: str = "jsonl",
     text_field: str = "text",
     input_blocksize: str = "2GiB",
+    identification_batchsize: int = 1,
     assign_id: bool = True,
     id_field: str | None = None,
     total_nparts: int | None = None,
@@ -66,6 +67,7 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
             input_filetype=input_filetype,
             text_field=text_field,
             input_blocksize=input_blocksize,
+            identification_batchsize=identification_batchsize,
             assign_id=assign_id,
             id_field=id_field,
             total_nparts=total_nparts,
@@ -99,6 +101,7 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
             "input_filetype": input_filetype,
             "text_field": text_field,
             "input_blocksize": input_blocksize,
+            "identification_batchsize": identification_batchsize,
             "assign_id": assign_id,
             "id_field": id_field,
             "total_nparts": total_nparts,
@@ -125,6 +128,12 @@ def main() -> int:
     parser.add_argument("--text-field", default="text", help="Text field to use for duplicate identification")
     parser.add_argument(
         "--input-blocksize", type=str, default="2GiB", help="Target partition size for input data (e.g. '2GiB')"
+    )
+    parser.add_argument(
+        "--identification-batchsize",
+        type=int,
+        default=1,
+        help="Number of batches to process in a single call for identification",
     )
     parser.add_argument(
         "--assign-id",
@@ -171,6 +180,7 @@ def main() -> int:
             input_filetype=args.input_filetype,
             text_field=args.text_field,
             input_blocksize=args.input_blocksize,
+            identification_batchsize=args.identification_batchsize,
             assign_id=args.assign_id,
             id_field=args.id_field,
             total_nparts=args.total_nparts,
