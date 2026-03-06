@@ -14,32 +14,43 @@
 
 from unittest.mock import Mock, patch
 
-import pytest
-
+from nemo_curator.core import serve as serve_module
 from nemo_curator.pipeline.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
 
 
-@pytest.fixture
-def some_stage() -> ProcessingStage:
-    return Mock(spec=ProcessingStage)
-
-
-def test_pipeline_uses_xenna_executor_by_default(some_stage: ProcessingStage):
-    # Create a mock executor instance
+def test_pipeline_uses_xenna_executor_by_default():
     mock_xenna_instance = Mock()
 
     with patch("nemo_curator.backends.xenna.XennaExecutor") as mock_xenna_class:
         mock_xenna_class.return_value = mock_xenna_instance
 
         pipeline = Pipeline(name="test")
-        pipeline.add_stage(some_stage)
+        pipeline.add_stage(Mock(spec=ProcessingStage))
 
-        # Call run without executor
         pipeline.run()
 
-        # Verify XennaExecutor was instantiated
         mock_xenna_class.assert_called_once_with()
-
-        # Verify execute was called on the XennaExecutor instance
         mock_xenna_instance.execute.assert_called_once()
+
+
+def test_warns_when_ray_serve_active_with_gpu_stages() -> None:
+    gpu_stage = Mock(spec=ProcessingStage)
+    gpu_stage.name = "EmbeddingStage"
+    gpu_stage.resources = Resources(gpus=1.0)
+
+    serve_module._active_servers.add("default")
+    try:
+        mock_executor = Mock()
+        pipeline = Pipeline(name="test", stages=[gpu_stage])
+
+        with patch("nemo_curator.pipeline.pipeline.logger") as mock_logger:
+            pipeline.run(executor=mock_executor)
+
+            mock_logger.warning.assert_called_once()
+            warning_msg = mock_logger.warning.call_args[0][0]
+            assert "Ray Serve is active" in warning_msg
+            assert "EmbeddingStage" in warning_msg
+    finally:
+        serve_module._active_servers.clear()

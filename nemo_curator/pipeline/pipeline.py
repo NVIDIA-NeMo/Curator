@@ -189,6 +189,19 @@ class Pipeline:
             list[Task] | None: List of tasks
         """
         self.build()
+
+        from nemo_curator.core.serve import is_ray_serve_active
+
+        if is_ray_serve_active():
+            gpu_stages = [s for s in self.stages if s.resources.requires_gpu]
+            if gpu_stages:
+                names = ", ".join(s.name for s in gpu_stages)
+                logger.warning(
+                    f"Ray Serve is active and pipeline has GPU stages: [{names}]. "
+                    "GPU resource contention may occur between served models and pipeline stages. "
+                    "Consider using a CPU-only pipeline or stopping the ModelServer before running GPU stages."
+                )
+
         if executor is None:
             from nemo_curator.backends.xenna import XennaExecutor
 
