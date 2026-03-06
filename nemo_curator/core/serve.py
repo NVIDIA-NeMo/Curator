@@ -14,6 +14,7 @@
 
 import atexit
 import http
+import logging
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -163,6 +164,12 @@ class ModelServer:
 
     _started: bool = field(init=False, default=False, repr=False)
 
+    def __post_init__(self) -> None:
+        if not self.verbose:
+            # Suppress driver-side Ray Serve INFO logs ("Deployment Options",
+            # "Ingress Options", "Started Serve", etc.).
+            logging.getLogger("ray.serve").setLevel(logging.WARNING)
+
     def start(self) -> None:
         """Deploy all models and wait for them to become healthy.
 
@@ -223,7 +230,8 @@ class ModelServer:
         # existing controller if one is already running).
         # We do this before serve.run() because serve.run() does not accept
         # http_options and would default to port 8000.
-        serve.start(http_options={"port": self.port})
+        # Pass logging_config here to suppress controller/proxy INFO logs.
+        serve.start(http_options={"port": self.port}, logging_config=logging_config)
 
         try:
             serve.run(app, name=self.name, blocking=False, logging_config=logging_config)
@@ -338,6 +346,9 @@ class ModelServer:
            ``_start_async_llm_engine`` creates ``AsyncLLM()`` without passing
            ``log_requests``, so it defaults to ``True``.
            Workaround: ``VLLM_LOGGING_LEVEL=WARNING``.
+           TODO: Once we upgrade past Ray 2.54 (see ray-project/ray#60824),
+           pass ``"enable_log_requests": False`` in ``engine_kwargs`` instead
+           and remove the ``VLLM_LOGGING_LEVEL`` env var workaround.
 
         2. **Ray Serve access logs** (``POST /v1/... 200 Xms``):
            ``configure_component_logger()`` only adds the access-log filter
