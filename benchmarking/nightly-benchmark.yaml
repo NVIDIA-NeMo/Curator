@@ -242,7 +242,7 @@ entries:
       --bands-per-iteration=20
       --text-field=text
       --input-blocksize=1.5GiB
-    timeout_s: 700
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
