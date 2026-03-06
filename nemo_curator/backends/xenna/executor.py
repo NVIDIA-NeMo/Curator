@@ -143,7 +143,6 @@ class XennaExecutor(BaseExecutor):
                     # We need to set this env var to avoid ray from setting CUDA_VISIBLE_DEVICES and let xenna do it
                     "env_vars": {
                         "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
-                        "RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO": "0",
                     }
                 },
             )
