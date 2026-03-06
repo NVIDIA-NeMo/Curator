@@ -40,6 +40,7 @@ class JsonlWriter(BaseWriter):
         write_kwargs = {
             "lines": True,
             "orient": "records",
+            "force_ascii": False,
         }
 
         # Add any additional kwargs, allowing them to override defaults
