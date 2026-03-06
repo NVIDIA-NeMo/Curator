@@ -61,8 +61,6 @@ def _worker_blur(
     """Module-level worker for multiprocessing; runs until sentinel."""
     while True:
         item = work_queue.get()
-        if item is None:
-            break
         idx, image_bytes = item
         _, keep = _process_one_blur((idx, image_bytes), score_threshold)
         result_queue.put((idx, keep))
