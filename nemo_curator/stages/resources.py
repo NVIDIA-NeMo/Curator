@@ -36,14 +36,11 @@ class Resources:
     Attributes:
         cpus: Number of CPU cores required
         gpu_memory_gb: GPU memory required in GB (Only for single-GPU stages)
-        entire_gpu: Whether to allocate entire GPU regardless of memory
         gpus: Number of GPUs required (Only for multi-GPU stages)
     """
 
-    # TODO : Revisit this gpu_memory_gb, gpus, entire_gpu too many variables for gpu
     cpus: float = 1.0
     gpu_memory_gb: float = 0.0
-    entire_gpu: bool = False
     gpus: float = 0.0
 
     def __post_init__(self):
@@ -66,10 +63,7 @@ class Resources:
                 error_message += "Please use gpus for multi-GPU stages."
                 raise ValueError(error_message)
 
-        if self.entire_gpu:
-            self.gpus = 1.0
-
     @property
     def requires_gpu(self) -> bool:
         """Check if this stage requires GPU resources."""
-        return self.gpus > 0 or self.gpu_memory_gb > 0 or self.entire_gpu
+        return self.gpus > 0 or self.gpu_memory_gb > 0
