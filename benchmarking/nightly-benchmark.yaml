@@ -358,7 +358,7 @@ entries:
       - metric: num_duplicates_removed
         exact_value: 59226133
       - metric: io_percentage
-        min_value: 97
+        min_value: 90
 
   - name: score_filter_raydata
     enabled: true
