@@ -44,7 +44,9 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
             per_text_fields=tuple(args.per_text_fields) if args.per_text_fields else (),
         )
     )
-    pipe.add_stage(InterleavedAspectRatioFilterStage(min_aspect_ratio=1.0, max_aspect_ratio=2.0, drop_invalid_rows=True))
+    pipe.add_stage(
+        InterleavedAspectRatioFilterStage(min_aspect_ratio=1.0, max_aspect_ratio=2.0, drop_invalid_rows=True)
+    )
     pipe.add_stage(
         InterleavedParquetWriterStage(
             path=args.output_path,
