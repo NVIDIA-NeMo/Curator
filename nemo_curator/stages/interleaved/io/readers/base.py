@@ -15,15 +15,24 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+import pyarrow as pa
+
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.interleaved.utils.schema import align_table, reconcile_schema
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 
 
 @dataclass
 class BaseInterleavedReader(ProcessingStage[FileGroupTask, InterleavedBatch]):
-    """Base contract for interleaved readers."""
+    """Base contract for interleaved readers.
+
+    If *output_schema* is set, every output table is aligned to it
+    (missing columns become nulls, extra columns are dropped, types reconciled).
+    Otherwise only core-column types are reconciled.
+    """
 
     read_kwargs: dict[str, Any] = field(default_factory=dict)
+    output_schema: pa.Schema | None = None
     name: str = "base_interleaved_reader"
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -31,3 +40,9 @@ class BaseInterleavedReader(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["sample_id", "position", "modality"]
+
+    def _align_output(self, table: pa.Table) -> pa.Table:
+        """Reconcile or align *table* to the declared output schema."""
+        if self.output_schema is not None:
+            return align_table(table, self.output_schema)
+        return table.cast(reconcile_schema(table.schema))

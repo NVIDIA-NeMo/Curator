@@ -61,7 +61,12 @@ def test_writer_marks_materialize_error_on_bad_source_path(tmp_path: Path, input
         _stage_perf=batch._stage_perf,
     )
 
-    writer = InterleavedParquetWriterStage(path=str(tmp_path / "out_bad"), materialize_on_write=True, mode="overwrite")
+    writer = InterleavedParquetWriterStage(
+        path=str(tmp_path / "out_bad"),
+        materialize_on_write=True,
+        mode="overwrite",
+        on_materialize_error="warn",
+    )
     write_task = writer.process(bad_batch)
     written = pd.read_parquet(write_task.data[0])
 

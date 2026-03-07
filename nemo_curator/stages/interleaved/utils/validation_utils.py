@@ -23,13 +23,6 @@ if TYPE_CHECKING:
     from nemo_curator.tasks import Task
 
 
-def require_source_id_field(source_id_field: str) -> str:
-    if source_id_field:
-        return source_id_field
-    msg = "source_id_field must be provided explicitly (e.g., 'pdf_name')"
-    raise ValueError(msg)
-
-
 def resolve_storage_options(
     task: Task[Any] | None = None,
     io_kwargs: dict[str, object] | None = None,

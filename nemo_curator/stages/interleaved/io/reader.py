@@ -12,20 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nemo_curator.stages.base import CompositeStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.interleaved.io.readers.parquet import InterleavedParquetReaderStage
 from nemo_curator.stages.interleaved.io.readers.webdataset import WebdatasetReaderStage
 from nemo_curator.stages.interleaved.utils import (
     DEFAULT_IMAGE_EXTENSIONS,
     DEFAULT_JSON_EXTENSIONS,
     DEFAULT_WEBDATASET_EXTENSIONS,
-    require_source_id_field,
     resolve_storage_options,
 )
 from nemo_curator.tasks import InterleavedBatch, _EmptyTask
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 
 @dataclass
@@ -41,7 +46,7 @@ class WebdatasetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
     file_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_WEBDATASET_EXTENSIONS))
     json_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_JSON_EXTENSIONS))
     image_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_IMAGE_EXTENSIONS))
-    source_id_field: str = ""
+    source_id_field: str | None = None
     sample_id_field: str | None = None
     texts_field: str = "texts"
     images_field: str = "images"
@@ -53,7 +58,6 @@ class WebdatasetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
 
     def __post_init__(self):
         super().__init__()
-        self.source_id_field = require_source_id_field(self.source_id_field)
         self.storage_options = resolve_storage_options(io_kwargs=self.read_kwargs)
 
     def decompose(self) -> list:
@@ -79,5 +83,42 @@ class WebdatasetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
                 fields=self.fields,
                 per_image_fields=self.per_image_fields,
                 per_text_fields=self.per_text_fields,
+            ),
+        ]
+
+
+@dataclass
+class InterleavedParquetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
+    """Composite stage for reading parquet files in interleaved schema.
+
+    Decomposes into FilePartitioningStage + InterleavedParquetReaderStage.
+    """
+
+    file_paths: str | list[str]
+    files_per_partition: int | None = None
+    max_batch_bytes: int | None = None
+    read_kwargs: dict[str, Any] = field(default_factory=dict)
+    fields: list[str] | None = None
+    file_extensions: list[str] = field(default_factory=lambda: [".parquet"])
+    output_schema: pa.Schema | None = None
+    name: str = "interleaved_parquet_reader"
+
+    def __post_init__(self):
+        super().__init__()
+        self.storage_options = resolve_storage_options(io_kwargs=self.read_kwargs)
+
+    def decompose(self) -> list:
+        return [
+            FilePartitioningStage(
+                file_paths=self.file_paths,
+                files_per_partition=self.files_per_partition,
+                file_extensions=self.file_extensions,
+                storage_options=self.storage_options,
+            ),
+            InterleavedParquetReaderStage(
+                read_kwargs=self.read_kwargs,
+                fields=self.fields,
+                max_batch_bytes=self.max_batch_bytes,
+                output_schema=self.output_schema,
             ),
         ]

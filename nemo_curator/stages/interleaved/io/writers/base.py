@@ -17,20 +17,20 @@ from __future__ import annotations
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
+import pandas as pd
+import pyarrow as pa
 from fsspec.core import url_to_fs
 from loguru import logger
 
 import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.utils import materialize_task_binary_content
+from nemo_curator.stages.interleaved.utils.schema import align_table, reconcile_schema
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import check_output_mode
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @dataclass
@@ -38,8 +38,12 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
     """Base class for interleaved writers.
 
     Handles filesystem setup, deterministic file naming, optional binary
-    materialization, and process() orchestration.  Subclasses implement
-    ``_write_dataframe`` for format-specific output.
+    materialization, schema alignment, and process() orchestration.
+    Subclasses implement ``_write_dataframe`` for format-specific output.
+
+    If *output_schema* is set, every output table is aligned to it
+    (missing columns become nulls, extra columns are dropped, types reconciled).
+    Otherwise only core-column types are reconciled.
     """
 
     path: str
@@ -49,6 +53,8 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
     name: str = "base_interleaved_writer"
     mode: Literal["ignore", "overwrite", "append", "error"] = "ignore"
     append_mode_implemented: bool = False
+    on_materialize_error: Literal["error", "warn", "drop_row", "drop_sample"] = "error"
+    output_schema: pa.Schema | None = None
 
     def __post_init__(self) -> None:
         self.storage_options = (self.write_kwargs or {}).get("storage_options", {})
@@ -78,9 +84,41 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
 
         with self._time_metric("materialize_fetch_binary_s"):
             out = materialize_task_binary_content(task, io_kwargs=self.write_kwargs).to_pandas()
-        if "materialize_error" in out.columns:
-            self._log_metric("materialize_errors", float(out["materialize_error"].notna().sum()))
+        if "materialize_error" not in out.columns:
+            return out
+        error_mask = out["materialize_error"].notna()
+        n_errors = int(error_mask.sum())
+        self._log_metric("materialize_errors", float(n_errors))
+        if n_errors == 0:
+            return out
+        if self.on_materialize_error == "error":
+            first_err = out.loc[error_mask, "materialize_error"].iloc[0]
+            msg = f"Materialization failed ({n_errors} errors). First: {first_err}"
+            raise RuntimeError(msg)
+        if self.on_materialize_error == "warn":
+            logger.warning("materialize: {} errors (mode=warn, keeping rows)", n_errors)
+        elif self.on_materialize_error == "drop_row":
+            out = out[~error_mask].reset_index(drop=True)
+            logger.info("materialize: dropped {} error rows", n_errors)
+        elif self.on_materialize_error == "drop_sample":
+            bad_samples = set(out.loc[error_mask, "sample_id"])
+            out = out[~out["sample_id"].isin(bad_samples)].reset_index(drop=True)
+            logger.info("materialize: dropped {} samples with errors", len(bad_samples))
         return out
+
+    # -- schema alignment --
+
+    def _align_output(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Reconcile or align *df* to the declared output schema.
+
+        Converts to pa.Table, applies alignment, converts back.
+        """
+        table = pa.Table.from_pandas(df, preserve_index=False)
+        if self.output_schema is not None:
+            table = align_table(table, self.output_schema)
+        else:
+            table = table.cast(reconcile_schema(table.schema))
+        return table.to_pandas(types_mapper=pd.ArrowDtype)
 
     # -- write pipeline --
 
@@ -91,7 +129,9 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
     def write_data(self, task: InterleavedBatch, file_path: str) -> None:
         with self._time_metric("materialize_dataframe_total_s"):
             df = self._materialize_dataframe(task)
+        df = self._align_output(df)
         write_kwargs: dict[str, Any] = dict(self.write_kwargs)
+        write_kwargs.pop("storage_options", None)
         write_kwargs["index"] = False
         self._write_dataframe(df, file_path, write_kwargs)
 

@@ -93,6 +93,7 @@ class BaseStageAdapter:
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
+        results = [t for t in results if t is not None]
         for task in results:
             task.add_stage_perf(stage_perf_stats)
 

@@ -12,6 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from nemo_curator.stages.interleaved.io.writers.lance import (
+    InterleavedLanceFragmentWriterStage,
+    commit_lance_fragments,
+)
 from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParquetWriterStage
+from nemo_curator.stages.interleaved.io.writers.webdataset import InterleavedWebdatasetWriterStage
 
-__all__ = ["InterleavedParquetWriterStage"]
+__all__ = [
+    "InterleavedLanceFragmentWriterStage",
+    "InterleavedParquetWriterStage",
+    "InterleavedWebdatasetWriterStage",
+    "commit_lance_fragments",
+]

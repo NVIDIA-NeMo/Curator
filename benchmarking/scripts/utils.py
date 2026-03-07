@@ -136,6 +136,86 @@ def collect_parquet_output_metrics(output_path: Path) -> dict[str, Any]:
     }
 
 
+def collect_webdataset_output_metrics(output_path: Path) -> dict[str, Any]:
+    import tarfile
+
+    output_files = get_all_file_paths_and_size_under(
+        str(output_path),
+        recurse_subdirectories=True,
+        keep_extensions=[".tar"],
+    )
+    tar_files = [path for path, _ in output_files]
+    num_files = len(tar_files)
+    total_size_bytes = int(sum(size for _, size in output_files))
+    num_samples = 0
+    num_image_members = 0
+    for path in tar_files:
+        with tarfile.open(path, "r") as tf:
+            for member in tf.getmembers():
+                if not member.isfile():
+                    continue
+                if member.name.endswith(".json"):
+                    num_samples += 1
+                else:
+                    num_image_members += 1
+    return {
+        "num_output_files": num_files,
+        "output_total_bytes": total_size_bytes,
+        "output_total_mb": total_size_bytes / (1024 * 1024),
+        "num_samples": num_samples,
+        "num_image_members": num_image_members,
+        "avg_samples_per_tar": (num_samples / num_files) if num_files > 0 else 0.0,
+    }
+
+
+def _try_read_lance_dataset(lance_path: Path) -> int | None:
+    import lance
+    from loguru import logger as _log
+
+    try:
+        ds = lance.dataset(str(lance_path))
+        return ds.count_rows()
+    except Exception:
+        _log.warning("Could not read Lance dataset at {}", lance_path)
+        return None
+
+
+def collect_lance_output_metrics(output_path: Path) -> dict[str, Any]:
+    import lance
+    from loguru import logger as _logger
+
+    output_path = Path(output_path)
+    total_rows = 0
+    total_size_bytes = 0
+    num_datasets = 0
+
+    lance_dirs: list[Path] = []
+    try:
+        ds = lance.dataset(str(output_path))
+        total_rows += ds.count_rows()
+        num_datasets += 1
+    except Exception as exc:
+        _logger.warning("Could not read Lance dataset at {}: {}", output_path, exc)
+        lance_dirs = [d for d in output_path.rglob("*.lance") if d.is_dir()]
+
+    for lance_dir in lance_dirs:
+        row_count = _try_read_lance_dataset(lance_dir)
+        if row_count is not None:
+            total_rows += row_count
+            num_datasets += 1
+
+    for f in output_path.rglob("*"):
+        if f.is_file():
+            total_size_bytes += f.stat().st_size
+
+    return {
+        "num_output_files": num_datasets,
+        "output_total_bytes": total_size_bytes,
+        "output_total_mb": total_size_bytes / (1024 * 1024),
+        "num_rows": total_rows,
+    }
+
+
 def validate_parquet_ordering(parquet_path: str | Path) -> dict[str, Any]:
     """Read a single parquet file and validate interleaved position ordering.
 
