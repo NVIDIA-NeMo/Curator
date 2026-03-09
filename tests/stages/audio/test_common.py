@@ -52,6 +52,7 @@ def test_get_audio_duration_success(tmp_path: Path) -> None:
     fake_samples = FakeArray(fake_sr * 2)
     with mock.patch("soundfile.read", return_value=(fake_samples, fake_sr)):
         stage = GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration")
+        stage.setup()
         entry = {"audio_filepath": (tmp_path / "fake.wav").as_posix()}
         out = stage.process(AudioBatch(data=[entry]))
         assert len(out) == 1
@@ -64,9 +65,10 @@ def test_get_audio_duration_error_sets_minus_one(tmp_path: Path) -> None:
 
     with (
         mock.patch("soundfile.read", side_effect=FakeError()),
-        mock.patch("nemo_curator.stages.audio.common.soundfile.SoundFileError", FakeError),
+        mock.patch("soundfile.SoundFileError", FakeError),
     ):
         stage = GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration")
+        stage.setup()
         entry = {"audio_filepath": (tmp_path / "missing.wav").as_posix()}
         out = stage.process(AudioBatch(data=[entry]))
         assert out[0].data[0]["duration"] == -1.0
