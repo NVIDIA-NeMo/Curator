@@ -284,8 +284,7 @@ class TestNDDBaseSyntheticStagePipelineIntegration:
 
         for fi in range(m_files):
             with open(input_dir / f"doc_{fi}.jsonl", "w") as f:
-                for ri in range(n_rows):
-                    f.write(json.dumps({"text": f"file{fi}_row{ri}"}) + "\n")
+                f.writelines(json.dumps({"text": f"file{fi}_row{ri}"}) + "\n" for ri in range(n_rows))
 
         mock_provider, model_configs = self._mock_llm_setup(httpserver)
 

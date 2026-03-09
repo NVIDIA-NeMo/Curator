@@ -46,7 +46,7 @@ from nemo_curator.tasks.document import DocumentBatch
 
 # Import shared preprocessing/postprocessing helpers from the parent directory
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from nemotron_cc_pipelines import (  # noqa: E402
+from nemotron_cc_pipelines import (
     add_preprocessing_pipeline,
     add_wikipedia_postprocessing_pipeline,
 )

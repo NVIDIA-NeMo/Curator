@@ -32,7 +32,6 @@ from nemo_curator.tasks import DocumentBatch
 
 if TYPE_CHECKING:
     import data_designer.config as dd
-    from data_designer.interface import DataDesigner
 
 _FORMATTED_PROMPT_COL = "_ndd_formatted_prompt"
 
