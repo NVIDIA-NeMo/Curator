@@ -33,17 +33,19 @@ class BandFilterConfig:
 
     Attributes:
         model_path: Path to band classifier model (.joblib)
-        n_workers: Number of parallel workers for feature extraction
-        feature_cache_size: Size of feature cache
+        model_inference_batch_size: Number of items per batch for model inference.
         band_value: Which band type to pass ("full_band" or "narrow_band")
+
+    Note:
+        Worker count and feature cache size are internal (derived from resources
+        or fixed default); not exposed in config (same pattern as image stages).
 
     Example:
         config = BandFilterConfig(band_value="full_band")
     """
 
     model_path: str = "model/band_classifier_model_band_7000_samples.joblib"
-    n_workers: int = 4
-    feature_cache_size: int = 100
+    model_inference_batch_size: int = 32
     band_value: Literal["full_band", "narrow_band"] = "full_band"
 
     @classmethod
@@ -58,8 +60,7 @@ class BandFilterConfig:
         """Convert to dictionary."""
         return {
             'model_path': self.model_path,
-            'n_workers': self.n_workers,
-            'feature_cache_size': self.feature_cache_size,
+            'model_inference_batch_size': self.model_inference_batch_size,
             'band_value': self.band_value,
         }
 
