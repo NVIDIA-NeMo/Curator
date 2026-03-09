@@ -118,10 +118,14 @@ def exact_no_dedup_data_jsonl(tmp_path: Path) -> list[FileGroupTask]:
 @pytest.mark.gpu
 @pytest.mark.usefixtures("ray_client_with_id_generator")
 class TestExactDuplicates:
-    @pytest.mark.parametrize("assign_id", [True, False])
-    @pytest.mark.parametrize("total_nparts", [2, 4])
+    @pytest.mark.parametrize(("assign_id", "total_nparts", "batch_size"), [(False, 2, 1), (True, 4, 5)])
     def test_dup(
-        self, exact_dedup_data_parquet: list[FileGroupTask], tmpdir: Path, total_nparts: int, assign_id: bool
+        self,
+        exact_dedup_data_parquet: list[FileGroupTask],
+        tmpdir: Path,
+        total_nparts: int,
+        assign_id: bool,
+        batch_size: int,
     ) -> None:
         stage = ExactDuplicateIdentification(
             text_field="text",
@@ -133,7 +137,7 @@ class TestExactDuplicates:
             enable_statistics=False,
             assign_id=assign_id,
             id_field="id" if not assign_id else None,
-        )
+        ).with_(batch_size=batch_size)
         pipeline = Pipeline(name="test_exact_dedup", stages=[stage])
         executor = RayActorPoolExecutor()
         pipeline.run(executor, initial_tasks=exact_dedup_data_parquet)
