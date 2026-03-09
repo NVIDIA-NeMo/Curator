@@ -58,7 +58,7 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioBatch]):
             AudioBatch(
                 data=[entry],
                 _metadata=task._metadata,
-                _stage_perf=task._stage_perf,
+                _stage_perf=list(task._stage_perf),
             )
             for entry in entries
         ]

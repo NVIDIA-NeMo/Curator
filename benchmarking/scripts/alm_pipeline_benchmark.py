@@ -60,7 +60,7 @@ class _RepeatEntriesStage(ProcessingStage[AudioBatch, AudioBatch]):
             AudioBatch(
                 data=task.data,
                 _metadata=task._metadata,
-                _stage_perf=task._stage_perf,
+                _stage_perf=list(task._stage_perf),
             )
             for _ in range(self._repeat_factor)
         ]
