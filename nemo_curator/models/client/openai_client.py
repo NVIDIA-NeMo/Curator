@@ -15,6 +15,7 @@
 import warnings
 from collections.abc import Iterable
 
+from loguru import logger
 from openai import AsyncOpenAI, OpenAI
 
 from nemo_curator.models.client.llm_client import AsyncLLMClient, ConversationFormatter, GenerationConfig, LLMClient
@@ -69,6 +70,9 @@ class OpenAIClient(LLMClient):
             "timeout": self.timeout,
         }
         if generation_config.extra_kwargs:
+            overlapping = set(generation_config.extra_kwargs) & set(create_kwargs)
+            if overlapping:
+                logger.warning(f"extra_kwargs will overwrite existing parameter(s): {overlapping}")
             create_kwargs.update(generation_config.extra_kwargs)
 
         response = self.client.chat.completions.create(**create_kwargs)
@@ -140,6 +144,9 @@ class AsyncOpenAIClient(AsyncLLMClient):
             "timeout": self.timeout,
         }
         if generation_config.extra_kwargs:
+            overlapping = set(generation_config.extra_kwargs) & set(create_kwargs)
+            if overlapping:
+                logger.warning(f"extra_kwargs will overwrite existing parameter(s): {overlapping}")
             create_kwargs.update(generation_config.extra_kwargs)
 
         response = await self.client.chat.completions.create(**create_kwargs)

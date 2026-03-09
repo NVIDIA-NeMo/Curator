@@ -142,7 +142,7 @@ class TestInferenceServer:
 # Integration tests — real Ray Serve + vLLM
 # ---------------------------------------------------------------------------
 @pytest.fixture(scope="class")
-def inference_server(shared_ray_cluster: str) -> InferenceServer:  # noqa: ARG001
+def model_server(shared_ray_cluster: str) -> InferenceServer:  # noqa: ARG001
     """Start InferenceServer once for all integration tests.
 
     Uses enforce_eager=True to skip torch.compile and CUDA graph capture,
@@ -169,7 +169,7 @@ def inference_server(shared_ray_cluster: str) -> InferenceServer:  # noqa: ARG00
 
 
 @pytest.mark.gpu
-@pytest.mark.usefixtures("inference_server")
+@pytest.mark.usefixtures("model_server")
 class TestInferenceServerIntegration:
     """Full lifecycle tests against a real InferenceServer started once for the class."""
 
