@@ -199,7 +199,7 @@ class Pipeline:
                 logger.warning(
                     f"Ray Serve is active and pipeline has GPU stages: [{names}]. "
                     "GPU resource contention may occur between served models and pipeline stages. "
-                    "Consider using a CPU-only pipeline or stopping the ModelServer before running GPU stages."
+                    "Consider using a CPU-only pipeline or stopping the InferenceServer before running GPU stages."
                 )
 
         if executor is None:

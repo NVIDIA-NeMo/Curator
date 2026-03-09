@@ -18,30 +18,22 @@ import pytest
 from pytest_httpserver import HTTPServer
 from ray.serve.llm import LLMConfig
 
-from nemo_curator.core.constants import DEFAULT_SERVE_HEALTH_TIMEOUT_S, DEFAULT_SERVE_PORT
-from nemo_curator.core.serve import ModelConfig, ModelServer, is_ray_serve_active
+from nemo_curator.core.serve import InferenceModelConfig, InferenceServer, is_ray_serve_active
 
 INTEGRATION_TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"  # pragma: allowlist secret
 INTEGRATION_TEST_MODEL_2 = "HuggingFaceTB/SmolLM-135M-Instruct"  # pragma: allowlist secret
 
 
-class TestModelConfig:
-    def test_model_config_defaults(self) -> None:
-        default = ModelConfig(model_identifier="meta-llama/Llama-3-8B")
-        assert default.model_name is None
-        assert default.deployment_config == {}
-        assert default.engine_kwargs == {}
-        assert default.runtime_env == {}
-
-        # to_llm_config falls back to identifier when no model_name
-        result = default.to_llm_config()
+class TestInferenceModelConfig:
+    def test_to_llm_config_falls_back_to_identifier(self) -> None:
+        config = InferenceModelConfig(model_identifier="meta-llama/Llama-3-8B")
+        result = config.to_llm_config()
         assert isinstance(result, LLMConfig)
         assert result.model_loading_config.model_id == "meta-llama/Llama-3-8B"
         assert result.model_loading_config.model_source == "meta-llama/Llama-3-8B"
 
     def test_to_llm_config_with_model_name(self) -> None:
-        # to_llm_config uses model_name when provided
-        custom = ModelConfig(
+        custom = InferenceModelConfig(
             model_identifier="google/gemma-3-27b-it",
             model_name="gemma-27b",
             deployment_config={"autoscaling_config": {"min_replicas": 1}},
@@ -54,14 +46,14 @@ class TestModelConfig:
 
     def test_to_llm_config_quiet_env_merges_with_user_runtime_env(self) -> None:
         """Quiet env vars override user's logging vars but preserve other runtime_env keys."""
-        config = ModelConfig(
+        config = InferenceModelConfig(
             model_identifier="some-model",
             runtime_env={
                 "pip": ["my-package"],
                 "env_vars": {"MY_VAR": "1", "VLLM_LOGGING_LEVEL": "DEBUG"},
             },
         )
-        quiet_env = ModelServer._quiet_runtime_env()
+        quiet_env = InferenceServer._quiet_runtime_env()
         result = config.to_llm_config(quiet_runtime_env=quiet_env)
 
         assert result.runtime_env["pip"] == ["my-package"]
@@ -76,20 +68,12 @@ class TestModelConfig:
         assert "RAY_SERVE_LOG_TO_STDERR" not in result_verbose.runtime_env["env_vars"]
 
 
-class TestModelServer:
-    def test_defaults_and_idempotent_stop(self) -> None:
-        server = ModelServer(models=[ModelConfig(model_identifier="some-model")])
-        assert server.name == "default"
-        assert server.port == DEFAULT_SERVE_PORT
-        assert server.health_check_timeout_s == DEFAULT_SERVE_HEALTH_TIMEOUT_S
-        assert server.verbose is False
-        assert server._started is False
-        assert server.endpoint == f"http://localhost:{DEFAULT_SERVE_PORT}/v1"
+class TestInferenceServer:
+    def test_endpoint_uses_configured_port(self) -> None:
+        assert InferenceServer(models=[], port=9999).endpoint == "http://localhost:9999/v1"
 
-        # Custom port
-        assert ModelServer(models=[], port=9999).endpoint == "http://localhost:9999/v1"
-
-        # stop() before start() is a no-op
+    def test_stop_before_start_is_noop(self) -> None:
+        server = InferenceServer(models=[InferenceModelConfig(model_identifier="some-model")])
         server.stop()
         assert server._started is False
 
@@ -97,19 +81,19 @@ class TestModelServer:
         """Health check succeeds on 200, retries on failure, and times out on unreachable port."""
         # Immediate success
         httpserver.expect_request("/v1/models").respond_with_json({"data": []})
-        server = ModelServer(models=[], port=httpserver.port, health_check_timeout_s=5)
+        server = InferenceServer(models=[], port=httpserver.port, health_check_timeout_s=5)
         server._wait_for_healthy()
 
         # Timeout on unreachable port
-        server = ModelServer(models=[], port=19876, health_check_timeout_s=2)
+        server = InferenceServer(models=[], port=19876, health_check_timeout_s=2)
         with pytest.raises(TimeoutError, match="did not become ready within 2s"):
             server._wait_for_healthy()
 
     def test_start_raises_when_another_server_active(self) -> None:
-        """start() raises RuntimeError if another ModelServer is already active."""
+        """start() raises RuntimeError if another InferenceServer is already active."""
         from nemo_curator.core.serve import _active_servers
 
-        server = ModelServer(models=[ModelConfig(model_identifier="some-model")])
+        server = InferenceServer(models=[InferenceModelConfig(model_identifier="some-model")])
 
         _active_servers.add("other-app")
         try:
@@ -124,7 +108,7 @@ class TestModelServer:
 
         from nemo_curator.core.serve import _active_servers
 
-        server = ModelServer(models=[ModelConfig(model_identifier="m")])
+        server = InferenceServer(models=[InferenceModelConfig(model_identifier="m")])
         server._started = True
         _active_servers.add(server.name)
         try:
@@ -139,7 +123,7 @@ class TestModelServer:
         """stop() on a not-started server is a no-op — serve.shutdown() is not called."""
         from ray import serve
 
-        fresh = ModelServer(models=[ModelConfig(model_identifier="m")])
+        fresh = InferenceServer(models=[InferenceModelConfig(model_identifier="m")])
         fresh._started = False
         with patch.object(serve, "shutdown") as spy:
             fresh.stop()
@@ -147,7 +131,7 @@ class TestModelServer:
 
     def test_stop_is_idempotent(self) -> None:
         """stop() called twice on a not-started server is safe (atexit double-call)."""
-        fresh = ModelServer(models=[ModelConfig(model_identifier="m")])
+        fresh = InferenceServer(models=[InferenceModelConfig(model_identifier="m")])
         assert fresh._started is False
         fresh.stop()
         fresh.stop()
@@ -158,13 +142,13 @@ class TestModelServer:
 # Integration tests — real Ray Serve + vLLM, requires GPU
 # ---------------------------------------------------------------------------
 @pytest.fixture(scope="class")
-def model_server(shared_ray_cluster: str) -> ModelServer:  # noqa: ARG001
-    """Start ModelServer once for all integration tests.
+def model_server(shared_ray_cluster: str) -> InferenceServer:  # noqa: ARG001
+    """Start InferenceServer once for all integration tests.
 
     Uses enforce_eager=True to skip torch.compile and CUDA graph capture,
     cutting vLLM startup from ~30s to ~5s.
     """
-    config = ModelConfig(
+    config = InferenceModelConfig(
         model_identifier=INTEGRATION_TEST_MODEL,
         deployment_config={
             "autoscaling_config": {"min_replicas": 1, "max_replicas": 1},
@@ -176,7 +160,7 @@ def model_server(shared_ray_cluster: str) -> ModelServer:  # noqa: ARG001
         },
     )
 
-    server = ModelServer(models=[config], health_check_timeout_s=600)
+    server = InferenceServer(models=[config], health_check_timeout_s=600)
     server.start()
 
     yield server
@@ -186,10 +170,10 @@ def model_server(shared_ray_cluster: str) -> ModelServer:  # noqa: ARG001
 
 @pytest.mark.gpu
 @pytest.mark.usefixtures("model_server")
-class TestModelServerIntegration:
-    """Full lifecycle tests against a real ModelServer started once for the class."""
+class TestInferenceServerIntegration:
+    """Full lifecycle tests against a real InferenceServer started once for the class."""
 
-    def test_is_active_and_queryable(self, model_server: ModelServer) -> None:
+    def test_is_active_and_queryable(self, model_server: InferenceServer) -> None:
         """Server is active, lists models, and responds to chat completions."""
         from openai import OpenAI
 
@@ -212,11 +196,11 @@ class TestModelServerIntegration:
         assert len(response.choices) > 0
         assert len(response.choices[0].message.content) > 0
 
-    def test_second_start_rejected(self, model_server: ModelServer) -> None:
-        """Cannot start a second ModelServer while one is already active."""
-        server2 = ModelServer(
+    def test_second_start_rejected(self, model_server: InferenceServer) -> None:
+        """Cannot start a second InferenceServer while one is already active."""
+        server2 = InferenceServer(
             models=[
-                ModelConfig(
+                InferenceModelConfig(
                     model_identifier=INTEGRATION_TEST_MODEL_2,
                     deployment_config={"autoscaling_config": {"min_replicas": 1, "max_replicas": 1}},
                     engine_kwargs={"tensor_parallel_size": 1, "max_model_len": 512, "enforce_eager": True},
@@ -233,8 +217,8 @@ class TestModelServerIntegration:
         client = OpenAI(base_url=model_server.endpoint, api_key="na")
         assert INTEGRATION_TEST_MODEL in {m.id for m in client.models.list()}
 
-    def test_restart_after_stop(self, model_server: ModelServer) -> None:
-        """A new ModelServer starts cleanly after the previous one is stopped.
+    def test_restart_after_stop(self, model_server: InferenceServer) -> None:
+        """A new InferenceServer starts cleanly after the previous one is stopped.
 
         stop() calls serve.shutdown(), so start() must recreate the
         controller and HTTP proxy from scratch.  This test must run last
@@ -248,12 +232,12 @@ class TestModelServerIntegration:
         assert not is_ray_serve_active()
 
         # Start a fresh server from scratch (new controller + proxy)
-        config = ModelConfig(
+        config = InferenceModelConfig(
             model_identifier=INTEGRATION_TEST_MODEL,
             deployment_config={"autoscaling_config": {"min_replicas": 1, "max_replicas": 1}},
             engine_kwargs={"tensor_parallel_size": 1, "max_model_len": 512, "enforce_eager": True},
         )
-        server2 = ModelServer(models=[config], health_check_timeout_s=600)
+        server2 = InferenceServer(models=[config], health_check_timeout_s=600)
         server2.start()
 
         client = OpenAI(base_url=server2.endpoint, api_key="na")

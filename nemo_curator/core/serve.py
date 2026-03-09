@@ -30,7 +30,7 @@ from ray.serve.llm import build_openai_app
 from nemo_curator.core.constants import DEFAULT_SERVE_HEALTH_TIMEOUT_S, DEFAULT_SERVE_PORT
 from nemo_curator.core.utils import get_free_port
 
-# Track which application names are currently managed by a ModelServer in
+# Track which application names are currently managed by an InferenceServer in
 # this process.  ``is_ray_serve_active()`` checks this set so that other
 # parts of the codebase (e.g. Pipeline.run()) can detect potential GPU
 # resource contention.
@@ -38,12 +38,12 @@ _active_servers: set[str] = set()
 
 
 def is_ray_serve_active() -> bool:
-    """Check whether any ModelServer is currently running in this process."""
+    """Check whether any InferenceServer is currently running in this process."""
     return bool(_active_servers)
 
 
 @dataclass
-class ModelConfig:
+class InferenceModelConfig:
     """Configuration for a single model to be served via Ray Serve.
 
     Args:
@@ -54,7 +54,7 @@ class ModelConfig:
         engine_kwargs: vLLM engine keyword arguments (tensor_parallel_size, etc.).
             Passed directly to LLMConfig.engine_kwargs.
         runtime_env: Ray runtime environment configuration (pip packages, env_vars, working_dir, etc.).
-            Merged with quiet logging overrides when ``verbose=False`` on the ModelServer.
+            Merged with quiet logging overrides when ``verbose=False`` on the InferenceServer.
     """
 
     model_identifier: str
@@ -113,7 +113,7 @@ class ModelConfig:
 
 
 @dataclass
-class ModelServer:
+class InferenceServer:
     """Serve one or more models via Ray Serve with an OpenAI-compatible endpoint.
 
     Requires a running Ray cluster (e.g. via RayClient or RAY_ADDRESS env var).
@@ -121,12 +121,12 @@ class ModelServer:
     Cleanup semantics:
         ``stop()`` calls ``serve.shutdown()``, tearing down all applications,
         the Serve controller, and HTTP proxy.  This is safe because a
-        singleton guard ensures only one ModelServer is active at a time.
+        singleton guard ensures only one InferenceServer is active at a time.
         The overhead of recreating the controller on the next ``start()``
         is ~2-5 s — negligible compared to model loading time.
 
     Args:
-        models: List of ModelConfig instances to deploy.
+        models: List of InferenceModelConfig instances to deploy.
         name: Ray Serve application name (default ``"default"``).
         port: HTTP port for the OpenAI-compatible endpoint.
         health_check_timeout_s: Seconds to wait for models to become healthy.
@@ -138,9 +138,9 @@ class ModelServer:
 
     Example::
 
-        from nemo_curator.core.serve import ModelConfig, ModelServer
+        from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
 
-        config = ModelConfig(
+        config = InferenceModelConfig(
             model_identifier="google/gemma-3-27b-it",
             engine_kwargs={"tensor_parallel_size": 4},
             deployment_config={
@@ -151,12 +151,12 @@ class ModelServer:
             },
         )
 
-        with ModelServer(models=[config]) as server:
+        with InferenceServer(models=[config]) as server:
             print(server.endpoint)  # http://localhost:8000/v1
             # Use with NeMo Curator's OpenAIClient or AsyncOpenAIClient
     """
 
-    models: list[ModelConfig]
+    models: list[InferenceModelConfig]
     name: str = "default"
     port: int = DEFAULT_SERVE_PORT
     health_check_timeout_s: int = DEFAULT_SERVE_HEALTH_TIMEOUT_S
@@ -174,12 +174,12 @@ class ModelServer:
         """Deploy all models and wait for them to become healthy.
 
         Raises:
-            RuntimeError: If another ModelServer is already active in this
-                process.  Only one ModelServer can run at a time because
+            RuntimeError: If another InferenceServer is already active in this
+                process.  Only one InferenceServer can run at a time because
                 Ray Serve uses a single HTTP proxy per cluster, and all
                 models are deployed as a single application sharing the
                 same ``/v1`` routes.  You can deploy multiple models in one
-                ModelServer (via the ``models`` list) — clients select a
+                InferenceServer (via the ``models`` list) — clients select a
                 model by passing ``model="<model_name>"`` in the API
                 request body.  Stop the existing server before starting a
                 new one.
@@ -187,7 +187,7 @@ class ModelServer:
         if _active_servers:
             running = ", ".join(sorted(_active_servers))
             msg = (
-                f"Cannot start ModelServer '{self.name}': another ModelServer is "
+                f"Cannot start InferenceServer '{self.name}': another InferenceServer is "
                 f"already active (running: {running}). Stop the existing server first."
             )
             raise RuntimeError(msg)
@@ -279,7 +279,7 @@ class ModelServer:
         """Determine the effective HTTP port.
 
         If a Serve controller is already running (e.g. from another
-        ModelServer or a previous session), reuse its port — Ray Serve
+        InferenceServer or a previous session), reuse its port — Ray Serve
         binds the HTTP proxy once and silently ignores subsequent
         ``serve.start()`` calls with a different port.
 
