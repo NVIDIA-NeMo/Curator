@@ -212,7 +212,7 @@ def run_ndd_benchmark(  # noqa: PLR0915
             dd.ModelProvider(
                 name=provider_name,
                 endpoint=inference_server.endpoint,
-                api_key="unused",
+                api_key="unused",  # pragma: allowlist secret
             )
         ]
     elif inference_server_type == "nvidia-nim":
