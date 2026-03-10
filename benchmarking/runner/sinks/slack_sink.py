@@ -338,19 +338,9 @@ class SlackMessage(SlackMessageBase):
     def _format_ping_mentions(self) -> list[str]:
         """Format ping strings as Slack @ mentions so the user gets notified.
 
-        Each string should be a Slack user ID (e.g. U01234567). If already in
-        <@USER_ID> form, it is returned as-is; otherwise it is wrapped.
+        Each ping string must be a Slack user ID (e.g. U01234567).
         """
-        out = []
-        for s in [s.strip() for s in self.pings]:
-            if not s:
-                continue
-            if s.startswith("<@") and s.endswith(">"):
-                out.append(s)
-            else:
-                # Bare user ID: wrap so Slack treats it as a mention
-                out.append(f"<@{s}>")
-        return out
+        return [f"<@{slack_id}>" for slack_id in [sid.strip() for sid in self.pings] if slack_id]
 
     def to_slack_blocks(self) -> list[dict[str, Any]]:
         """Convert the message data to Slack blocks format.
