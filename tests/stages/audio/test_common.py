@@ -15,6 +15,7 @@
 from pathlib import Path
 from unittest import mock
 
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.tasks import AudioBatch
 
@@ -57,6 +58,12 @@ def test_get_audio_duration_success(tmp_path: Path) -> None:
         out = stage.process(AudioBatch(data=[entry]))
         assert len(out) == 1
         assert out[0].data[0]["duration"] == 2.0
+
+
+def test_get_audio_duration_ray_stage_spec() -> None:
+    stage = GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration")
+    spec = stage.ray_stage_spec()
+    assert spec[RayStageSpecKeys.IS_ACTOR_STAGE] is True
 
 
 def test_get_audio_duration_error_sets_minus_one(tmp_path: Path) -> None:

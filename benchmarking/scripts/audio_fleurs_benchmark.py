@@ -15,17 +15,19 @@
 """Audio Fleurs benchmarking script.
 
 This script runs audio Fleurs benchmarks with comprehensive metrics collection
-using XennaExecutor and logs results to configured sinks.
+and logs results to configured sinks.
 """
 
 import argparse
+import time
+import traceback
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from utils import write_benchmark_results
+from utils import setup_executor, write_benchmark_results
 
-from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
@@ -44,6 +46,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     split: str,
     wer_threshold: float,
     gpus: int,
+    executor: str,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the audio fleurs benchmark and collect comprehensive metrics."""
@@ -59,13 +62,14 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         raise ValueError(msg)
 
     logger.info("Starting audio fleurs benchmark")
+    logger.info(f"Executor: {executor}")
     logger.info(f"Model: {model_name}")
     logger.info(f"Language: {lang}")
     logger.info(f"Split: {split}")
     logger.info(f"WER threshold: {wer_threshold}")
     logger.info(f"GPUs: {gpus}")
 
-    executor = XennaExecutor()
+    pipeline_executor = setup_executor(executor)
     pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
 
     # Add stages
@@ -106,19 +110,25 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         )
     )
 
-    results = pipeline.run(executor)
+    run_start_time = time.perf_counter()
+    results = pipeline.run(pipeline_executor)
+    run_time_taken = time.perf_counter() - run_start_time
 
-    logger.success("Benchmark completed successfully")
+    logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
 
     return {
         "metrics": {
             "is_success": True,
+            "time_taken_s": run_time_taken,
         },
         "tasks": results,
     }
 
 
 def main() -> int:
+    ray_client = RayClient()
+    ray_client.start()
+
     parser = argparse.ArgumentParser(description="Audio Fleurs benchmark for nightly benchmarking")
     parser.add_argument("--benchmark-results-path", required=True, help="Path to benchmark results")
     parser.add_argument("--scratch-output-path", required=True, help="Path to scratch output directory")
@@ -127,6 +137,12 @@ def main() -> int:
     parser.add_argument("--split", default="dev", help="Dataset split to use")
     parser.add_argument("--wer-threshold", type=float, default=5.5, help="WER threshold for filtering")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs to use")
+    parser.add_argument(
+        "--executor",
+        default="xenna",
+        choices=["xenna", "ray_data"],
+        help="Executor to use for pipeline execution",
+    )
 
     args = parser.parse_args()
 
@@ -146,8 +162,13 @@ def main() -> int:
     try:
         result_dict.update(run_audio_fleurs_benchmark(**vars(args)))
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
+    except Exception as e:
+        error_traceback = traceback.format_exc()
+        logger.error(f"Benchmark failed: {e}")
+        logger.debug(f"Full traceback:\n{error_traceback}")
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path)
+        ray_client.stop()
     return success_code
 
 

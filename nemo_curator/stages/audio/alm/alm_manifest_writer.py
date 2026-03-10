@@ -21,6 +21,7 @@ from typing import Any
 from fsspec.core import url_to_fs
 from loguru import logger
 
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioBatch, FileGroupTask
 
@@ -64,6 +65,9 @@ class ALMManifestWriterStage(ProcessingStage[AudioBatch, FileGroupTask]):
 
     def num_workers(self) -> int | None:
         return 1
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {RayStageSpecKeys.IS_ACTOR_STAGE: True}
 
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers": 1}
