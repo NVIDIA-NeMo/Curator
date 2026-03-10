@@ -4754,7 +4754,6 @@ name = "nemo-curator"
 source = { editable = "." }
 dependencies = [
     { name = "absl-py" },
-    { name = "boto3" },
     { name = "comment-parser" },
     { name = "cosmos-xenna" },
     { name = "fsspec" },
@@ -4776,6 +4775,7 @@ dependencies = [
 all = [
     { name = "av" },
     { name = "beautifulsoup4" },
+    { name = "boto3" },
     { name = "cudf-cu12" },
     { name = "cuml-cu12" },
     { name = "cvcuda-cu12" },
@@ -4864,6 +4864,7 @@ image-cuda12 = [
     { name = "torchvision", version = "0.24.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 inference-server = [
+    { name = "boto3" },
     { name = "gpustat" },
     { name = "nixl-cu12", version = "0.10.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "nvidia-ml-py" },
@@ -5018,7 +5019,7 @@ requires-dist = [
     { name = "absl-py", specifier = ">=2.0.0,<3.0.0" },
     { name = "av", marker = "extra == 'video-cpu'", specifier = "==13.1.0" },
     { name = "beautifulsoup4", marker = "extra == 'text-cpu'" },
-    { name = "boto3" },
+    { name = "boto3", marker = "extra == 'inference-server'" },
     { name = "comment-parser" },
     { name = "cosmos-xenna", specifier = "==0.1.2" },
     { name = "cudf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },

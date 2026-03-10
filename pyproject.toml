@@ -64,7 +64,6 @@ dependencies = [
     "pandas>=2.1.0",
     "pyarrow",
     "ray[default,data]>=2.54",
-    "boto3", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "torch",
     "transformers",
 ]
@@ -80,6 +79,7 @@ vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Dar
 inference_server = [
     "nemo_curator[cuda12]",
     "nemo_curator[vllm]",
+    "boto3", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "ray[serve,llm]>=2.54",
 ]
