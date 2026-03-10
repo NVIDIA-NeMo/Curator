@@ -1,3 +1,5 @@
+# This is just for testing. Will be removed once the PR is merged.
+
 #!/bin/bash
 # =========================================================================
 # Verify SlurmRayClient + XennaExecutor.
