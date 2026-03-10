@@ -243,9 +243,10 @@ def run_ndd_benchmark(  # noqa: PLR0915
     try:
         output_tasks = pipeline.run(executor_obj)
     finally:
+        run_time_taken = time.perf_counter() - run_start_time
+
         if inference_server is not None:
             inference_server.stop()
-    run_time_taken = time.perf_counter() - run_start_time
 
     # -- Post-run: extract metrics from _stage_perf ----------------------
     input_row_count = int(

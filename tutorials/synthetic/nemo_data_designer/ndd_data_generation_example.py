@@ -274,7 +274,7 @@ def main() -> None:
     from nemo_curator.backends.experimental.ray_data import RayDataExecutor
     from nemo_curator.core.client import RayClient
 
-    client = RayClient(num_cpus=16, num_gpus=4, ray_temp_dir="/raid/praateekm/tmp_ray")
+    client = RayClient(num_cpus=16, num_gpus=4)
     client.start()
 
     model_alias = "local-llm"
@@ -350,14 +350,14 @@ def main() -> None:
     print("\n" + "=" * 50 + "\n")
 
     print("Starting synthetic data generation pipeline...")
-    start_time = time.time()
+    start_time = time.perf_counter()
     try:
         pipeline.run(executor=RayDataExecutor())
     finally:
+        end_time = time.perf_counter()
         if inference_server is not None:
             inference_server.stop()
         client.stop()
-    end_time = time.time()
 
     elapsed_time = end_time - start_time
 
