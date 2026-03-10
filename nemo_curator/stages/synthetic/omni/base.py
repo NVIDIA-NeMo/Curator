@@ -37,7 +37,11 @@ class VLMProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]], 
     def __init__(self, *, cuda_devices: Sequence[int] | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.cuda_devices = cuda_devices
-        assert self.resources.gpus == 0 if cuda_devices is None else len(cuda_devices), f"Require cuda_devices to match resources.gpus={self.resources.gpus}, got {cuda_devices!r}"
+        if cuda_devices is not None:
+            assert len(cuda_devices) == self.resources.gpus, f"cuda_devices length must match resources.gpus={self.resources.gpus}, got {len(cuda_devices)}"
+        elif self.resources.gpus > 0:
+            # None means use runtime-assigned GPU(s) (e.g. Ray sets CUDA_VISIBLE_DEVICES per worker).
+            pass
 
     def _maybe_set_cuda_device(self) -> None:
         """Set the current CUDA device for this stage, if configured."""
@@ -177,7 +181,7 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
         Returns:
             PIL Image object.
         """
-        from vlm2_sdg.stages.io import load_image_from_task
+        from nemo_curator.stages.synthetic.omni.io import load_image_from_task
 
         return load_image_from_task(task)
 
@@ -264,7 +268,13 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
         *,
         stats_collector: StatsCollector | None = None,
     ) -> Generator[SingleDataTask[T], None, None]:
-        """Generate streamed responses if supported by the model."""
+        """Yield completed tasks as the model produces them (within this stage only).
+
+        Uses the model's generate_stream so results are yielded per task as ready,
+        instead of waiting for the full batch like process_batch. The default
+        executor (Xenna) does not call this; it uses process_batch, so stage-to-stage
+        overlap is determined by the executor, not by this method.
+        """
 
         if not hasattr(self.model, "generate_stream"):
             raise ValueError("Model does not support streaming generation")

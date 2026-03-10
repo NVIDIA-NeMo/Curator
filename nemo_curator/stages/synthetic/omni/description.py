@@ -175,11 +175,14 @@ class DescriptionStage(ModelProcessingStage[ImageCaptioningData]):
 
     def __init__(
         self,
+        num_workers: int | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize vLLM description stage.
 
         Args:
+            num_workers: If set, number of workers for this stage (e.g. 8 for 8 GPUs).
+                If None, Cosmos-Xenna autoscaler decides (often starts with fewer workers).
             **kwargs: Additional arguments passed to parent.
         """
         super().__init__(
@@ -196,6 +199,13 @@ class DescriptionStage(ModelProcessingStage[ImageCaptioningData]):
             batch_size=self.batch_size,
             **kwargs,
         )
+        self.num_workers = num_workers
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        spec: dict[str, Any] = {}
+        if self.num_workers is not None:
+            spec["num_workers"] = self.num_workers
+        return spec
 
     def build_prompt(self, task: SingleDataTask[ImageCaptioningData]) -> str:
         """Build prompt incorporating grounding and OCR context.

@@ -240,12 +240,15 @@ class TarImageReaderStage(ProcessingStage[FileGroupTask, SingleDataTask[T_TaskDa
         return tasks
 
 
-class JsonlTarImageReaderStage(ProcessingStage[FileGroupTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
+class JsonlTarImageReaderStage(ProcessingStage[FileGroupTask | _EmptyTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
     """Stage that reads tar-slice image paths from a JSONL file.
 
     Each JSON line should provide the tar shard name and byte range.
+    When used after a file-partitioning stage, the JSONL path is taken from the
+    incoming FileGroupTask (task.data[0]). Otherwise jsonl_path from init is used.
 
     Args:
+        jsonl_path: Path to a single JSONL file (used when no preceding partitioning stage).
         tar_base_path: Base path for resolving tar file paths.
         verbose: If True, logs detailed information.
     """
@@ -257,8 +260,8 @@ class JsonlTarImageReaderStage(ProcessingStage[FileGroupTask, SingleDataTask[T_T
 
     def __init__(
         self,
-        jsonl_path: str,
-        tar_base_path: str | Path,
+        jsonl_path: str | None = None,
+        tar_base_path: str | Path | None = None,
         verbose: bool = False,
         task_type: Type[T_TaskData] = ImageTaskData,
     ) -> None:
@@ -269,17 +272,26 @@ class JsonlTarImageReaderStage(ProcessingStage[FileGroupTask, SingleDataTask[T_T
         self.task_type = task_type
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        """Define the input attributes required by this stage."""
+        """No required task attributes; path comes from task.data[0] or init jsonl_path."""
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         """Define the output attributes produced by this stage."""
         return ["image_path", "image_id"], []
 
-    def process(self, _: _EmptyTask) -> list[SingleDataTask[T_TaskData]]:
-        """Process a JSONL file and create ImageCaptionTasks."""
+    def process(self, task: FileGroupTask | _EmptyTask) -> list[SingleDataTask[T_TaskData]]:
+        """Process a JSONL file and create ImageCaptionTasks.
 
-        jsonl_path = Path(self.jsonl_path)
+        If task is a FileGroupTask with non-empty data, the JSONL path is taken
+        from task.data[0]. Otherwise jsonl_path from init is used (legacy single-file mode).
+        """
+        if isinstance(task, FileGroupTask) and task.data:
+            jsonl_path = Path(task.data[0])
+        elif self.jsonl_path is not None:
+            jsonl_path = Path(self.jsonl_path)
+        else:
+            msg = "Either use a file-partitioning stage before this stage or pass jsonl_path to JsonlTarImageReaderStage."
+            raise ValueError(msg)
         tasks: list[SingleDataTask[T_TaskData]] = []
 
         with jsonl_path.open("r", encoding="utf-8") as handle:
@@ -315,14 +327,16 @@ class JsonlTarImageReaderStage(ProcessingStage[FileGroupTask, SingleDataTask[T_T
         return tasks
 
 
-class JsonlPipelineOutputReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
+class JsonlPipelineOutputReaderStage(ProcessingStage[FileGroupTask | _EmptyTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
     """Stage that reads pipeline output JSONL files.
 
     Reads JSONL files produced by ResultWriterStage and reconstructs tasks
     with their data. The task_type must implement a `from_dict` class method.
+    When used after a file-partitioning stage, the JSONL path is taken from
+    the incoming FileGroupTask (task.data[0]). Otherwise jsonl_path from init is used.
 
     Args:
-        jsonl_path: Path to the JSONL file to read.
+        jsonl_path: Path to the JSONL file to read (used when no preceding partitioning stage).
         verbose: If True, logs detailed information.
         task_type: The dataclass type to instantiate. Must have `from_dict(dict) -> Self`.
     """
@@ -332,12 +346,12 @@ class JsonlPipelineOutputReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[
 
     def __init__(
         self,
-        jsonl_path: str | Path,
+        jsonl_path: str | Path | None = None,
         verbose: bool = False,
         task_type: Type[T_TaskData] = ImageTaskData,
     ) -> None:
         """Initialize the JSONL pipeline output reader stage."""
-        self.jsonl_path = Path(jsonl_path)
+        self.jsonl_path = Path(jsonl_path) if jsonl_path is not None else None
         self.verbose = verbose
         self.task_type = task_type
 
@@ -347,25 +361,30 @@ class JsonlPipelineOutputReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[
             raise TypeError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        """Define the input attributes required by this stage."""
+        """No required task attributes; path comes from task.data[0] or init jsonl_path."""
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         """Define the output attributes produced by this stage."""
         return ["image_path", "image_id"], []
 
-    def process(self, _: _EmptyTask) -> list[SingleDataTask[T_TaskData]]:
+    def process(self, task: FileGroupTask | _EmptyTask) -> list[SingleDataTask[T_TaskData]]:
         """Process a JSONL file and create tasks from pipeline output.
 
-        Args:
-            _: Unused empty task.
-
-        Returns:
-            List of SingleDataTask with reconstructed task data.
+        If task is a FileGroupTask with non-empty data, the JSONL path is taken
+        from task.data[0]. Otherwise jsonl_path from init is used (legacy single-file mode).
         """
+        if isinstance(task, FileGroupTask) and task.data:
+            jsonl_path = Path(task.data[0])
+        elif self.jsonl_path is not None:
+            jsonl_path = self.jsonl_path
+        else:
+            msg = "Either use a file-partitioning stage before this stage or pass jsonl_path to JsonlPipelineOutputReaderStage."
+            raise ValueError(msg)
+
         tasks: list[SingleDataTask[T_TaskData]] = []
 
-        with self.jsonl_path.open("r", encoding="utf-8") as handle:
+        with jsonl_path.open("r", encoding="utf-8") as handle:
             for idx, line in enumerate(handle):
                 line = line.strip()
                 if not line:
@@ -385,15 +404,15 @@ class JsonlPipelineOutputReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[
 
                 image_task = SingleDataTask(
                     task_id=f"jsonl_output_reader_{idx}",
-                    dataset_name=self.jsonl_path.stem,
+                    dataset_name=jsonl_path.stem,
                     data=task_data,
                 )
                 tasks.append(image_task)
 
                 if self.verbose:
-                    logger.info(f"Loaded task {idx} from {self.jsonl_path}")
+                    logger.info(f"Loaded task {idx} from {jsonl_path}")
 
-        logger.info(f"Loaded {len(tasks)} tasks from {self.jsonl_path}")
+        logger.info(f"Loaded {len(tasks)} tasks from {jsonl_path}")
         return tasks
 
 
@@ -811,10 +830,13 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
         # Check if worker_metadata requests single_file mode
         use_single_file = self.single_file
 
-        # Create output path (per-worker or single file)
+        # Create output path (per-worker or single file).
+        # With multiple workers, single_file=True would have every worker open the same path
+        # with mode "w", causing truncation; use single_file=False for distributed runs.
         base_path = Path(self.output_path)
         if self._worker_id and not use_single_file:
-            output = base_path.parent / f"{base_path.stem}_worker{self._worker_id}{base_path.suffix}"
+            suffix = base_path.suffix or ".jsonl"
+            output = base_path.parent / f"{base_path.stem}_worker{self._worker_id}{suffix}"
         else:
             output = base_path
 

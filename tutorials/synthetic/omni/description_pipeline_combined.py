@@ -10,12 +10,7 @@ from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.synthetic.omni.description import ImageCaptioningData, DescriptionStage
 from nemo_curator.stages.synthetic.omni.description_output import DescriptionOutputStage
 from nemo_curator.stages.synthetic.omni.description_validator import DescriptionValidatorStage, DescriptionValidatedData
-from nemo_curator.stages.synthetic.omni.io import (
-    JsonlPipelineOutputReaderStage,
-    JsonlTarImageReaderStage,
-    ResultWriterStage,
-    SkipProcessedStage,
-)
+from nemo_curator.stages.synthetic.omni.io import JsonlTarImageReaderStage, ResultWriterStage, SkipProcessedStage
 
 import argparse
 
@@ -38,7 +33,7 @@ def create_description_pipeline(
     valid_only: bool = True,
     description_num_workers: int | None = None,
 ) -> Pipeline:
-    """Create the description generation pipeline (Part 1).
+    """Create the combined description pipeline (description → validation → output → write).
 
     Args:
         input_path: Path to a JSONL file, a directory containing JSONL files,
@@ -50,6 +45,12 @@ def create_description_pipeline(
 
     Returns:
         Configured NeMo Curator Pipeline.
+
+    Note:
+        Xenna streaming mode does allow overlap (Validation can run while Description
+        is still producing). Overlap is improved when Validation's batch_size is <=
+        Description's (e.g. 16); otherwise the next stage waits for a full batch
+        and stays idle (see DescriptionValidatorStage.batch_size).
     """
     pipeline = Pipeline(name="description-gen")
 
@@ -83,6 +84,10 @@ def create_description_pipeline(
     # Using cuda_devices=[0] would force all workers onto GPU 0 and cause OOM.
     pipeline.add_stage(DescriptionStage(num_workers=description_num_workers))
 
+    pipeline.add_stage(DescriptionValidatorStage())
+
+    pipeline.add_stage(DescriptionOutputStage())
+
     # Use single_file=False so each worker writes to its own file (e.g. output_demo_worker0.jsonl).
     # With single_file=True, many workers would all open the same path with mode "w" and truncate
     # each other, leaving the output empty or corrupted.
@@ -96,107 +101,6 @@ def create_description_pipeline(
 
     return pipeline
 
-
-def create_validation_pipeline(
-    input_path: Path | str | list[Path] | list[str],
-    output_path: Path,
-    image_parent: Path | None = None,
-    verbose: bool = False,
-    resume: bool = False,
-    valid_only: bool = True,
-) -> Pipeline:
-    """Create the validation pipeline (Part 2).
-
-    Args:
-        input_path: Path to a JSONL file from Part 1, a directory containing
-            such JSONL files, or a list of JSONL file paths.
-        output_path: Path to output JSONL file.
-        image_parent: Parent directory to make image paths relative.
-        verbose: Enable verbose logging.
-
-    Returns:
-        Configured NeMo Curator Pipeline.
-    """
-    pipeline = Pipeline(name="description-val")
-
-    file_paths = _normalize_input_paths(input_path)
-    pipeline.add_stage(
-        FilePartitioningStage(
-            file_paths=file_paths,
-            file_extensions=[".jsonl"],
-            files_per_partition=1,
-        )
-    )
-
-    pipeline.add_stage(
-        JsonlPipelineOutputReaderStage(
-            verbose=verbose,
-            task_type=DescriptionValidatedData,
-        )
-    )
-
-    if resume:
-        pipeline.add_stage(SkipProcessedStage(
-            output_path=output_path,
-            image_parent=image_parent,
-        ))
-
-    pipeline.add_stage(DescriptionValidatorStage())
-
-    pipeline.add_stage(ResultWriterStage(
-        output_path=str(output_path),
-        valid_only=valid_only,
-        image_parent=str(image_parent) if image_parent else None,
-        single_file=False,
-        append=resume,
-    ))
-
-    return pipeline
-
-def create_output_pipeline(
-    input_path: Path,
-    output_path: Path,
-    image_parent: Path | None = None,
-    verbose: bool = False,
-    resume: bool = False,
-    valid_only: bool = True,
-) -> Pipeline:
-    """Create the output pipeline: validated descriptions -> conversation format.
-
-    Args:
-        input_path: Path to JSONL file with validated descriptions.
-        output_path: Path to output JSONL file.
-        image_parent: Parent directory to make image paths relative.
-        verbose: Enable verbose logging.
-
-    Returns:
-        Configured NeMo Curator Pipeline.
-    """
-    pipeline = Pipeline(name="description-output")
-
-    pipeline.add_stage(JsonlPipelineOutputReaderStage(
-        jsonl_path=input_path,
-        verbose=verbose,
-        task_type=DescriptionValidatedData,
-    ))
-
-    if resume:
-        pipeline.add_stage(SkipProcessedStage(
-            output_path=output_path,
-            image_parent=image_parent,
-        ))
-
-    pipeline.add_stage(DescriptionOutputStage())
-
-    pipeline.add_stage(ResultWriterStage(
-        output_path=str(output_path),
-        valid_only=valid_only,
-        image_parent=str(image_parent) if image_parent else None,
-        single_file=False,
-        append=resume,
-    ))
-
-    return pipeline
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
@@ -217,8 +121,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--verbose", type=bool, default=False, help="Enable verbose logging")
     parser.add_argument("--resume", type=bool, default=False, help="Resume from last processed image")
     parser.add_argument("--valid-only", type=bool, default=True, help="Only process valid images")
-    parser.add_argument("--run_validation", action="store_true", help="Run validation pipeline")
-    parser.add_argument("--run_output", action="store_true", help="Run output pipeline")
     parser.add_argument(
         "--description-num-workers",
         type=int,
@@ -230,36 +132,16 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Main function to run the description generation pipeline."""
     args = parse_args()
-
-    if args.run_validation:
-        pipeline = create_validation_pipeline(
-            input_path=Path(args.input_path),
-            output_path=Path(args.output_path),
-            image_parent=Path(args.image_parent) if args.image_parent else None,
-            verbose=args.verbose,
-            resume=args.resume,
-            valid_only=args.valid_only,
-        )
-    elif args.run_output:
-        pipeline = create_output_pipeline(
-            input_path=Path(args.input_path),
-            output_path=Path(args.output_path),
-            image_parent=Path(args.image_parent) if args.image_parent else None,
-            verbose=args.verbose,
-            resume=args.resume,
-            valid_only=args.valid_only,
-        )
-    else:
-        pipeline = create_description_pipeline(
-            input_path=Path(args.input_path),
-            output_path=Path(args.output_path),
-            tar_base_path=Path(args.tar_base_path) if args.tar_base_path else None,
-            image_parent=Path(args.image_parent) if args.image_parent else None,
-            verbose=args.verbose,
-            resume=args.resume,
-            valid_only=args.valid_only,
-            description_num_workers=args.description_num_workers,
-        )
+    pipeline = create_description_pipeline(
+        input_path=Path(args.input_path),
+        output_path=Path(args.output_path),
+        tar_base_path=Path(args.tar_base_path) if args.tar_base_path else None,
+        image_parent=Path(args.image_parent) if args.image_parent else None,
+        verbose=args.verbose,
+        resume=args.resume,
+        valid_only=args.valid_only,
+        description_num_workers=args.description_num_workers,
+    )
 
     # Print pipeline description
     print(pipeline.describe())
