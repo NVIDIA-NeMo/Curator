@@ -320,18 +320,27 @@ class SlackMessage(SlackMessageBase):
     under a SlackParentMessage.
     """
 
-    def __init__(self, entry_name: str, result_dict: dict[str, Any], metrics: list[str]):
+    def __init__(self, entry_name: str, result_dict: dict[str, Any], metrics: list[str], pings: list[str]):
         """Initialize a SlackMessage.
 
         Args:
             entry_name: Name of the benchmark entry.
             result_dict: Dictionary containing benchmark result data.
             metrics: List of metric names to include in the message.
+            pings: List of Slack user IDs (e.g. U01234567) to mention; each becomes <@ID> so the user is notified.
         """
         super().__init__()
         self.entry_name = entry_name
         self.result_dict = result_dict
         self.metrics = metrics
+        self.pings = pings
+
+    def _format_ping_mentions(self) -> list[str]:
+        """Format ping strings as Slack @ mentions so the user gets notified.
+
+        Each ping string must be a Slack user ID (e.g. U01234567).
+        """
+        return [f"<@{slack_id}>" for slack_id in [sid.strip() for sid in self.pings] if slack_id]
 
     def to_slack_blocks(self) -> list[dict[str, Any]]:
         """Convert the message data to Slack blocks format.
@@ -370,6 +379,15 @@ class SlackMessage(SlackMessageBase):
             else:
                 rows.append(self._get_two_column_row("All requirements met", "❌"))
         blocks.append({"type": "table", "rows": rows})
+        if self.pings:
+            mentions = self._format_ping_mentions()
+            if mentions:
+                blocks.append(
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": " ".join(mentions)},
+                    }
+                )
         blocks.append({"type": "divider"})
         return blocks
 
@@ -397,6 +415,11 @@ class SlackMessage(SlackMessageBase):
                     lines.append(f"  • {metric_name}: {reason}")
             else:
                 lines.append("\nAll Requirements Met ✅")
+
+        if self.pings:
+            mentions = self._format_ping_mentions()
+            if mentions:
+                lines.append("\n" + " ".join(mentions))
 
         return "\n".join(lines)
 
@@ -461,17 +484,22 @@ class SlackSink(Sink):
             )
             return
         # Use the benchmark_entry to get any entry-specific settings for the Slack report
-        # such as additional metrics to include in the report.
-        additional_metrics = benchmark_entry.get_sink_data(self.name).get("additional_metrics", [])
+        # such as additional metrics to include in the report, pings, etc.
+        sink_data = benchmark_entry.get_sink_data(self.name)
+        additional_metrics = sink_data.get("additional_metrics", [])
+        pings = [] if result_dict["success"] else sink_data.get("ping_on_failure", [])
+        status_text = "✅ success" if result_dict["success"] else "❌ FAILED"
+
         # Create a new message for the entry to post in the thread.
         msg = self._create_benchmark_entry_message(
-            benchmark_entry, (self.default_metrics + additional_metrics, result_dict)
+            benchmark_entry,
+            (self.default_metrics + additional_metrics, result_dict),
+            pings,
         )
         self._child_messages.append(msg)
         # Update the session summary message with the new entry status.
-        self._parent_message.update_entry(
-            benchmark_entry.name, "✅ success" if result_dict["success"] else "❌ FAILED"
-        )
+        self._parent_message.update_entry(benchmark_entry.name, status_text)
+
         if self.live_updates:
             self._post_updates()
 
@@ -502,19 +530,20 @@ class SlackSink(Sink):
         return msg
 
     def _create_benchmark_entry_message(
-        self, benchmark_entry: Entry, data: tuple[list[str], dict[str, Any]]
+        self, benchmark_entry: Entry, data: tuple[list[str], dict[str, Any]], pings: list[str]
     ) -> SlackMessage:
         """Create a message for an individual benchmark entry.
 
         Args:
             benchmark_entry: The benchmark entry.
             data: Tuple of (metrics, result_dict).
+            pings: List of user IDs to ping to make them aware of this message.
 
         Returns:
             SlackMessage instance for the benchmark entry.
         """
         metrics, result_dict = data
-        return SlackMessage(entry_name=benchmark_entry.name, result_dict=result_dict, metrics=metrics)
+        return SlackMessage(entry_name=benchmark_entry.name, result_dict=result_dict, metrics=metrics, pings=pings)
 
     def _finalize_session_summary_message(self) -> None:
         """Finalize the session summary message with overall status."""
