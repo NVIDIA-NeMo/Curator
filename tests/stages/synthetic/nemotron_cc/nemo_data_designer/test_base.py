@@ -60,11 +60,11 @@ class TestNDDBaseSyntheticStage:
 
     def test_init_validation(self) -> None:
         """_build_config_from_prompt raises when neither config nor prompt+output_field is given."""
-        with pytest.raises(ValueError, match=r"Either provide .* or set both"):
+        with pytest.raises(ValueError, match=r"Either provide .* or set"):
             NDDBaseSyntheticStage(prompt=None, output_field=None)
-        with pytest.raises(ValueError, match=r"Either provide .* or set both"):
+        with pytest.raises(ValueError, match=r"Either provide .* or set"):
             NDDBaseSyntheticStage(prompt="Test: {document}", output_field=None)
-        with pytest.raises(ValueError, match=r"Either provide .* or set both"):
+        with pytest.raises(ValueError, match=r"Either provide .* or set"):
             NDDBaseSyntheticStage(prompt=None, output_field="result")
 
     def test_auto_build_config(self) -> None:

@@ -90,10 +90,10 @@ class NDDBaseSyntheticStage(DataDesignerStage):
         if self.config_builder is not None or self.data_designer_config_file is not None:
             return
 
-        if self.prompt is None or self.output_field is None:
+        if self.prompt is None or self.output_field is None or self.input_field is None:
             msg = (
                 "Either provide 'config_builder' / 'data_designer_config_file', "
-                "or set both 'prompt' and 'output_field' so the config can be built automatically."
+                "or set 'prompt', 'output_field', and 'input_field' so the config can be built automatically."
             )
             raise ValueError(msg)
 
@@ -150,6 +150,12 @@ class NDDBaseSyntheticStage(DataDesignerStage):
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         # Pre-process: format prompts via _process_llm_prompt into a temporary column
         df = batch.to_pandas()
+        if _FORMATTED_PROMPT_COL in df.columns:
+            msg = (
+                f"Input DataFrame already contains the internal column '{_FORMATTED_PROMPT_COL}'. "
+                "Rename that column before passing the batch to this stage."
+            )
+            raise ValueError(msg)
         df[_FORMATTED_PROMPT_COL] = df.apply(
             lambda row: self._process_llm_prompt(row.to_dict()), axis=1,
         )

@@ -30,7 +30,6 @@ import time
 import data_designer.config as dd
 import pandas as pd
 from loguru import logger
-from transformers import AutoTokenizer
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
@@ -229,6 +228,13 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     if args.tokenizer is None:
         msg = "Tokenizer is required"
         raise ValueError(msg)
+    try:
+        from transformers import AutoTokenizer
+    except ImportError as e:
+        raise ImportError(
+            "The 'transformers' package is required for tokenizer support. "
+            "Install it with: pip install transformers"
+        ) from e
     args.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     args.hf_token = os.environ.get("HF_TOKEN", "")
 
