@@ -231,10 +231,11 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     try:
         from transformers import AutoTokenizer
     except ImportError as e:
-        raise ImportError(
+        msg = (
             "The 'transformers' package is required for tokenizer support. "
             "Install it with: pip install transformers"
-        ) from e
+        )
+        raise ImportError(msg) from e
     args.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     args.hf_token = os.environ.get("HF_TOKEN", "")
 
