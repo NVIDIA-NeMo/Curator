@@ -312,7 +312,7 @@ def main() -> None:
             dd.ModelProvider(
                 name=provider_name,
                 endpoint=inference_server.endpoint,
-                api_key="unused",
+                api_key="unused",  # pragma: allowlist secret
             )
         ]
         print(f"Local InferenceServer ready at {inference_server.endpoint}")
