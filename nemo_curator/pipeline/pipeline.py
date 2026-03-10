@@ -190,21 +190,28 @@ class Pipeline:
         """
         self.build()
 
+        from nemo_curator.backends.xenna import XennaExecutor
+
+        if executor is None:
+            executor = XennaExecutor()
+
         from nemo_curator.core.serve import is_ray_serve_active
 
         if is_ray_serve_active():
             gpu_stages = [s for s in self.stages if s.resources.requires_gpu]
             if gpu_stages:
                 names = ", ".join(s.name for s in gpu_stages)
-                logger.warning(
+                if isinstance(executor, XennaExecutor):
+                    msg = (
+                        f"Cannot run XennaExecutor with GPU stages [{names}] while Ray Serve is active. "
+                        "Xenna manages GPU assignment independently of Ray's resource scheduler, "
+                        "which causes GPU contention with served models. "
+                        "Use RayDataExecutor or RayActorPoolExecutor instead."
+                    )
+                    raise RuntimeError(msg)
+                logger.info(
                     f"Ray Serve is active and pipeline has GPU stages: [{names}]. "
-                    "GPU resource contention may occur between served models and pipeline stages. "
-                    "Consider using a CPU-only pipeline or stopping the InferenceServer before running GPU stages."
+                    "The executor will schedule GPU stages on GPUs not held by Serve."
                 )
-
-        if executor is None:
-            from nemo_curator.backends.xenna import XennaExecutor
-
-            executor = XennaExecutor()
 
         return executor.execute(self.stages, initial_tasks)

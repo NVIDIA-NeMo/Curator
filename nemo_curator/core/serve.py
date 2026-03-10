@@ -24,8 +24,6 @@ if TYPE_CHECKING:
     from ray.serve.llm import LLMConfig
 
 from loguru import logger
-from ray import serve
-from ray.serve.llm import build_openai_app
 
 from nemo_curator.core.constants import DEFAULT_SERVE_HEALTH_TIMEOUT_S, DEFAULT_SERVE_PORT
 from nemo_curator.core.utils import get_free_port
@@ -173,6 +171,12 @@ class InferenceServer:
     def start(self) -> None:
         """Deploy all models and wait for them to become healthy.
 
+        The driver connects to the Ray cluster only for the duration of
+        deployment.  Once models are healthy the driver disconnects, so that
+        the next ``ray.init()`` (e.g. from a pipeline executor) becomes the
+        first driver-level init and its ``runtime_env`` takes effect on
+        workers.  Serve actors are detached and survive the disconnect.
+
         Raises:
             RuntimeError: If another InferenceServer is already active in this
                 process.  Only one InferenceServer can run at a time because
@@ -195,12 +199,29 @@ class InferenceServer:
         # Register atexit handler so that abnormal exits
         atexit.register(self.stop)
 
-        # Delete our app if a previous session crashed or was non-cleanly stopped.
-        self._delete_stale_app()
+        # Connect to the Ray cluster for deployment only.  The context manager
+        # disconnects the driver on exit so that subsequent ray.init() calls
+        # (from pipeline executors) are the "first" driver-level init and their
+        # runtime_env actually takes effect on workers.
+        # Serve actors are detached and survive the driver disconnect.
+        #
+        import ray
 
-        # Resolve the effective HTTP port.  If a Serve controller is already running,
-        # we reuse its port; otherwise we find a free one.
-        self._resolve_port()
+        self._reset_serve_client_cache()
+        with ray.init(ignore_reinit_error=True):
+            self._deploy()
+        self._reset_serve_client_cache()
+
+        _active_servers.add(self.name)
+        self._started = True
+        logger.info(f"Ray Serve is ready at {self.endpoint}")
+
+    def _deploy(self) -> None:
+        """Deploy models onto the connected Ray cluster (internal).
+
+        Must be called while a Ray connection is active.
+        """
+        self.port = get_free_port(self.port)
 
         model_names = [m.model_name or m.model_identifier for m in self.models]
         logger.info(f"Starting Ray Serve with models: {model_names} on port {self.port}")
@@ -225,36 +246,43 @@ class InferenceServer:
                 enable_access_log=False,
             )
 
+        from ray import serve
+        from ray.serve.llm import build_openai_app
+
         app = build_openai_app(build_args)
-        # Start the Serve controller and HTTP proxy (idempotent — reuses
-        # existing controller if one is already running).
-        # We do this before serve.run() because serve.run() does not accept
-        # http_options and would default to port 8000.
-        # Pass logging_config here to suppress controller/proxy INFO logs.
+        # Start the Serve controller and HTTP proxy.
+        # We call serve.start() before serve.run() because serve.run() does not
+        # accept http_options and would default to port 8000.
         serve.start(http_options={"port": self.port}, logging_config=logging_config)
 
         try:
             serve.run(app, name=self.name, blocking=False, logging_config=logging_config)
             self._wait_for_healthy()
         except Exception:
-            # Clean up the partially-deployed app so GPUs / resources are
-            # released rather than left dangling.
             self._cleanup_failed_deploy()
             raise
 
-        _active_servers.add(self.name)
-        self._started = True
-        logger.info(f"Ray Serve is ready at {self.endpoint}")
-
     def stop(self) -> None:
-        """Shut down Ray Serve (all applications, controller, and HTTP proxy)."""
+        """Shut down Ray Serve (all applications, controller, and HTTP proxy).
+
+        Reconnects to the Ray cluster to tear down Serve actors and release
+        GPU memory, then disconnects.  If the cluster is already gone (e.g.
+        ``RayClient`` was stopped first), the shutdown is skipped silently.
+        """
         if not self._started:
             return
         logger.info("Shutting down Ray Serve")
         try:
-            serve.shutdown()
+            import ray
+            from ray import serve
+
+            self._reset_serve_client_cache()
+            with ray.init(ignore_reinit_error=True):
+                serve.shutdown()
         except Exception:  # noqa: BLE001
             logger.debug("serve.shutdown() failed (cluster may already be gone)")
+        finally:
+            self._reset_serve_client_cache()
 
         _active_servers.discard(self.name)
         self._started = False
@@ -275,66 +303,27 @@ class InferenceServer:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _resolve_port(self) -> None:
-        """Determine the effective HTTP port.
+    @staticmethod
+    def _reset_serve_client_cache() -> None:
+        """Reset Ray Serve's cached controller client.
 
-        If a Serve controller is already running (e.g. from another
-        InferenceServer or a previous session), reuse its port — Ray Serve
-        binds the HTTP proxy once and silently ignores subsequent
-        ``serve.start()`` calls with a different port.
+        Ray Serve caches the controller actor handle in a module-level
+        ``_global_client``.  This handle becomes stale when the driver
+        disconnects and reconnects (e.g. via ``with ray.init()``).  The
+        built-in staleness check only catches ``RayActorError``, not the
+        "different cluster" exception that occurs across driver sessions.
 
-        If no controller is running, find a free port starting from
-        ``self.port``.
-        """
-        controller_port = self._get_controller_port()
-        if controller_port is not None:
-            if controller_port != self.port:
-                logger.info(
-                    f"Serve controller already running on port {controller_port}, "
-                    f"using that instead of requested port {self.port}"
-                )
-            self.port = controller_port
-        else:
-            self.port = get_free_port(self.port)
+        Resetting forces the next Serve API call to look up the controller
+        by its well-known actor name, producing a fresh handle.
 
-    def _get_controller_port(self) -> int | None:
-        """Read the HTTP port from the running Serve controller, if any.
-
-        Uses Ray Serve's internal ``_get_global_client`` to query the
-        controller's HTTP config.  Returns ``None`` if no controller is
-        running.
+        TODO: Remove this method once https://github.com/ray-project/ray/issues/61608 is fixed.
         """
         try:
-            from ray.serve.context import _get_global_client
+            from ray.serve.context import _set_global_client
 
-            client = _get_global_client(_health_check_controller=True)
-        except Exception:  # noqa: BLE001
-            return None
-        else:
-            return client.http_config.port
-
-    def _delete_stale_app(self) -> None:
-        """Delete our app if it already exists from a previous session.
-
-        Only the application matching ``self.name`` is deleted — other
-        applications on the same cluster are left untouched.
-        """
-        from ray import serve
-
-        try:
-            status = serve.status()
-        except Exception:  # noqa: BLE001
-            return
-
-        if self.name not in status.applications:
-            return
-
-        logger.info(f"Found existing Serve application '{self.name}', deleting before redeploying")
-
-        try:
-            serve.delete(self.name, _blocking=True)
-        except Exception:  # noqa: BLE001
-            logger.warning(f"Failed to delete existing Serve application '{self.name}'")
+            _set_global_client(None)
+        except (ImportError, AttributeError):
+            pass
 
     @staticmethod
     def _quiet_runtime_env() -> dict[str, Any]:

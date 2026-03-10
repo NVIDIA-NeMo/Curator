@@ -16,9 +16,10 @@ from unittest.mock import patch
 
 import pytest
 from pytest_httpserver import HTTPServer
-from ray.serve.llm import LLMConfig
 
-from nemo_curator.core.serve import InferenceModelConfig, InferenceServer, is_ray_serve_active
+LLMConfig = pytest.importorskip("ray.serve.llm", reason="ray[serve] not installed").LLMConfig
+
+from nemo_curator.core.serve import InferenceModelConfig, InferenceServer, is_ray_serve_active  # noqa: E402
 
 INTEGRATION_TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"  # pragma: allowlist secret
 INTEGRATION_TEST_MODEL_2 = "HuggingFaceTB/SmolLM-135M-Instruct"  # pragma: allowlist secret

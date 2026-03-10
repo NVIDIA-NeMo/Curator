@@ -14,6 +14,8 @@
 
 from unittest.mock import Mock, patch
 
+import pytest
+
 from nemo_curator.core import serve as serve_module
 from nemo_curator.pipeline.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
@@ -35,7 +37,8 @@ def test_pipeline_uses_xenna_executor_by_default():
         mock_xenna_instance.execute.assert_called_once()
 
 
-def test_warns_when_ray_serve_active_with_gpu_stages() -> None:
+def test_logs_info_when_ray_serve_active_with_gpu_stages_non_xenna() -> None:
+    """Non-Xenna executors log an info message when Serve is active with GPU stages."""
     gpu_stage = Mock(spec=ProcessingStage)
     gpu_stage.name = "EmbeddingStage"
     gpu_stage.resources = Resources(gpus=1.0)
@@ -48,9 +51,28 @@ def test_warns_when_ray_serve_active_with_gpu_stages() -> None:
         with patch("nemo_curator.pipeline.pipeline.logger") as mock_logger:
             pipeline.run(executor=mock_executor)
 
-            mock_logger.warning.assert_called_once()
-            warning_msg = mock_logger.warning.call_args[0][0]
-            assert "Ray Serve is active" in warning_msg
-            assert "EmbeddingStage" in warning_msg
+            mock_logger.info.assert_called()
+            info_msgs = [call[0][0] for call in mock_logger.info.call_args_list]
+            assert any("Ray Serve is active" in msg for msg in info_msgs)
+            assert any("EmbeddingStage" in msg for msg in info_msgs)
+    finally:
+        serve_module._active_servers.clear()
+
+
+def test_raises_when_ray_serve_active_with_xenna_and_gpu_stages() -> None:
+    """XennaExecutor raises RuntimeError when Serve is active with GPU stages."""
+    from nemo_curator.backends.xenna import XennaExecutor
+
+    gpu_stage = Mock(spec=ProcessingStage)
+    gpu_stage.name = "EmbeddingStage"
+    gpu_stage.resources = Resources(gpus=1.0)
+
+    serve_module._active_servers.add("default")
+    try:
+        mock_executor = Mock(spec=XennaExecutor)
+        pipeline = Pipeline(name="test", stages=[gpu_stage])
+
+        with pytest.raises(RuntimeError, match="Cannot run XennaExecutor"):
+            pipeline.run(executor=mock_executor)
     finally:
         serve_module._active_servers.clear()
