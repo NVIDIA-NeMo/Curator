@@ -48,7 +48,7 @@ class InterleavedImageToTextRatioFilterStage(BaseInterleavedFilterStage):
     max_ratio: float = float("inf")
     name: str = "interleaved_image_to_text_ratio_filter"
 
-    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:  # noqa: ARG002
         keep_mask = pd.Series(True, index=df.index, dtype=bool)
         if "sample_id" not in df.columns:
             return keep_mask

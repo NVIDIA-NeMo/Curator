@@ -31,9 +31,9 @@ from nemo_curator.stages.interleaved.utils.validation_utils import (
 
 __all__ = [
     "DEFAULT_IMAGE_EXTENSIONS",
-    "image_bytes_to_array",
     "DEFAULT_JSON_EXTENSIONS",
     "DEFAULT_WEBDATASET_EXTENSIONS",
+    "image_bytes_to_array",
     "materialize_task_binary_content",
     "require_source_id_field",
     "resolve_storage_options",
