@@ -669,20 +669,22 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
-  - name: ndd_nvidia_nim
+  - name: ndd_ray_serve_tp4
     enabled: true
     script: ndd_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-path={dataset:gretel_symptoms,jsonl}
+      --input-path={dataset:ndd_gretel_symptoms,jsonl}
       --output-path={session_entry_dir}/scratch/output
-      --model-type=nvidia-nim
+      --inference-server-type=ray-serve
       --model-id=openai/gpt-oss-20b
       --executor=ray_data
+      --engine-kwargs='{"tensor_parallel_size": 4}'
+      --autoscaling-config='{"min_replicas": 1, "max_replicas": 1}'
     timeout_s: 3600
     ray:
-      num_cpus: 8
-      num_gpus: 0
+      num_cpus: 16
+      num_gpus: 4
       enable_object_spilling: false
     sink_data:
       - name: slack
@@ -690,9 +692,10 @@ entries:
           - input_row_count
           - output_row_count
           - throughput_rows_per_sec
+          - serve_startup_s
     requirements:
       - metric: output_row_count
-        exact_value: 820
+        exact_value: 853
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings
     enabled: true
