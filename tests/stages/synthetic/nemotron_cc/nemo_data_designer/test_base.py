@@ -22,7 +22,10 @@ import pytest_httpserver
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.resources import Resources
-from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.base import NDDBaseSyntheticStage
+from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.base import (
+    _FORMATTED_PROMPT_COL,
+    NDDBaseSyntheticStage,
+)
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
@@ -33,8 +36,6 @@ pytest.importorskip("data_designer")
 import data_designer.config as dd
 from data_designer.config.preview_results import PreviewResults
 from data_designer.interface import DataDesigner
-
-_FORMATTED_PROMPT_COL = "_ndd_formatted_prompt"
 
 
 def _model_configs() -> list:

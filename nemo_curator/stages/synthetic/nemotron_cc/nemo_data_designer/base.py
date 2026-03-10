@@ -131,6 +131,12 @@ class NDDBaseSyntheticStage(DataDesignerStage):
         if self.input_field not in sample:
             msg = f"Expected input field '{self.input_field}' in sample."
             raise KeyError(msg)
+        if self.prompt is None:
+            msg = (
+                "Cannot format prompt: 'prompt' is None. "
+                "Either set 'prompt' on the stage or override '_process_llm_prompt'."
+            )
+            raise ValueError(msg)
         return self.prompt.format(document=sample[self.input_field])
 
     def _process_llm_response(self, response: list[str]) -> str:

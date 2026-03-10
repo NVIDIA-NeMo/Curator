@@ -21,6 +21,7 @@ import pytest
 import pytest_httpserver
 
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.base import _FORMATTED_PROMPT_COL
 from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.nemotron_cc import (
     DistillStage,
     DiverseQAStage,
@@ -45,8 +46,6 @@ pytest.importorskip("data_designer")
 
 import data_designer.config as dd
 from data_designer.config.preview_results import PreviewResults
-
-_FORMATTED_PROMPT_COL = "_ndd_formatted_prompt"
 
 ALL_STAGES = [
     (WikipediaParaphrasingStage, "rephrased", NEMOTRON_CC_SYSTEM_PROMPT, WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE),
@@ -85,12 +84,6 @@ class TestNemotronCCNDDStages:
         assert stage.output_field == output_field
         assert stage.inputs() == (["data"], [])
         assert stage.outputs() == (["data"], [output_field])
-
-    def test_diverse_qa_extra_fields(self) -> None:
-        stage = _make_stage(DiverseQAStage)
-        assert stage.prefix == "Here are the questions and answers based on the provided text:"
-        assert stage.max_num_pairs == 10
-        assert stage.tokenizer is None
 
     @pytest.mark.parametrize(
         ("stage_cls", "output_field"),

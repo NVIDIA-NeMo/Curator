@@ -374,8 +374,8 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                     dataset_name="data_for_sdg",
                 )
                 input_tasks.append(input_task)
-        logger.info("Number of input tasks: ", len(input_tasks))
-        logger.info("Size of each input task: ", input_tasks[0].data.shape)
+        logger.info("Number of input tasks: {}", len(input_tasks))
+        logger.info("Size of each input task: {}", input_tasks[0].data.shape)
     else:
         if not args.input_parquet_path:
             msg = "When not using --mock, you must provide --input-parquet-path to read inputs."
@@ -412,6 +412,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         "model_alias": model_alias,
         "model_configs": [model_config],
         "model_providers": [model_provider],
+        "system_prompt": task_config["system_prompt"],
     }
 
     if args.task == "diverse_qa":

@@ -22,8 +22,6 @@ NeMo Data Designer instead of LLMClient/AsyncLLMClient.
 
 from dataclasses import dataclass
 
-from transformers import AutoTokenizer
-
 from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.base import NDDBaseSyntheticStage
 from nemo_curator.stages.synthetic.nemotron_cc.prompts import (
     DISTILL_PROMPT_TEMPLATE,
@@ -46,13 +44,10 @@ class WikipediaParaphrasingStage(NDDBaseSyntheticStage):
 
 @dataclass
 class DiverseQAStage(NDDBaseSyntheticStage):
-    system_prompt: str = None
+    system_prompt: str | None = None
     prompt: str = DIVERSE_QA_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "diverse_qa"
-    tokenizer: AutoTokenizer = None
-    prefix: str = "Here are the questions and answers based on the provided text:"
-    max_num_pairs: int = 10
 
 
 @dataclass
@@ -65,7 +60,7 @@ class DistillStage(NDDBaseSyntheticStage):
 
 @dataclass
 class ExtractKnowledgeStage(NDDBaseSyntheticStage):
-    system_prompt: str = None
+    system_prompt: str | None = None
     prompt: str = EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "extract_knowledge"
@@ -73,7 +68,7 @@ class ExtractKnowledgeStage(NDDBaseSyntheticStage):
 
 @dataclass
 class KnowledgeListStage(NDDBaseSyntheticStage):
-    system_prompt: str = None
+    system_prompt: str | None = None
     prompt: str = KNOWLEDGE_LIST_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "knowledge_list"
