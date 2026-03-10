@@ -51,14 +51,9 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
     min_score: float = 0.15
     image_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg", "image/png")
     name: str = "interleaved_clip_score_filter"
-    resources: Resources = field(default_factory=lambda: Resources(gpus=0.25))
+    resources: Resources = field(default_factory=lambda: Resources(gpu_memory_gb=20.0))
 
     def __post_init__(self) -> None:
-        self._model: CLIPImageEmbeddings | None = None
-
-    def _ensure_model(self) -> None:
-        if self._model is not None:
-            return
         if self.model_dir is None:
             msg = "InterleavedCLIPScoreFilterStage requires model_dir to be set"
             raise RuntimeError(msg)
@@ -72,8 +67,8 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
         if not image_mask.any():
             return keep_mask
 
-        self._ensure_model()
-        assert self._model is not None
+        cached_sample_id = None
+        text_emb = None
 
         for idx, image_bytes in self.iter_materialized_bytes(task=task, df=df, row_mask=image_mask):
             if image_bytes is None:
@@ -86,7 +81,9 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
                 keep_mask.loc[idx] = False
                 continue
             img_emb = self._model([image])
-            text_emb = self._model.encode_text(texts)
+            if sample_id != cached_sample_id:
+                cached_sample_id = sample_id
+                text_emb = self._model.encode_text(texts)
             scores = img_emb @ text_emb.T
             max_score = scores.max()
             keep_mask.loc[idx] = (max_score >= self.min_score).item()
