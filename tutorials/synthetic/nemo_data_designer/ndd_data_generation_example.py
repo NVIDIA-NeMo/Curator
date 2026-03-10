@@ -264,17 +264,25 @@ def _print_sample_documents(output_files: list, all_data_frames: list) -> None:
         break
 
 
-def main() -> None:
+def main() -> None:  # noqa: PLR0915
     """Main function to run the synthetic data generation pipeline."""
     args = parse_args()
     print("Preparing seed data (download + CSV→JSONL)...")
     seed_dir = download_and_convert_seed_data()
     print(f"Seed data ready: {seed_dir}")
 
+    import torch
+
     from nemo_curator.backends.experimental.ray_data import RayDataExecutor
     from nemo_curator.core.client import RayClient
 
-    client = RayClient(num_cpus=16, num_gpus=4)
+    NUM_GPUS = 4  # noqa: N806
+
+    if torch.cuda.device_count() < NUM_GPUS:
+        error_msg = "The number of GPUs on this machine are lesser than the default this tutorial was tested with, please update `num_gpus` passed into `RayClient`"
+        raise ValueError(error_msg)
+
+    client = RayClient(num_cpus=16, num_gpus=NUM_GPUS)
     client.start()
 
     model_alias = "local-llm"

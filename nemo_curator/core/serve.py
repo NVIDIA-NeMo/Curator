@@ -345,6 +345,7 @@ class InferenceServer:
            ``LoggingConfig(enable_access_log=False)`` has no effect on
            console output.  Workaround: ``RAY_SERVE_LOG_TO_STDERR=0``
            (logs still go to files under the Ray session log directory).
+           TODO: Ray might fix this in the future.
         """
         return {
             "env_vars": {
