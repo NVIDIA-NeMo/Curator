@@ -16,7 +16,6 @@ import numpy as np
 
 from nemo_curator.stages.interleaved.filter.qrcode_filter import (
     InterleavedQRCodeFilterStage,
-    _process_one_qrcode,
     _qr_code_ratio,
 )
 
@@ -28,26 +27,6 @@ def test_qr_code_ratio_no_qr_returns_zero() -> None:
     arr = rng.integers(0, 256, size=(50, 50, 3), dtype=np.uint8)
     ratio = _qr_code_ratio(arr)
     assert ratio == 0.0
-
-
-def test_process_one_qrcode_none_bytes_dropped() -> None:
-    idx, keep = _process_one_qrcode((0, None), score_threshold=1.0)
-    assert idx == 0
-    assert keep is False
-
-
-def test_process_one_qrcode_image_kept_when_below_threshold() -> None:
-    jpeg = make_jpeg_bytes()
-    idx, keep = _process_one_qrcode((0, jpeg), score_threshold=1.0)
-    assert idx == 0
-    assert keep is True
-
-
-def test_process_one_qrcode_image_dropped_when_above_threshold() -> None:
-    jpeg = make_jpeg_bytes()
-    idx, keep = _process_one_qrcode((0, jpeg), score_threshold=0.0)
-    assert idx == 0
-    assert keep is False
 
 
 def test_qrcode_filter_text_only_passthrough() -> None:
@@ -64,7 +43,7 @@ def test_qrcode_filter_text_only_passthrough() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedQRCodeFilterStage(score_threshold=0.05, max_workers=None)
+    stage = InterleavedQRCodeFilterStage(score_threshold=0.05)
     out = stage.process(task)
     df = out.to_pandas()
     assert len(df) == 1
@@ -85,7 +64,7 @@ def test_qrcode_filter_image_below_threshold_kept() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedQRCodeFilterStage(score_threshold=1.0, max_workers=None)
+    stage = InterleavedQRCodeFilterStage(score_threshold=1.0)
     out = stage.process(task)
     df = out.to_pandas()
     assert len(df) == 1

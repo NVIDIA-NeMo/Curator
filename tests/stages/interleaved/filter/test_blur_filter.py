@@ -16,10 +16,9 @@ import numpy as np
 
 from nemo_curator.stages.interleaved.filter.blur_filter import (
     InterleavedBlurFilterStage,
-    _image_bytes_to_array,
-    _process_one_blur,
     _sharpness_score,
 )
+from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 
 from .conftest import interleaved_task, make_jpeg_bytes
 
@@ -38,33 +37,8 @@ def test_sharpness_score_high_frequency_is_high() -> None:
 
 def test_image_bytes_to_array_valid_jpeg() -> None:
     jpeg = make_jpeg_bytes()
-    arr = _image_bytes_to_array(jpeg)
-    assert arr is not None
+    arr = image_bytes_to_array(jpeg)
     assert arr.shape[-1] == 3
-
-
-def test_image_bytes_to_array_invalid_returns_none() -> None:
-    assert _image_bytes_to_array(b"not-an-image") is None
-
-
-def test_process_one_blur_none_bytes_dropped() -> None:
-    idx, keep = _process_one_blur((0, None), score_threshold=0.0)
-    assert idx == 0
-    assert keep is False
-
-
-def test_process_one_blur_sharp_kept() -> None:
-    jpeg = make_jpeg_bytes(sharp=True)
-    idx, keep = _process_one_blur((0, jpeg), score_threshold=0.0)
-    assert idx == 0
-    assert keep is True
-
-
-def test_process_one_blur_blurry_dropped_when_above_threshold() -> None:
-    jpeg = make_jpeg_bytes(sharp=False)
-    idx, keep = _process_one_blur((0, jpeg), score_threshold=1e6)
-    assert idx == 0
-    assert keep is False
 
 
 def test_blur_filter_text_only_passthrough() -> None:
@@ -91,7 +65,7 @@ def test_blur_filter_text_only_passthrough() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedBlurFilterStage(score_threshold=100.0, max_workers=None)
+    stage = InterleavedBlurFilterStage(score_threshold=100.0)
     out = stage.process(task)
     df = out.to_pandas()
     assert len(df) == 2
@@ -112,7 +86,7 @@ def test_blur_filter_image_with_binary_content_sharp_kept() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedBlurFilterStage(score_threshold=0.0, max_workers=None)
+    stage = InterleavedBlurFilterStage(score_threshold=0.0)
     out = stage.process(task)
     df = out.to_pandas()
     assert len(df) == 1
@@ -133,7 +107,7 @@ def test_blur_filter_image_with_binary_content_blurry_dropped() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedBlurFilterStage(score_threshold=1e6, max_workers=None)
+    stage = InterleavedBlurFilterStage(score_threshold=1e6)
     out = stage.process(task)
     df = out.to_pandas()
     assert len(df) == 0

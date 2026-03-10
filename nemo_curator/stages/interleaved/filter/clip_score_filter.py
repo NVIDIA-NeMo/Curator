@@ -15,14 +15,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from nemo_curator.models.clip import CLIPImageEmbeddings
-from nemo_curator.stages.interleaved.filter.blur_filter import _image_bytes_to_array
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
+from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import InterleavedBatch
+
+if TYPE_CHECKING:
+    from nemo_curator.tasks import InterleavedBatch
 
 
 def _sample_texts_list_from_df(df: pd.DataFrame, sample_id: str) -> list[str]:
@@ -76,10 +79,7 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
             if image_bytes is None:
                 keep_mask.loc[idx] = False
                 continue
-            image = _image_bytes_to_array(image_bytes)
-            if image is None:
-                keep_mask.loc[idx] = False
-                continue
+            image = image_bytes_to_array(image_bytes)
             sample_id = df.loc[idx, "sample_id"]
             texts = _sample_texts_list_from_df(df, sample_id)
             if not texts:

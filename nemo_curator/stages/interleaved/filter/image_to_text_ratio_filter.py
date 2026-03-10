@@ -15,11 +15,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
-from nemo_curator.tasks import InterleavedBatch
+
+if TYPE_CHECKING:
+    from nemo_curator.tasks import InterleavedBatch
 
 
 def _text_word_count(text: str | None) -> int:
