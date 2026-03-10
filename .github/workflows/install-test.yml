@@ -235,7 +235,7 @@ jobs:
         run: |
           set -o pipefail
           INSTALLER="${{ matrix.installer }}"
-          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12")
+          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "inference_server")
           RESULTS=""
           FAILED=0
 
@@ -517,4 +517,3 @@ jobs:
           else
             echo "❌ Core installation tests failed"; exit 1
           fi
-
