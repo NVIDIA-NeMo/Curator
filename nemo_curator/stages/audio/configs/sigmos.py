@@ -59,8 +59,8 @@ class SIGMOSConfig:
     reverb_threshold: Optional[float] = None
     
     @classmethod
-    def from_dict(cls, d: dict) -> "SIGMOSConfig":
-        """Create config from dictionary."""
+    def from_dict(cls, d: Optional[dict] = None) -> "SIGMOSConfig":
+        """Create config from dictionary. Returns default config if d is None."""
         if d is None:
             return cls()
         valid_keys = cls.__dataclass_fields__.keys()
