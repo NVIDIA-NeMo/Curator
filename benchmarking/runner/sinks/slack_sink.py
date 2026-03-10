@@ -485,8 +485,9 @@ class SlackSink(Sink):
             return
         # Use the benchmark_entry to get any entry-specific settings for the Slack report
         # such as additional metrics to include in the report, pings, etc.
-        additional_metrics = benchmark_entry.get_sink_data(self.name).get("additional_metrics", [])
-        pings = [] if result_dict["success"] else benchmark_entry.get_sink_data(self.name).get("ping_on_failure", [])
+        sink_data = benchmark_entry.get_sink_data(self.name)
+        additional_metrics = sink_data.get("additional_metrics", [])
+        pings = [] if result_dict["success"] else sink_data.get("ping_on_failure", [])
         status_text = "✅ success" if result_dict["success"] else "❌ FAILED"
 
         # Create a new message for the entry to post in the thread.
