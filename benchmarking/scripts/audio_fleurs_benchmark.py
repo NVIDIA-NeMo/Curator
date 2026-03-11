@@ -23,9 +23,8 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from utils import write_benchmark_results
+from utils import setup_executor, write_benchmark_results
 
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
@@ -44,6 +43,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     split: str,
     wer_threshold: float,
     gpus: int,
+    executor: str = "xenna",
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the audio fleurs benchmark and collect comprehensive metrics."""
@@ -65,7 +65,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     logger.info(f"WER threshold: {wer_threshold}")
     logger.info(f"GPUs: {gpus}")
 
-    executor = XennaExecutor()
+    executor_obj = setup_executor(executor)
     pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
 
     # Add stages
@@ -106,7 +106,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         )
     )
 
-    results = pipeline.run(executor)
+    results = pipeline.run(executor_obj)
 
     logger.success("Benchmark completed successfully")
 
@@ -126,6 +126,7 @@ def main() -> int:
     parser.add_argument("--lang", default="hy_am", help="Language code")
     parser.add_argument("--split", default="dev", help="Dataset split to use")
     parser.add_argument("--wer-threshold", type=float, default=5.5, help="WER threshold for filtering")
+    parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs to use")
 
     args = parser.parse_args()

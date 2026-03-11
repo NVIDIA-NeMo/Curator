@@ -251,20 +251,15 @@ def main() -> int:
     logger.info("=== Image Pipeline Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
+    results = {
+        "params": vars(args),
+        "metrics": {
+            "is_success": False,
+        },
+        "tasks": [],
+    }
     try:
         results = run_image_pipeline_benchmark(args)
-
-    except Exception as e:
-        error_traceback = traceback.format_exc()
-        print(f"Benchmark failed: {e}")
-        logger.debug(f"Full traceback:\n{error_traceback}")
-        results = {
-            "params": vars(args),
-            "metrics": {
-                "is_success": False,
-            },
-            "tasks": [],
-        }
     finally:
         write_benchmark_results(results, args.benchmark_results_path)
 
