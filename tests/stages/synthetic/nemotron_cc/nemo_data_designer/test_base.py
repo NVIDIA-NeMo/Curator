@@ -123,8 +123,8 @@ class TestNDDBaseSyntheticStage:
         assert stage._process_llm_prompt({"text": "hello"}) == "Rephrase: hello"
         with pytest.raises(KeyError, match="Expected input field 'text'"):
             stage._process_llm_prompt({"wrong": "val"})
-        assert stage._process_llm_response("first") == "first"
-        assert stage._process_llm_response("") == ""
+        assert stage._process_llm_response(["first"]) == "first"
+        assert stage._process_llm_response([]) == ""
 
     def test_process(self) -> None:
         """Covers pre-process prompt formatting, NDD call, post-process response, temp column

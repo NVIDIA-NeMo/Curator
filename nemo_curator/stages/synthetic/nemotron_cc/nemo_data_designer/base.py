@@ -173,6 +173,9 @@ class NDDBaseSyntheticStage(DataDesignerStage):
         # Post-process: apply _process_llm_response to each generated value
         result_df = result.to_pandas()
         if self.output_field in result_df.columns:
+            # NDD returns a scalar string per row; wrap in a single-element list to
+            # match the list[str] signature of _process_llm_response inherited from
+            # the non-NDD base class.
             result_df[self.output_field] = result_df[self.output_field].apply(
                 lambda x: self._process_llm_response([x]),
             )

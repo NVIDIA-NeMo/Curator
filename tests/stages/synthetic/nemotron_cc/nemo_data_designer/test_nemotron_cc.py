@@ -49,10 +49,10 @@ from data_designer.config.preview_results import PreviewResults
 
 ALL_STAGES = [
     (WikipediaParaphrasingStage, "rephrased", NEMOTRON_CC_SYSTEM_PROMPT, WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE),
-    (DiverseQAStage, "diverse_qa", None, DIVERSE_QA_PROMPT_TEMPLATE),
+    (DiverseQAStage, "diverse_qa", NEMOTRON_CC_SYSTEM_PROMPT, DIVERSE_QA_PROMPT_TEMPLATE),
     (DistillStage, "distill", NEMOTRON_CC_DISTILL_SYSTEM_PROMPT, DISTILL_PROMPT_TEMPLATE),
-    (ExtractKnowledgeStage, "extract_knowledge", None, EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE),
-    (KnowledgeListStage, "knowledge_list", None, KNOWLEDGE_LIST_PROMPT_TEMPLATE),
+    (ExtractKnowledgeStage, "extract_knowledge", NEMOTRON_CC_SYSTEM_PROMPT, EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE),
+    (KnowledgeListStage, "knowledge_list", NEMOTRON_CC_SYSTEM_PROMPT, KNOWLEDGE_LIST_PROMPT_TEMPLATE),
 ]
 
 
