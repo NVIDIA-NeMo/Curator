@@ -19,7 +19,6 @@ and logs results to configured sinks.
 """
 
 import argparse
-import time
 import traceback
 from pathlib import Path
 from typing import Any
@@ -46,7 +45,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     split: str,
     wer_threshold: float,
     gpus: int,
-    executor: str,
+    executor: str = "xenna",
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the audio fleurs benchmark and collect comprehensive metrics."""
@@ -69,7 +68,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     logger.info(f"WER threshold: {wer_threshold}")
     logger.info(f"GPUs: {gpus}")
 
-    pipeline_executor = setup_executor(executor)
+    executor_obj = setup_executor(executor)
     pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
 
     # Add stages
@@ -110,16 +109,13 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         )
     )
 
-    run_start_time = time.perf_counter()
-    results = pipeline.run(pipeline_executor)
-    run_time_taken = time.perf_counter() - run_start_time
+    results = pipeline.run(executor_obj)
 
-    logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
+    logger.success("Benchmark completed successfully")
 
     return {
         "metrics": {
             "is_success": True,
-            "time_taken_s": run_time_taken,
         },
         "tasks": results,
     }
@@ -133,6 +129,7 @@ def main() -> int:
     parser.add_argument("--lang", default="hy_am", help="Language code")
     parser.add_argument("--split", default="dev", help="Dataset split to use")
     parser.add_argument("--wer-threshold", type=float, default=5.5, help="WER threshold for filtering")
+    parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs to use")
     parser.add_argument(
         "--executor",

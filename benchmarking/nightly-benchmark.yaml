@@ -117,6 +117,8 @@ entries:
         additional_metrics:
           - throughput_docs_per_sec
           - number_of_domains_predicted
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -149,6 +151,12 @@ entries:
         additional_metrics:
           - throughput_docs_per_sec
           - number_of_domains_predicted
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
     requirements:
       # Observed throughput of 2900 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
@@ -177,6 +185,9 @@ entries:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+          - U07JL5K0L10  # Praateek Mahajan
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -185,6 +196,7 @@ entries:
       # observed throughput of 7200 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
         min_value: 6840
+
   - name: embedding_generation_xenna
     enabled: true
     script: embedding_generation_benchmark.py
@@ -202,6 +214,13 @@ entries:
         additional_metrics:
           - num_documents_processed
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+          - U07JL5K0L10  # Praateek Mahajan
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
     requirements:
       # Observed throughput of 8600 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
@@ -222,6 +241,8 @@ entries:
       - name: slack
         additional_metrics:
           - "num_duplicates"
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -250,6 +271,8 @@ entries:
           - minhash_percent_time
           - lsh_percent_time
           - connected_components_percent_time
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -289,6 +312,8 @@ entries:
           - kmeans_write_percent_time
           - kmeans_fit_predict_percent_time
           - pairwise_percent_time
+        ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -321,6 +346,9 @@ entries:
       - name: slack
         additional_metrics:
           - num_duplicates_removed
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+          - U07JL5K0L10  # Praateek Mahajan
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -350,6 +378,9 @@ entries:
         additional_metrics:
           - num_duplicates_removed
           - io_percentage
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+          - U07JL5K0L10  # Praateek Mahajan
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -376,6 +407,8 @@ entries:
         additional_metrics:
           - num_kept_documents
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -384,7 +417,7 @@ entries:
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
         exact_value: 2119489
-    # account for stochastic filters
+      # account for stochastic filters
       - metric: num_kept_documents
         min_value: 2090470
         max_value: 2090490
@@ -407,6 +440,8 @@ entries:
         additional_metrics:
           - num_kept_documents
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -415,7 +450,7 @@ entries:
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
         exact_value: 2119489
-    # account for stochastic filters
+      # account for stochastic filters
       - metric: num_kept_documents
         min_value: 2090470
         max_value: 2090490
@@ -440,6 +475,8 @@ entries:
         additional_metrics:
           - num_kept_documents
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -463,6 +500,8 @@ entries:
         additional_metrics:
           - num_kept_documents
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -481,6 +520,8 @@ entries:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -499,6 +540,8 @@ entries:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -520,6 +563,12 @@ entries:
       --aesthetic-threshold=0.9
       --verbose
     timeout_s: 1500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_images_per_sec
+        ping_on_failure:
+          - U020C9VC05N  # Ao Tang
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -542,9 +591,16 @@ entries:
       --split=dev
       --wer-threshold=5.5
       --gpus=1
-      --executor=xenna
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
 
-  - name: audio_fleurs_ray_data
+  - name: audio_fleurs_raydata
     enabled: true
     script: audio_fleurs_benchmark.py
     args: >-
@@ -556,6 +612,14 @@ entries:
       --wer-threshold=5.5
       --gpus=1
       --executor=ray_data
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
 
   - name: arxiv_e2e_pipeline_raydata
     enabled: true
@@ -573,6 +637,8 @@ entries:
           - throughput_docs_per_sec
           - num_output_documents
           - num_input_documents
+        ping_on_failure:
+          - UGFRT88RE  # Vibhu Jawa
     ray:
       num_cpus: 16
       num_gpus: 4
@@ -602,6 +668,8 @@ entries:
           - throughput_docs_per_sec
           - num_output_documents
           - num_input_documents
+        ping_on_failure:
+          - UGFRT88RE  # Vibhu Jawa
     ray:
       num_cpus: 16
       num_gpus: 4
@@ -614,6 +682,7 @@ entries:
         exact_value: 116383
       - metric: num_output_documents
         exact_value: 61474
+
   - name: video_embedding
     enabled: true
     script: video_pipeline_benchmark.py
@@ -625,6 +694,10 @@ entries:
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
     timeout_s: 400
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -647,6 +720,10 @@ entries:
       --video-dir={dataset:videos,mp4}
       --video-limit=1000
     timeout_s: 400
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -672,6 +749,10 @@ entries:
       --enhance-captions
       --video-limit=256
     timeout_s: 1800
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -704,6 +785,8 @@ entries:
           - input_row_count
           - output_row_count
           - throughput_rows_per_sec
+        ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
     requirements:
       - metric: output_row_count
         exact_value: 820
@@ -723,6 +806,10 @@ entries:
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=1000
     timeout_s: 500
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -754,6 +841,8 @@ entries:
           - num_rows
           - num_output_files
           - materialize_error_count
+        ping_on_failure:
+          - UGFRT88RE  # Vibhu Jawa
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -779,6 +868,8 @@ entries:
           - num_rows
           - num_output_files
           - materialize_error_count
+        ping_on_failure:
+          - UGFRT88RE  # Vibhu Jawa
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -800,7 +891,10 @@ entries:
       --overlap-percentage=50
       --repeat-factor=2000
     timeout_s: 600
-    sink_data: []
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
     ray:
       num_cpus: 8
       num_gpus: 0
