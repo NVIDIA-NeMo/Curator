@@ -1,0 +1,128 @@
+---
+alwaysApply: true
+---
+
+# `ProcessingStage` Patterns
+
+The `ProcessingStage` class is the base class for handling all data curation steps in NeMo Curator. Each subclass of `ProcessingStage` defines an individual step to apply to the data, such as reading, transformations, filtering, and writing.
+
+## Subclass Declaration
+
+Processing stages operate on `Task` objects (or subclasses of `Task` such as `DocumentBatch` for text data). Each stage type can declare what type of `Task` it processes as input and what type it produces as output. When implementing a subclass of `ProcessingStage`, this looks like:
+
+```python
+class ExampleStage(ProcessingStage[InputTaskType, OutputTaskType]):
+```
+
+Stages can return either:
+
+- A single task (typical for transformations)
+- A list of tasks (for stages that split work, like readers)
+- None (for filtered out tasks)
+
+## Properties
+
+Any `ProcessingStage` has 3 internal properties:
+- `_name`: Name identifier for the stage (read-only, accessed via `stage._name`)
+- `_resources`: Computing resources allocated to the stage (read-only, accessed via `stage._resources`)
+- `_batch_size`: Number of tasks to process at a time (read-only, accessed via `stage._batch_size`)
+
+When implementing a subclass of `ProcessingStage`, you can customize these properties by setting these public class attributes:
+- `name`: String identifier (default: "ProcessingStage" - **strongly recommended to override**)
+- `resources`: Resources object (default: `Resources(cpus=1.0)`)
+- `batch_size`: Integer batch size (default: `1`)
+
+**Important**: These should be set as class attributes or dataclass fields, **not** as properties. The underscore versions are read-only properties managed by the base class.
+
+## `inputs()` and `outputs()` Functions
+
+The `inputs()` and `outputs()` methods declare what data a stage requires and produces:
+
+```python
+def inputs(self) -> tuple[list[str], list[str]]:
+    """Define stage input requirements.
+
+    Returns (tuple[list[str], list[str]]):
+        Tuple of (required_task_attributes, required_data_attributes) where:
+        - required_task_attributes: List of task attributes that must be present
+        - required_data_attributes: List of attributes within the data that must be present
+    """
+    return ["data"], ["text"]  # Requires "text" column in task.data
+
+def outputs(self) -> tuple[list[str], list[str]]:
+    """Define stage output requirements.
+
+    Returns (tuple[list[str], list[str]]):
+        Tuple of (output_task_attributes, output_data_attributes) where:
+        - output_task_attributes: List of task attributes this stage adds/modifies
+        - output_data_attributes: List of attributes within the data that this stage adds/modifies
+    """
+    return ["data"], ["processed_text"]  # Adds "processed_text" column
+```
+
+These functions verify that a task has the necessary top-level attributes and that `task.data` has the necessary data attributes. This enables automatic validation at runtime and logs errors for missing attributes.
+
+## `process()` Function
+
+The main method that processes a single task. Must be implemented by all concrete stages:
+
+```python
+def process(self, task: InputTaskType) -> OutputTaskType | list[OutputTaskType] | None:
+    # Transform the task...
+    return output_task
+```
+
+Can return:
+
+- **Single task**: For 1-to-1 transformations
+- **List of tasks**: For splitting/reading operations
+- **None**: To filter out the task
+
+## Optional Lifecycle Methods
+
+Beyond `process()`, stages can implement:
+
+- `setup_on_node(node_info, worker_metadata)`: Node-level initialization (e.g., download models)
+- `setup(worker_metadata)`: Worker-level initialization (e.g., load models)
+- `teardown()`: Cleanup after processing
+- `process_batch(tasks)`: Vectorized batch processing for better performance
+
+See the `ProcessingStage` implementation for full details.
+
+## Example Implementation
+
+```python
+from dataclasses import dataclass
+
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import Task
+
+
+@dataclass
+class ExampleStage(ProcessingStage[Task, Task]):
+    name: str = "ExampleStage"
+    resources: Resources = Resources(cpus=1.0)  # Default
+    batch_size: int = 1  # Default
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
+
+    def process(self, task: Task) -> Task | None:
+        # From our inputs() requirements, Task has the data attribute
+        task_data = task.data
+
+        # Transform the data in some way...
+
+        # Create output task
+        return Task(
+            task_id=f"{task.task_id}_{self.name}",  # Common naming pattern
+            dataset_name=task.dataset_name,
+            data=task_data,
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )
+```

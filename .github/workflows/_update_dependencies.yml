@@ -1,0 +1,120 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: ~Update dependencies template
+on:
+  workflow_call:
+    inputs:
+      target-branch:
+        required: true
+        type: string
+        description: "The target branch to bump"
+    secrets:
+      PAT:
+        required: true
+  workflow_dispatch:
+    inputs:
+      target-branch:
+        required: true
+        type: string
+        description: "The target branch to bump"
+        default: "main"
+
+jobs:
+  pre-flight:
+    runs-on: ubuntu-latest
+    outputs:
+      bump-branch: bump-dependencies-${{ steps.ref.outputs.date }}-${{ inputs.target-branch || github.event.inputs.target-branch }}
+      date: ${{ steps.ref.outputs.date }}
+    steps:
+      - name: Get date
+        id: ref
+        run: echo "date=$(date +%F)" | tee -a "$GITHUB_OUTPUT"
+
+  update-lockfile:
+    environment: nemo-ci
+    runs-on: ubuntu-latest
+    needs: [pre-flight]
+    env:
+      TARGET_BRANCH: ${{ inputs.target-branch || github.event.inputs.target-branch }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
+          ref: ${{ env.TARGET_BRANCH }}
+          submodules: recursive
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set environment variables
+        run: |
+          echo "UV_PROJECT_ENVIRONMENT=./venv" | tee -a "$GITHUB_ENV"
+          echo "UV_LINK_MODE=copy" | tee -a "$GITHUB_ENV"
+
+      - name: Upgrade lock file
+        run: uv lock --upgrade
+
+      - name: Upload lock file
+        uses: actions/upload-artifact@v4
+        with:
+          name: lock-file-${{ needs.pre-flight.outputs.bump-branch }}
+          path: uv.lock
+
+  create-pr:
+    needs: [update-lockfile, pre-flight]
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_BRANCH: ${{ needs.pre-flight.outputs.bump-branch }}
+      TARGET_BRANCH: ${{ inputs.target-branch || github.event.inputs.target-branch }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
+          ref: ${{ env.TARGET_BRANCH }}
+
+      - name: Configure git for signoff
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Download lock file
+        uses: actions/download-artifact@v4
+        with:
+          name: lock-file-${{ env.SOURCE_BRANCH }}
+
+      - name: Create Bump PR
+        uses: peter-evans/create-pull-request@v6
+        id: create-pull-request
+        env:
+          title: "chore(beep boop 🤖): Bump `uv.lock` (${{ inputs.target-branch || github.event.inputs.target-branch }}) (${{ needs.pre-flight.outputs.date }})"
+        with:
+          branch: ${{ env.SOURCE_BRANCH }}
+          base: ${{ env.TARGET_BRANCH }}
+          title: ${{ env.title }}
+          token: ${{ secrets.PAT }}
+          body: |
+            🚀 PR to bump `uv.lock` in `${{ inputs.target-branch || github.event.inputs.target-branch }}`.  
+
+            📝 Please remember the following to-do's before merge: 
+            - [ ] Verify the presubmit CI  
+
+            🙏 Please merge this PR only if the CI workflow completed successfully.
+          commit-message: ${{ env.title }}
+          signoff: true
+          committer: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"

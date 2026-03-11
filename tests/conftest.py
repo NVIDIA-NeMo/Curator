@@ -1,0 +1,265 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Unified test configuration for Ray Curator tests.
+
+This module provides smart Ray cluster setup that automatically configures
+GPU resources based on the test session's requirements.
+"""
+
+import os
+import re
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import pytest
+import ray
+from loguru import logger
+
+from nemo_curator.core.client import RayClient
+
+MODALITY_GROUPS = ["text", "image", "video", "audio"]
+
+
+def gpu_available() -> bool:
+    """Check if GPU is available on the system using multiple detection methods."""
+    # Method 1: Try pynvml
+    try:
+        import pynvml
+
+        pynvml.nvmlInit()
+        gpu_count = pynvml.nvmlDeviceGetCount()
+        if gpu_count > 0:
+            logger.info(f"Detected {gpu_count} GPU(s) via pynvml")
+            return True
+    except Exception:  # noqa: BLE001, S110
+        pass
+
+    # Method 2: Try nvidia-smi with short timeout
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=count", "--format=csv,noheader,nounits"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip().isdigit():
+            gpu_count = int(result.stdout.strip())
+            logger.info(f"Detected {gpu_count} GPU(s) via nvidia-smi")
+            return gpu_count > 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, OSError):
+        pass
+
+    logger.warning("No GPU detected")
+    return False
+
+
+def session_needs_gpu(config: pytest.Config, collected_items: list[pytest.Item]) -> bool:
+    """Determine if the current test session needs GPU resources.
+
+    This checks:
+    1. If GPU tests are explicitly being run (via -m gpu)
+    2. If we're in a GPU test environment (CUDA_VISIBLE_DEVICES set)
+    3. If any collected test has the gpu marker
+    """
+    # Check if running with -m gpu marker
+    gpu_marker = config.getoption("-m", default="")
+    if gpu_marker:
+        if "not gpu" in gpu_marker:
+            logger.info("'not gpu' marker detected, disabling GPU cluster")
+            return False
+        elif "gpu" in gpu_marker:
+            logger.info("GPU marker detected in test selection, enabling GPU cluster")
+            return True
+
+    # Check if any collected test has gpu marker
+    return any(item.get_closest_marker("gpu") for item in collected_items)
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Hook to store collected items in config for later use."""
+    config._collected_items = items  # Store in config instead of global
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:  # noqa: C901, PLR0912
+    m_opts = config.invocation_params.args
+    m_count = sum(arg == "-m" for arg in m_opts)
+
+    # At most one -m flag allowed
+    if m_count > 1:
+        msg = "At most one -m flag is allowed.\n"
+        msg += "Combine markers into a single boolean expression, e.g.:\n"
+        msg += '  pytest -m "not gpu and video"'
+        raise pytest.UsageError(msg)
+
+    selected = config.getoption("-m") or ""
+
+    # No -m expression → collect everything
+    if selected.strip() == "":
+        return False
+
+    # Determine which modalities (if any) were explicitly requested
+    selected_groups = set()
+
+    for group in MODALITY_GROUPS:
+        # Do not allow negating a modality
+        if re.search(rf"\bnot\s+{group}\b", selected):
+            msg = f"Negating a modality is not allowed: 'not {group}'."
+            raise pytest.UsageError(msg)
+
+        if re.search(rf"\b{group}\b", selected):
+            selected_groups.add(group)
+
+    # Do not allow multiple modalities to be selected at once
+    if len(selected_groups) > 1:
+        msg = f"Multiple modalities selected: {sorted(selected_groups)}. "
+        msg += "Please select only one modality at a time "
+        msg += f"({', '.join(MODALITY_GROUPS)})."
+        raise pytest.UsageError(msg)
+
+    # If no modality was requested → collect everything
+    if len(selected_groups) == 0:
+        return False
+
+    # If we reach this point, there should be exactly one modality selected
+    assert len(selected_groups) == 1
+
+    path_str = str(collection_path)
+
+    # 1. Directory-based detection
+    # e.g., if there is a subdirectory called "video", it is safe to assume it contains video tests only
+    for group in MODALITY_GROUPS:
+        if f"/{group}/" in path_str or path_str.endswith(f"{group}"):
+            return group not in selected_groups
+
+    # 2. File-based comment detection
+    # scan first 5 lines for: "# modality: video"
+    if collection_path.is_file() and collection_path.suffix == ".py":
+        try:
+            with open(collection_path, encoding="utf8") as f:
+                header = "".join([next(f) for _ in range(5)])
+        except StopIteration:
+            header = ""
+        for group in MODALITY_GROUPS:
+            if f"# modality: {group}" in header:
+                return group not in selected_groups
+
+    # Default → collect
+    return False
+
+
+@pytest.fixture(scope="session", autouse=True)
+def shared_ray_cluster(tmp_path_factory: pytest.TempPathFactory, pytestconfig: pytest.Config) -> str:
+    """Set up a shared Ray cluster with dynamic GPU configuration.
+
+    This fixture automatically determines whether GPU resources are needed
+    based on the test session and configures Ray accordingly.
+    """
+    # If RAY_ADDRESS is already set (e.g., in CI), we unset it and still start a new Ray cluster
+    if "RAY_ADDRESS" in os.environ:
+        del os.environ["RAY_ADDRESS"]
+
+    # Get collected items from config (set by pytest_collection_modifyitems)
+    collected_items = getattr(pytestconfig, "_collected_items", [])
+
+    # Determine if we need GPU resources
+    needs_gpu = session_needs_gpu(pytestconfig, collected_items)
+    gpu_available_on_system = gpu_available()
+
+    # Configure GPU resources with strict checking
+    if needs_gpu and not gpu_available_on_system:
+        error_msg = (
+            "GPU tests detected but no GPU available on system. "
+            "Either install GPU drivers/hardware or run CPU-only tests with '-m \"not gpu\"'"
+        )
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    num_cpus = 11
+    num_gpus = 2 if needs_gpu else 0
+    object_store_memory = 2 * (1024**3)  # 2 GB
+
+    logger.info(f"Configuring Ray cluster with {'GPU' if needs_gpu else 'CPU-only'} support")
+
+    temp_dir = tmp_path_factory.mktemp("ray")
+
+    ray_client = RayClient(
+        num_cpus=num_cpus,
+        num_gpus=num_gpus,
+        object_store_memory=object_store_memory,
+        ray_temp_dir=str(temp_dir),
+        include_dashboard=False,
+    )
+    ray_client.start()
+
+    ray_address = os.environ["RAY_ADDRESS"]
+    logger.info(f"Ray cluster started at: {ray_address}")
+
+    try:
+        yield ray_address
+    finally:
+        logger.info("Shutting down Ray cluster")
+        ray_client.stop()
+
+
+@pytest.fixture
+def shared_ray_client(shared_ray_cluster: str) -> None:
+    """Initialize Ray client for tests that need Ray API access."""
+    ray.init(
+        address=shared_ray_cluster,
+        ignore_reinit_error=True,
+        log_to_driver=True,
+        local_mode=False,
+    )
+
+    try:
+        yield
+    finally:
+        logger.info("Shutting down Ray client")
+        ray.shutdown()
+
+
+@pytest.fixture
+def ray_gpu_resources() -> dict[str, Any]:
+    """Provide information about available GPU resources in the Ray cluster."""
+    try:
+        resources = ray.available_resources()
+        return {
+            "gpu_count": resources.get("GPU", 0),
+            "has_gpu": resources.get("GPU", 0) > 0,
+            "total_resources": resources,
+        }
+    except (RuntimeError, ConnectionError) as e:
+        logger.warning(f"Could not get Ray resources: {e}")
+        return {"gpu_count": 0, "has_gpu": False, "total_resources": {}}
+
+
+@pytest.fixture
+def ray_client_with_id_generator(shared_ray_client: None) -> None:  # noqa: ARG001
+    """Create and manage ID generator actor for each test."""
+    from nemo_curator.stages.deduplication.id_generator import (
+        create_id_generator_actor,
+        kill_id_generator_actor,
+    )
+
+    # Create the ID generator actor
+    create_id_generator_actor()
+
+    try:
+        yield
+    finally:
+        # Cleanup after test completes
+        kill_id_generator_actor()

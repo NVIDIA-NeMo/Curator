@@ -1,0 +1,324 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = [
+    "nemo_curator",
+    "nemo_curator.*",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "nemo_curator.package_info.__version__" }
+
+[project]
+name = "nemo-curator"
+dynamic = ["version"]
+authors = [
+    { name = "Ayush Dattagupta", email = "adattagupta@nvidia.com" },
+    { name = "Abhinav Garg", email = "abhgarg@nvidia.com" },
+    { name = "Praateek Mahajan", email = "praateekm@nvidia.com" },
+    { name = "Sarah Yurick", email = "syurick@nvidia.com" },
+    { name = "Vibhu Jawa", email = "vjawa@nvidia.com" },
+]
+description = "Scalable Data Preprocessing Tool for Training Large Language Models"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "absl-py>=2.0.0,<3.0.0",
+    "comment_parser",
+    "cosmos-xenna==0.2.0",
+    "fsspec",
+    "hydra-core",
+    "jieba==0.42.1",
+    "loguru",
+    "mecab-python3",
+    "omegaconf",
+    "openai>=1.0.0",
+    "pandas>=2.1.0",
+    "pyarrow",
+    "ray[default,data]>=2.54",
+    "torch",
+    "transformers",
+]
+
+[project.optional-dependencies]
+cuda12 = ["gpustat", "nvidia-ml-py"]
+vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
+
+# Installs CPU + GPU text curation modules
+deduplication_cuda12 = [
+    "cudf-cu12==25.10.*",
+    "cuml-cu12==25.10.*",
+    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
+    "pylibcugraph-cu12==25.10.*",
+    "pylibraft-cu12==25.10.*",
+    "raft-dask-cu12==25.10.*",
+    "rapidsmpf-cu12==25.10.*",
+]
+
+audio_cpu = [
+    "nemo_toolkit[asr]==2.4.0",
+    "soundfile>=0.12.0",
+]
+audio_cuda12 = [
+    "nemo_curator[audio_cpu]",
+    "nemo_curator[cuda12]",
+]
+
+image_cpu = [
+    "Pillow",
+    "torchvision"
+]
+
+# NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
+image_cuda12 = [
+    "nemo_curator[image_cpu]",
+    "nemo_curator[cuda12]",
+    "nemo_curator[deduplication_cuda12]",
+    "nvidia-dali-cuda120",
+]
+
+# Text Curation Dependencies
+text_cpu = [
+    # Download / Extract
+    "beautifulsoup4",
+    "justext",
+    "lxml",
+    "pycld2",
+    "resiliparse",
+    "s5cmd",
+    "trafilatura==2.0.0",
+    "warcio",
+    # Filters
+    "fasttext==0.9.3",
+    "sentencepiece",
+    "mwparserfromhell==0.6.5",
+    # Aegis
+    "peft",
+    # Modifiers
+    "ftfy",
+    # Embedders
+    "sentence-transformers"
+]
+
+text_cuda12 = [
+    "nemo_curator[cuda12]",
+    "nemo_curator[deduplication_cuda12]",
+    "nemo_curator[text_cpu]",
+    "nemo_curator[vllm]",
+]
+
+# Video Curation Dependencies
+video_cpu = [
+    "av==13.1.0",
+    "opencv-python",
+    "torchvision",
+    "einops",
+    "easydict",
+]
+
+video_cuda12 = [
+    "nemo_curator[video_cpu]",
+    "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
+    "cvcuda_cu12",
+    "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "pycuda",
+    "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "torch<=2.9.1",
+    "torchaudio",
+]
+
+# Math Curation Dependencies
+math_cpu = [
+    "nemo_curator[text_cpu]",  # Math examples use text processing utilities
+]
+
+math_cuda12 = [
+    "nemo_curator[math_cpu]",
+    "nemo_curator[cuda12]",
+    "nemo_curator[deduplication_cuda12]",
+    "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+]
+
+# Synthetic Data Generation (SDG) Dependencies
+sdg_cpu = [
+    "data-designer==0.4.0",
+]
+
+# All dependencies
+all = [
+    "nemo_curator[audio_cuda12]",
+    "nemo_curator[image_cuda12]",
+    "nemo_curator[math_cuda12]",
+    "nemo_curator[sdg_cpu]",
+    "nemo_curator[text_cuda12]",
+    "nemo_curator[video_cuda12]",
+]
+
+[dependency-groups]
+build = ["setuptools", "torch<=2.9.1"]
+dev = ["jupyter"]
+linting = ["pre-commit", "ruff==0.14.10"]
+test = [
+    "coverage",
+    "debugpy",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "pytest-httpserver",
+    "pytest-loguru",
+    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
+    "s3fs", # added for testing cloud fs
+]
+
+[tool.uv]
+package = true
+managed = true
+default-groups = ["dev", "test"]
+index-strategy = "unsafe-best-match"
+no-build-isolation-package = ["flash-attn"]
+constraint-dependencies = [
+    "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
+    "cryptography>=46.0.5", # Address CVE GHSA-r6ph-v2qm-q3c2
+    "nbconvert>=7.17.0", # Address CVE GHSA-xm59-rqc7-hhvf
+    "pillow>=12.1.1", # Address CVE GHSA-cfh3-3jmp-rvhc
+    "protobuf>=5.29.6", # Address CVE GHSA-8qvm-5x2c-j2w7
+    "pyasn1>=0.6.2", # Address CVE GHSA-63vm-454h-vhhq
+    "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
+    "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
+    "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
+    "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
+    "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
+]
+override-dependencies = [
+    "apex; sys_platform == 'never'",
+    "distance; sys_platform == 'never'",
+    "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
+    "kaldiio;  sys_platform == 'never'",
+    "levenshtein;  sys_platform == 'never'",
+    "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
+    "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
+    "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
+    "transformers<=4.55.2", # Else Cosmos Embed imports fail
+]
+
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+torchaudio = [
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+torchvision = [
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+
+[tool.coverage.paths]
+source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]
+
+[tool.ruff]
+line-length = 119
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D",  # pydocstyle
+    "PTH",  # use pathlib
+    "G",  # no enforcement during logging
+    "FBT",  # allow booleans in function / class arguments
+    "T20",  # allow printing
+    "E501",  # allow line length violations, leave it to Black
+    "ANN002",  # don't annotate **args
+    "ANN003",  # don't annotate **kwargs
+    "ANN204",  # don't annotate self/cls/special methods (__new__)
+    "PT013",  # how to import pytest
+    "PERF401",  # don't enforce list comprehension
+    "RET505", "RET506", "RET507", "RET508",  # allow branching (if else after return)
+    "PGH004",  # allow generic noqa
+
+    "TD002",  # allow TODO without author
+    "TD003",  # allow TODO without link
+    "TRY003", # allow long exception messages rather than creating a new exception class
+    "FIX002",  # allow TODO to exist,
+    "EXE002", # don't require for a shebang to be present if it's executable
+    "COM812", # disable the trailing comma in linter, because ruff formatter ensures it
+    "SLF001", # allow accessing private attributes
+    "PLC0415", # allow imports inside functions (lazy imports for optional/heavy deps)
+]
+fixable = ["ALL"]
+
+
+[tool.ruff.lint.extend-per-file-ignores]
+"nemo_curator/__init__.py" = ["F401"]
+"examples/**" = [
+    "INP001", # no __init__.py is required
+]
+"tests/**/*.py" = [
+    "S101", # asserts allowed in tests
+    "ANN201", # allow methods to not return something
+    "ARG002", # allow unused method args (mock.patch decorator injects args not always referenced)
+    "PLR2004", # magic value used in comparison
+    "ERA001", # allow commented-out code
+]
+"benchmarking/**" = [
+    "BLE001", # allow catching blind exceptions (benchmark runners need catch-all error handling)
+]
+"docs/**" = [
+    "BLE001", # allow catching blind exceptions (Sphinx extensions need robust error handling)
+]
+"tutorials/**" = [
+    "INP001", # no __init__.py is required
+    "PLE2515", # ignore \u200b complaint
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "asyncio",
+    "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
+]
