@@ -153,6 +153,10 @@ entries:
           - number_of_domains_predicted
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
     requirements:
       # Observed throughput of 2900 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
@@ -213,6 +217,10 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
           - U07JL5K0L10  # Praateek Mahajan
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
     requirements:
       # Observed throughput of 8600 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
@@ -409,7 +417,7 @@ entries:
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
         exact_value: 2119489
-    # account for stochastic filters
+      # account for stochastic filters
       - metric: num_kept_documents
         min_value: 2090470
         max_value: 2090490
@@ -442,7 +450,7 @@ entries:
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
         exact_value: 2119489
-    # account for stochastic filters
+      # account for stochastic filters
       - metric: num_kept_documents
         min_value: 2090470
         max_value: 2090490
@@ -583,6 +591,10 @@ entries:
       --split=dev
       --wer-threshold=5.5
       --gpus=1
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
     sink_data:
       - name: slack
         ping_on_failure:
