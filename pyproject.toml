@@ -82,19 +82,6 @@ inference_server = [
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "ray[serve,llm]>=2.54",
-    # Loose lower bounds to help pip resolve without excessive backtracking
-    "meson>=1.0.0",
-    "cryptography>=43.0",
-    "grpcio>=1.70",
-    "httpcore>=1.0",
-    "httpx>=0.27",
-    "protobuf>=5.29",
-    "pydantic>=2.10",
-    "starlette>=0.45",
-    "sse-starlette>=2.0",
-    "anyio>=4.8",
-    "msgspec>=0.19",
-    "pyjwt>=2.9",
 ]
 
 # Installs CPU + GPU text curation modules
