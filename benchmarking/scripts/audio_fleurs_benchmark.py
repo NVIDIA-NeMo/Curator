@@ -126,9 +126,6 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
 
 
 def main() -> int:
-    ray_client = RayClient()
-    ray_client.start()
-
     parser = argparse.ArgumentParser(description="Audio Fleurs benchmark for nightly benchmarking")
     parser.add_argument("--benchmark-results-path", required=True, help="Path to benchmark results")
     parser.add_argument("--scratch-output-path", required=True, help="Path to scratch output directory")
@@ -149,6 +146,11 @@ def main() -> int:
     logger.info("=== Audio Fleurs Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
+    use_ray = args.executor != "xenna"
+    ray_client = RayClient() if use_ray else None
+    if ray_client is not None:
+        ray_client.start()
+
     success_code = 1  # assume failure until benchmark succeeds
 
     # This dictionary will contain benchmark metadata and results, written to files for the benchmark framework to read.
@@ -168,7 +170,8 @@ def main() -> int:
         logger.debug(f"Full traceback:\n{error_traceback}")
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path)
-        ray_client.stop()
+        if ray_client is not None:
+            ray_client.stop()
     return success_code
 
 
