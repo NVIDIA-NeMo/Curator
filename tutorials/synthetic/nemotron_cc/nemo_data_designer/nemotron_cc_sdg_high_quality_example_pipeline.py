@@ -23,6 +23,7 @@ the LLM through NDD's ModelConfig / ModelProvider / ChatCompletionInferenceParam
 """
 
 import argparse
+import math
 import os
 import sys
 import time
@@ -219,9 +220,6 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:  # noqa: C901, PLR0912, PLR0915
     """Main function to run the synthetic data generation pipeline."""
-    client = RayClient(include_dashboard=False)
-    client.start()
-
     args = parse_args()
 
     # Set tokenizer
@@ -246,6 +244,9 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             "Get your API key from https://build.nvidia.com/settings/api-keys"
         )
         raise ValueError(msg)
+
+    client = RayClient(include_dashboard=False)
+    client.start()
 
     # Resolve model alias
     model_alias = args.model_alias or args.model_name
@@ -397,7 +398,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     ### Extract high quality data
     pipeline.add_stage(
         Filter(
-            filter_fn=lambda x: int(x) > BUCKETED_RESULTS_THRESHOLD,
+            filter_fn=lambda x: x is not None and not (isinstance(x, float) and math.isnan(x)) and int(x) > BUCKETED_RESULTS_THRESHOLD,
             filter_field="bucketed_results",
         ),
     )

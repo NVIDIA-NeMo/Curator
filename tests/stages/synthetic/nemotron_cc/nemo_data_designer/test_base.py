@@ -59,13 +59,15 @@ class TestNDDBaseSyntheticStage:
     """Unit tests for NDDBaseSyntheticStage; only preview() is mocked."""
 
     def test_init_validation(self) -> None:
-        """_build_config_from_prompt raises when neither config nor prompt+output_field is given."""
+        """_build_config_from_prompt raises when neither config nor prompt+output_field+input_field is given."""
         with pytest.raises(ValueError, match=r"Either provide .* or set"):
             NDDBaseSyntheticStage(prompt=None, output_field=None)
         with pytest.raises(ValueError, match=r"Either provide .* or set"):
             NDDBaseSyntheticStage(prompt="Test: {document}", output_field=None)
         with pytest.raises(ValueError, match=r"Either provide .* or set"):
             NDDBaseSyntheticStage(prompt=None, output_field="result")
+        with pytest.raises(ValueError, match=r"Either provide .* or set"):
+            NDDBaseSyntheticStage(prompt="Test: {document}", output_field="result", input_field=None)
 
     def test_auto_build_config(self) -> None:
         """prompt+output_field auto-builds config; system_prompt and model_alias are included."""
@@ -121,8 +123,8 @@ class TestNDDBaseSyntheticStage:
         assert stage._process_llm_prompt({"text": "hello"}) == "Rephrase: hello"
         with pytest.raises(KeyError, match="Expected input field 'text'"):
             stage._process_llm_prompt({"wrong": "val"})
-        assert stage._process_llm_response(["first", "second"]) == "first"
-        assert stage._process_llm_response([]) == ""
+        assert stage._process_llm_response("first") == "first"
+        assert stage._process_llm_response("") == ""
 
     def test_process(self) -> None:
         """Covers pre-process prompt formatting, NDD call, post-process response, temp column
