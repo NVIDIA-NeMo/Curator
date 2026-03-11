@@ -23,25 +23,18 @@ class SegmentConcatenationConfig:
     """
     Configuration for Segment Concatenation stage.
     
-    Concatenates multiple audio segments with silence in between.
-    Useful for combining quality-filtered segments before further processing.
+    Concatenates segment items within an AudioBatch into a single
+    combined waveform with silence between segments. Stores segment
+    mappings in task._metadata for downstream timestamp resolution.
     
     Attributes:
         silence_duration_sec: Duration of silence between segments (seconds)
-        audio_key: Key in data dict containing audio
-        batch_size: Number of tasks to collect before concatenating
     
     Example:
-        # Default configuration (1 second silence)
-        config = SegmentConcatenationConfig()
-        
-        # Custom silence duration and batch size
-        config = SegmentConcatenationConfig(silence_duration_sec=0.5, batch_size=10)
+        config = SegmentConcatenationConfig(silence_duration_sec=0.5)
     """
     
-    silence_duration_sec: float = 1.0
-    audio_key: str = "audio"
-    batch_size: int = 10
+    silence_duration_sec: float = 0.5
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""
@@ -52,3 +45,5 @@ class SegmentConcatenationConfig:
         """Create config from dictionary."""
         return cls(**{k: v for k, v in config_dict.items() if k in cls.__dataclass_fields__})
 
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)

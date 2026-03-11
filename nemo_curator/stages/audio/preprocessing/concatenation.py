@@ -15,19 +15,24 @@
 """
 Audio segment concatenation stage.
 
-Concatenates multiple audio segments with silence in between.
+Concatenates multiple segment items within a single AudioBatch into one
+combined waveform. Stores segment-to-original mappings in task._metadata
+so downstream stages (TimestampMapperStage) can resolve final positions
+back to the original file.
+
+Uses canonical waveform + sample_rate format only (no pydub).
 
 Example:
     from nemo_curator.stages.audio.preprocessing import SegmentConcatenationStage
-    
-    stage = SegmentConcatenationStage(silence_duration_sec=1.0)
+
+    stage = SegmentConcatenationStage(silence_duration_sec=0.5)
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import torch
 from loguru import logger
-from pydub import AudioSegment
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -37,117 +42,140 @@ from ..configs import SegmentConcatenationConfig
 
 
 @dataclass
+class SegmentMapping:
+    """Mapping from concatenated position to original file position."""
+    original_file: str
+    original_start_ms: int
+    original_end_ms: int
+    concat_start_ms: int
+    concat_end_ms: int
+    segment_index: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'original_file': self.original_file,
+            'original_start_ms': self.original_start_ms,
+            'original_end_ms': self.original_end_ms,
+            'concat_start_ms': self.concat_start_ms,
+            'concat_end_ms': self.concat_end_ms,
+            'segment_index': self.segment_index,
+        }
+
+
+@dataclass
 class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
     """
-    Concatenate audio segments with silence in between.
-    
-    This stage takes multiple AudioBatch inputs and concatenates their
-    audio into a single AudioBatch output.
-    
+    Concatenate segment items within an AudioBatch into a single waveform.
+
+    Takes AudioBatch(items=M) and returns AudioBatch(items=1) with a single
+    combined waveform. Segment-to-original mappings are stored in
+    ``task._metadata["segment_mappings"]`` for downstream timestamp resolution.
+
     Args:
         config: SegmentConcatenationConfig object (overrides other params if provided)
         silence_duration_sec: Duration of silence between segments (seconds)
-        audio_key: Key in data dict containing audio
-    
+
     Example:
-        # Basic usage
-        stage = SegmentConcatenationStage(silence_duration_sec=1.0)
-        
-        # Using config object
-        config = SegmentConcatenationConfig(silence_duration_sec=0.5)
-        stage = SegmentConcatenationStage(config=config)
+        stage = SegmentConcatenationStage(silence_duration_sec=0.5)
     """
-    
+
     config: Optional[SegmentConcatenationConfig] = None
-    silence_duration_sec: float = 1.0
-    audio_key: str = "audio"
-    
+    silence_duration_sec: float = 0.5
+
     name: str = "SegmentConcatenation"
-    batch_size: int = 10
+    batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
-    
+
     def __post_init__(self):
-        """Initialize after dataclass fields are set."""
         super().__init__()
-        
-        # Apply config if provided
         if self.config is not None:
             self.silence_duration_sec = self.config.silence_duration_sec
-            self.audio_key = self.config.audio_key
-            self.batch_size = self.config.batch_size
-    
+
     def inputs(self) -> Tuple[List[str], List[str]]:
         return ["data"], []
 
     def outputs(self) -> Tuple[List[str], List[str]]:
-        """Define outputs produced by this stage."""
-        return [], [self.audio_key, "num_segments", "total_duration_sec", "concatenated"]
-    
-    def process_batch(self, tasks: List[AudioBatch]) -> List[AudioBatch]:
-        """
-        Concatenate multiple audio segments.
-        
-        Args:
-            tasks: List of AudioBatch objects to concatenate
-            
-        Returns:
-            List containing single AudioBatch with concatenated audio
-        """
-        if not tasks:
-            logger.error("No segments to concatenate")
-            return []
-        
-        try:
-            silence = AudioSegment.silent(duration=int(self.silence_duration_sec * 1000))
-            combined = AudioSegment.empty()
-            segment_count = 0
-            
-            for i, task in enumerate(tasks):
-                for item in task.data:
-                    audio = item.get(self.audio_key)
-                    
-                    if isinstance(audio, AudioSegment):
-                        combined += audio
-                        segment_count += 1
-                        
-                        logger.debug(f"Added segment {i}: {len(audio)/1000:.2f}s")
-                        
-                        # Add silence between segments (except after last)
-                        if i < len(tasks) - 1:
-                            combined += silence
-                    else:
-                        logger.warning(f"Segment {i} has no AudioSegment")
-            
-            if segment_count == 0:
-                logger.error("No valid audio segments found")
-                return []
-            
-            total_duration = len(combined) / 1000.0
-            
-            logger.debug(f"Concatenated {segment_count} segments: {total_duration:.2f}s")
-            
-            output_data = {
-                self.audio_key: combined,
-                'num_segments': segment_count,
-                'total_duration_sec': total_duration,
-                'concatenated': True,
-                'sample_rate': 48000,
-            }
-            
-            first_task = tasks[0]
-            return [AudioBatch(
-                data=output_data,
-                task_id="concatenated",
-                dataset_name=first_task.dataset_name,
-                _metadata=first_task._metadata,
-                _stage_perf=list(first_task._stage_perf),
-            )]
-            
-        except Exception as e:
-            logger.error(f"Error concatenating segments: {e}")
-            return []
-    
+        return [], ["waveform", "sample_rate", "num_segments", "total_duration_sec"]
+
     def process(self, task: AudioBatch) -> Optional[AudioBatch]:
-        """Process single task (delegates to process_batch)."""
-        results = self.process_batch([task])
-        return results[0] if results else None
+        """
+        Concatenate all items in the task into a single waveform item.
+
+        Segment mappings are stored in ``task._metadata["segment_mappings"]``
+        so that TimestampMapperStage can translate positions back to the
+        original file.
+        """
+        items = task.data
+        if not items:
+            return AudioBatch(
+                data=[], task_id=task.task_id, dataset_name=task.dataset_name,
+                _metadata=task._metadata, _stage_perf=list(task._stage_perf),
+            )
+
+        parts: List[torch.Tensor] = []
+        mappings: List[Dict[str, Any]] = []
+        current_pos_ms = 0
+        sample_rate = 48000
+        silence_duration_ms = int(self.silence_duration_sec * 1000)
+
+        for idx, item in enumerate(items):
+            waveform = item.get('waveform')
+            sr = item.get('sample_rate', 48000)
+            if waveform is None:
+                continue
+            sample_rate = sr
+            silence_samples = int(silence_duration_ms * sample_rate / 1000)
+
+            w = waveform.squeeze() if waveform.dim() > 1 else waveform
+            num_samples = w.shape[-1] if w.dim() > 0 else 0
+            segment_duration_ms = int(1000 * num_samples / sample_rate)
+
+            mapping = SegmentMapping(
+                original_file=item.get('original_file', item.get('audio_filepath', 'unknown')),
+                original_start_ms=item.get('start_ms', 0),
+                original_end_ms=item.get('end_ms', 0),
+                concat_start_ms=current_pos_ms,
+                concat_end_ms=current_pos_ms + segment_duration_ms,
+                segment_index=idx,
+            )
+            mappings.append(mapping.to_dict())
+
+            parts.append(w.unsqueeze(0) if w.dim() == 1 else w)
+            current_pos_ms += segment_duration_ms
+
+            parts.append(torch.zeros(1, silence_samples, dtype=w.dtype, device=w.device))
+            current_pos_ms += silence_duration_ms
+
+        if not parts:
+            return AudioBatch(
+                data=[], task_id=task.task_id, dataset_name=task.dataset_name,
+                _metadata=task._metadata, _stage_perf=list(task._stage_perf),
+            )
+
+        # Remove trailing silence
+        combined = torch.cat(parts[:-1], dim=-1)
+        current_pos_ms -= silence_duration_ms
+        total_duration_sec = current_pos_ms / 1000.0
+
+        original_file = items[0].get('original_file', items[0].get('audio_filepath', 'unknown'))
+
+        output_data = {
+            'waveform': combined,
+            'sample_rate': sample_rate,
+            'original_file': original_file,
+            'num_segments': len(mappings),
+            'total_duration_sec': total_duration_sec,
+        }
+
+        metadata = dict(task._metadata) if task._metadata else {}
+        metadata['segment_mappings'] = mappings
+
+        logger.info(f"[SegmentConcat] {len(mappings)} segments -> {total_duration_sec:.2f}s combined")
+
+        return AudioBatch(
+            data=[output_data],
+            task_id=task.task_id,
+            dataset_name=task.dataset_name,
+            _metadata=metadata,
+            _stage_perf=list(task._stage_perf),
+        )
