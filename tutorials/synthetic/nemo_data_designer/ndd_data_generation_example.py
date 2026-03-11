@@ -278,7 +278,7 @@ def main() -> None:  # noqa: PLR0915
 
     NUM_GPUS = 4  # noqa: N806
 
-    if torch.cuda.device_count() < NUM_GPUS:
+    if args.provider is None and torch.cuda.device_count() < NUM_GPUS:
         error_msg = "The number of GPUs on this machine are lesser than the default this tutorial was tested with, please update `num_gpus` passed into `RayClient`"
         raise ValueError(error_msg)
 
@@ -336,7 +336,7 @@ def main() -> None:  # noqa: PLR0915
         )
 
     pipeline = Pipeline(
-        name="ndd_data_generation", description="Generate synthetic text data using Nemo Data Designer"
+        name="ndd_data_generation", description="Generate synthetic text data using NeMo Data Designer"
     )
 
     pipeline.add_stage(
