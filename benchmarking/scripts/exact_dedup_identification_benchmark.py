@@ -173,6 +173,13 @@ def main() -> int:
     logger.info("=== Exact Duplicate Identification Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
+    results = {
+        "params": vars(args),
+        "metrics": {
+            "is_success": False,
+        },
+        "tasks": [],
+    }
     try:
         results = run_exact_duplicate_identification_benchmark(
             input_path=args.input_path,
@@ -187,16 +194,6 @@ def main() -> int:
             rmm_pool_size=args.rmm_pool_size,
             spill_memory_limit=args.spill_memory_limit,
         )
-
-    except Exception as e:
-        print(f"Benchmark failed: {e}")
-        results = {
-            "params": vars(args),
-            "metrics": {
-                "is_success": False,
-            },
-            "tasks": [],
-        }
     finally:
         write_benchmark_results(results, args.benchmark_results_path)
 

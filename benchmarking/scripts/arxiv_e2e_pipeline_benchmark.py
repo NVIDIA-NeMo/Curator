@@ -480,7 +480,7 @@ def main() -> int:
         },
         "tasks": [],
     }
-    success_code = 0
+    success_code = 1
     try:
         results = run_benchmark(args)
         success_code = 0 if results["metrics"]["is_success"] else 1
