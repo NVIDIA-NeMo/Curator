@@ -65,7 +65,7 @@ def _get_audio_numpy_sr(item: Dict[str, Any], task_id: str) -> Optional[Tuple[np
 
     if waveform is not None and sample_rate is not None:
         if torch.is_tensor(waveform):
-            audio = waveform.numpy()
+            audio = waveform.cpu().numpy()
         else:
             audio = np.asarray(waveform, dtype=np.float32)
         if audio.ndim > 1:
@@ -285,7 +285,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 task_id=task.task_id,
                 dataset_name=task.dataset_name,
                 _metadata=task._metadata,
-                _stage_perf=task._stage_perf,
+                _stage_perf=list(task._stage_perf),
             )
 
         results = []
@@ -318,5 +318,5 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             task_id=task.task_id,
             dataset_name=task.dataset_name,
             _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
+            _stage_perf=list(task._stage_perf),
         )

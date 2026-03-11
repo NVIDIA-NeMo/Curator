@@ -25,11 +25,8 @@ Example:
         nisqa_mos_threshold=4.5,
     )
     
-    # Create stage
-    stage = AudioDataFilterStage(config=config)
-    
-    # Process audio
-    results = stage.process(audio_batch)
+    # Add to pipeline (CompositeStage decomposes into independent stages)
+    pipeline.add_stage(AudioDataFilterStage(config=config))
 """
 
 from .audio_data_filter import AudioDataFilterStage

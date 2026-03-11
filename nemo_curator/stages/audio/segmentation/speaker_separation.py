@@ -31,10 +31,10 @@ Example:
 """
 
 import os
-import tempfile
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Tuple
 
+import numpy as np
 import torch
 import soundfile as sf
 from loguru import logger
@@ -47,16 +47,12 @@ from nemo_curator.tasks import AudioBatch
 from ..configs import SpeakerSeparationConfig
 
 
-def _load_audio_as_pydub(audio_path: str) -> AudioSegment:
-    """
-    Load audio file as PyDub AudioSegment.
-    
-    Supports standalone usage of stages without requiring previous stages.
-    Supports multiple audio formats: wav, mp3, flac, ogg, m4a, aac, wma, opus, webm.
-    
-    Note: Non-wav formats require ffmpeg to be installed on the system.
-    """
-    return AudioSegment.from_file(audio_path)
+def _pydub_to_waveform_sr(seg: AudioSegment) -> Tuple[torch.Tensor, int]:
+    """Convert PyDub AudioSegment to (waveform, sample_rate). Output is canonical format only."""
+    samples = np.array(seg.get_array_of_samples(), dtype=np.float32) / 32768.0
+    if seg.channels == 2:
+        samples = samples.reshape((-1, 2)).mean(axis=1)
+    return torch.from_numpy(samples).unsqueeze(0), seg.frame_rate
 
 
 def _load_audio_as_tensor(audio_path: str):
@@ -229,58 +225,33 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         results = []
         
         for item in task.data:
-            audio = item.get('audio')
             waveform = item.get('waveform')
             sample_rate = item.get('sample_rate', 48000)
             
-            # Auto-load from file if audio/waveform not provided (standalone usage)
-            if audio is None and waveform is None:
+            # Load from file if waveform not provided (standalone usage). Canonical format only; never set item['audio'].
+            if waveform is None:
                 audio_filepath = item.get('audio_filepath')
                 if audio_filepath and os.path.exists(audio_filepath):
                     try:
-                        audio = _load_audio_as_pydub(audio_filepath)
                         waveform, sample_rate = _load_audio_as_tensor(audio_filepath)
-                        item['audio'] = audio
                         item['waveform'] = waveform
                         item['sample_rate'] = sample_rate
                     except Exception as e:
                         logger.error(f"Failed to load audio file {audio_filepath}: {e}")
                         continue
                 else:
-                    logger.warning("No audio/waveform or valid audio_filepath found")
+                    logger.warning("No waveform or valid audio_filepath found")
                     continue
             
             try:
-                # Use the get_speaker_audio_data method from SpeakerSeparator
-                if audio is not None:
-                    # Export audio to temp file for processing
-                    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
-                        temp_path = temp_file.name
-                    
-                    try:
-                        audio.export(temp_path, format="wav")
-                        
-                        speaker_audio_data = self._separator.get_speaker_audio_data(
-                            temp_path,
-                            sample_rate=None,
-                            gap_threshold=self.gap_threshold,
-                            exclude_overlaps=self.exclude_overlaps,
-                            min_duration=self.min_duration,
-                            buffer_time=self.buffer_time
-                        )
-                    finally:
-                        if os.path.exists(temp_path):
-                            os.unlink(temp_path)
-                else:
-                    # Use waveform directly
-                    speaker_audio_data = self._separator.get_speaker_audio_data(
-                        waveform,
-                        sample_rate=sample_rate,
-                        gap_threshold=self.gap_threshold,
-                        exclude_overlaps=self.exclude_overlaps,
-                        min_duration=self.min_duration,
-                        buffer_time=self.buffer_time
-                    )
+                speaker_audio_data = self._separator.get_speaker_audio_data(
+                    waveform,
+                    sample_rate=sample_rate,
+                    gap_threshold=self.gap_threshold,
+                    exclude_overlaps=self.exclude_overlaps,
+                    min_duration=self.min_duration,
+                    buffer_time=self.buffer_time
+                )
                 
                 num_speakers = len(speaker_audio_data)
                 
@@ -290,25 +261,25 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 
                 logger.info(f"Detected {num_speakers} speakers")
                 
-                # Create output for each speaker
-                for speaker_id, (speaker_audio, duration) in speaker_audio_data.items():
+                # Output canonical format only: waveform + sample_rate (no item['audio'])
+                for speaker_id, (speaker_audio_pydub, duration) in speaker_audio_data.items():
                     if duration < self.min_duration:
                         logger.debug(f"Skipping {speaker_id}: duration {duration:.2f}s < {self.min_duration}s")
                         continue
-                    
+                    spk_waveform, spk_sr = _pydub_to_waveform_sr(speaker_audio_pydub)
                     speaker_data = {
-                        **{k: v for k, v in item.items() if k not in ['audio', 'waveform']},
-                        'audio': speaker_audio,
+                        **{k: v for k, v in item.items() if k not in ('audio', 'waveform')},
+                        'waveform': spk_waveform,
+                        'sample_rate': spk_sr,
                         'speaker_id': speaker_id,
                         'num_speakers': num_speakers,
                         'duration_sec': duration,
                     }
-                    
                     results.append(AudioBatch(
                         data=[speaker_data],
                         task_id=f"{task.task_id}_{speaker_id}",
                         dataset_name=task.dataset_name,
-                        _metadata=task._metadata,
+                        _metadata=dict(task._metadata) if task._metadata else {},
                         _stage_perf=list(task._stage_perf),
                     ))
                         

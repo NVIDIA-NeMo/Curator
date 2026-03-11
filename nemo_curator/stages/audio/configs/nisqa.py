@@ -17,70 +17,61 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 
+_MODEL_PATH = "model/nisqa.tar"
+
 
 @dataclass
 class NISQAConfig:
     """
     Configuration for NISQA quality assessment filter.
-    
-    NISQA predicts speech quality dimensions (1-5 scale):
-    - MOS: Overall Mean Opinion Score
-    - NOI: Noisiness (higher = less noisy)
-    - COL: Coloration/distortion
-    - DIS: Discontinuity
-    - LOUD: Loudness appropriateness
-    
+
+    NISQA predicts speech quality dimensions (1-5 scale).
     Set threshold to None to disable that check.
-    
+
     Attributes:
-        model_path: Path to NISQA model weights
         mos_threshold: Minimum MOS score (None to disable)
         noi_threshold: Minimum noisiness score (None to disable)
         col_threshold: Minimum coloration score (None to disable)
         dis_threshold: Minimum discontinuity score (None to disable)
         loud_threshold: Minimum loudness score (None to disable)
-    
+
     Example:
-        # Single GPU processing (default)
         config = NISQAConfig(mos_threshold=4.5, noi_threshold=4.3)
     """
-    
-    model_path: str = "model/nisqa.tar"
+
     mos_threshold: Optional[float] = 4.5
     noi_threshold: Optional[float] = 4.3
     col_threshold: Optional[float] = None
     dis_threshold: Optional[float] = None
     loud_threshold: Optional[float] = None
-    
+
+    @property
+    def model_path(self) -> str:
+        return _MODEL_PATH
+
     @classmethod
     def from_dict(cls, d: dict) -> "NISQAConfig":
-        """Create config from dictionary."""
         if d is None:
             return cls()
         valid_keys = cls.__dataclass_fields__.keys()
         return cls(**{k: v for k, v in d.items() if k in valid_keys})
-    
+
     def to_dict(self) -> dict:
-        """Convert to dictionary."""
         return {
-            'model_path': self.model_path,
             'mos_threshold': self.mos_threshold,
             'noi_threshold': self.noi_threshold,
             'col_threshold': self.col_threshold,
             'dis_threshold': self.dis_threshold,
             'loud_threshold': self.loud_threshold,
         }
-    
+
     def get(self, key: str, default: Any = None) -> Any:
-        """Get configuration value with default."""
         return getattr(self, key, default)
-    
+
     def get_active_thresholds(self) -> dict:
-        """Return only thresholds that are not None."""
         thresholds = {}
         for name in ['mos', 'noi', 'col', 'dis', 'loud']:
             val = getattr(self, f'{name}_threshold')
             if val is not None:
                 thresholds[name] = val
         return thresholds
-

@@ -62,6 +62,7 @@ Example:
 from nemo_curator.stages.audio.preprocessing import (
     MonoConversionStage,
     SegmentConcatenationStage,
+    TimestampMapperStage,
 )
 
 # Segmentation stages
@@ -104,6 +105,7 @@ __all__ = [
     # Preprocessing
     "MonoConversionStage",
     "SegmentConcatenationStage",
+    "TimestampMapperStage",
     # Segmentation
     "VADSegmentationStage",
     "SpeakerSeparationStage",

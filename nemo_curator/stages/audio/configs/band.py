@@ -17,6 +17,9 @@
 from dataclasses import dataclass
 from typing import Any, Literal
 
+_MODEL_PATH = "model/band_classifier_model_band_7000_samples.joblib"
+_MODEL_INFERENCE_BATCH_SIZE = 32
+
 
 @dataclass
 class BandFilterConfig:
@@ -24,46 +27,34 @@ class BandFilterConfig:
     Configuration for Band Filter stage.
 
     Classifies audio as "full_band" or "narrow_band" based on
-    spectral characteristics. Useful for filtering low-quality
-    telephone or compressed audio.
-
-    Note: The band classifier uses a scikit-learn model (RandomForest) which
-    runs on CPU. Feature extraction uses PyTorch and can benefit
-    from GPU acceleration.
+    spectral characteristics.
 
     Attributes:
-        model_path: Path to band classifier model (.joblib)
-        model_inference_batch_size: Number of items per batch for model inference.
         band_value: Which band type to pass ("full_band" or "narrow_band")
-
-    Note:
-        Worker count and feature cache size are internal (derived from resources
-        or fixed default); not exposed in config (same pattern as image stages).
 
     Example:
         config = BandFilterConfig(band_value="full_band")
     """
 
-    model_path: str = "model/band_classifier_model_band_7000_samples.joblib"
-    model_inference_batch_size: int = 32
     band_value: Literal["full_band", "narrow_band"] = "full_band"
+
+    @property
+    def model_path(self) -> str:
+        return _MODEL_PATH
+
+    @property
+    def model_inference_batch_size(self) -> int:
+        return _MODEL_INFERENCE_BATCH_SIZE
 
     @classmethod
     def from_dict(cls, d: dict) -> "BandFilterConfig":
-        """Create config from dictionary."""
         if d is None:
             return cls()
         valid_keys = cls.__dataclass_fields__.keys()
         return cls(**{k: v for k, v in d.items() if k in valid_keys})
 
     def to_dict(self) -> dict:
-        """Convert to dictionary."""
-        return {
-            'model_path': self.model_path,
-            'model_inference_batch_size': self.model_inference_batch_size,
-            'band_value': self.band_value,
-        }
+        return {'band_value': self.band_value}
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get configuration value with default."""
         return getattr(self, key, default)

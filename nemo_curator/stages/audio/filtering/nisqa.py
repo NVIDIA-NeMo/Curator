@@ -35,24 +35,15 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+import soundfile as sf
 import torch
 from loguru import logger
-from pydub import AudioSegment
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
 from ..configs import NISQAConfig
-
-
-def _load_audio_as_pydub(audio_path: str) -> AudioSegment:
-    """
-    Load audio file as PyDub AudioSegment.
-    
-    Supports standalone usage of stages without requiring previous stages.
-    """
-    return AudioSegment.from_wav(audio_path)
 
 
 @dataclass
@@ -169,29 +160,38 @@ class NISQAFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         return os.path.join(module_dir, self.model_path)
     
     def _process_single_item(self, item: Dict[str, Any], task_id: str) -> Optional[Dict[str, Any]]:
-        """Process a single audio item and return it with NISQA scores if it passes thresholds."""
-        audio = item.get('audio')
+        """Process a single audio item and return it with NISQA scores if it passes thresholds. Uses waveform + sample_rate only (no item['audio'])."""
+        waveform = item.get('waveform')
+        sample_rate = item.get('sample_rate', 48000)
         
-        # Auto-load from file if audio not provided (standalone usage)
-        if audio is None:
+        if waveform is None:
             audio_filepath = item.get('audio_filepath')
             if audio_filepath and os.path.exists(audio_filepath):
                 try:
-                    audio = _load_audio_as_pydub(audio_filepath)
-                    item['audio'] = audio
+                    data, sr = sf.read(audio_filepath, dtype='float32')
+                    waveform = torch.from_numpy(data)
+                    if waveform.dim() == 1:
+                        waveform = waveform.unsqueeze(0)
+                    else:
+                        waveform = waveform.T
+                    if waveform.shape[0] > 1:
+                        waveform = waveform.mean(dim=0, keepdim=True)
+                    sample_rate = int(sr)
+                    item['waveform'] = waveform
+                    item['sample_rate'] = sample_rate
                 except Exception as e:
                     logger.error(f"[{task_id}] Failed to load audio file: {e}")
                     return None
             else:
-                logger.warning(f"[{task_id}] No audio or valid audio_filepath found")
+                logger.warning(f"[{task_id}] No waveform or valid audio_filepath found")
                 return None
         
         temp_path = None
         try:
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
                 temp_path = temp_file.name
-            
-            audio.export(temp_path, format="wav")
+            w = waveform.squeeze().cpu().numpy() if waveform.dim() > 1 else waveform.cpu().numpy()
+            sf.write(temp_path, w, sample_rate)
             
             model_path = self._resolve_model_path()
             pipeline_config = {'nisqa': {'model_path': model_path}}
@@ -281,7 +281,7 @@ class NISQAFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         if self._predict_function is None:
             logger.error("NISQA prediction function not available")
             return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name,
-                             _metadata=task._metadata, _stage_perf=task._stage_perf)
+                             _metadata=task._metadata, _stage_perf=list(task._stage_perf))
         
         total_items = len(task.data)
         
@@ -313,5 +313,5 @@ class NISQAFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             task_id=task.task_id,
             dataset_name=task.dataset_name,
             _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
+            _stage_perf=list(task._stage_perf),
         )

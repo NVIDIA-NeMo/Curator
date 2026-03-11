@@ -14,44 +14,43 @@
 
 """Configuration for Mono Conversion stage."""
 
-from dataclasses import dataclass, asdict
-from typing import Dict, Any
+from dataclasses import dataclass
+from typing import Any, Dict
 
 
 @dataclass
 class MonoConversionConfig:
     """
     Configuration for Mono Conversion stage.
-    
+
     Converts multi-channel audio to mono and verifies sample rate.
-    Typically the first stage in an audio processing pipeline.
-    
+
     Attributes:
         output_sample_rate: Expected/output sample rate in Hz
-        audio_filepath_key: Key in data dict for audio file path
         strict_sample_rate: If True, reject audio with wrong sample rate
-    
+
     Example:
-        # Default configuration
-        config = MonoConversionConfig()
-        
-        # Custom sample rate
         config = MonoConversionConfig(output_sample_rate=16000)
-        
-        # Allow any sample rate
         config = MonoConversionConfig(strict_sample_rate=False)
     """
-    
+
     output_sample_rate: int = 48000
-    audio_filepath_key: str = "audio_filepath"
     strict_sample_rate: bool = True
-    
+
+    @property
+    def audio_filepath_key(self) -> str:
+        return "audio_filepath"
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert config to dictionary."""
-        return asdict(self)
-    
+        return {
+            'output_sample_rate': self.output_sample_rate,
+            'strict_sample_rate': self.strict_sample_rate,
+        }
+
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> "MonoConversionConfig":
-        """Create config from dictionary."""
-        return cls(**{k: v for k, v in config_dict.items() if k in cls.__dataclass_fields__})
+        valid_keys = cls.__dataclass_fields__.keys()
+        return cls(**{k: v for k, v in config_dict.items() if k in valid_keys})
 
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)

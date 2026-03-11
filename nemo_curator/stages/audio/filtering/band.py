@@ -254,7 +254,7 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 task_id=task.task_id,
                 dataset_name=task.dataset_name,
                 _metadata=task._metadata,
-                _stage_perf=task._stage_perf,
+                _stage_perf=list(task._stage_perf),
             )
 
         # Phase 1: Process items in batches to generate band predictions
@@ -304,5 +304,5 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             task_id=task.task_id,
             dataset_name=task.dataset_name,
             _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
+            _stage_perf=list(task._stage_perf),
         )

@@ -138,7 +138,9 @@ class AudioFeatureExtractor:
             Dictionary of band energy feature names and values
         """
         try:
-            if hasattr(waveform, 'numpy'):
+            if hasattr(waveform, 'cpu'):
+                y = waveform.cpu().numpy()
+            elif hasattr(waveform, 'numpy'):
                 y = waveform.numpy()
             else:
                 y = waveform

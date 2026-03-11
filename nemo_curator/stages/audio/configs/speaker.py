@@ -17,34 +17,44 @@
 from dataclasses import dataclass
 from typing import Any
 
+# Internal defaults (not exposed in config)
+_GAP_THRESHOLD = 0.1
+_MIN_DURATION = 0.8
+_BUFFER_TIME = 0.5
+
 
 @dataclass
 class SpeakerSeparationConfig:
     """
     Configuration for Speaker Separation stage.
-    
+
     Uses NeMo's speaker diarization to separate audio by speaker.
     Produces multiple outputs - one AudioBatch per detected speaker.
-    
+
     Attributes:
         model_path: Path to NeMo model (.nemo) or NGC model name
-        gap_threshold: Minimum gap between segments to merge (seconds)
         exclude_overlaps: If True, exclude overlapping speech regions
-        min_duration: Minimum duration for a speaker segment (seconds)
-        buffer_time: Buffer time around overlap boundaries (seconds)
-    
+
     Example:
-        # GPU processing (default)
         config = SpeakerSeparationConfig(exclude_overlaps=True)
-        
+        config = SpeakerSeparationConfig(model_path="/path/to/custom.nemo")
     """
-    
+
     model_path: str = "model/diar_sortformer_4spk-v1.nemo"
-    gap_threshold: float = 0.1
     exclude_overlaps: bool = True
-    min_duration: float = 0.8
-    buffer_time: float = 0.5
-    
+
+    @property
+    def gap_threshold(self) -> float:
+        return _GAP_THRESHOLD
+
+    @property
+    def min_duration(self) -> float:
+        return _MIN_DURATION
+
+    @property
+    def buffer_time(self) -> float:
+        return _BUFFER_TIME
+
     @classmethod
     def from_dict(cls, d: dict) -> "SpeakerSeparationConfig":
         """Create config from dictionary."""
@@ -52,18 +62,14 @@ class SpeakerSeparationConfig:
             return cls()
         valid_keys = cls.__dataclass_fields__.keys()
         return cls(**{k: v for k, v in d.items() if k in valid_keys})
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         return {
             'model_path': self.model_path,
-            'gap_threshold': self.gap_threshold,
             'exclude_overlaps': self.exclude_overlaps,
-            'min_duration': self.min_duration,
-            'buffer_time': self.buffer_time,
         }
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value with default."""
         return getattr(self, key, default)
-

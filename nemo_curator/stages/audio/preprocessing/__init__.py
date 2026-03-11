@@ -29,5 +29,6 @@ Example:
 
 from .mono_conversion import MonoConversionStage
 from .concatenation import SegmentConcatenationStage
+from .timestamp_mapper import TimestampMapperStage
 
-__all__ = ["MonoConversionStage", "SegmentConcatenationStage"]
+__all__ = ["MonoConversionStage", "SegmentConcatenationStage", "TimestampMapperStage"]

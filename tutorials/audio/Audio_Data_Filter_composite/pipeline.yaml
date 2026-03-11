@@ -1,0 +1,60 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+raw_data_dir: ???
+output_dir: ${raw_data_dir}/result
+
+cpus: 1.0
+gpus: 1.0
+
+sample_rate: 48000
+output_format: wav
+
+enable_vad: true
+vad_min_duration_sec: 2.0
+vad_max_duration_sec: 60.0
+
+enable_band_filter: true
+band_value: full_band
+
+enable_nisqa: true
+nisqa_mos_threshold: 4.5
+nisqa_noi_threshold: 4.3
+
+enable_sigmos: true
+sigmos_noise_threshold: 4.0
+sigmos_ovrl_threshold: 3.5
+
+enable_speaker_separation: true
+speaker_exclude_overlaps: true
+
+processors:
+  - _target_: nemo_curator.stages.audio.AudioDataFilterStage
+    gpu_resources:
+      _target_: nemo_curator.stages.resources.Resources
+      cpus: ${cpus}
+      gpus: ${gpus}
+    config:
+      _target_: nemo_curator.stages.audio.AudioDataFilterConfig
+      sample_rate: ${sample_rate}
+      output_format: ${output_format}
+      enable_vad: ${enable_vad}
+      vad_min_duration_sec: ${vad_min_duration_sec}
+      vad_max_duration_sec: ${vad_max_duration_sec}
+      enable_band_filter: ${enable_band_filter}
+      band_value: ${band_value}
+      enable_nisqa: ${enable_nisqa}
+      nisqa_mos_threshold: ${nisqa_mos_threshold}
+      nisqa_noi_threshold: ${nisqa_noi_threshold}
+      enable_sigmos: ${enable_sigmos}
+      sigmos_noise_threshold: ${sigmos_noise_threshold}
+      sigmos_ovrl_threshold: ${sigmos_ovrl_threshold}
+      enable_speaker_separation: ${enable_speaker_separation}
+      speaker_exclude_overlaps: ${speaker_exclude_overlaps}
