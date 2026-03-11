@@ -13,7 +13,8 @@ nemo_curator/stages/
 ├── text/ # Text/document processing
 ├── image/ # Image processing
 ├── audio/ # Audio/speech processing
-└── video/ # Video processing
+├── video/ # Video processing
+└── interleaved/ # Interleaved multimodal processing
 ```
 
 Other subdirectories of `nemo_curator/stages/` are `deduplication` and `synthetic`, which contain stages that can be used by two or more modalities.
@@ -68,3 +69,13 @@ All modalities share:
 - `stages/base.py`: Base classes (`ProcessingStage`, `CompositeStage`)
 - `stages/resources.py`: Resource configuration
 - `stages/function_decorators.py`: Decorators for creating `ProcessingStage` instances from simple functions
+
+## Interleaved Processing (`stages/interleaved/`)
+
+Common operations:
+- WebDataset tar shard ingestion
+- Row-wise interleaved filtering (aspect ratio, etc.)
+- Binary materialization (range read, tar extract, direct read)
+- Parquet output with optional materialize-on-write
+
+Task type: `InterleavedBatch`

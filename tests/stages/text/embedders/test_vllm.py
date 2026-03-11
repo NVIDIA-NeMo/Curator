@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -125,8 +124,10 @@ class TestVLLMEmbeddingModelStage:
             def __init__(self, model: str, **kwargs: Any) -> None:  # noqa: ANN401
                 captured["llm"] = {"model": model, "kwargs": kwargs}
 
-        monkeypatch.setattr("nemo_curator.stages.text.embedders.vllm.snapshot_download", _fake_snapshot_download)
-        monkeypatch.setattr("nemo_curator.stages.text.embedders.vllm.LLM", _FakeLLM)
+        import nemo_curator.stages.text.embedders.vllm as _vllm_mod
+
+        monkeypatch.setattr(_vllm_mod, "snapshot_download", _fake_snapshot_download)
+        monkeypatch.setattr(_vllm_mod, "LLM", _FakeLLM)
 
         stage.setup_on_node()
 

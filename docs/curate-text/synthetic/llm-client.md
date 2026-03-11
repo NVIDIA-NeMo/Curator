@@ -41,7 +41,7 @@ client = AsyncOpenAIClient(
 Set your API key as an environment variable to avoid hardcoding credentials:
 
 ```bash
-export NVIDIA_API_KEY="nvapi-..."
+export NVIDIA_API_KEY="<your-nvapi-key-here>"
 ```
 
 The underlying OpenAI client automatically uses the `OPENAI_API_KEY` environment variable if no `api_key` is provided. For NVIDIA APIs, explicitly pass the key:

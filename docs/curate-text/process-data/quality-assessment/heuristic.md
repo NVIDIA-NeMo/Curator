@@ -26,7 +26,7 @@ These filters assess quality using measurable document characteristics such as:
 
 For details on filter structure and the filtering process, refer to {ref}`Data Processing Concepts <about-concepts-text-data-processing>`.
 
---- 
+---
 
 ## Usage
 
@@ -37,12 +37,9 @@ For details on filter structure and the filtering process, refer to {ref}`Data P
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import (
-    WordCountFilter,
-    RepeatingTopNGramsFilter,
-    PunctuationFilter
-)
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter, PunctuationFilter
 
 # Create pipeline
 pipeline = Pipeline(name="heuristic_filtering")
@@ -89,10 +86,10 @@ results = pipeline.run()
 :::{tab-item} Configuration
 ```python
 # Example configuration for common heuristic filters
-from nemo_curator.stages.text.filters import (
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
+from nemo_curator.stages.text.filters.heuristic import (
     WordCountFilter,
     PunctuationFilter,
-    RepeatingTopNGramsFilter,
     SymbolsToWordsFilter,
     CommonEnglishWordsFilter
 )
@@ -200,17 +197,17 @@ stages:
     file_paths: ${input_path}
     fields: null
 
-  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+  - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic_filter.WordCountFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.WordCountFilter
       min_words: 50
       max_words: 100000
     text_field: ${text_field}
     score_field: word_count
 
-  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+  - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic_filter.PunctuationFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.PunctuationFilter
       max_num_sentences_without_endmark_ratio: 0.85
     text_field: ${text_field}
     score_field: null
@@ -236,8 +233,9 @@ When building filter chains, follow these best practices:
 ```python
 # Efficient ordering - place fast filters first
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import WordCountFilter, UrlsFilter, RepeatingTopNGramsFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter, UrlsFilter
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
 
 pipeline = Pipeline(name="efficient_filtering")
 # Fast filters first
@@ -266,8 +264,8 @@ strict_filter = WordCountFilter(min_words=100, max_words=10000)
 :::{tab-item} Language Considerations
 ```python
 # Chinese text filter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import SymbolsToWordsFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import SymbolsToWordsFilter
 
 cn_filter = ScoreFilter(
     filter_obj=SymbolsToWordsFilter(max_symbol_to_word_ratio=0.15, lang="zh"),
@@ -280,12 +278,12 @@ cn_filter = ScoreFilter(
 ```python
 # Comprehensive quality filter pipeline
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import (
-    WordCountFilter, 
-    PunctuationFilter, 
-    CommonEnglishWordsFilter, 
-    RepeatingTopNGramsFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
+from nemo_curator.stages.text.filters.heuristic import (
+    WordCountFilter,
+    PunctuationFilter,
+    CommonEnglishWordsFilter,
 )
 
 quality_pipeline = Pipeline(name="comprehensive_quality")
@@ -330,8 +328,9 @@ Use `Score` to add score columns to your data without removing any documents:
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import Score
-from nemo_curator.stages.text.filters import WordCountFilter, RepeatingTopNGramsFilter
+from nemo_curator.stages.text.filters import Score
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
 
 # Create scoring pipeline (no filtering)
 pipeline = Pipeline(name="score_analysis")
@@ -408,8 +407,9 @@ After analyzing distributions, apply filters with your chosen thresholds:
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import WordCountFilter, RepeatingTopNGramsFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
 
 pipeline = Pipeline(name="filtering_pipeline")
 pipeline.add_stage(JsonlReader(file_paths="input_data/", fields=["text", "id"]))

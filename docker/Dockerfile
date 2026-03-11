@@ -32,6 +32,7 @@ ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 # Install base dependency
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV DEBIAN_FRONTEND=noninteractive
+# gnupg upgrade Address CVE-2025-68973
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12-dev \
     python3 \
@@ -41,6 +42,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     vim && \
+    apt-get install -y --only-upgrade gnupg && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt

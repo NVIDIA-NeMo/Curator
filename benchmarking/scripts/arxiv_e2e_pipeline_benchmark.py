@@ -49,17 +49,16 @@ from nemo_curator.stages.text.download.arxiv.iterator import ArxivIterator
 from nemo_curator.stages.text.download.base import URLGenerator
 from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
-from nemo_curator.stages.text.filters import (
-    FastTextLangId,
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.fasttext import FastTextLangId
+from nemo_curator.stages.text.filters.heuristic import (
     PunctuationFilter,
-    RepeatedLinesFilter,
-    RepeatingTopNGramsFilter,
     UrlsFilter,
     WordCountFilter,
 )
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatedLinesFilter, RepeatingTopNGramsFilter
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 from nemo_curator.stages.text.modules.add_id import AddId
-from nemo_curator.stages.text.modules.score_filter import ScoreFilter
 from nemo_curator.tasks import DocumentBatch, _EmptyTask
 from nemo_curator.tasks.utils import TaskPerfUtils
 
@@ -143,7 +142,7 @@ def create_e2e_pipeline(  # noqa: PLR0913
     url_limit: int | None,
     record_limit: int | None,
     log_frequency: int,
-    fasttext_model_path: str | None,
+    fasttext_langid_model_path: str | None,
     # Output options
     output_dir: Path,
     output_format: Literal["parquet", "jsonl"],
@@ -176,7 +175,7 @@ def create_e2e_pipeline(  # noqa: PLR0913
         max_repeated_lines_ratio: Maximum ratio of repeated lines.
         max_repeating_ngram_ratio: Maximum ratio of repeating top n-grams.
         max_punctuation_ratio: Maximum ratio of sentences without punctuation.
-        fasttext_model_path: Path to FastText language ID model (lid.176.bin).
+        fasttext_langid_model_path: Path to FastText language ID model (lid.176.bin).
         min_langid_score: Minimum language ID confidence score.
         classifier_batch_size: Batch size for model inference in classifiers.
 
@@ -250,7 +249,7 @@ def create_e2e_pipeline(  # noqa: PLR0913
     # ========== LANGUAGE ID FILTER ==========
     pipeline.add_stage(
         ScoreFilter(
-            filter_obj=FastTextLangId(model_path=fasttext_model_path, min_langid_score=min_langid_score),
+            filter_obj=FastTextLangId(model_path=fasttext_langid_model_path, min_langid_score=min_langid_score),
             text_field="text",
             score_field="langid_score",
         )
@@ -315,7 +314,7 @@ def run_benchmark(args: argparse.Namespace) -> dict:
         max_repeated_lines_ratio=args.max_repeated_lines_ratio,
         max_repeating_ngram_ratio=args.max_repeating_ngram_ratio,
         max_punctuation_ratio=args.max_punctuation_ratio,
-        fasttext_model_path=args.fasttext_model_path,
+        fasttext_langid_model_path=args.fasttext_langid_model_path,
         min_langid_score=args.min_langid_score,
         classifier_batch_size=args.classifier_batch_size,
     )
@@ -370,7 +369,7 @@ def run_benchmark(args: argparse.Namespace) -> dict:
             "max_repeated_lines_ratio": args.max_repeated_lines_ratio,
             "max_repeating_ngram_ratio": args.max_repeating_ngram_ratio,
             "max_punctuation_ratio": args.max_punctuation_ratio,
-            "fasttext_model_path": args.fasttext_model_path,
+            "fasttext_langid_model_path": args.fasttext_langid_model_path,
             "min_langid_score": args.min_langid_score,
             "classifier_batch_size": args.classifier_batch_size,
             "executor": args.executor,
@@ -439,7 +438,7 @@ def main() -> int:
     # ========== LANGUAGE ID OPTIONS ==========
     langid_group = p.add_argument_group("Language ID Options")
     langid_group.add_argument(
-        "--fasttext-model-path",
+        "--fasttext-langid-model-path",
         type=str,
         help="Path to FastText language ID model (lid.176.bin)",
     )

@@ -62,6 +62,7 @@ class GetPairwiseWerStage(LegacySpeechStage):
          The same data as in the input manifest with wer_key and corresponding values.
     """
 
+    name = "GetPairwiseWerStage"
     text_key: str = "text"
     pred_text_key: str = "pred_text"
     wer_key: str = "wer"
