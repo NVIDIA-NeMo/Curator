@@ -47,7 +47,6 @@ import torch
 import torchaudio
 import soundfile as sf
 from loguru import logger
-from pydub import AudioSegment
 from silero_vad import load_silero_vad, get_speech_timestamps
 
 # Suppress Silero VAD sample rate warning (48kHz -> 16kHz is expected)
@@ -93,6 +92,9 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
     
     Args:
         config (VADConfig): Optional configuration object. If provided, overrides individual params.
+        mode (str): Output mode. "fanout" (default) returns List[AudioBatch] with one
+            task per segment (fan-out, IS_FANOUT_STAGE=True). "batch" returns a single
+            AudioBatch with all segments as items (1:1, no fan-out).
         min_interval_ms (int): Minimum silence interval between speech segments in milliseconds. Default: 500
         min_duration_sec (float): Minimum segment duration in seconds. Default: 2.0
         max_duration_sec (float): Maximum segment duration in seconds. Default: 60.0
@@ -102,18 +104,23 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
         sample_rate_key (str): Key to get sample rate. Default: "sample_rate"
         
     Returns:
-        List of AudioBatch objects, one per detected speech segment, each containing:
-        - audio: PyDub AudioSegment
+        mode="fanout": List of AudioBatch objects, one per detected speech segment.
+        mode="batch": Single AudioBatch with all segments as items (or None if empty).
+        
+        Each segment item contains (canonical format):
         - waveform: torch.Tensor of the segment
         - sample_rate: Sample rate
-        - start_ms: Start time in milliseconds
-        - end_ms: End time in milliseconds
+        - start_ms, end_ms: Segment time in milliseconds
         - segment_num: Segment index
         - duration_sec: Segment duration in seconds
+        - original_file: Source file path (from audio_filepath)
         
     Example:
-        # Using direct parameters
+        # Fan-out mode (default) - one task per segment
         stage = VADSegmentationStage(min_duration_sec=3.0, max_duration_sec=30.0)
+        
+        # Batch mode - all segments in one task (for use in decomposed pipelines)
+        stage = VADSegmentationStage(mode="batch", min_duration_sec=3.0)
         
         # Using config object
         config = VADConfig(min_duration_sec=3.0, max_duration_sec=30.0)
@@ -130,6 +137,7 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
     """
     
     config: Optional[VADConfig] = None
+    mode: str = "fanout"
     min_interval_ms: int = 500
     min_duration_sec: float = 2.0
     max_duration_sec: float = 60.0
@@ -146,6 +154,9 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
         """Initialize after dataclass fields are set."""
         super().__init__()
         
+        if self.mode not in ("fanout", "batch"):
+            raise ValueError(f"mode must be 'fanout' or 'batch', got '{self.mode}'")
+        
         # Apply config if provided
         if self.config is not None:
             self.min_interval_ms = self.config.min_interval_ms
@@ -156,8 +167,8 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         self._vad_model = None
         self._vad_utils = None
-        self._init_lock = None  # Lazy initialization to avoid pickle issues
-        self._device = None  # Will be set during model initialization
+        self._init_lock = None
+        self._device = None
     
     def __getstate__(self):
         """Return state for pickling, excluding unpicklable objects."""
@@ -188,11 +199,13 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     def outputs(self) -> Tuple[List[str], List[str]]:
         """Define outputs."""
-        return [], ['audio', 'waveform', 'sample_rate', 'start_ms', 'end_ms', 'segment_num', 'duration_sec']
+        return [], ['waveform', 'sample_rate', 'start_ms', 'end_ms', 'segment_num', 'duration_sec']
     
     def ray_stage_spec(self) -> dict[str, Any]:
         from nemo_curator.backends.experimental.utils import RayStageSpecKeys
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+        if self.mode == "fanout":
+            return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+        return {}
 
     def setup(self, worker_metadata=None) -> None:
         """Load VAD model on worker initialization."""
@@ -247,34 +260,63 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
         self._initialize_model()
         return self._vad_utils
     
-    def process(self, task: AudioBatch) -> List[AudioBatch]:
+    def _build_segment_items(
+        self, item: Dict[str, Any], waveform: torch.Tensor, sample_rate: int, segments: List[Dict[str, float]]
+    ) -> List[Dict[str, Any]]:
+        """Build segment item dicts from VAD results. Shared by both modes."""
+        items = []
+        for i, segment in enumerate(segments):
+            start_ms = int(segment['start'] * 1000)
+            end_ms = int(segment['end'] * 1000)
+            start_sample = int(segment['start'] * sample_rate)
+            end_sample = int(segment['end'] * sample_rate)
+
+            if waveform.dim() == 1:
+                segment_waveform = waveform[start_sample:end_sample].unsqueeze(0)
+            else:
+                segment_waveform = waveform[:, start_sample:end_sample]
+
+            segment_data: Dict[str, Any] = {
+                k: v for k, v in item.items()
+                if k not in ('waveform', 'sample_rate', 'start_ms', 'end_ms',
+                             'segment_num', 'duration_sec', 'duration', 'num_samples')
+            }
+            segment_data.update({
+                'waveform': segment_waveform,
+                'sample_rate': sample_rate,
+                'start_ms': start_ms,
+                'end_ms': end_ms,
+                'segment_num': i,
+                'duration_sec': (end_ms - start_ms) / 1000.0,
+                'original_file': item.get('original_file', item.get('audio_filepath', 'unknown')),
+            })
+            items.append(segment_data)
+        return items
+
+    def process(self, task: AudioBatch):
         """
         Process audio and return segments.
-        
-        Note: AudioBatch.data is always a list of dictionaries.
-        This stage creates multiple output AudioBatch objects (one per segment).
-        
-        Args:
-            task: AudioBatch with waveform data in task.data[i]
-            
-        Returns:
-            List of AudioBatch objects, one per detected speech segment
+
+        In ``mode="fanout"`` (default): returns ``List[AudioBatch]`` with one
+        task per segment (fan-out, compatible with IS_FANOUT_STAGE).
+        In ``mode="batch"``: returns a single ``AudioBatch`` with all segments
+        as items (1:1, no fan-out).
         """
-        # Ensure model is initialized
         self._initialize_model()
-        
+
         if self._vad_model is None:
             logger.error("VAD model not available")
+            if self.mode == "batch":
+                return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name,
+                                  _metadata=task._metadata, _stage_perf=list(task._stage_perf))
             return []
-        
-        output_tasks = []
-        
-        # Iterate over all items in the batch (AudioBatch.data is always a list)
+
+        all_segment_items: List[Dict[str, Any]] = []
+
         for item in task.data:
             waveform = item.get(self.waveform_key)
             sample_rate = item.get(self.sample_rate_key)
-            
-            # Auto-load from file if waveform not provided (standalone usage)
+
             if waveform is None or sample_rate is None:
                 audio_filepath = item.get('audio_filepath')
                 if audio_filepath and os.path.exists(audio_filepath):
@@ -288,71 +330,44 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 else:
                     logger.error("Missing waveform/sample_rate and no valid audio_filepath provided")
                     continue
-            
+
             try:
-                # Get VAD segments
                 segments = self._get_vad_segments(waveform, sample_rate)
-                
                 if not segments:
                     logger.warning("No speech segments detected by VAD")
                     continue
-                
-                # Convert waveform to PyDub AudioSegment for easier manipulation
-                audio_segment = self._tensor_to_pydub(waveform, sample_rate)
-                
-                # Create output tasks for each segment
-                for i, segment in enumerate(segments):
-                    start_ms = int(segment['start'] * 1000)
-                    end_ms = int(segment['end'] * 1000)
-                    
-                    # Extract segment audio (PyDub)
-                    segment_audio = audio_segment[start_ms:end_ms]
-                    
-                    # Extract segment waveform (torch tensor) for downstream stages
-                    start_sample = int(segment['start'] * sample_rate)
-                    end_sample = int(segment['end'] * sample_rate)
-                    
-                    # Handle waveform dimensions
-                    if waveform.dim() == 1:
-                        segment_waveform = waveform[start_sample:end_sample].unsqueeze(0)
-                    else:
-                        segment_waveform = waveform[:, start_sample:end_sample]
-                    
-                    # Create new data dict for this segment
-                    segment_data = {
-                        'audio': segment_audio,
-                        'waveform': segment_waveform,  # Segment waveform for downstream
-                        'sample_rate': sample_rate,
-                        'start_ms': start_ms,
-                        'end_ms': end_ms,
-                        'segment_num': i,
-                        'duration_sec': (end_ms - start_ms) / 1000.0,
-                        'original_file': item.get('audio_filepath', 'unknown'),
-                    }
-                    
-                    # Copy any metadata from original item
-                    for key in ['audio_filepath', 'text', 'dataset_name']:
-                        if key in item:
-                            segment_data[key] = item[key]
-                    
-                    output_tasks.append(AudioBatch(
-                        data=segment_data,
-                        task_id=f"{task.task_id}_seg_{i}",
-                        dataset_name=task.dataset_name,
-                        _metadata=task._metadata,
-                        _stage_perf=list(task._stage_perf),
-                    ))
-                
-                # Log with more context
+
+                seg_items = self._build_segment_items(item, waveform, sample_rate, segments)
+                all_segment_items.extend(seg_items)
+
                 total_duration = sum((s['end'] - s['start']) for s in segments)
                 original_file = item.get('audio_filepath', 'unknown')
                 file_name = os.path.basename(original_file) if original_file != 'unknown' else task.task_id
                 logger.info(f"[VADSegmentation] {file_name}: {len(segments)} segments extracted ({total_duration:.1f}s total speech)")
-                
+
             except Exception as e:
                 logger.exception(f"Error during VAD segmentation: {e}")
                 continue
-        
+
+        if self.mode == "batch":
+            return AudioBatch(
+                data=all_segment_items,
+                task_id=task.task_id,
+                dataset_name=task.dataset_name,
+                _metadata=task._metadata,
+                _stage_perf=list(task._stage_perf),
+            )
+
+        # Fan-out mode: one AudioBatch per segment item
+        output_tasks: List[AudioBatch] = []
+        for seg_item in all_segment_items:
+            output_tasks.append(AudioBatch(
+                data=seg_item,
+                task_id=f"{task.task_id}_seg_{seg_item['segment_num']}",
+                dataset_name=task.dataset_name,
+                _metadata=task._metadata,
+                _stage_perf=list(task._stage_perf),
+            ))
         return output_tasks
     
     def _get_vad_segments(self, waveform: torch.Tensor, sample_rate: int) -> List[Dict[str, float]]:
@@ -410,23 +425,3 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
             })
         
         return segments
-    
-    def _tensor_to_pydub(self, waveform: torch.Tensor, sample_rate: int) -> AudioSegment:
-        """Convert PyTorch tensor to PyDub AudioSegment."""
-        # Ensure waveform is on CPU and convert to numpy
-        waveform = waveform.cpu()
-        if waveform.dim() > 1:
-            waveform = waveform.squeeze(0)
-        
-        # Convert to int16 for PyDub
-        waveform_int16 = (waveform * 32767).numpy().astype(np.int16)
-        
-        # Create AudioSegment
-        audio = AudioSegment(
-            waveform_int16.tobytes(),
-            frame_rate=sample_rate,
-            sample_width=2,  # 16-bit
-            channels=1  # Mono
-        )
-        
-        return audio
