@@ -149,6 +149,9 @@ entries:
       --dataset-size-gb=10
       --model-inference-batch-size=1024
     timeout_s: 1000
+    ci:
+      scope: nightly
+      time: "00:20:00"
     sink_data:
       - name: slack
         additional_metrics:
@@ -180,6 +183,9 @@ entries:
       --model-identifier=sentence-transformers/all-MiniLM-L6-v2
       --model-inference-batch-size=1024
     timeout_s: 350
+    ci:
+      scope: nightly
+      time: "00:10:00"
     sink_data:
       - name: slack
         additional_metrics:
@@ -208,6 +214,9 @@ entries:
       --model-identifier=sentence-transformers/all-MiniLM-L6-v2
       --model-inference-batch-size=1024
     timeout_s: 350
+    ci:
+      scope: nightly
+      time: "00:10:00"
     sink_data:
       - name: slack
         additional_metrics:
