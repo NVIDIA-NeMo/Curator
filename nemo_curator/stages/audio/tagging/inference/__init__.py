@@ -12,7 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-from pathlib import Path
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+"""Tagging-specific inference stages (ASR alignment, etc.)."""

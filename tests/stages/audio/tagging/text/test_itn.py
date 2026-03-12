@@ -1,0 +1,37 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+from nemo_curator.stages.audio.tagging.text.itn import InverseTextNormalizationStage
+
+
+class TestInverseTextNormalizationStage:
+    """Tests for InverseTextNormalizationStage."""
+
+    def test_process_dataset_entry(self, audio_batch) -> None:
+        stage = InverseTextNormalizationStage(language="en", text_key="text")
+        stage.setup()
+        batch = audio_batch(
+            segments=[
+                {"text": "hello", "start": 0.0, "end": 0.5},
+                {"text": "the answer is forty two", "start": 0.5, "end": 1.0},
+            ],
+        )
+        batches = stage.process_dataset_entry(batch.data[0])
+        assert stage._normalizer_initialized
+        assert len(batches) == 1
+        out = batches[0].data[0]
+        assert len(out["segments"]) == 2
+        assert out["segments"][0]["text_ITN"] == "hello"
+        assert out["segments"][1]["text_ITN"] == "the answer is 42"

@@ -12,7 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Audio quality and error-rate metrics."""
 
-from pathlib import Path
+from nemo_curator.stages.audio.tagging.metrics.bandwidth import BandwidthEstimationStage
+from nemo_curator.stages.audio.tagging.metrics.squim import TorchSquimQualityMetricsStage
+from nemo_curator.stages.audio.tagging.metrics.wer import ComputeWERStage
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+__all__ = [
+    "BandwidthEstimationStage",
+    "ComputeWERStage",
+    "TorchSquimQualityMetricsStage",
+]

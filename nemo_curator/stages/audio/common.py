@@ -12,15 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Common audio stages: base classes, manifest I/O, and simple filters."""
+
+import json
 from abc import abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
 from typing import Any
 
+from fsspec.core import url_to_fs
 from loguru import logger
 
-from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch, Task
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.tasks import AudioBatch, FileGroupTask, Task, _EmptyTask
 
 
 class LegacySpeechStage(ProcessingStage[Task, Task]):
@@ -125,3 +130,143 @@ class PreserveByValueStage(LegacySpeechStage):
             return [AudioBatch(data=data_entry)]
         else:
             return []
+
+
+# ---------------------------------------------------------------------------
+# Manifest I/O — generic stages shared by tagging, ALM, and other pipelines
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioBatch]):
+    """Read JSONL manifest files from a FileGroupTask and emit one AudioBatch per entry.
+
+    Uses line-by-line streaming via fsspec (no Pandas) to keep memory at ~1x file size.
+    Supports local and cloud paths (S3, GCS).
+    """
+
+    name: str = "ManifestReaderStage"
+
+    def process(self, task: FileGroupTask) -> list[AudioBatch]:
+        paths = task.data
+        entries: list[dict[str, Any]] = []
+        for manifest in paths:
+            manifest_entries: list[dict[str, Any]] = []
+            fs, resolved = url_to_fs(manifest)
+            with fs.open(resolved, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        manifest_entries.append(json.loads(line.strip()))
+            entries.extend(manifest_entries)
+            logger.info(
+                f"ManifestReaderStage: loaded {len(manifest_entries)} entries from {manifest}"
+            )
+
+        return [
+            AudioBatch(
+                data=[entry],
+                _metadata=task._metadata,
+                _stage_perf=list(task._stage_perf),
+            )
+            for entry in entries
+        ]
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_fanout_stage": True}
+
+    def num_workers(self) -> int | None:
+        return 1
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {"num_workers": 1}
+
+
+@dataclass
+class ManifestReader(CompositeStage[_EmptyTask, AudioBatch]):
+    """Composite stage for reading JSONL manifests.
+
+    Decomposes into:
+    1. FilePartitioningStage — discovers and partitions manifest files
+    2. ManifestReaderStage — reads each partition line-by-line (no Pandas)
+
+    Args:
+        manifest_path: Path or list of paths to JSONL manifests (local or cloud).
+        files_per_partition: Number of manifest files per partition. Defaults to 1.
+        blocksize: Target size per partition (e.g., "100MB"). Ignored if files_per_partition is set.
+        file_extensions: File extensions to filter. Defaults to [".jsonl", ".json"].
+        storage_options: Storage options for cloud paths (S3, GCS credentials, endpoints).
+    """
+
+    manifest_path: str | list[str]
+    files_per_partition: int | None = 1
+    blocksize: int | str | None = None
+    file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
+    storage_options: dict[str, Any] | None = None
+    name: str = "ManifestReader"
+
+    def __post_init__(self) -> None:
+        super().__init__()
+
+    def decompose(self) -> list[ProcessingStage]:
+        return [
+            FilePartitioningStage(
+                file_paths=self.manifest_path,
+                files_per_partition=self.files_per_partition,
+                blocksize=self.blocksize,
+                file_extensions=self.file_extensions,
+                storage_options=self.storage_options,
+            ),
+            ManifestReaderStage(),
+        ]
+
+    def get_description(self) -> str:
+        parts = [f"Read JSONL manifests from {self.manifest_path}"]
+        if self.files_per_partition:
+            parts.append(f"with {self.files_per_partition} files per partition")
+        elif self.blocksize:
+            parts.append(f"with target blocksize {self.blocksize}")
+        return ", ".join(parts)
+
+
+@dataclass
+class ManifestWriterStage(ProcessingStage[AudioBatch, AudioBatch]):
+    """Append AudioBatch entries to a JSONL manifest file.
+
+    Each processed AudioBatch has its data entries appended to the output
+    file. The file is truncated on ``setup()`` so repeated pipeline runs
+    produce a clean output. Supports local and cloud paths via fsspec.
+
+    Args:
+        output_path: Destination JSONL path (local or cloud).
+    """
+
+    output_path: str
+    name: str = "ManifestWriter"
+
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+        fs, path = url_to_fs(self.output_path)
+        parent_dir = "/".join(path.split("/")[:-1])
+        if parent_dir:
+            fs.makedirs(parent_dir, exist_ok=True)
+        with fs.open(path, "w", encoding="utf-8"):
+            pass
+        logger.info(f"ManifestWriterStage: writing to {self.output_path}")
+
+    def process(self, task: AudioBatch) -> AudioBatch:
+        fs, path = url_to_fs(self.output_path)
+        with fs.open(path, "a", encoding="utf-8") as f:
+            for entry in task.data:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        return AudioBatch(
+            task_id=task.task_id,
+            dataset_name=task.dataset_name,
+            data=task.data,
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )
+
+    def num_workers(self) -> int | None:
+        return 1
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {"num_workers": 1}

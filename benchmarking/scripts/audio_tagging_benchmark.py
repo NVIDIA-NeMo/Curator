@@ -1,0 +1,267 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Audio tagging pipeline benchmarking script.
+
+Runs the full audio tagging pipeline end-to-end:
+  CreateInitialManifestFleurs -> Resample -> Diarize -> Split -> ASR Align ->
+  Join -> Merge -> ITN -> Bandwidth -> SQUIM -> PrepareModuleSegments -> Write
+
+Uses FLEURS as the data source (like audio_fleurs_benchmark.py) and exercises
+every stage of the tagging pipeline for regression tracking.
+"""
+
+import argparse
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from loguru import logger
+from utils import write_benchmark_results
+
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.common import LegacySpeechStage
+from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import (
+    CreateInitialManifestFleursStage,
+)
+from nemo_curator.stages.audio.common import ManifestWriterStage
+from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
+from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
+from nemo_curator.stages.audio.tagging.metrics.bandwidth import BandwidthEstimationStage
+from nemo_curator.stages.audio.tagging.metrics.squim import TorchSquimQualityMetricsStage
+from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
+from nemo_curator.stages.audio.tagging.split import JoinSplitAudioMetadataStage, SplitLongAudioStage
+from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
+from nemo_curator.stages.audio.tagging.prepare_module_segments import PrepareModuleSegmentsStage
+from nemo_curator.stages.audio.tagging.text.itn import InverseTextNormalizationStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import AudioBatch
+
+
+def run_audio_tagging_benchmark(  # noqa: PLR0913
+    benchmark_results_path: str,
+    scratch_output_path: str,
+    module: str,
+    lang: str,
+    split: str,
+    hf_token: str,
+    device: str,
+    language_short: str,
+    max_segment_length: float,
+    asr_batch_size: int,
+    min_duration: float,
+    max_duration: float,
+    max_pause: float,
+    full_utterance_ratio: float,
+    gpus: int,
+    **kwargs,  # noqa: ARG001
+) -> dict[str, Any]:
+    """Run the full audio tagging pipeline benchmark."""
+    benchmark_results_path = Path(benchmark_results_path)
+    scratch_output_path = Path(scratch_output_path)
+    results_dir = benchmark_results_path / "results"
+
+    if results_dir.exists():
+        msg = f"Result directory {results_dir} already exists."
+        raise ValueError(msg)
+
+    resampled_audio_dir = str(scratch_output_path / "audio_resampled")
+    final_manifest = str(results_dir / "tagging_output.jsonl")
+
+    logger.info("Starting audio tagging pipeline benchmark")
+    logger.info(f"Module: {module}, Language: {lang}, Split: {split}")
+    logger.info(f"Device: {device}, GPUs: {gpus}")
+    logger.info(f"Max segment length: {max_segment_length}s")
+    logger.info(f"Segment params: duration={min_duration}-{max_duration}s, "
+                f"max_pause={max_pause}s, full_utterance_ratio={full_utterance_ratio}")
+
+    executor = XennaExecutor(config={"execution_mode": "batch"})
+    pipeline = Pipeline(
+        name="audio_tagging_benchmark",
+        description=f"Audio tagging e2e benchmark ({module}): FLEURS -> full tagging pipeline",
+    )
+
+    # Stage 0: Download FLEURS data and create initial manifest
+    pipeline.add_stage(
+        CreateInitialManifestFleursStage(
+            lang=lang,
+            split=split,
+            raw_data_dir=scratch_output_path / "fleurs",
+        ).with_(batch_size=4)
+    )
+
+    # Stage 1: Resample audio to 16 kHz mono WAV
+    pipeline.add_stage(
+        ResampleAudioStage(
+            resampled_audio_dir=resampled_audio_dir,
+            input_format="wav",
+            target_sample_rate=16000,
+            target_format="wav",
+            target_nchannels=1,
+        )
+    )
+
+    # Stage 2: Speaker diarization and overlap detection (PyAnnote)
+    pipeline.add_stage(
+        PyAnnoteDiarizationStage(
+            name="PyAnnoteDiarization",
+            hf_token=hf_token,
+            max_length=max_segment_length,
+            device=device,
+        ).with_(resources=Resources(gpus=gpus))
+    )
+
+    # Stage 3: Split long audio segments
+    pipeline.add_stage(
+        SplitLongAudioStage(
+            name="SplitLongAudio",
+            suggested_max_len=max_segment_length,
+            min_pause_len=1.0,
+            min_len=1.0,
+        )
+    )
+
+    # Stage 4: ASR forced alignment (NeMo FastConformer)
+    pipeline.add_stage(
+        NeMoASRAlignerStage(
+            name="ASRAlignment",
+            is_fastconformer=True,
+            decoder_type="rnnt",
+            batch_size=asr_batch_size,
+            device=device,
+        ).with_(resources=Resources(gpus=gpus))
+    )
+
+    # Stage 5: Rejoin split audio metadata
+    pipeline.add_stage(
+        JoinSplitAudioMetadataStage(name="JoinSplitMetadata")
+    )
+
+    # Stage 6: Merge alignment with diarization
+    pipeline.add_stage(
+        MergeAlignmentDiarizationStage(
+            name="MergeAlignmentDiar",
+            text_key="text",
+            words_key="words",
+        )
+    )
+
+    # Stage 7: Inverse text normalization
+    pipeline.add_stage(
+        InverseTextNormalizationStage(
+            name="InverseTextNorm",
+            language=language_short,
+            text_key="text",
+        )
+    )
+
+    # Stage 8: Bandwidth estimation
+    pipeline.add_stage(
+        BandwidthEstimationStage(name="BandwidthEstimation")
+    )
+
+    # Stage 9: Audio quality metrics (TorchSQUIM)
+    pipeline.add_stage(
+        TorchSquimQualityMetricsStage(
+            name="SquimMetrics",
+            device=device,
+        ).with_(resources=Resources(gpus=gpus))
+    )
+
+    # Stage 10: Prepare segments for target module (TTS or ASR)
+    pipeline.add_stage(
+        PrepareModuleSegmentsStage(
+            name="PrepareModuleSegments",
+            module=module,
+            min_duration=min_duration,
+            max_duration=max_duration,
+            max_pause=max_pause,
+            terminal_punct_marks=".!?",
+            full_utterance_ratio=full_utterance_ratio,
+            punctuation_split_only=False,
+        )
+    )
+
+    # Stage 11: Write output manifest
+    pipeline.add_stage(
+        ManifestWriterStage(output_path=final_manifest)
+    )
+
+    results = pipeline.run(executor)
+
+    logger.success("Audio tagging benchmark completed successfully")
+
+    return {
+        "metrics": {
+            "is_success": True,
+        },
+        "tasks": results,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Audio tagging pipeline e2e benchmark (FLEURS -> full tagging pipeline)"
+    )
+    parser.add_argument("--benchmark-results-path", required=True,
+                        help="Path to write benchmark results")
+    parser.add_argument("--scratch-output-path", required=True,
+                        help="Path to scratch output directory")
+    parser.add_argument("--module", default="tts", choices=["tts", "asr"],
+                        help="Target module for PrepareModuleSegments")
+    parser.add_argument("--lang", default="hy_am", help="FLEURS language code")
+    parser.add_argument("--split", default="dev", help="FLEURS dataset split")
+    parser.add_argument("--hf-token", default="", help="HuggingFace token for PyAnnote")
+    parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"],
+                        help="Compute device for GPU stages")
+    parser.add_argument("--language-short", default="en",
+                        help="2-letter language code for ITN")
+    parser.add_argument("--max-segment-length", type=float, default=40.0,
+                        help="Maximum segment duration (seconds)")
+    parser.add_argument("--asr-batch-size", type=int, default=32,
+                        help="Batch size for ASR alignment")
+    parser.add_argument("--min-duration", type=float, default=5.0,
+                        help="Minimum output segment duration (seconds)")
+    parser.add_argument("--max-duration", type=float, default=20.0,
+                        help="Maximum output segment duration (seconds)")
+    parser.add_argument("--max-pause", type=float, default=2.0,
+                        help="Maximum pause between words in a segment (seconds)")
+    parser.add_argument("--full-utterance-ratio", type=float, default=1.0,
+                        help="Fraction of segments requiring terminal punctuation (0.0-1.0)")
+    parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs")
+
+    args = parser.parse_args()
+
+    logger.info("=== Audio Tagging Pipeline Benchmark Starting ===")
+    logger.info(f"Arguments: {vars(args)}")
+
+    success_code = 1
+
+    result_dict: dict[str, Any] = {
+        "params": vars(args),
+        "metrics": {"is_success": False},
+        "tasks": [],
+    }
+    try:
+        result_dict.update(run_audio_tagging_benchmark(**vars(args)))
+        success_code = 0 if result_dict["metrics"]["is_success"] else 1
+    finally:
+        write_benchmark_results(result_dict, args.benchmark_results_path)
+    return success_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

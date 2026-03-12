@@ -12,7 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Text processing stages for audio tagging pipelines."""
 
-from pathlib import Path
+from nemo_curator.stages.audio.tagging.text.arabic import ArabicRemoveDiacriticsStage
+from nemo_curator.stages.audio.tagging.text.chinese import ChineseConversionStage
+from nemo_curator.stages.audio.tagging.text.itn import InverseTextNormalizationStage
+from nemo_curator.stages.audio.tagging.text.pnc import PNCwithBERTStage
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+__all__ = [
+    "ArabicRemoveDiacriticsStage",
+    "ChineseConversionStage",
+    "InverseTextNormalizationStage",
+    "PNCwithBERTStage",
+]

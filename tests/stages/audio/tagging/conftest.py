@@ -1,4 +1,4 @@
-# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Shared fixtures for audio tagging stage tests."""
 
-from pathlib import Path
+import pytest
+from nemo_curator.tasks import AudioBatch
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+@pytest.fixture
+def audio_batch():
+    """Factory for AudioBatch instances. Each batch has .data as a list of one dict."""
+
+    def _make(**kwargs):
+        return AudioBatch(data=[kwargs])
+
+    return _make

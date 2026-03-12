@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Voice Activity Detection inference stages."""
 
-from pathlib import Path
+from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADModel, WhisperXVADStage
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+__all__ = ["WhisperXVADModel", "WhisperXVADStage"]
