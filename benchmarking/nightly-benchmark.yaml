@@ -406,6 +406,9 @@ entries:
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
       --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
     timeout_s: 200
+    ci:
+      scope: nightly
+      time: "00:10:00"
     sink_data:
       - name: slack
         additional_metrics:
@@ -439,6 +442,9 @@ entries:
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
       --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
     timeout_s: 350
+    ci:
+      scope: nightly
+      time: "00:10:00"
     sink_data:
       - name: slack
         additional_metrics:
@@ -520,6 +526,9 @@ entries:
       --executor=ray_data
       --input-path={dataset:tinystories,parquet}
     timeout_s: 200
+    ci:
+      scope: nightly
+      time: "00:10:00"
     sink_data:
       - name: slack
         additional_metrics:
@@ -540,6 +549,9 @@ entries:
       --executor=xenna
       --input-path={dataset:tinystories,parquet}
     timeout_s: 250
+    ci:
+      scope: nightly
+      time: "00:10:00"
     sink_data:
       - name: slack
         additional_metrics:
