@@ -1,24 +1,19 @@
+import logging
 import os
-import scipy
+
 import librosa
-import torch
 import numpy as np
 import onnxruntime as ort
+import scipy
 from enum import Enum
 
+logger = logging.getLogger(__name__)
 
 __all__ = ["SigMOS", "Version"]
 
 
 class Version(Enum):
     V1 = "v1"  # 15.10.2023
-
-
-def is_gpu_support_available():
-    if torch.cuda.is_available() and "CUDAExecutionProvider" in ort.get_available_providers():
-        return True
-    else:
-        return False
 
 
 class SigMOS:
@@ -52,23 +47,18 @@ class SigMOS:
         options.inter_op_num_threads = 1
         options.intra_op_num_threads = 1
 
-        use_gpu = True if is_gpu_support_available() and not force_cpu else False
-
-        if not use_gpu:
-            options.inter_op_num_threads = 1
-            options.intra_op_num_threads = 1
+        use_gpu = not force_cpu
 
         if use_gpu:
-            print(f"ort inference on cuda device_id {self.device_id}")
+            logger.info("SIGMOS ort inference on cuda device_id %s", self.device_id)
             ort_provider = ("CUDAExecutionProvider", {"device_id": str(self.device_id)})
             self.session = ort.InferenceSession(model_file_path, options,
                                                 providers=[ort_provider])
-            # Verify CUDA provider was actually loaded; fall back to CPU if not
             provider_options = self.session.get_provider_options()
             if "CUDAExecutionProvider" not in provider_options:
-                print(
-                    f"WARNING: CUDAExecutionProvider requested but not available at runtime "
-                    f"(missing cuDNN or CUDA libraries). Falling back to CPUExecutionProvider."
+                logger.warning(
+                    "CUDAExecutionProvider requested but not available at runtime "
+                    "(missing cuDNN or CUDA libraries). Falling back to CPUExecutionProvider."
                 )
                 self.session = ort.InferenceSession(model_file_path, options,
                                                     providers=["CPUExecutionProvider"])

@@ -247,7 +247,10 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             return None
 
         try:
-            gpu_id = int(torch.cuda.current_device()) if torch.cuda.is_available() else 0
+            try:
+                gpu_id = int(torch.cuda.current_device()) if torch.cuda.is_available() else 0
+            except RuntimeError:
+                gpu_id = 0
             config = {"model_path": self._resolve_model_path()}
             score_data = self._predict_audio_mos(audio_np, sample_rate, gpu_id=gpu_id, config=config)
         except Exception as e:
