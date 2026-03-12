@@ -32,7 +32,7 @@ class SpeakerSeparationConfig:
     Produces multiple outputs - one AudioBatch per detected speaker.
 
     Attributes:
-        model_path: Path to NeMo model (.nemo) or NGC model name
+        model_path: Path to NeMo model (.nemo file)
         exclude_overlaps: If True, exclude overlapping speech regions
 
     Example:
