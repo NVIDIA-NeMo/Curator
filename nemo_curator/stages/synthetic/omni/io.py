@@ -13,6 +13,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Generic, Type, TypeVar
 
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 import pyarrow.parquet as pq
 from loguru import logger
 from PIL import Image
@@ -257,6 +258,13 @@ class JsonlTarImageReaderStage(ProcessingStage[FileGroupTask | _EmptyTask, Singl
     verbose: bool = False
     name: str = "jsonl_tar_image_reader"
     resources = Resources(cpus=1.0)
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        """Ray stage specification for this stage."""
+        return {
+            RayStageSpecKeys.IS_FANOUT_STAGE: True,
+        }
+
 
     def __init__(
         self,

@@ -7,6 +7,7 @@ import os
 from typing import Any, Generator, Generic, Iterable, Sequence, TypeVar
 
 from loguru import logger
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources, _get_gpu_memory_gb
 from PIL import Image
@@ -109,7 +110,6 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
     name: str = "model_base_stage"
     resources: Resources = Resources(cpus=8.0)
     batch_size: int = 8
-
     multimodal: bool = True
 
     def __init__(
@@ -136,12 +136,19 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
             # No support
             del self.generate_stream
 
+    def _initialize_model(self) -> None:
+        """Initialize the model."""
+        self.model.load()
+
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:
+        # TODO: Add weight downloading logic
+        self._initialize_model()
+
     def setup(self, worker_metadata: dict | None = None) -> None:
         """Load the model."""
         if self.model.is_loaded:
             return
-        self._maybe_set_cuda_device()
-        self.model.load()
+        self._initialize_model()
 
     @abstractmethod
     def build_prompt(self, task: SingleDataTask[T]) -> str:

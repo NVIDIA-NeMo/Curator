@@ -3,6 +3,7 @@ from pathlib import Path
 
 import click
 from loguru import logger
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 
@@ -13,6 +14,7 @@ from nemo_curator.stages.synthetic.omni.description_validator import Description
 from nemo_curator.stages.synthetic.omni.io import JsonlTarImageReaderStage, ResultWriterStage, SkipProcessedStage
 
 import argparse
+from nemo_curator.core.client import RayClient
 
 def _normalize_input_paths(
     input_path: Path | str | list[Path] | list[str],
@@ -51,6 +53,9 @@ def create_description_pipeline(
         is still producing). Overlap is improved when Validation's batch_size is <=
         Description's (e.g. 16); otherwise the next stage waits for a full batch
         and stays idle (see DescriptionValidatorStage.batch_size).
+        With the raydata backend, the executor repartitions before actor stages so
+        blocks are smaller and downstream stages (e.g. Validator) receive output
+        incrementally and can overlap with Description.
     """
     pipeline = Pipeline(name="description-gen")
 
@@ -88,9 +93,6 @@ def create_description_pipeline(
 
     pipeline.add_stage(DescriptionOutputStage())
 
-    # Use single_file=False so each worker writes to its own file (e.g. output_demo_worker0.jsonl).
-    # With single_file=True, many workers would all open the same path with mode "w" and truncate
-    # each other, leaving the output empty or corrupted.
     pipeline.add_stage(ResultWriterStage(
         output_path=str(output_path),
         valid_only=valid_only,
@@ -127,11 +129,22 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Number of workers for description stage (e.g. 8 for 8 GPUs). If unset, Xenna autoscaler decides.",
     )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        choices=["xenna", "raydata"],
+        default="xenna",
+        help="Execution backend: 'xenna' (default) or 'raydata' (Ray Data, experimental).",
+    )
     return parser.parse_args()
 
 def main() -> None:
     """Main function to run the description generation pipeline."""
     args = parse_args()
+
+    client = RayClient(metrics_dir='metrics')
+    client.start()
+
     pipeline = create_description_pipeline(
         input_path=Path(args.input_path),
         output_path=Path(args.output_path),
@@ -147,7 +160,10 @@ def main() -> None:
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
     # Create executor
-    executor = XennaExecutor()
+    if args.backend == "raydata":
+        executor = RayDataExecutor()
+    else:
+        executor = XennaExecutor()
 
     # Execute pipeline
     print("Starting pipeline execution...")
@@ -156,6 +172,7 @@ def main() -> None:
     elapsed = time.perf_counter() - start
     print(f"\nPipeline completed in {elapsed:.1f}s ({elapsed / 60:.1f} min)")
     print(f"Tasks processed: {len(output_tasks)}")
+    client.stop()
 
 
 if __name__ == "__main__":

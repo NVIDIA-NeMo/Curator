@@ -79,13 +79,8 @@ def create_description_pipeline(
             image_parent=image_parent,
         ))
 
-    # Do not pass cuda_devices so Xenna/Ray can assign one GPU per worker.
-    # Using cuda_devices=[0] would force all workers onto GPU 0 and cause OOM.
     pipeline.add_stage(DescriptionStage(num_workers=description_num_workers))
 
-    # Use single_file=False so each worker writes to its own file (e.g. output_demo_worker0.jsonl).
-    # With single_file=True, many workers would all open the same path with mode "w" and truncate
-    # each other, leaving the output empty or corrupted.
     pipeline.add_stage(ResultWriterStage(
         output_path=str(output_path),
         valid_only=valid_only,
