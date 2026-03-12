@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ from nemo_curator.stages.base import ProcessingStage
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioBatch, DocumentBatch, FileGroupTask
+from nemo_curator.tasks import AudioBatch
 
 
 def _parse_sortformer_segments(raw_segments: list) -> list[dict[str, Any]]:
@@ -78,7 +78,7 @@ def _write_rttm(segments: list[dict[str, Any]], sess_name: str, rttm_out_dir: st
 
 
 @dataclass
-class InferenceSortformerStage(ProcessingStage[FileGroupTask | DocumentBatch | AudioBatch, AudioBatch]):
+class InferenceSortformerStage(ProcessingStage[AudioBatch, AudioBatch]):
     """Speaker diarization inference using Streaming Sortformer (NeMo).
 
     Uses the NeMo SortformerEncLabelModel for end-to-end neural speaker
@@ -178,29 +178,14 @@ class InferenceSortformerStage(ProcessingStage[FileGroupTask | DocumentBatch | A
         )
         return [_parse_sortformer_segments(segs) for segs in predicted_segments]
 
-    def process(self, task: FileGroupTask | DocumentBatch | AudioBatch) -> AudioBatch:
+    def process(self, task: AudioBatch) -> AudioBatch:
         """Run speaker diarization on each audio file in the task."""
         if not self.validate_input(task):
             msg = f"Task {task!s} failed validation for stage {self}"
             raise ValueError(msg)
 
-        files: list[str] = []
-        session_names: list[str | None] = []
-
-        if isinstance(task, FileGroupTask):
-            files = list(task.data)
-            session_names = [None] * len(files)
-        elif isinstance(task, DocumentBatch):
-            files = list(task.data[self.filepath_key])
-            if "session_name" in task.data.columns:
-                session_names = task.data["session_name"].astype(str).tolist()
-            else:
-                session_names = [None] * len(files)
-        elif isinstance(task, AudioBatch):
-            files = [item[self.filepath_key] for item in task.data]
-            session_names = [item.get("session_name") if isinstance(item, dict) else None for item in task.data]
-        else:
-            raise TypeError(str(task))
+        files = [item[self.filepath_key] for item in task.data]
+        session_names = [item.get("session_name") if isinstance(item, dict) else None for item in task.data]
 
         all_segments = self.diarize(files)
 
@@ -215,18 +200,16 @@ class InferenceSortformerStage(ProcessingStage[FileGroupTask | DocumentBatch | A
             if self.rttm_out_dir is not None:
                 _write_rttm(segments, resolved_sess_name, self.rttm_out_dir)
 
-            item = dict(task.data[i]) if isinstance(task, AudioBatch) and isinstance(task.data[i], dict) else {}
+            item = dict(task.data[i]) if isinstance(task.data[i], dict) else {}
             item[self.filepath_key] = file_path
             item[self.diar_segments_key] = segments
             audio_items.append(item)
 
-        filepath_key_out = (
-            getattr(task, "filepath_key", self.filepath_key) if isinstance(task, AudioBatch) else self.filepath_key
-        )
         return AudioBatch(
             task_id=f"{task.task_id}_sortformer",
             dataset_name=task.dataset_name,
-            filepath_key=filepath_key_out,
+            filepath_key=getattr(task, "filepath_key", self.filepath_key),
             data=audio_items,
+            _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )

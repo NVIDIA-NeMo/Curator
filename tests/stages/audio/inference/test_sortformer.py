@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ from nemo_curator.stages.audio.inference.sortformer import (
     _parse_sortformer_segments,
     _write_rttm,
 )
-from nemo_curator.tasks import AudioBatch, FileGroupTask
+from nemo_curator.tasks import AudioBatch
 
 
 class TestParseSortformerSegments:
@@ -183,20 +183,6 @@ class TestInferenceSortformerStage:
             audio=["/test/audio1.wav", "/test/audio2.wav"],
             batch_size=1,
         )
-
-    def test_process_file_group_task(self) -> None:
-        fake_output = [["0.00 1.00 speaker_0"]]
-        mock_model = self._make_mock_model(fake_output)
-        stage = InferenceSortformerStage(diar_model=mock_model)
-
-        task = FileGroupTask(
-            data=["/test/audio1.wav"],
-            task_id="fg_task",
-            dataset_name="test",
-        )
-        result = stage.process(task)
-        assert isinstance(result, AudioBatch)
-        assert result.data[0]["audio_filepath"] == "/test/audio1.wav"
 
     def test_process_writes_rttm(self, tmp_path: Path) -> None:
         fake_output = [["0.00 2.50 speaker_0"]]
