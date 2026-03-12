@@ -246,8 +246,9 @@ override-dependencies = [
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "transformers<=4.55.2", # Else Cosmos Embed imports fail
-    "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting). TODO: Remove once vllm upgrades xgrammar to >=0.1.32 (https://github.com/vllm-project/vllm/pull/36168)
-    "numba-cuda>=0.19.1", # Override nemo-toolkit's ==0.15.1 pin to align with cudf-cu12 requirement and allow nemo-toolkit>=2.6.1 (addresses GHSA-hvjw-vp7g-39h5 and GHSA-9379-mwvr-7wxx)
+    "numba-cuda>=0.19.1", # Override nemo-toolkit's ==0.15.1 pin to align with cudf-cu12 (addresses GHSA-hvjw-vp7g-39h5 and GHSA-9379-mwvr-7wxx)
+    # TODO: Remove once vllm upgrades xgrammar to >=0.1.32 (https://github.com/vllm-project/vllm/pull/36168)
+    "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
 
 
