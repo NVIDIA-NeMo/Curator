@@ -7,23 +7,27 @@ Audio quality filtering stages.
 These stages filter audio based on various quality metrics:
 - NISQAFilterStage: Speech quality assessment (MOS, noisiness, etc.)
 - SIGMOSFilterStage: Signal-based quality metrics
+- UTMOSFilterStage: UTMOS MOS prediction
 - BandFilterStage: Bandwidth classification (full-band vs narrow-band)
 
 Example:
     from nemo_curator.pipeline import Pipeline
-    from nemo_curator.stages.audio.filtering import NISQAFilterStage, SIGMOSFilterStage
-    
+    from nemo_curator.stages.audio.filtering import NISQAFilterStage, SIGMOSFilterStage, UTMOSFilterStage
+
     pipeline = Pipeline(name="quality_pipeline")
     pipeline.add_stage(NISQAFilterStage(mos_threshold=4.5))
     pipeline.add_stage(SIGMOSFilterStage(noise_threshold=4.0))
+    pipeline.add_stage(UTMOSFilterStage(mos_threshold=3.5))
 """
 
 from .nisqa import NISQAFilterStage
 from .sigmos import SIGMOSFilterStage
+from .utmos import UTMOSFilterStage
 from .band import BandFilterStage
 
 __all__ = [
     "NISQAFilterStage",
     "SIGMOSFilterStage",
+    "UTMOSFilterStage",
     "BandFilterStage",
 ]

@@ -28,6 +28,7 @@ Segmentation:
 Filtering:
     - NISQAFilterStage: NISQA speech quality filtering
     - SIGMOSFilterStage: SIGMOS quality filtering
+    - UTMOSFilterStage: UTMOS MOS prediction filtering
     - BandFilterStage: Bandwidth classification filtering
 
 Advanced Pipelines:
@@ -75,6 +76,7 @@ from nemo_curator.stages.audio.segmentation import (
 from nemo_curator.stages.audio.filtering import (
     NISQAFilterStage,
     SIGMOSFilterStage,
+    UTMOSFilterStage,
     BandFilterStage,
 )
 
@@ -95,6 +97,7 @@ from nemo_curator.stages.audio.configs import (
     VADConfig,
     NISQAConfig,
     SIGMOSConfig,
+    UTMOSConfig,
     BandFilterConfig,
     SpeakerSeparationConfig,
     MonoConversionConfig,
@@ -112,6 +115,7 @@ __all__ = [
     # Filtering
     "NISQAFilterStage",
     "SIGMOSFilterStage",
+    "UTMOSFilterStage",
     "BandFilterStage",
     # Advanced Pipelines
     "AudioDataFilterStage",
@@ -123,6 +127,7 @@ __all__ = [
     "VADConfig",
     "NISQAConfig",
     "SIGMOSConfig",
+    "UTMOSConfig",
     "BandFilterConfig",
     "SpeakerSeparationConfig",
     "MonoConversionConfig",
