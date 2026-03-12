@@ -36,18 +36,11 @@ class Resources:
     Attributes:
         cpus: Number of CPU cores required
         gpu_memory_gb: GPU memory required in GB (Only for single-GPU stages)
-        nvdecs: Number of NVDEC units required
-        nvencs: Number of NVENC units required
-        entire_gpu: Whether to allocate entire GPU regardless of memory (This also gives you nvdecs and nvencs of that GPU)
         gpus: Number of GPUs required (Only for multi-GPU stages)
     """
 
-    # TODO : Revisit this gpu_memory_gb, gpus, entire_gpu too many variables for gpu
     cpus: float = 1.0
     gpu_memory_gb: float = 0.0
-    nvdecs: int = 0
-    nvencs: int = 0
-    entire_gpu: bool = False
     gpus: float = 0.0
 
     def __post_init__(self):
@@ -73,4 +66,4 @@ class Resources:
     @property
     def requires_gpu(self) -> bool:
         """Check if this stage requires GPU resources."""
-        return self.gpus > 0 or self.gpu_memory_gb > 0 or self.entire_gpu
+        return self.gpus > 0 or self.gpu_memory_gb > 0
