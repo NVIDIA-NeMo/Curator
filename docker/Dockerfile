@@ -76,7 +76,7 @@ COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_cur
 # Install Curator
 RUN uv sync --link-mode copy --locked --extra all --all-groups --no-cache && \
     find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
-    # Address GHSA-72hv-8253-57qq: jackson-core DoS via async parser bundled in ray_dist.jar (jackson-core 2.16.1 < 2.18.6)
+    # Address GHSA-72hv-8253-57qq: jackson-core bundled in ray_dist.jar (jackson-core 2.16.1 < 2.18.6)
     # Ray's Java support is not used; deleting the JAR removes the vulnerable jackson-core classes.
     # TODO: Remove once Ray upgrades bundled jackson-core to >=2.18.6 (https://github.com/ray-project/ray/issues/35949)
     find /opt/venv -name "ray_dist.jar" -delete
