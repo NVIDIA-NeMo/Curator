@@ -14,9 +14,12 @@
 
 import atexit
 import os
+import shutil
 import signal
 import socket
 import subprocess
+import sys
+import time
 from dataclasses import dataclass, field
 
 import yaml
@@ -206,3 +209,298 @@ class RayClient:
 
     def __exit__(self, *exc):
         self.stop()
+
+
+# --------------------------------------------------------------------------- #
+# SLURM helpers
+# --------------------------------------------------------------------------- #
+
+
+def _find_ray_binary() -> str:
+    """Locate the ``ray`` CLI in the active Python environment."""
+    candidate = os.path.join(os.path.dirname(sys.executable), "ray")
+    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        return candidate
+    found = shutil.which("ray")
+    if found:
+        return found
+    msg = "Could not find the `ray` binary. Make sure Ray is installed in the active Python environment."
+    raise FileNotFoundError(msg)
+
+
+def _expand_slurm_nodelist(nodelist: str) -> list[str]:
+    """Expand a SLURM node-list expression into individual hostnames."""
+    scontrol = shutil.which("scontrol")
+    if scontrol:
+        try:
+            result = subprocess.run(  # noqa: S603
+                [scontrol, "show", "hostnames", nodelist],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            nodes = [n.strip() for n in result.stdout.strip().splitlines() if n.strip()]
+            if nodes:
+                return nodes
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+    return [nodelist]
+
+
+# --------------------------------------------------------------------------- #
+# SlurmRayClient
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class SlurmRayClient(RayClient):
+    """RayClient extended for multi-node SLURM jobs.
+
+    On single-node SLURM jobs (or when not running under SLURM at all),
+    behaves identically to :class:`RayClient`.
+
+    On multi-node jobs, additionally starts Ray workers on remote nodes
+    via ``srun`` and waits for every node to register with the head
+    before returning from :meth:`start`.
+
+    Usage::
+
+        from nemo_curator.core.client import SlurmRayClient
+
+        with SlurmRayClient() as client:
+            pipeline.run(executor=XennaExecutor())
+
+    Parameters
+    ----------
+    worker_connect_timeout_s:
+        Maximum seconds to wait for all worker nodes to join after the
+        head is up.  Raises ``TimeoutError`` if exceeded.
+    env_setup_cmd:
+        Shell snippet executed *before* ``ray start`` on every remote
+        node (e.g. ``"source /path/to/venv/bin/activate"``).
+    cleanup_on_start:
+        If *True*, run ``ray stop --force`` on every allocated node
+        before starting the cluster.
+    """
+
+    worker_connect_timeout_s: int = 300
+    env_setup_cmd: str | None = None
+    cleanup_on_start: bool = True
+
+    ray_dashboard_host: str = "0.0.0.0"  # noqa: S104
+
+    _worker_procs: list[subprocess.Popen] = field(init=False, default_factory=list, repr=False)
+    _slurm_nodes: list[str] = field(init=False, default_factory=list, repr=False)
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self._detect_slurm_resources()
+
+    def _detect_slurm_resources(self) -> None:
+        """Auto-detect per-node CPU/GPU counts from SLURM env vars when not set explicitly."""
+        if self.num_cpus is None:
+            slurm_cpus = os.environ.get("SLURM_CPUS_ON_NODE")
+            if slurm_cpus:
+                self.num_cpus = int(slurm_cpus)
+
+        if self.num_gpus is None:
+            slurm_gpus = os.environ.get("SLURM_GPUS_ON_NODE")
+            if slurm_gpus:
+                self.num_gpus = int(slurm_gpus)
+
+    # ------------------------------------------------------------------ #
+    # Lifecycle
+    # ------------------------------------------------------------------ #
+
+    def start(self) -> None:
+        """Start the Ray cluster, adding worker nodes when running under SLURM."""
+        slurm_job_id = os.environ.get("SLURM_JOB_ID")
+        if not slurm_job_id:
+            logger.warning("SLURM_JOB_ID not set — falling back to single-node RayClient behaviour")
+            super().start()
+            return
+
+        nodelist = os.environ.get("SLURM_JOB_NODELIST", socket.gethostname())
+        self._slurm_nodes = _expand_slurm_nodelist(nodelist)
+
+        logger.info(
+            f"SlurmRayClient: job {slurm_job_id}, {len(self._slurm_nodes)} node(s), "
+            f"head={self._slurm_nodes[0]}, cpus/node={self.num_cpus}, gpus/node={self.num_gpus}"
+        )
+
+        if self.cleanup_on_start:
+            self._cleanup_stale_ray()
+
+        # Start Ray head on the current node (reuses all RayClient logic:
+        # port selection, metrics, dashboard, RAY_ADDRESS, responsiveness check)
+        super().start()
+
+        # Multi-node: launch workers on every additional node
+        if len(self._slurm_nodes) > 1:
+            srun_bin = shutil.which("srun")
+            if srun_bin is None:
+                msg = (
+                    f"Multi-node SLURM job ({len(self._slurm_nodes)} nodes) but "
+                    "`srun` is not on PATH. Cannot launch Ray workers on remote nodes."
+                )
+                raise OSError(msg)
+            self._start_workers(srun_bin)
+            self._wait_for_workers()
+
+    def stop(self) -> None:
+        """Tear down workers, then stop the head via the parent.
+
+        Safe to call multiple times — subsequent calls are no-ops for
+        already-cleaned resources.
+        """
+        import contextlib
+
+        # 1. Kill all worker srun subprocesses we spawned
+        for proc in self._worker_procs:
+            try:
+                proc.terminate()
+                proc.wait(timeout=10)
+            except Exception:  # noqa: BLE001, PERF203
+                with contextlib.suppress(Exception):
+                    proc.kill()
+        self._worker_procs.clear()
+
+        # 2. Run `ray stop --force` on every worker node
+        if self._slurm_nodes:
+            self._stop_remote_ray()
+
+        # 3. Stop head (kills ray_process, clears RAY_ADDRESS)
+        super().stop()
+
+    # ------------------------------------------------------------------ #
+    # Worker management
+    # ------------------------------------------------------------------ #
+
+    def _start_workers(self, srun_bin: str) -> None:
+        head_addr = os.environ.get("RAY_ADDRESS", f"{socket.gethostbyname(socket.gethostname())}:{self.ray_port}")
+        ray_bin = _find_ray_binary()
+
+        worker_nodes = self._slurm_nodes[1:]
+        logger.info(f"Starting Ray workers on {len(worker_nodes)} node(s): {worker_nodes}")
+
+        for node in worker_nodes:
+            ray_cmd = [
+                ray_bin,
+                "start",
+                "--address",
+                head_addr,
+                "--temp-dir",
+                self.ray_temp_dir,
+                "--block",
+                "--disable-usage-stats",
+            ]
+            if self.num_gpus is not None:
+                ray_cmd.extend(["--num-gpus", str(self.num_gpus)])
+            if self.num_cpus is not None:
+                ray_cmd.extend(["--num-cpus", str(self.num_cpus)])
+
+            if self.env_setup_cmd:
+                raw = " ".join(ray_cmd)
+                wrapped: list[str] = ["bash", "-c", f"{self.env_setup_cmd} && {raw}"]
+            else:
+                wrapped = ray_cmd
+
+            full = [srun_bin, "--nodes=1", "--ntasks=1", "-w", node, "--overlap", *wrapped]
+            logger.debug(f"Worker cmd ({node}): {' '.join(full)}")
+            proc = subprocess.Popen(  # noqa: S603
+                full,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self._worker_procs.append(proc)
+            time.sleep(1)
+
+    def _wait_for_workers(self) -> None:
+        """Block until every allocated node is alive in the Ray cluster.
+
+        Raises ``TimeoutError`` (after tearing everything down) if not all
+        nodes join within ``worker_connect_timeout_s``.  Also fails early
+        if any worker subprocess exits unexpectedly.
+        """
+        import ray as _ray
+
+        expected = len(self._slurm_nodes)
+        deadline = time.time() + self.worker_connect_timeout_s
+
+        _ray.init(address=os.environ["RAY_ADDRESS"], ignore_reinit_error=True)
+        try:
+            while True:
+                # Fail fast if any worker srun process already died
+                dead = [p for p in self._worker_procs if p.poll() is not None]
+                if dead:
+                    codes = [p.returncode for p in dead]
+                    logger.error(f"{len(dead)} worker process(es) exited early with codes {codes}")
+                    self.stop()
+                    msg = (
+                        f"{len(dead)} worker process(es) died before joining the cluster "
+                        f"(exit codes: {codes}). Check srun/Ray logs for details."
+                    )
+                    raise RuntimeError(msg)
+
+                alive = [n for n in _ray.nodes() if n.get("Alive")]
+                if len(alive) >= expected:
+                    total_cpus = sum(n.get("Resources", {}).get("CPU", 0) for n in alive)
+                    total_gpus = sum(n.get("Resources", {}).get("GPU", 0) for n in alive)
+                    logger.info(
+                        f"All {expected} node(s) connected — "
+                        f"total CPUs: {total_cpus:.0f}, total GPUs: {total_gpus:.0f}"
+                    )
+                    return
+
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    logger.error(
+                        f"Timeout: only {len(alive)}/{expected} node(s) connected "
+                        f"after {self.worker_connect_timeout_s}s. Killing everything."
+                    )
+                    self.stop()
+                    msg = (
+                        f"Timed out after {self.worker_connect_timeout_s}s: "
+                        f"only {len(alive)}/{expected} node(s) connected. Cluster torn down."
+                    )
+                    raise TimeoutError(msg)
+
+                logger.info(f"Waiting for workers: {len(alive)}/{expected} ({remaining:.0f}s left)")
+                time.sleep(min(5, remaining))
+        finally:
+            _ray.shutdown()
+
+    # ------------------------------------------------------------------ #
+    # Cleanup helpers
+    # ------------------------------------------------------------------ #
+
+    def _run_on_node(self, node: str, cmd: list[str], timeout: int = 30) -> None:
+        """Execute *cmd* on *node*: directly for head, via srun otherwise."""
+        if node == self._slurm_nodes[0]:
+            full = self._wrap_with_env(cmd)
+        else:
+            srun_bin = shutil.which("srun")
+            if not srun_bin:
+                return
+            full = [srun_bin, "--nodes=1", "--ntasks=1", "-w", node, "--overlap", *self._wrap_with_env(cmd)]
+
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            subprocess.run(full, capture_output=True, timeout=timeout, check=False)  # noqa: S603
+
+    def _wrap_with_env(self, cmd: list[str]) -> list[str]:
+        if self.env_setup_cmd:
+            return ["bash", "-c", f"{self.env_setup_cmd} && {' '.join(cmd)}"]
+        return cmd
+
+    def _cleanup_stale_ray(self) -> None:
+        logger.info("Cleaning up stale Ray processes on all allocated nodes …")
+        ray_bin = _find_ray_binary()
+        for node in self._slurm_nodes:
+            self._run_on_node(node, [ray_bin, "stop", "--force"])
+
+    def _stop_remote_ray(self) -> None:
+        ray_bin = _find_ray_binary()
+        for node in self._slurm_nodes[1:]:
+            self._run_on_node(node, [ray_bin, "stop", "--force"])
