@@ -21,18 +21,21 @@ enable_vad: true
 vad_min_duration_sec: 2.0
 vad_max_duration_sec: 60.0
 
-enable_band_filter: true
+enable_band_filter: false
 band_value: full_band
 
 enable_nisqa: true
-nisqa_mos_threshold: 4.5
-nisqa_noi_threshold: 4.3
+nisqa_mos_threshold: 0.0
+nisqa_noi_threshold: 0.0
 
 enable_sigmos: true
-sigmos_noise_threshold: 4.0
-sigmos_ovrl_threshold: 3.5
+sigmos_noise_threshold: 0.0
+sigmos_ovrl_threshold: 0.0
 
-enable_speaker_separation: true
+enable_utmos: true
+utmos_mos_threshold: 0.0
+
+enable_speaker_separation: false
 speaker_exclude_overlaps: true
 
 processors:
@@ -56,5 +59,15 @@ processors:
       enable_sigmos: ${enable_sigmos}
       sigmos_noise_threshold: ${sigmos_noise_threshold}
       sigmos_ovrl_threshold: ${sigmos_ovrl_threshold}
+      enable_utmos: ${enable_utmos}
+      utmos_mos_threshold: ${utmos_mos_threshold}
       enable_speaker_separation: ${enable_speaker_separation}
       speaker_exclude_overlaps: ${speaker_exclude_overlaps}
+
+  - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
+    batch_size: 1
+
+  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
+    path: ${output_dir}
+    write_kwargs:
+      force_ascii: false

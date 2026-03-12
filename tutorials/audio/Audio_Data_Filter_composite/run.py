@@ -25,7 +25,6 @@ Usage:
 """
 
 import glob
-import json
 import os
 from typing import Tuple
 
@@ -39,46 +38,6 @@ from nemo_curator.stages.audio.advance_pipelines.Audio_data_filter.config import
     SUPPORTED_AUDIO_FORMATS,
 )
 from nemo_curator.tasks import AudioBatch
-
-
-def save_results(results: list, output_dir: str) -> str:
-    """
-    Save pipeline results to JSONL manifest.
-    
-    Args:
-        results: List of AudioBatch results from pipeline
-        output_dir: Directory to save manifest
-        
-    Returns:
-        Path to saved manifest file
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    manifest_path = os.path.join(output_dir, "manifest.jsonl")
-    
-    all_entries = []
-    for result in results:
-        if result is None:
-            continue
-        if hasattr(result, "data") and result.data:
-            if isinstance(result.data, list):
-                all_entries.extend(result.data)
-            elif isinstance(result.data, dict):
-                all_entries.append(result.data)
-    
-    with open(manifest_path, "w") as f:
-        for entry in all_entries:
-            clean_entry = {}
-            for key, value in entry.items():
-                if hasattr(value, "item"):
-                    clean_entry[key] = value.item()
-                elif isinstance(value, (int, float, str, bool, type(None))):
-                    clean_entry[key] = value
-                else:
-                    clean_entry[key] = str(value)
-            f.write(json.dumps(clean_entry) + "\n")
-    
-    logger.info(f"Saved {len(all_entries)} segments to {manifest_path}")
-    return manifest_path
 
 
 def load_audio_tasks(
@@ -192,14 +151,10 @@ def main(cfg: DictConfig) -> None:
     
     executor = XennaExecutor()
     logger.info(f"Starting pipeline execution with {len(initial_tasks)} audio files...")
-    results = pipeline.run(executor, initial_tasks=initial_tasks)
-    
+    pipeline.run(executor, initial_tasks=initial_tasks)
+
     output_dir = cfg.get("output_dir", os.path.join(raw_data_dir, "result"))
-    if results:
-        save_results(results, output_dir)
-    else:
-        logger.warning("No results returned from pipeline")
-    
+    logger.info(f"Results written to {output_dir}/*.jsonl")
     logger.info("\nPipeline completed!")
 
 

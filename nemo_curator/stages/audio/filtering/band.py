@@ -140,8 +140,6 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 from nemo_curator.stages.audio.filtering.band_filter_module.predict import BandPredictor
 
                 model_path = self._resolve_model_path()
-                use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
-                # Derive worker count from allocated CPUs (image-stage pattern: no n_workers in config)
                 effective_n_workers = (
                     max(1, int(self._resources.cpus))
                     if self._resources and getattr(self._resources, "cpus", None) is not None
@@ -151,10 +149,9 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 self._predictor = BandPredictor(
                     model_path=model_path,
                     n_workers=effective_n_workers,
-                    feature_cache_size=100,  # internal default, not exposed in config
-                    use_gpu=use_gpu,
+                    feature_cache_size=100,
                 )
-                logger.info(f"Band predictor loaded successfully (GPU: {use_gpu})")
+                logger.info("Band predictor loaded successfully")
             except ImportError as e:
                 logger.error(f"Failed to import Band module: {e}")
                 raise

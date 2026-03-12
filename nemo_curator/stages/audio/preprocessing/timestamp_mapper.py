@@ -38,18 +38,27 @@ def _translate_to_original(
     """Translate concatenated position range to original file positions."""
     results = []
     for m in mappings:
-        if m['concat_end_ms'] <= concat_start_ms or m['concat_start_ms'] >= concat_end_ms:
+        try:
+            if m['concat_end_ms'] <= concat_start_ms or m['concat_start_ms'] >= concat_end_ms:
+                continue
+            overlap_start = max(concat_start_ms, m['concat_start_ms'])
+            overlap_end = min(concat_end_ms, m['concat_end_ms'])
+            duration = overlap_end - overlap_start
+            if duration <= 0:
+                continue
+            start_offset = overlap_start - m['concat_start_ms']
+            end_offset = overlap_end - m['concat_start_ms']
+            results.append({
+                'original_file': m['original_file'],
+                'original_start_ms': m['original_start_ms'] + start_offset,
+                'original_end_ms': m['original_start_ms'] + end_offset,
+                'duration_ms': duration,
+            })
+        except KeyError as e:
+            logger.warning(
+                f"[TimestampMapper] Skipping malformed mapping (missing key {e}): {m}"
+            )
             continue
-        overlap_start = max(concat_start_ms, m['concat_start_ms'])
-        overlap_end = min(concat_end_ms, m['concat_end_ms'])
-        start_offset = overlap_start - m['concat_start_ms']
-        end_offset = overlap_end - m['concat_start_ms']
-        results.append({
-            'original_file': m['original_file'],
-            'original_start_ms': m['original_start_ms'] + start_offset,
-            'original_end_ms': m['original_start_ms'] + end_offset,
-            'duration_ms': end_offset - start_offset,
-        })
     return results
 
 
@@ -67,9 +76,16 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
     metadata-only (timestamps, quality scores, speaker info).
     """
 
+    passthrough_keys: Optional[List[str]] = None
     name: str = "TimestampMapper"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+
+    _STRIP_KEYS = frozenset({
+        'waveform', 'audio', 'audio_filepath',
+        'start_ms', 'end_ms', 'segment_num',
+        'original_file',
+    })
 
     def __post_init__(self):
         super().__init__()
@@ -115,8 +131,18 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
             _stage_perf=list(task._stage_perf),
         )
 
-    @staticmethod
-    def _build_output_item(item: Dict[str, Any], orig: Dict[str, Any]) -> Dict[str, Any]:
+    def _copy_passthrough(self, item: Dict[str, Any], result: Dict[str, Any]) -> None:
+        """Copy passthrough keys from input item to output result."""
+        if self.passthrough_keys is not None:
+            for key in self.passthrough_keys:
+                if key in item and item[key] is not None:
+                    result[key] = item[key]
+        else:
+            for key, val in item.items():
+                if key not in self._STRIP_KEYS and key not in result and val is not None:
+                    result[key] = val
+
+    def _build_output_item(self, item: Dict[str, Any], orig: Dict[str, Any]) -> Dict[str, Any]:
         """Build final output item from mapped original range."""
         result: Dict[str, Any] = {
             'original_file': orig['original_file'],
@@ -125,20 +151,24 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
             'duration_ms': orig['duration_ms'],
             'duration_sec': orig['duration_ms'] / 1000.0,
         }
-        for key in ('speaker_id', 'num_speakers', 'band_prediction',
-                     'nisqa_mos', 'nisqa_noi', 'nisqa_col', 'nisqa_dis', 'nisqa_loud',
-                     'sigmos_noise', 'sigmos_ovrl', 'sigmos_sig', 'sigmos_col',
-                     'sigmos_disc', 'sigmos_loud', 'sigmos_reverb'):
-            if key in item and item[key] is not None:
-                result[key] = item[key]
+        self._copy_passthrough(item, result)
         return result
 
-    @staticmethod
-    def _build_output_item_no_mapping(item: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_output_item_no_mapping(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """Build output item when no segment mappings exist (no concatenation was done)."""
         start_ms = item.get('start_ms', 0)
         end_ms = item.get('end_ms', 0)
         duration_ms = end_ms - start_ms
+        if duration_ms <= 0:
+            dur = item.get('duration') or item.get('duration_sec')
+            if dur is not None and float(dur) > 0:
+                duration_ms = int(float(dur) * 1000)
+                end_ms = start_ms + duration_ms
+            elif 'waveform' in item and 'sample_rate' in item:
+                wf = item['waveform']
+                n = wf.shape[-1] if hasattr(wf, 'shape') else len(wf)
+                duration_ms = int(n / item['sample_rate'] * 1000)
+                end_ms = start_ms + duration_ms
         result: Dict[str, Any] = {
             'original_file': item.get('original_file', item.get('audio_filepath', 'unknown')),
             'original_start_ms': start_ms,
@@ -146,10 +176,5 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
             'duration_ms': duration_ms,
             'duration_sec': duration_ms / 1000.0,
         }
-        for key in ('speaker_id', 'num_speakers', 'band_prediction',
-                     'nisqa_mos', 'nisqa_noi', 'nisqa_col', 'nisqa_dis', 'nisqa_loud',
-                     'sigmos_noise', 'sigmos_ovrl', 'sigmos_sig', 'sigmos_col',
-                     'sigmos_disc', 'sigmos_loud', 'sigmos_reverb'):
-            if key in item and item[key] is not None:
-                result[key] = item[key]
+        self._copy_passthrough(item, result)
         return result

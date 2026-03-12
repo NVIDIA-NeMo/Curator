@@ -12,22 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Audio segmentation stages.
+"""Audio segmentation stages."""
 
-These stages segment audio into smaller chunks:
-- VADSegmentationStage: Segment based on voice activity detection
-- SpeakerSeparationStage: Separate audio by speaker using diarization
-
-Example:
-    from nemo_curator.pipeline import Pipeline
-    from nemo_curator.stages.audio.segmentation import VADSegmentationStage
-    
-    pipeline = Pipeline(name="segmentation_pipeline")
-    pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0))
-"""
-
-from .vad_segmentation import VADSegmentationStage
 from .speaker_separation import SpeakerSeparationStage
+from .vad_segmentation import VADSegmentationStage
 
-__all__ = ["VADSegmentationStage", "SpeakerSeparationStage"]
+__all__ = ["SpeakerSeparationStage", "VADSegmentationStage"]

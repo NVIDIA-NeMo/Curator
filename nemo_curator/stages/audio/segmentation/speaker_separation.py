@@ -146,6 +146,8 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     def setup(self, worker_metadata=None) -> None:
         """Load NeMo diarization model on worker initialization."""
+        from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
+        ensure_cudnn_loaded()
         self._initialize_separator()
     
     def teardown(self) -> None:

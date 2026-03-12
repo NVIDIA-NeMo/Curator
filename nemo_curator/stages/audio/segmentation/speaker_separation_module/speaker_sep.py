@@ -1,3 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
 import tempfile
 from typing import List, Tuple, Dict, Optional
@@ -303,25 +317,21 @@ class SpeakerSeparator:
             if waveform.shape[0] == 2:
                 waveform = waveform.mean(dim=0, keepdim=True)
         
+        temp_path = None
         try:
-            # Create temporary file for diarization
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
-                # Use soundfile instead of torchaudio
+                temp_path = temp_audio_file.name
                 wav = waveform.squeeze(0) if waveform.dim() > 1 else waveform
-                sf.write(temp_audio_file.name, wav.cpu().numpy(), sample_rate)
-                # Run diarization on temp mono file
-                result = self.diar_model.diarize(audio=temp_audio_file.name, batch_size=1)
-                os.unlink(temp_audio_file.name)
+                sf.write(temp_path, wav.cpu().numpy(), sample_rate)
+                result = self.diar_model.diarize(audio=temp_path, batch_size=1)
                 return result
-        except Exception as e:
-            # If there's an error in diarization, log it and return a fallback result with one speaker
+        except (RuntimeError, ValueError) as e:
             logger.warning(f"Error during diarization: {e}. Falling back to single speaker mode")
-            
-            # Calculate duration in seconds
             duration_sec = waveform.shape[1] / sample_rate
-            
-            # Create a single segment covering the entire audio
             return [f"0.0 {duration_sec:.3f} speaker_0"]
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
     
     def get_speaker_segments(self, predicted_segments: List[str]) -> Dict[str, List[Tuple[float, float]]]:
         """
@@ -330,7 +340,11 @@ class SpeakerSeparator:
         speaker_segments = {}
         
         # Handle the nested list structure from the model output
-        segments = predicted_segments[0] if isinstance(predicted_segments, list) and isinstance(predicted_segments[0], list) else predicted_segments
+        segments = (
+            predicted_segments[0]
+            if isinstance(predicted_segments, list) and predicted_segments and isinstance(predicted_segments[0], list)
+            else predicted_segments
+        )
         
         for segment in segments:
             parts = segment.split()
@@ -429,18 +443,13 @@ class SpeakerSeparator:
             
             return processed_segments
             
-        except Exception as e:
+        except (RuntimeError, ValueError) as e:
             logger.warning(f"Error during audio processing: {e}. Falling back to single speaker mode")
-            
-            # Create a fallback result with one speaker covering the entire audio
             if isinstance(audio_path_or_waveform, str):
-                # Input is a file path
                 waveform, sample_rate = load_audio(audio_path_or_waveform)
                 duration_sec = waveform.shape[1] / sample_rate
             else:
-                # Input is a waveform tensor
                 duration_sec = audio_path_or_waveform.shape[1] / sample_rate
-            
             return {"speaker_0": [(0.0, duration_sec)]}
     
     def get_speaker_audio_data(self, audio_path_or_waveform, sample_rate=None, gap_threshold=None, exclude_overlaps=None, min_duration=None, buffer_time=None):
@@ -476,14 +485,15 @@ class SpeakerSeparator:
             if sample_rate is None:
                 raise ValueError("Sample rate must be provided when passing a waveform")
             
-            # Create a temporary file to convert waveform to AudioSegment
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
-                # Use soundfile instead of torchaudio to avoid FFmpeg dependency
+                temp_path = temp_audio_file.name
                 wav = audio_path_or_waveform.squeeze(0) if audio_path_or_waveform.dim() > 1 else audio_path_or_waveform
-                sf.write(temp_audio_file.name, wav.cpu().numpy(), sample_rate)
-                # Using from_file() for consistency, though temp file is always wav
-                original_audio = AudioSegment.from_file(temp_audio_file.name)
-                os.unlink(temp_audio_file.name)  # Clean up temp file
+                sf.write(temp_path, wav.cpu().numpy(), sample_rate)
+            try:
+                original_audio = AudioSegment.from_file(temp_path)
+            finally:
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
             
             # Process the audio to get speaker segments
             speaker_segments = self.process_audio(

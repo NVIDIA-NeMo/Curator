@@ -1,3 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import numpy as np
 import joblib
 import warnings
@@ -11,14 +25,6 @@ from loguru import logger
 warnings.filterwarnings("ignore", category=UserWarning, message=".*Trying to unpickle estimator.*")
 
 from .features import AudioFeatureExtractor
-
-# Check GPU availability
-GPU_AVAILABLE = False
-try:
-    if torch.cuda.is_available():
-        GPU_AVAILABLE = True
-except Exception:
-    pass
 
 
 class BandPredictor:
@@ -45,27 +51,16 @@ class BandPredictor:
 
         cfg_n_workers = getattr(config, 'band_n_workers', 4) if config else 4
         cfg_cache_size = getattr(config, 'band_feature_cache_size', 100) if config else 100
-        cfg_use_gpu = getattr(config, 'use_gpu', True) if config else True
-
-        self.model_path = model_path or cfg_model_path
-        self.n_workers = n_workers or cfg_n_workers
-        self.feature_cache_size = feature_cache_size or cfg_cache_size
-
-        if use_gpu is None:
-            self.use_gpu = cfg_use_gpu and GPU_AVAILABLE
-        else:
-            self.use_gpu = use_gpu and GPU_AVAILABLE
+        self.model_path = model_path if model_path is not None else cfg_model_path
+        self.n_workers = n_workers if n_workers is not None else cfg_n_workers
+        self.feature_cache_size = feature_cache_size if feature_cache_size is not None else cfg_cache_size
 
         self.config = config
         self.use_batch_processing = True
         self.model = None
         self.feature_cache = {}
 
-        if self.use_gpu:
-            logger.info("GPU acceleration enabled for band prediction")
-
         self._load_model()
-        self._setup_gpu_model()
 
     def _load_model(self):
         """Load the model from disk."""
@@ -88,22 +83,6 @@ class BandPredictor:
         except Exception as e:
             logger.error(f"Error loading model from {self.model_path}: {e}")
             raise
-
-    def _setup_gpu_model(self):
-        """Set up GPU-accelerated model if possible."""
-        if not self.use_gpu:
-            return
-
-        try:
-            from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-
-            if isinstance(self.model, (RandomForestClassifier, GradientBoostingClassifier)):
-                self.gpu_batch_size = 1024
-                logger.info(f"Using GPU-accelerated batch inference for {type(self.model).__name__}")
-
-        except Exception as e:
-            logger.warning(f"Error setting up GPU acceleration: {e}")
-            self.use_gpu = False
 
     def extract_features_from_audio(self, waveform: torch.Tensor, sample_rate: int) -> np.ndarray:
         """
@@ -149,29 +128,6 @@ class BandPredictor:
             sample_vector, _ = AudioFeatureExtractor.features_dict_to_vector(sample_dict)
             return np.zeros_like(sample_vector)
 
-    def _gpu_predict_batch(self, features: np.ndarray) -> np.ndarray:
-        """Use GPU to predict a batch of samples."""
-        if not self.use_gpu:
-            return self.model.predict(features)
-
-        try:
-            tensor_features = torch.tensor(features, dtype=torch.float32).cuda()
-
-            batch_size = getattr(self, 'gpu_batch_size', 1024)
-            num_samples = tensor_features.shape[0]
-            result = []
-
-            for i in range(0, num_samples, batch_size):
-                batch = tensor_features[i:i+batch_size]
-                batch_cpu = batch.cpu().numpy()
-                batch_result = self.model.predict(batch_cpu)
-                result.append(batch_result)
-
-            return np.concatenate(result)
-        except Exception as e:
-            logger.warning(f"GPU prediction failed, falling back to CPU: {e}")
-            return self.model.predict(features)
-
     def predict_audio(self, waveform: torch.Tensor, sample_rate: int) -> str:
         """
         Predict whether an audio waveform is full band or narrow band.
@@ -191,12 +147,7 @@ class BandPredictor:
 
         try:
             features = self.extract_features_from_audio(waveform, sample_rate)
-
-            if self.use_gpu:
-                prediction = self._gpu_predict_batch(features.reshape(1, -1))[0]
-            else:
-                prediction = self.model.predict(features.reshape(1, -1))[0]
-
+            prediction = self.model.predict(features.reshape(1, -1))[0]
             return 'full_band' if prediction == 1 else 'narrow_band'
 
         except Exception as e:
@@ -244,11 +195,7 @@ class BandPredictor:
 
                     if valid_features:
                         batch_features = np.array(valid_features)
-
-                        if self.use_gpu:
-                            batch_predictions = self._gpu_predict_batch(batch_features)
-                        else:
-                            batch_predictions = self.model.predict(batch_features)
+                        batch_predictions = self.model.predict(batch_features)
 
                         results = ["Error: Feature extraction failed"] * len(audio_data)
 

@@ -8,11 +8,11 @@ A CompositeStage pipeline for audio curation that extracts clean single-speaker 
 
 | Feature | Description |
 |---------|-------------|
-| **Decomposed Pipeline** | 12 independent stages (when fully enabled) scheduled by the executor |
+| **Decomposed Pipeline** | 14 independent stages (when fully enabled) scheduled by the executor |
 | **Cross-file Parallelism** | Different files can be in different stages simultaneously |
 | **Timestamp Mapping** | All segments maintain original file positions via segment mappings |
 | **Multi-Format Support** | WAV, MP3, FLAC, OGG, M4A, AAC, WMA, OPUS, WebM |
-| **Quality Filters** | NISQA, SIGMOS, Band (bandwidth classification) |
+| **Quality Filters** | NISQA, SIGMOS, UTMOS, Band (bandwidth classification) |
 | **Speaker Separation** | NeMo-based speaker diarization |
 
 
@@ -33,6 +33,7 @@ python pipeline.py \
     --enable-vad \
     --enable-nisqa \
     --enable-sigmos \
+    --enable-utmos \
     --enable-band-filter \
     --enable-speaker-separation \
     --gpus 1.0
@@ -48,13 +49,20 @@ AudioDataFilterStage (CompositeStage) decomposes into:
     -> BandFilter (1:1, filter items)
     -> NISQA (1:1, filter items)
     -> SIGMOS (1:1, filter items)
+    -> UTMOS (1:1, filter items)
     -> SegmentConcatenation (1:1, M items -> 1 item + timestamp mappings)
     -> SpeakerSeparation (1:N fan-out, 1 task per speaker)
     -> VAD per speaker (1:1)
     -> BandFilter per speaker (1:1)
     -> NISQA per speaker (1:1)
     -> SIGMOS per speaker (1:1)
+    -> UTMOS per speaker (1:1)
     -> TimestampMapper (1:1, resolve to original file positions)
+
+Then the pipeline appends:
+
+  AudioToDocumentStage (AudioBatch -> DocumentBatch)
+    -> JsonlWriter (DocumentBatch -> JSONL manifest on disk)
 
 Task granularity:
   - One task = one file (or one speaker after fan-out)
@@ -82,6 +90,7 @@ No `item['audio']` (PyDub) in the inter-stage contract.
     "nisqa_noi": 4.5,
     "sigmos_noise": 4.2,
     "sigmos_ovrl": 3.8,
+    "utmos_mos": 3.9,
     "band_prediction": "full_band"
 }
 ```
@@ -131,37 +140,43 @@ No `item['audio']` (PyDub) in the inter-stage contract.
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import AudioDataFilterStage, AudioDataFilterConfig
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.tasks import AudioBatch
 
 config = AudioDataFilterConfig(
     enable_vad=True,
     enable_nisqa=True,
     nisqa_mos_threshold=4.5,
+    enable_utmos=True,
+    utmos_mos_threshold=3.5,
     enable_speaker_separation=True,
 )
 
-# CompositeStage -- decomposes into 12 independent stages
 pipeline = Pipeline(name="audio_curation")
 pipeline.add_stage(AudioDataFilterStage(
     config=config,
     gpu_resources=Resources(gpus=1.0),
 ))
+pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
+pipeline.add_stage(JsonlWriter(path="/path/to/output"))
 
 tasks = [AudioBatch(data={"audio_filepath": "/path/to/audio.wav"},
                     task_id="audio_001", dataset_name="my_dataset")]
 
 from nemo_curator.backends.xenna import XennaExecutor
-results = pipeline.run(XennaExecutor(), initial_tasks=tasks)
+pipeline.run(XennaExecutor(), initial_tasks=tasks)
 ```
 
 ## Extracting Audio Segments
 
-After running the pipeline, extract filtered segments as individual audio files:
+After running the pipeline, extract filtered segments as individual audio files.
+The pipeline writes one or more `.jsonl` files in the output directory:
 
 ```bash
 python extract_segments.py \
-    --manifest /path/to/result/manifest.jsonl \
+    --manifest /path/to/result/*.jsonl \
     --output-dir /path/to/extracted_segments \
     --output-format wav \
     --verbose

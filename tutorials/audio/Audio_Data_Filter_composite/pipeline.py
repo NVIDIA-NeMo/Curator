@@ -24,10 +24,11 @@ Decomposed pipeline (when all filters + speaker separation enabled):
     3. BandFilter (1:1, filter items)
     4. NISQA (1:1, filter items)
     5. SIGMOS (1:1, filter items)
-    6. SegmentConcatenation (1:1, M items -> 1 item + timestamp mappings)
-    7. SpeakerSeparation (1:N fan-out, 1 task per speaker)
-    8-11. Per-speaker: VAD + Band + NISQA + SIGMOS
-    12. TimestampMapper (1:1, resolve to original file positions)
+    6. UTMOS (1:1, filter items)
+    7. SegmentConcatenation (1:1, M items -> 1 item + timestamp mappings)
+    8. SpeakerSeparation (1:N fan-out, 1 task per speaker)
+    9-13. Per-speaker: VAD + Band + NISQA + SIGMOS + UTMOS
+    14. TimestampMapper (1:1, resolve to original file positions)
 
 Timestamp Mapping:
     SegmentConcatenationStage stores segment-to-original mappings in
@@ -40,7 +41,6 @@ Example:
 
 import argparse
 import glob
-import json
 import os
 import shutil
 import sys
@@ -56,7 +56,9 @@ from nemo_curator.stages.audio.advance_pipelines.Audio_data_filter.config import
     SUPPORTED_AUDIO_FORMATS,
     DEFAULT_OUTPUT_FORMAT,
 )
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.tasks import AudioBatch
 
 
@@ -91,6 +93,10 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
         enable_sigmos=args.enable_sigmos,
         sigmos_noise_threshold=args.sigmos_noise_threshold,
         sigmos_ovrl_threshold=args.sigmos_ovrl_threshold,
+        
+        enable_utmos=args.enable_utmos,
+        utmos_mos_threshold=args.utmos_mos_threshold,
+        
         enable_speaker_separation=args.enable_speaker_separation,
         speaker_exclude_overlaps=args.speaker_exclude_overlaps,
         speaker_min_duration=args.speaker_min_duration,
@@ -102,6 +108,13 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
     )
 
     pipeline.add_stage(audio_filter_stage)
+
+    pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
+    pipeline.add_stage(JsonlWriter(
+        path=args.output_dir,
+        write_kwargs={"force_ascii": False},
+    ))
+
     return pipeline
 
 
@@ -160,37 +173,6 @@ def load_audio_tasks(input_dir: str, recursive: bool = False,
     return tasks
 
 
-def save_results(results: list, output_dir: str) -> str:
-    """
-    Save pipeline results to JSONL manifest.
-    
-    Each result contains timestamp-mapped fields:
-    - original_file: Source audio file path
-    - original_start_ms: Start position in source file
-    - original_end_ms: End position in source file
-    - duration_ms, duration_sec: Segment duration
-    - speaker_id: Speaker identifier (if enabled)
-    - Quality scores
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    manifest_path = os.path.join(output_dir, "manifest.jsonl")
-    
-    with open(manifest_path, "w") as f:
-        for entry in results:
-            clean_entry = {}
-            for key, value in entry.items():
-                if hasattr(value, "item"):
-                    clean_entry[key] = value.item()
-                elif isinstance(value, (int, float, str, bool, type(None))):
-                    clean_entry[key] = value
-                else:
-                    clean_entry[key] = str(value)
-            f.write(json.dumps(clean_entry) + "\n")
-    
-    logger.info(f"Saved {len(results)} results to {manifest_path}")
-    return manifest_path
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Audio Data Filtration Pipeline",
@@ -208,7 +190,7 @@ Examples:
   
   # Full pipeline with all filters and speaker separation
   python pipeline.py --raw_data_dir ./audio --output_dir ./output \\
-      --enable-vad --enable-nisqa --enable-sigmos --enable-speaker-separation
+      --enable-vad --enable-nisqa --enable-sigmos --enable-utmos --enable-speaker-separation
         """
     )
     
@@ -263,6 +245,10 @@ Examples:
     parser.add_argument("--sigmos-noise-threshold", type=float, default=4.0, help="Min SIGMOS noise")
     parser.add_argument("--sigmos-ovrl-threshold", type=float, default=3.5, help="Min SIGMOS overall")
     
+    # UTMOS settings
+    parser.add_argument("--enable-utmos", action="store_true", help="Enable UTMOS filter")
+    parser.add_argument("--utmos-mos-threshold", type=float, default=3.5, help="Min UTMOS MOS")
+    
     # Speaker separation settings
     parser.add_argument("--enable-speaker-separation", action="store_true", help="Enable speaker sep")
     parser.add_argument("--speaker-exclude-overlaps", action="store_true", default=True)
@@ -285,8 +271,6 @@ Examples:
     if args.clean and os.path.exists(args.output_dir):
         shutil.rmtree(args.output_dir)
     
-    os.makedirs(args.output_dir, exist_ok=True)
-    
     # Log configuration
     logger.info("=" * 70)
     logger.info("Audio Data Filtration Pipeline")
@@ -304,6 +288,8 @@ Examples:
         enabled.append("NISQA")
     if args.enable_sigmos:
         enabled.append("SIGMOS")
+    if args.enable_utmos:
+        enabled.append("UTMOS")
     if args.enable_speaker_separation:
         enabled.append("SpeakerSep")
     
@@ -334,38 +320,15 @@ Examples:
     try:
         from datetime import datetime
 
-        start_time = datetime.now()
-
         from nemo_curator.backends.xenna import XennaExecutor
 
+        start_time = datetime.now()
         executor = XennaExecutor()
-        result_tasks = pipeline.run(executor, initial_tasks=tasks)
-
+        pipeline.run(executor, initial_tasks=tasks)
         duration = (datetime.now() - start_time).total_seconds()
 
-        all_results = []
-        for task in result_tasks:
-            if task is not None and hasattr(task, 'data'):
-                if isinstance(task.data, list):
-                    all_results.extend(task.data)
-                else:
-                    all_results.append(task.data)
-
-        logger.info(f"Completed in {duration:.2f}s, {len(all_results)} segments")
-
-        if all_results:
-            save_results(all_results, args.output_dir)
-
-            sample = all_results[0]
-            logger.info("Sample output (showing timestamp mapping):")
-            logger.info(f"  original_file: {sample.get('original_file', 'N/A')}")
-            logger.info(f"  original_start_ms: {sample.get('original_start_ms', 'N/A')}")
-            logger.info(f"  original_end_ms: {sample.get('original_end_ms', 'N/A')}")
-            logger.info(f"  duration_sec: {sample.get('duration_sec', 'N/A')}")
-            if 'speaker_id' in sample:
-                logger.info(f"  speaker_id: {sample.get('speaker_id')}")
-        else:
-            logger.warning("No segments passed filters")
+        logger.info(f"Completed in {duration:.2f}s")
+        logger.info(f"Results written to {args.output_dir}/*.jsonl")
 
     except Exception as e:
         logger.exception(f"Pipeline failed: {e}")

@@ -31,7 +31,6 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 import torch
-import torchaudio
 import soundfile as sf
 from loguru import logger
 
@@ -159,5 +158,5 @@ class MonoConversionStage(ProcessingStage[AudioBatch, AudioBatch]):
             task_id=task.task_id,
             dataset_name=task.dataset_name,
             _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
+            _stage_perf=list(task._stage_perf),
         )

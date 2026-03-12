@@ -1,5 +1,16 @@
 # Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
-# Licensed under the Apache License, Version 2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """
 Audio Data Filter Stage - CompositeStage that decomposes into independent
@@ -11,10 +22,11 @@ Pipeline (when all filters + speaker separation enabled):
     3. BandFilter (1:1, filter items)
     4. NISQA (1:1, filter items)
     5. SIGMOS (1:1, filter items)
-    6. SegmentConcatenation (1:1, M items -> 1 item + timestamp mappings)
-    7. SpeakerSeparation (1:N fan-out)
-    8-11. Per-speaker: VAD + Band + NISQA + SIGMOS
-    12. TimestampMapper (1:1, resolve to original file positions)
+    6. UTMOS (1:1, filter items)
+    7. SegmentConcatenation (1:1, M items -> 1 item + timestamp mappings)
+    8. SpeakerSeparation (1:N fan-out)
+    9-13. Per-speaker: VAD + Band + NISQA + SIGMOS + UTMOS
+    14. TimestampMapper (1:1, resolve to original file positions)
 
 Usage:
     pipeline.add_stage(AudioDataFilterStage(config=config))
@@ -33,6 +45,7 @@ from nemo_curator.stages.audio import (
     VADSegmentationStage,
     NISQAFilterStage,
     SIGMOSFilterStage,
+    UTMOSFilterStage,
     BandFilterStage,
     SpeakerSeparationStage,
     SegmentConcatenationStage,
@@ -42,6 +55,7 @@ from nemo_curator.stages.audio.configs import (
     VADConfig,
     NISQAConfig,
     SIGMOSConfig,
+    UTMOSConfig,
     BandFilterConfig,
     SpeakerSeparationConfig,
 )
@@ -119,19 +133,26 @@ class AudioDataFilterStage(CompositeStage):
                                     reverb_threshold=cfg.sigmos_reverb_threshold),
                 name="SIGMOS").with_(resources=gpu_res))
 
+        # 6. UTMOS
+        if cfg.enable_utmos:
+            stages.append(UTMOSFilterStage(
+                config=UTMOSConfig(mos_threshold=cfg.utmos_mos_threshold,
+                                   sample_rate=cfg.utmos_sample_rate),
+                name="UTMOS").with_(resources=gpu_res))
+
         if cfg.enable_speaker_separation:
-            # 6. Concatenation (CPU)
+            # 7. Concatenation (CPU)
             stages.append(SegmentConcatenationStage(
                 silence_duration_sec=cfg.silence_duration_ms / 1000.0,
                 name="SegmentConcat"))
 
-            # 7. Speaker separation (GPU, fan-out)
+            # 8. Speaker separation (GPU, fan-out)
             stages.append(SpeakerSeparationStage(
                 config=SpeakerSeparationConfig(
                     exclude_overlaps=cfg.speaker_exclude_overlaps),
                 name="SpeakerSeparation").with_(resources=gpu_res))
 
-            # 8-11. Per-speaker stages
+            # 9-13. Per-speaker stages
             if cfg.enable_vad:
                 stages.append(VADSegmentationStage(
                     config=VADConfig(min_duration_sec=cfg.vad_min_duration_sec,
@@ -163,7 +184,13 @@ class AudioDataFilterStage(CompositeStage):
                                         reverb_threshold=cfg.sigmos_reverb_threshold),
                     name="SIGMOS_Speaker").with_(resources=gpu_res))
 
-        # 12. Timestamp mapper (CPU)
+            if cfg.enable_utmos:
+                stages.append(UTMOSFilterStage(
+                    config=UTMOSConfig(mos_threshold=cfg.utmos_mos_threshold,
+                                       sample_rate=cfg.utmos_sample_rate),
+                    name="UTMOS_Speaker").with_(resources=gpu_res))
+
+        # 14. Timestamp mapper (CPU)
         stages.append(TimestampMapperStage(name="TimestampMapper"))
 
         logger.info(f"AudioDataFilterStage decomposed into {len(stages)} stages "

@@ -37,7 +37,6 @@ Example:
 """
 
 import os
-import threading
 import warnings
 from dataclasses import dataclass, field
 from typing import Any, List, Dict, Tuple, Optional
@@ -166,33 +165,7 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
             self.speech_pad_ms = self.config.speech_pad_ms
         
         self._vad_model = None
-        self._vad_utils = None
-        self._init_lock = None
         self._device = None
-    
-    def __getstate__(self):
-        """Return state for pickling, excluding unpicklable objects."""
-        state = self.__dict__.copy()
-        # Remove the lock and model - they'll be recreated
-        state['_init_lock'] = None
-        state['_vad_model'] = None
-        state['_vad_utils'] = None
-        state['_device'] = None
-        return state
-    
-    def __setstate__(self, state):
-        """Restore state after unpickling."""
-        self.__dict__.update(state)
-        self._init_lock = None
-        self._vad_model = None
-        self._vad_utils = None
-        self._device = None
-    
-    def _get_lock(self):
-        """Get or create the initialization lock (lazy initialization)."""
-        if self._init_lock is None:
-            self._init_lock = threading.Lock()
-        return self._init_lock
     
     def inputs(self) -> Tuple[List[str], List[str]]:
         return ["data"], []
@@ -209,56 +182,44 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     def setup(self, worker_metadata=None) -> None:
         """Load VAD model on worker initialization."""
+        from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
+        ensure_cudnn_loaded()
         self._initialize_model()
     
     def teardown(self) -> None:
         """Clean up resources."""
         if self._vad_model is not None:
             del self._vad_model
-            del self._vad_utils
             self._vad_model = None
-            self._vad_utils = None
             torch.cuda.empty_cache()
     
     def _initialize_model(self):
-        """Initialize the VAD model (thread-safe with double-checked locking)."""
-        if self._vad_model is None:
-            with self._get_lock():
-                if self._vad_model is None:
-                    try:
-                        # Use silero-vad pip package instead of torch.hub.load
-                        # This avoids GitHub API rate limiting issues
-                        model = load_silero_vad()
-                        
-                        # Determine device based on resources and CUDA availability
-                        # Use GPU if _resources.gpus > 0 and CUDA is available
-                        use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
-                        
-                        if use_gpu:
-                            self._device = torch.device(f'cuda:{torch.cuda.current_device()}')
-                            model = model.to(self._device)
-                            logger.info(f"Silero VAD model loaded on GPU: {self._device}")
-                        else:
-                            self._device = torch.device('cpu')
-                            logger.info("Silero VAD model loaded on CPU")
-                        
-                        self._vad_model = model
-                        self._vad_utils = None  # No longer needed, using get_speech_timestamps directly
-                    except Exception as e:
-                        logger.error(f"Failed to load VAD model: {e}")
-                        raise
+        """Initialize the VAD model."""
+        if self._vad_model is not None:
+            return
+        try:
+            model = load_silero_vad()
+            
+            use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
+            
+            if use_gpu:
+                self._device = torch.device("cuda")
+                model = model.to(self._device)
+                logger.info(f"Silero VAD model loaded on GPU: {self._device}")
+            else:
+                self._device = torch.device('cpu')
+                logger.info("Silero VAD model loaded on CPU")
+            
+            self._vad_model = model
+        except Exception as e:
+            logger.error(f"Failed to load VAD model: {e}")
+            raise
     
     @property
     def vad_model(self):
-        """Get VAD model (lazy load with thread safety)."""
+        """Get VAD model."""
         self._initialize_model()
         return self._vad_model
-    
-    @property 
-    def vad_utils(self):
-        """Get VAD utilities."""
-        self._initialize_model()
-        return self._vad_utils
     
     def _build_segment_items(
         self, item: Dict[str, Any], waveform: torch.Tensor, sample_rate: int, segments: List[Dict[str, float]]
@@ -365,7 +326,7 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 data=seg_item,
                 task_id=f"{task.task_id}_seg_{seg_item['segment_num']}",
                 dataset_name=task.dataset_name,
-                _metadata=task._metadata,
+                _metadata=dict(task._metadata) if task._metadata else {},
                 _stage_perf=list(task._stage_perf),
             ))
         return output_tasks
@@ -374,7 +335,7 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
         """Get speech segments using VAD."""
         # Ensure waveform is 1D for VAD
         if waveform.dim() > 1:
-            waveform = waveform.squeeze()
+            waveform = waveform.squeeze(0)
         
         # Move waveform to the same device as the model
         if self._device is not None and waveform.device != self._device:
@@ -394,7 +355,7 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
             if waveform_cpu.dim() == 1:
                 waveform_cpu = waveform_cpu.unsqueeze(0)
             resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=SILERO_TARGET_RATE)
-            vad_waveform = resampler(waveform_cpu).squeeze()
+            vad_waveform = resampler(waveform_cpu).squeeze(0)
             # Move back to original device
             if device.type != 'cpu':
                 vad_waveform = vad_waveform.to(device)

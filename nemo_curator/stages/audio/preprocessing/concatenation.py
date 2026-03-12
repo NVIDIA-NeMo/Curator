@@ -123,6 +123,11 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
             sr = item.get('sample_rate', 48000)
             if waveform is None:
                 continue
+            if sr <= 0:
+                logger.warning(f"[SegmentConcat] Skipping segment {idx}: invalid sample_rate={sr}")
+                continue
+            if not torch.is_tensor(waveform):
+                waveform = torch.as_tensor(waveform, dtype=torch.float32)
             sample_rate = sr
             silence_samples = int(silence_duration_ms * sample_rate / 1000)
 
@@ -130,10 +135,15 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
             num_samples = w.shape[-1] if w.dim() > 0 else 0
             segment_duration_ms = int(1000 * num_samples / sample_rate)
 
+            orig_start = item.get('start_ms', 0)
+            orig_end = item.get('end_ms', 0)
+            if orig_end <= orig_start:
+                orig_end = orig_start + segment_duration_ms
+
             mapping = SegmentMapping(
                 original_file=item.get('original_file', item.get('audio_filepath', 'unknown')),
-                original_start_ms=item.get('start_ms', 0),
-                original_end_ms=item.get('end_ms', 0),
+                original_start_ms=orig_start,
+                original_end_ms=orig_end,
                 concat_start_ms=current_pos_ms,
                 concat_end_ms=current_pos_ms + segment_duration_ms,
                 segment_index=idx,
