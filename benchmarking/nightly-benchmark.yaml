@@ -923,7 +923,10 @@ entries:
       --overlap-percentage=50
       --repeat-factor=2000
     timeout_s: 600
-    sink_data: []
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
     ray:
       num_cpus: 8
       num_gpus: 0

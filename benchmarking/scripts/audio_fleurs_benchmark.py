@@ -26,7 +26,6 @@ from typing import Any
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
-from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
@@ -131,22 +130,11 @@ def main() -> int:
     parser.add_argument("--wer-threshold", type=float, default=5.5, help="WER threshold for filtering")
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs to use")
-    parser.add_argument(
-        "--executor",
-        default="xenna",
-        choices=["xenna", "ray_data"],
-        help="Executor to use for pipeline execution",
-    )
 
     args = parser.parse_args()
 
     logger.info("=== Audio Fleurs Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
-
-    use_ray = args.executor != "xenna"
-    ray_client = RayClient() if use_ray else None
-    if ray_client is not None:
-        ray_client.start()
 
     success_code = 1  # assume failure until benchmark succeeds
 
@@ -167,8 +155,6 @@ def main() -> int:
         logger.debug(f"Full traceback:\n{error_traceback}")
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path)
-        if ray_client is not None:
-            ray_client.stop()
     return success_code
 
 
