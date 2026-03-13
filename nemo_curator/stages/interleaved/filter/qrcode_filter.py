@@ -54,7 +54,7 @@ class InterleavedQRCodeFilterStage(BaseInterleavedFilterStage):
     """Filter interleaved image rows by QR code area ratio; drop images with high QR coverage."""
 
     score_threshold: float = 0.05
-    image_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg", "image/png")
+    image_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg", "image/png", "image/tiff")
     name: str = "interleaved_qrcode_filter"
 
     def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:

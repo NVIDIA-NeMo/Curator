@@ -39,7 +39,7 @@ class InterleavedBlurFilterStage(BaseInterleavedFilterStage):
     """Filter interleaved image rows by sharpness (Laplacian variance); drop blurry images."""
 
     score_threshold: float = 100.0
-    image_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg", "image/png")
+    image_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg", "image/png", "image/tiff")
     name: str = "interleaved_blur_filter"
 
     def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:

@@ -49,7 +49,7 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
 
     model_dir: str | None = None
     min_score: float = 0.15
-    image_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg", "image/png")
+    image_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg", "image/png", "image/tiff")
     name: str = "interleaved_clip_score_filter"
     resources: Resources = field(default_factory=lambda: Resources(gpu_memory_gb=20.0))
 
