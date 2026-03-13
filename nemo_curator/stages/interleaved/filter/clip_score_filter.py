@@ -67,24 +67,28 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
         if not image_mask.any():
             return keep_mask
 
-        cached_sample_id = None
-        text_emb = None
-
+        sample_id_to_rows: dict[str, list[tuple[int, bytes]]] = {}
         for idx, image_bytes in self.iter_materialized_bytes(task=task, df=df, row_mask=image_mask):
             if image_bytes is None:
                 keep_mask.loc[idx] = False
                 continue
-            image = image_bytes_to_array(image_bytes)
             sample_id = df.loc[idx, "sample_id"]
+            sample_id_to_rows.setdefault(sample_id, []).append((idx, image_bytes))
+
+        for sample_id, rows in sample_id_to_rows.items():
             texts = _sample_texts_list_from_df(df, sample_id)
             if not texts:
-                keep_mask.loc[idx] = False
+                for idx, _ in rows:
+                    keep_mask.loc[idx] = False
                 continue
-            img_emb = self._model([image])
-            if sample_id != cached_sample_id:
-                cached_sample_id = sample_id
-                text_emb = self._model.encode_text(texts)
+            indices, images = [], []
+            for idx, b in rows:
+                indices.append(idx)
+                images.append(image_bytes_to_array(b))
+            img_emb = self._model(images)
+            text_emb = self._model.encode_text(texts)
             scores = img_emb @ text_emb.T
-            max_score = scores.max()
-            keep_mask.loc[idx] = (max_score >= self.min_score).item()
+            for i, idx in enumerate(indices):
+                keep_mask.loc[idx] = (scores[i].max() >= self.min_score).item()
+
         return keep_mask
