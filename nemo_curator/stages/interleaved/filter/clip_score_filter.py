@@ -49,7 +49,6 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
 
     model_dir: str | None = None
     min_score: float = 0.15
-    image_content_types: tuple[str, ...] = ("image/jpeg", "image/jpg", "image/png", "image/tiff")
     name: str = "interleaved_clip_score_filter"
     resources: Resources = field(default_factory=lambda: Resources(gpu_memory_gb=20.0))
 
@@ -63,7 +62,7 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
 
     def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
         keep_mask = pd.Series(True, index=df.index, dtype=bool)
-        image_mask = (df["modality"] == "image") & (df["content_type"].isin(self.image_content_types))
+        image_mask = df["modality"] == "image"
         if not image_mask.any():
             return keep_mask
 
