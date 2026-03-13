@@ -106,6 +106,24 @@ class CLIPImageEmbeddings(ModelInterface):
         # Normalize embeddings
         return embed / torch.linalg.vector_norm(embed, dim=-1, keepdim=True)  # type: ignore[no-any-return]
 
+    @torch.no_grad()
+    def encode_text(self, texts: list[str]) -> torch.Tensor:
+        """Encode text(s) to normalized CLIP text embeddings.
+
+        Args:
+            texts: List of strings to encode.
+
+        Returns:
+            Normalized text embeddings, shape (len(texts), dim).
+        """
+        if not texts:
+            msg = "encode_text requires at least one text"
+            raise ValueError(msg)
+        inputs = self.processor(text=texts, return_tensors="pt", padding=True, truncation=True)
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        embed = self.clip.get_text_features(**inputs)
+        return embed / torch.linalg.vector_norm(embed, dim=-1, keepdim=True)  # type: ignore[no-any-return]
+
     @classmethod
     def download_weights_on_node(cls, model_dir: str) -> None:
         """Download the weights for the CLIPImageEmbeddings model on the node."""
