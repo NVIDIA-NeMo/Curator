@@ -109,10 +109,18 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
 
 class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
     """
-    Reads WARC records directly from Common Crawl using HTTPS range requests.
+    Reads WARC records directly from Common Crawl using HTTPS or S3 range requests.
 
     This stage fetches raw HTML content from Common Crawl's public servers
-    using byte-range requests. No AWS credentials or s5cmd required.
+    using byte-range requests.
+
+    Transport modes:
+      - **HTTPS** (default): Uses ``data.commoncrawl.org`` via ``requests``.
+      - **S3**: Uses ``boto3`` range requests against the ``commoncrawl`` bucket.
+        Activated by ``use_s3=True`` or by setting ``CC_USE_S3=1``.
+        Credentials, region, and endpoint are resolved
+        by boto3's standard credential chain (env vars, ``~/.aws/`` config,
+        instance profiles, etc.).
     """
 
     def __init__(  # noqa: PLR0913
@@ -125,6 +133,9 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
         max_workers: int = 16,
         timeout: int = 30,
         max_retries: int = 3,
+        use_s3: bool | None = None,
+        s3_bucket: str | None = None,
+        s3_key_prefix: str | None = None,
     ):
         """
         Initialize the WARC reader.
@@ -138,6 +149,17 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
             max_workers: Number of parallel threads for fetching.
             timeout: HTTP request timeout in seconds.
             max_retries: Number of retries for failed requests.
+            use_s3: If True, fetch via S3 (boto3) instead of HTTPS.
+                If None (default), reads ``CC_USE_S3`` env var.
+                Accepted truthy values: ``1``, ``true``, ``yes``.
+            s3_bucket: S3 bucket name. Falls back to ``CC_S3_BUCKET`` env var,
+                then ``"commoncrawl"``.
+            s3_key_prefix: Prefix to strip from ``warc_filename`` when
+                building the S3 object key.  Falls back to
+                ``CC_S3_KEY_PREFIX`` env var.  Default empty (key =
+                warc_filename as-is, correct for the AWS ``commoncrawl``
+                bucket).  Set when the bucket name overlaps with the
+                leading path segment in the dataset's warc filenames.
         """
         self.warc_filename_col = warc_filename_col
         self.warc_record_offset_col = warc_record_offset_col
@@ -149,6 +171,14 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.max_retries = max_retries
         self.name = "CommonCrawlWARCReader"
         self._session = None
+        self._s3_client = None
+
+        if use_s3 is None:
+            self.use_s3 = os.environ.get("CC_USE_S3", "").lower() in ("1", "true", "yes")
+        else:
+            self.use_s3 = use_s3
+        self.s3_bucket = s3_bucket or os.environ.get("CC_S3_BUCKET", "commoncrawl")
+        self.s3_key_prefix = s3_key_prefix or os.environ.get("CC_S3_KEY_PREFIX", "")
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return (
@@ -163,7 +193,6 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
         """Get or create a requests session for connection pooling."""
         if self._session is None:
             self._session = requests.Session()
-            # Configure connection pooling for better performance
             adapter = requests.adapters.HTTPAdapter(
                 pool_connections=self.max_workers,
                 pool_maxsize=self.max_workers * 2,
@@ -172,6 +201,84 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
             self._session.mount("https://", adapter)
             self._session.mount("http://", adapter)
         return self._session
+
+    def _get_s3_client(self) -> object:
+        """Get or create a boto3 S3 client (lazy, thread-safe enough for reads).
+
+        Credentials, region, and endpoint are resolved entirely by boto3's
+        standard chain (``AWS_*`` env vars, ``~/.aws/config``, instance
+        profiles).  Only connection-pool and retry settings are overridden.
+        """
+        if self._s3_client is None:
+            try:
+                import boto3
+            except ImportError as exc:
+                msg = (
+                    "CommonCrawlWARCReader configured with use_s3=True but boto3 is not installed. "
+                    "Install boto3 or set use_s3=False (or unset CC_USE_S3)."
+                )
+                raise RuntimeError(msg) from exc
+            from botocore.config import Config as BotoConfig
+
+            boto_cfg = BotoConfig(
+                max_pool_connections=self.max_workers * 2,
+                retries={"max_attempts": self.max_retries, "mode": "adaptive"},
+                connect_timeout=self.timeout,
+                read_timeout=self.timeout,
+            )
+            self._s3_client = boto3.client("s3", config=boto_cfg)
+            logger.info(f"S3 client initialized for bucket={self.s3_bucket}")
+        return self._s3_client
+
+    def _s3_key_from_filename(self, filename: str) -> str:
+        """Derive S3 object key from the warc_filename column value.
+
+        Strips ``s3_key_prefix`` from the front of *filename* when present.
+        E.g. prefix ``"crawl-data/"`` + filename ``"crawl-data/CC-MAIN-…"``
+        → key ``"CC-MAIN-…"``.  With an empty prefix the filename is used
+        as-is (the default for the AWS ``commoncrawl`` bucket).
+        """
+        if self.s3_key_prefix and filename.startswith(self.s3_key_prefix):
+            return filename[len(self.s3_key_prefix) :]
+        return filename
+
+    def _read_warc_record_s3(self, row: pd.Series) -> bytes | None:
+        """Fetch a single WARC record using S3 range request (boto3)."""
+        filename = None
+        try:
+            filename = row[self.warc_filename_col]
+            offset = int(row[self.warc_record_offset_col])
+            length = int(row[self.warc_record_length_col])
+            end_byte = offset + length - 1
+
+            resp = self._get_s3_client().get_object(
+                Bucket=self.s3_bucket,
+                Key=self._s3_key_from_filename(filename),
+                Range=f"bytes={offset}-{end_byte}",
+            )
+            raw_bytes = resp["Body"].read()
+
+            try:
+                decompressed = gzip.decompress(raw_bytes)
+            except gzip.BadGzipFile:
+                decompressed = raw_bytes
+
+            try:
+                stream = io.BytesIO(decompressed)
+                archive_iterator = ArchiveIterator(stream)
+                for record in archive_iterator:
+                    if record.rec_type == "response":
+                        return record.content_stream().read()
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"Failed to parse WARC record {filename}: {e}, returning decompressed bytes")
+                return decompressed
+            else:
+                logger.debug(f"No response record found in WARC for {filename}, returning raw content")
+                return decompressed
+
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"S3 fetch failed for {filename}: {e}")
+            return None
 
     def _read_warc_record(self, row: pd.Series) -> bytes | None:  # noqa: C901, PLR0911
         """Fetch a single WARC record using HTTPS range request.
@@ -250,10 +357,11 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
         """Fetch multiple records in parallel using ThreadPoolExecutor."""
         results = [None] * len(df_partition)
         rows = list(df_partition.iterrows())
+        fetch_fn = self._read_warc_record_s3 if self.use_s3 else self._read_warc_record
 
         def fetch_row(row_data: tuple[int, pd.Series]) -> tuple[int, bytes | None]:
             idx, row = row_data
-            return idx, self._read_warc_record(row)
+            return idx, fetch_fn(row)
 
         # Use a thread pool to parallelize the HTTP requests
         # Requests are IO bound, so threads work well here

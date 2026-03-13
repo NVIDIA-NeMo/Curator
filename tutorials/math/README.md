@@ -405,7 +405,7 @@ Extract and preprocess text from raw web data:
 
 ```bash
 # For datasets with WARC metadata (FineMath, or after CC Index lookup)
-# Uses --fetch-cc to download content from Common Crawl S3
+# Uses --fetch-cc to download content from Common Crawl (HTTPS by default; set CC_USE_S3=1 to use S3)
 python tutorials/math/2_text_preprocess.py \
     --input "$MATH_DATA_DIR/enriched/*.parquet" \
     --output $MATH_DATA_DIR/preprocessed \
@@ -423,6 +423,12 @@ python tutorials/math/2_text_preprocess.py \
     --fetch-cc \
     --report-stats
 ```
+
+**Common Crawl fetch env vars (used by `CommonCrawlWARCReader`):**
+
+- `CC_USE_S3`: Set to `1`/`true`/`yes` to use S3 range requests; default is HTTPS.
+- `CC_S3_BUCKET`: Override bucket name (default: `commoncrawl`).
+- `CC_S3_KEY_PREFIX`: Optional prefix to strip from `warc_filename` when building S3 object key.
 
 **Input**: Parquet files with either:
 - `warc_filename`, `warc_record_offset`, `warc_record_length` columns → use `--fetch-cc` to download from Common Crawl
