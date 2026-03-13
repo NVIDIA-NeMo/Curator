@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import time
 from enum import Enum
 from typing import Any
@@ -102,7 +103,14 @@ def get_available_cpu_gpu_resources(
 
 @ray.remote
 def _setup_stage_on_node(stage: ProcessingStage, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:
-    """Ray remote function to execute setup_on_node for a stage."""
+    """Ray remote function to execute setup_on_node for a stage.
+
+    This runs as a Ray remote task (not an actor).
+    If the stage initializes vLLM, vLLM's auto-detection will force spawn
+    only forces spawn inside Ray actors, otherwise it will use fork which will result in CUDA fork errors.
+    We explicitly set the environment variable to spawn to prevent this.
+    """
+    os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
     stage.setup_on_node(node_info, worker_metadata)
 
 
