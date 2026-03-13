@@ -30,7 +30,9 @@
 #   8. BandwidthEstimation     - Estimate audio bandwidth
 #   9. SquimMetrics            - TorchSQUIM quality metrics
 #  10. PrepareModuleSegments   - Prepare ASR-ready segments
-#  11. ManifestWriter          - Write output JSONL manifest
+#  11. NeMoASRAligner          - Forced alignment via NeMo FastConformer
+#  12. ComputeWER              - Compute WER between two ASR transcripts
+#  13. ManifestWriter          - Write output JSONL manifest
 #
 # Usage (from Curator repo root):
 #   python tutorials/audio/tagging/main.py \
@@ -88,6 +90,8 @@ hf_token: ""
 sample_rate: 16000
 max_segment_length: 40
 batch_size: 4
+text_key1: text
+text_key2: text_2
 resources:
   cpus: 2
 
@@ -96,12 +100,10 @@ resources:
 # =============================================================================
 
 stages:
-  # Stage 0: Read input manifest
   - _target_: nemo_curator.stages.audio.common.ManifestReader
     manifest_path: ${input_manifest}
     files_per_partition: 1
 
-  # Stage 1: Resample audio to 16 kHz mono WAV
   - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
     name: "ResampleAudio"
     resampled_audio_dir: ${resampled_audio_dir}
@@ -111,14 +113,12 @@ stages:
     target_nchannels: 1
     resources: ${resources}
 
-  # Stage 2: Speaker diarization and overlap detection (PyAnnote)
   - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
     name: "PyAnnoteDiarization"
     hf_token: ${hf_token}
     max_length: ${max_segment_length}
     device: ${device}
 
-  # Stage 3: Split long audio segments
   - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
     name: "SplitLongAudio"
     suggested_max_len: ${max_segment_length}
@@ -126,7 +126,6 @@ stages:
     min_len: 1.0
     resources: ${resources}
 
-  # Stage 4: ASR forced alignment (NeMo FastConformer RNNT)
   - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
     name: "ASRAlignment"
     is_fastconformer: true
@@ -134,36 +133,24 @@ stages:
     batch_size: 32
     device: ${device}
 
-  # Stage 5: Rejoin split audio metadata
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
     name: "JoinSplitMetadata"
     resources: ${resources}
 
-  # Stage 6: Merge alignment with diarization
   - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
     name: "MergeAlignmentDiar"
-    text_key: "text"
+    text_key: ${text_key1}
     words_key: "words"
     resources: ${resources}
 
-  # Stage 7: Inverse text normalization
-  - _target_: nemo_curator.stages.audio.tagging.text.itn.InverseTextNormalizationStage
-    name: "InverseTextNorm"
-    language: ${language_short}
-    text_key: "text"
-    resources: ${resources}
-
-  # Stage 8: Bandwidth estimation
   - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
     name: "BandwidthEstimation"
     resources: ${resources}
 
-  # Stage 9: Audio quality metrics (TorchSQUIM)
   - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
     name: "SquimMetrics"
     device: ${device}
 
-  # Stage 10: Prepare ASR segments
   - _target_: nemo_curator.stages.audio.tagging.PrepareModuleSegmentsStage
     name: "PrepareModuleSegments"
     module: asr
@@ -174,8 +161,30 @@ stages:
     full_utterance_ratio: 0.8
     punctuation_split_only: false
     resources: ${resources}
+  
+  # Second pass ASR
+  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+    name: "ASRAlignment2"
+    model_name: nvidia/stt_en_conformer_ctc_large
+    is_fastconformer: False
+    decoder_type: ctc
+    batch_size: 64
+    split_batch_size: 100
+    device: ${device}
+    text_key: ${text_key2}
+    infer_segment_only: True
+    compute_timestamps: False
+    resources: ${resources}
 
-  # Stage 11: Write output manifest
+  - _target_: nemo_curator.stages.audio.tagging.ComputeWERStage
+    name: "ComputeWER"
+    language: ${language_short}
+    hypothesis_text_key: ${text_key1}
+    reference_text_key: ${text_key2}
+    pnc_chars: ".?,"
+    compute_pnc_wer: False
+    resources: ${resources}
+
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
     name: "ManifestWriter"
     output_path: ${final_manifest}

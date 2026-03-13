@@ -42,28 +42,8 @@ from nemo_curator.stages.audio.alm import (
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioBatch
+from utils import RepeatEntriesStage
 
-
-class _RepeatEntriesStage(ProcessingStage[AudioBatch, AudioBatch]):
-    """Multiply each AudioBatch entry N times for scale testing.
-
-    Duplicates entries in-memory after reading so the file is only read once.
-    """
-
-    name = "repeat_entries"
-
-    def __init__(self, repeat_factor: int = 1) -> None:
-        self._repeat_factor = repeat_factor
-
-    def process(self, task: AudioBatch) -> list[AudioBatch]:
-        return [
-            AudioBatch(
-                data=task.data,
-                _metadata=task._metadata,
-                _stage_perf=list(task._stage_perf),
-            )
-            for _ in range(self._repeat_factor)
-        ]
 
 
 def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
@@ -95,7 +75,7 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
     pipeline = Pipeline(name="alm_benchmark", description="ALM Reader + Builder + Overlap benchmark pipeline")
     pipeline.add_stage(ALMManifestReader(manifest_path=input_manifest))
     if repeat_factor > 1:
-        pipeline.add_stage(_RepeatEntriesStage(repeat_factor=repeat_factor))
+        pipeline.add_stage(RepeatEntriesStage(repeat_factor=repeat_factor))
         logger.info(f"Repeat factor: {repeat_factor}x (entries multiplied after reading)")
     pipeline.add_stage(
         ALMDataBuilderStage(

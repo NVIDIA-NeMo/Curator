@@ -24,14 +24,16 @@ from nemo_curator.backends.experimental.ray_actor_pool.executor import RayActorP
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioBatch
 
 _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor, "ray_actors": RayActorPoolExecutor}
 
 
-def setup_executor(executor_name: str) -> RayDataExecutor | XennaExecutor | RayActorPoolExecutor:
+def setup_executor(executor_name: str, config: dict[str, Any] | None = None) -> RayDataExecutor | XennaExecutor | RayActorPoolExecutor:
     """Setup the executor for the given name."""
     try:
-        executor = _executor_map[executor_name]()
+        executor = _executor_map[executor_name](config=config)
     except KeyError:
         msg = f"Executor {executor_name} not supported"
         raise ValueError(msg) from None
@@ -172,3 +174,25 @@ def convert_paths_to_strings(obj: object) -> object:
     else:
         retval = obj
     return retval
+
+
+class RepeatEntriesStage(ProcessingStage[AudioBatch, AudioBatch]):
+    """Multiply each AudioBatch entry N times for scale testing.
+
+    Duplicates entries in-memory after reading so the file is only read once.
+    """
+
+    name = "repeat_entries"
+
+    def __init__(self, repeat_factor: int = 1) -> None:
+        self._repeat_factor = repeat_factor
+
+    def process(self, task: AudioBatch) -> list[AudioBatch]:
+        return [
+            AudioBatch(
+                data=task.data,
+                _metadata=task._metadata,
+                _stage_perf=list(task._stage_perf),
+            )
+            for _ in range(self._repeat_factor)
+        ]

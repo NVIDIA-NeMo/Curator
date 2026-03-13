@@ -74,7 +74,10 @@ class SplitLongAudioStage(LegacySpeechStage):
 
         # If audio is short enough, no splitting needed
         if duration < self.suggested_max_len:
-            data_entry["split_filepaths"] = None
+            data_entry["split_filepaths"] = [data_entry["resampled_audio_filepath"]]
+            data_entry["split_metadata"] = [data_entry]
+            data_entry["split_offsets"] = [0.0]
+            data_entry["split_timestamps"] = [0.0]
             return [AudioBatch(data=[data_entry])]
 
         # Get split points
