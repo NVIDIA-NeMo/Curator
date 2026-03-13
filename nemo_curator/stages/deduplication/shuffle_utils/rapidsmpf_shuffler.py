@@ -18,13 +18,13 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import cudf
 import rmm.mr
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
     unspill_partitions,
 )
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table, pylibcudf_to_cudf_dataframe
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from rapidsmpf.shuffler import Shuffler
 
 
-# Exempt this class from coverage is it's indirectly tested by the ShuffleStage which coverage tools don't pick up.
+# NOTE: This class is not intended to be instantiated directly but instead used as a Ray Actor class.
 class BulkRapidsMPFShuffler(BaseShufflingActor):  # pragma: no cover
     """
     Class that performs a bulk shuffle operation.
@@ -140,7 +140,7 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):  # pragma: no cover
             if self.spill_memory_limit is None
             else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=self.spill_memory_limit)}
         )
-        self.br = BufferResource(device_mr=mr, memory_available=memory_available)
+        self.br = BufferResource(mr, memory_available=memory_available)
         # Create a statistics object
         self.stats = Statistics(enable=self.enable_statistics, mr=mr)
         # Create a shuffler
