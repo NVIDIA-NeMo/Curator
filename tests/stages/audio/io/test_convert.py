@@ -15,26 +15,22 @@
 import pandas as pd
 
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioEntry, DocumentBatch
 
 
-def test_audio_to_document_stage_converts_batch() -> None:
-    audio = AudioBatch(
+def test_audio_to_document_stage_converts_entry() -> None:
+    entry = AudioEntry(
         task_id="t1",
         dataset_name="ds",
-        data=[
-            {"audio_filepath": "/a.wav", "text": "hello"},
-            {"audio_filepath": "/b.wav", "text": "world"},
-        ],
+        data={"audio_filepath": "/a.wav", "text": "hello"},
     )
 
     stage = AudioToDocumentStage()
-    out = stage.process(audio)
+    doc = stage.process(entry)
 
-    assert isinstance(out, list)
-    assert len(out) == 1
-    doc = out[0]
+    assert isinstance(doc, DocumentBatch)
     assert isinstance(doc.data, pd.DataFrame)
     assert list(doc.data.columns) == ["audio_filepath", "text"]
-    assert doc.task_id == audio.task_id
-    assert doc.dataset_name == audio.dataset_name
+    assert len(doc.data) == 1
+    assert doc.task_id == entry.task_id
+    assert doc.dataset_name == entry.dataset_name

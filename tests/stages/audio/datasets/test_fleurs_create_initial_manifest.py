@@ -65,12 +65,10 @@ def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
     # Act
     batches = stage.process_transcript(tsv_path.as_posix())
 
-    # Assert batching behavior and content (default batch_size is 1, so expect 2 batches)
+    # Each valid TSV line produces one AudioEntry
     assert len(batches) == 2
     b0, b1 = batches
-    assert len(b0.data) == 1
-    assert len(b1.data) == 1
-    assert b0.data[0][stage.filepath_key].endswith(os.path.join(split, "file1.wav"))
-    assert b0.data[0][stage.text_key] == "hello world"
-    assert b1.data[0][stage.filepath_key].endswith(os.path.join(split, "file2.wav"))
-    assert b1.data[0][stage.text_key] == "second"
+    assert b0.data[stage.filepath_key].endswith(os.path.join(split, "file1.wav"))
+    assert b0.data[stage.text_key] == "hello world"
+    assert b1.data[stage.filepath_key].endswith(os.path.join(split, "file2.wav"))
+    assert b1.data[stage.text_key] == "second"

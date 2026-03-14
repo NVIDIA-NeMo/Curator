@@ -19,6 +19,8 @@ Avoids Pandas to handle large manifests with deeply nested audio metadata
 with pd.read_json.
 """
 
+from __future__ import annotations
+
 import json
 from dataclasses import dataclass, field
 from typing import Any
@@ -28,12 +30,12 @@ from loguru import logger
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import AudioBatch, FileGroupTask, _EmptyTask
+from nemo_curator.tasks import AudioEntry, FileGroupTask, _EmptyTask
 
 
 @dataclass
-class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioBatch]):
-    """Read JSONL manifest files from a FileGroupTask and emit one AudioBatch per entry.
+class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioEntry]):
+    """Read JSONL manifest files from a FileGroupTask and emit one AudioEntry per line.
 
     Uses line-by-line streaming via fsspec (no Pandas) to keep memory at ~1x file size.
     Supports local and cloud paths (S3, GCS).
@@ -41,34 +43,32 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioBatch]):
 
     name: str = "alm_manifest_reader_stage"
 
-    def process(self, task: FileGroupTask) -> list[AudioBatch]:
+    def process(self, task: FileGroupTask) -> list[AudioEntry]:
         paths = task.data
-        entries: list[dict[str, Any]] = []
+        results: list[AudioEntry] = []
         for manifest in paths:
-            manifest_entries: list[dict[str, Any]] = []
+            count = 0
             fs, resolved = url_to_fs(manifest)
             with fs.open(resolved, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
-                        manifest_entries.append(json.loads(line.strip()))
-            entries.extend(manifest_entries)
-            logger.info(f"ALMManifestReaderStage: loaded {len(manifest_entries)} entries from {manifest}")
-
-        return [
-            AudioBatch(
-                data=[entry],
-                _metadata=task._metadata,
-                _stage_perf=list(task._stage_perf),
-            )
-            for entry in entries
-        ]
+                        results.append(
+                            AudioEntry(
+                                data=json.loads(line.strip()),
+                                _metadata=task._metadata,
+                                _stage_perf=list(task._stage_perf),
+                            )
+                        )
+                        count += 1
+            logger.info(f"ALMManifestReaderStage: loaded {count} entries from {manifest}")
+        return results
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {"is_fanout_stage": True}
 
 
 @dataclass
-class ALMManifestReader(CompositeStage[_EmptyTask, AudioBatch]):
+class ALMManifestReader(CompositeStage[_EmptyTask, AudioEntry]):
     """Composite stage for reading ALM JSONL manifests.
 
     Decomposes into:
@@ -83,7 +83,7 @@ class ALMManifestReader(CompositeStage[_EmptyTask, AudioBatch]):
         storage_options: Storage options for cloud paths (S3, GCS credentials, endpoints).
     """
 
-    manifest_path: str | list[str]
+    manifest_path: str | list[str] = ""
     files_per_partition: int | None = 1
     blocksize: int | str | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])

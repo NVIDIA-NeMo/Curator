@@ -16,34 +16,40 @@
 
 from pathlib import Path
 
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioBatch, AudioEntry
 
 
-def test_audio_batch_accepts_dict_and_list() -> None:
-    # Single dict wraps into list
-    b1 = AudioBatch(data={"audio_filepath": "/x.wav"})
-    assert isinstance(b1.data, list)
-    assert len(b1.data) == 1
-
-    # List passes through
-    b2 = AudioBatch(data=[{"audio_filepath": "/a.wav"}, {"audio_filepath": "/b.wav"}])
-    assert len(b2.data) == 2
+def test_audio_entry_stores_dict() -> None:
+    entry = AudioEntry(data={"audio_filepath": "/x.wav"})
+    assert isinstance(entry.data, dict)
+    assert entry.data["audio_filepath"] == "/x.wav"
+    assert entry.num_items == 1
 
 
-def test_audio_batch_validation_uses_filepath_key(tmp_path: Path) -> None:
+def test_audio_entry_default_empty_dict() -> None:
+    entry = AudioEntry()
+    assert entry.data == {}
+    assert entry.num_items == 1
+
+
+def test_audio_entry_validation_existing_file(tmp_path: Path) -> None:
     existing = tmp_path / "ok.wav"
     existing.write_bytes(b"fake")
 
+    entry = AudioEntry(data={"audio_filepath": existing.as_posix()}, filepath_key="audio_filepath")
+    assert entry.validate() is True
+
+
+def test_audio_entry_validation_missing_file(tmp_path: Path) -> None:
     missing = tmp_path / "missing.wav"
+    entry = AudioEntry(data={"audio_filepath": missing.as_posix()}, filepath_key="audio_filepath")
+    assert entry.validate() is False
 
-    batch = AudioBatch(
-        data=[{"audio_filepath": existing.as_posix()}, {"audio_filepath": missing.as_posix()}],
-        filepath_key="audio_filepath",
-    )
 
-    # validate_item should be True for existing, False for missing
-    assert batch.validate_item(batch.data[0]) is True
-    assert batch.validate_item(batch.data[1]) is False
+def test_audio_entry_validation_no_filepath_key() -> None:
+    entry = AudioEntry(data={"text": "hello"})
+    assert entry.validate() is True
 
-    # overall validate should be False (since one item is missing)
-    assert batch.validate() is False
+
+def test_audio_batch_alias_is_audio_entry() -> None:
+    assert AudioBatch is AudioEntry

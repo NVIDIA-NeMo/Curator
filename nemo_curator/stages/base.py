@@ -142,10 +142,13 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             if not hasattr(task, attr):
                 missing_top_level_attrs.append(attr)
 
-        # Check required columns exist
+        # Check required columns exist (supports both dict and attribute-based data)
         missing_data_attrs = []
         for attr in required_data_attrs:
-            if not hasattr(task.data, attr):
+            if isinstance(task.data, dict):
+                if attr not in task.data:
+                    missing_data_attrs.append(attr)
+            elif not hasattr(task.data, attr):
                 missing_data_attrs.append(attr)
 
         # Log warning with missing attributes

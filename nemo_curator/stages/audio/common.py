@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from abc import abstractmethod
 from dataclasses import dataclass
 from operator import eq, ge, gt, le, lt, ne
@@ -20,79 +22,171 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch, Task
+from nemo_curator.tasks import AudioEntry
 
 
-class LegacySpeechStage(ProcessingStage[Task, Task]):
+class AudioEntryStage(ProcessingStage[AudioEntry, AudioEntry]):
+    """Base class for stages that process one audio manifest entry at a time.
+
+    Subclasses implement ``process_entry`` which receives a plain ``dict``
+    (the manifest entry) and returns either:
+
+    * a ``dict`` — the (possibly modified) entry, or
+    * ``None``  — to filter the entry out of the pipeline.
+
+    All undeclared columns silently pass through.  Perf / metadata
+    propagation is handled automatically by the base ``process`` method.
     """
-    LegacySpeechStage for SDP processors inherited from BaseParallelProcessor
-
-    """
-
-    def process(self, task: AudioBatch) -> list[Task]:
-        result = []
-        for entry in task.data:
-            entries = self.process_dataset_entry(entry)
-            for r in entries:
-                if r is not task and not r._stage_perf:
-                    r._stage_perf = list(task._stage_perf)
-                if r is not task and not r._metadata:
-                    r._metadata = task._metadata.copy()
-            result.extend(entries)
-        return result
 
     @abstractmethod
-    def process_dataset_entry(self, data_entry: AudioBatch) -> list[AudioBatch]:
-        return [data_entry]
+    def process_entry(self, data: dict) -> dict | None:
+        """Process a single manifest entry dict.
+
+        Returns:
+            dict: processed entry (may be the same object, mutated in-place).
+            None: to drop / filter out this entry.
+        """
+
+    def process(self, task: AudioEntry) -> AudioEntry | list[AudioEntry]:
+        result = self.process_entry(task.data)
+        if result is None:
+            return []
+
+        return AudioEntry(
+            data=result,
+            task_id=task.task_id,
+            dataset_name=task.dataset_name,
+            filepath_key=task.filepath_key,
+            _stage_perf=list(task._stage_perf),
+            _metadata=task._metadata.copy(),
+        )
+
+
+class AudioFanOutStage(ProcessingStage[AudioEntry, AudioEntry]):
+    """Base class for stages that produce multiple AudioEntry from one input.
+
+    Subclasses implement ``fan_out`` which receives a plain ``dict`` and
+    returns a list of dicts.  An empty list filters the entry entirely.
+
+    Automatically declares ``IS_FANOUT_STAGE`` for Ray Data repartition.
+    """
+
+    @abstractmethod
+    def fan_out(self, data: dict) -> list[dict]:
+        """Produce multiple output dicts from a single input dict."""
+
+    def process(self, task: AudioEntry) -> list[AudioEntry]:
+        results = self.fan_out(task.data)
+        return [
+            AudioEntry(
+                data=r,
+                task_id=f"{task.task_id}_{i}",
+                dataset_name=task.dataset_name,
+                filepath_key=task.filepath_key,
+                _stage_perf=list(task._stage_perf),
+                _metadata=task._metadata.copy(),
+            )
+            for i, r in enumerate(results)
+        ]
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_fanout_stage": True}
+
+
+class AudioAggregateStage(ProcessingStage[AudioEntry, AudioEntry]):
+    """Base class for stages that reduce multiple AudioEntry into fewer outputs.
+
+    Overrides ``process_batch`` to receive all tasks at once.
+    Subclasses must set ``num_workers() -> 1`` for single-writer semantics.
+    """
+
+    @abstractmethod
+    def aggregate(self, entries: list[dict], metadata: dict) -> list[dict]:
+        """Reduce multiple entry dicts into fewer output dicts."""
+
+    def process(self, task: AudioEntry) -> AudioEntry:
+        msg = f"{type(self).__name__} must be called via process_batch, not process"
+        raise NotImplementedError(msg)
+
+    def process_batch(self, tasks: list[AudioEntry]) -> list[AudioEntry]:
+        if not tasks:
+            return []
+        entries = [t.data for t in tasks]
+        metadata = tasks[0]._metadata.copy()
+        results = self.aggregate(entries, metadata)
+        return [
+            AudioEntry(
+                data=r,
+                task_id=f"{tasks[0].task_id}_agg_{i}",
+                dataset_name=tasks[0].dataset_name,
+                _stage_perf=list(tasks[0]._stage_perf),
+                _metadata=metadata,
+            )
+            for i, r in enumerate(results)
+        ]
+
+    def num_workers(self) -> int | None:
+        return 1
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible alias so existing imports keep working during migration.
+# Will be removed once all downstream code is ported.
+# ---------------------------------------------------------------------------
+LegacySpeechStage = AudioEntryStage
+
+
+# ---------------------------------------------------------------------------
+# Concrete stages
+# ---------------------------------------------------------------------------
 
 
 @dataclass
-class GetAudioDurationStage(LegacySpeechStage):
-    """
-    Stage that computes the duration of the file in ``audio_filepath_key`` (using soundfile)
-    and saves the duration in ``duration_key``. If there is an error computing the duration,
-    the value at ``duration_key`` will be updated with the value -1.0.
+class GetAudioDurationStage(AudioEntryStage):
+    """Compute audio duration from the file at *audio_filepath_key* and
+    store the result under *duration_key*.
 
     Args:
-        audio_filepath_key (str): Key to get path to wav file.
-        duration_key (str): Key to put to audio duration.
-    Returns:
-        All the same fields as in the input manifest plus duration_key
+        audio_filepath_key: Key to get path to wav file.
+        duration_key: Key to put audio duration.
     """
 
-    name = "GetAudioDurationStage"
-    audio_filepath_key: str
-    duration_key: str
+    name: str = "GetAudioDurationStage"
+    audio_filepath_key: str = "audio_filepath"
+    duration_key: str = "duration"
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         import soundfile
 
         self._soundfile = soundfile
 
-    def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
-        audio_filepath = data_entry[self.audio_filepath_key]
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.audio_filepath_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.duration_key]
+
+    def process_entry(self, data: dict) -> dict:
+        audio_filepath = data[self.audio_filepath_key]
         try:
-            data, samplerate = self._soundfile.read(audio_filepath)
-            data_entry[self.duration_key] = data.shape[0] / samplerate
+            raw, samplerate = self._soundfile.read(audio_filepath)
+            data[self.duration_key] = raw.shape[0] / samplerate
         except self._soundfile.SoundFileError as e:
             logger.warning(str(e) + " file: " + audio_filepath)
-            data_entry[self.duration_key] = -1.0
-        return [AudioBatch(data=data_entry)]
+            data[self.duration_key] = -1.0
+        return data
 
 
-class PreserveByValueStage(LegacySpeechStage):
-    """
-    Processor for preserving dataset entries based on a specified condition involving a target value and an input field.
+class PreserveByValueStage(AudioEntryStage):
+    """Filter entries by comparing *input_value_key* against *target_value*.
 
     Args:
-        input_value_key (str): The field in the dataset entries to be evaluated.
-        target_value (Union[int, str]): The value to compare with the input field.
-        operator (str): (Optional) The operator to apply for comparison. Options: "lt" (less than), "le" (less than or equal to), "eq" (equal to), "ne" (not equal to), "ge" (greater than or equal to), "gt" (greater than). Defaults to "eq".
-        **kwargs: Additional keyword arguments to be passed to the base class `BaseParallelProcessor`.
-
+        input_value_key: The field in the dataset entries to evaluate.
+        target_value: The value to compare with.
+        operator: Comparison operator (lt, le, eq, ne, ge, gt).
     """
 
-    name = "PreserveByValueStage"
+    name: str = "PreserveByValueStage"
 
     def __init__(
         self,
@@ -102,26 +196,19 @@ class PreserveByValueStage(LegacySpeechStage):
     ):
         self.input_value_key = input_value_key
         self.target_value = target_value
-        if operator == "lt":
-            self.operator = lt
-        elif operator == "le":
-            self.operator = le
-        elif operator == "eq":
-            self.operator = eq
-        elif operator == "ne":
-            self.operator = ne
-        elif operator == "ge":
-            self.operator = ge
-        elif operator == "gt":
-            self.operator = gt
-        else:
-            msg = 'Operator must be one from the list: "lt" (less than), "le" (less than or equal to), "eq" (equal to), "ne" (not equal to), "ge" (greater than or equal to), "gt" (greater than)'
+        ops = {"lt": lt, "le": le, "eq": eq, "ne": ne, "ge": ge, "gt": gt}
+        if operator not in ops:
+            msg = f"Operator must be one of: {', '.join(ops)}"
             raise ValueError(msg)
+        self.operator = ops[operator]
 
-    def process_dataset_entry(self, data_entry: AudioBatch) -> list[AudioBatch]:
-        input_value = data_entry[self.input_value_key]
-        target = self.target_value
-        if self.operator(input_value, target):
-            return [AudioBatch(data=data_entry)]
-        else:
-            return []
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.input_value_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.input_value_key]
+
+    def process_entry(self, data: dict) -> dict | None:
+        if self.operator(data[self.input_value_key], self.target_value):
+            return data
+        return None

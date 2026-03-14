@@ -26,8 +26,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.audio.common import AudioEntryStage
 
 MIN_SEGMENTS_PER_WINDOW = 2
 
@@ -124,20 +123,12 @@ def _record_window_loss(  # noqa: PLR0913
 
 
 @dataclass
-class ALMDataBuilderStage(LegacySpeechStage):
-    """
-    Build ALM training windows from audio segments.
+class ALMDataBuilderStage(AudioEntryStage):
+    """Build ALM training windows from audio segments.
 
-    Native NeMo Curator stage that filters segments by sample rate,
-    bandwidth, speaker count, and duration to create valid training windows.
-
-    This follows the exact pattern from nemo_curator.stages.audio.common:
-    - Inherits from LegacySpeechStage
-    - Uses @dataclass decorator
-    - Implements process_dataset_entry() method
-    - Returns list[AudioBatch] from process_dataset_entry
-
-    Produces identical output to SDP implementation.
+    Filters segments by sample rate, bandwidth, speaker count, and duration
+    to create valid training windows.  Mutates the entry dict in-place,
+    adding ``windows``, ``stats``, and ``truncation_events`` keys.
     """
 
     # Processing parameters (EXACT match to SDP)
@@ -167,22 +158,12 @@ class ALMDataBuilderStage(LegacySpeechStage):
         self._drop_fields_set = {f.strip() for f in self.drop_fields.split(",") if f.strip()}
         self._drop_fields_top_level_set = {f.strip() for f in self.drop_fields_top_level.split(",") if f.strip()}
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
-        """
-        Process a single manifest entry and build windows.
-
-        Args:
-            data_entry: Single entry from manifest (dict with audio_filepath, segments, etc.)
-
-        Returns:
-            list[AudioBatch] - Always returns entry (even with empty windows, matching SDP)
-        """
+    def process_entry(self, data: dict) -> dict:
         t0 = time.perf_counter()
-        result = self._process_single_entry(data_entry)
+        result = self._process_single_entry(data)
         process_time = time.perf_counter() - t0
 
-        # Log timing metrics for regression tracking
-        num_segments = len(data_entry.get("segments", []))
+        num_segments = len(data.get("segments", []))
         num_windows = len(result.get("windows", []))
         self._log_metrics(
             {
@@ -192,7 +173,7 @@ class ALMDataBuilderStage(LegacySpeechStage):
             }
         )
 
-        return [AudioBatch(data=[result])]
+        return result
 
     def _process_single_entry(self, entry_data: dict[str, Any]) -> dict[str, Any]:  # noqa: C901, PLR0912, PLR0915
         """Process a single entry and extract valid training windows."""

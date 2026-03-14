@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from loguru import logger
 
@@ -21,37 +21,35 @@ from .tasks import Task
 
 
 @dataclass
-class AudioBatch(Task[dict]):
-    """A single data dict with filepath check."""
+class AudioEntry(Task[dict]):
+    """A single audio manifest entry.
 
-    def __init__(
-        self,
-        data: dict | list[dict] | None = None,
-        filepath_key: str | None = None,
-        task_id: str = "",
-        dataset_name: str = "",
-        **kwargs,
-    ):
-        if isinstance(data, dict):
-            self.data = [data]
-        elif isinstance(data, list) or data is None:
-            self.data = data
-        else:
-            raise ValueError(str(data))
-        self.filepath_key = filepath_key
-        super().__init__(data=self.data, task_id=task_id, dataset_name=dataset_name, **kwargs)
+    Represents one line from a JSONL manifest file (e.g. one audio file
+    with its metadata).  ``data`` is always a single ``dict``, never a list.
+
+    Args:
+        data: Manifest entry dict (e.g. ``{"audio_filepath": "...", "text": "..."}``).
+        filepath_key: Optional key whose value is validated as an existing path.
+    """
+
+    task_id: str = ""
+    dataset_name: str = ""
+    data: dict = field(default_factory=dict)
+    filepath_key: str | None = None
 
     @property
     def num_items(self) -> int:
-        return len(self.data)
-
-    def validate_item(self, item: dict) -> bool:
-        if self.filepath_key is not None and not os.path.exists(item[self.filepath_key]):
-            logger.warning(f"File {item[self.filepath_key]} does not exist")
-            return False
-        else:
-            return True
+        return 1
 
     def validate(self) -> bool:
         """Validate the task data."""
-        return all(self.validate_item(item) for item in self.data)
+        if self.filepath_key and self.filepath_key in self.data:
+            path = self.data[self.filepath_key]
+            if not os.path.exists(path):
+                logger.warning(f"File {path} does not exist")
+                return False
+        return True
+
+
+# Backward-compatible alias — will be removed in a future release.
+AudioBatch = AudioEntry

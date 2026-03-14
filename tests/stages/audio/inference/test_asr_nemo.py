@@ -15,63 +15,55 @@
 from unittest.mock import patch
 
 from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioEntry
 
 
 class TestAsrNeMoStage:
-    """Test suite for TestAsrInference."""
+    """Test suite for InferenceAsrNemoStage."""
 
     def test_stage_properties(self) -> None:
-        """Test stage properties."""
         stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
         assert stage.name == "ASR_inference"
-        assert stage.inputs() == (["data"], [])
-        assert stage.outputs() == (["data"], ["audio_filepath", "pred_text"])
+        assert stage.inputs() == ([], ["audio_filepath"])
+        assert stage.outputs() == ([], ["audio_filepath", "pred_text"])
 
     def test_stage_initialization(self) -> None:
-        """Test stage initialization with different parameters."""
-        # Test with input_audio_path
         stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
         assert stage.filepath_key == "audio_filepath"
         assert stage.pred_text_key == "pred_text"
-
-        # Test with audio_limit
-        stage = InferenceAsrNemoStage(
-            model_name="nvidia/parakeet-tdt-0.6b-v2",
-        )
         assert stage.batch_size == 16
 
-    def test_process_success(self) -> None:
-        """Test process method with successful file discovery."""
-
-        with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["the cat", "set on a mat"]):
+    def test_process_entry_success(self) -> None:
+        with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["the cat"]):
             stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
-
-            file_paths = AudioBatch(
-                data=[{"audio_filepath": "/test/audio1.wav"}, {"audio_filepath": "/test/audio2.mp3"}]
-            )
-
             stage.setup_on_node()
             stage.setup()
-            result = stage.process(file_paths)
-            assert isinstance(result, AudioBatch)
-            assert len(result.data) == 2
-            assert all(isinstance(task, dict) for task in result.data)
 
-            assert result.task_id == "task_id_nvidia/parakeet-tdt-0.6b-v2"
-            assert result.dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"
+            entry = AudioEntry(data={"audio_filepath": "/test/audio1.wav"})
+            result = stage.process(entry)
 
-            # Check that the audio objects are created correctly
-            assert isinstance(result.data[0], dict)
-            assert isinstance(result.data[1], dict)
-            assert result.data[0][result.filepath_key] == "/test/audio1.wav"
-            assert result.data[0]["pred_text"] == "the cat"
-            assert result.data[1][result.filepath_key] == "/test/audio2.mp3"
-            assert result.data[1]["pred_text"] == "set on a mat"
+            assert isinstance(result, AudioEntry)
+            assert result.data["audio_filepath"] == "/test/audio1.wav"
+            assert result.data["pred_text"] == "the cat"
+
+    def test_process_batch_success(self) -> None:
+        with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["the cat", "sat on a mat"]):
+            stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
+            stage.setup_on_node()
+            stage.setup()
+
+            tasks = [
+                AudioEntry(data={"audio_filepath": "/test/audio1.wav"}, task_id="t1"),
+                AudioEntry(data={"audio_filepath": "/test/audio2.mp3"}, task_id="t2"),
+            ]
+            results = stage.process_batch(tasks)
+
+            assert len(results) == 2
+            assert all(isinstance(r, AudioEntry) for r in results)
+            assert results[0].data["pred_text"] == "the cat"
+            assert results[1].data["pred_text"] == "sat on a mat"
 
     def test_transcribe_tuple_outputs_hypothesis(self) -> None:
-        """Transcribe handles tuple (hyps, all_hyps) where hyps is list[list[obj.text]]."""
-
         class Hypo:
             def __init__(self, text: str) -> None:
                 self.text = text
@@ -79,16 +71,13 @@ class TestAsrNeMoStage:
         class DummyModel:
             def transcribe(self, _files: list[str]) -> tuple[list[list[Hypo]], None]:
                 hyps = [[Hypo("alpha")], [Hypo("beta")]]
-                all_hyps = None
-                return (hyps, all_hyps)
+                return (hyps, None)
 
         stage = InferenceAsrNemoStage(model_name="dummy-model", asr_model=DummyModel())
         outputs = stage.transcribe(["/a.wav", "/b.wav"])
         assert outputs == ["alpha", "beta"]
 
     def test_transcribe_nested_list_of_strings(self) -> None:
-        """Transcribe handles list[list[str]] by taking the first element from each inner list."""
-
         class DummyModel:
             def transcribe(self, _files: list[str]) -> list[list[str]]:
                 return [["foo"], ["bar"]]
@@ -98,8 +87,6 @@ class TestAsrNeMoStage:
         assert outputs == ["foo", "bar"]
 
     def test_transcribe_list_of_objects_with_text(self) -> None:
-        """Transcribe handles list[obj] where each obj has a `text` attribute."""
-
         class Hypo:
             def __init__(self, text: str) -> None:
                 self.text = text

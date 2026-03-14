@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ALM Manifest Writer Stage — writes AudioBatch entries to a JSONL manifest."""
+"""ALM Manifest Writer Stage — writes AudioEntry dicts to a JSONL manifest."""
+
+from __future__ import annotations
 
 import json
 from dataclasses import dataclass
@@ -22,25 +24,26 @@ from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch, FileGroupTask
+from nemo_curator.tasks import AudioEntry, FileGroupTask
 
 
 @dataclass
-class ALMManifestWriterStage(ProcessingStage[AudioBatch, FileGroupTask]):
-    """Append AudioBatch entries to a JSONL manifest file.
+class ALMManifestWriterStage(ProcessingStage[AudioEntry, FileGroupTask]):
+    """Append a single AudioEntry to a JSONL manifest file.
 
-    Each processed AudioBatch has its data entries appended to the output
-    file. The file is truncated on ``setup()`` so repeated pipeline runs
+    The file is truncated on ``setup()`` so repeated pipeline runs
     produce a clean output. Supports local and cloud paths via fsspec.
 
     Args:
         output_path: Destination JSONL path (local or cloud).
     """
 
-    output_path: str
+    output_path: str = ""
     name: str = "alm_manifest_writer"
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+        if getattr(self, "_setup_done", False):
+            return
         fs, path = url_to_fs(self.output_path)
         parent_dir = "/".join(path.split("/")[:-1])
         if parent_dir:
@@ -48,12 +51,12 @@ class ALMManifestWriterStage(ProcessingStage[AudioBatch, FileGroupTask]):
         with fs.open(path, "w", encoding="utf-8"):
             pass
         logger.info(f"ALMManifestWriterStage: writing to {self.output_path}")
+        self._setup_done = True
 
-    def process(self, task: AudioBatch) -> FileGroupTask:
+    def process(self, task: AudioEntry) -> FileGroupTask:
         fs, path = url_to_fs(self.output_path)
         with fs.open(path, "a", encoding="utf-8") as f:
-            for entry in task.data:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
         return FileGroupTask(
             task_id=task.task_id,
             dataset_name=task.dataset_name,

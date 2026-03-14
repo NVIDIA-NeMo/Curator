@@ -19,7 +19,7 @@ from nemo_curator.stages.audio.metrics.get_wer import (
     get_wer,
     get_wordrate,
 )
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioEntry
 
 
 def test_get_wer_basic() -> None:
@@ -37,7 +37,7 @@ def test_rates() -> None:
 
 def test_pairwise_wer_stage() -> None:
     stage = GetPairwiseWerStage()
-    entry = {"text": "a b c", "pred_text": "a x c"}
-    out = stage.process(AudioBatch(data=[entry]))
-    assert len(out) == 1
-    assert out[0].data[0]["wer"] == 33.33
+    entry = AudioEntry(data={"text": "a b c", "pred_text": "a x c"})
+    result = stage.process(entry)
+    assert isinstance(result, AudioEntry)
+    assert result.data["wer"] == 33.33
