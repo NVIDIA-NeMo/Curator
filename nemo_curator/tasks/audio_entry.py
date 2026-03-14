@@ -49,7 +49,3 @@ class AudioEntry(Task[dict]):
                 logger.warning(f"File {path} does not exist")
                 return False
         return True
-
-
-# Backward-compatible alias — will be removed in a future release.
-AudioBatch = AudioEntry

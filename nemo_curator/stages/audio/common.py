@@ -130,13 +130,6 @@ class AudioAggregateStage(ProcessingStage[AudioEntry, AudioEntry]):
 
 
 # ---------------------------------------------------------------------------
-# Backward-compatible alias so existing imports keep working during migration.
-# Will be removed once all downstream code is ported.
-# ---------------------------------------------------------------------------
-LegacySpeechStage = AudioEntryStage
-
-
-# ---------------------------------------------------------------------------
 # Concrete stages
 # ---------------------------------------------------------------------------
 

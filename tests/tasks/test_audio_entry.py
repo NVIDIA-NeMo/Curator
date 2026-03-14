@@ -16,7 +16,7 @@
 
 from pathlib import Path
 
-from nemo_curator.tasks import AudioBatch, AudioEntry
+from nemo_curator.tasks import AudioEntry
 
 
 def test_audio_entry_stores_dict() -> None:
@@ -49,7 +49,3 @@ def test_audio_entry_validation_missing_file(tmp_path: Path) -> None:
 def test_audio_entry_validation_no_filepath_key() -> None:
     entry = AudioEntry(data={"text": "hello"})
     assert entry.validate() is True
-
-
-def test_audio_batch_alias_is_audio_entry() -> None:
-    assert AudioBatch is AudioEntry

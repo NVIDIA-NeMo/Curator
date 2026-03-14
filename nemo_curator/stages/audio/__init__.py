@@ -25,7 +25,6 @@ from nemo_curator.stages.audio.common import (
     AudioEntryStage,
     AudioFanOutStage,
     GetAudioDurationStage,
-    LegacySpeechStage,
     PreserveByValueStage,
 )
 
@@ -36,6 +35,5 @@ __all__ = [
     "AudioEntryStage",
     "AudioFanOutStage",
     "GetAudioDurationStage",
-    "LegacySpeechStage",
     "PreserveByValueStage",
 ]
