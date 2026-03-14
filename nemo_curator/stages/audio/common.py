@@ -19,7 +19,6 @@ from typing import Any
 
 from loguru import logger
 
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioBatch, Task
 
@@ -64,9 +63,6 @@ class GetAudioDurationStage(LegacySpeechStage):
     name = "GetAudioDurationStage"
     audio_filepath_key: str
     duration_key: str
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_ACTOR_STAGE: True}
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         import soundfile

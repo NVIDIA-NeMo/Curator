@@ -97,13 +97,6 @@ class TestAsrNeMoStage:
         outputs = stage.transcribe(["/a.wav", "/b.wav"])
         assert outputs == ["foo", "bar"]
 
-    def test_ray_stage_spec(self) -> None:
-        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
-
-        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
-        spec = stage.ray_stage_spec()
-        assert spec[RayStageSpecKeys.IS_ACTOR_STAGE] is True
-
     def test_transcribe_list_of_objects_with_text(self) -> None:
         """Transcribe handles list[obj] where each obj has a `text` attribute."""
 

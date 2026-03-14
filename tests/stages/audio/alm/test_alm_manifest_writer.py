@@ -155,13 +155,6 @@ class TestALMManifestWriter:
         writer = ALMManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
         assert writer.xenna_stage_spec() == {"num_workers": 1}
 
-    def test_ray_stage_spec(self, tmp_path: Path) -> None:
-        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
-
-        writer = ALMManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
-        spec = writer.ray_stage_spec()
-        assert spec[RayStageSpecKeys.IS_ACTOR_STAGE] is True
-
 
 class TestALMManifestWriterRoundTrip:
     """Round-trip test: write with writer, read back and verify."""
