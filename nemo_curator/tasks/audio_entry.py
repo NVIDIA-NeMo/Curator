@@ -20,6 +20,25 @@ from loguru import logger
 from .tasks import Task
 
 
+class _AttrDict(dict):
+    """Dict subclass exposing keys as attributes so ``hasattr`` works."""
+
+    def __getattr__(self, key: str):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key) from None
+
+    def __setattr__(self, key: str, value: object) -> None:
+        self[key] = value
+
+    def __delattr__(self, key: str):
+        try:
+            del self[key]
+        except KeyError:
+            raise AttributeError(key) from None
+
+
 @dataclass
 class AudioEntry(Task[dict]):
     """A single audio manifest entry.
@@ -34,8 +53,12 @@ class AudioEntry(Task[dict]):
 
     task_id: str = ""
     dataset_name: str = ""
-    data: dict = field(default_factory=dict)
+    data: dict = field(default_factory=_AttrDict)
     filepath_key: str | None = None
+
+    def __post_init__(self):
+        if not isinstance(self.data, _AttrDict):
+            self.data = _AttrDict(self.data)
 
     @property
     def num_items(self) -> int:

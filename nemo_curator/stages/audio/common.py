@@ -38,18 +38,6 @@ class AudioEntryStage(ProcessingStage[AudioEntry, AudioEntry]):
     propagation is handled automatically by the base ``process`` method.
     """
 
-    def validate_input(self, task: AudioEntry) -> bool:
-        required_top_level_attrs, required_data_attrs = self.inputs()
-        for attr in required_top_level_attrs:
-            if not hasattr(task, attr):
-                logger.error(f"Task {task.task_id} missing top-level attribute: {attr}")
-                return False
-        for key in required_data_attrs:
-            if key not in task.data:
-                logger.error(f"Task {task.task_id} missing data key: {key}")
-                return False
-        return True
-
     @abstractmethod
     def process_entry(self, data: dict) -> dict | None:
         """Process a single manifest entry dict.
