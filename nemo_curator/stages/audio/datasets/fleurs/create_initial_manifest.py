@@ -16,7 +16,10 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+    def ray_stage_spec(self) -> dict[str, Any]:
+        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+
+        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 from nemo_curator.stages.audio.datasets.file_utils import download_file, extract_archive
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioBatch, _EmptyTask
