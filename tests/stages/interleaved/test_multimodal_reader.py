@@ -668,31 +668,33 @@ def test_reader_max_batch_bytes_splits(tmp_path: Path) -> None:
         assert "_processed_" in batch.task_id
 
 
-def test_reader_non_list_texts_field(tmp_path: Path) -> None:
-    """Non-list texts field produces no text rows."""
-    payload = {"pdf_name": "doc.pdf", "texts": "not a list", "images": []}
-    tar_path = write_tar(
-        tmp_path / "non_list.tar",
-        {"sample.json": json.dumps(payload).encode()},
-    )
-    task = task_for_tar(tar_path)
-    reader = WebdatasetReaderStage(source_id_field="pdf_name")
-    df = _as_df(reader.process(task))
-    assert (df["modality"] == "text").sum() == 0
-
-
-def test_reader_non_list_images_field(tmp_path: Path) -> None:
-    """Non-list images field produces no image rows."""
-    payload = {"pdf_name": "doc.pdf", "texts": ["hello"], "images": None}
-    tar_path = write_tar(
-        tmp_path / "no_images.tar",
-        {"sample.json": json.dumps(payload).encode()},
-    )
-    task = task_for_tar(tar_path)
-    reader = WebdatasetReaderStage(source_id_field="pdf_name")
-    df = _as_df(reader.process(task))
-    assert (df["modality"] == "image").sum() == 0
-    assert (df["modality"] == "text").sum() == 1
+@pytest.mark.parametrize(
+    ("payload", "modality", "expected_count"),
+    [
+        pytest.param(
+            {"pdf_name": "doc.pdf", "texts": "not a list", "images": []},
+            "text",
+            0,
+            id="non_list_texts",
+        ),
+        pytest.param(
+            {"pdf_name": "doc.pdf", "texts": ["hello"], "images": None},
+            "image",
+            0,
+            id="non_list_images",
+        ),
+    ],
+)
+def test_reader_non_list_field(
+    tmp_path: Path,
+    payload: dict,
+    modality: str,
+    expected_count: int,
+) -> None:
+    """Non-list texts/images field produces no rows for that modality."""
+    tar_path = write_tar(tmp_path / "shard.tar", {"sample.json": json.dumps(payload).encode()})
+    df = _as_df(WebdatasetReaderStage(source_id_field="pdf_name").process(task_for_tar(tar_path)))
+    assert (df["modality"] == modality).sum() == expected_count
 
 
 @pytest.mark.parametrize(
@@ -724,3 +726,18 @@ def test_reader_uses_stem_as_sample_id(tmp_path: Path) -> None:
     reader = WebdatasetReaderStage(source_id_field="pdf_name", sample_id_field=None)
     df = _as_df(reader.process(task))
     assert (df["sample_id"] == "my_custom_name").all()
+
+
+def test_reader_source_id_field_optional(tmp_path: Path) -> None:
+    """source_id_field=None (default) does not raise and passes all fields through."""
+    payload = {"pdf_name": "doc.pdf", "url": "https://example.com", "texts": ["hi"], "images": []}
+    tar_path = write_tar(
+        tmp_path / "no_source_id.tar",
+        {"sample1.json": json.dumps(payload).encode()},
+    )
+    task = task_for_tar(tar_path)
+    reader = WebdatasetReaderStage()
+    df = _as_df(reader.process(task))
+    meta = df[df["modality"] == "metadata"].iloc[0]
+    assert meta["pdf_name"] == "doc.pdf"
+    assert meta["url"] == "https://example.com"

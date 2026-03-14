@@ -18,7 +18,6 @@ import pyarrow as pa
 import pytest
 
 from nemo_curator.stages.interleaved.utils.validation_utils import (
-    require_source_id_field,
     resolve_storage_options,
     validate_and_project_source_fields,
 )
@@ -29,24 +28,6 @@ from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 def _make_task(metadata: dict | None = None) -> InterleavedBatch:
     table = pa.Table.from_pylist([], schema=INTERLEAVED_SCHEMA)
     return InterleavedBatch(task_id="t", dataset_name="d", data=table, _metadata=metadata or {})
-
-
-# --- require_source_id_field ---
-
-
-@pytest.mark.parametrize(
-    ("value", "should_raise"),
-    [
-        pytest.param("", True, id="empty_raises"),
-        pytest.param("pdf_name", False, id="valid_returns"),
-    ],
-)
-def test_require_source_id_field(value: str, should_raise: bool) -> None:
-    if should_raise:
-        with pytest.raises(ValueError, match="source_id_field must be provided"):
-            require_source_id_field(value)
-    else:
-        assert require_source_id_field(value) == value
 
 
 # --- resolve_storage_options ---

@@ -29,7 +29,6 @@ from nemo_curator.core.utils import split_table_by_group_max_bytes
 from nemo_curator.stages.interleaved.utils import (
     DEFAULT_IMAGE_EXTENSIONS,
     DEFAULT_JSON_EXTENSIONS,
-    require_source_id_field,
     resolve_storage_options,
     validate_and_project_source_fields,
 )
@@ -74,7 +73,7 @@ class WebdatasetReaderStage(BaseInterleavedReader):
     max_batch_bytes: int | None = None
     json_extensions: tuple[str, ...] = DEFAULT_JSON_EXTENSIONS
     image_extensions: tuple[str, ...] = field(default_factory=lambda: DEFAULT_IMAGE_EXTENSIONS)
-    source_id_field: str = ""
+    source_id_field: str | None = None
     sample_id_field: str | None = None
     texts_field: str = "texts"
     images_field: str = "images"
@@ -85,7 +84,7 @@ class WebdatasetReaderStage(BaseInterleavedReader):
     name: str = "webdataset_reader"
 
     def __post_init__(self) -> None:
-        self.source_id_field = require_source_id_field(self.source_id_field)
+        super().__post_init__()
 
     # -- source_ref construction --
 
@@ -254,7 +253,7 @@ class WebdatasetReaderStage(BaseInterleavedReader):
 
     def _build_passthrough_row(self, sample: dict[str, Any]) -> dict[str, Any]:
         excluded = RESERVED_COLUMNS | {
-            self.source_id_field,
+            *([self.source_id_field] if self.source_id_field else []),
             *([self.sample_id_field] if self.sample_id_field else []),
             self.texts_field,
             self.images_field,
@@ -283,7 +282,8 @@ class WebdatasetReaderStage(BaseInterleavedReader):
         return result
 
     def _empty_output_schema(self) -> pa.Schema:
-        schema = INTERLEAVED_SCHEMA
+        # Use explicit schema if set; otherwise fall back to INTERLEAVED_SCHEMA as base
+        base = self.schema if self.schema is not None else INTERLEAVED_SCHEMA
         seen = set(self.fields or ())
         all_extra = list(self.fields or ())
         for f in (*self.per_image_fields, *self.per_text_fields):
@@ -291,22 +291,15 @@ class WebdatasetReaderStage(BaseInterleavedReader):
                 all_extra.append(f)
                 seen.add(f)
         if not all_extra:
-            return schema
-        existing = set(schema.names)
-        extra_fields = [pa.field(name, pa.null()) for name in all_extra if name not in existing]
-        return pa.schema([*schema, *extra_fields]) if extra_fields else schema
+            return base
+        existing = set(base.names)
+        extra_fields = []
+        for name in all_extra:
+            if name not in existing:
+                extra_fields.append(pa.field(name, pa.null()))
+        return pa.schema([*base, *extra_fields]) if extra_fields else base
 
-    @staticmethod
-    def _reconcile_schema(inferred: pa.Schema) -> pa.Schema:
-        """Build a schema with canonical types for reserved columns and inferred types for passthrough."""
-        canonical = {f.name: f for f in INTERLEAVED_SCHEMA}
-        fields = []
-        for f in inferred:
-            if f.name in canonical:
-                fields.append(canonical[f.name])
-            else:
-                fields.append(f)
-        return pa.schema(fields)
+    # _align_output is inherited from BaseInterleavedReader
 
     # -- image member resolution --
 
@@ -434,7 +427,7 @@ class WebdatasetReaderStage(BaseInterleavedReader):
 
         if rows:
             table = pa.Table.from_pylist(rows)
-            table = table.cast(self._reconcile_schema(table.schema))
+            table = self._align_output(table)
         else:
             # Empty tables use _empty_output_schema(); passthrough columns get
             # pa.null() type which is intentional (no data to infer from).

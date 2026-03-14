@@ -82,18 +82,10 @@ def write_benchmark_results(results: dict, output_path: str | Path) -> None:
     output_path.mkdir(parents=True, exist_ok=True)
     if "params" in results:
         params_path = output_path / "params.json"
-        params_data = {}
-        if params_path.exists():
-            params_data = json.loads(params_path.read_text())
-        params_data.update(results["params"])
-        params_path.write_text(json.dumps(params_data, default=convert_paths_to_strings, indent=2))
+        params_path.write_text(json.dumps(results["params"], default=convert_paths_to_strings, indent=2))
     if "metrics" in results:
         metrics_path = output_path / "metrics.json"
-        metrics_data = {}
-        if metrics_path.exists():
-            metrics_data = json.loads(metrics_path.read_text())
-        metrics_data.update(results["metrics"])
-        metrics_path.write_text(json.dumps(metrics_data, default=convert_paths_to_strings, indent=2))
+        metrics_path.write_text(json.dumps(results["metrics"], default=convert_paths_to_strings, indent=2))
     if "tasks" in results:
         (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
 
@@ -126,6 +118,19 @@ def collect_parquet_output_metrics(output_path: Path) -> dict[str, Any]:
         if "materialize_error" in table.column_names:
             col = table.column("materialize_error")
             materialize_error_count += col.length() - col.null_count
+    # Position value_counts: quick ordering sanity check
+    # Expect position=-1 for all metadata rows, 0,1,2,... for content.
+    # Counts should be non-increasing (position N always >= position N+1).
+    position_counts: dict[str, int] = {}
+    for path in parquet_files:
+        pf = pq.ParquetFile(path)
+        if "position" not in pf.schema_arrow.names:
+            continue
+        table = pq.read_table(path, columns=["position"])
+        vc = table.column("position").value_counts()
+        for row in vc.to_pylist():
+            key = str(int(row["values"])) if row["values"] is not None else "None"
+            position_counts[key] = position_counts.get(key, 0) + int(row["counts"])
     return {
         "num_output_files": num_files,
         "output_total_bytes": total_size_bytes,
@@ -133,7 +138,185 @@ def collect_parquet_output_metrics(output_path: Path) -> dict[str, Any]:
         "num_rows": num_rows,
         "modality_counts": modality_counts,
         "materialize_error_count": materialize_error_count,
+        "position_counts": position_counts,
     }
+
+
+def collect_webdataset_output_metrics(output_path: Path) -> dict[str, Any]:
+    import tarfile
+
+    output_files = get_all_file_paths_and_size_under(
+        str(output_path),
+        recurse_subdirectories=True,
+        keep_extensions=[".tar"],
+    )
+    tar_files = [path for path, _ in output_files]
+    num_files = len(tar_files)
+    total_size_bytes = int(sum(size for _, size in output_files))
+    num_samples = 0
+    num_image_members = 0
+    for path in tar_files:
+        with tarfile.open(path, "r") as tf:
+            for member in tf.getmembers():
+                if not member.isfile():
+                    continue
+                if member.name.endswith(".json"):
+                    num_samples += 1
+                else:
+                    num_image_members += 1
+    return {
+        "num_output_files": num_files,
+        "output_total_bytes": total_size_bytes,
+        "output_total_mb": total_size_bytes / (1024 * 1024),
+        "num_samples": num_samples,
+        "num_image_members": num_image_members,
+        "avg_samples_per_tar": (num_samples / num_files) if num_files > 0 else 0.0,
+    }
+
+
+def _try_read_lance_dataset(lance_path: Path) -> int | None:
+    import lance
+    from loguru import logger as _log
+
+    try:
+        ds = lance.dataset(str(lance_path))
+        return ds.count_rows()
+    except Exception:
+        _log.warning("Could not read Lance dataset at {}", lance_path)
+        return None
+
+
+def collect_lance_output_metrics(output_path: Path) -> dict[str, Any]:
+    import lance
+    from loguru import logger as _logger
+
+    output_path = Path(output_path)
+    total_rows = 0
+    total_size_bytes = 0
+    num_datasets = 0
+
+    lance_dirs: list[Path] = []
+    try:
+        ds = lance.dataset(str(output_path))
+        total_rows += ds.count_rows()
+        num_datasets += 1
+    except Exception as exc:
+        _logger.warning("Could not read Lance dataset at {}: {}", output_path, exc)
+        lance_dirs = [d for d in output_path.rglob("*.lance") if d.is_dir()]
+
+    for lance_dir in lance_dirs:
+        row_count = _try_read_lance_dataset(lance_dir)
+        if row_count is not None:
+            total_rows += row_count
+            num_datasets += 1
+
+    for f in output_path.rglob("*"):
+        if f.is_file():
+            total_size_bytes += f.stat().st_size
+
+    return {
+        "num_output_files": num_datasets,
+        "output_total_bytes": total_size_bytes,
+        "output_total_mb": total_size_bytes / (1024 * 1024),
+        "num_rows": total_rows,
+    }
+
+
+def collect_input_metrics_parquet(input_path: str | Path) -> dict[str, Any]:
+    """Count rows and files from parquet footer metadata only (no data I/O)."""
+    files_with_size = get_all_file_paths_and_size_under(
+        str(input_path), recurse_subdirectories=True, keep_extensions=[".parquet"]
+    )
+    num_files = len(files_with_size)
+    total_bytes = int(sum(size for _, size in files_with_size))
+    num_rows = 0
+    for path, _ in files_with_size:
+        num_rows += pq.ParquetFile(path).metadata.num_rows
+    return {
+        "input_num_files": num_files,
+        "input_total_bytes": total_bytes,
+        "input_total_mb": total_bytes / (1024 * 1024),
+        "input_num_rows": num_rows,
+    }
+
+
+def collect_input_metrics_wds(input_path: str | Path) -> dict[str, Any]:
+    """Count samples and image members from WDS tar headers (reads index only, no content I/O)."""
+    import tarfile as _tarfile
+
+    files_with_size = get_all_file_paths_and_size_under(
+        str(input_path), recurse_subdirectories=True, keep_extensions=[".tar"]
+    )
+    num_files = len(files_with_size)
+    total_bytes = int(sum(size for _, size in files_with_size))
+    num_samples = 0
+    num_image_members = 0
+    for path, _ in files_with_size:
+        with _tarfile.open(path, "r:*") as tf:
+            for m in tf.getmembers():
+                if not m.isfile():
+                    continue
+                if m.name.endswith(".json"):
+                    num_samples += 1
+                else:
+                    num_image_members += 1
+    return {
+        "input_num_files": num_files,
+        "input_total_bytes": total_bytes,
+        "input_total_mb": total_bytes / (1024 * 1024),
+        "input_num_samples": num_samples,
+        "input_num_image_members": num_image_members,
+    }
+
+
+def _validate_wds_sample(sid: str, raw: bytes, seen_sids: set[str], errors: list[str]) -> None:
+    """Validate one WDS JSON sample in-place, appending errors."""
+    if sid in seen_sids:
+        errors.append(f"duplicate sample_id={sid}")
+    seen_sids.add(sid)
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        errors.append(f"sample={sid}: invalid JSON: {exc}")
+        return
+    texts = payload.get("texts")
+    images = payload.get("images")
+    if not isinstance(texts, list) or not isinstance(images, list):
+        errors.append(f"sample={sid}: texts/images must be lists")
+        return
+    if len(texts) != len(images):
+        errors.append(f"sample={sid}: len(texts)={len(texts)} != len(images)={len(images)}")
+        return
+    for i, (t, img) in enumerate(zip(texts, images, strict=True)):
+        if t is None and img is None:
+            errors.append(f"sample={sid}: position {i} has neither text nor image")
+        elif t is not None and img is not None:
+            errors.append(f"sample={sid}: position {i} has both text and image")
+
+
+_MAX_ORDERING_ERRORS = 20
+
+
+def validate_wds_ordering(tar_path: str | Path) -> dict[str, Any]:
+    """Validate ordering and structure of one WDS tar produced by InterleavedWebdatasetWriterStage."""
+    import tarfile as _tarfile
+
+    errors: list[str] = []
+    seen_sids: set[str] = set()
+
+    with _tarfile.open(str(tar_path), "r:*") as tf:
+        for m in tf.getmembers():
+            if not (m.isfile() and m.name.endswith(".json")):
+                continue
+            f = tf.extractfile(m)
+            if f is None:
+                continue
+            sid = m.name[: -len(".json")]
+            _validate_wds_sample(sid, f.read(), seen_sids, errors)
+            if len(errors) >= _MAX_ORDERING_ERRORS:
+                break
+
+    return {"valid": len(errors) == 0, "errors": errors}
 
 
 def validate_parquet_ordering(parquet_path: str | Path) -> dict[str, Any]:

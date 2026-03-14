@@ -180,6 +180,13 @@ math_cuda12 = [
     "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
+# Multimodal / Interleaved Dependencies
+multimodal_cpu = [
+    "Pillow",
+    "pylance>=2.0.0",
+    "s3fs>=2024.12.0",
+]
+
 # Synthetic Data Generation (SDG) Dependencies
 sdg_cpu = [
     "data-designer==0.4.0",
@@ -215,7 +222,7 @@ test = [
     "pytest-httpserver",
     "pytest-loguru",
     "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
-    "s3fs", # added for testing cloud fs
+    "s3fs>=2024.12.0", # added for testing cloud fs
 ]
 
 [tool.uv]
@@ -324,6 +331,7 @@ fixable = ["ALL"]
     "ANN201", # allow methods to not return something
     "ARG002", # allow unused method args (mock.patch decorator injects args not always referenced)
     "PLR2004", # magic value used in comparison
+    "PLR0913", # fixture/factory helpers legitimately have many parameters
     "ERA001", # allow commented-out code
 ]
 "benchmarking/**" = [

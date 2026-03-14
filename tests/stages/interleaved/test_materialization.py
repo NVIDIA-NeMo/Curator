@@ -16,6 +16,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
@@ -35,37 +36,7 @@ from nemo_curator.stages.interleaved.utils.materialization import (
 from nemo_curator.tasks import InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
-from .conftest import build_multi_frame_tiff, write_tar
-
-
-def _image_task(rows: list[dict], metadata: dict | None = None) -> InterleavedBatch:
-    table = pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA)
-    return InterleavedBatch(task_id="test", dataset_name="d", data=table, _metadata=metadata or {})
-
-
-def _image_row(
-    path: str | None,
-    member: str | None = None,
-    byte_offset: int | None = None,
-    byte_size: int | None = None,
-    content_type: str = "image/jpeg",
-) -> dict:
-    return {
-        "sample_id": "s1",
-        "position": 0,
-        "modality": "image",
-        "content_type": content_type,
-        "text_content": None,
-        "binary_content": None,
-        "source_ref": InterleavedBatch.build_source_ref(
-            path=path,
-            member=member,
-            byte_offset=byte_offset,
-            byte_size=byte_size,
-        ),
-        "materialize_error": None,
-    }
-
+from .conftest import build_jpeg_in_tiff, build_multi_frame_tiff, make_image_row, make_image_task, write_tar
 
 # --- _get_frame_index ---
 
@@ -147,26 +118,59 @@ def test_extract_tiff_frame_variants(image_bytes: bytes | None, frame_index: int
         assert result is None
 
 
+def test_extract_tiff_frame_jpeg_in_tiff_preserves_pixels() -> None:
+    """Regression: JPEG-compressed TIFF frames must not corrupt pixel values.
+
+    MINT-1T PDFs are stored as JPEG-in-TIFF multi-frame files.  Previously,
+    _extract_tiff_frame reused the source JPEG compression when saving the
+    extracted frame; JPEG does not support alpha channels, which caused wrong
+    pixel values and a corrupted alpha channel on RGBA frames.
+    """
+    tiff_bytes = build_jpeg_in_tiff(n_frames=2)
+    orig = Image.open(BytesIO(tiff_bytes))
+    for frame_index in range(2):
+        orig.seek(frame_index)
+        orig_arr = np.array(orig)
+
+        result = _extract_tiff_frame(tiff_bytes, frame_index)
+        assert result is not None
+        result_img = Image.open(BytesIO(result))
+        assert result_img.mode == orig.mode
+        assert result_img.size == orig.size
+        # All pixels must be identical (lossless round-trip after JPEG decode)
+        assert np.array_equal(np.array(result_img), orig_arr), f"Frame {frame_index}: pixel mismatch after extraction"
+
+
 # --- _fill_tar_extract_rows ---
 
 
-def test_fill_tar_extract_rows_bad_tar_path() -> None:
-    groups = {"/nonexistent/path.tar": [(0, "img.jpg", None)]}
-    binary_values: list[object] = [None]
-    error_values: list[str | None] = [None]
-    _fill_tar_extract_rows(groups, {}, binary_values, error_values)
-    assert error_values[0] == "failed to read path"
-
-
-def test_fill_tar_extract_rows_frame_extraction_failure(tmp_path: Path) -> None:
-    tiff_bytes = build_multi_frame_tiff(1)
-    tar_path = write_tar(tmp_path / "oob.tar", {"doc.tiff": tiff_bytes})
-    groups = {tar_path: [(0, "doc.tiff", 99)]}
+@pytest.mark.parametrize(
+    ("tar_path_factory", "member", "frame_index", "expected_error"),
+    [
+        pytest.param(lambda _: "/nonexistent/path.tar", "img.jpg", None, "failed to read path", id="bad_tar_path"),
+        pytest.param(
+            lambda tmp: write_tar(tmp / "oob.tar", {"doc.tiff": build_multi_frame_tiff(1)}),
+            "doc.tiff",
+            99,
+            "failed to extract frame",
+            id="oob_frame",
+        ),
+    ],
+)
+def test_fill_tar_extract_rows_errors(
+    tmp_path: Path,
+    tar_path_factory: object,
+    member: str,
+    frame_index: int | None,
+    expected_error: str,
+) -> None:
+    tar_path = tar_path_factory(tmp_path)
+    groups = {tar_path: [(0, member, frame_index)]}
     binary_values: list[object] = [None]
     error_values: list[str | None] = [None]
     _fill_tar_extract_rows(groups, {}, binary_values, error_values)
     assert error_values[0] is not None
-    assert "failed to extract frame" in error_values[0]
+    assert expected_error in error_values[0]
 
 
 # --- _scatter_range_blobs ---
@@ -205,32 +209,34 @@ def test_scatter_range_blobs_bytearray_conversion() -> None:
     assert error_values[0] is None
 
 
-def test_scatter_range_blobs_with_tiff_frame() -> None:
-    tiff_bytes = build_multi_frame_tiff(3)
+@pytest.mark.parametrize(
+    ("n_frames", "frame_index", "expect_success", "expected_error_substr"),
+    [
+        pytest.param(3, 1, True, None, id="valid_frame"),
+        pytest.param(1, 99, False, "failed to extract frame", id="oob_frame"),
+    ],
+)
+def test_scatter_range_blobs_tiff_frame(
+    n_frames: int,
+    frame_index: int,
+    expect_success: bool,
+    expected_error_substr: str | None,
+) -> None:
+    tiff_bytes = build_multi_frame_tiff(n_frames)
     range_keys = [(0, len(tiff_bytes))]
     unique_ranges: dict[tuple[int, int], list[tuple[int, str, int | None]]] = {
-        (0, len(tiff_bytes)): [(0, "doc.tiff", 1)],
+        (0, len(tiff_bytes)): [(0, "doc.tiff", frame_index)],
     }
     binary_values: list[object] = [None]
     error_values: list[str | None] = [None]
     _scatter_range_blobs([tiff_bytes], range_keys, unique_ranges, binary_values, error_values)
-    assert binary_values[0] is not None
-    assert error_values[0] is None
-    img = Image.open(BytesIO(binary_values[0]))
-    assert img.n_frames == 1
-
-
-def test_scatter_range_blobs_tiff_frame_extraction_failure() -> None:
-    tiff_bytes = build_multi_frame_tiff(1)
-    range_keys = [(0, len(tiff_bytes))]
-    unique_ranges: dict[tuple[int, int], list[tuple[int, str, int | None]]] = {
-        (0, len(tiff_bytes)): [(0, "doc.tiff", 99)],
-    }
-    binary_values: list[object] = [None]
-    error_values: list[str | None] = [None]
-    _scatter_range_blobs([tiff_bytes], range_keys, unique_ranges, binary_values, error_values)
-    assert error_values[0] is not None
-    assert "failed to extract frame" in error_values[0]
+    if expect_success:
+        assert binary_values[0] is not None
+        assert error_values[0] is None
+        assert Image.open(BytesIO(binary_values[0])).n_frames == 1
+    else:
+        assert error_values[0] is not None
+        assert expected_error_substr in error_values[0]
 
 
 # --- _fill_range_read_rows ---
@@ -314,10 +320,10 @@ def test_materialize_with_content_type_filter(tmp_path: Path) -> None:
     png_path.write_bytes(png_bytes)
 
     rows = [
-        _image_row(path=str(jpeg_path), content_type="image/jpeg"),
-        {**_image_row(path=str(png_path), content_type="image/png"), "position": 1},
+        make_image_row(path=str(jpeg_path), content_type="image/jpeg"),
+        {**make_image_row(path=str(png_path), content_type="image/png"), "position": 1},
     ]
-    task = _image_task(rows)
+    task = make_image_task(rows)
     result = materialize_task_binary_content(task, image_content_types=("image/jpeg",))
     df = result.to_pandas()
     assert df.loc[0, "binary_content"] == jpeg_bytes
