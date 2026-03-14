@@ -588,7 +588,7 @@ entries:
       --scratch-output-path={session_entry_dir}/scratch
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
-      --split=dev
+      --split=train
       --wer-threshold=5.5
       --gpus=1
     ray:
@@ -608,7 +608,7 @@ entries:
       --scratch-output-path={session_entry_dir}/scratch
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
-      --split=dev
+      --split=train
       --wer-threshold=5.5
       --gpus=1
       --executor=ray_data
