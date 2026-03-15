@@ -32,8 +32,8 @@ if TYPE_CHECKING:
 class InferenceAsrNemoStage(AudioEntryStage):
     """Speech recognition inference using a NeMo ASR model.
 
-    Supports both single-entry processing (``process_dataset_entry``) and batched
-    GPU inference (``process_batch``) for efficient utilisation.
+    Overrides ``_process_validated`` for batched GPU inference
+    instead of ``process_dataset_entry``.
 
     Args:
         model_name: Pretrained NeMo ASR model name.
@@ -87,19 +87,8 @@ class InferenceAsrNemoStage(AudioEntryStage):
 
         return [output.text for output in outputs]
 
-    def process_dataset_entry(self, data_entry: dict) -> dict:
-        texts = self.transcribe([data_entry[self.filepath_key]])
-        data_entry[self.pred_text_key] = texts[0]
-        return data_entry
-
-    def process_batch(self, tasks: list[AudioEntry]) -> list[AudioEntry]:
-        """Batch GPU inference across multiple AudioEntry tasks."""
-        if not tasks:
-            return []
-        for task in tasks:
-            if not self.validate_input(task):
-                msg = f"Task {task!s} failed validation for stage {self}"
-                raise ValueError(msg)
+    def _process_validated(self, tasks: list[AudioEntry]) -> list[AudioEntry]:
+        """Batched GPU inference — tasks are already validated by the base class."""
         files = [t.data[self.filepath_key] for t in tasks]
         texts = self.transcribe(files)
         results = []

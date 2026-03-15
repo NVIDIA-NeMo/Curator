@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-from abc import abstractmethod
 from dataclasses import dataclass
 from operator import eq, ge, gt, le, lt, ne
 from typing import Any
@@ -26,44 +25,87 @@ from nemo_curator.tasks import AudioEntry
 
 
 class AudioEntryStage(ProcessingStage[AudioEntry, AudioEntry]):
-    """Base class for stages that process one audio manifest entry at a time.
+    """Base class for all audio processing stages.
 
-    Subclasses implement ``process_dataset_entry`` which receives a plain ``dict``
-    (the manifest entry) and returns either:
+    Provides four methods — each exists for a reason that cannot be
+    collapsed further:
 
-    * a ``dict`` — the (possibly modified) entry, or
-    * ``None``  — to filter the entry out of the pipeline.
+    ``process_dataset_entry``
+        CPU-stage hook.  Receives a plain ``dict`` (the manifest entry),
+        returns ``dict | None``.  Eliminates unwrap / rewrap boilerplate
+        for CPU-bound stages (5+ stages use this).
 
-    All undeclared columns silently pass through.  Perf / metadata
-    propagation is handled automatically by the base ``process`` method.
+    ``process``
+        Required by the abstract ``ProcessingStage`` base.  Delegates to
+        ``process_batch`` so that every call — single or batched — follows
+        one code path.  Cannot hold the logic itself because backends call
+        ``process_batch`` directly; putting logic here would force
+        ``process_batch`` to loop through ``process`` per task, which
+        would prevent GPU stages from batching N tasks in one kernel call.
+
+    ``process_batch``
+        The real entry point called by backends (Xenna / Ray).  Validates
+        every task up front (fail-fast), then delegates to
+        ``_process_validated``.  Not meant to be overridden — it is the
+        single validation gateway for both CPU and GPU stages.
+
+    ``_process_validated``
+        Post-validation batch hook.  Default loops via
+        ``process_dataset_entry`` for CPU stages.  GPU stages override
+        *only* this method with batched logic — they never need to
+        repeat the validation loop because ``process_batch`` already did it.
+
+    Subclass contract:
+        - CPU stage  → override ``process_dataset_entry``
+        - GPU stage  → override ``_process_validated``
     """
 
-    @abstractmethod
     def process_dataset_entry(self, data_entry: dict) -> dict | None:
         """Process a single manifest entry dict.
+
+        CPU stages override this.  GPU stages that override
+        ``_process_validated`` instead can leave the default.
 
         Returns:
             dict: processed entry (may be the same object, mutated in-place).
             None: to drop / filter out this entry.
         """
+        msg = f"{type(self).__name__} must implement process_dataset_entry or override _process_validated"
+        raise NotImplementedError(msg)
 
     def process(self, task: AudioEntry) -> AudioEntry | list[AudioEntry]:
-        if not self.validate_input(task):
-            msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
-            raise ValueError(msg)
-
-        result = self.process_dataset_entry(task.data)
-        if result is None:
+        results = self.process_batch([task])
+        if not results:
             return []
+        return results[0] if len(results) == 1 else results
 
-        return AudioEntry(
-            data=result,
-            task_id=task.task_id,
-            dataset_name=task.dataset_name,
-            filepath_key=task.filepath_key,
-            _stage_perf=list(task._stage_perf),
-            _metadata=task._metadata.copy(),
-        )
+    def process_batch(self, tasks: list[AudioEntry]) -> list[AudioEntry]:
+        if not tasks:
+            return []
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
+        return self._process_validated(tasks)
+
+    def _process_validated(self, tasks: list[AudioEntry]) -> list[AudioEntry]:
+        """Process a pre-validated batch.  GPU stages override this."""
+        results: list[AudioEntry] = []
+        for task in tasks:
+            result = self.process_dataset_entry(task.data)
+            if result is None:
+                continue
+            results.append(
+                AudioEntry(
+                    data=result,
+                    task_id=task.task_id,
+                    dataset_name=task.dataset_name,
+                    filepath_key=task.filepath_key,
+                    _stage_perf=list(task._stage_perf),
+                    _metadata=task._metadata.copy(),
+                )
+            )
+        return results
 
 
 # ---------------------------------------------------------------------------
