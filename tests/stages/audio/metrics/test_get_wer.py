@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
+
 from nemo_curator.stages.audio.metrics.get_wer import (
     GetPairwiseWerStage,
     get_cer,
@@ -33,6 +35,33 @@ def test_get_cer_basic() -> None:
 def test_rates() -> None:
     assert get_charrate("abcd", 2.0) == 2.0
     assert get_wordrate("a b c d", 2.0) == 2.0
+
+
+def test_pairwise_wer_validate_input_valid() -> None:
+    stage = GetPairwiseWerStage()
+    assert stage.validate_input(AudioEntry(data={"text": "a b c", "pred_text": "a x c"})) is True
+
+
+def test_pairwise_wer_validate_input_missing_text() -> None:
+    stage = GetPairwiseWerStage()
+    assert stage.validate_input(AudioEntry(data={"pred_text": "a x c"})) is False
+
+
+def test_pairwise_wer_validate_input_missing_pred_text() -> None:
+    stage = GetPairwiseWerStage()
+    assert stage.validate_input(AudioEntry(data={"text": "a b c"})) is False
+
+
+def test_pairwise_wer_process_raises_on_missing_text() -> None:
+    stage = GetPairwiseWerStage()
+    with pytest.raises(ValueError, match="missing required columns"):
+        stage.process(AudioEntry(data={"pred_text": "a x c"}))
+
+
+def test_pairwise_wer_process_raises_on_missing_pred_text() -> None:
+    stage = GetPairwiseWerStage()
+    with pytest.raises(ValueError, match="missing required columns"):
+        stage.process(AudioEntry(data={"text": "a b c"}))
 
 
 def test_pairwise_wer_stage() -> None:

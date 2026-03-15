@@ -171,6 +171,9 @@ class ALMDataOverlapStage(AudioEntryStage):
             msg = "target_duration must be positive"
             raise ValueError(msg)
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["windows"]
+
     def process_dataset_entry(self, data_entry: dict) -> dict:
         t0 = time.perf_counter()
         input_windows = len(data_entry.get("windows", []))

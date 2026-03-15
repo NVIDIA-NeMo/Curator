@@ -158,6 +158,9 @@ class ALMDataBuilderStage(AudioEntryStage):
         self._drop_fields_set = {f.strip() for f in self.drop_fields.split(",") if f.strip()}
         self._drop_fields_top_level_set = {f.strip() for f in self.drop_fields_top_level.split(",") if f.strip()}
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["audio_filepath", "segments", "audio_sample_rate"]
+
     def process_dataset_entry(self, data_entry: dict) -> dict:
         t0 = time.perf_counter()
         result = self._process_single_entry(data_entry)

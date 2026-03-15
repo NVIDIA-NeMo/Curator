@@ -23,6 +23,19 @@ from nemo_curator.tasks import AudioEntry
 class TestALMDataOverlap:
     """Unit tests for ALMDataOverlapStage."""
 
+    def test_validate_input_valid(self, entry_with_windows: dict) -> None:
+        stage = ALMDataOverlapStage(overlap_percentage=50, target_duration=120.0)
+        assert stage.validate_input(AudioEntry(data=entry_with_windows)) is True
+
+    def test_validate_input_missing_windows(self) -> None:
+        stage = ALMDataOverlapStage(overlap_percentage=50, target_duration=120.0)
+        assert stage.validate_input(AudioEntry(data={"audio_filepath": "a.wav"})) is False
+
+    def test_process_raises_on_missing_windows(self) -> None:
+        stage = ALMDataOverlapStage(overlap_percentage=50, target_duration=120.0)
+        with pytest.raises(ValueError, match="missing required columns"):
+            stage.process(AudioEntry(data={"audio_filepath": "a.wav"}))
+
     def test_filters_overlapping_windows(self, entry_with_windows: dict) -> None:
         stage = ALMDataOverlapStage(
             overlap_percentage=50,

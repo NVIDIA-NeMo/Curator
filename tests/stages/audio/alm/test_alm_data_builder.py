@@ -14,12 +14,36 @@
 
 """Tests for ALMDataBuilderStage using sample data fixtures."""
 
+import pytest
+
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage
 from nemo_curator.tasks import AudioEntry
 
 
 class TestALMDataBuilder:
     """Unit tests for ALMDataBuilderStage."""
+
+    def test_validate_input_valid(self, sample_entry: dict) -> None:
+        stage = ALMDataBuilderStage()
+        assert stage.validate_input(AudioEntry(data=sample_entry)) is True
+
+    def test_validate_input_missing_segments(self) -> None:
+        stage = ALMDataBuilderStage()
+        assert stage.validate_input(AudioEntry(data={"audio_filepath": "a.wav", "audio_sample_rate": 16000})) is False
+
+    def test_validate_input_missing_sample_rate(self) -> None:
+        stage = ALMDataBuilderStage()
+        assert stage.validate_input(AudioEntry(data={"audio_filepath": "a.wav", "segments": []})) is False
+
+    def test_process_raises_on_missing_segments(self) -> None:
+        stage = ALMDataBuilderStage()
+        with pytest.raises(ValueError, match="missing required columns"):
+            stage.process(AudioEntry(data={"audio_filepath": "a.wav", "audio_sample_rate": 16000}))
+
+    def test_process_raises_on_missing_sample_rate(self) -> None:
+        stage = ALMDataBuilderStage()
+        with pytest.raises(ValueError, match="missing required columns"):
+            stage.process(AudioEntry(data={"audio_filepath": "a.wav", "segments": []}))
 
     def test_creates_windows_from_sample(self, sample_entry: dict) -> None:
         stage = ALMDataBuilderStage(

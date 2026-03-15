@@ -14,6 +14,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.tasks import AudioEntry
 
@@ -26,6 +28,30 @@ class TestAsrNeMoStage:
         assert stage.name == "ASR_inference"
         assert stage.inputs() == ([], ["audio_filepath"])
         assert stage.outputs() == ([], ["audio_filepath", "pred_text"])
+
+    def test_validate_input_valid(self) -> None:
+        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
+        assert stage.validate_input(AudioEntry(data={"audio_filepath": "/a.wav"})) is True
+
+    def test_validate_input_missing_filepath(self) -> None:
+        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
+        assert stage.validate_input(AudioEntry(data={"text": "hello"})) is False
+
+    def test_process_raises_on_missing_filepath(self) -> None:
+        with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["x"]):
+            stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
+            stage.setup_on_node()
+            stage.setup()
+            with pytest.raises(ValueError, match="missing required columns"):
+                stage.process(AudioEntry(data={"text": "hello"}))
+
+    def test_process_batch_raises_on_missing_filepath(self) -> None:
+        with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["x"]):
+            stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
+            stage.setup_on_node()
+            stage.setup()
+            with pytest.raises(ValueError, match="failed validation"):
+                stage.process_batch([AudioEntry(data={"text": "hello"})])
 
     def test_stage_initialization(self) -> None:
         stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")

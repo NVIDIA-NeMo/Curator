@@ -48,6 +48,10 @@ class AudioEntryStage(ProcessingStage[AudioEntry, AudioEntry]):
         """
 
     def process(self, task: AudioEntry) -> AudioEntry | list[AudioEntry]:
+        if not self.validate_input(task):
+            msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+            raise ValueError(msg)
+
         result = self.process_dataset_entry(task.data)
         if result is None:
             return []
@@ -60,74 +64,6 @@ class AudioEntryStage(ProcessingStage[AudioEntry, AudioEntry]):
             _stage_perf=list(task._stage_perf),
             _metadata=task._metadata.copy(),
         )
-
-
-class AudioFanOutStage(ProcessingStage[AudioEntry, AudioEntry]):
-    """Base class for stages that produce multiple AudioEntry from one input.
-
-    Subclasses implement ``fan_out`` which receives a plain ``dict`` and
-    returns a list of dicts.  An empty list filters the entry entirely.
-
-    Automatically declares ``IS_FANOUT_STAGE`` for Ray Data repartition.
-    """
-
-    @abstractmethod
-    def fan_out(self, data: dict) -> list[dict]:
-        """Produce multiple output dicts from a single input dict."""
-
-    def process(self, task: AudioEntry) -> list[AudioEntry]:
-        results = self.fan_out(task.data)
-        return [
-            AudioEntry(
-                data=r,
-                task_id=f"{task.task_id}_{i}",
-                dataset_name=task.dataset_name,
-                filepath_key=task.filepath_key,
-                _stage_perf=list(task._stage_perf),
-                _metadata=task._metadata.copy(),
-            )
-            for i, r in enumerate(results)
-        ]
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {"is_fanout_stage": True}
-
-
-class AudioAggregateStage(ProcessingStage[AudioEntry, AudioEntry]):
-    """Base class for stages that reduce multiple AudioEntry into fewer outputs.
-
-    Overrides ``process_batch`` to receive all tasks at once.
-    Subclasses must set ``num_workers() -> 1`` for single-writer semantics.
-    """
-
-    @abstractmethod
-    def aggregate(self, entries: list[dict], metadata: dict) -> list[dict]:
-        """Reduce multiple entry dicts into fewer output dicts."""
-
-    def process(self, task: AudioEntry) -> AudioEntry:
-        msg = f"{type(self).__name__} must be called via process_batch, not process"
-        raise NotImplementedError(msg)
-
-    def process_batch(self, tasks: list[AudioEntry]) -> list[AudioEntry]:
-        if not tasks:
-            return []
-        entries = [t.data for t in tasks]
-        metadata = tasks[0]._metadata.copy()
-        results = self.aggregate(entries, metadata)
-        return [
-            AudioEntry(
-                data=r,
-                task_id=f"{tasks[0].task_id}_agg_{i}",
-                dataset_name=tasks[0].dataset_name,
-                filepath_key=tasks[0].filepath_key,
-                _stage_perf=list(tasks[0]._stage_perf),
-                _metadata=metadata,
-            )
-            for i, r in enumerate(results)
-        ]
-
-    def num_workers(self) -> int | None:
-        return 1
 
 
 # ---------------------------------------------------------------------------

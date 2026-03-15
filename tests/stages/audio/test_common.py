@@ -15,8 +15,43 @@
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.tasks import AudioEntry
+
+
+def test_preserve_by_value_validate_input_valid() -> None:
+    stage = PreserveByValueStage(input_value_key="wer", target_value=50, operator="le")
+    assert stage.validate_input(AudioEntry(data={"wer": 30})) is True
+
+
+def test_preserve_by_value_validate_input_missing_column() -> None:
+    stage = PreserveByValueStage(input_value_key="wer", target_value=50, operator="le")
+    assert stage.validate_input(AudioEntry(data={"text": "hello"})) is False
+
+
+def test_get_audio_duration_validate_input_valid() -> None:
+    stage = GetAudioDurationStage()
+    assert stage.validate_input(AudioEntry(data={"audio_filepath": "/a.wav"})) is True
+
+
+def test_get_audio_duration_validate_input_missing_column() -> None:
+    stage = GetAudioDurationStage()
+    assert stage.validate_input(AudioEntry(data={"text": "hello"})) is False
+
+
+def test_get_audio_duration_process_raises_on_missing_column() -> None:
+    stage = GetAudioDurationStage()
+    stage.setup()
+    with pytest.raises(ValueError, match="missing required columns"):
+        stage.process(AudioEntry(data={"text": "hello"}))
+
+
+def test_preserve_by_value_process_raises_on_missing_column() -> None:
+    stage = PreserveByValueStage(input_value_key="wer", target_value=50, operator="le")
+    with pytest.raises(ValueError, match="missing required columns"):
+        stage.process(AudioEntry(data={"text": "hello"}))
 
 
 def test_preserve_by_value_eq_keeps_match() -> None:
