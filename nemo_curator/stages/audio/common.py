@@ -39,7 +39,7 @@ class AudioEntryStage(ProcessingStage[AudioEntry, AudioEntry]):
     """
 
     @abstractmethod
-    def process_dataset_entry(self, data: dict) -> dict | None:
+    def process_dataset_entry(self, data_entry: dict) -> dict | None:
         """Process a single manifest entry dict.
 
         Returns:
