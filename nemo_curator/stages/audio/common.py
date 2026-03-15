@@ -28,7 +28,7 @@ from nemo_curator.tasks import AudioEntry
 class AudioEntryStage(ProcessingStage[AudioEntry, AudioEntry]):
     """Base class for stages that process one audio manifest entry at a time.
 
-    Subclasses implement ``process_entry`` which receives a plain ``dict``
+    Subclasses implement ``process_dataset_entry`` which receives a plain ``dict``
     (the manifest entry) and returns either:
 
     * a ``dict`` — the (possibly modified) entry, or
@@ -39,7 +39,7 @@ class AudioEntryStage(ProcessingStage[AudioEntry, AudioEntry]):
     """
 
     @abstractmethod
-    def process_entry(self, data: dict) -> dict | None:
+    def process_dataset_entry(self, data: dict) -> dict | None:
         """Process a single manifest entry dict.
 
         Returns:
@@ -48,7 +48,7 @@ class AudioEntryStage(ProcessingStage[AudioEntry, AudioEntry]):
         """
 
     def process(self, task: AudioEntry) -> AudioEntry | list[AudioEntry]:
-        result = self.process_entry(task.data)
+        result = self.process_dataset_entry(task.data)
         if result is None:
             return []
 
@@ -160,7 +160,7 @@ class GetAudioDurationStage(AudioEntryStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.duration_key]
 
-    def process_entry(self, data: dict) -> dict:
+    def process_dataset_entry(self, data: dict) -> dict:
         audio_filepath = data[self.audio_filepath_key]
         try:
             raw, samplerate = self._soundfile.read(audio_filepath)
@@ -202,7 +202,7 @@ class PreserveByValueStage(AudioEntryStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.input_value_key]
 
-    def process_entry(self, data: dict) -> dict | None:
+    def process_dataset_entry(self, data: dict) -> dict | None:
         if self.operator(data[self.input_value_key], self.target_value):
             return data
         return None

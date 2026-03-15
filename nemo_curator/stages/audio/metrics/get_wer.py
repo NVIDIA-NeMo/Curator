@@ -69,6 +69,6 @@ class GetPairwiseWerStage(AudioEntryStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.text_key, self.pred_text_key, self.wer_key]
 
-    def process_entry(self, data: dict) -> dict:
+    def process_dataset_entry(self, data: dict) -> dict:
         data[self.wer_key] = get_wer(data[self.text_key], data[self.pred_text_key])
         return data

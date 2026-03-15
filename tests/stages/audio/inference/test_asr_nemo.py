@@ -33,7 +33,7 @@ class TestAsrNeMoStage:
         assert stage.pred_text_key == "pred_text"
         assert stage.batch_size == 16
 
-    def test_process_entry_success(self) -> None:
+    def test_process_dataset_entry_success(self) -> None:
         with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["the cat"]):
             stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
             stage.setup_on_node()

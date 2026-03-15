@@ -158,7 +158,7 @@ class ALMDataBuilderStage(AudioEntryStage):
         self._drop_fields_set = {f.strip() for f in self.drop_fields.split(",") if f.strip()}
         self._drop_fields_top_level_set = {f.strip() for f in self.drop_fields_top_level.split(",") if f.strip()}
 
-    def process_entry(self, data: dict) -> dict:
+    def process_dataset_entry(self, data: dict) -> dict:
         t0 = time.perf_counter()
         result = self._process_single_entry(data)
         process_time = time.perf_counter() - t0
@@ -167,7 +167,7 @@ class ALMDataBuilderStage(AudioEntryStage):
         num_windows = len(result.get("windows", []))
         self._log_metrics(
             {
-                "process_entry_time": process_time,
+                "process_dataset_entry_time": process_time,
                 "segments_processed": num_segments,
                 "windows_created": num_windows,
             }

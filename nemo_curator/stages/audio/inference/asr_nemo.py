@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 class InferenceAsrNemoStage(AudioEntryStage):
     """Speech recognition inference using a NeMo ASR model.
 
-    Supports both single-entry processing (``process_entry``) and batched
+    Supports both single-entry processing (``process_dataset_entry``) and batched
     GPU inference (``process_batch``) for efficient utilisation.
 
     Args:
@@ -87,7 +87,7 @@ class InferenceAsrNemoStage(AudioEntryStage):
 
         return [output.text for output in outputs]
 
-    def process_entry(self, data: dict) -> dict:
+    def process_dataset_entry(self, data: dict) -> dict:
         texts = self.transcribe([data[self.filepath_key]])
         data[self.pred_text_key] = texts[0]
         return data
