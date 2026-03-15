@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from fsspec.core import url_to_fs
@@ -40,9 +40,15 @@ class ALMManifestWriterStage(ProcessingStage[AudioEntry, FileGroupTask]):
 
     output_path: str = ""
     name: str = "alm_manifest_writer"
+    _setup_done: bool = field(default=False, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if not self.output_path:
+            msg = "output_path is required for ALMManifestWriterStage"
+            raise ValueError(msg)
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
-        if getattr(self, "_setup_done", False):
+        if self._setup_done:
             return
         fs, path = url_to_fs(self.output_path)
         parent_dir = "/".join(path.split("/")[:-1])

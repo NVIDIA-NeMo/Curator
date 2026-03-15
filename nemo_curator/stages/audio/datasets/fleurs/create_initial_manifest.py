@@ -65,6 +65,12 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioEntry]):
     text_key: str = "text"
     name: str = "CreateInitialManifestFleurs"
 
+    def __post_init__(self) -> None:
+        for attr in ("lang", "split", "raw_data_dir"):
+            if not getattr(self, attr):
+                msg = f"{attr} is required for CreateInitialManifestFleursStage"
+                raise ValueError(msg)
+
     def process_transcript(self, file_path: str) -> list[AudioEntry]:
         """Parse transcript TSV file and emit one AudioEntry per line."""
         entries: list[AudioEntry] = []

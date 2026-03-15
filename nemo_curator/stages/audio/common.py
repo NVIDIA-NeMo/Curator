@@ -119,6 +119,7 @@ class AudioAggregateStage(ProcessingStage[AudioEntry, AudioEntry]):
                 data=r,
                 task_id=f"{tasks[0].task_id}_agg_{i}",
                 dataset_name=tasks[0].dataset_name,
+                filepath_key=tasks[0].filepath_key,
                 _stage_perf=list(tasks[0]._stage_perf),
                 _metadata=metadata,
             )

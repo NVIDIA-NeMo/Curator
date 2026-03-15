@@ -49,6 +49,11 @@ class InferenceAsrNemoStage(AudioEntryStage):
     batch_size: int = 16
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
+    def __post_init__(self) -> None:
+        if not self.model_name and not self.asr_model:
+            msg = "Either model_name or asr_model is required for InferenceAsrNemoStage"
+            raise ValueError(msg)
+
     def check_cuda(self) -> torch.device:
         return torch.device("cuda") if self.resources.gpus > 0 else torch.device("cpu")
 
@@ -99,10 +104,10 @@ class InferenceAsrNemoStage(AudioEntryStage):
         texts = self.transcribe(files)
         results = []
         for task, text in zip(tasks, texts, strict=True):
-            task.data[self.pred_text_key] = text
+            out_data = {**task.data, self.pred_text_key: text}
             results.append(
                 AudioEntry(
-                    data=task.data,
+                    data=out_data,
                     task_id=task.task_id,
                     dataset_name=task.dataset_name,
                     filepath_key=task.filepath_key,

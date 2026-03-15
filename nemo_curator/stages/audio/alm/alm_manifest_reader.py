@@ -92,6 +92,9 @@ class ALMManifestReader(CompositeStage[_EmptyTask, AudioEntry]):
 
     def __post_init__(self) -> None:
         super().__init__()
+        if not self.manifest_path:
+            msg = "manifest_path is required for ALMManifestReader"
+            raise ValueError(msg)
 
     def decompose(self) -> list[ProcessingStage]:
         return [
