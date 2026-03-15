@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .audio_batch import AudioBatch
+from .audio_entry import AudioEntry
 from .document import DocumentBatch
 from .file_group import FileGroupTask
 from .image import ImageBatch, ImageObject
@@ -20,7 +20,7 @@ from .interleaved import InterleavedBatch
 from .tasks import EmptyTask, Task, _EmptyTask
 
 __all__ = [
-    "AudioBatch",
+    "AudioEntry",
     "DocumentBatch",
     "EmptyTask",
     "FileGroupTask",

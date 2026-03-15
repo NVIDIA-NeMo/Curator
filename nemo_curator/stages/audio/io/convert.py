@@ -12,26 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import pandas as pd
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch, DocumentBatch
+from nemo_curator.tasks import AudioEntry, DocumentBatch
 
 
-class AudioToDocumentStage(ProcessingStage[AudioBatch, DocumentBatch]):
-    """
-    Stage to conver DocumentObject to DocumentBatch
-
-    """
+class AudioToDocumentStage(ProcessingStage[AudioEntry, DocumentBatch]):
+    """Convert an AudioEntry to a single-row DocumentBatch."""
 
     name = "AudioToDocumentStage"
 
-    def process(self, task: AudioBatch) -> list[DocumentBatch]:
-        return [
-            DocumentBatch(
-                data=pd.DataFrame(task.data),
-                task_id=task.task_id,
-                dataset_name=task.dataset_name,
-                _stage_perf=task._stage_perf,
-            )
-        ]
+    def process(self, task: AudioEntry) -> DocumentBatch:
+        return DocumentBatch(
+            data=pd.DataFrame([task.data]),
+            task_id=task.task_id,
+            dataset_name=task.dataset_name,
+            _stage_perf=task._stage_perf,
+        )

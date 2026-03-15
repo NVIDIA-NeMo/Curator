@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from abc import abstractmethod
+from __future__ import annotations
+
 from dataclasses import dataclass
 from operator import eq, ge, gt, le, lt, ne
 from typing import Any
@@ -20,79 +21,144 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch, Task
+from nemo_curator.tasks import AudioEntry
 
 
-class LegacySpeechStage(ProcessingStage[Task, Task]):
+class AudioEntryStage(ProcessingStage[AudioEntry, AudioEntry]):
+    """Base class for all audio processing stages.
+
+    Provides four methods — each exists for a reason that cannot be
+    collapsed further:
+
+    ``process_dataset_entry``
+        CPU-stage hook.  Receives a plain ``dict`` (the manifest entry),
+        returns ``dict | None``.  Eliminates unwrap / rewrap boilerplate
+        for CPU-bound stages (5+ stages use this).
+
+    ``process``
+        Required by the abstract ``ProcessingStage`` base.  Delegates to
+        ``process_batch`` so that every call — single or batched — follows
+        one code path.  Cannot hold the logic itself because backends call
+        ``process_batch`` directly; putting logic here would force
+        ``process_batch`` to loop through ``process`` per task, which
+        would prevent GPU stages from batching N tasks in one kernel call.
+
+    ``process_batch``
+        The real entry point called by backends (Xenna / Ray).  Validates
+        every task up front (fail-fast), then delegates to
+        ``_process_validated``.  Not meant to be overridden — it is the
+        single validation gateway for both CPU and GPU stages.
+
+    ``_process_validated``
+        Post-validation batch hook.  Default loops via
+        ``process_dataset_entry`` for CPU stages.  GPU stages override
+        *only* this method with batched logic — they never need to
+        repeat the validation loop because ``process_batch`` already did it.
+
+    Subclass contract:
+        - CPU stage  → override ``process_dataset_entry``
+        - GPU stage  → override ``_process_validated``
     """
-    LegacySpeechStage for SDP processors inherited from BaseParallelProcessor
 
-    """
+    def process_dataset_entry(self, data_entry: dict) -> dict | None:
+        """Process a single manifest entry dict.
 
-    def process(self, task: AudioBatch) -> list[Task]:
-        result = []
-        for entry in task.data:
-            entries = self.process_dataset_entry(entry)
-            for r in entries:
-                if r is not task and not r._stage_perf:
-                    r._stage_perf = list(task._stage_perf)
-                if r is not task and not r._metadata:
-                    r._metadata = task._metadata.copy()
-            result.extend(entries)
-        return result
+        CPU stages override this.  GPU stages that override
+        ``_process_validated`` instead can leave the default.
 
-    @abstractmethod
-    def process_dataset_entry(self, data_entry: AudioBatch) -> list[AudioBatch]:
-        return [data_entry]
+        Returns:
+            dict: processed entry (may be the same object, mutated in-place).
+            None: to drop / filter out this entry.
+        """
+        msg = f"{type(self).__name__} must implement process_dataset_entry or override _process_validated"
+        raise NotImplementedError(msg)
+
+    def process(self, task: AudioEntry) -> AudioEntry | list[AudioEntry]:
+        results = self.process_batch([task])
+        if not results:
+            return []
+        return results[0] if len(results) == 1 else results
+
+    def process_batch(self, tasks: list[AudioEntry]) -> list[AudioEntry]:
+        if not tasks:
+            return []
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
+        return self._process_validated(tasks)
+
+    def _process_validated(self, tasks: list[AudioEntry]) -> list[AudioEntry]:
+        """Process a pre-validated batch.  GPU stages override this."""
+        results: list[AudioEntry] = []
+        for task in tasks:
+            result = self.process_dataset_entry(task.data)
+            if result is None:
+                continue
+            results.append(
+                AudioEntry(
+                    data=result,
+                    task_id=task.task_id,
+                    dataset_name=task.dataset_name,
+                    filepath_key=task.filepath_key,
+                    _stage_perf=list(task._stage_perf),
+                    _metadata=task._metadata.copy(),
+                )
+            )
+        return results
+
+
+# ---------------------------------------------------------------------------
+# Concrete stages
+# ---------------------------------------------------------------------------
 
 
 @dataclass
-class GetAudioDurationStage(LegacySpeechStage):
-    """
-    Stage that computes the duration of the file in ``audio_filepath_key`` (using soundfile)
-    and saves the duration in ``duration_key``. If there is an error computing the duration,
-    the value at ``duration_key`` will be updated with the value -1.0.
+class GetAudioDurationStage(AudioEntryStage):
+    """Compute audio duration from the file at *audio_filepath_key* and
+    store the result under *duration_key*.
 
     Args:
-        audio_filepath_key (str): Key to get path to wav file.
-        duration_key (str): Key to put to audio duration.
-    Returns:
-        All the same fields as in the input manifest plus duration_key
+        audio_filepath_key: Key to get path to wav file.
+        duration_key: Key to put audio duration.
     """
 
-    name = "GetAudioDurationStage"
-    audio_filepath_key: str
-    duration_key: str
+    name: str = "GetAudioDurationStage"
+    audio_filepath_key: str = "audio_filepath"
+    duration_key: str = "duration"
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         import soundfile
 
         self._soundfile = soundfile
 
-    def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
-        audio_filepath = data_entry[self.audio_filepath_key]
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.audio_filepath_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.duration_key]
+
+    def process_dataset_entry(self, data: dict) -> dict:
+        audio_filepath = data[self.audio_filepath_key]
         try:
-            data, samplerate = self._soundfile.read(audio_filepath)
-            data_entry[self.duration_key] = data.shape[0] / samplerate
+            raw, samplerate = self._soundfile.read(audio_filepath)
+            data[self.duration_key] = raw.shape[0] / samplerate
         except self._soundfile.SoundFileError as e:
             logger.warning(str(e) + " file: " + audio_filepath)
-            data_entry[self.duration_key] = -1.0
-        return [AudioBatch(data=data_entry)]
+            data[self.duration_key] = -1.0
+        return data
 
 
-class PreserveByValueStage(LegacySpeechStage):
-    """
-    Processor for preserving dataset entries based on a specified condition involving a target value and an input field.
+class PreserveByValueStage(AudioEntryStage):
+    """Filter entries by comparing *input_value_key* against *target_value*.
 
     Args:
-        input_value_key (str): The field in the dataset entries to be evaluated.
-        target_value (Union[int, str]): The value to compare with the input field.
-        operator (str): (Optional) The operator to apply for comparison. Options: "lt" (less than), "le" (less than or equal to), "eq" (equal to), "ne" (not equal to), "ge" (greater than or equal to), "gt" (greater than). Defaults to "eq".
-        **kwargs: Additional keyword arguments to be passed to the base class `BaseParallelProcessor`.
-
+        input_value_key: The field in the dataset entries to evaluate.
+        target_value: The value to compare with.
+        operator: Comparison operator (lt, le, eq, ne, ge, gt).
     """
 
-    name = "PreserveByValueStage"
+    name: str = "PreserveByValueStage"
 
     def __init__(
         self,
@@ -102,26 +168,19 @@ class PreserveByValueStage(LegacySpeechStage):
     ):
         self.input_value_key = input_value_key
         self.target_value = target_value
-        if operator == "lt":
-            self.operator = lt
-        elif operator == "le":
-            self.operator = le
-        elif operator == "eq":
-            self.operator = eq
-        elif operator == "ne":
-            self.operator = ne
-        elif operator == "ge":
-            self.operator = ge
-        elif operator == "gt":
-            self.operator = gt
-        else:
-            msg = 'Operator must be one from the list: "lt" (less than), "le" (less than or equal to), "eq" (equal to), "ne" (not equal to), "ge" (greater than or equal to), "gt" (greater than)'
+        ops = {"lt": lt, "le": le, "eq": eq, "ne": ne, "ge": ge, "gt": gt}
+        if operator not in ops:
+            msg = f"Operator must be one of: {', '.join(ops)}"
             raise ValueError(msg)
+        self.operator = ops[operator]
 
-    def process_dataset_entry(self, data_entry: AudioBatch) -> list[AudioBatch]:
-        input_value = data_entry[self.input_value_key]
-        target = self.target_value
-        if self.operator(input_value, target):
-            return [AudioBatch(data=data_entry)]
-        else:
-            return []
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.input_value_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.input_value_key]
+
+    def process_dataset_entry(self, data: dict) -> dict | None:
+        if self.operator(data[self.input_value_key], self.target_value):
+            return data
+        return None

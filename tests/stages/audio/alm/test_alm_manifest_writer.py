@@ -18,38 +18,34 @@ import json
 from pathlib import Path
 
 from nemo_curator.stages.audio.alm import ALMManifestWriterStage
-from nemo_curator.tasks import AudioBatch, FileGroupTask
+from nemo_curator.tasks import AudioEntry, FileGroupTask
 
 
 class TestALMManifestWriter:
     """Unit tests for ALMManifestWriterStage."""
 
-    def test_writes_entries_to_jsonl(self, tmp_path: Path) -> None:
+    def test_writes_entry_to_jsonl(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
 
-        task = AudioBatch(
-            data=[
-                {"audio_filepath": "a.wav", "duration": 1.0},
-                {"audio_filepath": "b.wav", "duration": 2.0},
-            ],
+        task = AudioEntry(
+            data={"audio_filepath": "a.wav", "duration": 1.0},
             task_id="t1",
             dataset_name="ds",
         )
         writer.process(task)
 
         lines = out.read_text().strip().split("\n")
-        assert len(lines) == 2
+        assert len(lines) == 1
         assert json.loads(lines[0])["audio_filepath"] == "a.wav"
-        assert json.loads(lines[1])["audio_filepath"] == "b.wav"
 
     def test_returns_file_group_task(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
 
-        task = AudioBatch(data=[{"x": 1}], task_id="t1", dataset_name="ds")
+        task = AudioEntry(data={"x": 1}, task_id="t1", dataset_name="ds")
         result = writer.process(task)
 
         assert isinstance(result, FileGroupTask)
@@ -64,8 +60,8 @@ class TestALMManifestWriter:
 
         metadata = {"source_files": ["manifest.jsonl"]}
         stage_perf = {"some_stage": {"process_time": 0.5}}
-        task = AudioBatch(
-            data=[{"x": 1}],
+        task = AudioEntry(
+            data={"x": 1},
             task_id="t1",
             dataset_name="ds",
             _metadata=metadata,
@@ -81,9 +77,9 @@ class TestALMManifestWriter:
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
 
-        writer.process(AudioBatch(data=[{"entry": 1}], task_id="t1"))
-        writer.process(AudioBatch(data=[{"entry": 2}], task_id="t2"))
-        writer.process(AudioBatch(data=[{"entry": 3}], task_id="t3"))
+        writer.process(AudioEntry(data={"entry": 1}, task_id="t1"))
+        writer.process(AudioEntry(data={"entry": 2}, task_id="t2"))
+        writer.process(AudioEntry(data={"entry": 3}, task_id="t3"))
 
         lines = out.read_text().strip().split("\n")
         assert len(lines) == 3
@@ -110,7 +106,7 @@ class TestALMManifestWriter:
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
 
-        task = AudioBatch(data=[{"text": "日本語テスト", "speaker": "Ñoño"}], task_id="t1")
+        task = AudioEntry(data={"text": "日本語テスト", "speaker": "Ñoño"}, task_id="t1")
         writer.process(task)
 
         loaded = json.loads(out.read_text().strip())
@@ -129,23 +125,12 @@ class TestALMManifestWriter:
             ],
             "stats": {"lost_bw": 3, "lost_sr": 0},
         }
-        task = AudioBatch(data=[entry], task_id="t1")
+        task = AudioEntry(data=entry, task_id="t1")
         writer.process(task)
 
         loaded = json.loads(out.read_text().strip())
         assert loaded["windows"][0]["segments"][0]["speaker"] == "spk_0"
         assert loaded["stats"]["lost_bw"] == 3
-
-    def test_empty_data_writes_nothing(self, tmp_path: Path) -> None:
-        out = tmp_path / "output.jsonl"
-        writer = ALMManifestWriterStage(output_path=str(out))
-        writer.setup()
-
-        task = AudioBatch(data=[], task_id="t1")
-        result = writer.process(task)
-
-        assert out.read_text() == ""
-        assert isinstance(result, FileGroupTask)
 
     def test_num_workers_returns_one(self, tmp_path: Path) -> None:
         writer = ALMManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
@@ -167,14 +152,14 @@ class TestALMManifestWriterRoundTrip:
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup()
         for i, entry in enumerate(sample_entries):
-            task = AudioBatch(data=[entry], task_id=f"t{i}")
+            task = AudioEntry(data=entry, task_id=f"t{i}")
             writer.process(task)
 
         reader = ALMManifestReaderStage()
         result = reader.process(FileGroupTask(task_id="rt", dataset_name="rt", data=[str(out)]))
 
         assert len(result) == len(sample_entries)
-        for orig, batch in zip(sample_entries, result, strict=True):
-            loaded = batch.data[0]
+        for orig, audio_entry in zip(sample_entries, result, strict=True):
+            loaded = audio_entry.data
             assert loaded["audio_filepath"] == orig["audio_filepath"]
             assert len(loaded["segments"]) == len(orig["segments"])

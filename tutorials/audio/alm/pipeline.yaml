@@ -71,7 +71,7 @@ output_dir: ./alm_output
 stages:
   # Stage 0: ALM Manifest Reader (CompositeStage)
   # Decomposes into FilePartitioningStage + ALMManifestReaderStage
-  # Reads JSONL line-by-line (no Pandas), produces one AudioBatch per entry
+  # Reads JSONL line-by-line (no Pandas), produces one AudioEntry per entry
   - _target_: nemo_curator.stages.audio.alm.ALMManifestReader
     manifest_path: ${manifest_path}
     files_per_partition: 1

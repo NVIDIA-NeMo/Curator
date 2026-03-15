@@ -389,9 +389,9 @@ tests/stages/audio/alm/
 
 | Test | What it verifies |
 |------|-----------------|
-| `test_reads_single_manifest` | Reads 2-entry JSONL, returns `AudioBatch` per entry |
+| `test_reads_single_manifest` | Reads 2-entry JSONL, returns `AudioEntry` per entry |
 | `test_reads_multiple_manifests` | Accepts list of manifest paths, concatenates entries |
-| `test_one_audio_batch_per_entry` | Each entry becomes exactly one `AudioBatch` with `len(data) == 1` |
+| `test_one_audio_entry_per_line` | Each JSONL line becomes exactly one `AudioEntry` |
 | `test_skips_blank_lines` | Blank/whitespace-only lines in JSONL are ignored |
 | `test_empty_manifest` | Empty file returns `[]` |
 | `test_preserves_nested_data` | Nested `segments[].metrics.bandwidth` survives round-trip |

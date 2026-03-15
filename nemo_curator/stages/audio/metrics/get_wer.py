@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 import editdistance
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.audio.common import AudioEntryStage
 
 
 def get_wer(text: str, pred_text: str) -> float:
@@ -46,28 +47,28 @@ def get_wordrate(text: str, duration: float) -> float:
 
 
 @dataclass
-class GetPairwiseWerStage(LegacySpeechStage):
+class GetPairwiseWerStage(AudioEntryStage):
     """Count pairwise word-error-rate (WER) * 100% for each pair of text and pred_text.
 
     WER is measured between ``data[self.text_key]`` and ``data[self.pred_text_key]``.
 
-
     Args:
-        text_key (str): a string indicating which key of the data entries
-            should be used to find the utterance transcript. Defaults to "text".
-        pred_text_key (str): a string indicating which key of the data entries
-            should be used to access the ASR predictions. Defaults to "pred_text".
-
-    Returns:
-         The same data as in the input manifest with wer_key and corresponding values.
+        text_key: Key for the utterance transcript. Defaults to "text".
+        pred_text_key: Key for the ASR predictions. Defaults to "pred_text".
+        wer_key: Key to store the computed WER. Defaults to "wer".
     """
 
-    name = "GetPairwiseWerStage"
+    name: str = "GetPairwiseWerStage"
     text_key: str = "text"
     pred_text_key: str = "pred_text"
     wer_key: str = "wer"
 
-    def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
-        wer = get_wer(data_entry[self.text_key], data_entry[self.pred_text_key])
-        data_entry[self.wer_key] = wer
-        return [AudioBatch(data=data_entry)]
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.text_key, self.pred_text_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.text_key, self.pred_text_key, self.wer_key]
+
+    def process_dataset_entry(self, data: dict) -> dict:
+        data[self.wer_key] = get_wer(data[self.text_key], data[self.pred_text_key])
+        return data

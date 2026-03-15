@@ -1,0 +1,90 @@
+[1mdiff --git a/benchmarking/nightly-benchmark.yaml b/benchmarking/nightly-benchmark.yaml[m
+[1mindex 76cec012..da125227 100644[m
+[1m--- a/benchmarking/nightly-benchmark.yaml[m
+[1m+++ b/benchmarking/nightly-benchmark.yaml[m
+[36m@@ -69,10 +69,6 @@[m [mdatasets:[m
+     formats:[m
+     - type: "jsonl"[m
+       path: "{datasets_path}/gretel_symptoms"[m
+[31m-  - name: "multimodal_mint1t"[m
+[31m-    formats:[m
+[31m-    - type: "wds_tar_dir"[m
+[31m-      path: "{datasets_path}/multimodal/mint1t"[m
+ default_timeout_s: 7200[m
+ [m
+ # Optional sinks[m
+[36m@@ -720,52 +716,31 @@[m [mentries:[m
+       - metric: throughput_clips_per_sec[m
+         min_value: 0.25[m
+ [m
+[31m-  - name: multimodal_mint1t_xenna[m
+[31m-    enabled: false[m
+[31m-    script: multimodal_mint1t_benchmark.py[m
+[31m-    args: >-[m
+[31m-      --benchmark-results-path={session_entry_dir}[m
+[31m-      --executor=xenna[m
+[31m-      --input-path={dataset:multimodal_mint1t,wds_tar_dir}[m
+[31m-      --output-path={session_entry_dir}/scratch/output[m
+[31m-      --files-per-partition=2[m
+[31m-      --mode=overwrite[m
+[31m-      --no-materialize-on-write[m
+[31m-      --output-max-batch-bytes=2000000[m
+[31m-    timeout_s: 1800[m
+[31m-    sink_data:[m
+[31m-      - name: slack[m
+[31m-        additional_metrics:[m
+[31m-          - throughput_rows_per_sec[m
+[31m-          - num_rows[m
+[31m-          - num_output_files[m
+[31m-          - materialize_error_count[m
+[31m-    ray:[m
+[31m-      num_cpus: 64[m
+[31m-      num_gpus: 0[m
+[31m-      enable_object_spilling: false[m
+[31m-[m
+[31m-  - name: multimodal_mint1t_xenna_materialize[m
+[31m-    enabled: false[m
+[31m-    script: multimodal_mint1t_benchmark.py[m
+[32m+[m[32m  - name: alm_pipeline_xenna[m
+[32m+[m[32m    enabled: true[m
+[32m+[m[32m    script: alm_pipeline_benchmark.py[m
+     args: >-[m
+       --benchmark-results-path={session_entry_dir}[m
+[32m+[m[32m      --input-manifest={curator_repo_dir}/tests/fixtures/audio/alm/sample_input.jsonl[m
+       --executor=xenna[m
+[31m-      --input-path={dataset:multimodal_mint1t,wds_tar_dir}[m
+[31m-      --output-path={session_entry_dir}/scratch/output[m
+[31m-      --files-per-partition=2[m
+[31m-      --mode=overwrite[m
+[31m-      --materialize-on-write[m
+[31m-      --output-max-batch-bytes=2000000[m
+[31m-    timeout_s: 1800[m
+[31m-    sink_data:[m
+[31m-      - name: slack[m
+[31m-        additional_metrics:[m
+[31m-          - throughput_rows_per_sec[m
+[31m-          - num_rows[m
+[31m-          - num_output_files[m
+[31m-          - materialize_error_count[m
+[32m+[m[32m      --target-window-duration=120.0[m
+[32m+[m[32m      --tolerance=0.1[m
+[32m+[m[32m      --min-sample-rate=16000[m
+[32m+[m[32m      --min-bandwidth=8000[m
+[32m+[m[32m      --min-speakers=2[m
+[32m+[m[32m      --max-speakers=5[m
+[32m+[m[32m      --overlap-percentage=50[m
+[32m+[m[32m      --repeat-factor=2000[m
+[32m+[m[32m    timeout_s: 600[m
+[32m+[m[32m    sink_data: [][m
+     ray:[m
+[31m-      num_cpus: 64[m
+[32m+[m[32m      num_cpus: 8[m
+       num_gpus: 0[m
+       enable_object_spilling: false[m
+[32m+[m[32m    requirements:[m
+[32m+[m[32m      - metric: is_success[m
+[32m+[m[32m        exact_value: true[m
+[32m+[m[32m      - metric: total_builder_windows[m
+[32m+[m[32m        min_value: 1[m
+[32m+[m[32m      - metric: total_filtered_windows[m
+[32m+[m[32m        min_value: 1[m

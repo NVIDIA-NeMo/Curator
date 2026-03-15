@@ -26,8 +26,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.audio.common import AudioEntryStage
 
 MAX_OVERLAP_PERCENTAGE = 100
 
@@ -149,20 +148,11 @@ def _get_filepath_from_stats(stats: dict[str, Any] | None, key: str) -> str | No
 
 
 @dataclass
-class ALMDataOverlapStage(LegacySpeechStage):
-    """
-    Filter overlapping ALM windows.
+class ALMDataOverlapStage(AudioEntryStage):
+    """Filter overlapping ALM windows.
 
-    Native NeMo Curator stage that removes windows with overlap exceeding
-    the threshold, keeping windows closest to target duration.
-
-    This follows the exact pattern from nemo_curator.stages.audio.common:
-    - Inherits from LegacySpeechStage
-    - Uses @dataclass decorator
-    - Implements process_dataset_entry() method
-    - Returns list[AudioBatch] from process_dataset_entry
-
-    Produces identical output to SDP implementation.
+    Removes windows with overlap exceeding the threshold, keeping
+    windows closest to target duration.
     """
 
     # Processing parameters (EXACT match to SDP)
@@ -181,16 +171,10 @@ class ALMDataOverlapStage(LegacySpeechStage):
             msg = "target_duration must be positive"
             raise ValueError(msg)
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
-        """
-        Process a single manifest entry and filter overlapping windows.
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["windows"]
 
-        Args:
-            data_entry: Single entry from manifest (dict with windows, etc.)
-
-        Returns:
-            list[AudioBatch] - Always returns entry (matching SDP behavior)
-        """
+    def process_dataset_entry(self, data_entry: dict) -> dict:
         t0 = time.perf_counter()
         input_windows = len(data_entry.get("windows", []))
         result = self._filter_overlaps(data_entry)
@@ -207,7 +191,7 @@ class ALMDataOverlapStage(LegacySpeechStage):
             }
         )
 
-        return [AudioBatch(data=[result])]
+        return result
 
     def _filter_overlaps(self, entry: dict[str, Any]) -> dict[str, Any]:
         """Filter overlapping windows from entry."""
