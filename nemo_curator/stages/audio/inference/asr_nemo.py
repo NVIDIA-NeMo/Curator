@@ -87,10 +87,10 @@ class InferenceAsrNemoStage(AudioEntryStage):
 
         return [output.text for output in outputs]
 
-    def process_dataset_entry(self, data: dict) -> dict:
-        texts = self.transcribe([data[self.filepath_key]])
-        data[self.pred_text_key] = texts[0]
-        return data
+    def process_dataset_entry(self, data_entry: dict) -> dict:
+        texts = self.transcribe([data_entry[self.filepath_key]])
+        data_entry[self.pred_text_key] = texts[0]
+        return data_entry
 
     def process_batch(self, tasks: list[AudioEntry]) -> list[AudioEntry]:
         """Batch GPU inference across multiple AudioEntry tasks."""
