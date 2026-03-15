@@ -63,6 +63,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioEntry]):
     raw_data_dir: str = ""
     filepath_key: str = "audio_filepath"
     text_key: str = "text"
+    batch_size: int = 1
     name: str = "CreateInitialManifestFleurs"
 
     def __post_init__(self) -> None:
