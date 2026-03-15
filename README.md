@@ -130,6 +130,16 @@ Data curation modules measurably improve model performance. In ablation studies 
 
 ---
 
+## Citation
+
+If you find NeMo Curator useful in your work, please cite:
+
+> Jennings, Joseph, et al. "NeMo-Curator: a toolkit for data curation."
+
+For the full author list and citation metadata, see [CITATION.cff](CITATION.cff).
+
+---
+
 ## Contribute
 
 We welcome community contributions! Please refer to [CONTRIBUTING.md](https://github.com/NVIDIA/NeMo/blob/stable/CONTRIBUTING.md) for guidelines.
