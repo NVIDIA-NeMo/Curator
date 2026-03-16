@@ -52,14 +52,12 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
 
 
 def get_audio_duration(audio_filepath: str) -> float:
-    """
-    Get the duration of the audio file in seconds.
-    """
+    """Get the duration of the audio file in seconds."""
     import soundfile
 
     try:
-        data, samplerate = soundfile.read(audio_filepath)
-        return data.shape[0] / samplerate
+        info = soundfile.info(audio_filepath)
+        return info.frames / info.samplerate
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to get duration for audio file {audio_filepath}: {e}")
         return -1.0
