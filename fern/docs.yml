@@ -53,6 +53,15 @@ navbar-links:
   - type: github
     value: https://github.com/NVIDIA-NeMo/Curator
 
+libraries:
+  nemo-curator:
+    input:
+      git: https://github.com/NVIDIA-NeMo/Curator
+      subpath: nemo_curator
+    output:
+      path: ./product-docs/nemo-curator/Library-Reference
+    lang: python
+
 experimental:
   mdx-components:
     - ./components
