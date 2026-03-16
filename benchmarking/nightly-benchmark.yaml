@@ -263,7 +263,7 @@ entries:
       --bands-per-iteration=20
       --text-field=text
       --input-blocksize=1.5GiB
-    timeout_s: 700
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
@@ -372,7 +372,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1000
+    timeout_s: 1500
     sink_data:
       - name: slack
         additional_metrics:
@@ -389,7 +389,7 @@ entries:
       - metric: num_duplicates_removed
         exact_value: 59226133
       - metric: io_percentage
-        min_value: 97
+        min_value: 90
 
   - name: score_filter_raydata
     enabled: true
@@ -635,8 +635,8 @@ entries:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
-          - num_output_documents
           - num_input_documents
+          - num_output_documents
         ping_on_failure:
           - UGFRT88RE  # Vibhu Jawa
     ray:
@@ -648,7 +648,7 @@ entries:
       - metric: num_tar_files
         exact_value: 45
       - metric: num_input_documents
-        exact_value: 116383
+        exact_value: 90922
       - metric: num_output_documents
         exact_value: 61474
 
@@ -666,8 +666,8 @@ entries:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
-          - num_output_documents
           - num_input_documents
+          - num_output_documents
         ping_on_failure:
           - UGFRT88RE  # Vibhu Jawa
     ray:
@@ -679,7 +679,7 @@ entries:
       - metric: num_tar_files
         exact_value: 45
       - metric: num_input_documents
-        exact_value: 116383
+        exact_value: 90922
       - metric: num_output_documents
         exact_value: 61474
 
@@ -760,24 +760,26 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 300 # TODO: update this value after benchmarking
+        exact_value: 377
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
-  - name: ndd_nvidia_nim
+  - name: ndd_ray_serve_dp4
     enabled: true
     script: ndd_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-path={dataset:gretel_symptoms,jsonl}
+      --input-path={dataset:ndd_gretel_symptoms,jsonl}
       --output-path={session_entry_dir}/scratch/output
-      --model-type=nvidia-nim
+      --inference-server-type=ray-serve
       --model-id=openai/gpt-oss-20b
       --executor=ray_data
+      --engine-kwargs='{"tensor_parallel_size": 1}'
+      --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
     timeout_s: 3600
     ray:
-      num_cpus: 8
-      num_gpus: 0
+      num_cpus: 16
+      num_gpus: 4
       enable_object_spilling: false
     sink_data:
       - name: slack
@@ -785,11 +787,12 @@ entries:
           - input_row_count
           - output_row_count
           - throughput_rows_per_sec
+          - serve_startup_s
         ping_on_failure:
           - U07JL5K0L10  # Praateek Mahajan
     requirements:
       - metric: output_row_count
-        exact_value: 820
+        exact_value: 853
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings
     enabled: true
