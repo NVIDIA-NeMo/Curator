@@ -70,7 +70,7 @@ class SplitLongAudioStage(LegacySpeechStage):
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         """Process entry to split long audio files."""
-        duration = data_entry.get("duration")
+        duration = data_entry["duration"]
 
         # If audio is short enough, no splitting needed
         if duration < self.suggested_max_len:

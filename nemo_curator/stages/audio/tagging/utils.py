@@ -17,24 +17,6 @@ from typing import Any, Dict, List, Optional
 import soundfile as sf
 from loguru import logger
 
-
-def get_audio_duration(file_path: str) -> float:
-    """This method returns the duration of the audio file in seconds.
-
-    Args:
-        file_path: Path to the audio file
-
-    Returns:
-        Duration of the audio file in seconds
-    """
-    try:
-        info = sf.info(file_path)
-        return info.duration
-    except Exception as e:
-        logger.warning(f"Failed to get duration for audio file {file_path}: {e}")
-        return -1.0
-
-
 def add_non_speaker_segments(
     segments: List[Dict[str, Any]],
     audio_duration: float,

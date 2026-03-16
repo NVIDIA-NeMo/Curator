@@ -145,8 +145,8 @@ class WhisperXVADStage(LegacySpeechStage):
         if not self._model_initialized:
             self.setup()
 
-        file_path = data_entry.get("resampled_audio_filepath")
-        duration = data_entry.get("duration")
+        file_path = data_entry["resampled_audio_filepath"]
+        duration = data_entry["duration"]
         if duration < self.min_length:
             logger.warning(
                 f"Skipping {file_path} because it is less than {self.min_length} seconds"

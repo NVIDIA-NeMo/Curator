@@ -50,6 +50,18 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
     def process_dataset_entry(self, data_entry: AudioBatch) -> list[AudioBatch]:
         return [data_entry]
 
+def get_audio_duration(audio_filepath: str) -> float:
+    """
+    Get the duration of the audio file in seconds.
+    """
+    import soundfile
+    try:
+        data, samplerate = soundfile.read(audio_filepath)
+        return data.shape[0] / samplerate
+    except Exception as e:
+        logger.warning(f"Failed to get duration for audio file {audio_filepath}: {e}")
+        return -1.0
+
 
 @dataclass
 class GetAudioDurationStage(LegacySpeechStage):
@@ -76,12 +88,8 @@ class GetAudioDurationStage(LegacySpeechStage):
 
     def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
         audio_filepath = data_entry[self.audio_filepath_key]
-        try:
-            data, samplerate = self._soundfile.read(audio_filepath)
-            data_entry[self.duration_key] = data.shape[0] / samplerate
-        except self._soundfile.SoundFileError as e:
-            logger.warning(str(e) + " file: " + audio_filepath)
-            data_entry[self.duration_key] = -1.0
+        duration = get_audio_duration(audio_filepath)
+        data_entry[self.duration_key] = duration
         return [AudioBatch(data=data_entry)]
 
 

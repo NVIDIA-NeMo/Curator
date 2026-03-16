@@ -30,7 +30,7 @@ from fsspec.core import url_to_fs
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.tasks import AudioBatch
 
-from .utils import get_audio_duration
+from nemo_curator.stages.audio.common import get_audio_duration
 
 
 @dataclass

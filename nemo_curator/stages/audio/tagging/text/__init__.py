@@ -14,8 +14,8 @@
 
 """Text processing stages for audio tagging pipelines."""
 
-from nemo_curator.stages.audio.tagging.text.arabic import ArabicRemoveDiacriticsStage
-from nemo_curator.stages.audio.tagging.text.chinese import ChineseConversionStage
+from nemo_curator.stages.audio.tagging.text.arabic_remove_diacritics import ArabicRemoveDiacriticsStage
+from nemo_curator.stages.audio.tagging.text.chinese_conversion import ChineseConversionStage
 from nemo_curator.stages.audio.tagging.text.itn import InverseTextNormalizationStage
 from nemo_curator.stages.audio.tagging.text.pnc import PNCwithBERTStage
 

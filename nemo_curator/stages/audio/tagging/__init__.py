@@ -52,9 +52,9 @@ _LAZY_IMPORTS = {
 
     # --- Text processing (tagging/text/) ---
     "InverseTextNormalizationStage": "nemo_curator.stages.audio.tagging.text.itn",
-    "ArabicRemoveDiacriticsStage": "nemo_curator.stages.audio.tagging.text.arabic",
+    "ArabicRemoveDiacriticsStage": "nemo_curator.stages.audio.tagging.text.arabic_remove_diacritics",
     "PNCwithBERTStage": "nemo_curator.stages.audio.tagging.text.pnc",
-    "ChineseConversionStage": "nemo_curator.stages.audio.tagging.text.chinese",
+    "ChineseConversionStage": "nemo_curator.stages.audio.tagging.text.chinese_conversion",
 }
 
 _cache: dict[str, Any] = {}
