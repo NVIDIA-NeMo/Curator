@@ -12,15 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-import soundfile as sf
-from loguru import logger
 
 def add_non_speaker_segments(
-    segments: List[Dict[str, Any]],
+    segments: list[dict[str, Any]],
     audio_duration: float,
-    max_length: Optional[float] = None,
+    max_length: float | None = None,
 ) -> None:
     """Add non-speaker segments to the segments list with speaker id 'no-speaker'.
 

@@ -29,7 +29,6 @@ _LAZY_IMPORTS = {
     "ManifestReader": "nemo_curator.stages.audio.common",
     "ManifestReaderStage": "nemo_curator.stages.audio.common",
     "ManifestWriterStage": "nemo_curator.stages.audio.common",
-
     # --- Preprocessing (tagging/) ---
     "ResampleAudioStage": "nemo_curator.stages.audio.tagging.resample_audio",
     "CreateInitialManifestYTStage": "nemo_curator.stages.audio.tagging.resample_audio",
@@ -38,18 +37,15 @@ _LAZY_IMPORTS = {
     "SplitASRAlignJoinStage": "nemo_curator.stages.audio.tagging.split",
     "MergeAlignmentDiarizationStage": "nemo_curator.stages.audio.tagging.merge_alignment_diarization",
     "PrepareModuleSegmentsStage": "nemo_curator.stages.audio.tagging.prepare_module_segments",
-
     # --- Inference (tagging/inference/) ---
     "BaseASRProcessorStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
     "NeMoASRAlignerStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
     "PyAnnoteDiarizationStage": "nemo_curator.stages.audio.inference.speaker_diarization.pyannote",
     "WhisperXVADStage": "nemo_curator.stages.audio.inference.vad.whisperx_vad",
-
     # --- Metrics (tagging/metrics/) ---
     "TorchSquimQualityMetricsStage": "nemo_curator.stages.audio.tagging.metrics.squim",
     "BandwidthEstimationStage": "nemo_curator.stages.audio.tagging.metrics.bandwidth",
     "ComputeWERStage": "nemo_curator.stages.audio.tagging.metrics.wer",
-
     # --- Text processing (tagging/text/) ---
     "InverseTextNormalizationStage": "nemo_curator.stages.audio.tagging.text.itn",
     "ArabicRemoveDiacriticsStage": "nemo_curator.stages.audio.tagging.text.arabic_remove_diacritics",
@@ -60,7 +56,7 @@ _LAZY_IMPORTS = {
 _cache: dict[str, Any] = {}
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> Any:  # noqa: ANN401
     """Lazy import handler - only imports modules when accessed."""
     if name in _cache:
         return _cache[name]
@@ -72,12 +68,11 @@ def __getattr__(name: str) -> Any:
         _cache[name] = attr
         return attr
 
-    raise AttributeError(
-        f"module 'nemo_curator.stages.audio.tagging' has no attribute '{name}'"
-    )
+    msg = f"module 'nemo_curator.stages.audio.tagging' has no attribute '{name}'"
+    raise AttributeError(msg)
 
 
-def __dir__():
+def __dir__() -> list[str]:
     """List available attributes for autocomplete."""
     return list(_LAZY_IMPORTS.keys())
 

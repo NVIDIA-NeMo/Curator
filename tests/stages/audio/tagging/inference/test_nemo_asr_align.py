@@ -13,12 +13,15 @@
 # limitations under the License.
 
 
+from pathlib import Path
+from typing import Any
+
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.tasks import AudioBatch
 
 
 class TestNeMoASRAlignerStage:
-    def test_process_full_audio(self, tmpdir, wav_filepath) -> None:
+    def test_process_full_audio(self, tmpdir: Any, wav_filepath: Path) -> None:  # noqa: ANN401
         stage = NeMoASRAlignerStage(
             model_name="nvidia/stt_en_fastconformer_ctc_large",
             is_fastconformer=True,

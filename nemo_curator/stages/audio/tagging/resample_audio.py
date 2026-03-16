@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """
-Resample Audio Stage - Native NeMo Curator Implementation.
+Resample Audio Stage
 
 Resamples audio files to a target sample rate and format.
 Follows the exact pattern from NeMo Curator:
@@ -27,10 +27,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from fsspec.core import url_to_fs
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
 
-from nemo_curator.stages.audio.common import get_audio_duration
+from nemo_curator.stages.audio.common import LegacySpeechStage, get_audio_duration
+from nemo_curator.tasks import AudioBatch
 
 
 @dataclass
@@ -54,7 +53,7 @@ class ResampleAudioStage(LegacySpeechStage):
     # Stage metadata
     name: str = "ResampleAudio"
 
-    def setup(self, worker_metadata: Any = None):
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         fs, path = url_to_fs(self.resampled_audio_dir)
         self.resampled_audio_dir = path
         fs.makedirs(path, exist_ok=True)
@@ -70,7 +69,9 @@ class ResampleAudioStage(LegacySpeechStage):
             List containing AudioBatch with updated metadata
         """
 
-        assert "audio_filepath" in data_entry, "Absolute audio filepath is required"
+        if "audio_filepath" not in data_entry:
+            msg = "Absolute audio filepath is required"
+            raise ValueError(msg)
 
         _, audio_filepath = url_to_fs(data_entry["audio_filepath"])
         if "audio_item_id" not in data_entry:
@@ -91,11 +92,10 @@ class ResampleAudioStage(LegacySpeechStage):
                 cmd = f'ffmpeg -i "{input_audio_path}" -ar {self.target_sample_rate} -ac {self.target_nchannels} -ab 16 "{output_audio_path}" -v error'
 
             try:
-                subprocess.run(
-                    cmd, check=True, capture_output=True, text=True, shell=True
-                )
+                subprocess.run(cmd, check=True, capture_output=True, text=True, shell=True)  # noqa: S602
             except subprocess.CalledProcessError as e:
-                raise RuntimeError(f"Error converting {input_audio_path}: {e}") from e
+                msg = f"Error converting {input_audio_path}: {e}"
+                raise RuntimeError(msg) from e
 
         # Update metadata
         data_entry["audio_filepath"] = input_audio_path

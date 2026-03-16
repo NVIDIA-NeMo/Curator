@@ -18,9 +18,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
+from opencc import OpenCC
+
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.tasks import AudioBatch
-from opencc import OpenCC
 
 
 @dataclass
@@ -45,7 +46,7 @@ class ChineseConversionStage(LegacySpeechStage):
     # Internal state
     _converter: Any = field(default=None, repr=False)
 
-    def setup(self, worker_metadata=None):
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Setup stage."""
         self._converter = OpenCC(self.convert_type)
         logger.info(f"[{self.name}] Using conversion type: {self.convert_type}")
@@ -55,13 +56,9 @@ class ChineseConversionStage(LegacySpeechStage):
         for segment in data_entry.get("segments", []):
             if self.text_key in segment:
                 try:
-                    segment[output_key] = self._converter.convert(
-                        segment[self.text_key]
-                    )
-                except Exception:
-                    logger.warning(
-                        f"[{self.name}] Chinese conversion failed, keeping original"
-                    )
+                    segment[output_key] = self._converter.convert(segment[self.text_key])
+                except Exception:  # noqa: BLE001
+                    logger.warning(f"[{self.name}] Chinese conversion failed, keeping original")
                     segment[output_key] = segment[self.text_key]
 
         return [AudioBatch(data=[data_entry])]

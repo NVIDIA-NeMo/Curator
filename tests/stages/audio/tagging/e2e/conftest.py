@@ -16,8 +16,10 @@
 
 import json
 from pathlib import Path
-from tests import FIXTURES_DIR
+
 import pytest
+
+from tests import FIXTURES_DIR
 
 AUDIO_FIXTURES_DIR = FIXTURES_DIR / "audio" / "tagging"
 REFERENCE_DIR = AUDIO_FIXTURES_DIR / "reference"
@@ -25,7 +27,7 @@ CONFIGS_DIR = Path(__file__).parent / "configs"
 
 
 @pytest.fixture
-def get_input_manifest(tmp_path):
+def get_input_manifest(tmp_path: Path):
     """Create a JSONL manifest from the test audio fixtures.
 
     Writes entries for audio_1.opus and audio_2.opus,

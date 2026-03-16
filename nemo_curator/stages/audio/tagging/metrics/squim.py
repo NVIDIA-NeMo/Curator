@@ -19,15 +19,16 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import librosa
-import torch
 import soundfile as sf
-import torchaudio.functional as F
+import torch
+import torchaudio.functional as torchaudio_F  # noqa: N812
 from loguru import logger
+from torchaudio.pipelines import SQUIM_OBJECTIVE
+
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
-from torchaudio.pipelines import SQUIM_OBJECTIVE
 
 
 @dataclass
@@ -55,11 +56,11 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
     model: Any = field(default=None, repr=False)
     _model_initialized: bool = field(default=False, repr=False)
 
-    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata):
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Setup stage on node."""
         self.setup()
 
-    def setup(self, worker_metadata=None):
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Load model. Called once per worker before processing."""
         if self._model_initialized:
             return
@@ -88,17 +89,14 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
 
         try:
             audio, _ = librosa.load(path=audio_path, sr=sr)
-        except Exception as ex:
+        except Exception as ex:  # noqa: BLE001
             logger.error(f"Failed to load audio path: {audio_path}, exception={ex}")
             return [AudioBatch(data=[data_entry])]
 
         segments = data_entry.get("segments", [])
 
         for segment in segments:
-            if (
-                segment.get("speaker") == "no-speaker"
-                or segment.get("text", "").strip() == ""
-            ):
+            if segment.get("speaker") == "no-speaker" or segment.get("text", "").strip() == "":
                 continue
 
             start = segment["start"]
@@ -111,8 +109,9 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
             y = audio[start_frame:end_frame]
             y = torch.from_numpy(y).unsqueeze(0)
 
-            if sr != 16000:
-                y = F.resample(y, sr, 16000)
+            target_sr = 16000
+            if sr != target_sr:
+                y = torchaudio_F.resample(y, sr, target_sr)
 
             try:
                 with torch.no_grad():
@@ -125,7 +124,7 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
                 segment["metrics"]["stoi_squim"] = round(stoi_hyp.item(), 3)
                 segment["metrics"]["sisdr_squim"] = round(si_sdr_hyp.item(), 3)
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 torch.cuda.empty_cache()
                 logger.error(
                     f"Failed to compute Squim metrics: {e}, frame_offset={start}, num_frames={num_frames}, file={audio_path}"

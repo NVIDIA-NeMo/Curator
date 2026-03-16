@@ -20,6 +20,7 @@ from typing import Any
 import torch
 from loguru import logger
 from nemo.collections.nlp.models import PunctuationCapitalizationModel
+
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.tasks import AudioBatch
@@ -31,10 +32,10 @@ class PNCwithBERTStage(LegacySpeechStage):
 
     Supports two operating modes controlled by ``is_audio_entry``:
 
-    * **audio entry** (``is_audio_entry=True``, default) – iterates over the
+    * **audio entry** (``is_audio_entry=True``, default) -- iterates over the
       ``segments`` list inside each manifest entry (or falls back to the
       top-level ``text_key``) and applies PNC to each text.
-    * **segmented entry** (``is_audio_entry=False``) – treats each manifest
+    * **segmented entry** (``is_audio_entry=False``) -- treats each manifest
       row as an individual segment, reconstructs text from the ``alignment``
       word list, runs PNC, and writes the punctuated words back into
       ``alignment``.
@@ -62,21 +63,17 @@ class PNCwithBERTStage(LegacySpeechStage):
     # Internal state
     _pnc_model: Any = field(default=None, repr=False)
 
-    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata):
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Setup stage on node."""
         self.setup()
 
-    def setup(self, worker_metadata=None):
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Setup stage."""
         if self._pnc_model is None:
             if self.model_path:
-                self._pnc_model = PunctuationCapitalizationModel.restore_from(
-                    self.model_path
-                )
+                self._pnc_model = PunctuationCapitalizationModel.restore_from(self.model_path)
             else:
-                self._pnc_model = PunctuationCapitalizationModel.from_pretrained(
-                    self.model_name
-                )
+                self._pnc_model = PunctuationCapitalizationModel.from_pretrained(self.model_name)
 
         if self.device == "cuda" and not torch.cuda.is_available():
             logger.warning("CUDA not available, using CPU for PNC")
@@ -110,23 +107,16 @@ class PNCwithBERTStage(LegacySpeechStage):
                 text_indices.append(i)
 
             if all_text:
-                text_PNC = self._pnc_model.add_punctuation_capitalization(
-                    all_text, batch_size=self.batch_size
-                )
-                for idx, pnc_text in zip(text_indices, text_PNC):
+                text_pnc = self._pnc_model.add_punctuation_capitalization(all_text, batch_size=self.batch_size)
+                for idx, pnc_text in zip(text_indices, text_pnc, strict=False):
                     data_entry[self.segments_key][idx][self.text_key] = pnc_text
-                    self.update_segment_alignment(
-                        data_entry[self.segments_key][idx], pnc_text
-                    )
+                    self.update_segment_alignment(data_entry[self.segments_key][idx], pnc_text)
 
-        else:
-            if data_entry.get(self.text_key, "") != "" and not self._should_skip(
-                data_entry
-            ):
-                text_PNC = self._pnc_model.add_punctuation_capitalization(
-                    [data_entry[self.text_key]], batch_size=self.batch_size
-                )
-                data_entry[self.text_key] = text_PNC[0]
-                self.update_segment_alignment(data_entry, text_PNC[0])
+        elif data_entry.get(self.text_key, "") != "" and not self._should_skip(data_entry):
+            text_pnc = self._pnc_model.add_punctuation_capitalization(
+                [data_entry[self.text_key]], batch_size=self.batch_size
+            )
+            data_entry[self.text_key] = text_pnc[0]
+            self.update_segment_alignment(data_entry, text_pnc[0])
 
         return [AudioBatch(data=[data_entry])]

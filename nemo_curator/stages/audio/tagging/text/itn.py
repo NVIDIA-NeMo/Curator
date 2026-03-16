@@ -18,11 +18,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
 from nemo_text_processing.inverse_text_normalization.inverse_normalize import (
     InverseNormalizer,
 )
+
+from nemo_curator.stages.audio.common import LegacySpeechStage
+from nemo_curator.tasks import AudioBatch
 
 
 @dataclass
@@ -51,7 +52,7 @@ class InverseTextNormalizationStage(LegacySpeechStage):
     _normalizer: Any = field(default=None, repr=False)
     _normalizer_initialized: bool = field(default=False, repr=False)
 
-    def setup(self, worker_metadata=None):
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Lazy-load the inverse normalizer once per worker. Reduces RAM when many workers exist."""
         if self._normalizer_initialized:
             return
@@ -69,7 +70,7 @@ class InverseTextNormalizationStage(LegacySpeechStage):
                 text = segment[self.text_key]
                 if text:
                     sentences = self._normalizer.split_text_into_sentences(text)
-                    text_ITN = " ".join(self._normalizer.normalize_list(sentences))
-                    segment[f"{self.text_key}_ITN"] = text_ITN
+                    text_itn = " ".join(self._normalizer.normalize_list(sentences))
+                    segment[f"{self.text_key}_ITN"] = text_itn
 
         return [AudioBatch(data=[data_entry])]

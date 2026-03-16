@@ -12,18 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
+
+from typing import Any
 
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import BaseASRProcessorStage
+from nemo_curator.tasks import AudioBatch
 
 
 class ConcreteASRProcessor(BaseASRProcessorStage):
     """Concrete subclass for testing base behavior."""
 
-    def setup(self, worker_metadata=None):
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ANN401
         pass
 
-    def process(self, batch):
+    def process(self, batch: AudioBatch) -> AudioBatch:
         return batch
 
 
@@ -63,11 +65,14 @@ class TestBaseASRProcessorStagePrepareSegmentBatch:
         )
         assert len(result) == 3
         assert result[0]["resampled_audio_filepath"] == "/path/1.wav"
-        assert result[0]["metadata_idx"] == 0 and result[0]["segment_idx"] == 0
+        assert result[0]["metadata_idx"] == 0
+        assert result[0]["segment_idx"] == 0
         assert result[1]["resampled_audio_filepath"] == "/path/2.wav"
-        assert result[1]["metadata_idx"] == 0 and result[1]["segment_idx"] == 1
+        assert result[1]["metadata_idx"] == 0
+        assert result[1]["segment_idx"] == 1
         assert result[2]["resampled_audio_filepath"] == "/path/3.wav"
-        assert result[2]["metadata_idx"] == 1 and result[2]["segment_idx"] == 0
+        assert result[2]["metadata_idx"] == 1
+        assert result[2]["segment_idx"] == 0
 
     def test_skips_segments_without_resampled_audio_filepath(self) -> None:
         """Segments missing resampled_audio_filepath are not included."""
@@ -80,20 +85,14 @@ class TestBaseASRProcessorStagePrepareSegmentBatch:
                 ],
             },
         ]
-        result = stage._prepare_segment_batch_with_metadata(
-            metadata_batch, cut_audio_segments=False
-        )
+        result = stage._prepare_segment_batch_with_metadata(metadata_batch, cut_audio_segments=False)
         assert len(result) == 1
         assert result[0]["resampled_audio_filepath"] == "/only.wav"
 
     def test_empty_segments_returns_empty_list(self) -> None:
         """Metadata with no segments or empty segments returns empty list."""
         stage = ConcreteASRProcessor()
-        result = stage._prepare_segment_batch_with_metadata(
-            [{"segments": []}], cut_audio_segments=False
-        )
+        result = stage._prepare_segment_batch_with_metadata([{"segments": []}], cut_audio_segments=False)
         assert result == []
-        result = stage._prepare_segment_batch_with_metadata(
-            [{}], cut_audio_segments=False
-        )
+        result = stage._prepare_segment_batch_with_metadata([{}], cut_audio_segments=False)
         assert result == []

@@ -13,16 +13,17 @@
 # limitations under the License.
 
 import tempfile
+from collections.abc import Callable
+from pathlib import Path
 
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
-
-from tests import FIXTURES_DIR
+from nemo_curator.tasks import AudioBatch
 
 
 class TestResampleAudioStage:
     """Tests for ResampleAudioStage."""
 
-    def test_process_dataset_entry(self, audio_batch, audio_filepath) -> None:
+    def test_process_dataset_entry(self, audio_batch: Callable[..., AudioBatch], audio_filepath: Path) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             stage = ResampleAudioStage(resampled_audio_dir=tmpdir)
             stage.setup()

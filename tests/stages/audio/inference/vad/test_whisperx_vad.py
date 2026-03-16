@@ -13,11 +13,13 @@
 # limitations under the License.
 
 
+from pathlib import Path
+
 from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADStage
 
-class TestWhisperXVADStage:
-    def test_process_dataset_entry(self, wav_filepath) -> None:
 
+class TestWhisperXVADStage:
+    def test_process_dataset_entry(self, wav_filepath: Path) -> None:
         stage = WhisperXVADStage(
             min_length=0.5,
             max_length=40.0,

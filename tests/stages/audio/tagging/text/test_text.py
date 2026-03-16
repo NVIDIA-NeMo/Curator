@@ -12,11 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
+
 from nemo_curator.stages.audio.tagging.text import (
     ArabicRemoveDiacriticsStage,
     ChineseConversionStage,
     PNCwithBERTStage,
 )
+from nemo_curator.tasks import AudioBatch
 
 
 class TestArabicRemoveDiacriticsStage:
@@ -59,7 +62,7 @@ class TestArabicRemoveDiacriticsStage:
 
 
 class TestPNCwithBERTStage:
-    def test_processes_segments(self, audio_batch) -> None:
+    def test_processes_segments(self, audio_batch: Callable[..., AudioBatch]) -> None:
         stage = PNCwithBERTStage(text_key="text", update_alignment=True, device="cpu")
         stage.setup()
         batch = audio_batch(
@@ -92,7 +95,7 @@ class TestPNCwithBERTStage:
 
 
 class TestChineseConversionStage:
-    def test_converts_traditional_to_simplified(self, audio_batch) -> None:
+    def test_converts_traditional_to_simplified(self, audio_batch: Callable[..., AudioBatch]) -> None:
         stage = ChineseConversionStage(text_key="text", convert_type="t2s")
         stage.setup()
         batch = audio_batch(
@@ -105,7 +108,7 @@ class TestChineseConversionStage:
         assert out["segments"][0]["text_simplified"] == "汉字"
         assert out["segments"][0]["text"] == "漢字"
 
-    def test_segment_without_text_key_is_skipped(self, audio_batch) -> None:
+    def test_segment_without_text_key_is_skipped(self, audio_batch: Callable[..., AudioBatch]) -> None:
         stage = ChineseConversionStage(text_key="text")
         stage.setup()
         batch = audio_batch(

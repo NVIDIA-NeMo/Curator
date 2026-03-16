@@ -24,7 +24,7 @@ and ``segments``.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any
 
 import nemo.collections.asr as nemo_asr
 import torch
@@ -32,6 +32,7 @@ import torchaudio
 from loguru import logger
 from nemo.collections.asr.parts.submodules.ctc_decoding import CTCDecodingConfig
 from nemo.collections.asr.parts.submodules.rnnt_decoding import RNNTDecodingConfig
+
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioBatch
@@ -82,10 +83,10 @@ class BaseASRProcessorStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     def _prepare_segment_batch_with_metadata(
         self,
-        metadata_batch: List[dict],
+        metadata_batch: list[dict],
         cut_audio_segments: bool = False,
         segments_key: str = "segments",
-    ) -> List[dict]:
+    ) -> list[dict]:
         """Prepare segment metadata for a batch.
 
         Collects segment metadata with indices for later processing. Mirrors
@@ -101,13 +102,11 @@ class BaseASRProcessorStage(ProcessingStage[AudioBatch, AudioBatch]):
             List of segment metadata dicts with metadata_idx, segment_idx, and
             either "audio_segment" (numpy) or "resampled_audio_filepath".
         """
-        segment_metadata_list: List[dict] = []
+        segment_metadata_list: list[dict] = []
 
         if cut_audio_segments:
             for metadata_idx, metadata in enumerate(metadata_batch):
-                audio_path = metadata.get(
-                    "resampled_audio_filepath", metadata.get("audio_filepath")
-                )
+                audio_path = metadata.get("resampled_audio_filepath", metadata.get("audio_filepath"))
                 if not audio_path:
                     continue
                 audio, sr = torchaudio.load(audio_path)
@@ -131,9 +130,7 @@ class BaseASRProcessorStage(ProcessingStage[AudioBatch, AudioBatch]):
                     if "resampled_audio_filepath" in segment:
                         segment_metadata_list.append(
                             {
-                                "resampled_audio_filepath": segment[
-                                    "resampled_audio_filepath"
-                                ],
+                                "resampled_audio_filepath": segment["resampled_audio_filepath"],
                                 "metadata_idx": metadata_idx,
                                 "segment_idx": segment_idx,
                             }
@@ -164,7 +161,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
     # Model configuration
     model_name: str = "nvidia/parakeet-tdt_ctc-1.1b"
-    model_path: Optional[str] = None
+    model_path: str | None = None
 
     # Length constraints
     min_len: float = 1.0
@@ -200,18 +197,17 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
     _override_cfg: Any = None
     _model_initialized: bool = field(default=False, repr=False)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate config."""
         if self.decoder_type not in ["ctc", "rnnt"]:
-            raise ValueError(
-                f"decoder_type must be 'ctc' or 'rnnt', got {self.decoder_type}"
-            )
+            msg = f"decoder_type must be 'ctc' or 'rnnt', got {self.decoder_type}"
+            raise ValueError(msg)
 
-    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata):
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Setup stage on node."""
         self.setup()
 
-    def setup(self, worker_metadata=None):
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Initialize NeMo ASR model. Called once before processing."""
         if self._model_initialized:
             return
@@ -222,25 +218,17 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
         if self._asr_model is None:
             if self.model_path:
-                self._asr_model = nemo_asr.models.ASRModel.restore_from(
-                    restore_path=self.model_path
-                )
+                self._asr_model = nemo_asr.models.ASRModel.restore_from(restore_path=self.model_path)
             else:
-                self._asr_model = nemo_asr.models.ASRModel.from_pretrained(
-                    model_name=self.model_name
-                )
+                self._asr_model = nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name)
 
         self._asr_model.to(self.device)
         self._asr_model.eval()
 
-        self._asr_model.change_attention_model(
-            self_attention_model="rel_pos_local_attn", att_context_size=[128, 128]
-        )
+        self._asr_model.change_attention_model(self_attention_model="rel_pos_local_attn", att_context_size=[128, 128])
         self._asr_model.change_subsampling_conv_chunking_factor(1)
 
-        decoding_cfg = (
-            CTCDecodingConfig() if self.decoder_type == "ctc" else RNNTDecodingConfig()
-        )
+        decoding_cfg = CTCDecodingConfig() if self.decoder_type == "ctc" else RNNTDecodingConfig()
 
         if self.decoder_type == "ctc":
             decoding_cfg.strategy = "greedy_batch"
@@ -248,9 +236,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
             decoding_cfg.rnnt_timestamp_type = self.timestamp_type
 
         decoding_cfg.preserve_alignments = self.compute_timestamps
-        decoding_cfg.confidence_cfg.preserve_word_confidence = (
-            not self.disable_word_confidence
-        )
+        decoding_cfg.confidence_cfg.preserve_word_confidence = not self.disable_word_confidence
         decoding_cfg.compute_timestamps = self.compute_timestamps
         decoding_cfg.greedy.compute_timestamps = self.compute_timestamps
 
@@ -271,7 +257,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def get_alignments_text(self, hypotheses) -> tuple[list, str]:
+    def get_alignments_text(self, hypotheses: Any) -> tuple[list, str]:  # noqa: ANN401
         """Extract word alignments and text from model hypotheses."""
         if not self.compute_timestamps:
             return [], hypotheses.text
@@ -288,12 +274,11 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         alignments = []
         for i, stamp in enumerate(word_timestamps):
             conf = None
-            if hypotheses.word_confidence is not None:
-                if i < len(hypotheses.word_confidence):
-                    conf = hypotheses.word_confidence[i]
-                    if isinstance(conf, torch.Tensor):
-                        conf = conf.item()
-                    conf = round(conf, 4)
+            if hypotheses.word_confidence is not None and i < len(hypotheses.word_confidence):
+                conf = hypotheses.word_confidence[i]
+                if isinstance(conf, torch.Tensor):
+                    conf = conf.item()
+                conf = round(conf, 4)
 
             if self.decoder_type == "ctc":
                 start = stamp["start_offset"] * time_stride
@@ -324,18 +309,14 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         else:
             return self.process_full_audio(data_entries)
 
-    def process_full_audio(self, data_entries: AudioBatch) -> list[AudioBatch]:
+    def process_full_audio(self, data_entries: AudioBatch) -> list[AudioBatch]:  # noqa: C901, PLR0912
         """Process entries as full audio (or meta-entries with split_filepaths)."""
         entries = data_entries.data
         skip_indices = []
         meta_indices = []
         for i, data in enumerate(entries):
             split_filepaths = data.get("split_filepaths")
-            has_splits = (
-                split_filepaths is not None
-                and isinstance(split_filepaths, list)
-                and len(split_filepaths) > 0
-            )
+            has_splits = split_filepaths is not None and isinstance(split_filepaths, list) and len(split_filepaths) > 0
             if has_splits or split_filepaths is None:
                 meta_indices.append(i)
             else:
@@ -361,26 +342,22 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
             try:
                 with torch.no_grad():
-                    hypotheses_list = self._asr_model.transcribe(
-                        all_paths, override_config=self._override_cfg
-                    )
-                if isinstance(hypotheses_list, tuple) and len(hypotheses_list) == 2:
+                    hypotheses_list = self._asr_model.transcribe(all_paths, override_config=self._override_cfg)
+                if isinstance(hypotheses_list, tuple) and len(hypotheses_list) == 2:  # noqa: PLR2004
                     hypotheses_list = hypotheses_list[0]
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(
-                    f"[{self.name}] Exception for meta-entries batch: {str(e)} for paths: {all_paths}, transcribing one by one"
+                    f"[{self.name}] Exception for meta-entries batch: {e!s} for paths: {all_paths}, transcribing one by one"
                 )
                 hypotheses_list = []
                 for path in all_paths:
                     try:
                         with torch.no_grad():
-                            hyp = self._asr_model.transcribe(
-                                [path], override_config=self._override_cfg
-                            )
-                        if isinstance(hyp, tuple) and len(hyp) == 2:
+                            hyp = self._asr_model.transcribe([path], override_config=self._override_cfg)
+                        if isinstance(hyp, tuple) and len(hyp) == 2:  # noqa: PLR2004
                             hyp = hyp[0]
                         hypotheses_list.append(hyp[0] if hyp else None)
-                    except Exception as e2:
+                    except Exception as e2:  # noqa: BLE001, PERF203
                         logger.error(f"[{self.name}] Exception for {path}: {e2}")
                         hypotheses_list.append(None)
 
@@ -426,24 +403,16 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
             try:
                 with torch.no_grad():
-                    hypotheses_list = self._asr_model.transcribe(
-                        all_segments, override_config=self._override_cfg
-                    )
+                    hypotheses_list = self._asr_model.transcribe(all_segments, override_config=self._override_cfg)
             except Exception as e:
-                files_list = [
-                    x.get("resampled_audio_filepath", x.get("audio_filepath"))
-                    for x in metadata_batch
-                ]
-                raise ValueError(
-                    f"[{self.name}] Exception for audio list: {files_list}, error: {e}"
-                ) from e
+                files_list = [x.get("resampled_audio_filepath", x.get("audio_filepath")) for x in metadata_batch]
+                msg = f"[{self.name}] Exception for audio list: {files_list}, error: {e}"
+                raise ValueError(msg) from e
 
-            if isinstance(hypotheses_list, tuple) and len(hypotheses_list) == 2:
+            if isinstance(hypotheses_list, tuple) and len(hypotheses_list) == 2:  # noqa: PLR2004
                 hypotheses_list = hypotheses_list[0]
 
-            for segment_metadata, hypotheses in zip(
-                segment_metadata_list, hypotheses_list, strict=True
-            ):
+            for segment_metadata, hypotheses in zip(segment_metadata_list, hypotheses_list, strict=True):
                 alignments, text = self.get_alignments_text(hypotheses)
                 metadata_idx = segment_metadata["metadata_idx"]
                 segment_idx = segment_metadata["segment_idx"]

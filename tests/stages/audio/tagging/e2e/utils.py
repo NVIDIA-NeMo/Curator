@@ -44,21 +44,15 @@ def check_output(output_manifest: str, reference_manifest: str, text_key: str = 
     )
 
     for out_entry, ref_entry in zip(output_data, reference_data, strict=True):
-        assert out_entry[text_key] == ref_entry[text_key], (
-            f"Text mismatch for {out_entry.get('audio_item_id')}"
-        )
+        assert out_entry[text_key] == ref_entry[text_key], f"Text mismatch for {out_entry.get('audio_item_id')}"
 
-        for out_seg, ref_seg in zip(
-            out_entry["segments"], ref_entry["segments"], strict=True
-        ):
+        for out_seg, ref_seg in zip(out_entry["segments"], ref_entry["segments"], strict=True):
             assert out_seg["start"] == ref_seg["start"]
             assert out_seg["end"] == ref_seg["end"]
             assert out_seg["text"] == ref_seg["text"]
             assert out_seg["metrics"] == ref_seg["metrics"]
 
-        for out_word, ref_word in zip(
-            out_entry["alignment"], ref_entry["alignment"], strict=True
-        ):
+        for out_word, ref_word in zip(out_entry["alignment"], ref_entry["alignment"], strict=True):
             assert out_word["word"] == ref_word["word"]
             assert round(out_word["start"], 2) == round(ref_word["start"], 2)
             assert round(out_word["end"], 2) == round(ref_word["end"], 2)

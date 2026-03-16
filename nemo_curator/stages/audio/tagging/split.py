@@ -20,9 +20,10 @@ Audio Splitting and Joining Stages.
 import math
 import os
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import torchaudio
+
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioBatch
@@ -84,9 +85,7 @@ class SplitLongAudioStage(LegacySpeechStage):
         splits = self.get_split_points(data_entry)
 
         # Load audio
-        audio_path = data_entry.get(
-            "resampled_audio_filepath", data_entry.get("audio_filepath")
-        )
+        audio_path = data_entry.get("resampled_audio_filepath", data_entry.get("audio_filepath"))
         audio, sr = torchaudio.load(audio_path)
 
         path, filename = os.path.split(audio_path)
@@ -97,9 +96,7 @@ class SplitLongAudioStage(LegacySpeechStage):
 
         # Process each split
         for k, split in enumerate(splits):
-            split_filepath = os.path.join(
-                path, filename[:-4] + f".{k + 1}_of_{1 + len(splits)}.wav"
-            )
+            split_filepath = os.path.join(path, filename[:-4] + f".{k + 1}_of_{1 + len(splits)}.wav")
             split_end = math.ceil(split * sr)
 
             if split_end - split_start > self.min_len * sr:
@@ -110,16 +107,11 @@ class SplitLongAudioStage(LegacySpeechStage):
                 split_start = split_end
 
         # Handle the last split
-        split_filepath = os.path.join(
-            path, filename[:-4] + f".{1 + len(splits)}_of_{1 + len(splits)}.wav"
-        )
+        split_filepath = os.path.join(path, filename[:-4] + f".{1 + len(splits)}_of_{1 + len(splits)}.wav")
         last_frame = len(audio[0]) - 1
         remaining_frames = last_frame - split_start
 
-        if (
-            remaining_frames > self.min_len * sr
-            and remaining_frames < (self.suggested_max_len + 1) * sr
-        ):
+        if remaining_frames > self.min_len * sr and remaining_frames < (self.suggested_max_len + 1) * sr:
             torchaudio.save(split_filepath, audio[:, split_start:], sr)
             split_filepaths.append(split_filepath)
             split_durations.append(remaining_frames / sr)
@@ -210,8 +202,7 @@ class JoinSplitAudioMetadataStage(LegacySpeechStage):
 
         # Remove split-related fields
         for key in ["split_filepaths", "split_metadata"]:
-            if key in meta_entry:
-                del meta_entry[key]
+            meta_entry.pop(key, None)
 
         return [AudioBatch(data=[meta_entry])]
 
@@ -256,7 +247,7 @@ class SplitASRAlignJoinStage(CompositeStage[AudioBatch, AudioBatch]):
 
     # ASR model configuration
     model_name: str = "nvidia/parakeet-tdt_ctc-1.1b"
-    model_path: Optional[str] = None
+    model_path: str | None = None
     is_fastconformer: bool = True
     decoder_type: str = "rnnt"
 

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -84,7 +85,7 @@ class TestPyAnnoteDiarizationStage:
     """Tests for PyAnnoteDiarizationStage."""
 
     @pytest.mark.skipif(not hf_token, reason="HF_SECRET_KEY not set")
-    def test_process_dataset_entry(self, wav_filepath) -> None:
+    def test_process_dataset_entry(self, wav_filepath: Path) -> None:
         """Process dataset entry."""
         from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
 
@@ -97,10 +98,7 @@ class TestPyAnnoteDiarizationStage:
         }
         result = stage.process_dataset_entry(data_entry)
         assert len(result) == 1
-        assert (
-            result[0].data[0]["resampled_audio_filepath"]
-            == str(wav_filepath)
-        )
+        assert result[0].data[0]["resampled_audio_filepath"] == str(wav_filepath)
         segments = result[0].data[0]["segments"]
         assert len(segments) == 45, "Should produce 45 segments"
         assert len(segments) > 0, "Should produce at least one segment"

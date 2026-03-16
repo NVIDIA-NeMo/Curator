@@ -131,17 +131,14 @@ class MergeAlignmentDiarizationStage(LegacySpeechStage):
                     if word_start >= segment.get("end", 0):
                         break
 
-                    if word_start >= segment.get(
-                        "start", 0
-                    ) and word_end <= segment.get("end", 0):
+                    if word_start >= segment.get("start", 0) and word_end <= segment.get("end", 0):
                         words_in_segment.append(word)
                         last_word_idx += 1
                     else:
                         # Check overlap with current segment
                         current_overlap = max(
                             0,
-                            min(word_end, segment.get("end", 0))
-                            - max(word_start, segment.get("start", 0)),
+                            min(word_end, segment.get("end", 0)) - max(word_start, segment.get("start", 0)),
                         )
 
                         # Check overlap with next segment if exists
@@ -167,9 +164,7 @@ class MergeAlignmentDiarizationStage(LegacySpeechStage):
                     if last_word_idx == len(alignment):
                         break
 
-                segment[text_key] = " ".join(
-                    [x.get("word", "") for x in words_in_segment]
-                )
+                segment[text_key] = " ".join([x.get("word", "") for x in words_in_segment])
                 segment[words_key] = words_in_segment
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
@@ -178,8 +173,6 @@ class MergeAlignmentDiarizationStage(LegacySpeechStage):
         segments = data_entry.get("segments", [])
 
         if alignment and segments:
-            self.align_words_to_segments(
-                alignment, segments, self.text_key, self.words_key
-            )
+            self.align_words_to_segments(alignment, segments, self.text_key, self.words_key)
 
         return [AudioBatch(data=[data_entry])]

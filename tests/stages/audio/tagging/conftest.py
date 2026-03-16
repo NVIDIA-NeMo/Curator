@@ -15,6 +15,7 @@
 """Shared fixtures for audio tagging stage tests."""
 
 import pytest
+
 from nemo_curator.tasks import AudioBatch
 
 
@@ -22,7 +23,7 @@ from nemo_curator.tasks import AudioBatch
 def audio_batch():
     """Factory for AudioBatch instances. Each batch has .data as a list of one dict."""
 
-    def _make(**kwargs):
+    def _make(**kwargs) -> AudioBatch:
         return AudioBatch(data=[kwargs])
 
     return _make

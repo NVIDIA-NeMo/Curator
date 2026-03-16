@@ -19,9 +19,10 @@ Merges adjacent same-speaker segments and splits by duration, punctuation, and b
 
 import random
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 from loguru import logger
+
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.tasks import AudioBatch
 
@@ -44,8 +45,8 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
         max_pause: Max pause between words to stay in same segment (TTS).
         text_key: Key for segment text. Defaults to "text".
         words_key: Key for word-level alignments in segments. Defaults to "words".
-        terminal_punct_marks: Punctuation that ends an utterance (e.g. ".!?"). Defaults to ".!?。？？！。".
-        full_utterance_ratio: Ratio of content to segment at terminal punctuation (0–1).
+        terminal_punct_marks: Punctuation that ends an utterance (e.g. ".!?"). Defaults to CJK/Latin punct string.
+        full_utterance_ratio: Ratio of content to segment at terminal punctuation (0-1).
         punctuation_split_only: If True, split only at punctuation; else also by duration. Defaults to False.
         name: Stage name for logging and output files. Defaults to "PrepareModuleSegments".
 
@@ -60,7 +61,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
     max_pause: float = 2.0
     text_key: str = "text"
     words_key: str = "words"
-    terminal_punct_marks: str = ".!?。？？！。"
+    terminal_punct_marks: str = ".!?。？？！。"  # noqa: RUF001
     full_utterance_ratio: float = 1.0
     punctuation_split_only: bool = False
 
@@ -68,11 +69,10 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
 
     def __post_init__(self):
         if self.module not in ("tts", "asr"):
-            raise ValueError("Module must be either 'tts' or 'asr'")
+            msg = "Module must be either 'tts' or 'asr'"
+            raise ValueError(msg)
 
-    def get_words_list_from_all_segments(
-        self, metadata: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+    def get_words_list_from_all_segments(self, metadata: dict[str, Any]) -> list[dict[str, Any]]:
         """This method gets the words list from all the speaker segments
 
         Args:
@@ -95,16 +95,11 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
         if "overlap_segments" not in metadata:
             add_non_speaker_segments(segments, audio_duration)
             alignment = metadata.get("alignment", [])
-            MergeAlignmentDiarizationStage.align_words_to_segments(
-                alignment, segments, self.text_key, self.words_key
-            )
+            MergeAlignmentDiarizationStage.align_words_to_segments(alignment, segments, self.text_key, self.words_key)
 
         words = []
         for segment in segments:
-            if (
-                self.text_key not in segment
-                or (segment[self.text_key] or "").strip() == ""
-            ):
+            if self.text_key not in segment or (segment[self.text_key] or "").strip() == "":
                 continue
 
             if self.words_key in segment:
@@ -113,18 +108,10 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
                     new_word["speaker"] = segment["speaker"]
                     if "metrics" in segment:
                         m = segment["metrics"]
-                        new_word["stoi_squim"] = (
-                            m.get("stoi_squim") if isinstance(m, dict) else None
-                        )
-                        new_word["sisdr_squim"] = (
-                            m.get("sisdr_squim") if isinstance(m, dict) else None
-                        )
-                        new_word["pesq_squim"] = (
-                            m.get("pesq_squim") if isinstance(m, dict) else None
-                        )
-                        new_word["bandwidth"] = (
-                            m.get("bandwidth") if isinstance(m, dict) else None
-                        )
+                        new_word["stoi_squim"] = m.get("stoi_squim") if isinstance(m, dict) else None
+                        new_word["sisdr_squim"] = m.get("sisdr_squim") if isinstance(m, dict) else None
+                        new_word["pesq_squim"] = m.get("pesq_squim") if isinstance(m, dict) else None
+                        new_word["bandwidth"] = m.get("bandwidth") if isinstance(m, dict) else None
                     else:
                         new_word["stoi_squim"] = None
                         new_word["sisdr_squim"] = None
@@ -136,7 +123,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
 
         return words
 
-    def is_valid_segment(self, segment: Dict[str, Any]) -> bool:
+    def is_valid_segment(self, segment: dict[str, Any]) -> bool:
         """Return False if segment is a single over-long word or has no text."""
         words = segment.get("words", [])
         if len(words) == 1:
@@ -146,9 +133,9 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
         sentence = " ".join([w.get("word", "") for w in words])
         return bool(sentence and sentence.strip())
 
-    def split_segment_by_duration(
-        self, segment: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+    def split_segment_by_duration(  # noqa: C901
+        self, segment: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """Split one segment by duration, pause, and bandwidth (TTS) or duration only (ASR)."""
         words = segment["words"]
         current_segment = {
@@ -161,7 +148,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
         rand_max_duration = (
             self.max_duration
             if self.module == "tts"
-            else random.randint(int(self.min_duration), int(self.max_duration))
+            else random.randint(int(self.min_duration), int(self.max_duration))  # noqa: S311
         )
 
         for word in words:
@@ -185,7 +172,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
                     "words": [word],
                 }
                 if self.module == "asr":
-                    rand_max_duration = random.randint(
+                    rand_max_duration = random.randint(  # noqa: S311
                         int(self.min_duration), int(self.max_duration)
                     )
                 continue
@@ -193,10 +180,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
             if (
                 self.module == "tts"
                 and (word["start"] - current_segment["end"] > self.max_pause)
-                and (
-                    current_segment["end"] - current_segment["start"]
-                    >= self.min_duration
-                )
+                and (current_segment["end"] - current_segment["start"] >= self.min_duration)
             ):
                 if self.is_valid_segment(current_segment):
                     segments_out.append(current_segment)
@@ -211,12 +195,8 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
             if (
                 self.module == "tts"
                 and current_segment["words"]
-                and word.get("bandwidth")
-                != current_segment["words"][-1].get("bandwidth")
-                and (
-                    current_segment["end"] - current_segment["start"]
-                    >= self.min_duration
-                )
+                and word.get("bandwidth") != current_segment["words"][-1].get("bandwidth")
+                and (current_segment["end"] - current_segment["start"] >= self.min_duration)
             ):
                 if self.is_valid_segment(current_segment):
                     segments_out.append(current_segment)
@@ -236,15 +216,13 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
 
         return segments_out
 
-    def split_segment_by_punctuation(
-        self, segment: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+    def split_segment_by_punctuation(  # noqa: C901, PLR0912, PLR0915
+        self, segment: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """Split segment at terminal punctuation; fallback to duration split if none, or when over max_duration."""
         words = segment["words"]
         split_points = [
-            i
-            for i, word in enumerate(words)
-            if word.get("word") and word["word"][-1] in self.terminal_punct_marks
+            i for i, word in enumerate(words) if word.get("word") and word["word"][-1] in self.terminal_punct_marks
         ]
         segments_out = []
 
@@ -257,16 +235,12 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
         current_start = 0
         new_split_points = []
         while current_end < len(split_points):
-            current_duration = (
-                words[split_points[current_end]]["end"]
-                - words[split_points[current_start]]["start"]
-            )
+            current_duration = words[split_points[current_end]]["end"] - words[split_points[current_start]]["start"]
             if current_duration < self.min_duration:
                 next_end = current_end + 1
                 while (
                     next_end < len(split_points)
-                    and words[split_points[next_end]]["end"]
-                    - words[split_points[current_start]]["start"]
+                    and words[split_points[next_end]]["end"] - words[split_points[current_start]]["start"]
                     <= self.max_duration
                 ):
                     next_end += 1
@@ -285,9 +259,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
         total_duration = 0
         split_start_index = 0
         for split_end_index in new_split_points:
-            total_duration += (
-                words[split_end_index]["end"] - words[split_start_index]["start"]
-            )
+            total_duration += words[split_end_index]["end"] - words[split_start_index]["start"]
             split_start_index = split_end_index + 1
 
         required_full_utterance_duration = self.full_utterance_ratio * total_duration
@@ -299,8 +271,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
             current_full_utterance_duration += duration
 
             is_full_utterance_reached = (
-                self.full_utterance_ratio < 1.0
-                and current_full_utterance_duration > required_full_utterance_duration
+                self.full_utterance_ratio < 1.0 and current_full_utterance_duration > required_full_utterance_duration
             )
 
             if not is_full_utterance_reached:
@@ -311,7 +282,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
                     "words": words[start : end + 1],
                 }
             else:
-                end = new_split_points[-1]
+                end = new_split_points[-1]  # noqa: PLW2901
                 sub_segment = {
                     "speaker": segment.get("speaker"),
                     "start": words[start]["start"],
@@ -339,9 +310,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
 
         return segments_out
 
-    def add_new_segments_to_metadata(
-        self, metadata: Dict[str, Any], new_segments: List[Dict[str, Any]]
-    ) -> None:
+    def add_new_segments_to_metadata(self, metadata: dict[str, Any], new_segments: list[dict[str, Any]]) -> None:
         """Write new segment list into metadata with text, words, and metrics keys."""
         segments = []
         for new_segment in new_segments:
@@ -357,8 +326,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
                 "end": new_segment["end"],
                 self.text_key: " ".join(w["word"] for w in new_segment["words"]),
                 self.words_key: [
-                    {"word": w["word"], "start": w["start"], "end": w["end"]}
-                    for w in new_segment["words"]
+                    {"word": w["word"], "start": w["start"], "end": w["end"]} for w in new_segment["words"]
                 ],
                 "metrics": {
                     "pesq_squim": [w.get("pesq_squim") for w in new_segment["words"]],
@@ -371,9 +339,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
 
         metadata["segments"] = segments
 
-    def prepare_asr_segments(
-        self, words: List[Dict[str, Any]], metadata: Dict[str, Any]
-    ) -> None:
+    def prepare_asr_segments(self, words: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
         """Prepare ASR segments (multi-speaker per segment allowed)."""
         new_segments = []
         if words:
@@ -386,9 +352,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
             new_segments = self.split_segment_by_punctuation(current_segment)
         self.add_new_segments_to_metadata(metadata, new_segments)
 
-    def prepare_tts_segments(
-        self, words: List[Dict[str, Any]], metadata: Dict[str, Any]
-    ) -> None:
+    def prepare_tts_segments(self, words: list[dict[str, Any]], metadata: dict[str, Any]) -> None:
         """Prepare TTS segments (single speaker per segment)."""
         new_segments = []
         speaker_segments = []
@@ -429,9 +393,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
         random.seed(42)
         try:
             if "segments" not in data_entry:
-                logger.info(
-                    f"[{self.name}] No segments in metadata for: {data_entry.get('audio_filepath', '')}"
-                )
+                logger.info(f"[{self.name}] No segments in metadata for: {data_entry.get('audio_filepath', '')}")
                 return [AudioBatch(data=[data_entry])]
 
             words = self.get_words_list_from_all_segments(data_entry)
@@ -442,6 +404,6 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
 
             return [AudioBatch(data=[data_entry])]
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[{self.name}] Error processing entry: {e}")
             return [AudioBatch(data=[data_entry])]

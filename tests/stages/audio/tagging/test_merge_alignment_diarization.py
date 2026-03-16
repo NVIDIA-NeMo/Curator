@@ -13,9 +13,12 @@
 # limitations under the License.
 
 
+from collections.abc import Callable
+
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import (
     MergeAlignmentDiarizationStage,
 )
+from nemo_curator.tasks import AudioBatch
 
 
 class TestMergeAlignmentDiarizationAlignWordsToSegments:
@@ -30,9 +33,7 @@ class TestMergeAlignmentDiarizationAlignWordsToSegments:
         segments = [
             {"speaker": "s1", "start": 0.0, "end": 1.0},
         ]
-        MergeAlignmentDiarizationStage.align_words_to_segments(
-            alignment, segments, "text", "words"
-        )
+        MergeAlignmentDiarizationStage.align_words_to_segments(alignment, segments, "text", "words")
         assert segments[0]["text"] == "hello world"
         assert segments[0]["words"] == alignment
 
@@ -47,9 +48,7 @@ class TestMergeAlignmentDiarizationAlignWordsToSegments:
             {"speaker": "s1", "start": 0.0, "end": 0.8},
             {"speaker": "s2", "start": 0.8, "end": 2.0},
         ]
-        MergeAlignmentDiarizationStage.align_words_to_segments(
-            alignment, segments, "text", "words"
-        )
+        MergeAlignmentDiarizationStage.align_words_to_segments(alignment, segments, "text", "words")
         assert segments[0]["text"] == "one two"
         assert len(segments[0]["words"]) == 2
         assert segments[1]["text"] == "three"
@@ -58,9 +57,7 @@ class TestMergeAlignmentDiarizationAlignWordsToSegments:
     def test_empty_alignment_leaves_segments_unchanged(self) -> None:
         """Empty alignment does not add text/words keys or leaves them empty."""
         segments = [{"speaker": "s1", "start": 0.0, "end": 1.0}]
-        MergeAlignmentDiarizationStage.align_words_to_segments(
-            [], segments, "text", "words"
-        )
+        MergeAlignmentDiarizationStage.align_words_to_segments([], segments, "text", "words")
         assert "text" not in segments[0]
         assert "words" not in segments[0]
 
@@ -68,18 +65,14 @@ class TestMergeAlignmentDiarizationAlignWordsToSegments:
         """Empty segments list is a no-op."""
         alignment = [{"word": "x", "start": 0.0, "end": 0.5}]
         segments = []
-        MergeAlignmentDiarizationStage.align_words_to_segments(
-            alignment, segments, "text", "words"
-        )
+        MergeAlignmentDiarizationStage.align_words_to_segments(alignment, segments, "text", "words")
         assert segments == []
 
     def test_custom_text_and_words_keys(self) -> None:
         """Custom text_key and words_key are used."""
         alignment = [{"word": "hi", "start": 0.0, "end": 0.2}]
         segments = [{"speaker": "s1", "start": 0.0, "end": 1.0}]
-        MergeAlignmentDiarizationStage.align_words_to_segments(
-            alignment, segments, "transcript", "word_list"
-        )
+        MergeAlignmentDiarizationStage.align_words_to_segments(alignment, segments, "transcript", "word_list")
         assert segments[0]["transcript"] == "hi"
         assert segments[0]["word_list"] == alignment
 
@@ -88,7 +81,7 @@ class TestMergeAlignmentDiarizationStage:
     """Tests for MergeAlignmentDiarizationStage process_dataset_entry."""
 
     def test_process_dataset_entry_merges_alignment_into_segments(
-        self, audio_batch
+        self, audio_batch: Callable[..., AudioBatch]
     ) -> None:
         """process_dataset_entry adds text and words to segments from alignment."""
         stage = MergeAlignmentDiarizationStage(text_key="text", words_key="words")
@@ -105,7 +98,7 @@ class TestMergeAlignmentDiarizationStage:
         assert out["segments"][0]["text"] == "hello world"
         assert len(out["segments"][0]["words"]) == 2
 
-    def test_process_dataset_entry_no_alignment_passthrough(self, audio_batch) -> None:
+    def test_process_dataset_entry_no_alignment_passthrough(self, audio_batch: Callable[..., AudioBatch]) -> None:
         """Entry without alignment is returned unchanged."""
         stage = MergeAlignmentDiarizationStage()
         batch = audio_batch(segments=[{"speaker": "s1", "start": 0.0, "end": 1.0}])
@@ -113,7 +106,7 @@ class TestMergeAlignmentDiarizationStage:
         assert len(batches) == 1
         assert batches[0].data[0]["segments"] == batch.data[0]["segments"]
 
-    def test_process_dataset_entry_no_segments_passthrough(self, audio_batch) -> None:
+    def test_process_dataset_entry_no_segments_passthrough(self, audio_batch: Callable[..., AudioBatch]) -> None:
         """Entry with alignment but no segments is returned unchanged."""
         stage = MergeAlignmentDiarizationStage()
         batch = audio_batch(

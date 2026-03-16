@@ -89,8 +89,7 @@ def main(cfg: DictConfig) -> None:
     for stage_name, metrics in stage_metrics.items():
         logger.info(f"  [{stage_name}]")
         logger.info(
-            f"    process_time: mean={metrics['process_time'].mean():.4f}s, "
-            f"total={metrics['process_time'].sum():.2f}s"
+            f"    process_time: mean={metrics['process_time'].mean():.4f}s, total={metrics['process_time'].sum():.2f}s"
         )
         logger.info(f"    items_processed: {metrics['num_items_processed'].sum():.0f}")
 

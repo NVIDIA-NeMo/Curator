@@ -20,6 +20,7 @@ from typing import Any
 import librosa
 import numpy as np
 from loguru import logger
+
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.tasks import AudioBatch
 
@@ -55,9 +56,7 @@ class BandwidthEstimationStage(LegacySpeechStage):
         """Estimate the bandwidth of an audio signal."""
         hop_length = int(sample_rate * self.stride_seconds)
 
-        spec = librosa.stft(
-            y=audio, n_fft=self.n_fft, hop_length=hop_length, window="blackmanharris"
-        )
+        spec = librosa.stft(y=audio, n_fft=self.n_fft, hop_length=hop_length, window="blackmanharris")
         power_spec = np.abs(spec) ** 2
         power_spec = np.mean(power_spec, axis=1)
         power_spec = librosa.power_to_db(power_spec, ref=self.n_fft, top_db=self.top_db)
@@ -78,16 +77,13 @@ class BandwidthEstimationStage(LegacySpeechStage):
         audio_path = data_entry.get("audio_filepath")
         try:
             audio, sample_rate = librosa.load(path=audio_path, sr=None)
-        except Exception as ex:
+        except Exception as ex:  # noqa: BLE001
             logger.error(f"Failed to load audio path: {audio_path}, exception={ex}")
             return [AudioBatch(data=[data_entry])]
         segments = data_entry.get("segments", [])
 
         for segment in segments:
-            if (
-                segment.get("speaker") == "no-speaker"
-                or segment.get("text", "").strip() == ""
-            ):
+            if segment.get("speaker") == "no-speaker" or segment.get("text", "").strip() == "":
                 continue
 
             start = segment["start"]

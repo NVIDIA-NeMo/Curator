@@ -15,9 +15,10 @@
 """Arabic diacritics removal stage."""
 
 from dataclasses import dataclass
-from typing import Any, Tuple
+from typing import Any
 
-import pyarabic.araby as araby
+from pyarabic import araby
+
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.tasks import AudioBatch
 
@@ -39,9 +40,7 @@ class ArabicRemoveDiacriticsStage(LegacySpeechStage):
     # Stage metadata
     name: str = "ArabicRemoveDiacritics"
 
-    def strip_diacritics(
-        self, text: str, alignment: list[dict]
-    ) -> Tuple[str, list[dict]]:
+    def strip_diacritics(self, text: str, alignment: list[dict]) -> tuple[str, list[dict]]:
         text = araby.strip_diacritics(text)
         for word in alignment:
             if word.get("word", "") != "":
@@ -49,7 +48,6 @@ class ArabicRemoveDiacriticsStage(LegacySpeechStage):
         return text, alignment
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
-
         if "split_metadata" in data_entry:
             for entry in data_entry["split_metadata"]:
                 entry[self.text_key], entry["alignment"] = self.strip_diacritics(

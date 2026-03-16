@@ -52,18 +52,16 @@ class TestAddNonSpeakerSegments:
         add_non_speaker_segments(segments, audio_duration=10.0)
         assert len(segments) == 4
         # Sorted by start
-        assert segments[0]["speaker"] == "s1" and segments[0]["start"] == 0.0
-        assert (
-            segments[1]["speaker"] == "no-speaker"
-            and segments[1]["start"] == 2.0
-            and segments[1]["end"] == 5.0
-        )
-        assert segments[2]["speaker"] == "s2" and segments[2]["start"] == 5.0
-        assert (
-            segments[3]["speaker"] == "no-speaker"
-            and segments[3]["start"] == 8.0
-            and segments[3]["end"] == 10.0
-        )
+        assert segments[0]["speaker"] == "s1"
+        assert segments[0]["start"] == 0.0
+        assert segments[1]["speaker"] == "no-speaker"
+        assert segments[1]["start"] == 2.0
+        assert segments[1]["end"] == 5.0
+        assert segments[2]["speaker"] == "s2"
+        assert segments[2]["start"] == 5.0
+        assert segments[3]["speaker"] == "no-speaker"
+        assert segments[3]["start"] == 8.0
+        assert segments[3]["end"] == 10.0
 
     def test_max_length_splits_non_speaker_segments(self) -> None:
         """When max_length is set, long no-speaker regions are split."""

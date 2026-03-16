@@ -12,10 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
+from typing import Any
 
 from nemo_curator.stages.audio.tagging.prepare_module_segments import (
     PrepareModuleSegmentsStage,
 )
+from nemo_curator.tasks import AudioBatch
 
 
 class TestPrepareModuleSegmentsStageIsValidSegment:
@@ -54,9 +57,7 @@ class TestPrepareModuleSegmentsStageSplitSegmentByDuration:
 
     def test_single_short_segment_unchanged(self) -> None:
         """Short segment within max_duration is returned as single segment."""
-        stage = PrepareModuleSegmentsStage(
-            module="tts", min_duration=1.0, max_duration=20.0
-        )
+        stage = PrepareModuleSegmentsStage(module="tts", min_duration=1.0, max_duration=20.0)
         segment = {
             "speaker": "s1",
             "start": 0.0,
@@ -73,7 +74,7 @@ class TestPrepareModuleSegmentsStageSplitSegmentByDuration:
         assert len(all_words) == 2
 
 
-def _prepare_module_segments_sdp_style_input():
+def _prepare_module_segments_sdp_style_input() -> dict[str, Any]:
     """Input data matching tests/processors/test_prepare_module_segments.py (SDP run_processors test)."""
     return {
         "audio_filepath": "a.wav",
@@ -154,7 +155,9 @@ def _prepare_module_segments_sdp_style_input():
     }
 
 
-def test_prepare_module_segments_stage_sdp_style_input(audio_batch):
+def test_prepare_module_segments_stage_sdp_style_input(
+    audio_batch: Callable[..., AudioBatch],
+) -> None:
     """PrepareModuleSegmentsStage with SDP-style input (speaker1, no-speaker, speaker1) yields 2 TTS segments.
 
     Mirrors tests/processors/test_prepare_module_segments.py: same input shape and stage params
@@ -168,7 +171,7 @@ def test_prepare_module_segments_stage_sdp_style_input(audio_batch):
         max_pause=2,
         text_key="text",
         words_key="words",
-        terminal_punct_marks=".!?。？？！。",
+        terminal_punct_marks=".!?。？？！。",  # noqa: RUF001
         full_utterance_ratio=1.0,
         punctuation_split_only=False,
     )

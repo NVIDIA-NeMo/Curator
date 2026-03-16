@@ -16,12 +16,13 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Tuple
+from typing import Any
 
 from nemo.collections.asr.metrics.wer import word_error_rate_detail
+from nemo_text_processing.text_normalization import Normalizer
+
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.tasks import AudioBatch
-from nemo_text_processing.text_normalization import Normalizer
 
 
 @dataclass
@@ -38,7 +39,7 @@ class ComputeWERStage(LegacySpeechStage):
         num_words_threshold: Number of words to use for normalization. Defaults to 200.
         num_words_look_back: Number of words to look back for normalization. Defaults to 5.
         compute_pnc_wer: Whether to compute PNC WER/CER. Defaults to False.
-        pnc_chars: Punctuation characters to use for normalization. Defaults to "،؟.、？¿!,?।".
+        pnc_chars: Punctuation characters to use for normalization. Defaults to special punctuation string.
         edge_length: Length of the edge to compute CER. Defaults to 12.
 
     Returns:
@@ -51,7 +52,7 @@ class ComputeWERStage(LegacySpeechStage):
     num_words_threshold: int = 200
     num_words_look_back: int = 5
     compute_pnc_wer: bool = False
-    pnc_chars: str = "،؟.、？¿!,?।"
+    pnc_chars: str = "،؟.、？¿!,?।"  # noqa: RUF001
     edge_length: int = 12
 
     # Stage metadata
@@ -60,25 +61,17 @@ class ComputeWERStage(LegacySpeechStage):
     # Internal state
     _normalizer: Any = field(default=None, repr=False)
 
-    def setup(self, worker_metadata=None):
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Setup stage."""
         self._normalizer = Normalizer(input_case="cased", lang=self.language.lower())
 
     def normalize_text(self, text: str) -> str:
         """Normalize text using NeMo text processing (numbers to words, etc)."""
-        text = (
-            text.replace("<unk>", "")
-            .replace("|", "")
-            .replace("⁇", "")
-            .replace("<", "")
-            .replace(">", "")
-        )
+        text = text.replace("<unk>", "").replace("|", "").replace("⁇", "").replace("<", "").replace(">", "")
         text = re.sub(r"\s+", " ", text)
         words = text.split()
         if len(words) <= self.num_words_threshold:
-            normalized_text = self._normalizer.normalize(
-                text, verbose=False, punct_post_process=False
-            )
+            normalized_text = self._normalizer.normalize(text, verbose=False, punct_post_process=False)
         else:
             final = ""
             shorter_strings = []
@@ -86,28 +79,20 @@ class ComputeWERStage(LegacySpeechStage):
             i = 0
 
             for i in range(int(len(words) / self.num_words_threshold) - 1):
-                if any(
-                    c.isdigit()
-                    for c in words[
-                        i * self.num_words_threshold + self.num_words_threshold
-                    ]
-                ):
+                if any(c.isdigit() for c in words[i * self.num_words_threshold + self.num_words_threshold]):
                     shorter_strings.append(
                         " ".join(
                             prev_string
                             + words[
-                                i
-                                * self.num_words_threshold : i
-                                * self.num_words_threshold
+                                i * self.num_words_threshold : i * self.num_words_threshold
                                 + self.num_words_threshold
                                 - self.num_words_look_back
                             ]
                         )
                     )
                     prev_string = words[
-                        i * self.num_words_threshold
-                        + self.num_words_threshold
-                        - self.num_words_look_back : i * self.num_words_threshold
+                        i * self.num_words_threshold + self.num_words_threshold - self.num_words_look_back : i
+                        * self.num_words_threshold
                         + self.num_words_threshold
                     ]
                 else:
@@ -115,27 +100,16 @@ class ComputeWERStage(LegacySpeechStage):
                         " ".join(
                             prev_string
                             + words[
-                                i
-                                * self.num_words_threshold : i
-                                * self.num_words_threshold
-                                + self.num_words_threshold
+                                i * self.num_words_threshold : i * self.num_words_threshold + self.num_words_threshold
                             ]
                         )
                     )
                     prev_string = []
 
-            shorter_strings.append(
-                " ".join(prev_string + words[i * self.num_words_threshold :])
-            )
+            shorter_strings.append(" ".join(prev_string + words[i * self.num_words_threshold :]))
 
             for i in shorter_strings:
-                final = (
-                    final
-                    + self._normalizer.normalize(
-                        i, verbose=False, punct_post_process=False
-                    )
-                    + " "
-                )
+                final = final + self._normalizer.normalize(i, verbose=False, punct_post_process=False) + " "
 
             normalized_text = final.strip()
 
@@ -143,10 +117,9 @@ class ComputeWERStage(LegacySpeechStage):
 
     def strip_spaces_before_punctuations(self, text: str) -> str:
         """Strip spaces before punctuation characters."""
-        result = re.sub(f"(\\w)\\s+([{self.pnc_chars}])", r"\1\2", text)
-        return result
+        return re.sub(f"(\\w)\\s+([{self.pnc_chars}])", r"\1\2", text)
 
-    def normalize_and_clean_text(self, text: str) -> Tuple[str, str]:
+    def normalize_and_clean_text(self, text: str) -> tuple[str, str]:
         """Normalize and clean text. Returns (cleaned_with_punct, cleaned_without_punct)."""
         normalized_text = self.normalize_text(text)
         cleaned_text_with_punct = self.clean_text(normalized_text, retain_pncs=True)
@@ -155,16 +128,16 @@ class ComputeWERStage(LegacySpeechStage):
 
     def clean_text(self, text: str, retain_pncs: bool = True) -> str:
         """Clean text by removing invalid characters."""
-        invalid_chars = '/*":=_-{|}~¨«·»¡¿…‧‹›≪≫!:;ː→'
+        invalid_chars = '/*":=_-{|}~¨«·»¡¿…‧‹›≪≫!:;ː→'  # noqa: RUF001
         if retain_pncs:
-            replace_with_space = [char for char in invalid_chars]
-            replace_with_blank = [char for char in '`¨´‘“”`ʻ‘“"‘”']
+            replace_with_space = list(invalid_chars)
+            replace_with_blank = list('`¨´‘“”`ʻ‘“"‘”')  # noqa: RUF001
         else:
-            replace_with_space = [char for char in invalid_chars + self.pnc_chars]
-            replace_with_blank = [char for char in '`¨´‘’“”`ʻ‘’“-"‘”']
+            replace_with_space = list(invalid_chars + self.pnc_chars)
+            replace_with_blank = list('`¨´‘’“”`ʻ‘’“-"‘”')  # noqa: RUF001
             text = text.lower()
 
-        replace_with_apos = [char for char in "‘’ʻ‘’‘’’"]
+        replace_with_apos = list("‘’ʻ‘’‘’’")  # noqa: RUF001
         text = text.strip()
 
         for i in replace_with_blank:
@@ -197,27 +170,16 @@ class ComputeWERStage(LegacySpeechStage):
         for segment in data_entry["segments"]:
             duration = segment["end"] - segment["start"]
 
-            if (
-                self.hypothesis_text_key not in segment
-                or self.reference_text_key not in segment
-            ):
+            if self.hypothesis_text_key not in segment or self.reference_text_key not in segment:
                 continue
 
             metrics = segment.get("metrics", {})
 
-            hypothesis_pnc, hypothesis_clean = self.normalize_and_clean_text(
-                segment[self.hypothesis_text_key]
-            )
-            reference_pnc, reference_clean = self.normalize_and_clean_text(
-                segment[self.reference_text_key]
-            )
+            hypothesis_pnc, hypothesis_clean = self.normalize_and_clean_text(segment[self.hypothesis_text_key])
+            reference_pnc, reference_clean = self.normalize_and_clean_text(segment[self.reference_text_key])
 
-            metrics["char_rate"] = self.get_char_rate(
-                segment[self.hypothesis_text_key], duration
-            )
-            metrics["word_rate"] = self.get_word_rate(
-                segment[self.hypothesis_text_key], duration
-            )
+            metrics["char_rate"] = self.get_char_rate(segment[self.hypothesis_text_key], duration)
+            metrics["word_rate"] = self.get_word_rate(segment[self.hypothesis_text_key], duration)
 
             wer_val, tokens, ins_rate, del_rate, sub_rate = word_error_rate_detail(
                 hypotheses=[hypothesis_clean],
@@ -245,7 +207,7 @@ class ComputeWERStage(LegacySpeechStage):
                 "sub_rate": round(sub_rate, 4),
             }
 
-            (start_cer, tokens, ins_rate, del_rate, sub_rate,) = word_error_rate_detail(
+            (start_cer, tokens, ins_rate, del_rate, sub_rate) = word_error_rate_detail(
                 hypotheses=[hypothesis_clean[: self.edge_length]],
                 references=[reference_clean[: self.edge_length]],
                 use_cer=True,

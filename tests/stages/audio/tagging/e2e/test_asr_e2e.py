@@ -26,6 +26,7 @@ ASR pipeline differs from TTS in PrepareModuleSegmentsStage:
 """
 
 import os
+from pathlib import Path
 
 from omegaconf import OmegaConf
 
@@ -36,7 +37,7 @@ from .conftest import CONFIGS_DIR, REFERENCE_DIR
 from .utils import check_output
 
 
-def test_asr_e2e(tmp_path, get_input_manifest):
+def test_asr_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     """ASR tagging pipeline e2e: Resample + Diarize + Split + ASR Align + Join + Merge + ITN + BW + SQUIM + Segments."""
     config_path = CONFIGS_DIR / "asr_pipeline.yaml"
     reference_manifest = str(REFERENCE_DIR / "asr" / "test_data_reference.jsonl")

@@ -23,36 +23,24 @@ every stage of the tagging pipeline for regression tracking.
 """
 
 import argparse
-import os
-from dataclasses import dataclass
+import time
 from pathlib import Path
 from typing import Any
-import time
-from loguru import logger
-from utils import write_benchmark_results, setup_executor
 
-from nemo_curator.backends.xenna import XennaExecutor
+from loguru import logger
+from utils import RepeatEntriesStage, setup_executor, write_benchmark_results
+
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import (
-    CreateInitialManifestFleursStage,
-)
-from nemo_curator.stages.audio.common import ManifestWriterStage
+from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
 from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
+from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
 from nemo_curator.stages.audio.tagging.metrics.bandwidth import BandwidthEstimationStage
 from nemo_curator.stages.audio.tagging.metrics.squim import TorchSquimQualityMetricsStage
+from nemo_curator.stages.audio.tagging.prepare_module_segments import PrepareModuleSegmentsStage
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
 from nemo_curator.stages.audio.tagging.split import JoinSplitAudioMetadataStage, SplitLongAudioStage
-from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
-from nemo_curator.stages.audio.tagging.prepare_module_segments import PrepareModuleSegmentsStage
-from nemo_curator.stages.audio.tagging.text.itn import InverseTextNormalizationStage
-from nemo_curator.stages.audio.common import ManifestReader
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioBatch
-from utils import RepeatEntriesStage
-
-
 
 
 def run_audio_tagging_benchmark(  # noqa: PLR0913
@@ -60,11 +48,8 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     input_manifest: str,
     repeat_factor: int,
     module: str,
-    lang: str,
-    split: str,
     hf_token: str,
     device: str,
-    language_short: str,
     max_segment_length: float,
     asr_batch_size: int,
     min_duration: float,
@@ -83,11 +68,13 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     final_manifest = str(results_dir / "tagging_output.jsonl")
 
     logger.info("Starting audio tagging pipeline benchmark")
-    logger.info(f"Module: {module}, Language: {lang}, Split: {split}")
+    logger.info(f"Module: {module}")
     logger.info(f"Device: {device}, CPUs: {cpus}")
     logger.info(f"Max segment length: {max_segment_length}s")
-    logger.info(f"Segment params: duration={min_duration}-{max_duration}s, "
-                f"max_pause={max_pause}s, full_utterance_ratio={full_utterance_ratio}")
+    logger.info(
+        f"Segment params: duration={min_duration}-{max_duration}s, "
+        f"max_pause={max_pause}s, full_utterance_ratio={full_utterance_ratio}"
+    )
 
     exc = setup_executor(executor, config={"execution_mode": "batch"})
     run_start_time = time.perf_counter()
@@ -101,15 +88,6 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     if repeat_factor > 1:
         pipeline.add_stage(RepeatEntriesStage(repeat_factor=repeat_factor))
         logger.info(f"Repeat factor: {repeat_factor}x (entries multiplied after reading from manifest)")
-
-    # # Download FLEURS data and create initial manifest
-    # pipeline.add_stage(
-    #     CreateInitialManifestFleursStage(
-    #         lang=lang,
-    #         split=split,
-    #         raw_data_dir=scratch_output_path / "fleurs",
-    #     ).with_(batch_size=4, resources=Resources(cpus=cpus))
-    # )
 
     # Resample audio to 16 kHz mono WAV
     pipeline.add_stage(
@@ -154,9 +132,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     )
 
     # Rejoin split audio metadata
-    pipeline.add_stage(
-        JoinSplitAudioMetadataStage(name="JoinSplitMetadata").with_(resources=Resources(cpus=cpus))
-    )
+    pipeline.add_stage(JoinSplitAudioMetadataStage(name="JoinSplitMetadata").with_(resources=Resources(cpus=cpus)))
 
     # Merge alignment with diarization
     pipeline.add_stage(
@@ -168,9 +144,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     )
 
     # Bandwidth estimation
-    pipeline.add_stage(
-        BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=cpus))
-    )
+    pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=cpus)))
 
     # Audio quality metrics (TorchSQUIM)
     pipeline.add_stage(
@@ -195,15 +169,13 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     )
 
     # Stage 11: Write output manifest
-    pipeline.add_stage(
-        ManifestWriterStage(output_path=final_manifest).with_(resources=Resources(cpus=cpus))
-    )
+    pipeline.add_stage(ManifestWriterStage(output_path=final_manifest).with_(resources=Resources(cpus=cpus)))
 
     results = pipeline.run(exc)
 
     run_time_taken = time.perf_counter() - run_start_time
 
-    logger.success(f"Audio tagging benchmark completed successfully!!")
+    logger.success("Audio tagging benchmark completed successfully!!")
     logger.success(f"Processed {len(results)} tasks")
     logger.success(f"Throughput: {len(results) / run_time_taken:.2f} tasks per second")
     logger.success(f"Total duration: {run_time_taken / 60:.2f} minutes")
@@ -220,36 +192,31 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Audio tagging pipeline e2e benchmark (FLEURS -> full tagging pipeline)"
     )
-    parser.add_argument("--input-manifest", required=True,
-                        help="Path to input manifest")
-    parser.add_argument("--repeat-factor", type=int, default=1,
-                        help="Repeat factor for the input manifest entries")
-    parser.add_argument("--benchmark-results-path", required=True,
-                        help="Path to write benchmark results")
-    parser.add_argument("--module", default="tts", choices=["tts", "asr"],
-                        help="Target module for PrepareModuleSegments")
-    parser.add_argument("--lang", default="hy_am", help="FLEURS language code")
-    parser.add_argument("--split", default="dev", help="FLEURS dataset split")
+    parser.add_argument("--input-manifest", required=True, help="Path to input manifest")
+    parser.add_argument("--repeat-factor", type=int, default=1, help="Repeat factor for the input manifest entries")
+    parser.add_argument("--benchmark-results-path", required=True, help="Path to write benchmark results")
+    parser.add_argument(
+        "--module", default="tts", choices=["tts", "asr"], help="Target module for PrepareModuleSegments"
+    )
     parser.add_argument("--hf-token", default="", help="HuggingFace token for PyAnnote")
-    parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"],
-                        help="Compute device for GPU stages")
-    parser.add_argument("--language-short", default="en",
-                        help="2-letter language code for ITN")
-    parser.add_argument("--max-segment-length", type=float, default=40.0,
-                        help="Maximum segment duration (seconds) to infer ASR")
-    parser.add_argument("--asr-batch-size", type=int, default=32,
-                        help="Batch size for ASR alignment")
-    parser.add_argument("--min-duration", type=float, default=5.0,
-                        help="Minimum output segment duration (seconds)")
-    parser.add_argument("--max-duration", type=float, default=20.0,
-                        help="Maximum output segment duration (seconds)")
-    parser.add_argument("--max-pause", type=float, default=2.0,
-                        help="Maximum pause between words in a segment (seconds)")
-    parser.add_argument("--full-utterance-ratio", type=float, default=1.0,
-                        help="Fraction of segments requiring terminal punctuation (0.0-1.0)")
+    parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"], help="Compute device for GPU stages")
+    parser.add_argument(
+        "--max-segment-length", type=float, default=40.0, help="Maximum segment duration (seconds) to infer ASR"
+    )
+    parser.add_argument("--asr-batch-size", type=int, default=32, help="Batch size for ASR alignment")
+    parser.add_argument("--min-duration", type=float, default=5.0, help="Minimum output segment duration (seconds)")
+    parser.add_argument("--max-duration", type=float, default=20.0, help="Maximum output segment duration (seconds)")
+    parser.add_argument(
+        "--max-pause", type=float, default=2.0, help="Maximum pause between words in a segment (seconds)"
+    )
+    parser.add_argument(
+        "--full-utterance-ratio",
+        type=float,
+        default=1.0,
+        help="Fraction of segments requiring terminal punctuation (0.0-1.0)",
+    )
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data", "ray_actors"], help="Executor")
-    parser.add_argument("--cpus", type=int, default=10,
-                        help="Number of CPUs to use for the pipeline")
+    parser.add_argument("--cpus", type=int, default=10, help="Number of CPUs to use for the pipeline")
 
     args = parser.parse_args()
 

@@ -13,10 +13,13 @@
 # limitations under the License.
 
 
+from collections.abc import Callable
+
 from nemo_curator.stages.audio.tagging.split import (
     JoinSplitAudioMetadataStage,
     SplitLongAudioStage,
 )
+from nemo_curator.tasks import AudioBatch
 
 
 class TestSplitLongAudioStageGetSplitPoints:
@@ -47,7 +50,8 @@ class TestSplitLongAudioStageGetSplitPoints:
         }
         splits = stage.get_split_points(metadata)
         assert len(splits) == 2
-        assert 40.0 in splits and 60.0 in splits
+        assert 40.0 in splits
+        assert 60.0 in splits
 
     def test_empty_segments_returns_empty_splits(self) -> None:
         """Empty segments list returns no split points."""
@@ -60,7 +64,7 @@ class TestSplitLongAudioStageGetSplitPoints:
 class TestSplitLongAudioStageProcessDatasetEntry:
     """Tests for SplitLongAudioStage.process_dataset_entry (no actual audio I/O)."""
 
-    def test_short_audio_passthrough(self, audio_batch) -> None:
+    def test_short_audio_passthrough(self, audio_batch: Callable[..., AudioBatch]) -> None:
         """When duration < suggested_max_len, entry returned with split_filepaths None."""
         stage = SplitLongAudioStage(suggested_max_len=3600.0)
         batch = audio_batch(
@@ -77,7 +81,7 @@ class TestSplitLongAudioStageProcessDatasetEntry:
 class TestJoinSplitAudioMetadataStage:
     """Tests for JoinSplitAudioMetadataStage."""
 
-    def test_no_split_passthrough(self, audio_batch) -> None:
+    def test_no_split_passthrough(self, audio_batch: Callable[..., AudioBatch]) -> None:
         """Entry with split_filepaths=None (no split occurred) returns entry without key."""
         stage = JoinSplitAudioMetadataStage()
         batch = audio_batch(
@@ -92,7 +96,7 @@ class TestJoinSplitAudioMetadataStage:
         assert out["text"] == "hello"
 
     def test_join_split_metadata_concatenates_text_and_alignments(
-        self, audio_batch
+        self, audio_batch: Callable[..., AudioBatch]
     ) -> None:
         """Meta-entry with split_metadata joins text and adjusts alignment timestamps."""
         stage = JoinSplitAudioMetadataStage()
@@ -125,13 +129,9 @@ class TestJoinSplitAudioMetadataStage:
         assert "split_metadata" not in out
         align = out["alignment"]
         assert len(align) == 4
-        assert (
-            align[0]["word"] == "first"
-            and align[0]["start"] == 0.0
-            and align[0]["end"] == 0.5
-        )
-        assert (
-            align[2]["word"] == "second"
-            and align[2]["start"] == 5.0
-            and align[2]["end"] == 5.5
-        )
+        assert align[0]["word"] == "first"
+        assert align[0]["start"] == 0.0
+        assert align[0]["end"] == 0.5
+        assert align[2]["word"] == "second"
+        assert align[2]["start"] == 5.0
+        assert align[2]["end"] == 5.5

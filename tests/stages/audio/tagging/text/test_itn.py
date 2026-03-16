@@ -12,14 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
 
 from nemo_curator.stages.audio.tagging.text.itn import InverseTextNormalizationStage
+from nemo_curator.tasks import AudioBatch
 
 
 class TestInverseTextNormalizationStage:
     """Tests for InverseTextNormalizationStage."""
 
-    def test_process_dataset_entry(self, audio_batch) -> None:
+    def test_process_dataset_entry(self, audio_batch: Callable[..., AudioBatch]) -> None:
         stage = InverseTextNormalizationStage(language="en", text_key="text")
         stage.setup()
         batch = audio_batch(
