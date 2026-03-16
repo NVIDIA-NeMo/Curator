@@ -372,6 +372,70 @@ directly.
 Total in-flight = `num_workers x batch_size`.  For 4 GPUs with
 `batch_size=16`, that is 64 audio files being processed concurrently.
 
+## How `batch_size` travels from your stage to the backend
+
+When you set `batch_size = 16` on a GPU stage, this is the exact path
+the value takes until it controls how many tasks land in your
+`_process_validated` call:
+
+```
+InferenceAsrNemoStage                     (your stage dataclass)
+    batch_size: int = 16                  ← defined as a dataclass field
+        │
+        │  ProcessingStage (base class)
+        │    stages/base.py:87            batch_size = 1  (default)
+        │    stages/base.py:101-103       @property _batch_size → self.batch_size
+        │    stages/base.py:262-281       with_(batch_size=N) → deepcopy + override
+        │
+        ▼
+┌─── Xenna path ──────────────────────────────────────────────────────────┐
+│                                                                         │
+│  XennaStageAdapter wraps your stage                                     │
+│    backends/xenna/adapter.py:50-53      @property stage_batch_size      │
+│      → self.processing_stage.batch_size  → 16                           │
+│                                                                         │
+│  Cosmos-Xenna runtime reads adapter.stage_batch_size                    │
+│    → groups incoming tasks into batches of 16                           │
+│    → calls adapter.process_data(batch_of_16)                            │
+│      backends/xenna/adapter.py:61-69                                    │
+│      → BaseStageAdapter.process_batch(batch_of_16)                      │
+│        backends/base.py:88             stage.process_batch(batch_of_16) │
+│          → AudioEntryStage.process_batch  → validate → _process_validated│
+│            → your code receives exactly 16 tasks (or fewer for last)    │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─── Ray ActorPool path ──────────────────────────────────────────────────┐
+│                                                                         │
+│  RayActorPoolStageAdapter.__init__(stage)                               │
+│    backends/experimental/ray_actor_pool/adapter.py:42                   │
+│      self._batch_size = self.stage.batch_size  → 16                     │
+│    adapter.py:47-49  get_batch_size() → self._batch_size                │
+│                                                                         │
+│  Executor reads batch_size from an actor:                               │
+│    executor.py:289  stage_batch_size = ray.get(                         │
+│                       actor.get_batch_size.remote())  → 16              │
+│                                                                         │
+│  Executor creates batches:                                              │
+│    executor.py:300  task_batches = _generate_task_batches(              │
+│                       tasks, batch_size=16)                              │
+│      executor.py:274  [tasks[i:i+16] for i in range(0, N, 16)]         │
+│                                                                         │
+│  Executor dispatches via ActorPool:                                     │
+│    executor.py:313-321  actor_pool.map_unordered(                       │
+│                           actor.process_batch.remote, task_batches)      │
+│    → BaseStageAdapter.process_batch(batch_of_16)                        │
+│      → AudioEntryStage.process_batch  → validate → _process_validated   │
+│        → your code receives exactly 16 tasks (or fewer for last)        │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+Key takeaways:
+- `batch_size` is a plain dataclass field on `ProcessingStage` (default `1`).
+- Subclasses override it as a field (e.g. `batch_size: int = 16`).
+- Pipeline authors can further override via `.with_(batch_size=32)` or Hydra YAML.
+- The backend adapter reads `stage.batch_size` and groups tasks *before*
+  calling `process_batch`.  Your stage never has to split or batch tasks itself.
+
 ## Exact call chains with file and line numbers
 
 Every line reference below is relative to the repo root
