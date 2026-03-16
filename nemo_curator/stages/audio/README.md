@@ -120,6 +120,73 @@ Key differences from a CPU stage:
 | `batch_size` | Default `1` | Set to match GPU throughput (e.g. `16`, `32`) |
 | `resources` | Default `cpus=1.0` | Set `gpus=1.0` (or fractional) |
 
+### Setting `batch_size` for GPU inference
+
+The `batch_size` field on a GPU stage controls how many `AudioEntry` tasks
+the backend groups into a single `process_batch()` call.  This directly
+determines how many files are passed to your model in one batched GPU
+inference call inside `_process_validated`.
+
+**Defining batch_size in the stage class:**
+
+```python
+@dataclass
+class InferenceAsrNemoStage(AudioEntryStage):
+    batch_size: int = 16      # default for this stage
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+```
+
+The default is a sensible starting point; pipeline authors can override it
+at pipeline construction time without modifying the stage class:
+
+**Overriding batch_size at pipeline construction:**
+
+```python
+pipeline.add_stage(
+    InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
+    .with_(resources=Resources(gpus=1), batch_size=32)
+)
+```
+
+The `.with_()` method sets any stage field.  Here it bumps `batch_size`
+from the default `16` to `32` and assigns 1 GPU.
+
+**Overriding batch_size via Hydra YAML:**
+
+```yaml
+pipeline:
+  stages:
+    - _target_: nemo_curator.stages.audio.inference.asr_nemo.InferenceAsrNemoStage
+      model_name: nvidia/parakeet-tdt-0.6b-v2
+      batch_size: 32
+```
+
+For Hydra to accept `batch_size` from YAML, it must be a dataclass field
+on the stage (which it already is).
+
+**How batch_size flows through the backend:**
+
+```
+Backend reads stage.batch_size
+    → groups N tasks into batches of batch_size
+    → sends each batch to a worker
+    → worker calls AudioEntryStage.process_batch(tasks)
+        → validates all tasks
+        → calls _process_validated(tasks)   ← your override
+            → you receive exactly batch_size tasks
+              (or fewer for the last batch)
+```
+
+**Choosing a good batch_size:**
+
+- **Too small** (e.g. `1`) — GPU is underutilised; kernel launch overhead
+  dominates.  Each call processes one file, losing the benefit of batching.
+- **Too large** (e.g. `1024`) — may exceed GPU memory (OOM), especially
+  with long audio files or large models.
+- **Sweet spot** — depends on model size, audio length, and GPU VRAM.
+  Start with `16` and increase until you see OOM or throughput plateaus.
+  For NeMo ASR FastConformer models, `16–64` is typical on a single GPU.
+
 ## What you must always declare
 
 Every stage (CPU or GPU) should declare:
