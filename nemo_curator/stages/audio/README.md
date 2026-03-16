@@ -371,3 +371,206 @@ directly.
 
 Total in-flight = `num_workers x batch_size`.  For 4 GPUs with
 `batch_size=16`, that is 64 audio files being processed concurrently.
+
+## Exact call chains with file and line numbers
+
+Every line reference below is relative to the repo root
+(`nemo_curator/` prefix).  The two chains differ only in the
+stage-level override; everything above and below is shared.
+
+### CPU stage (e.g. `GetAudioDurationStage`, `batch_size=1`)
+
+**Xenna backend:**
+
+```
+pipeline.run(executor)
+│   nemo_curator/pipeline/pipeline.py:215          executor.execute(self.stages, initial_tasks)
+│
+├─ XennaExecutor.execute()
+│   backends/xenna/executor.py:62                  wraps each stage in XennaStageAdapter
+│   backends/xenna/executor.py:83                  create_named_xenna_stage_adapter(stage)
+│   backends/xenna/executor.py:88-100              builds pipelines_v1.StageSpec with:
+│                                                    - required_resources from adapter :41-47
+│                                                    - stage_batch_size from adapter   :50-53
+│   backends/xenna/executor.py:150                 pipelines_v1.run_pipeline(pipeline_spec)
+│
+│   ── Xenna scheduler creates N Ray Actor workers (N = available_cpus / stage.resources.cpus) ──
+│
+├─ Per worker — one-time setup:
+│   backends/xenna/adapter.py:71-85                XennaStageAdapter.setup_on_node()
+│     → backends/base.py:110                         stage.setup_on_node(node_info, worker_metadata)
+│   backends/xenna/adapter.py:87-100               XennaStageAdapter.setup()
+│     → backends/base.py:118                         stage.setup(worker_metadata)
+│       → stages/audio/common.py:130-133               GetAudioDurationStage.setup() imports soundfile
+│
+├─ Per batch (batch_size=1, so 1 AudioEntry per call):
+│   backends/xenna/adapter.py:61-69                XennaStageAdapter.process_data(tasks)
+│     → backends/base.py:68-99                       BaseStageAdapter.process_batch(tasks)
+│         ├─ :82-84                                    start perf timer
+│         ├─ :88                                       stage.process_batch(tasks)          ──────────┐
+│         ├─ :91-97                                    log stats, attach _stage_perf       │
+│         └─ :99                                       return results                     │
+│                                                                                         │
+│   ┌─────────────────────────────────────────────────────────────────────────────────────┘
+│   │  AudioEntryStage.process_batch()
+│   │    stages/audio/common.py:82                 if not tasks: return []
+│   │    stages/audio/common.py:85-88              for task in tasks:
+│   │      stages/base.py:130-157                    validate_input(task) — checks inputs() columns
+│   │                                                  via hasattr(task.data, attr) on _AttrDict
+│   │    stages/audio/common.py:89                 return self._process_validated(tasks)
+│   │
+│   │  AudioEntryStage._process_validated()        (default, NOT overridden)
+│   │    stages/audio/common.py:91-108
+│   │    :94                                       for task in tasks:
+│   │    :95                                         result = self.process_dataset_entry(task.data)
+│   │                                                  │
+│   │    ┌─────────────────────────────────────────────┘
+│   │    │  GetAudioDurationStage.process_dataset_entry(data)
+│   │    │    stages/audio/common.py:141-149
+│   │    │    :142                                   audio_filepath = data[self.audio_filepath_key]
+│   │    │    :144                                   raw, samplerate = soundfile.read(audio_filepath)
+│   │    │    :145                                   data[self.duration_key] = raw.shape[0] / samplerate
+│   │    │    :149                                   return data
+│   │    │
+│   │    :96-97                                    if result is None: continue  (filtering)
+│   │    :98-107                                   AudioEntry(data=result, ...) with propagated
+│   │                                                _stage_perf, _metadata, task_id, filepath_key
+│   └─ return results
+```
+
+**Ray ActorPool backend:**
+
+```
+pipeline.run(executor)
+│   nemo_curator/pipeline/pipeline.py:215          executor.execute(self.stages, initial_tasks)
+│
+├─ RayActorPoolExecutor.execute()
+│   backends/experimental/ray_actor_pool/executor.py:100   ray.init()
+│   backends/experimental/ray_actor_pool/executor.py:103   execute_setup_on_node(stages)
+│                                                            → stage.setup_on_node() on each node
+│   backends/experimental/ray_actor_pool/executor.py:122   calculate_optimal_actors_for_stage()
+│     → backends/experimental/ray_actor_pool/utils.py:34-77
+│       :43                                        get available CPUs/GPUs across cluster
+│       :49                                        max_actors_cpu = available_cpus // stage.resources.cpus
+│       :52                                        max_actors_gpu = available_gpus // stage.resources.gpus
+│       :55                                        max_actors = min(cpu_limit, gpu_limit)
+│       :68                                        optimal = min(num_batches, max_actors)
+│
+│   backends/experimental/ray_actor_pool/executor.py:141   _create_actor_pool(stage, num_actors)
+│     → executor.py:168-183
+│       :172-179                                   for each actor: ray.remote(Adapter)
+│                                                    .options(num_cpus=..., num_gpus=...)
+│                                                    .remote(stage)
+│         → backends/experimental/ray_actor_pool/adapter.py:29-45
+│           RayActorPoolStageAdapter.__init__(stage)
+│           :40                                      stage.setup(worker_metadata)
+│             → stages/audio/common.py:130-133         GetAudioDurationStage.setup()
+│           :42                                      self._batch_size = stage.batch_size  (= 1)
+│
+├─ Task dispatch:
+│   backends/experimental/ray_actor_pool/executor.py:289   get batch_size from actor
+│   executor.py:300                                task_batches = generate_batches(tasks, batch_size=1)
+│   executor.py:313-321                            actor_pool.map_unordered(
+│                                                    lambda actor, batch: actor.process_batch.remote(batch),
+│                                                    task_batches)
+│
+│   ── same per-batch chain as Xenna from BaseStageAdapter.process_batch onwards ──
+│     → backends/base.py:88                          stage.process_batch(tasks)
+│       → stages/audio/common.py:82-89                AudioEntryStage.process_batch → validate → _process_validated
+│         → stages/audio/common.py:91-108               default loop → process_dataset_entry
+│           → stages/audio/common.py:141-149              GetAudioDurationStage.process_dataset_entry(data)
+```
+
+---
+
+### GPU stage (e.g. `InferenceAsrNemoStage`, `batch_size=16`)
+
+**Xenna backend:**
+
+```
+pipeline.run(executor)
+│   nemo_curator/pipeline/pipeline.py:215          executor.execute(self.stages, initial_tasks)
+│
+├─ XennaExecutor.execute()
+│   backends/xenna/executor.py:62                  same wrapping as CPU
+│   backends/xenna/executor.py:88-100              StageSpec with:
+│                                                    - required_resources: gpus=1.0
+│                                                    - stage_batch_size: 16
+│
+│   ── Xenna creates N workers (N = available_gpus / stage.resources.gpus) ──
+│
+├─ Per worker — one-time setup:
+│   backends/xenna/adapter.py:71-85                XennaStageAdapter.setup_on_node()
+│     → stages/audio/inference/asr_nemo.py           (inherits default — no override)
+│   backends/xenna/adapter.py:87-100               XennaStageAdapter.setup()
+│     → backends/base.py:118                         stage.setup(worker_metadata)
+│       → stages/audio/inference/asr_nemo.py:60-69     InferenceAsrNemoStage.setup()
+│         :63                                          map_location = self.check_cuda()  → "cuda"
+│         :64-66                                       self.asr_model = ASRModel.from_pretrained(
+│                                                        model_name, map_location=cuda)
+│
+├─ Per batch (batch_size=16, so 16 AudioEntry tasks per call):
+│   backends/xenna/adapter.py:61-69                XennaStageAdapter.process_data(tasks)
+│     → backends/base.py:68-99                       BaseStageAdapter.process_batch(tasks)
+│         ├─ :82-84                                    start perf timer
+│         ├─ :88                                       stage.process_batch(tasks)          ──────────┐
+│         ├─ :91-97                                    log stats, attach _stage_perf       │
+│         └─ :99                                       return results                     │
+│                                                                                         │
+│   ┌─────────────────────────────────────────────────────────────────────────────────────┘
+│   │  AudioEntryStage.process_batch()
+│   │    stages/audio/common.py:82                 if not tasks: return []
+│   │    stages/audio/common.py:85-88              for task in tasks:       (validates all 16)
+│   │      stages/base.py:130-157                    validate_input(task) — checks [filepath_key]
+│   │    stages/audio/common.py:89                 return self._process_validated(tasks)
+│   │
+│   │  InferenceAsrNemoStage._process_validated()  (OVERRIDDEN — batched GPU)
+│   │    stages/audio/inference/asr_nemo.py:90-107
+│   │    :92                                       files = [t.data[self.filepath_key] for t in tasks]
+│   │                                                → list of 16 audio file paths
+│   │    :93                                       texts = self.transcribe(files)
+│   │      → stages/audio/inference/asr_nemo.py:77-88
+│   │        :78                                     self.asr_model.transcribe(files)
+│   │                                                  → ONE batched GPU kernel call for all 16 files
+│   │        :88                                     return [output.text for output in outputs]
+│   │    :94-106                                   for task, text in zip(tasks, texts):
+│   │                                                AudioEntry(data={**task.data, pred_text_key: text},
+│   │                                                  task_id, dataset_name, filepath_key,
+│   │                                                  _stage_perf, _metadata)
+│   └─ return results                              → 16 AudioEntry results
+```
+
+**Ray ActorPool backend:**
+
+```
+pipeline.run(executor)
+│   nemo_curator/pipeline/pipeline.py:215          executor.execute(self.stages, initial_tasks)
+│
+├─ RayActorPoolExecutor.execute()
+│   backends/experimental/ray_actor_pool/executor.py:103   execute_setup_on_node(stages)
+│   backends/experimental/ray_actor_pool/executor.py:122   calculate_optimal_actors_for_stage()
+│     → utils.py:52                                max_actors_gpu = available_gpus // 1.0
+│       e.g. 4 GPUs → 4 actors
+│
+│   backends/experimental/ray_actor_pool/executor.py:141   _create_actor_pool(stage, 4)
+│     → executor.py:172-179                        4 actors, each .options(num_gpus=1.0)
+│       → adapter.py:29-45                         each actor __init__:
+│         :40                                        stage.setup(worker_metadata)
+│           → asr_nemo.py:60-69                        loads ASR model onto assigned GPU
+│
+├─ Task dispatch:
+│   executor.py:289                                batch_size = 16
+│   executor.py:300                                task_batches = generate_batches(tasks, batch_size=16)
+│                                                    e.g. 391 tasks → 25 batches
+│   executor.py:313-321                            actor_pool.map_unordered(
+│                                                    actor.process_batch.remote, batches)
+│                                                    → 25 batches distributed across 4 actors
+│
+│   ── same per-batch chain as Xenna from BaseStageAdapter.process_batch onwards ──
+│     → backends/base.py:88                          stage.process_batch(tasks)
+│       → stages/audio/common.py:82-89                AudioEntryStage.process_batch → validate 16
+│         → stages/audio/inference/asr_nemo.py:90-107   _process_validated(16 tasks)
+│           :92                                           extract 16 filepaths
+│           :93                                           self.transcribe(16 files) → 1 GPU call
+│           :94-106                                       build 16 AudioEntry results
+```
