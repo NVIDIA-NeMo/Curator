@@ -76,40 +76,26 @@ class ComputeWERStage(LegacySpeechStage):
             final = ""
             shorter_strings = []
             prev_string = []
-            i = 0
+            remainder_start = 0
+            t = self.num_words_threshold
 
-            for i in range(int(len(words) / self.num_words_threshold) - 1):
-                if any(c.isdigit() for c in words[i * self.num_words_threshold + self.num_words_threshold]):
+            for i in range(int(len(words) / t) - 1):
+                chunk_start = i * t
+                chunk_end = chunk_start + t
+                if any(c.isdigit() for c in words[chunk_end]):
                     shorter_strings.append(
-                        " ".join(
-                            prev_string
-                            + words[
-                                i * self.num_words_threshold : i * self.num_words_threshold
-                                + self.num_words_threshold
-                                - self.num_words_look_back
-                            ]
-                        )
+                        " ".join(prev_string + words[chunk_start : chunk_end - self.num_words_look_back])
                     )
-                    prev_string = words[
-                        i * self.num_words_threshold + self.num_words_threshold - self.num_words_look_back : i
-                        * self.num_words_threshold
-                        + self.num_words_threshold
-                    ]
+                    prev_string = words[chunk_end - self.num_words_look_back : chunk_end]
                 else:
-                    shorter_strings.append(
-                        " ".join(
-                            prev_string
-                            + words[
-                                i * self.num_words_threshold : i * self.num_words_threshold + self.num_words_threshold
-                            ]
-                        )
-                    )
+                    shorter_strings.append(" ".join(prev_string + words[chunk_start:chunk_end]))
                     prev_string = []
+                remainder_start = chunk_end
 
-            shorter_strings.append(" ".join(prev_string + words[i * self.num_words_threshold :]))
+            shorter_strings.append(" ".join(prev_string + words[remainder_start:]))
 
-            for i in shorter_strings:
-                final = final + self._normalizer.normalize(i, verbose=False, punct_post_process=False) + " "
+            for chunk in shorter_strings:
+                final = final + self._normalizer.normalize(chunk, verbose=False, punct_post_process=False) + " "
 
             normalized_text = final.strip()
 

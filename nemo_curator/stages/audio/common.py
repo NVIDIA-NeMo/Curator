@@ -50,15 +50,17 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
     def process_dataset_entry(self, data_entry: AudioBatch) -> list[AudioBatch]:
         return [data_entry]
 
+
 def get_audio_duration(audio_filepath: str) -> float:
     """
     Get the duration of the audio file in seconds.
     """
     import soundfile
+
     try:
         data, samplerate = soundfile.read(audio_filepath)
         return data.shape[0] / samplerate
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to get duration for audio file {audio_filepath}: {e}")
         return -1.0
 
@@ -90,7 +92,7 @@ class GetAudioDurationStage(LegacySpeechStage):
         audio_filepath = data_entry[self.audio_filepath_key]
         duration = get_audio_duration(audio_filepath)
         data_entry[self.duration_key] = duration
-        return [AudioBatch(data=data_entry)]
+        return [AudioBatch(data=[data_entry])]
 
 
 class PreserveByValueStage(LegacySpeechStage):
@@ -166,9 +168,7 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioBatch]):
                     if line.strip():
                         manifest_entries.append(json.loads(line.strip()))
             entries.extend(manifest_entries)
-            logger.info(
-                f"ManifestReaderStage: loaded {len(manifest_entries)} entries from {manifest}"
-            )
+            logger.info(f"ManifestReaderStage: loaded {len(manifest_entries)} entries from {manifest}")
 
         return [
             AudioBatch(

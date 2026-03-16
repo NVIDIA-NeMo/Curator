@@ -19,26 +19,26 @@ PyAnnote Diarization and Overlap Detection Stage.
 import os
 import random
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-import numpy as np
 import soundfile as sf
 import torch
 from loguru import logger
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
 
 # Import pyannote components
 from pyannote.audio import Pipeline as PyAnnotePipeline
 from pyannote.audio.pipelines.utils.hook import ProgressHook
 from pyannote.core import Segment
 
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.audio.common import LegacySpeechStage, get_audio_duration
 from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADModel
 from nemo_curator.stages.audio.tagging.utils import add_non_speaker_segments
+from nemo_curator.tasks import AudioBatch
 
 
-def has_overlap(turn, overlaps):
+def has_overlap(turn: Segment, overlaps: list) -> bool:
     """Check if a given turn overlaps with any segment in the overlaps list.
 
     Args:
@@ -101,6 +101,8 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
     # Device configuration
     device: str = "cuda"
 
+    audio_filepath_key: str = "resampled_audio_filepath"
+
     # Stage metadata
     name: str = "PyAnnoteDiarization"
 
@@ -112,13 +114,14 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
     def __post_init__(self):
         """Validate config."""
         if not self.hf_token:
-            raise ValueError("hf_token is required for PyAnnote models")
+            msg = "hf_token is required for PyAnnote models"
+            raise ValueError(msg)
 
-    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata):
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Setup stage on node."""
         self.setup()
 
-    def setup(self, worker_metadata=None):
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Initialize PyAnnote pipeline and VAD model. Called once before processing."""
         if self._model_initialized:
             return
@@ -130,9 +133,7 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
 
         # Initialize PyAnnote pipeline
         if self._pipeline is None:
-            self._pipeline = PyAnnotePipeline.from_pretrained(
-                self.model_name, token=self.hf_token
-            )
+            self._pipeline = PyAnnotePipeline.from_pretrained(self.model_name, token=self.hf_token)
         self._pipeline.segmentation_batch_size = self.segmentation_batch_size
         self._pipeline.embedding_batch_size = self.embedding_batch_size
 
@@ -151,20 +152,26 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
         self._model_initialized = True
         logger.info(f"[{self.name}] Initialized PyAnnote diarization on {self.device}")
 
-    def add_vad_segments(self, audio, fs, start, end, segments, speaker_id):
+    def add_vad_segments(  # noqa: PLR0913
+        self,
+        audio: torch.Tensor,
+        fs: int,
+        start: float,
+        end: float,
+        segments: list[dict],
+        speaker_id: str,
+    ) -> None:
         """Add VAD segments for a given audio region to the segments list."""
         segment_duration = end - start
 
         if segment_duration > self.max_length:
             audio_seg = audio[:, int(start * fs) : int(end * fs)]
-            vad_segments = self._vad_model.get_vad_segments(
-                audio_seg.numpy(), self.max_length, sample_rate=fs
-            )
+            vad_segments = self._vad_model.get_vad_segments(audio_seg.numpy(), self.max_length, sample_rate=fs)
             i = 0
             n = len(vad_segments)
 
             while i < n:
-                random_duration = random.uniform(self.min_length, self.max_length)
+                random_duration = random.uniform(self.min_length, self.max_length)  # noqa: S311
                 start_seg = vad_segments[i]["start"]
                 end_seg = vad_segments[i]["end"]
 
@@ -195,14 +202,11 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         """Process a single entry for diarization and overlap detection."""
-        file_path = data_entry.get("resampled_audio_filepath")
+        file_path = data_entry[self.audio_filepath_key]
 
         # Load audio using soundfile (avoids torchcodec/FFmpeg dependency)
         data, fs = sf.read(file_path, dtype="float32")
-        if data.ndim == 1:
-            s = torch.from_numpy(data).unsqueeze(0)
-        else:
-            s = torch.from_numpy(data.T)
+        s = torch.from_numpy(data).unsqueeze(0) if data.ndim == 1 else torch.from_numpy(data.T)
         logger.info(f"Processing {file_path}")
 
         # Run diarization
@@ -210,10 +214,7 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
             result = self._pipeline({"waveform": s, "sample_rate": fs}, hook=hook)
 
         # pyannote-audio 4.x returns DiarizeOutput; extract the Annotation
-        if hasattr(result, "speaker_diarization"):
-            diarization = result.speaker_diarization
-        else:
-            diarization = result
+        diarization = result.speaker_diarization if hasattr(result, "speaker_diarization") else result
 
         overlaps = diarization.get_overlap().segments_list_
 
@@ -230,13 +231,16 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
         overlap_segments = []
 
         # Process speaker turns
-        for speech_turn, track, speaker in diarization.itertracks(yield_label=True):
+        for speech_turn, _track, speaker in diarization.itertracks(yield_label=True):
             if "audio_item_id" in data_entry:
                 speaker_id = data_entry["audio_item_id"] + "_" + speaker
             elif "speaker_id" in data_entry:
                 speaker_id = data_entry["speaker_id"] + "_" + speaker
+            elif self.audio_filepath_key in data_entry:
+                speaker_id = Path(data_entry[self.audio_filepath_key]).stem + "_" + speaker
             else:
-                raise ValueError(f"No speaker identifier in {file_path}")
+                msg = f"No speaker identifier in {file_path}"
+                raise ValueError(msg)
 
             if has_overlap(speech_turn, overlaps):
                 overlap_segments.append(
@@ -259,7 +263,7 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
                     )
 
         # Add non-speaker segments
-        audio_duration = data_entry["duration"]
+        audio_duration = data_entry.get("duration", get_audio_duration(file_path))
         add_non_speaker_segments(segments, audio_duration, self.max_length)
 
         # Update entry

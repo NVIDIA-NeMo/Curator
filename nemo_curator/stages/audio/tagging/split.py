@@ -96,7 +96,7 @@ class SplitLongAudioStage(LegacySpeechStage):
 
         # Process each split
         for k, split in enumerate(splits):
-            split_filepath = os.path.join(path, filename[:-4] + f".{k + 1}_of_{1 + len(splits)}.wav")
+            split_filepath = os.path.join(path, os.path.splitext(filename)[0] + f".{k + 1}_of_{1 + len(splits)}.wav")
             split_end = math.ceil(split * sr)
 
             if split_end - split_start > self.min_len * sr:
@@ -107,8 +107,10 @@ class SplitLongAudioStage(LegacySpeechStage):
                 split_start = split_end
 
         # Handle the last split
-        split_filepath = os.path.join(path, filename[:-4] + f".{1 + len(splits)}_of_{1 + len(splits)}.wav")
-        last_frame = len(audio[0]) - 1
+        split_filepath = os.path.join(
+            path, os.path.splitext(filename)[0] + f".{1 + len(splits)}_of_{1 + len(splits)}.wav"
+        )
+        last_frame = len(audio[0])
         remaining_frames = last_frame - split_start
 
         if remaining_frames > self.min_len * sr and remaining_frames < (self.suggested_max_len + 1) * sr:

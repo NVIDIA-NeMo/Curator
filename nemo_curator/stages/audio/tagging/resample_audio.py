@@ -89,7 +89,7 @@ class ResampleAudioStage(LegacySpeechStage):
             if input_audio_path.lower().endswith(".wav"):
                 cmd = f'sox --no-dither -V1 "{input_audio_path}" -r {self.target_sample_rate} -c {self.target_nchannels} -b 16 "{output_audio_path}"'
             else:
-                cmd = f'ffmpeg -i "{input_audio_path}" -ar {self.target_sample_rate} -ac {self.target_nchannels} -ab 16 "{output_audio_path}" -v error'
+                cmd = f'ffmpeg -i "{input_audio_path}" -ar {self.target_sample_rate} -ac {self.target_nchannels} -acodec pcm_s16le "{output_audio_path}" -v error'
 
             try:
                 subprocess.run(cmd, check=True, capture_output=True, text=True, shell=True)  # noqa: S602

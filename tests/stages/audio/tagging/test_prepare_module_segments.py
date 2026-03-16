@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import random
 from collections.abc import Callable
 from typing import Any
+from unittest.mock import patch
 
 from nemo_curator.stages.audio.tagging.prepare_module_segments import (
     PrepareModuleSegmentsStage,
@@ -192,3 +194,48 @@ def test_prepare_module_segments_stage_sdp_style_input(
     assert out["segments"][1]["text"] == "just shared it again"
     assert out["segments"][1]["speaker"] == "speaker1"
     assert "metrics" in out["segments"][1]
+
+
+class TestPerEntryRandomSeed:
+    """Verify that per-entry seeding produces varied but reproducible random sequences."""
+
+    def test_different_entries_get_different_seeds(self) -> None:
+        """Two entries with different audio_filepath should produce different random sequences."""
+        stage = PrepareModuleSegmentsStage(module="asr", min_duration=5, max_duration=20)
+        seeds_used: list[int] = []
+
+        orig_seed = random.seed
+
+        def capture_seed(s: int) -> None:
+            seeds_used.append(s)
+            orig_seed(s)
+
+        entry_a = {"audio_filepath": "file_a.wav", "segments": []}
+        entry_b = {"audio_filepath": "file_b.wav", "segments": []}
+
+        with patch("nemo_curator.stages.audio.tagging.prepare_module_segments.random.seed", side_effect=capture_seed):
+            stage.process_dataset_entry(entry_a)
+            stage.process_dataset_entry(entry_b)
+
+        assert len(seeds_used) == 2
+        assert seeds_used[0] != seeds_used[1], "Different entries must get different random seeds"
+
+    def test_same_entry_is_reproducible(self) -> None:
+        """Same audio_filepath always produces the same seed (reproducibility)."""
+        stage = PrepareModuleSegmentsStage(module="asr", min_duration=5, max_duration=20)
+        seeds_used: list[int] = []
+
+        orig_seed = random.seed
+
+        def capture_seed(s: int) -> None:
+            seeds_used.append(s)
+            orig_seed(s)
+
+        entry = {"audio_filepath": "file_a.wav", "segments": []}
+
+        with patch("nemo_curator.stages.audio.tagging.prepare_module_segments.random.seed", side_effect=capture_seed):
+            stage.process_dataset_entry(entry)
+            stage.process_dataset_entry(entry)
+
+        assert len(seeds_used) == 2
+        assert seeds_used[0] == seeds_used[1], "Same entry must always get the same seed"

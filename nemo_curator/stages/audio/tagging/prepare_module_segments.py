@@ -17,6 +17,7 @@ Prepare Module Segments Stage.
 Merges adjacent same-speaker segments and splits by duration, punctuation, and bandwidth.
 """
 
+import hashlib
 import random
 from dataclasses import dataclass
 from typing import Any
@@ -317,7 +318,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
             if self.module == "tts":
                 speaker = new_segment["speaker"]
             else:
-                unique_speakers = {w["speaker"] for w in new_segment["words"]}
+                unique_speakers = dict.fromkeys(w["speaker"] for w in new_segment["words"])
                 speaker = ",".join(unique_speakers)
 
             seg = {
@@ -390,7 +391,9 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         """Process one entry: build words from segments, then prepare TTS or ASR segments."""
-        random.seed(42)
+        entry_id = data_entry.get("audio_filepath", data_entry.get("audio_item_id", ""))
+        seed = int(hashlib.md5(entry_id.encode()).hexdigest()[:8], 16)  # noqa: S324
+        random.seed(seed)
         try:
             if "segments" not in data_entry:
                 logger.info(f"[{self.name}] No segments in metadata for: {data_entry.get('audio_filepath', '')}")

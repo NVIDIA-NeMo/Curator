@@ -83,7 +83,7 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
         if not self._model_initialized:
             self.setup()
 
-        audio_path = data_entry.get("resampled_audio_filepath")
+        audio_path = data_entry["resampled_audio_filepath"]
         info = sf.info(audio_path)
         sr = info.samplerate
 
