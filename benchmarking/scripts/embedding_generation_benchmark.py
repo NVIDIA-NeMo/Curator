@@ -16,26 +16,11 @@
 
 """Embedding generation benchmarking script.
 
-Supports multiple embedding model backends:
-- sentence_transformer: EmbeddingCreatorStage with SentenceTransformer (default)
+Supports multiple embedding model backends (through the model_variation argument):
+- sentence_transformer: EmbeddingCreatorStage with SentenceTransformer
 - pytorch_model: EmbeddingCreatorStage with raw PyTorch model + custom pooling
 - vllm_text: VLLMEmbeddingModelStage with text input
 - vllm_text_pretokenized: VLLMEmbeddingModelStage with pretokenization
-
-Usage:
-    python embedding_generation_benchmark.py \
-        --benchmark-results-path /tmp/results \
-        --input-path ./data/embeddings \
-        --model-identifier sentence-transformers/all-MiniLM-L6-v2 \
-        --dataset-size-gb 1 \
-        --model-variation sentence_transformer
-
-    python embedding_generation_benchmark.py \
-        --benchmark-results-path /tmp/results \
-        --input-path ./data/embeddings \
-        --model-identifier google/embeddinggemma-300m \
-        --dataset-size-gb 1 \
-        --model-variation vllm_text
 """
 
 import argparse
@@ -215,13 +200,15 @@ def run_embedding_generation_benchmark(
     logger.success(f"Processed {num_documents_processed} documents")
 
     return {
+        "params": {
+            "model_variation": variation.value,
+            "max_seq_length": max_seq_length,
+        },
         "metrics": {
             "is_success": True,
             "time_taken_s": run_time_taken,
             "num_documents_processed": num_documents_processed,
             "throughput_docs_per_sec": throughput_docs_per_sec,
-            "model_variation": variation.value,
-            "max_seq_length": max_seq_length,
         },
         "tasks": output_tasks,
     }
@@ -242,9 +229,9 @@ def main() -> int:
     parser.add_argument("--model-inference-batch-size", type=int, default=1024, help="Batch size for model inference")
     parser.add_argument(
         "--model-variation",
-        default="sentence_transformer",
+        default="vllm_text",
         choices=[v.value for v in EmbeddingModelVariation],
-        help="Embedding model backend (default: sentence_transformer)",
+        help="Embedding model backend (default: vllm_text)",
     )
     parser.add_argument(
         "--max-seq-length",
