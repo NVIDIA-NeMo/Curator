@@ -614,8 +614,8 @@ entries:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
-          - num_output_documents
           - num_input_documents
+          - num_output_documents
         ping_on_failure:
           - UGFRT88RE  # Vibhu Jawa
     ray:
@@ -627,7 +627,7 @@ entries:
       - metric: num_tar_files
         exact_value: 45
       - metric: num_input_documents
-        exact_value: 116383
+        exact_value: 90922
       - metric: num_output_documents
         exact_value: 61474
 
@@ -645,8 +645,8 @@ entries:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
-          - num_output_documents
           - num_input_documents
+          - num_output_documents
         ping_on_failure:
           - UGFRT88RE  # Vibhu Jawa
     ray:
@@ -658,7 +658,7 @@ entries:
       - metric: num_tar_files
         exact_value: 45
       - metric: num_input_documents
-        exact_value: 116383
+        exact_value: 90922
       - metric: num_output_documents
         exact_value: 61474
 

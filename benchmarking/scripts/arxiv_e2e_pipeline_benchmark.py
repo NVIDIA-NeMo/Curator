@@ -334,7 +334,9 @@ def run_benchmark(args: argparse.Namespace) -> dict:
 
     # Calculate metrics from stage performance data
     num_tar_files = len(results) if results else 0
-    num_input_documents = TaskPerfUtils.get_aggregated_stage_stat(results, "extract_", "num_items_processed")
+    # add_id is the first stage processing DocumentBatches, so its num_items_processed
+    # reflects the total number of documents extracted (rows), not tar file count.
+    num_input_documents = TaskPerfUtils.get_aggregated_stage_stat(results, "add_id", "num_items_processed")
     writer_stage_name = f"{args.output_format}_writer"
     num_output_documents = TaskPerfUtils.get_aggregated_stage_stat(results, writer_stage_name, "num_items_processed")
     throughput_tar_files_per_sec = num_tar_files / elapsed if elapsed > 0 else 0
