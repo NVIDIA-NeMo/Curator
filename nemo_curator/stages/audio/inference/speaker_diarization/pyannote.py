@@ -109,6 +109,7 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
     # Internal state (not serialized, initialized in setup() to allow deepcopy)
     _pipeline: Any = field(default=None, repr=False)
     _vad_model: Any = field(default=None, repr=False)  # WhisperXVADModel
+    _rng: random.Random = field(default=None, repr=False)
     _model_initialized: bool = field(default=False, repr=False)
 
     def __post_init__(self):
@@ -148,7 +149,7 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
         self._pipeline.to(torch.device(self.device))
         self._vad_model.to(self.device)
 
-        random.seed(42)
+        self._rng = random.Random()  # noqa: S311
         self._model_initialized = True
         logger.info(f"[{self.name}] Initialized PyAnnote diarization on {self.device}")
 
@@ -171,7 +172,7 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
             n = len(vad_segments)
 
             while i < n:
-                random_duration = random.uniform(self.min_length, self.max_length)  # noqa: S311
+                random_duration = self._rng.uniform(self.min_length, self.max_length)
                 start_seg = vad_segments[i]["start"]
                 end_seg = vad_segments[i]["end"]
 

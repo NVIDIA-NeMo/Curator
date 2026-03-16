@@ -225,8 +225,11 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         self._asr_model.to(self.device)
         self._asr_model.eval()
 
-        self._asr_model.change_attention_model(self_attention_model="rel_pos_local_attn", att_context_size=[128, 128])
-        self._asr_model.change_subsampling_conv_chunking_factor(1)
+        if self.is_fastconformer:
+            self._asr_model.change_attention_model(
+                self_attention_model="rel_pos_local_attn", att_context_size=[128, 128]
+            )
+            self._asr_model.change_subsampling_conv_chunking_factor(1)
 
         decoding_cfg = CTCDecodingConfig() if self.decoder_type == "ctc" else RNNTDecodingConfig()
 
