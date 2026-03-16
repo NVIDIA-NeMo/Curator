@@ -435,7 +435,6 @@ def _run_stages_with_checkpoints(
 
         cached_tasks: list[AudioBatch] = []
         todo_tasks: list[AudioBatch] = []
-        todo_hashes: list[str] = []
 
         for task in current_tasks:
             h = task._metadata.get(CKPT_HASH_KEY) or _task_hash(task)
@@ -444,7 +443,6 @@ def _run_stages_with_checkpoints(
             else:
                 task._metadata[CKPT_HASH_KEY] = h
                 todo_tasks.append(task)
-                todo_hashes.append(h)
 
         if cached_tasks:
             logger.info(

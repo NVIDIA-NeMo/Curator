@@ -80,17 +80,16 @@ All values are in **80 ms frames**. Override via `--chunk-len`, `--chunk-right-c
 ## Example output
 
 ```
+============================================================
 COMPLETED: 139 files evaluated (collar=0.25s)
+============================================================
 
---- Macro-Average (equal weight per file) ---
-  DER:     6.2%
-  Miss:    1.5%
-  FA:      3.4%
-  Confuse: 1.3%
-  Correct: 97.2%
+  Macro-avg  DER=6.2%  Miss=1.5%  FA=3.4%  Conf=1.3%
+  Weighted   DER=6.0%  Miss=1.4%  FA=3.3%  Conf=1.3%
+  Speaker count match: 109/139 (78%)
 
---- Speaker Count ---
-  Exact match: 109/139 (78%)
+  Best 5: 4588=0.0%, 4601=0.0%, 4637=0.2%, 4660=0.3%, 4822=0.5%
+  Worst 5: 4247=28.1%, 4325=22.4%, 4556=19.7%, 4870=18.3%, 4902=17.6%
 ```
 
 ## Pipeline integration

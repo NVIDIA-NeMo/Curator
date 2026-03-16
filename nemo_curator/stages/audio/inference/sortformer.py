@@ -74,6 +74,9 @@ def _write_rttm(segments: list[dict[str, Any]], sess_name: str, rttm_out_dir: st
     with open(rttm_path, "w") as f:
         for seg in segments:
             duration = seg["end"] - seg["start"]
+            if duration <= 0:
+                logger.warning(f"Skipping degenerate segment with non-positive duration: {seg!r}")
+                continue
             f.write(f"SPEAKER {sess_name} 1 {seg['start']:.3f} {duration:.3f} <NA> <NA> {seg['speaker']} <NA> <NA>\n")
 
 
@@ -117,7 +120,7 @@ class InferenceSortformerStage(ProcessingStage[AudioBatch, AudioBatch]):
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=8.0))
 
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Pre-download model weights on the node so actors load from cache."""
         if self.model_path is not None:
             return
@@ -126,9 +129,10 @@ class InferenceSortformerStage(ProcessingStage[AudioBatch, AudioBatch]):
         except Exception:  # noqa: BLE001
             logger.info(f"Could not pre-cache {self.model_name}; actors will download on first use")
 
-    def setup(self, _worker_metadata: WorkerMetadata = None) -> None:
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Load Sortformer model from Hugging Face or a local .nemo file."""
         if self.diar_model is not None:
+            self.diar_model.eval()
             self._configure_streaming()
             return
         try:
@@ -141,9 +145,12 @@ class InferenceSortformerStage(ProcessingStage[AudioBatch, AudioBatch]):
             raise ImportError(msg) from e
 
         if self.model_path is not None:
+            import torch
+
+            map_location = "cuda" if torch.cuda.is_available() else "cpu"
             self.diar_model = SortformerEncLabelModel.restore_from(
                 restore_path=self.model_path,
-                map_location="cuda",
+                map_location=map_location,
                 strict=False,
             )
         else:
