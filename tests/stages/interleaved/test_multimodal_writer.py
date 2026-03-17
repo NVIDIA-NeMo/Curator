@@ -123,7 +123,9 @@ def test_writer_does_not_persist_dataframe_index(tmp_path: Path) -> None:
     )
     df.index = pd.Index([99])
     task = InterleavedBatch(task_id="idx_task", dataset_name="mint_test", data=df)
-    writer = InterleavedParquetWriterStage(path=str(tmp_path / "out_idx"), materialize_on_write=False, mode="overwrite")
+    writer = InterleavedParquetWriterStage(
+        path=str(tmp_path / "out_idx"), materialize_on_write=False, mode="overwrite"
+    )
     write_task = writer.process(task)
     written = pd.read_parquet(write_task.data[0])
     assert "__index_level_0__" not in written.columns
@@ -144,16 +146,27 @@ def test_interleaved_ordering_preserved_through_filter_and_write(tmp_path: Path)
 
     def _row(sample_id: str, position: int, modality: str, text: str | None = None) -> dict:
         return {
-            "sample_id": sample_id, "position": position, "modality": modality,
+            "sample_id": sample_id,
+            "position": position,
+            "modality": modality,
             "content_type": "text/plain" if modality == "text" else "image/png",
-            "text_content": text, "binary_content": None, "source_ref": None,
+            "text_content": text,
+            "binary_content": None,
+            "source_ref": None,
             "materialize_error": None,
         }
 
     rows = [
-        {"sample_id": "s1", "position": -1, "modality": "metadata", "content_type": "application/json",
-         "text_content": None, "binary_content": None, "source_ref": None,
-         "materialize_error": None},
+        {
+            "sample_id": "s1",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
         _row("s1", 0, "text", "intro"),
         _row("s1", 1, "image"),
         _row("s1", 2, "text", "middle"),
@@ -258,7 +271,9 @@ def test_heterogeneous_passthrough_fields_combine_as_nullable(tmp_path: Path) ->
 
     out_dir = tmp_path / "combined_out"
     writer = InterleavedParquetWriterStage(
-        path=str(out_dir), materialize_on_write=False, mode="overwrite",
+        path=str(out_dir),
+        materialize_on_write=False,
+        mode="overwrite",
     )
     writer.process(batch_a)
     writer.process(batch_b)
@@ -296,15 +311,26 @@ def test_heterogeneous_passthrough_fields_combine_as_nullable(tmp_path: Path) ->
 
 def test_writer_uses_uuid_when_no_source_files(tmp_path: Path) -> None:
     """Writer falls back to UUID filename when task has no source_files metadata."""
-    df = pd.DataFrame([{
-        "sample_id": "s1", "position": 0, "modality": "text",
-        "content_type": "text/plain", "text_content": "hello",
-        "binary_content": None, "source_ref": None, "materialize_error": None,
-    }])
+    df = pd.DataFrame(
+        [
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "text",
+                "content_type": "text/plain",
+                "text_content": "hello",
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            }
+        ]
+    )
     task = InterleavedBatch(task_id="no_source", dataset_name="test", data=df, _metadata={})
     out_dir = tmp_path / "uuid_out"
     writer = InterleavedParquetWriterStage(
-        path=str(out_dir), materialize_on_write=False, mode="overwrite",
+        path=str(out_dir),
+        materialize_on_write=False,
+        mode="overwrite",
     )
     write_task = writer.process(task)
     assert len(write_task.data) == 1
@@ -313,19 +339,31 @@ def test_writer_uses_uuid_when_no_source_files(tmp_path: Path) -> None:
 
 def test_writer_no_materialize_preserves_null_binary(tmp_path: Path) -> None:
     """materialize_on_write=False leaves binary_content null even for image rows."""
-    table = pa.Table.from_pylist([{
-        "sample_id": "s1", "position": 0, "modality": "image",
-        "content_type": "image/jpeg", "text_content": None,
-        "binary_content": None,
-        "source_ref": InterleavedBatch.build_source_ref(path="/fake/img.jpg", member=None),
-        "materialize_error": None,
-    }], schema=INTERLEAVED_SCHEMA)
+    table = pa.Table.from_pylist(
+        [
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "image",
+                "content_type": "image/jpeg",
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": InterleavedBatch.build_source_ref(path="/fake/img.jpg", member=None),
+                "materialize_error": None,
+            }
+        ],
+        schema=INTERLEAVED_SCHEMA,
+    )
     task = InterleavedBatch(
-        task_id="no_mat", dataset_name="test", data=table,
+        task_id="no_mat",
+        dataset_name="test",
+        data=table,
         _metadata={"source_files": ["/fake/img.jpg"]},
     )
     writer = InterleavedParquetWriterStage(
-        path=str(tmp_path / "no_mat_out"), materialize_on_write=False, mode="overwrite",
+        path=str(tmp_path / "no_mat_out"),
+        materialize_on_write=False,
+        mode="overwrite",
     )
     write_task = writer.process(task)
     written = pd.read_parquet(write_task.data[0])
@@ -338,18 +376,30 @@ def test_writer_no_materialize_preserves_null_binary(tmp_path: Path) -> None:
 )
 def test_writer_custom_compression(tmp_path: Path, compression: str) -> None:
     """Custom compression in write_kwargs is used in the written parquet."""
-    df = pd.DataFrame([{
-        "sample_id": "s1", "position": 0, "modality": "text",
-        "content_type": "text/plain", "text_content": "hello",
-        "binary_content": None, "source_ref": None, "materialize_error": None,
-    }])
+    df = pd.DataFrame(
+        [
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "text",
+                "content_type": "text/plain",
+                "text_content": "hello",
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            }
+        ]
+    )
     task = InterleavedBatch(
-        task_id="comp", dataset_name="test", data=df,
+        task_id="comp",
+        dataset_name="test",
+        data=df,
         _metadata={"source_files": ["test.tar"]},
     )
     writer = InterleavedParquetWriterStage(
         path=str(tmp_path / f"{compression}_out"),
-        materialize_on_write=False, mode="overwrite",
+        materialize_on_write=False,
+        mode="overwrite",
         write_kwargs={"compression": compression},
     )
     write_task = writer.process(task)

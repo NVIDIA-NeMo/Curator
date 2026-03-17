@@ -182,7 +182,10 @@ class InterleavedBatch(Task[pa.Table | pd.DataFrame]):
     ) -> str:
         """Build a ``source_ref`` JSON locator string."""
         ref: dict[str, object] = {
-            "path": path, "member": member, "byte_offset": byte_offset, "byte_size": byte_size,
+            "path": path,
+            "member": member,
+            "byte_offset": byte_offset,
+            "byte_size": byte_size,
         }
         if frame_index is not None:
             ref["frame_index"] = frame_index

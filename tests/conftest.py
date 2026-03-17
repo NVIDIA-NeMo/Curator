@@ -20,7 +20,6 @@ GPU resources based on the test session's requirements.
 
 import os
 import re
-import socket
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -29,14 +28,9 @@ import pytest
 import ray
 from loguru import logger
 
+from nemo_curator.core.client import RayClient
+
 MODALITY_GROUPS = ["text", "image", "video", "audio"]
-
-
-def find_free_port() -> int:
-    """Find an available port on the system."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
 
 
 def gpu_available() -> bool:
@@ -66,7 +60,7 @@ def gpu_available() -> bool:
             gpu_count = int(result.stdout.strip())
             logger.info(f"Detected {gpu_count} GPU(s) via nvidia-smi")
             return gpu_count > 0
-    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, OSError):
         pass
 
     logger.warning("No GPU detected")
@@ -167,37 +161,6 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
     return False
 
 
-def build_ray_command(temp_dir: str, num_cpus: int, num_gpus: int, object_store_memory: int) -> tuple[list[str], int]:
-    """Build the Ray start command with the given configuration."""
-    ray_port = find_free_port()
-    dashboard_port = find_free_port()
-    ray_client_server_port = find_free_port()
-
-    return [
-        "ray",
-        "start",
-        "--head",
-        "--disable-usage-stats",
-        "--port",
-        str(ray_port),
-        "--dashboard-port",
-        str(dashboard_port),
-        "--ray-client-server-port",
-        str(ray_client_server_port),
-        "--dashboard-host",
-        "0.0.0.0",  # noqa: S104
-        "--temp-dir",
-        str(temp_dir),
-        "--num-cpus",
-        str(num_cpus),
-        "--num-gpus",
-        str(num_gpus),
-        "--object-store-memory",
-        str(object_store_memory),
-        "--block",
-    ], ray_port
-
-
 @pytest.fixture(scope="session", autouse=True)
 def shared_ray_cluster(tmp_path_factory: pytest.TempPathFactory, pytestconfig: pytest.Config) -> str:
     """Set up a shared Ray cluster with dynamic GPU configuration.
@@ -225,37 +188,31 @@ def shared_ray_cluster(tmp_path_factory: pytest.TempPathFactory, pytestconfig: p
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
-    # Set up Ray configuration values
     num_cpus = 11
     num_gpus = 2 if needs_gpu else 0
     object_store_memory = 2 * (1024**3)  # 2 GB
 
     logger.info(f"Configuring Ray cluster with {'GPU' if needs_gpu else 'CPU-only'} support")
 
-    # Create a temporary directory for Ray to avoid conflicts with other instances
     temp_dir = tmp_path_factory.mktemp("ray")
 
-    # Build and execute Ray command
-    cmd_to_run, ray_port = build_ray_command(str(temp_dir), num_cpus, num_gpus, object_store_memory)
+    ray_client = RayClient(
+        num_cpus=num_cpus,
+        num_gpus=num_gpus,
+        object_store_memory=object_store_memory,
+        ray_temp_dir=str(temp_dir),
+        include_dashboard=False,
+    )
+    ray_client.start()
 
-    logger.info(f"Starting Ray cluster with {num_gpus} GPUs")
-    logger.info(f"Running Ray command: {' '.join(cmd_to_run)}")
-
-    # Use explicit path to ray command for security
-    ray_process = subprocess.Popen(cmd_to_run, shell=False)  # noqa: S603
-    logger.info(f"Started Ray process: {ray_process.pid}")
-
-    ray_address = f"localhost:{ray_port}"
-    os.environ["RAY_ADDRESS"] = ray_address
-    logger.info(f"Set RAY_ADDRESS for tests to: {ray_address}")
+    ray_address = os.environ["RAY_ADDRESS"]
+    logger.info(f"Ray cluster started at: {ray_address}")
 
     try:
         yield ray_address
     finally:
-        # Ensure cleanup happens even if tests fail
         logger.info("Shutting down Ray cluster")
-        ray_process.kill()
-        ray_process.wait()  # Wait for process to actually terminate
+        ray_client.stop()
 
 
 @pytest.fixture

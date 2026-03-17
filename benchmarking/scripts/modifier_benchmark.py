@@ -133,6 +133,13 @@ def main() -> int:
     logger.info("=== Modify Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
+    results = {
+        "params": vars(args),
+        "metrics": {
+            "is_success": False,
+        },
+        "tasks": [],
+    }
     try:
         results = run_modify_benchmark(
             input_path=args.input_path,
@@ -140,18 +147,6 @@ def main() -> int:
             executor_name=args.executor,
             benchmark_results_path=args.benchmark_results_path,
         )
-
-    except Exception as e:
-        error_traceback = traceback.format_exc()
-        print(f"Benchmark failed: {e}")
-        logger.debug(f"Full traceback:\n{error_traceback}")
-        results = {
-            "params": vars(args),
-            "metrics": {
-                "is_success": False,
-            },
-            "tasks": [],
-        }
     finally:
         write_benchmark_results(results, args.benchmark_results_path)
 

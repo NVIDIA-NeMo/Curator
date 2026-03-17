@@ -90,7 +90,11 @@ class WebdatasetReaderStage(BaseInterleavedReader):
     # -- source_ref construction --
 
     def _build_source_ref(
-        self, ctx: _SampleContext, content_key: str | None, *, frame_index: int | None = None,
+        self,
+        ctx: _SampleContext,
+        content_key: str | None,
+        *,
+        frame_index: int | None = None,
     ) -> str:
         if content_key is None:
             return InterleavedBatch.build_source_ref(path=None, member=None)
@@ -101,8 +105,11 @@ class WebdatasetReaderStage(BaseInterleavedReader):
             byte_offset = info.offset_data
             byte_size = info.size
         return InterleavedBatch.build_source_ref(
-            path=ctx.tar_path, member=content_key,
-            byte_offset=byte_offset, byte_size=byte_size, frame_index=frame_index,
+            path=ctx.tar_path,
+            member=content_key,
+            byte_offset=byte_offset,
+            byte_size=byte_size,
+            frame_index=frame_index,
         )
 
     # -- row builders (override in subclasses for custom formats) --
@@ -121,16 +128,24 @@ class WebdatasetReaderStage(BaseInterleavedReader):
         }
 
     def _metadata_row(self, ctx: _SampleContext) -> dict[str, Any]:
-        return {**self._build_row(ctx, {
-            "position": -1,
-            "modality": "metadata",
-            "content_type": "application/json",
-            "source_ref": self._build_source_ref(ctx, ctx.json_member_name),
-        }), **ctx.passthrough}
+        return {
+            **self._build_row(
+                ctx,
+                {
+                    "position": -1,
+                    "modality": "metadata",
+                    "content_type": "application/json",
+                    "source_ref": self._build_source_ref(ctx, ctx.json_member_name),
+                },
+            ),
+            **ctx.passthrough,
+        }
 
     @staticmethod
     def _apply_per_modality_fields(
-        row: dict[str, Any], passthrough: dict[str, list[Any]], index: int,
+        row: dict[str, Any],
+        passthrough: dict[str, list[Any]],
+        index: int,
     ) -> None:
         for field_name, values in passthrough.items():
             if index < len(values):
@@ -139,13 +154,21 @@ class WebdatasetReaderStage(BaseInterleavedReader):
 
     @staticmethod
     def _warn_per_modality_length_mismatch(
-        sample_id: str, passthrough: dict[str, list[Any]], actual_count: int, modality: str,
+        sample_id: str,
+        passthrough: dict[str, list[Any]],
+        actual_count: int,
+        modality: str,
     ) -> None:
         for field_name, values in passthrough.items():
             if actual_count != len(values):
                 logger.warning(
                     "sample_id={}: per_{}_field '{}' has {} values but {} non-None {}s",
-                    sample_id, modality, field_name, len(values), actual_count, modality,
+                    sample_id,
+                    modality,
+                    field_name,
+                    len(values),
+                    actual_count,
+                    modality,
                 )
 
     def _text_rows(self, ctx: _SampleContext) -> list[dict[str, Any]]:
@@ -158,13 +181,16 @@ class WebdatasetReaderStage(BaseInterleavedReader):
         for idx, text_value in enumerate(texts):
             if text_value is None:
                 continue
-            row = self._build_row(ctx, {
-                "position": idx,
-                "modality": "text",
-                "content_type": "text/plain",
-                "text_content": str(text_value),
-                "source_ref": source_ref,
-            })
+            row = self._build_row(
+                ctx,
+                {
+                    "position": idx,
+                    "modality": "text",
+                    "content_type": "text/plain",
+                    "text_content": str(text_value),
+                    "source_ref": source_ref,
+                },
+            )
             self._apply_per_modality_fields(row, ctx.per_text_passthrough, non_none_counter)
             non_none_counter += 1
             rows.append(row)
@@ -176,7 +202,10 @@ class WebdatasetReaderStage(BaseInterleavedReader):
         if not isinstance(images, list):
             return []
         image_member_name = self._resolve_default_image_member_name(
-            ctx.sample_id, ctx.sample, images, ctx.member_names,
+            ctx.sample_id,
+            ctx.sample,
+            images,
+            ctx.member_names,
         )
         rows: list[dict[str, Any]] = []
         frame_counters: dict[str, int] = {}
@@ -191,12 +220,15 @@ class WebdatasetReaderStage(BaseInterleavedReader):
             if content_key is not None and is_multiframe_candidate:
                 frame_index = frame_counters.get(content_key, 0)
                 frame_counters[content_key] = frame_index + 1
-            row = self._build_row(ctx, {
-                "position": idx,
-                "modality": "image",
-                "content_type": content_type or ("application/octet-stream" if image_member_name else None),
-                "source_ref": self._build_source_ref(ctx, content_key, frame_index=frame_index),
-            })
+            row = self._build_row(
+                ctx,
+                {
+                    "position": idx,
+                    "modality": "image",
+                    "content_type": content_type or ("application/octet-stream" if image_member_name else None),
+                    "source_ref": self._build_source_ref(ctx, content_key, frame_index=frame_index),
+                },
+            )
             self._apply_per_modality_fields(row, ctx.per_image_passthrough, non_none_counter)
             non_none_counter += 1
             rows.append(row)
@@ -234,7 +266,8 @@ class WebdatasetReaderStage(BaseInterleavedReader):
 
     @staticmethod
     def _extract_per_modality_fields(
-        sample: dict[str, Any], field_names: tuple[str, ...],
+        sample: dict[str, Any],
+        field_names: tuple[str, ...],
     ) -> dict[str, list[Any]]:
         result: dict[str, list[Any]] = {}
         for field_name in field_names:
@@ -245,10 +278,7 @@ class WebdatasetReaderStage(BaseInterleavedReader):
             if isinstance(value, list):
                 result[field_name] = value
             else:
-                msg = (
-                    f"per-modality field '{field_name}' must be a list, "
-                    f"got {type(value).__name__}"
-                )
+                msg = f"per-modality field '{field_name}' must be a list, got {type(value).__name__}"
                 raise TypeError(msg)
         return result
 

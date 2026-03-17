@@ -31,6 +31,15 @@ def _import_stage_module() -> tuple[Any, Any]:
     return CreateInitialManifestFleursStage, get_fleurs_url_list
 
 
+def test_ray_stage_spec(tmp_path: Path) -> None:
+    from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+
+    stage_cls, _ = _import_stage_module()
+    stage = stage_cls(lang="hy_am", split="dev", raw_data_dir=str(tmp_path / "fleurs"))
+    spec = stage.ray_stage_spec()
+    assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
+
+
 def test_get_fleurs_url_list_builds_urls() -> None:
     _, get_fleurs_url_list = _import_stage_module()
     urls = get_fleurs_url_list("hy_am", "dev")

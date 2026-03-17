@@ -239,9 +239,7 @@ def test_materialize_fills_binary_from_range_read(tmp_path: Path) -> None:
     raw_file = tmp_path / "data.bin"
     raw_file.write_bytes(b"HEADER" + payload + b"FOOTER")
 
-    task = _image_task(
-        [_image_row(path=str(raw_file), member="data.bin", byte_offset=6, byte_size=len(payload))]
-    )
+    task = _image_task([_image_row(path=str(raw_file), member="data.bin", byte_offset=6, byte_size=len(payload))])
     result = materialize_task_binary_content(task)
     df = result.to_pandas()
     assert df.loc[0, "binary_content"] == payload
@@ -249,9 +247,7 @@ def test_materialize_fills_binary_from_range_read(tmp_path: Path) -> None:
 
 
 def test_materialize_range_read_bad_path(tmp_path: Path) -> None:
-    task = _image_task(
-        [_image_row(path=str(tmp_path / "nonexistent.bin"), member="x", byte_offset=0, byte_size=10)]
-    )
+    task = _image_task([_image_row(path=str(tmp_path / "nonexistent.bin"), member="x", byte_offset=0, byte_size=10)])
     result = materialize_task_binary_content(task)
     df = result.to_pandas()
     assert isinstance(df.loc[0, "materialize_error"], str)
@@ -315,16 +311,18 @@ def test_materialize_empty_task() -> None:
     task = InterleavedBatch(
         task_id="empty",
         dataset_name="d",
-        data=pa.table({
-            "sample_id": pa.array([], type=pa.string()),
-            "position": pa.array([], type=pa.int32()),
-            "modality": pa.array([], type=pa.string()),
-            "content_type": pa.array([], type=pa.string()),
-            "text_content": pa.array([], type=pa.string()),
-            "binary_content": pa.array([], type=pa.large_binary()),
-            "source_ref": pa.array([], type=pa.string()),
-            "materialize_error": pa.array([], type=pa.string()),
-        }),
+        data=pa.table(
+            {
+                "sample_id": pa.array([], type=pa.string()),
+                "position": pa.array([], type=pa.int32()),
+                "modality": pa.array([], type=pa.string()),
+                "content_type": pa.array([], type=pa.string()),
+                "text_content": pa.array([], type=pa.string()),
+                "binary_content": pa.array([], type=pa.large_binary()),
+                "source_ref": pa.array([], type=pa.string()),
+                "materialize_error": pa.array([], type=pa.string()),
+            }
+        ),
     )
     result = materialize_task_binary_content(task)
     assert result.num_items == 0
@@ -409,21 +407,33 @@ def test_aspect_ratio_filter_works_on_png_images() -> None:
     df = pd.DataFrame(
         [
             {
-                "sample_id": "s1", "position": 0, "modality": "text",
-                "content_type": "text/plain", "text_content": "ok",
-                "binary_content": None, "source_ref": None,
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "text",
+                "content_type": "text/plain",
+                "text_content": "ok",
+                "binary_content": None,
+                "source_ref": None,
                 "materialize_error": None,
             },
             {
-                "sample_id": "s1", "position": 1, "modality": "image",
-                "content_type": "image/png", "text_content": None,
-                "binary_content": valid_png, "source_ref": None,
+                "sample_id": "s1",
+                "position": 1,
+                "modality": "image",
+                "content_type": "image/png",
+                "text_content": None,
+                "binary_content": valid_png,
+                "source_ref": None,
                 "materialize_error": None,
             },
             {
-                "sample_id": "s1", "position": 2, "modality": "image",
-                "content_type": "image/png", "text_content": None,
-                "binary_content": narrow_png, "source_ref": None,
+                "sample_id": "s1",
+                "position": 2,
+                "modality": "image",
+                "content_type": "image/png",
+                "text_content": None,
+                "binary_content": narrow_png,
+                "source_ref": None,
                 "materialize_error": None,
             },
         ]
@@ -518,17 +528,32 @@ def test_filter_recomputes_positions_after_drop() -> None:
             return ~((df["modality"] != "metadata") & (pos % 2 == 1))
 
     rows = [
-        {"sample_id": "s1", "position": i, "modality": "text", "content_type": "text/plain",
-         "text_content": f"t{i}", "binary_content": None, "source_ref": None,
-         "materialize_error": None}
+        {
+            "sample_id": "s1",
+            "position": i,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": f"t{i}",
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        }
         for i in range(4)
     ] + [
-        {"sample_id": "s1", "position": -1, "modality": "metadata", "content_type": "application/json",
-         "text_content": None, "binary_content": None, "source_ref": None,
-         "materialize_error": None},
+        {
+            "sample_id": "s1",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
     ]
     task = InterleavedBatch(
-        task_id="pos_test", dataset_name="d",
+        task_id="pos_test",
+        dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
     stage = _DropOddPositions(drop_invalid_rows=False)
@@ -555,16 +580,27 @@ def test_filter_preserves_interleaved_ordering_across_modalities() -> None:
 
     def _row(sample_id: str, position: int, modality: str, text: str | None = None) -> dict:
         return {
-            "sample_id": sample_id, "position": position, "modality": modality,
+            "sample_id": sample_id,
+            "position": position,
+            "modality": modality,
             "content_type": "text/plain" if modality == "text" else "image/jpeg",
-            "text_content": text, "binary_content": None, "source_ref": None,
+            "text_content": text,
+            "binary_content": None,
+            "source_ref": None,
             "materialize_error": None,
         }
 
     rows = [
-        {"sample_id": "s1", "position": -1, "modality": "metadata", "content_type": "application/json",
-         "text_content": None, "binary_content": None, "source_ref": None,
-         "materialize_error": None},
+        {
+            "sample_id": "s1",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
         _row("s1", 0, "text", "intro"),
         _row("s1", 1, "image"),
         _row("s1", 2, "text", "middle"),
@@ -572,7 +608,8 @@ def test_filter_preserves_interleaved_ordering_across_modalities() -> None:
         _row("s1", 4, "text", "end"),
     ]
     task = InterleavedBatch(
-        task_id="interleave_test", dataset_name="d",
+        task_id="interleave_test",
+        dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
     stage = _DropSecondImage(drop_invalid_rows=False)
@@ -598,16 +635,27 @@ def test_filter_preserves_interleaved_ordering_with_noninterleaved_row_order() -
 
     def _row(sample_id: str, position: int, modality: str, text: str | None = None) -> dict:
         return {
-            "sample_id": sample_id, "position": position, "modality": modality,
+            "sample_id": sample_id,
+            "position": position,
+            "modality": modality,
             "content_type": "text/plain" if modality == "text" else "image/jpeg",
-            "text_content": text, "binary_content": None, "source_ref": None,
+            "text_content": text,
+            "binary_content": None,
+            "source_ref": None,
             "materialize_error": None,
         }
 
     rows = [
-        {"sample_id": "s1", "position": -1, "modality": "metadata", "content_type": "application/json",
-         "text_content": None, "binary_content": None, "source_ref": None,
-         "materialize_error": None},
+        {
+            "sample_id": "s1",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
         _row("s1", 0, "text", "intro"),
         _row("s1", 2, "text", "middle"),
         _row("s1", 4, "text", "end"),
@@ -615,7 +663,8 @@ def test_filter_preserves_interleaved_ordering_with_noninterleaved_row_order() -
         _row("s1", 3, "image"),
     ]
     task = InterleavedBatch(
-        task_id="noninterleaved_row_order", dataset_name="d",
+        task_id="noninterleaved_row_order",
+        dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
     stage = _KeepAll(drop_invalid_rows=False)
@@ -639,9 +688,13 @@ def test_filter_drops_orphaned_metadata_rows() -> None:
 
     def _row(sample_id: str, position: int, modality: str, text: str | None = None) -> dict:
         return {
-            "sample_id": sample_id, "position": position, "modality": modality,
+            "sample_id": sample_id,
+            "position": position,
+            "modality": modality,
             "content_type": "text/plain" if modality == "text" else "application/json",
-            "text_content": text, "binary_content": None, "source_ref": None,
+            "text_content": text,
+            "binary_content": None,
+            "source_ref": None,
             "materialize_error": None,
         }
 
@@ -654,7 +707,8 @@ def test_filter_drops_orphaned_metadata_rows() -> None:
         _row("s2", 1, "text", "dropped2"),
     ]
     task = InterleavedBatch(
-        task_id="orphan_test", dataset_name="d",
+        task_id="orphan_test",
+        dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
     stage = _DropAllSample2Content(drop_invalid_rows=False)
@@ -673,15 +727,36 @@ def test_filter_drops_orphaned_metadata_rows() -> None:
 def test_count_and_num_items() -> None:
     table = pa.Table.from_pylist(
         [
-            {"sample_id": "s1", "position": 0, "modality": "text", "content_type": None,
-             "text_content": "a", "binary_content": None, "source_ref": None,
-             "materialize_error": None},
-            {"sample_id": "s1", "position": 1, "modality": "image", "content_type": None,
-             "text_content": None, "binary_content": None, "source_ref": None,
-             "materialize_error": None},
-            {"sample_id": "s2", "position": 0, "modality": "text", "content_type": None,
-             "text_content": "b", "binary_content": None, "source_ref": None,
-             "materialize_error": None},
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "text",
+                "content_type": None,
+                "text_content": "a",
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+            {
+                "sample_id": "s1",
+                "position": 1,
+                "modality": "image",
+                "content_type": None,
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+            {
+                "sample_id": "s2",
+                "position": 0,
+                "modality": "text",
+                "content_type": None,
+                "text_content": "b",
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
         ],
         schema=INTERLEAVED_SCHEMA,
     )
@@ -696,12 +771,26 @@ def test_count_and_num_items() -> None:
 def test_count_with_pandas_data() -> None:
     table = pa.Table.from_pylist(
         [
-            {"sample_id": "s1", "position": 0, "modality": "text", "content_type": None,
-             "text_content": "a", "binary_content": None, "source_ref": None,
-             "materialize_error": None},
-            {"sample_id": "s1", "position": 1, "modality": "image", "content_type": None,
-             "text_content": None, "binary_content": None, "source_ref": None,
-             "materialize_error": None},
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "text",
+                "content_type": None,
+                "text_content": "a",
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+            {
+                "sample_id": "s1",
+                "position": 1,
+                "modality": "image",
+                "content_type": None,
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
         ],
         schema=INTERLEAVED_SCHEMA,
     )
@@ -729,7 +818,9 @@ def test_read_direct_file_handles_non_oserror_exceptions() -> None:
     """_read_direct_file must gracefully return None for non-OSError exceptions
     (e.g. RuntimeError from fsspec plugins) instead of crashing.
     """
-    with patch("nemo_curator.stages.interleaved.utils.materialization.fsspec.open", side_effect=RuntimeError("plugin error")):
+    with patch(
+        "nemo_curator.stages.interleaved.utils.materialization.fsspec.open", side_effect=RuntimeError("plugin error")
+    ):
         result = _read_direct_file("/some/path.jpg", {})
     assert result is None
 
@@ -761,34 +852,49 @@ def test_iter_materialized_bytes_only_yields_masked_rows(tmp_path: Path) -> None
 
     rows = [
         {
-            "sample_id": "s1", "position": -1, "modality": "metadata",
-            "content_type": "application/json", "text_content": None,
-            "binary_content": None, "source_ref": None,
+            "sample_id": "s1",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
             "materialize_error": None,
         },
         {
-            "sample_id": "s1", "position": 0, "modality": "text",
-            "content_type": "text/plain", "text_content": "hello",
-            "binary_content": None, "source_ref": None,
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": "hello",
+            "binary_content": None,
+            "source_ref": None,
             "materialize_error": None,
         },
         {
-            "sample_id": "s1", "position": 1, "modality": "image",
-            "content_type": "image/jpeg", "text_content": None,
+            "sample_id": "s1",
+            "position": 1,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
             "binary_content": None,
             "source_ref": InterleavedBatch.build_source_ref(path=str(file_a), member=None),
             "materialize_error": None,
         },
         {
-            "sample_id": "s1", "position": 2, "modality": "image",
-            "content_type": "image/jpeg", "text_content": None,
+            "sample_id": "s1",
+            "position": 2,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
             "binary_content": None,
             "source_ref": InterleavedBatch.build_source_ref(path=str(file_b), member=None),
             "materialize_error": None,
         },
     ]
     task = InterleavedBatch(
-        task_id="iter_test", dataset_name="d",
+        task_id="iter_test",
+        dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
     df = task.to_pandas().copy()
@@ -815,8 +921,11 @@ def test_iter_materialized_bytes_preserves_original_indices(tmp_path: Path) -> N
 
     rows = [
         {
-            "sample_id": "s1", "position": 0, "modality": "image",
-            "content_type": "image/jpeg", "text_content": None,
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
             "binary_content": None,
             "source_ref": InterleavedBatch.build_source_ref(path=str(img_path), member=None),
             "materialize_error": None,
@@ -847,20 +956,25 @@ def test_materialize_extracts_individual_tiff_frames(tmp_path: Path) -> None:
 
     rows = []
     for i in range(n_frames):
-        rows.append({
-            "sample_id": "s1",
-            "position": i,
-            "modality": "image",
-            "content_type": "image/tiff",
-            "text_content": None,
-            "binary_content": None,
-            "source_ref": InterleavedBatch.build_source_ref(
-                path=tar_path, member="doc.tiff", frame_index=i,
-            ),
-            "materialize_error": None,
-        })
+        rows.append(
+            {
+                "sample_id": "s1",
+                "position": i,
+                "modality": "image",
+                "content_type": "image/tiff",
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": InterleavedBatch.build_source_ref(
+                    path=tar_path,
+                    member="doc.tiff",
+                    frame_index=i,
+                ),
+                "materialize_error": None,
+            }
+        )
     task = InterleavedBatch(
-        task_id="tiff_mat", dataset_name="d",
+        task_id="tiff_mat",
+        dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
     result = materialize_task_binary_content(task)
@@ -904,17 +1018,50 @@ def test_filter_drop_invalid_rows_true() -> None:
             return pd.Series(True, index=df.index, dtype=bool)
 
     rows = [
-        {"sample_id": "s1", "position": -1, "modality": "metadata", "content_type": "application/json",
-         "text_content": None, "binary_content": None, "source_ref": None, "materialize_error": None},
-        {"sample_id": "s1", "position": 0, "modality": "text", "content_type": "text/plain",
-         "text_content": "ok", "binary_content": None, "source_ref": None, "materialize_error": None},
-        {"sample_id": "s1", "position": 1, "modality": "video", "content_type": "video/mp4",
-         "text_content": None, "binary_content": None, "source_ref": None, "materialize_error": None},
-        {"sample_id": "s1", "position": -1, "modality": "text", "content_type": "text/plain",
-         "text_content": "bad", "binary_content": None, "source_ref": None, "materialize_error": None},
+        {
+            "sample_id": "s1",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": "ok",
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 1,
+            "modality": "video",
+            "content_type": "video/mp4",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": -1,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": "bad",
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
     ]
     task = InterleavedBatch(
-        task_id="drop_test", dataset_name="d",
+        task_id="drop_test",
+        dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
     stage = _KeepAllContent(drop_invalid_rows=True)
@@ -926,11 +1073,20 @@ def test_filter_drop_invalid_rows_true() -> None:
 def test_iter_materialized_bytes_empty_mask() -> None:
     """iter_materialized_bytes yields nothing when row_mask selects no rows."""
     rows = [
-        {"sample_id": "s1", "position": 0, "modality": "text", "content_type": "text/plain",
-         "text_content": "hello", "binary_content": None, "source_ref": None, "materialize_error": None},
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": "hello",
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
     ]
     task = InterleavedBatch(
-        task_id="empty_mask", dataset_name="d",
+        task_id="empty_mask",
+        dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
     df = task.to_pandas()
@@ -949,13 +1105,30 @@ def test_annotate_metadata_only_rows() -> None:
             return pd.Series(True, index=df.index, dtype=bool)
 
     rows = [
-        {"sample_id": "s1", "position": -1, "modality": "metadata", "content_type": "application/json",
-         "text_content": None, "binary_content": None, "source_ref": None, "materialize_error": None},
-        {"sample_id": "s2", "position": -1, "modality": "metadata", "content_type": "application/json",
-         "text_content": None, "binary_content": None, "source_ref": None, "materialize_error": None},
+        {
+            "sample_id": "s1",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s2",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
     ]
     task = InterleavedBatch(
-        task_id="meta_only", dataset_name="d",
+        task_id="meta_only",
+        dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
     stage = _KeepAllContent(drop_invalid_rows=False)
@@ -966,13 +1139,30 @@ def test_annotate_metadata_only_rows() -> None:
 def test_aspect_ratio_filter_no_image_rows() -> None:
     """Filter is a no-op when there are no image rows."""
     rows = [
-        {"sample_id": "s1", "position": -1, "modality": "metadata", "content_type": "application/json",
-         "text_content": None, "binary_content": None, "source_ref": None, "materialize_error": None},
-        {"sample_id": "s1", "position": 0, "modality": "text", "content_type": "text/plain",
-         "text_content": "hello", "binary_content": None, "source_ref": None, "materialize_error": None},
+        {
+            "sample_id": "s1",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": "hello",
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
     ]
     task = InterleavedBatch(
-        task_id="no_img", dataset_name="d",
+        task_id="no_img",
+        dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
     stage = InterleavedAspectRatioFilterStage(drop_invalid_rows=False)

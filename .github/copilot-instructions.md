@@ -13,7 +13,7 @@ This scalable data preprocessing tool focuses on data curation pipelines for tex
 
 ### Python Environment
 - **Python Version**: 3.12 (recommended and tested), supports 3.10-3.12
-- **Package Manager**: [uv](https://docs.astral.sh/uv/) for fast, reliable dependency management  
+- **Package Manager**: [uv](https://docs.astral.sh/uv/) for fast, reliable dependency management
 - **Virtual Environment**: Use uv's built-in virtual environment management
 
 ### CUDA Environment (Optional)
@@ -361,7 +361,6 @@ class Resources:
     cpus: float = 1.0 # Number of CPU cores
     gpu_memory_gb: float = 0.0 # Number of GPU memory in GB (Only for single GPU)
     gpus: float = 0.0 # Number of GPUs (Only for multi-GPU)
-    entire_gpu: bool = False # Whether to use the entire GPU
 ```
 
 ### Pipelines

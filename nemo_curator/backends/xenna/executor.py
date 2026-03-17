@@ -136,11 +136,14 @@ class XennaExecutor(BaseExecutor):
 
         try:
             register_loguru_serializer()
+            # Prevent Ray from overriding accelerator env vars when num_gpus=0, letting Xenna manage them instead.
             ray.init(
                 ignore_reinit_error=True,
                 runtime_env={
                     # We need to set this env var to avoid ray from setting CUDA_VISIBLE_DEVICES and let xenna do it
-                    "env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "0"}
+                    "env_vars": {
+                        "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+                    }
                 },
             )
             # Run the pipeline (this will re-initialize ray but that'll be a no-op and the ray.init above will take precedence)
