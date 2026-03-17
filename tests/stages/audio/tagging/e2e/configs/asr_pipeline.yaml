@@ -56,12 +56,6 @@ stages:
     words_key: "words"
     resources: ${resources}
 
-  - _target_: nemo_curator.stages.audio.tagging.text.itn.InverseTextNormalizationStage
-    name: "InverseTextNorm"
-    language: ${language_short}
-    text_key: "text"
-    resources: ${resources}
-
   - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
     name: "BandwidthEstimation"
     resources: ${resources}
@@ -81,7 +75,7 @@ stages:
     full_utterance_ratio: 0.8
     punctuation_split_only: false
     resources: ${resources}
-  
+
   # Second pass ASR
   - _target_: nemo_curator.stages.audio.tagging.NeMoASRAlignerStage
     model_name: nvidia/stt_en_conformer_ctc_large

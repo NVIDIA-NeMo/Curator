@@ -68,10 +68,14 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
 
     name: str = "PrepareModuleSegments"
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["segments", "duration"]
+
     def __post_init__(self):
         if self.module not in ("tts", "asr"):
             msg = "Module must be either 'tts' or 'asr'"
             raise ValueError(msg)
+        self._rng = random.Random()  # noqa: S311
 
     def get_words_list_from_all_segments(self, metadata: dict[str, Any]) -> list[dict[str, Any]]:
         """This method gets the words list from all the speaker segments
@@ -149,7 +153,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
         rand_max_duration = (
             self.max_duration
             if self.module == "tts"
-            else random.randint(int(self.min_duration), int(self.max_duration))  # noqa: S311
+            else self._rng.randint(int(self.min_duration), int(self.max_duration))
         )
 
         for word in words:
@@ -173,9 +177,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
                     "words": [word],
                 }
                 if self.module == "asr":
-                    rand_max_duration = random.randint(  # noqa: S311
-                        int(self.min_duration), int(self.max_duration)
-                    )
+                    rand_max_duration = self._rng.randint(int(self.min_duration), int(self.max_duration))
                 continue
             # break the current segment if the pause is greater than the max pause and start a new segment
             if (
@@ -393,7 +395,7 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
         """Process one entry: build words from segments, then prepare TTS or ASR segments."""
         entry_id = data_entry.get("audio_filepath", data_entry.get("audio_item_id", ""))
         seed = int(hashlib.md5(entry_id.encode()).hexdigest()[:8], 16)  # noqa: S324
-        random.seed(seed)
+        self._rng.seed(seed)
         try:
             if "segments" not in data_entry:
                 logger.info(f"[{self.name}] No segments in metadata for: {data_entry.get('audio_filepath', '')}")

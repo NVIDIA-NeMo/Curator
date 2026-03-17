@@ -63,6 +63,12 @@ class PNCwithBERTStage(LegacySpeechStage):
     # Internal state
     _pnc_model: Any = field(default=None, repr=False)
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Setup stage on node."""
         self.setup()
@@ -94,7 +100,7 @@ class PNCwithBERTStage(LegacySpeechStage):
                 if word.get("word", "") != "":
                     word["word"] = pnc_words[i]
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> None:
+    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         if self.segments_key in data_entry:
             all_text: list[str] = []
             text_indices: list[int] = []

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import random
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import patch
@@ -204,7 +203,7 @@ class TestPerEntryRandomSeed:
         stage = PrepareModuleSegmentsStage(module="asr", min_duration=5, max_duration=20)
         seeds_used: list[int] = []
 
-        orig_seed = random.seed
+        orig_seed = stage._rng.seed
 
         def capture_seed(s: int) -> None:
             seeds_used.append(s)
@@ -213,7 +212,7 @@ class TestPerEntryRandomSeed:
         entry_a = {"audio_filepath": "file_a.wav", "segments": []}
         entry_b = {"audio_filepath": "file_b.wav", "segments": []}
 
-        with patch("nemo_curator.stages.audio.tagging.prepare_module_segments.random.seed", side_effect=capture_seed):
+        with patch.object(stage._rng, "seed", side_effect=capture_seed):
             stage.process_dataset_entry(entry_a)
             stage.process_dataset_entry(entry_b)
 
@@ -225,7 +224,7 @@ class TestPerEntryRandomSeed:
         stage = PrepareModuleSegmentsStage(module="asr", min_duration=5, max_duration=20)
         seeds_used: list[int] = []
 
-        orig_seed = random.seed
+        orig_seed = stage._rng.seed
 
         def capture_seed(s: int) -> None:
             seeds_used.append(s)
@@ -233,7 +232,7 @@ class TestPerEntryRandomSeed:
 
         entry = {"audio_filepath": "file_a.wav", "segments": []}
 
-        with patch("nemo_curator.stages.audio.tagging.prepare_module_segments.random.seed", side_effect=capture_seed):
+        with patch.object(stage._rng, "seed", side_effect=capture_seed):
             stage.process_dataset_entry(entry)
             stage.process_dataset_entry(entry)
 

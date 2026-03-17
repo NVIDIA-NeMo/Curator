@@ -23,14 +23,16 @@ import pyarrow.parquet as pq
 from nemo_curator.backends.experimental.ray_actor_pool.executor import RayActorPoolExecutor
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioBatch
+from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
 
 _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor, "ray_actors": RayActorPoolExecutor}
 
 
-def setup_executor(executor_name: str, config: dict[str, Any] | None = None) -> RayDataExecutor | XennaExecutor | RayActorPoolExecutor:
+def setup_executor(
+    executor_name: str, config: dict[str, Any] | None = None
+) -> RayDataExecutor | XennaExecutor | RayActorPoolExecutor:
     """Setup the executor for the given name."""
     try:
         executor = _executor_map[executor_name](config=config)

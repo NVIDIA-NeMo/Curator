@@ -24,6 +24,7 @@ from typing import Any
 
 import soundfile as sf
 import torch
+from fsspec.core import url_to_fs
 from loguru import logger
 
 # Import pyannote components
@@ -111,6 +112,12 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
     _vad_model: Any = field(default=None, repr=False)  # WhisperXVADModel
     _rng: random.Random = field(default=None, repr=False)
     _model_initialized: bool = field(default=False, repr=False)
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.audio_filepath_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.audio_filepath_key, "segments", "overlap_segments"]
 
     def __post_init__(self):
         """Validate config."""
@@ -225,10 +232,11 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
         # Crop to audio length (fix for PyAnnote bug)
         diarization = diarization.crop(Segment(0, len(s[0]) / fs))
 
-        # Write RTTM file
+        # Write RTTM file (cloud-aware via fsspec)
         logger.info(f"Writing {len(diarization._tracks)} turns to RTTM file")
         rttm_filepath = os.path.splitext(file_path)[0] + ".rttm"
-        with open(rttm_filepath, "w") as rttm_file:
+        rttm_fs, rttm_path = url_to_fs(rttm_filepath)
+        with rttm_fs.open(rttm_path, "w") as rttm_file:
             diarization.write_rttm(rttm_file)
 
         segments = []

@@ -40,6 +40,12 @@ class ArabicRemoveDiacriticsStage(LegacySpeechStage):
     # Stage metadata
     name: str = "ArabicRemoveDiacritics"
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.text_key, "alignment"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.text_key, "alignment"]
+
     def strip_diacritics(self, text: str, alignment: list[dict]) -> tuple[str, list[dict]]:
         text = araby.strip_diacritics(text)
         for word in alignment:

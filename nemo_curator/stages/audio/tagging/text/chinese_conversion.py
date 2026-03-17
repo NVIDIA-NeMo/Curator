@@ -46,6 +46,12 @@ class ChineseConversionStage(LegacySpeechStage):
     # Internal state
     _converter: Any = field(default=None, repr=False)
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["segments"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], ["segments"]
+
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Setup stage."""
         self._converter = OpenCC(self.convert_type)

@@ -52,6 +52,12 @@ class InverseTextNormalizationStage(LegacySpeechStage):
     _normalizer: Any = field(default=None, repr=False)
     _normalizer_initialized: bool = field(default=False, repr=False)
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["segments"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], ["segments"]
+
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Lazy-load the inverse normalizer once per worker. Reduces RAM when many workers exist."""
         if self._normalizer_initialized:

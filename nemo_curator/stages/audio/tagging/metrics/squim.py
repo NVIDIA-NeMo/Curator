@@ -56,6 +56,12 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
     model: Any = field(default=None, repr=False)
     _model_initialized: bool = field(default=False, repr=False)
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["resampled_audio_filepath", "segments"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], ["resampled_audio_filepath", "segments"]
+
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Setup stage on node."""
         self.setup()

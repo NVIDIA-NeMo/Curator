@@ -61,6 +61,12 @@ class ComputeWERStage(LegacySpeechStage):
     # Internal state
     _normalizer: Any = field(default=None, repr=False)
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["segments"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], ["segments"]
+
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Setup stage."""
         self._normalizer = Normalizer(input_case="cased", lang=self.language.lower())

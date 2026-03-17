@@ -53,6 +53,12 @@ class MergeAlignmentDiarizationStage(LegacySpeechStage):
     # Stage metadata
     name: str = "MergeAlignmentDiarization"
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["alignment", "segments"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], ["alignment", "segments"]
+
     @staticmethod
     def align_words_to_segments(
         alignment: list[dict],

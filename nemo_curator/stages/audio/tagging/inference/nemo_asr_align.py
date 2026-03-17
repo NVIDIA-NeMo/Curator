@@ -319,7 +319,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         meta_indices = []
         for i, data in enumerate(entries):
             split_filepaths = data.get("split_filepaths")
-            has_splits = split_filepaths is not None and isinstance(split_filepaths, list) and len(split_filepaths) > 0
+            has_splits = isinstance(split_filepaths, list) and len(split_filepaths) > 0
             if has_splits or split_filepaths is None:
                 meta_indices.append(i)
             else:

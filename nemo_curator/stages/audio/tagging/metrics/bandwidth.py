@@ -52,6 +52,12 @@ class BandwidthEstimationStage(LegacySpeechStage):
     # Stage metadata
     name: str = "BandwidthEstimation"
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["audio_filepath", "segments"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], ["audio_filepath", "segments"]
+
     def _estimate_bandwidth(self, audio: "np.ndarray", sample_rate: int) -> int:
         """Estimate the bandwidth of an audio signal."""
         hop_length = int(sample_rate * self.stride_seconds)

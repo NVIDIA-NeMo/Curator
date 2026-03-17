@@ -117,6 +117,12 @@ class WhisperXVADStage(LegacySpeechStage):
     _vad_model: Any = field(default=None, repr=False)
     _model_initialized: bool = field(default=False, repr=False)
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.audio_filepath_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.audio_filepath_key, self.segments_key]
+
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Setup stage on node."""
         self.setup()

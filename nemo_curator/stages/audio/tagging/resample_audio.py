@@ -57,6 +57,12 @@ class ResampleAudioStage(LegacySpeechStage):
         fs, path = url_to_fs(self.resampled_audio_dir)
         fs.makedirs(path, exist_ok=True)
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["audio_filepath"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], ["audio_filepath", "audio_item_id", "resampled_audio_filepath", "duration"]
+
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         """
         Process a single dataset entry by resampling the audio file.
@@ -86,12 +92,37 @@ class ResampleAudioStage(LegacySpeechStage):
         fs, output_path = url_to_fs(output_audio_path)
         if not fs.exists(output_path):
             if input_audio_path.lower().endswith(".wav"):
-                cmd = f'sox --no-dither -V1 "{input_audio_path}" -r {self.target_sample_rate} -c {self.target_nchannels} -b 16 "{output_audio_path}"'
+                cmd = [
+                    "sox",
+                    "--no-dither",
+                    "-V1",
+                    input_audio_path,
+                    "-r",
+                    str(self.target_sample_rate),
+                    "-c",
+                    str(self.target_nchannels),
+                    "-b",
+                    "16",
+                    output_audio_path,
+                ]
             else:
-                cmd = f'ffmpeg -i "{input_audio_path}" -ar {self.target_sample_rate} -ac {self.target_nchannels} -acodec pcm_s16le "{output_audio_path}" -v error'
+                cmd = [
+                    "ffmpeg",
+                    "-i",
+                    input_audio_path,
+                    "-ar",
+                    str(self.target_sample_rate),
+                    "-ac",
+                    str(self.target_nchannels),
+                    "-acodec",
+                    "pcm_s16le",
+                    output_audio_path,
+                    "-v",
+                    "error",
+                ]
 
             try:
-                subprocess.run(cmd, check=True, capture_output=True, text=True, shell=True)  # noqa: S602
+                subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603
             except subprocess.CalledProcessError as e:
                 msg = f"Error converting {input_audio_path}: {e}"
                 raise RuntimeError(msg) from e

@@ -51,6 +51,19 @@ class SplitLongAudioStage(LegacySpeechStage):
     # Stage metadata
     name: str = "SplitLongAudio"
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["duration", "resampled_audio_filepath"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [
+            "duration",
+            "resampled_audio_filepath",
+            "split_filepaths",
+            "split_metadata",
+            "split_offsets",
+            "split_timestamps",
+        ]
+
     def get_split_points(self, metadata: dict) -> list[float]:
         """Get the split points for the audio file based on segments."""
         splits = []
@@ -150,6 +163,12 @@ class JoinSplitAudioMetadataStage(LegacySpeechStage):
 
     # Stage metadata
     name: str = "JoinSplitAudioMetadata"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], ["text", "alignment"]
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         """
