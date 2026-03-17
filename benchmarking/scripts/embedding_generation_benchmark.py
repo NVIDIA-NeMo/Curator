@@ -182,7 +182,6 @@ def run_embedding_generation_benchmark(
 
     return {
         "params": {
-            "model_variation": variation.value,
             "max_seq_length": max_seq_length,
         },
         "metrics": {
@@ -235,7 +234,9 @@ def main() -> int:
     success_code = 1
     result_dict: dict[str, Any] = {"params": vars(args), "metrics": {"is_success": False}, "tasks": []}
     try:
-        result_dict.update(run_embedding_generation_benchmark(**vars(args)))
+        run_result = run_embedding_generation_benchmark(**vars(args))
+        result_dict["params"].update(run_result.pop("params", {}))
+        result_dict.update(run_result)
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path)

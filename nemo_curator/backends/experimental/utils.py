@@ -106,8 +106,9 @@ def _setup_stage_on_node(stage: ProcessingStage, node_info: NodeInfo, worker_met
     """Ray remote function to execute setup_on_node for a stage.
 
     This runs as a Ray remote task (not an actor).
-    If the stage initializes vLLM, vLLM's auto-detection will force spawn
-    only forces spawn inside Ray actors, otherwise it will use fork which will result in CUDA fork errors.
+    vLLM's auto-detection only forces the spawn multiprocessing method inside Ray actors,
+    not in Ray tasks. Without this override, vLLM defaults to fork in tasks and hits
+    RuntimeError: Cannot re-initialize CUDA in forked subprocess.
     We explicitly set the environment variable to spawn to prevent this.
     """
     os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
