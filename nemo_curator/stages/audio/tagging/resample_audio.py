@@ -55,7 +55,6 @@ class ResampleAudioStage(LegacySpeechStage):
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         fs, path = url_to_fs(self.resampled_audio_dir)
-        self.resampled_audio_dir = path
         fs.makedirs(path, exist_ok=True)
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:

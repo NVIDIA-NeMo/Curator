@@ -106,6 +106,10 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
             end_frame = math.floor(end * sr)
             num_frames = end_frame - start_frame
 
+            if num_frames <= 0:
+                logger.warning(f"[{self.name}] Zero-length segment at {start}-{end}s in {audio_path}, skipping")
+                continue
+
             y = audio[start_frame:end_frame]
             y = torch.from_numpy(y).unsqueeze(0)
 

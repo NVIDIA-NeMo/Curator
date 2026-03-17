@@ -131,13 +131,12 @@ class PreserveByValueStage(LegacySpeechStage):
             msg = 'Operator must be one from the list: "lt" (less than), "le" (less than or equal to), "eq" (equal to), "ne" (not equal to), "ge" (greater than or equal to), "gt" (greater than)'
             raise ValueError(msg)
 
-    def process_dataset_entry(self, data_entry: AudioBatch) -> list[AudioBatch]:
+    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         input_value = data_entry[self.input_value_key]
         target = self.target_value
         if self.operator(input_value, target):
-            return [AudioBatch(data=data_entry)]
-        else:
-            return []
+            return [AudioBatch(data=[data_entry])]
+        return []
 
 
 # ---------------------------------------------------------------------------

@@ -65,17 +65,17 @@ class TestSplitLongAudioStageProcessDatasetEntry:
     """Tests for SplitLongAudioStage.process_dataset_entry (no actual audio I/O)."""
 
     def test_short_audio_passthrough(self, audio_batch: Callable[..., AudioBatch]) -> None:
-        """When duration < suggested_max_len, entry returned with split_filepaths None."""
+        """When duration < suggested_max_len, entry returned with split_filepaths wrapping the filepath."""
         stage = SplitLongAudioStage(suggested_max_len=3600.0)
         batch = audio_batch(
             duration=100.0,
             audio_item_id="test_1",
-            resampled_audio_filepath=None,
+            resampled_audio_filepath="test_1_resampled.wav",
         )
         batches = stage.process_dataset_entry(batch.data[0])
         assert len(batches) == 1
         out = batches[0].data[0]
-        assert out.get("split_filepaths") is None
+        assert out["split_filepaths"] == ["test_1_resampled.wav"]
 
 
 class TestJoinSplitAudioMetadataStage:

@@ -203,7 +203,10 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         """Process a single entry for diarization and overlap detection."""
-        file_path = data_entry[self.audio_filepath_key]
+        file_path = data_entry.get(self.audio_filepath_key)
+        if not file_path:
+            msg = f"[{self.name}] Missing key '{self.audio_filepath_key}' in entry: {data_entry.get('audio_item_id', 'unknown')}"
+            raise ValueError(msg)
 
         # Load audio using soundfile (avoids torchcodec/FFmpeg dependency)
         data, fs = sf.read(file_path, dtype="float32")

@@ -74,7 +74,7 @@ class BandwidthEstimationStage(LegacySpeechStage):
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         """Estimate bandwidth for audio entry."""
-        audio_path = data_entry.get("audio_filepath")
+        audio_path = data_entry["audio_filepath"]
         try:
             audio, sample_rate = librosa.load(path=audio_path, sr=None)
         except Exception as ex:  # noqa: BLE001

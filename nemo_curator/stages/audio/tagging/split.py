@@ -85,7 +85,7 @@ class SplitLongAudioStage(LegacySpeechStage):
         splits = self.get_split_points(data_entry)
 
         # Load audio
-        audio_path = data_entry.get("resampled_audio_filepath", data_entry.get("audio_filepath"))
+        audio_path = data_entry["resampled_audio_filepath"]
         audio, sr = torchaudio.load(audio_path)
 
         path, filename = os.path.split(audio_path)
