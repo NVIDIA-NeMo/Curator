@@ -47,11 +47,14 @@ class QwenLM(ModelInterface):
     def model_id_names(self) -> list[str]:
         return [_QWEN_LM_MODEL_ID]
 
-    def __init__(self, model_dir: str, caption_batch_size: int, fp8: bool, max_output_tokens: int):
+    def __init__(
+        self, model_dir: str, caption_batch_size: int, fp8: bool, max_output_tokens: int, enforce_eager: bool = False
+    ):
         self.model_dir = model_dir
         self.caption_batch_size = caption_batch_size
         self.fp8 = fp8
         self.max_output_tokens = max_output_tokens
+        self.enforce_eager = enforce_eager
 
     def setup(self) -> None:
         if not VLLM_AVAILABLE:
@@ -62,7 +65,7 @@ class QwenLM(ModelInterface):
         self.llm = LLM(
             model=self.weight_file,
             quantization="fp8" if self.fp8 else None,
-            enforce_eager=False,
+            enforce_eager=self.enforce_eager,
         )
         self.sampling_params = SamplingParams(
             temperature=0.1,

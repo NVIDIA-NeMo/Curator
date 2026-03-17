@@ -124,3 +124,34 @@ def video_fixture_path() -> Path:
     if not path.exists():
         pytest.fail(f"Test video fixture missing from repo: {path}")
     return path
+
+
+@pytest.fixture(scope="module")
+def enhancement_stage(qwen_model_dir: str):
+    """Instantiate and set up CaptionEnhancementStage once per module.
+
+    setup() loads vLLM's LLM() with Qwen2.5-14B-Instruct — the text-only
+    caption enhancement model.
+    """
+    from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID
+    from nemo_curator.stages.video.caption.caption_enhancement import CaptionEnhancementStage
+
+    weight_path = Path(qwen_model_dir) / _QWEN_LM_MODEL_ID
+    if not weight_path.exists():
+        pytest.skip(
+            f"Qwen14B weights not found at {weight_path}. "
+            f"Pass --model-dir or set ${_ENV_VAR} to a directory "
+            f"containing Qwen/Qwen2.5-14B-Instruct/."
+        )
+
+    stage = CaptionEnhancementStage(
+        model_dir=qwen_model_dir,
+        model_variant="qwen",
+        model_batch_size=1,
+        fp8=False,
+        max_output_tokens=128,  # short output keeps the test fast
+        enforce_eager=True,  # skip CUDA graph capture
+        verbose=False,
+    )
+    stage.setup()
+    return stage
