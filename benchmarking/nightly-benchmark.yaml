@@ -557,9 +557,9 @@ entries:
       --model-dir={dataset:mscoco_model_weights,files}
       --executor=ray_data
       --tar-files-per-partition=1
-      --batch-size=200
-      --embedding-batch-size=200
-      --aesthetic-batch-size=200
+      --batch-size=1000
+      --embedding-batch-size=500
+      --aesthetic-batch-size=500
       --aesthetic-threshold=0.9
       --verbose
     timeout_s: 1500
