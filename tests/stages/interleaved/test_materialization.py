@@ -58,7 +58,10 @@ def _image_row(
         "text_content": None,
         "binary_content": None,
         "source_ref": InterleavedBatch.build_source_ref(
-            path=path, member=member, byte_offset=byte_offset, byte_size=byte_size,
+            path=path,
+            member=member,
+            byte_offset=byte_offset,
+            byte_size=byte_size,
         ),
         "materialize_error": None,
     }
@@ -87,23 +90,27 @@ def test_get_frame_index_returns_none_for_missing_values(val: object, expected: 
     [pytest.param(float("nan"), id="nan_path"), pytest.param("", id="empty_path")],
 )
 def test_classify_rows_missing_path_variants(path_val: object) -> None:
-    df = pd.DataFrame({
-        "_src_path": [path_val],
-        "_src_member": [None],
-        "_src_byte_offset": [None],
-        "_src_byte_size": [None],
-    })
+    df = pd.DataFrame(
+        {
+            "_src_path": [path_val],
+            "_src_member": [None],
+            "_src_byte_offset": [None],
+            "_src_byte_size": [None],
+        }
+    )
     result = _classify_rows(df, pd.Series([True]))
     assert result.missing == [0]
 
 
 def test_classify_rows_range_with_zero_size() -> None:
-    df = pd.DataFrame({
-        "_src_path": ["/shard.tar"],
-        "_src_member": ["img.jpg"],
-        "_src_byte_offset": [100],
-        "_src_byte_size": [0],
-    })
+    df = pd.DataFrame(
+        {
+            "_src_path": ["/shard.tar"],
+            "_src_member": ["img.jpg"],
+            "_src_byte_offset": [100],
+            "_src_byte_size": [0],
+        }
+    )
     result = _classify_rows(df, pd.Series([True]))
     assert "/shard.tar" in result.tar_extract
     assert not result.range_read
@@ -322,18 +329,21 @@ def test_materialize_with_only_missing_binary_false(tmp_path: Path) -> None:
     img_path = tmp_path / "img.jpg"
     img_path.write_bytes(new_bytes)
 
-    rows = [{
-        "sample_id": "s1",
-        "position": 0,
-        "modality": "image",
-        "content_type": "image/jpeg",
-        "text_content": None,
-        "binary_content": b"old-bytes",
-        "source_ref": InterleavedBatch.build_source_ref(path=str(img_path), member=None),
-        "materialize_error": None,
-    }]
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": b"old-bytes",
+            "source_ref": InterleavedBatch.build_source_ref(path=str(img_path), member=None),
+            "materialize_error": None,
+        }
+    ]
     task = InterleavedBatch(
-        task_id="re_mat", dataset_name="d",
+        task_id="re_mat",
+        dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
     result = materialize_task_binary_content(task, only_missing_binary=False)

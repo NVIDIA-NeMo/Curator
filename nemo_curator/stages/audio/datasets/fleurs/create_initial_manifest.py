@@ -14,7 +14,9 @@
 
 import os
 from dataclasses import dataclass
+from typing import Any
 
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.datasets.file_utils import download_file, extract_archive
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioBatch, _EmptyTask
@@ -137,6 +139,9 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioBatch]):
             download_file(file_url, str(dst_folder))
 
         extract_archive(f"{dst_folder}/{self.split}.tar.gz", str(dst_folder), force_extract=True)
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def process(self, _: _EmptyTask) -> list[AudioBatch]:
         self.download_extract_files(self.raw_data_dir)
