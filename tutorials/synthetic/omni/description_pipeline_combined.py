@@ -85,8 +85,6 @@ def create_description_pipeline(
             image_parent=image_parent,
         ))
 
-    # Do not pass cuda_devices so Xenna/Ray can assign one GPU per worker.
-    # Using cuda_devices=[0] would force all workers onto GPU 0 and cause OOM.
     pipeline.add_stage(DescriptionStage(num_workers=description_num_workers))
 
     pipeline.add_stage(DescriptionValidatorStage())
@@ -136,14 +134,29 @@ def parse_args() -> argparse.Namespace:
         default="xenna",
         help="Execution backend: 'xenna' (default) or 'raydata' (Ray Data, experimental).",
     )
+    parser.add_argument(
+        "--metrics-dir",
+        type=str,
+        help="Directory for Prometheus/Grafana metrics. Start Prometheus first with the same path: "
+        "python -m nemo_curator.metrics.start_prometheus_grafana --yes --metrics_dir <path>",
+    )
+    parser.add_argument(
+        "--dashboard-host",
+        type=str,
+        default="127.0.0.1",
+        help="Ray dashboard bind address. Use 0.0.0.0 when accessing via SSH tunnel from another machine (e.g. SLURM).",
+    )
     return parser.parse_args()
 
 def main() -> None:
     """Main function to run the description generation pipeline."""
     args = parse_args()
 
-    client = RayClient(metrics_dir='metrics')
-    client.start()
+    if args.metrics_dir is not None:
+        client = RayClient(metrics_dir=args.metrics_dir, ray_dashboard_host=args.dashboard_host)
+        client.start()
+    else:
+        client = None
 
     pipeline = create_description_pipeline(
         input_path=Path(args.input_path),
@@ -172,7 +185,9 @@ def main() -> None:
     elapsed = time.perf_counter() - start
     print(f"\nPipeline completed in {elapsed:.1f}s ({elapsed / 60:.1f} min)")
     print(f"Tasks processed: {len(output_tasks)}")
-    client.stop()
+    
+    if client is not None:
+        client.stop()
 
 
 if __name__ == "__main__":
