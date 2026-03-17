@@ -44,49 +44,34 @@ class EmbeddingModelVariation(Enum):
     VLLM_TEXT_PRETOKENIZED = "vllm_text_pretokenized"
 
 
-def _resolve_max_seq_length(model_identifier: str, max_seq_length: int | None) -> int:
-    """Resolve and clamp max_seq_length to the model's actual limit.
+def _resolve_max_seq_length(model_identifier: str) -> int:
+    """Resolve max_seq_length from the sentence-transformers config.
 
-    Different backends handle sequence length limits differently:
-    - SentenceTransformers silently truncates to its own max_seq_length (often
-      lower than max_position_embeddings, e.g. 256 for MiniLM).
-    - HF AutoModel/TokenizerStage uses tokenizer.model_max_length, falling back
-      to max_position_embeddings.
-    - vLLM reads the sentence-transformers config and strictly enforces it,
-      refusing to start if max_model_len exceeds it.
+    vLLM reads max_seq_length from the Sentence Transformers config (e.g. 256
+    for MiniLM), which is often lower than max_position_embeddings (512).
+    SentenceTransformers also silently truncates to this value, but HF
+    AutoModel does not — it uses the full max_position_embeddings.
 
-    To ensure apples-to-apples comparison across backends, we resolve the
-    model's effective limit once and clamp any user-provided value to it.
+    We use the sentence-transformers config as the single source of truth
+    so all backends process the same number of tokens.
     """
-    from transformers import AutoConfig, AutoTokenizer
+    from vllm.transformers_utils.config import get_sentence_transformer_tokenizer_config
 
-    tokenizer = AutoTokenizer.from_pretrained(model_identifier)
-    model_limit = tokenizer.model_max_length
+    st_config = get_sentence_transformer_tokenizer_config(model_identifier)
+    if st_config is None:
+        msg = f"No sentence-transformers config found for {model_identifier}"
+        raise ValueError(msg)
 
-    # Guard against HF bug where some models set model_max_length to max(int)
-    if model_limit > 1e5:  # noqa: PLR2004
-        config = AutoConfig.from_pretrained(model_identifier)
-        model_limit = config.max_position_embeddings
-
-    if max_seq_length is None:
-        logger.info(f"Auto-resolved max_seq_length={model_limit} from model config")
-        return model_limit
-
-    if max_seq_length > model_limit:
-        logger.warning(
-            f"Requested max_seq_length={max_seq_length} exceeds model limit ({model_limit}). "
-            f"Clamping to {model_limit} for consistent results across backends."
-        )
-        return model_limit
-
-    return max_seq_length
+    model_limit = st_config["max_seq_length"]
+    logger.info(f"Resolved max_seq_length={model_limit} from sentence-transformers config")
+    return model_limit
 
 
 def _create_embedding_stages(
     model_identifier: str,
     model_variation: EmbeddingModelVariation,
     model_inference_batch_size: int,
-    max_seq_length: int | None,
+    max_seq_length: int,
     embedding_pooling: str,
 ) -> list:
     """Create the embedding stage(s) for the given model variation."""
@@ -114,9 +99,7 @@ def _create_embedding_stages(
         # sentence-transformers which silently truncates.  Pass max_seq_length
         # through so vLLM knows the intended limit and won't error on inputs
         # that exceed the model's default max_position_embeddings.
-        vllm_init_kwargs: dict[str, Any] = {}
-        if max_seq_length is not None:
-            vllm_init_kwargs["max_model_len"] = max_seq_length
+        vllm_init_kwargs: dict[str, Any] = {"max_model_len": max_seq_length}
 
         return [
             VLLMEmbeddingModelStage(
@@ -140,14 +123,13 @@ def run_embedding_generation_benchmark(
     model_identifier: str,
     model_inference_batch_size: int,
     model_variation: str,
-    max_seq_length: int | None,
     embedding_pooling: str,
     input_format: str = "parquet",
     **kwargs: Any,  # noqa: ANN401, ARG001
 ) -> dict[str, Any]:
     """Run the embedding generation benchmark and collect comprehensive metrics."""
     variation = EmbeddingModelVariation(model_variation)
-    max_seq_length = _resolve_max_seq_length(model_identifier, max_seq_length)
+    max_seq_length = _resolve_max_seq_length(model_identifier)
     input_path = Path(input_path)
     output_path = Path(output_path).absolute()
     output_path.mkdir(parents=True, exist_ok=True)
@@ -160,7 +142,6 @@ def run_embedding_generation_benchmark(
     logger.info(f"Model variation: {variation.name}")
     logger.info(f"Batch size: {model_inference_batch_size}")
     logger.info(f"Embedding pooling: {embedding_pooling}")
-    logger.info(f"Max sequence length: {max_seq_length}")
     logger.info(f"Input format: {input_format}")
     logger.info(f"Executor: {executor}")
 
@@ -232,12 +213,6 @@ def main() -> int:
         default="vllm_text",
         choices=[v.value for v in EmbeddingModelVariation],
         help="Embedding model backend (default: vllm_text)",
-    )
-    parser.add_argument(
-        "--max-seq-length",
-        type=int,
-        default=None,
-        help="Max sequence length for tokenization (auto-detected from model if not set)",
     )
     parser.add_argument(
         "--embedding-pooling",
