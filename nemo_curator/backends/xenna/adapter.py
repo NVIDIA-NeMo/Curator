@@ -54,8 +54,14 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
 
     @property
     def env_info(self) -> pipelines_v1.RuntimeEnv | None:
-        """Runtime environment for this stage."""
-        # Can be customized per stage if needed
+        """Runtime environment for this stage.
+
+        When the pipeline has resolved pip_specs to a venv (_resolved_site_packages_path),
+        we return a RuntimeEnv with PYTHONPATH so this stage's workers use that env.
+        """
+        resolved_path = getattr(self.processing_stage, "_resolved_site_packages_path", None)
+        if resolved_path is not None:
+            return pipelines_v1.RuntimeEnv(extra_env_vars={"PYTHONPATH": str(resolved_path)})
         return None
 
     def process_data(self, tasks: list[Task]) -> list[Task] | None:

@@ -85,6 +85,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     name = "ProcessingStage"
     resources = Resources(cpus=1.0)
     batch_size = 1
+    pip_specs: list[str] | None = None
 
     @property
     @final
