@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 import time
 from typing import TYPE_CHECKING, Any
 
+import torch
 from huggingface_hub import snapshot_download
 from vllm import LLM
 
@@ -112,6 +114,12 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         # already cached (e.g. in air-gapped environments), snapshot_download falls
         # back to the local cache automatically.
         self._initialize_vllm(local_files_only=False)
+
+    def teardown(self) -> None:
+        del self.model
+        self.model = None
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         if self.model is None:
