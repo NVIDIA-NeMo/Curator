@@ -57,6 +57,7 @@ class QwenVL(ModelInterface):
         max_output_tokens: int = 512,
         model_does_preprocess: bool = False,
         disable_mmcache: bool = False,
+        enforce_eager: bool = False,
         stage2_prompt_text: str | None = None,
         verbose: bool = False,
     ):
@@ -67,6 +68,7 @@ class QwenVL(ModelInterface):
         self.max_output_tokens = max_output_tokens
         self.model_does_preprocess = model_does_preprocess
         self.disable_mmcache = disable_mmcache
+        self.enforce_eager = enforce_eager
         self.stage2_prompt = stage2_prompt_text
         self.verbose = verbose
         self.weight_file = str(pathlib.Path(model_dir) / _QWEN_VARIANTS_INFO[model_variant])
@@ -96,6 +98,7 @@ class QwenVL(ModelInterface):
             mm_processor_kwargs=mm_processor_kwargs,
             mm_processor_cache_gb=0 if self.disable_mmcache else 4,
             max_num_batched_tokens=32768,
+            enforce_eager=self.enforce_eager,
         )
         self.sampling_params = SamplingParams(
             temperature=0.1,
@@ -104,9 +107,10 @@ class QwenVL(ModelInterface):
             max_tokens=self.max_output_tokens,
             stop_token_ids=[],
         )
-        logger.info(
-            "CUDA graph enabled for sequences smaller than 16k tokens; adjust accordingly for even longer sequences"
-        )
+        if self.enforce_eager:
+            logger.info("CUDA graph capture disabled (enforce_eager=True)")
+        else:
+            logger.info("CUDA graph capture enabled")
 
     def generate(
         self, videos: list[dict[str, Any]], generate_stage2_caption: bool = False, batch_size: int = 16

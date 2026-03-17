@@ -157,3 +157,4 @@ data/
 .DS_Store
 AGENTS.md
 alm_output/
+.tmp/

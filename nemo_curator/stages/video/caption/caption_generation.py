@@ -40,6 +40,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     max_output_tokens: int = 512
     model_does_preprocess: bool = False
     disable_mmcache: bool = False
+    enforce_eager: bool = False
     verbose: bool = False
     generate_stage2_caption: bool = False
     stage2_prompt_text: str | None = None
@@ -61,6 +62,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 max_output_tokens=self.max_output_tokens,
                 model_does_preprocess=self.model_does_preprocess,
                 disable_mmcache=self.disable_mmcache,
+                enforce_eager=self.enforce_eager,
             )
         else:
             msg = f"Unsupported model variant: {self.model_variant}"
