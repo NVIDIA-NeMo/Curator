@@ -40,11 +40,13 @@ class _AttrDict(dict):
 
 
 @dataclass
-class AudioEntry(Task[dict]):
+class AudioTask(Task[dict]):
     """A single audio manifest entry.
 
     Represents one line from a JSONL manifest file (e.g. one audio file
     with its metadata).  ``data`` is always a single ``dict``, never a list.
+
+    Matches the ``VideoTask`` naming convention used by the video modality.
 
     Args:
         data: Manifest entry dict (e.g. ``{"audio_filepath": "...", "text": "..."}``).

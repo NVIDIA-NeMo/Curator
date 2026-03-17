@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from nemo_curator.stages.audio.common import AudioEntryStage
+from nemo_curator.stages.audio.common import AudioTaskStage
 
 MAX_OVERLAP_PERCENTAGE = 100
 
@@ -148,7 +148,7 @@ def _get_filepath_from_stats(stats: dict[str, Any] | None, key: str) -> str | No
 
 
 @dataclass
-class ALMDataOverlapStage(AudioEntryStage):
+class ALMDataOverlapStage(AudioTaskStage):
     """Filter overlapping ALM windows.
 
     Removes windows with overlap exceeding the threshold, keeping

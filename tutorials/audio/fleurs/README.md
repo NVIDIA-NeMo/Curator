@@ -22,6 +22,7 @@ python tutorials/audio/fleurs/pipeline.py \
   --split dev \
   --wer_threshold 75 \
   --gpus 1 \
+  --backend xenna \
   --clean \
   --verbose
 ```
@@ -32,6 +33,35 @@ Key arguments:
 - `--lang`: FLEURS language code (e.g., `hy_am`, `en_us`, etc.)
 - `--split`: FLEURS split (`train`, `dev`, or `test`)
 - `--wer_threshold`: Keep samples with WER less-or-equal to this value
+- `--backend`: `xenna` (default, production) or `ray_data` (experimental Ray Data)
+
+### Choosing a Backend
+
+Both the Python script (`pipeline.py`) and the YAML runner (`run.py`) support two execution backends:
+
+| Backend | Description | When to use |
+|---------|-------------|-------------|
+| `xenna` | Production executor (default). Uses Cosmos-Xenna streaming engine with automatic worker allocation. | Production workloads, CI/nightly benchmarks. |
+| `ray_data` | Experimental executor built on Ray Data `map_batches`. | Development, machines where Xenna cannot detect GPUs, or when Ray Data integration is preferred. |
+
+**Python script** — pass `--backend`:
+
+```bash
+python tutorials/audio/fleurs/pipeline.py \
+  --raw_data_dir ./example_audio/fleurs \
+  --model_name nvidia/parakeet-tdt-0.6b-v2 \
+  --lang en_us --split dev --wer_threshold 75 --gpus 1 \
+  --backend ray_data
+```
+
+**YAML runner** — override `backend=`:
+
+```bash
+python tutorials/audio/fleurs/run.py \
+  --config-path . --config-name pipeline.yaml \
+  raw_data_dir=./example_audio/fleurs \
+  backend=ray_data
+```
 
 ### Alternative: YAML config + Hydra
 
@@ -40,16 +70,16 @@ You can run the same workflow by instantiating stages from a YAML config.
 Option 1: Edit `pipeline.yaml` to set `raw_data_dir`, then run:
 
 ```bash
-SCRIPT_DIR=tutorials/audio/fleurs
-python ${SCRIPT_DIR}/run.py --config-path ${SCRIPT_DIR} --config-name pipeline.yaml
+python tutorials/audio/fleurs/run.py \
+  --config-path . --config-name pipeline.yaml \
+  raw_data_dir=./example_audio/fleurs
 ```
 
 Option 2: Override values from the command line without editing the file:
 
 ```bash
-SCRIPT_DIR=tutorials/audio/fleurs
-python ${SCRIPT_DIR}/run.py \
-  --config-path ${SCRIPT_DIR} --config-name pipeline.yaml \
+python tutorials/audio/fleurs/run.py \
+  --config-path . --config-name pipeline.yaml \
   raw_data_dir=./example_audio/fleurs \
   data_split=dev \
   processors.0.lang=en_us \
@@ -57,11 +87,14 @@ python ${SCRIPT_DIR}/run.py \
   processors.4.target_value=50.0
 ```
 
+Note: `--config-path .` tells Hydra to look for configs in the same directory as `run.py`.
+
 Notes on overrides (match indices in `processors` list inside `pipeline.yaml`):
 - `processors.0.lang`: language for the FLEURS downloader stage
 - `processors.1.model_name`: NeMo ASR model used for inference
 - `processors.4.target_value`: WER threshold used for filtering
 - `data_split`: top-level variable referenced by the first stage as `split`
+- `backend`: `xenna` (default) or `ray_data` (experimental Ray Data)
 
 ### Output
 

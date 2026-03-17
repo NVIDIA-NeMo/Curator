@@ -17,7 +17,7 @@
 import pytest
 
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
-from nemo_curator.tasks import AudioEntry
+from nemo_curator.tasks import AudioTask
 
 
 class TestALMDataOverlap:
@@ -25,16 +25,16 @@ class TestALMDataOverlap:
 
     def test_validate_input_valid(self, entry_with_windows: dict) -> None:
         stage = ALMDataOverlapStage(overlap_percentage=50, target_duration=120.0)
-        assert stage.validate_input(AudioEntry(data=entry_with_windows)) is True
+        assert stage.validate_input(AudioTask(data=entry_with_windows)) is True
 
     def test_validate_input_missing_windows(self) -> None:
         stage = ALMDataOverlapStage(overlap_percentage=50, target_duration=120.0)
-        assert stage.validate_input(AudioEntry(data={"audio_filepath": "a.wav"})) is False
+        assert stage.validate_input(AudioTask(data={"audio_filepath": "a.wav"})) is False
 
     def test_process_raises_on_missing_windows(self) -> None:
         stage = ALMDataOverlapStage(overlap_percentage=50, target_duration=120.0)
         with pytest.raises(ValueError, match="missing required columns"):
-            stage.process(AudioEntry(data={"audio_filepath": "a.wav"}))
+            stage.process(AudioTask(data={"audio_filepath": "a.wav"}))
 
     def test_filters_overlapping_windows(self, entry_with_windows: dict) -> None:
         stage = ALMDataOverlapStage(
@@ -42,8 +42,8 @@ class TestALMDataOverlap:
             target_duration=120.0,
         )
 
-        result = stage.process(AudioEntry(data=entry_with_windows))
-        assert isinstance(result, AudioEntry)
+        result = stage.process(AudioTask(data=entry_with_windows))
+        assert isinstance(result, AudioTask)
         output = result.data
         assert "filtered_windows" in output
         assert len(output["filtered_windows"]) <= len(entry_with_windows.get("windows", []))
@@ -54,7 +54,7 @@ class TestALMDataOverlap:
             target_duration=120.0,
         )
 
-        result = stage.process(AudioEntry(data=entry_with_windows))
+        result = stage.process(AudioTask(data=entry_with_windows))
         output = result.data
         filtered = output.get("filtered_windows", [])
         assert len(filtered) >= 0
@@ -69,8 +69,8 @@ class TestALMDataOverlap:
             target_duration=120.0,
         )
 
-        aggressive_result = aggressive_stage.process(AudioEntry(data=entry_with_windows))
-        permissive_result = permissive_stage.process(AudioEntry(data=entry_with_windows))
+        aggressive_result = aggressive_stage.process(AudioTask(data=entry_with_windows))
+        permissive_result = permissive_stage.process(AudioTask(data=entry_with_windows))
 
         aggressive_count = len(aggressive_result.data.get("filtered_windows", []))
         permissive_count = len(permissive_result.data.get("filtered_windows", []))
@@ -84,9 +84,9 @@ class TestALMDataOverlap:
             "audio_filepath": "/path/to/audio.wav",
             "windows": [],
         }
-        result = stage.process(AudioEntry(data=entry))
+        result = stage.process(AudioTask(data=entry))
 
-        assert isinstance(result, AudioEntry)
+        assert isinstance(result, AudioTask)
         assert result.data["audio_filepath"] == "/path/to/audio.wav"
 
     def test_validation(self) -> None:
@@ -105,7 +105,7 @@ class TestALMDataOverlap:
             target_duration=120.0,
         )
 
-        result = stage.process(AudioEntry(data=entry_with_windows))
+        result = stage.process(AudioTask(data=entry_with_windows))
         output = result.data
         assert "filtered_dur" in output
         assert output["filtered_dur"] >= 0
@@ -134,7 +134,7 @@ class TestALMDataOverlapIntegration:
         total_filtered_dur = 0.0
 
         for entry in sample_entries:
-            builder_result = builder.process(AudioEntry(data=entry))
+            builder_result = builder.process(AudioTask(data=entry))
             builder_output = builder_result.data
             total_builder_windows += len(builder_output.get("windows", []))
 

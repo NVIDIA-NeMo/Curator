@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ALM Manifest Writer Stage — writes AudioEntry dicts to a JSONL manifest."""
+"""ALM Manifest Writer Stage — writes AudioTask dicts to a JSONL manifest."""
 
 from __future__ import annotations
 
@@ -24,12 +24,12 @@ from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioEntry, FileGroupTask
+from nemo_curator.tasks import AudioTask, FileGroupTask
 
 
 @dataclass
-class ALMManifestWriterStage(ProcessingStage[AudioEntry, FileGroupTask]):
-    """Append a single AudioEntry to a JSONL manifest file.
+class ALMManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
+    """Append a single AudioTask to a JSONL manifest file.
 
     The file is truncated on ``setup()`` so repeated pipeline runs
     produce a clean output. Supports local and cloud paths via fsspec.
@@ -50,6 +50,8 @@ class ALMManifestWriterStage(ProcessingStage[AudioEntry, FileGroupTask]):
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         if self._setup_done:
             return
+        # Truncate to ensure a clean file; guard prevents re-truncation
+        # if setup() is called again (e.g. after Ray serialization).
         fs, path = url_to_fs(self.output_path)
         parent_dir = "/".join(path.split("/")[:-1])
         if parent_dir:
@@ -59,7 +61,7 @@ class ALMManifestWriterStage(ProcessingStage[AudioEntry, FileGroupTask]):
         logger.info(f"ALMManifestWriterStage: writing to {self.output_path}")
         self._setup_done = True
 
-    def process(self, task: AudioEntry) -> FileGroupTask:
+    def process(self, task: AudioTask) -> FileGroupTask:
         fs, path = url_to_fs(self.output_path)
         with fs.open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(task.data, ensure_ascii=False) + "\n")

@@ -18,7 +18,7 @@ import json
 from pathlib import Path
 
 from nemo_curator.stages.audio.alm import ALMManifestReader, ALMManifestReaderStage
-from nemo_curator.tasks import AudioEntry, FileGroupTask
+from nemo_curator.tasks import AudioTask, FileGroupTask
 
 
 def _make_file_group_task(paths: list[str]) -> FileGroupTask:
@@ -40,7 +40,7 @@ class TestALMManifestReaderStage:
         result = stage.process(_make_file_group_task([str(manifest)]))
 
         assert len(result) == 2
-        assert all(isinstance(r, AudioEntry) for r in result)
+        assert all(isinstance(r, AudioTask) for r in result)
         assert result[0].data["audio_filepath"] == "a.wav"
         assert result[1].data["audio_filepath"] == "b.wav"
 
@@ -67,7 +67,7 @@ class TestALMManifestReaderStage:
 
         assert len(result) == 5
         for i, audio_entry in enumerate(result):
-            assert isinstance(audio_entry, AudioEntry)
+            assert isinstance(audio_entry, AudioTask)
             assert audio_entry.data["audio_filepath"] == f"{i}.wav"
 
     def test_skips_blank_lines(self, tmp_path: Path) -> None:
@@ -141,7 +141,7 @@ class TestALMManifestReaderDirectory:
         result = stage.process(_make_file_group_task(all_files))
 
         assert len(result) == 20  # 4 files x 5 entries each
-        assert all(isinstance(r, AudioEntry) for r in result)
+        assert all(isinstance(r, AudioTask) for r in result)
 
     def test_reads_from_subdirectory_a(self) -> None:
         subdir = self._nested_dir() / "subdir_a"
@@ -188,7 +188,7 @@ class TestALMManifestReaderIntegration:
 
         assert len(result) == 5
         for audio_entry in result:
-            assert isinstance(audio_entry, AudioEntry)
+            assert isinstance(audio_entry, AudioTask)
             entry_data = audio_entry.data
             assert "audio_filepath" in entry_data
             assert "segments" in entry_data

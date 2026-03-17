@@ -115,6 +115,34 @@ python tutorials/audio/alm/main.py \
   output_dir=./my_output
 ```
 
+## Choosing a Backend
+
+The pipeline supports two execution backends. Override via `backend=` on the command line:
+
+| Backend | Description | When to use |
+|---------|-------------|-------------|
+| `xenna` | Production executor (default). Uses Cosmos-Xenna streaming engine with automatic worker allocation. | Production workloads, CI/nightly benchmarks. |
+| `ray_data` | Experimental executor built on Ray Data `map_batches`. | Development, machines where Xenna cannot detect GPUs, or when Ray Data integration is preferred. |
+
+### Running with Xenna (default)
+
+```bash
+python tutorials/audio/alm/main.py \
+  --config-path . \
+  --config-name pipeline \
+  manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
+```
+
+### Running with Ray Data
+
+```bash
+python tutorials/audio/alm/main.py \
+  --config-path . \
+  --config-name pipeline \
+  manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
+  backend=ray_data
+```
+
 ## Configuration
 
 All parameters are defined in `pipeline.yaml`. Override from command line:
@@ -136,6 +164,7 @@ python tutorials/audio/alm/main.py \
 |-----------|-------------|---------|
 | `manifest_path` | Path to input JSONL manifest | Required |
 | `output_dir` | Directory for output files | `./alm_output` |
+| `backend` | Execution backend | `xenna` |
 | `stages.1.target_window_duration` | Target window duration (seconds) | `120.0` |
 | `stages.1.tolerance` | Duration tolerance (e.g., 0.1 = ±10%) | `0.1` |
 | `stages.1.min_sample_rate` | Minimum sample rate (Hz) | `16000` |
@@ -389,9 +418,9 @@ tests/stages/audio/alm/
 
 | Test | What it verifies |
 |------|-----------------|
-| `test_reads_single_manifest` | Reads 2-entry JSONL, returns `AudioEntry` per entry |
+| `test_reads_single_manifest` | Reads 2-entry JSONL, returns `AudioTask` per entry |
 | `test_reads_multiple_manifests` | Accepts list of manifest paths, concatenates entries |
-| `test_one_audio_entry_per_line` | Each JSONL line becomes exactly one `AudioEntry` |
+| `test_one_audio_entry_per_line` | Each JSONL line becomes exactly one `AudioTask` |
 | `test_skips_blank_lines` | Blank/whitespace-only lines in JSONL are ignored |
 | `test_empty_manifest` | Empty file returns `[]` |
 | `test_preserves_nested_data` | Nested `segments[].metrics.bandwidth` survives round-trip |
@@ -472,7 +501,7 @@ tests/stages/audio/alm/
 
 ## Performance Notes
 
-- Both stages use Ray-based parallelism via XennaExecutor
+- Both stages use Ray-based parallelism via the selected backend (`xenna` or `ray_data`)
 - Processing is CPU-bound (no GPU required)
 - Memory usage scales with manifest size
 - For large manifests, consider processing in batches or using `--repeat-factor` for scale testing

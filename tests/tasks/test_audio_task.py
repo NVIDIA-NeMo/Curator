@@ -16,36 +16,36 @@
 
 from pathlib import Path
 
-from nemo_curator.tasks import AudioEntry
+from nemo_curator.tasks import AudioTask
 
 
-def test_audio_entry_stores_dict() -> None:
-    entry = AudioEntry(data={"audio_filepath": "/x.wav"})
+def test_audio_task_stores_dict() -> None:
+    entry = AudioTask(data={"audio_filepath": "/x.wav"})
     assert isinstance(entry.data, dict)
     assert entry.data["audio_filepath"] == "/x.wav"
     assert entry.num_items == 1
 
 
-def test_audio_entry_default_empty_dict() -> None:
-    entry = AudioEntry()
+def test_audio_task_default_empty_dict() -> None:
+    entry = AudioTask()
     assert entry.data == {}
     assert entry.num_items == 1
 
 
-def test_audio_entry_validation_existing_file(tmp_path: Path) -> None:
+def test_audio_task_validation_existing_file(tmp_path: Path) -> None:
     existing = tmp_path / "ok.wav"
     existing.write_bytes(b"fake")
 
-    entry = AudioEntry(data={"audio_filepath": existing.as_posix()}, filepath_key="audio_filepath")
+    entry = AudioTask(data={"audio_filepath": existing.as_posix()}, filepath_key="audio_filepath")
     assert entry.validate() is True
 
 
-def test_audio_entry_validation_missing_file(tmp_path: Path) -> None:
+def test_audio_task_validation_missing_file(tmp_path: Path) -> None:
     missing = tmp_path / "missing.wav"
-    entry = AudioEntry(data={"audio_filepath": missing.as_posix()}, filepath_key="audio_filepath")
+    entry = AudioTask(data={"audio_filepath": missing.as_posix()}, filepath_key="audio_filepath")
     assert entry.validate() is False
 
 
-def test_audio_entry_validation_no_filepath_key() -> None:
-    entry = AudioEntry(data={"text": "hello"})
+def test_audio_task_validation_no_filepath_key() -> None:
+    entry = AudioTask(data={"text": "hello"})
     assert entry.validate() is True

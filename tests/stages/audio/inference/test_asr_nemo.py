@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
-from nemo_curator.tasks import AudioEntry
+from nemo_curator.tasks import AudioTask
 
 
 class TestAsrNeMoStage:
@@ -31,11 +31,11 @@ class TestAsrNeMoStage:
 
     def test_validate_input_valid(self) -> None:
         stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
-        assert stage.validate_input(AudioEntry(data={"audio_filepath": "/a.wav"})) is True
+        assert stage.validate_input(AudioTask(data={"audio_filepath": "/a.wav"})) is True
 
     def test_validate_input_missing_filepath(self) -> None:
         stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
-        assert stage.validate_input(AudioEntry(data={"text": "hello"})) is False
+        assert stage.validate_input(AudioTask(data={"text": "hello"})) is False
 
     def test_process_raises_on_missing_filepath(self) -> None:
         with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["x"]):
@@ -43,7 +43,7 @@ class TestAsrNeMoStage:
             stage.setup_on_node()
             stage.setup()
             with pytest.raises(ValueError, match="missing required columns"):
-                stage.process(AudioEntry(data={"text": "hello"}))
+                stage.process(AudioTask(data={"text": "hello"}))
 
     def test_process_batch_raises_on_missing_filepath(self) -> None:
         with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["x"]):
@@ -51,7 +51,7 @@ class TestAsrNeMoStage:
             stage.setup_on_node()
             stage.setup()
             with pytest.raises(ValueError, match="missing required columns"):
-                stage.process_batch([AudioEntry(data={"text": "hello"})])
+                stage.process_batch([AudioTask(data={"text": "hello"})])
 
     def test_stage_initialization(self) -> None:
         stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
@@ -65,10 +65,10 @@ class TestAsrNeMoStage:
             stage.setup_on_node()
             stage.setup()
 
-            entry = AudioEntry(data={"audio_filepath": "/test/audio1.wav"})
+            entry = AudioTask(data={"audio_filepath": "/test/audio1.wav"})
             result = stage.process(entry)
 
-            assert isinstance(result, AudioEntry)
+            assert isinstance(result, AudioTask)
             assert result.data["audio_filepath"] == "/test/audio1.wav"
             assert result.data["pred_text"] == "the cat"
 
@@ -79,13 +79,13 @@ class TestAsrNeMoStage:
             stage.setup()
 
             tasks = [
-                AudioEntry(data={"audio_filepath": "/test/audio1.wav"}, task_id="t1"),
-                AudioEntry(data={"audio_filepath": "/test/audio2.mp3"}, task_id="t2"),
+                AudioTask(data={"audio_filepath": "/test/audio1.wav"}, task_id="t1"),
+                AudioTask(data={"audio_filepath": "/test/audio2.mp3"}, task_id="t2"),
             ]
             results = stage.process_batch(tasks)
 
             assert len(results) == 2
-            assert all(isinstance(r, AudioEntry) for r in results)
+            assert all(isinstance(r, AudioTask) for r in results)
             assert results[0].data["pred_text"] == "the cat"
             assert results[1].data["pred_text"] == "sat on a mat"
 

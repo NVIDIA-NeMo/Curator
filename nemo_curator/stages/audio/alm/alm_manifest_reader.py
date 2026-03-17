@@ -30,12 +30,12 @@ from loguru import logger
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import AudioEntry, FileGroupTask, _EmptyTask
+from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 
 
 @dataclass
-class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioEntry]):
-    """Read JSONL manifest files from a FileGroupTask and emit one AudioEntry per line.
+class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
+    """Read JSONL manifest files from a FileGroupTask and emit one AudioTask per line.
 
     Uses line-by-line streaming via fsspec (no Pandas) to keep memory at ~1x file size.
     Supports local and cloud paths (S3, GCS).
@@ -43,9 +43,9 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioEntry]):
 
     name: str = "alm_manifest_reader_stage"
 
-    def process(self, task: FileGroupTask) -> list[AudioEntry]:
+    def process(self, task: FileGroupTask) -> list[AudioTask]:
         paths = task.data
-        results: list[AudioEntry] = []
+        results: list[AudioTask] = []
         for manifest in paths:
             count = 0
             fs, resolved = url_to_fs(manifest)
@@ -53,7 +53,7 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioEntry]):
                 for line in f:
                     if line.strip():
                         results.append(
-                            AudioEntry(
+                            AudioTask(
                                 data=json.loads(line.strip()),
                                 _metadata=task._metadata,
                                 _stage_perf=list(task._stage_perf),
@@ -68,7 +68,7 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioEntry]):
 
 
 @dataclass
-class ALMManifestReader(CompositeStage[_EmptyTask, AudioEntry]):
+class ALMManifestReader(CompositeStage[_EmptyTask, AudioTask]):
     """Composite stage for reading ALM JSONL manifests.
 
     Decomposes into:

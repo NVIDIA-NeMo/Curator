@@ -21,7 +21,7 @@ from nemo_curator.stages.audio.metrics.get_wer import (
     get_wer,
     get_wordrate,
 )
-from nemo_curator.tasks import AudioEntry
+from nemo_curator.tasks import AudioTask
 
 
 def test_get_wer_basic() -> None:
@@ -39,34 +39,34 @@ def test_rates() -> None:
 
 def test_pairwise_wer_validate_input_valid() -> None:
     stage = GetPairwiseWerStage()
-    assert stage.validate_input(AudioEntry(data={"text": "a b c", "pred_text": "a x c"})) is True
+    assert stage.validate_input(AudioTask(data={"text": "a b c", "pred_text": "a x c"})) is True
 
 
 def test_pairwise_wer_validate_input_missing_text() -> None:
     stage = GetPairwiseWerStage()
-    assert stage.validate_input(AudioEntry(data={"pred_text": "a x c"})) is False
+    assert stage.validate_input(AudioTask(data={"pred_text": "a x c"})) is False
 
 
 def test_pairwise_wer_validate_input_missing_pred_text() -> None:
     stage = GetPairwiseWerStage()
-    assert stage.validate_input(AudioEntry(data={"text": "a b c"})) is False
+    assert stage.validate_input(AudioTask(data={"text": "a b c"})) is False
 
 
 def test_pairwise_wer_process_raises_on_missing_text() -> None:
     stage = GetPairwiseWerStage()
     with pytest.raises(ValueError, match="missing required columns"):
-        stage.process(AudioEntry(data={"pred_text": "a x c"}))
+        stage.process(AudioTask(data={"pred_text": "a x c"}))
 
 
 def test_pairwise_wer_process_raises_on_missing_pred_text() -> None:
     stage = GetPairwiseWerStage()
     with pytest.raises(ValueError, match="missing required columns"):
-        stage.process(AudioEntry(data={"text": "a b c"}))
+        stage.process(AudioTask(data={"text": "a b c"}))
 
 
 def test_pairwise_wer_stage() -> None:
     stage = GetPairwiseWerStage()
-    entry = AudioEntry(data={"text": "a b c", "pred_text": "a x c"})
+    entry = AudioTask(data={"text": "a b c", "pred_text": "a x c"})
     result = stage.process(entry)
-    assert isinstance(result, AudioEntry)
+    assert isinstance(result, AudioTask)
     assert result.data["wer"] == 33.33

@@ -41,11 +41,11 @@ from nemo_curator.stages.audio.alm import (
     ALMManifestReader,
 )
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioEntry
+from nemo_curator.tasks import AudioTask
 
 
-class _RepeatEntriesStage(ProcessingStage[AudioEntry, AudioEntry]):
-    """Multiply each AudioEntry N times for scale testing.
+class _RepeatEntriesStage(ProcessingStage[AudioTask, AudioTask]):
+    """Multiply each AudioTask N times for scale testing.
 
     Duplicates entries in-memory after reading so the file is only read once.
     """
@@ -55,9 +55,9 @@ class _RepeatEntriesStage(ProcessingStage[AudioEntry, AudioEntry]):
     def __init__(self, repeat_factor: int = 1) -> None:
         self._repeat_factor = repeat_factor
 
-    def process(self, task: AudioEntry) -> list[AudioEntry]:
+    def process(self, task: AudioTask) -> list[AudioTask]:
         return [
-            AudioEntry(
+            AudioTask(
                 data=task.data.copy(),
                 _metadata=task._metadata,
                 _stage_perf=list(task._stage_perf),

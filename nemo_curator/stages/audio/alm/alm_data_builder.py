@@ -26,7 +26,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from nemo_curator.stages.audio.common import AudioEntryStage
+from nemo_curator.stages.audio.common import AudioTaskStage
 
 MIN_SEGMENTS_PER_WINDOW = 2
 
@@ -123,7 +123,7 @@ def _record_window_loss(  # noqa: PLR0913
 
 
 @dataclass
-class ALMDataBuilderStage(AudioEntryStage):
+class ALMDataBuilderStage(AudioTaskStage):
     """Build ALM training windows from audio segments.
 
     Filters segments by sample rate, bandwidth, speaker count, and duration

@@ -20,19 +20,19 @@ from typing import TYPE_CHECKING, Any
 import nemo.collections.asr as nemo_asr
 import torch
 
-from nemo_curator.stages.audio.common import AudioEntryStage
+from nemo_curator.stages.audio.common import AudioTaskStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioEntry
+from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
 
 
 @dataclass
-class InferenceAsrNemoStage(AudioEntryStage):
+class InferenceAsrNemoStage(AudioTaskStage):
     """Speech recognition inference using a NeMo ASR model.
 
-    Overrides ``_process_validated`` for batched GPU inference
+    Overrides ``process_batch`` for batched GPU inference
     instead of ``process_dataset_entry``.
 
     Args:
@@ -87,15 +87,17 @@ class InferenceAsrNemoStage(AudioEntryStage):
 
         return [output.text for output in outputs]
 
-    def _process_validated(self, tasks: list[AudioEntry]) -> list[AudioEntry]:
-        """Batched GPU inference — tasks are already validated by the base class."""
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        if len(tasks) == 0:
+            return []
+        self._validate_batch(tasks)
         files = [t.data[self.filepath_key] for t in tasks]
         texts = self.transcribe(files)
         results = []
         for task, text in zip(tasks, texts, strict=True):
             out_data = {**task.data, self.pred_text_key: text}
             results.append(
-                AudioEntry(
+                AudioTask(
                     data=out_data,
                     task_id=task.task_id,
                     dataset_name=task.dataset_name,

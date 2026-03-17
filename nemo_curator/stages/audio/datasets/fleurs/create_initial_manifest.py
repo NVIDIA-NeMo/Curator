@@ -21,7 +21,7 @@ from typing import Any
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.datasets.file_utils import download_file, extract_archive
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioEntry, _EmptyTask
+from nemo_curator.tasks import AudioTask, _EmptyTask
 
 
 def get_fleurs_url_list(lang: str, split: str) -> list[str]:
@@ -46,12 +46,12 @@ def get_fleurs_url_list(lang: str, split: str) -> list[str]:
 
 
 @dataclass
-class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioEntry]):
+class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
     """Create initial manifest for the FLEURS dataset.
 
     Dataset link: https://huggingface.co/datasets/google/fleurs
 
-    Downloads all files, extracts them, and emits one ``AudioEntry`` per
+    Downloads all files, extracts them, and emits one ``AudioTask`` per
     transcript line with ``audio_filepath`` and ``text`` fields.
 
     Args:
@@ -74,9 +74,9 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioEntry]):
                 msg = f"{attr} is required for CreateInitialManifestFleursStage"
                 raise ValueError(msg)
 
-    def process_transcript(self, file_path: str) -> list[AudioEntry]:
-        """Parse transcript TSV file and emit one AudioEntry per line."""
-        entries: list[AudioEntry] = []
+    def process_transcript(self, file_path: str) -> list[AudioTask]:
+        """Parse transcript TSV file and emit one AudioTask per line."""
+        entries: list[AudioTask] = []
         root = os.path.splitext(file_path)[0]
         min_num_parts = 2
         with open(file_path, encoding="utf-8") as fin:
@@ -89,7 +89,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioEntry]):
                 wav_file = os.path.join(root, file_name)
 
                 entries.append(
-                    AudioEntry(
+                    AudioTask(
                         data={self.filepath_key: os.path.abspath(wav_file), self.text_key: transcript_text},
                         task_id=f"task_id_{file_path}",
                         dataset_name=f"Fleurs_{self.lang}_{self.split}_{self.raw_data_dir}",
@@ -109,6 +109,6 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioEntry]):
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
-    def process(self, _: _EmptyTask) -> list[AudioEntry]:
+    def process(self, _: _EmptyTask) -> list[AudioTask]:
         self.download_extract_files(self.raw_data_dir)
         return self.process_transcript(os.path.join(self.raw_data_dir, self.split + ".tsv"))

@@ -17,7 +17,7 @@
 import pytest
 
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage
-from nemo_curator.tasks import AudioEntry
+from nemo_curator.tasks import AudioTask
 
 
 class TestALMDataBuilder:
@@ -25,25 +25,25 @@ class TestALMDataBuilder:
 
     def test_validate_input_valid(self, sample_entry: dict) -> None:
         stage = ALMDataBuilderStage()
-        assert stage.validate_input(AudioEntry(data=sample_entry)) is True
+        assert stage.validate_input(AudioTask(data=sample_entry)) is True
 
     def test_validate_input_missing_segments(self) -> None:
         stage = ALMDataBuilderStage()
-        assert stage.validate_input(AudioEntry(data={"audio_filepath": "a.wav", "audio_sample_rate": 16000})) is False
+        assert stage.validate_input(AudioTask(data={"audio_filepath": "a.wav", "audio_sample_rate": 16000})) is False
 
     def test_validate_input_missing_sample_rate(self) -> None:
         stage = ALMDataBuilderStage()
-        assert stage.validate_input(AudioEntry(data={"audio_filepath": "a.wav", "segments": []})) is False
+        assert stage.validate_input(AudioTask(data={"audio_filepath": "a.wav", "segments": []})) is False
 
     def test_process_raises_on_missing_segments(self) -> None:
         stage = ALMDataBuilderStage()
         with pytest.raises(ValueError, match="missing required columns"):
-            stage.process(AudioEntry(data={"audio_filepath": "a.wav", "audio_sample_rate": 16000}))
+            stage.process(AudioTask(data={"audio_filepath": "a.wav", "audio_sample_rate": 16000}))
 
     def test_process_raises_on_missing_sample_rate(self) -> None:
         stage = ALMDataBuilderStage()
         with pytest.raises(ValueError, match="missing required columns"):
-            stage.process(AudioEntry(data={"audio_filepath": "a.wav", "segments": []}))
+            stage.process(AudioTask(data={"audio_filepath": "a.wav", "segments": []}))
 
     def test_creates_windows_from_sample(self, sample_entry: dict) -> None:
         stage = ALMDataBuilderStage(
@@ -55,9 +55,9 @@ class TestALMDataBuilder:
             max_speakers=5,
         )
 
-        result = stage.process(AudioEntry(data=sample_entry))
+        result = stage.process(AudioTask(data=sample_entry))
 
-        assert isinstance(result, AudioEntry)
+        assert isinstance(result, AudioTask)
         output = result.data
         assert "windows" in output
         assert len(output["windows"]) > 0
@@ -72,7 +72,7 @@ class TestALMDataBuilder:
             min_sample_rate=16000,
         )
 
-        result = stage.process(AudioEntry(data=entry))
+        result = stage.process(AudioTask(data=entry))
         output = result.data
         assert "stats" in output
         assert output["stats"].get("lost_sr", 0) > 0 or len(output.get("windows", [])) == 0
@@ -86,7 +86,7 @@ class TestALMDataBuilder:
             min_bandwidth=8000,
         )
 
-        result = stage.process(AudioEntry(data=entry))
+        result = stage.process(AudioTask(data=entry))
         output = result.data
         assert "stats" in output
         assert output["stats"].get("lost_bw", 0) > 0
@@ -101,7 +101,7 @@ class TestALMDataBuilder:
             max_speakers=3,
         )
 
-        result = stage.process(AudioEntry(data=entry))
+        result = stage.process(AudioTask(data=entry))
         output = result.data
         assert len(output.get("windows", [])) == 0
 
@@ -113,9 +113,9 @@ class TestALMDataBuilder:
             "audio_sample_rate": 16000,
             "segments": [],
         }
-        result = stage.process(AudioEntry(data=entry))
+        result = stage.process(AudioTask(data=entry))
 
-        assert isinstance(result, AudioEntry)
+        assert isinstance(result, AudioTask)
         assert result.data.get("windows", []) == []
 
     def test_drop_fields(self, sample_entry: dict) -> None:
@@ -131,7 +131,7 @@ class TestALMDataBuilder:
             drop_fields_top_level="words,segments",
         )
 
-        result = stage.process(AudioEntry(data=entry))
+        result = stage.process(AudioTask(data=entry))
         output = result.data
         assert "words" not in output or output.get("words") is None
         assert "segments" not in output or output.get("segments") is None
@@ -143,8 +143,8 @@ class TestALMDataBuilder:
         )
 
         for entry in sample_entries:
-            result = stage.process(AudioEntry(data=entry))
-            assert isinstance(result, AudioEntry)
+            result = stage.process(AudioTask(data=entry))
+            assert isinstance(result, AudioTask)
             assert "windows" in result.data
 
 
@@ -163,7 +163,7 @@ class TestALMDataBuilderIntegration:
 
         total_windows = 0
         for entry in sample_entries:
-            result = stage.process(AudioEntry(data=entry))
+            result = stage.process(AudioTask(data=entry))
             total_windows += len(result.data.get("windows", []))
 
         assert total_windows == 181

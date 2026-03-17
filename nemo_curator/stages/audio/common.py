@@ -21,90 +21,94 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioEntry
+from nemo_curator.tasks import AudioTask
 
 
-class AudioEntryStage(ProcessingStage[AudioEntry, AudioEntry]):
-    """Base class for all audio processing stages.
+class AudioTaskStage(ProcessingStage[AudioTask, AudioTask]):
+    """Base class for audio processing stages.
 
-    Provides four methods — each exists for a reason that cannot be
-    collapsed further:
+    Three-method hierarchy (cannot be reduced further):
 
-    ``process_dataset_entry``
-        CPU-stage hook.  Receives a plain ``dict`` (the manifest entry),
-        returns ``dict | None``.  Eliminates unwrap / rewrap boilerplate
-        for CPU-bound stages (5+ stages use this).
+    ``process_dataset_entry(data: dict) -> dict | None``
+        CPU-stage hook.  Receives the raw manifest dict, returns the
+        (possibly mutated) dict or ``None`` to drop the entry.  Five+
+        concrete stages use this; it eliminates AudioTask
+        unwrap/rewrap boilerplate for simple per-entry transforms.
 
-    ``process``
-        Required by the abstract ``ProcessingStage`` base.  Delegates to
-        ``process_batch`` so that every call — single or batched — follows
-        one code path.  Cannot hold the logic itself because backends call
-        ``process_batch`` directly; putting logic here would force
-        ``process_batch`` to loop through ``process`` per task, which
-        would prevent GPU stages from batching N tasks in one kernel call.
+    ``process_batch(tasks: list[AudioTask]) -> list[AudioTask]``
+        The real entry point called by backends (Xenna / Ray).
+        Default implementation validates inputs then loops via
+        ``process_dataset_entry``, reusing the original AudioTask
+        wrapper when the dict is mutated in-place (zero-copy).
+        **GPU stages override this** — call ``self._validate_batch``
+        at the top, then run batched inference.
 
-    ``process_batch``
-        The real entry point called by backends (Xenna / Ray).  Validates
-        every task up front (fail-fast), then delegates to
-        ``_process_validated``.  Not meant to be overridden — it is the
-        single validation gateway for both CPU and GPU stages.
-
-    ``_process_validated``
-        Post-validation batch hook.  Default loops via
-        ``process_dataset_entry`` for CPU stages.  GPU stages override
-        *only* this method with batched logic — they never need to
-        repeat the validation loop because ``process_batch`` already did it.
+    ``process(task: AudioTask) -> AudioTask | list[AudioTask]``
+        Required by abstract ``ProcessingStage``.  Delegates to
+        ``process_batch([task])`` so every code path (single or
+        batched) goes through one validation gateway.
 
     Subclass contract:
         - CPU stage  → override ``process_dataset_entry``
-        - GPU stage  → override ``_process_validated``
+        - GPU stage  → override ``process_batch`` (call ``_validate_batch`` first)
     """
 
     def process_dataset_entry(self, data_entry: dict) -> dict | None:
         """Process a single manifest entry dict.
 
-        CPU stages override this.  GPU stages that override
-        ``_process_validated`` instead can leave the default.
+        CPU stages override this.  GPU stages override
+        ``process_batch`` instead.
 
         Returns:
             dict: processed entry (may be the same object, mutated in-place).
             None: to drop / filter out this entry.
         """
-        msg = f"{type(self).__name__} must implement process_dataset_entry or override _process_validated"
+        msg = f"{type(self).__name__} must implement process_dataset_entry or override process_batch"
         raise NotImplementedError(msg)
 
-    def process(self, task: AudioEntry) -> AudioEntry | list[AudioEntry]:
+    def _validate_batch(self, tasks: list[AudioTask]) -> None:
+        """Validate that every task in the batch has the required columns.
+
+        Raises ``ValueError`` on the first task that fails.
+        """
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
+
+    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         results = self.process_batch([task])
         if not results:
             return []
         return results[0] if len(results) == 1 else results
 
-    def process_batch(self, tasks: list[AudioEntry]) -> list[AudioEntry]:
-        if not tasks:
-            return []
-        for task in tasks:
-            if not self.validate_input(task):
-                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
-                raise ValueError(msg)
-        return self._process_validated(tasks)
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        """Validate then process via ``process_dataset_entry``.
 
-    def _process_validated(self, tasks: list[AudioEntry]) -> list[AudioEntry]:
-        """Process a pre-validated batch.  GPU stages override this."""
-        results: list[AudioEntry] = []
+        GPU stages override this entirely (call ``_validate_batch``
+        at the top, then run batched logic).
+        """
+        if len(tasks) == 0:
+            return []
+        self._validate_batch(tasks)
+        results: list[AudioTask] = []
         for task in tasks:
             result = self.process_dataset_entry(task.data)
             if result is None:
                 continue
-            results.append(
-                AudioEntry(
-                    data=result,
-                    task_id=task.task_id,
-                    dataset_name=task.dataset_name,
-                    filepath_key=task.filepath_key,
-                    _stage_perf=list(task._stage_perf),
-                    _metadata=task._metadata.copy(),
+            if result is task.data:
+                results.append(task)
+            else:
+                results.append(
+                    AudioTask(
+                        data=result,
+                        task_id=task.task_id,
+                        dataset_name=task.dataset_name,
+                        filepath_key=task.filepath_key,
+                        _stage_perf=list(task._stage_perf),
+                        _metadata=task._metadata.copy(),
+                    )
                 )
-            )
         return results
 
 
@@ -114,7 +118,7 @@ class AudioEntryStage(ProcessingStage[AudioEntry, AudioEntry]):
 
 
 @dataclass
-class GetAudioDurationStage(AudioEntryStage):
+class GetAudioDurationStage(AudioTaskStage):
     """Compute audio duration from the file at *audio_filepath_key* and
     store the result under *duration_key*.
 
@@ -149,7 +153,7 @@ class GetAudioDurationStage(AudioEntryStage):
         return data
 
 
-class PreserveByValueStage(AudioEntryStage):
+class PreserveByValueStage(AudioTaskStage):
     """Filter entries by comparing *input_value_key* against *target_value*.
 
     Args:

@@ -74,7 +74,7 @@ def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
     # Act
     batches = stage.process_transcript(tsv_path.as_posix())
 
-    # Each valid TSV line produces one AudioEntry
+    # Each valid TSV line produces one AudioTask
     assert len(batches) == 2
     b0, b1 = batches
     assert b0.data[stage.filepath_key].endswith(os.path.join(split, "file1.wav"))
