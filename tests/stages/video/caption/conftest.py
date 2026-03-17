@@ -15,6 +15,7 @@
 """Fixtures for video caption integration tests."""
 
 import os
+import shutil
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -113,6 +114,7 @@ def pipeline_tmpdir() -> Generator[Path, None, None]:
         del os.environ["TMPDIR"]
     else:
         os.environ["TMPDIR"] = old
+    shutil.rmtree(tmp, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
@@ -120,5 +122,5 @@ def video_fixture_path() -> Path:
     """Return the path to the small video fixture used for integration tests."""
     path = _DEFAULT_VIDEO_FIXTURE
     if not path.exists():
-        pytest.skip(f"Video fixture not found: {path}")
+        pytest.fail(f"Test video fixture missing from repo: {path}")
     return path
