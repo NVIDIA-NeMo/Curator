@@ -782,7 +782,7 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
-    timeout_s: 3600
+    timeout_s: 700
     ray:
       num_cpus: 16
       num_gpus: 4
