@@ -180,7 +180,7 @@ entries:
       --dataset-size-gb=10
       --model-identifier=google/embeddinggemma-300m
       --model-variation=vllm_text
-    timeout_s: 2400
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
@@ -208,7 +208,7 @@ entries:
       --dataset-size-gb=10
       --model-identifier=google/embeddinggemma-300m
       --model-variation=vllm_text
-    timeout_s: 2400
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
