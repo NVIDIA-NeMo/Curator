@@ -19,7 +19,9 @@ packaging version. Requires `uv` on PATH; test is skipped if uv is not available
 See tutorials/per_stage_runtime_env_example.py and docs/design/per-stage-runtime-environment.md.
 """
 
+import shutil
 import subprocess
+from typing import ClassVar
 
 import pandas as pd
 import pytest
@@ -33,11 +35,15 @@ from nemo_curator.tasks import DocumentBatch
 
 
 def _uv_available() -> bool:
-    try:
-        subprocess.run(["uv", "--version"], check=True, capture_output=True)
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    uv_exe = shutil.which("uv")
+    if not uv_exe:
         return False
+    try:
+        subprocess.run([uv_exe, "--version"], check=True, capture_output=True)  # noqa: S603
+    except subprocess.CalledProcessError:
+        return False
+    else:
+        return True
 
 
 @pytest.fixture
@@ -52,7 +58,7 @@ class VersionStage1(ProcessingStage[DocumentBatch, DocumentBatch]):
     name = "version_stage_1"
     resources = Resources(cpus=0.5)
     batch_size = 1
-    pip_specs = ["packaging==23.2"]
+    pip_specs: ClassVar[list[str]] = ["packaging==23.2"]
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -61,7 +67,7 @@ class VersionStage1(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], ["stage1_packaging_version"]
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
-        import packaging  # noqa: PLC0415
+        import packaging
 
         df = task.to_pandas().copy()
         df["stage1_packaging_version"] = packaging.__version__
@@ -80,7 +86,7 @@ class VersionStage2(ProcessingStage[DocumentBatch, DocumentBatch]):
     name = "version_stage_2"
     resources = Resources(cpus=0.5)
     batch_size = 1
-    pip_specs = ["packaging==24.0"]
+    pip_specs: ClassVar[list[str]] = ["packaging==24.0"]
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["stage1_packaging_version"]
@@ -89,7 +95,7 @@ class VersionStage2(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], ["stage2_packaging_version"]
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
-        import packaging  # noqa: PLC0415
+        import packaging
 
         df = task.to_pandas().copy()
         df["stage2_packaging_version"] = packaging.__version__
