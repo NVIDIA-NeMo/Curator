@@ -32,15 +32,20 @@ if TYPE_CHECKING:
 
 
 def _site_packages_for_venv(venv_dir: Path) -> Path:
-    lib = venv_dir / "lib"
-    if not lib.exists():
-        msg = f"venv has no lib/: {venv_dir}"
-        raise RuntimeError(msg)
-    for p in lib.iterdir():
-        if p.is_dir() and p.name.startswith("python"):
-            site = p / "site-packages"
-            if site.exists():
-                return site.resolve()
+    # Windows uses "Lib" (capital), Unix uses "lib"
+    for lib_name in ("lib", "Lib"):
+        lib = venv_dir / lib_name
+        if not lib.exists():
+            continue
+        # On Windows, site-packages may live directly under Lib\ (no python3.x subdir)
+        site_direct = lib / "site-packages"
+        if site_direct.exists():
+            return site_direct.resolve()
+        for p in lib.iterdir():
+            if p.is_dir() and p.name.startswith("python"):
+                site = p / "site-packages"
+                if site.exists():
+                    return site.resolve()
     msg = f"no site-packages found under {venv_dir}"
     raise RuntimeError(msg)
 

@@ -188,7 +188,13 @@ class Pipeline:
         self.build()
 
         # Resolve per-stage pip_specs into venvs so executors can use PYTHONPATH (e.g. Ray Data).
-        if any(getattr(s, "pip_specs", None) for s in self.stages):
+        # Skip if already resolved (e.g. second run() on same pipeline) to avoid recreating venvs.
+        needs_resolve = any(
+            getattr(s, "pip_specs", None)
+            and not getattr(s, "_resolved_site_packages_path", None)
+            for s in self.stages
+        )
+        if needs_resolve:
             resolve_stage_pip_envs(self.stages)
 
         if executor is None:
