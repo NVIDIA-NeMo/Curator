@@ -19,6 +19,9 @@ pip_specs (e.g. ["vllm==0.6.0"]), the resolver creates a venv with those package
 and sets the stage's _resolved_site_packages_path so executors can inject PYTHONPATH.
 """
 
+import atexit
+import shutil
+import sysconfig
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -42,22 +45,34 @@ def _site_packages_for_venv(venv_dir: Path) -> Path:
     raise RuntimeError(msg)
 
 
-def _create_venv_for_specs(specs: list[str], base_dir: Path, subdir_name: str) -> Path:
+def _venv_python_exe(venv_path: Path) -> Path:
+    """Path to the venv Python interpreter (portable: Windows Scripts/python.exe, Unix bin/python)."""
+    if sysconfig.get_platform().startswith("win"):
+        return venv_path / "Scripts" / "python.exe"
+    return venv_path / "bin" / "python"
+
+
+def _create_venv_for_specs(
+    specs: list[str], base_dir: Path, subdir_name: str, uv_exe: str
+) -> Path:
     import subprocess
 
     venv_root = base_dir / subdir_name
     venv_root.mkdir(parents=True, exist_ok=True)
     venv_path = venv_root / ".venv"
-    python_path = venv_path / "bin" / "python"
-    subprocess.run(
-        ["uv", "venv", str(venv_path)],
+    python_path = _venv_python_exe(venv_path)
+    subprocess.run(  # noqa: S603
+        [uv_exe, "venv", str(venv_path)],
         check=True,
         capture_output=True,
+        text=True,
     )
-    subprocess.run(
-        ["uv", "pip", "install", "--python", str(python_path), *specs],
+    # specs come from stage pip_specs (pipeline author configuration)
+    subprocess.run(  # noqa: S603
+        [uv_exe, "pip", "install", "--python", str(python_path), *specs],
         check=True,
         capture_output=True,
+        text=True,
     )
     return _site_packages_for_venv(venv_path)
 
@@ -78,27 +93,43 @@ def resolve_stage_pip_envs(
     import subprocess
     import tempfile
 
-    try:
-        subprocess.run(["uv", "--version"], check=True, capture_output=True)
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+    uv_exe = shutil.which("uv")
+    if not uv_exe:
         logger.warning(
-            "resolve_stage_pip_envs requires `uv` on PATH; skipping. Error: %s",
+            "resolve_stage_pip_envs requires `uv` on PATH; skipping.",
+        )
+        return
+    try:
+        subprocess.run(  # noqa: S603
+            [uv_exe, "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.warning(
+            "resolve_stage_pip_envs: uv check failed; skipping. Error: %s",
             e,
         )
         return
 
-    base = Path(base_dir) if base_dir else Path(tempfile.mkdtemp(prefix="curator_pip_envs_"))
+    if base_dir is None:
+        tmp_dir = tempfile.mkdtemp(prefix="curator_pip_envs_")
+        atexit.register(shutil.rmtree, tmp_dir, ignore_errors=True)
+        base = Path(tmp_dir)
+    else:
+        base = Path(base_dir)
     base.mkdir(parents=True, exist_ok=True)
 
     # Dedupe: same sorted specs -> one venv
     unique_specs: dict[tuple[str, ...], Path] = {}
-    for i, stage in enumerate(stages):
+    for stage in stages:
         specs = getattr(stage, "pip_specs", None)
         if not specs or not isinstance(specs, list):
             continue
         key = tuple(sorted(specs))
         if key not in unique_specs:
             subdir = f"env_{len(unique_specs)}"
-            unique_specs[key] = _create_venv_for_specs(list(specs), base, subdir)
+            unique_specs[key] = _create_venv_for_specs(list(specs), base, subdir, uv_exe)
             logger.info("Created venv for pip_specs %s at %s", list(key), unique_specs[key])
-        setattr(stage, "_resolved_site_packages_path", unique_specs[key])
+        stage._resolved_site_packages_path = unique_specs[key]

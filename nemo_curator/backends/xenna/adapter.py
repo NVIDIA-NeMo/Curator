@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 from cosmos_xenna.pipelines import v1 as pipelines_v1
 from cosmos_xenna.pipelines.private.resources import NodeInfo as XennaNodeInfo
 from cosmos_xenna.pipelines.private.resources import Resources as XennaResources
@@ -57,11 +59,13 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
         """Runtime environment for this stage.
 
         When the pipeline has resolved pip_specs to a venv (_resolved_site_packages_path),
-        we return a RuntimeEnv with PYTHONPATH so this stage's workers use that env.
+        we prepend to PYTHONPATH so workers use that env while keeping any existing path.
         """
         resolved_path = getattr(self.processing_stage, "_resolved_site_packages_path", None)
         if resolved_path is not None:
-            return pipelines_v1.RuntimeEnv(extra_env_vars={"PYTHONPATH": str(resolved_path)})
+            existing = os.environ.get("PYTHONPATH", "")
+            new_path = f"{resolved_path}:{existing}" if existing else str(resolved_path)
+            return pipelines_v1.RuntimeEnv(extra_env_vars={"PYTHONPATH": new_path})
         return None
 
     def process_data(self, tasks: list[Task]) -> list[Task] | None:

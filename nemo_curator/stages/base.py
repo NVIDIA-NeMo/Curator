@@ -19,7 +19,7 @@ import copy
 import time
 from abc import ABC, ABCMeta, abstractmethod
 from inspect import isabstract
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, final
 
 from loguru import logger
 
@@ -85,7 +85,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     name = "ProcessingStage"
     resources = Resources(cpus=1.0)
     batch_size = 1
-    pip_specs: list[str] | None = None
+    pip_specs: ClassVar[list[str] | None] = None
 
     @property
     @final
