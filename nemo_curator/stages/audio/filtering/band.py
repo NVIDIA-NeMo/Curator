@@ -172,7 +172,7 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         Returns None if waveform is missing and file load fails.
         """
         waveform = item.get("waveform")
-        sample_rate = item.get("sample_rate", 48000)
+        sample_rate = item.get("sample_rate")
 
         if waveform is None:
             audio_filepath = item.get("audio_filepath")
@@ -186,6 +186,23 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                     return None
             else:
                 logger.warning(f"[{task_id}] No waveform or valid audio_filepath found")
+                return None
+        elif sample_rate is None:
+            audio_filepath = item.get("audio_filepath")
+            if audio_filepath and os.path.exists(audio_filepath):
+                try:
+                    info = sf.info(audio_filepath)
+                    sample_rate = info.samplerate
+                    item["sample_rate"] = sample_rate
+                    logger.debug(f"[{task_id}] Read sample_rate={sample_rate} from file header")
+                except Exception as e:
+                    logger.error(f"[{task_id}] Waveform present but sample_rate missing and "
+                                 f"could not read it from '{audio_filepath}': {e}")
+                    return None
+            else:
+                logger.error(f"[{task_id}] Waveform present but 'sample_rate' key is missing "
+                             "and no audio_filepath available to resolve it. "
+                             "Please set 'sample_rate' in the item dict.")
                 return None
 
         return (waveform, sample_rate)
