@@ -65,7 +65,7 @@ class ComputeWERStage(LegacySpeechStage):
         return [], ["segments"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["segments"]
+        return [], ["segments", "metrics"]
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Setup stage."""

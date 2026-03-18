@@ -61,7 +61,7 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
         return [], [self.audio_filepath_key, "segments"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, "segments"]
+        return [], [self.audio_filepath_key, "segments", "metrics"]
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Setup stage on node."""

@@ -234,29 +234,36 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
                 return segments_out
             return self.split_segment_by_duration(segment)
 
+        group_word_start = 0
         current_end = 0
-        current_start = 0
         new_split_points = []
+
         while current_end < len(split_points):
-            current_duration = words[split_points[current_end]]["end"] - words[split_points[current_start]]["start"]
+            end_idx = split_points[current_end]
+            current_duration = words[end_idx]["end"] - words[group_word_start]["start"]
+
             if current_duration < self.min_duration:
                 next_end = current_end + 1
                 while (
                     next_end < len(split_points)
-                    and words[split_points[next_end]]["end"] - words[split_points[current_start]]["start"]
-                    <= self.max_duration
+                    and (words[split_points[next_end]]["end"] - words[group_word_start]["start"]) <= self.max_duration
                 ):
                     next_end += 1
+
                 if next_end > current_end + 1:
-                    new_split_points.append(split_points[next_end - 1])
-                    current_start = next_end
+                    chosen = split_points[next_end - 1]
+                    new_split_points.append(chosen)
+                    group_word_start = chosen + 1
                     current_end = next_end
                 else:
-                    new_split_points.append(split_points[current_end])
+                    chosen = split_points[current_end]
+                    new_split_points.append(chosen)
+                    group_word_start = chosen + 1
                     current_end += 1
             else:
-                new_split_points.append(split_points[current_end])
-                current_start = current_end + 1
+                chosen = split_points[current_end]
+                new_split_points.append(chosen)
+                group_word_start = chosen + 1
                 current_end += 1
 
         total_duration = 0

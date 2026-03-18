@@ -57,7 +57,7 @@ class BandwidthEstimationStage(LegacySpeechStage):
         return [], [self.audio_filepath_key, "segments"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, "segments"]
+        return [], [self.audio_filepath_key, "segments", "metrics"]
 
     def _estimate_bandwidth(self, audio: "np.ndarray", sample_rate: int) -> int:
         """Estimate the bandwidth of an audio signal."""

@@ -58,6 +58,25 @@ class BaseASRProcessorStage(ProcessingStage[AudioBatch, AudioBatch]):
         segments_key: Key for segments list in manifest.
     """
 
+    def validate_input(self, task: AudioBatch) -> bool:
+        """Validate that required data attributes exist as keys in the AudioBatch data dicts."""
+        required_top_level_attrs, required_data_attrs = self.inputs()
+
+        missing_top_level = [a for a in required_top_level_attrs if not hasattr(task, a)]
+
+        missing_data = []
+        if required_data_attrs and task.data:
+            first_entry = task.data[0] if isinstance(task.data, list) else task.data
+            if isinstance(first_entry, dict):
+                missing_data = [a for a in required_data_attrs if a not in first_entry]
+            else:
+                missing_data = [a for a in required_data_attrs if not hasattr(first_entry, a)]
+
+        if missing_top_level or missing_data:
+            logger.error(f"Task {task.task_id} missing required attributes: {missing_top_level} {missing_data}")
+
+        return not missing_top_level and not missing_data
+
     # Length constraints
     min_len: float = 1.0
     max_len: float = 40.0

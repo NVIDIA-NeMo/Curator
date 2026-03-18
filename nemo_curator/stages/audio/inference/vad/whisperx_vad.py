@@ -71,14 +71,14 @@ class WhisperXVADModel:
 
     def get_vad_segments(
         self,
-        audio: torch.Tensor,
+        audio: "np.ndarray",
         merge_max_length: float,
         sample_rate: int = SAMPLE_RATE,
     ) -> list[dict]:
         """Get voice activity detection segments for the given audio.
 
         Args:
-            audio: Waveform tensor (C, N).
+            audio: NumPy array of shape (C, N).
             merge_max_length: Maximum length for merging chunks in seconds.
             sample_rate: Sample rate of the audio.
 
