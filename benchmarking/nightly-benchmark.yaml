@@ -69,6 +69,10 @@ datasets:
     formats:
     - type: "jsonl"
       path: "{datasets_path}/gretel_symptoms"
+  - name: "text_models_hf_cache"
+    formats:
+    - type: "files"
+      path: "{model_weights_path}/text_models_hf_cache"
   - name: "multimodal_mint1t"
     formats:
     - type: "wds_tar_dir"
@@ -82,7 +86,7 @@ sinks:
 #    tracking_uri: ${MLFLOW_TRACKING_URI}
 #    experiment: ray-curator-common-crawl
   - name: slack
-    enabled: false
+    enabled: true
     live_updates: true
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
@@ -180,6 +184,7 @@ entries:
       --dataset-size-gb=10
       --model-identifier=google/embeddinggemma-300m
       --model-variation=vllm_text
+      --cache-dir={dataset:text_models_hf_cache,files}
     timeout_s: 800
     sink_data:
       - name: slack
@@ -208,6 +213,7 @@ entries:
       --dataset-size-gb=10
       --model-identifier=google/embeddinggemma-300m
       --model-variation=vllm_text
+      --cache-dir={dataset:text_models_hf_cache,files}
     timeout_s: 800
     sink_data:
       - name: slack

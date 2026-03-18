@@ -44,7 +44,7 @@ class EmbeddingModelVariation(Enum):
     VLLM_TEXT_PRETOKENIZED = "vllm_text_pretokenized"
 
 
-def _resolve_max_seq_length(model_identifier: str) -> int:
+def _resolve_max_seq_length(model_identifier: str, cache_dir: str | None = None) -> int:
     """Resolve max_seq_length from the sentence-transformers config.
 
     vLLM reads max_seq_length from the Sentence Transformers config (e.g. 256
@@ -55,9 +55,14 @@ def _resolve_max_seq_length(model_identifier: str) -> int:
     We use the sentence-transformers config as the single source of truth
     so all backends process the same number of tokens.
     """
+    from huggingface_hub import snapshot_download
     from vllm.transformers_utils.config import get_sentence_transformer_tokenizer_config
 
-    st_config = get_sentence_transformer_tokenizer_config(model_identifier)
+    # Resolve to a local snapshot path so the vLLM helper can find configs
+    # even when the model lives in a non-default cache directory.
+    model_path = snapshot_download(model_identifier, cache_dir=cache_dir, local_files_only=True)
+
+    st_config = get_sentence_transformer_tokenizer_config(model_path)
     if st_config is None:
         msg = f"No sentence-transformers config found for {model_identifier}"
         raise ValueError(msg)
@@ -73,6 +78,7 @@ def _create_embedding_stages(
     model_inference_batch_size: int,
     max_seq_length: int,
     embedding_pooling: str,
+    cache_dir: str | None = None,
 ) -> list:
     """Create the embedding stage(s) for the given model variation."""
     if model_variation in {EmbeddingModelVariation.SENTENCE_TRANSFORMER, EmbeddingModelVariation.PYTORCH_MODEL}:
@@ -89,6 +95,7 @@ def _create_embedding_stages(
                 sort_by_length=True,
                 max_seq_length=max_seq_length,
                 embedding_pooling=embedding_pooling,
+                cache_dir=cache_dir,
             ),
         ]
 
@@ -108,6 +115,7 @@ def _create_embedding_stages(
                 embedding_field="embeddings",
                 pretokenize=model_variation == EmbeddingModelVariation.VLLM_TEXT_PRETOKENIZED,
                 vllm_init_kwargs=vllm_init_kwargs,
+                cache_dir=cache_dir,
             ),
         ]
 
@@ -125,11 +133,12 @@ def run_embedding_generation_benchmark(
     model_variation: str,
     embedding_pooling: str,
     input_format: str = "parquet",
+    cache_dir: str | None = None,
     **kwargs: Any,  # noqa: ANN401, ARG001
 ) -> dict[str, Any]:
     """Run the embedding generation benchmark and collect comprehensive metrics."""
     variation = EmbeddingModelVariation(model_variation)
-    max_seq_length = _resolve_max_seq_length(model_identifier)
+    max_seq_length = _resolve_max_seq_length(model_identifier, cache_dir=cache_dir)
     input_path = Path(input_path)
     output_path = Path(output_path).absolute()
     output_path.mkdir(parents=True, exist_ok=True)
@@ -157,6 +166,7 @@ def run_embedding_generation_benchmark(
         model_inference_batch_size=model_inference_batch_size,
         max_seq_length=max_seq_length,
         embedding_pooling=embedding_pooling,
+        cache_dir=cache_dir,
     )
 
     if input_format == "jsonl":
@@ -224,6 +234,11 @@ def main() -> int:
         default="parquet",
         choices=["parquet", "jsonl"],
         help="Input file format (default: parquet)",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help="HuggingFace cache directory for model weights (uses default HF cache if not set)",
     )
 
     args = parser.parse_args()
