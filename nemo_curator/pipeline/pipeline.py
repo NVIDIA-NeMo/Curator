@@ -188,14 +188,15 @@ class Pipeline:
         self.build()
 
         # Resolve per-stage pip_specs into venvs so executors can use PYTHONPATH (e.g. Ray Data).
-        # Skip if already resolved (e.g. second run() on same pipeline) to avoid recreating venvs.
-        needs_resolve = any(
-            getattr(s, "pip_specs", None)
-            and not getattr(s, "_resolved_site_packages_path", None)
+        # Only pass unresolved stages so already-resolved stages keep their venvs.
+        unresolved = [
+            s
             for s in self.stages
-        )
-        if needs_resolve:
-            resolve_stage_pip_envs(self.stages)
+            if getattr(s, "pip_specs", None)
+            and not getattr(s, "_resolved_site_packages_path", None)
+        ]
+        if unresolved:
+            resolve_stage_pip_envs(unresolved)
 
         if executor is None:
             from nemo_curator.backends.xenna import XennaExecutor
