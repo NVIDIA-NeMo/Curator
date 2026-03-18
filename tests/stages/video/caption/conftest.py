@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -52,10 +52,10 @@ def shared_ray_cluster() -> None:  # type: ignore[override]
 
 # ---------------------------------------------------------------------------
 # CLI option: --model-dir
-# Priority: CLI arg > env var QWEN_VL_MODEL_DIR > skip
+# Priority: CLI arg > env var QWEN_MODEL_DIR > skip
 # ---------------------------------------------------------------------------
 
-_ENV_VAR = "QWEN_VL_MODEL_DIR"
+_ENV_VAR = "QWEN_MODEL_DIR"
 
 # Small video committed to the repo so tests are self-contained and portable.
 # 3s, 240x136, 2fps, mpeg4 — 3.8 KB
@@ -80,7 +80,7 @@ def qwen_model_dir(request: pytest.FixtureRequest) -> str:
     """Resolve the model-weights root directory using precedence:
 
     1. --model-dir CLI argument
-    2. QWEN_VL_MODEL_DIR environment variable
+    2. QWEN_MODEL_DIR environment variable
     3. Skip — no personal path fallback so the test is portable
     """
     cli_value: str | None = request.config.getoption("--model-dir", default=None)

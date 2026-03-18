@@ -1,6 +1,6 @@
 # modality: video
 
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ Model weights root is required for generation tests. Either pass it via CLI::
 
 Or set the environment variable (same directory must contain ``Qwen/Qwen2.5-VL-7B-Instruct/``)::
 
-    QWEN_VL_MODEL_DIR=/path/to/models pytest -m integration tests/stages/video/caption/test_caption_integration.py
+    QWEN_MODEL_DIR=/path/to/models pytest -m integration tests/stages/video/caption/test_caption_integration.py
 
 If neither is set, tests that need the model are skipped.
 """
@@ -106,7 +106,7 @@ def generation_stage(qwen_model_dir: str) -> CaptionGenerationStage:
     if not weight_path.exists():
         pytest.skip(
             f"Qwen weights not found at {weight_path}. "
-            f"Pass --model-dir or set $QWEN_VL_MODEL_DIR to a directory "
+            f"Pass --model-dir or set $QWEN_MODEL_DIR to a directory "
             f"containing Qwen/Qwen2.5-VL-7B-Instruct/."
         )
 
