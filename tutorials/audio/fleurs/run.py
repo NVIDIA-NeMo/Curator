@@ -24,7 +24,7 @@ _EXECUTOR_FACTORIES = {
 }
 
 
-def _create_executor(backend: str):
+def _create_executor(backend: str) -> object:
     module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
     import importlib
 

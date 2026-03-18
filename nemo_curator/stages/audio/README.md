@@ -57,7 +57,7 @@ def setup(self, worker_metadata=None) -> None:
 
 `setup()` is called once per worker before any processing begins.
 
-## Writing a GPU stage
+## Writing a GPU or IO stage
 
 Override **one** method: `process_batch`.
 
@@ -114,14 +114,21 @@ class InferenceSpeakerIDStage(AudioTaskStage):
 
 Key differences from a CPU stage:
 
-| | CPU stage | GPU stage |
+| | CPU stage | GPU / IO stage |
 |---|---|---|
 | Override | `process_dataset_entry` | `process_batch` |
 | Receives | One `dict` | `list[AudioTask]` (the whole batch) |
-| Returns | `dict \| None` | `list[AudioTask]` |
+| Returns | `dict \| None` | `list[AudioTask]` (or `list[DocumentBatch]` for IO) |
 | Validation | Automatic (base `process_batch`) | Call `self._validate_batch(tasks)` |
-| `batch_size` | Default `1` | Set to match GPU throughput (e.g. `16`, `32`) |
-| `resources` | Default `cpus=1.0` | Set `gpus=1.0` (or fractional) |
+| `batch_size` | Default `1` | Set to match GPU throughput or IO aggregation (e.g. `16`, `64`) |
+| `resources` | Default `cpus=1.0` | Set `gpus=1.0` for GPU stages; cpus for IO |
+
+**Other stages that override `process_batch`:**
+
+- `AudioToDocumentStage` (`io/convert.py`) — aggregates N `AudioTask`
+  dicts into a single multi-row `pd.DataFrame` in one `DocumentBatch`,
+  avoiding N single-row DataFrame allocations.  Not a GPU stage, but
+  benefits from batched processing.
 
 ### Setting `batch_size` for GPU inference
 
@@ -203,7 +210,7 @@ Every stage (CPU or GPU) should declare:
 To drop an entry from the pipeline:
 
 - **CPU stage**: return `None` from `process_dataset_entry`.
-- **GPU stage**: omit the entry from the returned list in `process_batch`.
+- **GPU / IO stage**: omit the entry from the returned list in `process_batch`.
 
 ## Method reference
 
@@ -220,8 +227,8 @@ process_batch(list[AudioTask]) -> list[AudioTask]
     validates every task via _validate_batch(), then loops via
     process_dataset_entry, wrapping each returned dict in a new
     AudioTask.
-    GPU stages override this entirely — call _validate_batch()
-    at the top, then run batched inference logic.
+    GPU stages and IO stages (e.g. AudioToDocumentStage) override
+    this entirely for batched processing.
 
 process(AudioTask) -> AudioTask | list[AudioTask]
     Required by the abstract ProcessingStage base.  Delegates to
@@ -989,21 +996,12 @@ Appends the entry as a single JSON line to
 
 ---
 
-## Cross-modality comparison
-
-| Concern | Audio (`AudioTaskStage`) | Video (`ProcessingStage`) | Text / Image / Interleaved |
-|---|---|---|---|
-| **Dedicated base class** | Yes — `AudioTaskStage` in `common.py` | No — stages subclass `ProcessingStage` directly | No |
-| **In-place mutation** | Yes — CPU stages mutate the `dict` in-place | Yes — nearly all stages mutate `VideoTask.data` (a `Video` dataclass) in-place and return the same `task` | Rarely — text stages work on `DocumentBatch` DataFrames; pandas manages copies |
-| **Empty-batch guard** | `if len(tasks) == 0:` (numpy-safe) everywhere | Mixed — some `if not tasks:`, some no guard | Mixed — text checks `df.empty` (safe) |
-| **Task wrapper** | `AudioTask(Task[dict])` | `VideoTask(Task[Video])` — `Video` is a rich dataclass with nested `Clip`/`_Window` | `DocumentBatch`, `ImageBatch` |
-
-### Quick checklist for adding a new audio stage
+## Quick checklist for adding a new audio stage
 
 1. Subclass `AudioTaskStage` (not `ProcessingStage` directly)
 2. Implement `inputs()` and `outputs()` to declare required/produced keys
 3. For CPU stages: override `process_dataset_entry(data: dict) -> dict | None`
-4. For GPU stages: override `process_batch(tasks) -> list[AudioTask]`,
+4. For GPU / IO stages: override `process_batch(tasks) -> list[AudioTask]`,
    call `self._validate_batch(tasks)` at the top, guard with
    `if len(tasks) == 0: return []`
 5. Declare GPU resources via `.with_(resources=Resources(gpus=1.0))`

@@ -40,8 +40,8 @@ class AudioTaskStage(ProcessingStage[AudioTask, AudioTask]):
         Default implementation validates inputs then loops via
         ``process_dataset_entry``, wrapping each returned dict in
         a new ``AudioTask``.
-        **GPU stages override this** — call ``self._validate_batch``
-        at the top, then run batched inference.
+        **GPU stages and IO stages override this** for batched
+        processing (e.g. batched inference, aggregated conversion).
 
     ``process(task: AudioTask) -> AudioTask | list[AudioTask]``
         Required by abstract ``ProcessingStage``.  Delegates to
@@ -50,7 +50,7 @@ class AudioTaskStage(ProcessingStage[AudioTask, AudioTask]):
 
     Subclass contract:
         - CPU stage  → override ``process_dataset_entry``
-        - GPU stage  → override ``process_batch`` (call ``_validate_batch`` first)
+        - GPU / IO stage  → override ``process_batch``
     """
 
     def process_dataset_entry(self, data_entry: dict) -> dict | None:
@@ -85,8 +85,8 @@ class AudioTaskStage(ProcessingStage[AudioTask, AudioTask]):
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Validate then process via ``process_dataset_entry``.
 
-        GPU stages override this entirely (call ``_validate_batch``
-        at the top, then run batched logic).
+        GPU and IO stages override this entirely for batched
+        processing.
         """
         if len(tasks) == 0:
             return []
