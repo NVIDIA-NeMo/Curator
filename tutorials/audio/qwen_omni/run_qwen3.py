@@ -1,0 +1,73 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+import argparse
+
+import ray
+
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.models.client import OpenAIClient
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.onmi_llm_request import OmniLLMRequestStage, PrepareMessagesStage
+from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
+from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
+
+
+# Use a local in-process Ray runtime so we don't try to connect to an existing cluster (e.g. GCS at 127.0.1.1:6379).
+# Omit this block if you have started a cluster with `ray start --head` and want to use it.
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run Qwen3-Omni pipeline with JSONL input/output.")
+    parser.add_argument("--input_path", type=str, required=True, help="Input JSONL path")
+    parser.add_argument("--output_path", type=str, default="output/qwen3_omni/", help="Output directory")
+    parser.add_argument("--host", type=str, default="localhost", help="vLLM API host")
+    parser.add_argument("--port", type=int, default=8200, help="vLLM API port")
+    parser.add_argument("--model-name", type=str, default="Qwen/Qwen3-Omni-30B-A3B-Instruct", help="Model name")
+    parser.add_argument("--api-key", type=str, default="dummy-key", help="API key")
+    parser.add_argument("--max-tokens", type=int, default=256, help="Max tokens")
+    parser.add_argument("--temperature", type=float, default=0.7, help="Temperature")
+    parser.add_argument("--top-p", type=float, default=0.95, help="Top-p")
+    parser.add_argument("--no-ray-local", action="store_true", help="Skip ray.init(local); use existing cluster")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    if not args.no_ray_local:
+        ray.init(address="local", ignore_reinit_error=True)
+
+    base_url = f"http://{args.host}:{args.port}/v1"
+    llm_client = OpenAIClient(base_url=base_url, api_key=args.api_key)
+    generation_config = {
+        "max_tokens": args.max_tokens,
+        "temperature": args.temperature,
+        "top_p": args.top_p,
+    }
+
+    pipeline = Pipeline(name="qwen3_omni")
+    pipeline.add_stage(JsonlReader(file_paths=args.input_path))
+    pipeline.add_stage(PrepareMessagesStage())
+    pipeline.add_stage(
+        OmniLLMRequestStage(
+            client=llm_client,
+            model_name=args.model_name,
+            generation_config=generation_config,
+        )
+    )
+    pipeline.add_stage(JsonlWriter(path=args.output_path, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+    pipeline.run(executor=RayDataExecutor())
+
+
+if __name__ == "__main__":
+    main()
