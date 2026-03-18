@@ -19,6 +19,7 @@ from loguru import logger
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import Task
+from nemo_curator.utils.stage_pip_env import resolve_stage_pip_envs
 
 
 class Pipeline:
@@ -185,6 +186,10 @@ class Pipeline:
             list[Task] | None: List of tasks
         """
         self.build()
+
+        # Resolve per-stage pip_specs into venvs so executors can use PYTHONPATH (e.g. Ray Data).
+        if any(getattr(s, "pip_specs", None) for s in self.stages):
+            resolve_stage_pip_envs(self.stages)
 
         if executor is None:
             from nemo_curator.backends.xenna import XennaExecutor

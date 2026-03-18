@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 from collections.abc import Callable
 from typing import Any
 
@@ -100,6 +101,18 @@ class RayDataStageAdapter(BaseStageAdapter):
             concurrency_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
         if self.stage.resources.gpus > 0:
             concurrency_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
+
+        # Per-stage ray_remote_args (e.g. runtime_env with different pip versions per stage).
+        ray_remote_args = copy.deepcopy(
+            self.stage.ray_stage_spec().get(RayStageSpecKeys.RAY_REMOTE_ARGS) or {}
+        )
+        # If pipeline resolved pip_specs to a venv, inject PYTHONPATH so workers use that env.
+        resolved_path = getattr(self.stage, "_resolved_site_packages_path", None)
+        if resolved_path is not None:
+            ray_remote_args.setdefault("runtime_env", {}).setdefault("env_vars", {})[
+                "PYTHONPATH"
+            ] = str(resolved_path)
+        concurrency_kwargs.update(ray_remote_args)
 
         # Calculate concurrency based on available resources
         logger.info(f"{self.stage.__class__.__name__} {is_actor_stage_=} with {concurrency_kwargs=}")
