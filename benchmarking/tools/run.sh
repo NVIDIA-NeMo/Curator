@@ -25,7 +25,6 @@ SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-""}
 GDRIVE_FOLDER_ID=${GDRIVE_FOLDER_ID:-""}
 GDRIVE_SERVICE_ACCOUNT_FILE=${GDRIVE_SERVICE_ACCOUNT_FILE:-""}
 NVIDIA_API_KEY=${NVIDIA_API_KEY:-""}
-HF_HOME=${HF_HOME:-""}
 
 # get the following vars from the command line, config file(s), etc. and
 # set them in this environment:
@@ -68,7 +67,6 @@ docker run \
   --shm-size=${SHM_SIZE_BYTES} \
   \
   ${VOLUME_MOUNTS} \
-  ${HF_HOME:+--volume=${HF_HOME}:${HF_HOME}} \
   \
   --env=IMAGE_DIGEST=${IMAGE_DIGEST} \
   --env=MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
@@ -79,7 +77,6 @@ docker run \
   --env=CURATOR_BENCHMARKING_DEBUG=${CURATOR_BENCHMARKING_DEBUG} \
   --env=HOST_HOSTNAME=$(hostname) \
   --env=NVIDIA_API_KEY=${NVIDIA_API_KEY} \
-  ${HF_HOME:+--env=HF_HOME=${HF_HOME}} \
   \
   ${BASH_ENTRYPOINT_OVERRIDE} \
   ${CURATOR_BENCHMARKING_IMAGE} \
