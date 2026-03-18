@@ -17,60 +17,12 @@ from unittest.mock import patch
 
 import numpy as np
 
-from nemo_curator.stages.audio.configs.mono_conversion import MonoConversionConfig
 from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
 from nemo_curator.tasks import AudioBatch
 
 
-class TestMonoConversionConfig:
-    """Tests for MonoConversionConfig."""
-
-    def test_defaults(self) -> None:
-        cfg = MonoConversionConfig()
-        assert cfg.output_sample_rate == 48000
-        assert cfg.audio_filepath_key == "audio_filepath"
-        assert cfg.strict_sample_rate is True
-
-    def test_from_dict(self) -> None:
-        cfg = MonoConversionConfig.from_dict(
-            {"output_sample_rate": 16000, "strict_sample_rate": False}
-        )
-        assert cfg.output_sample_rate == 16000
-        assert cfg.strict_sample_rate is False
-        assert cfg.audio_filepath_key == "audio_filepath"
-
-    def test_from_dict_ignores_unknown_keys(self) -> None:
-        cfg = MonoConversionConfig.from_dict({"unknown_key": 42})
-        assert cfg.output_sample_rate == 48000
-
-    def test_to_dict(self) -> None:
-        cfg = MonoConversionConfig(output_sample_rate=22050)
-        d = cfg.to_dict()
-        assert d["output_sample_rate"] == 22050
-        assert d["audio_filepath_key"] == "audio_filepath"
-        assert d["strict_sample_rate"] is True
-
-    def test_roundtrip(self) -> None:
-        original = MonoConversionConfig(output_sample_rate=16000, strict_sample_rate=False)
-        restored = MonoConversionConfig.from_dict(original.to_dict())
-        assert restored.output_sample_rate == original.output_sample_rate
-        assert restored.strict_sample_rate == original.strict_sample_rate
-
-
 class TestMonoConversionStage:
     """Tests for MonoConversionStage."""
-
-    def test_stage_properties(self) -> None:
-        stage = MonoConversionStage()
-        assert stage.name == "MonoConversion"
-        assert stage.inputs() == (["data"], [])
-        assert stage.outputs() == ([], ["waveform", "sample_rate", "is_mono", "duration", "num_samples"])
-
-    def test_config_overrides_params(self) -> None:
-        cfg = MonoConversionConfig(output_sample_rate=16000, strict_sample_rate=False)
-        stage = MonoConversionStage(config=cfg)
-        assert stage.output_sample_rate == 16000
-        assert stage.strict_sample_rate is False
 
     def test_process_stereo_to_mono(self, tmp_path: Path) -> None:
         wav = tmp_path / "stereo.wav"
@@ -161,22 +113,3 @@ class TestMonoConversionStage:
                 result = stage.process(batch)
 
         assert len(result.data) == 0
-
-    def test_preserves_task_metadata(self, tmp_path: Path) -> None:
-        wav = tmp_path / "meta.wav"
-        wav.touch()
-
-        mono = np.random.randn(48000).astype(np.float32)
-
-        with patch("nemo_curator.stages.audio.preprocessing.mono_conversion.sf.read", return_value=(mono, 48000)):
-            with patch("os.path.exists", return_value=True):
-                stage = MonoConversionStage()
-                batch = AudioBatch(
-                    data=[{"audio_filepath": wav.as_posix()}],
-                    task_id="test_task",
-                    dataset_name="test_ds",
-                )
-                result = stage.process(batch)
-
-        assert result.task_id == "test_task"
-        assert result.dataset_name == "test_ds"

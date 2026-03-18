@@ -132,6 +132,11 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 continue
             if not torch.is_tensor(waveform):
                 waveform = torch.as_tensor(waveform, dtype=torch.float32)
+            if parts and sr != sample_rate:
+                logger.warning(
+                    f"[SegmentConcat] Sample rate mismatch at segment {idx}: "
+                    f"expected {sample_rate}Hz, got {sr}Hz. Output audio may be corrupted."
+                )
             sample_rate = sr
             silence_samples = int(silence_duration_ms * sample_rate / 1000)
 
