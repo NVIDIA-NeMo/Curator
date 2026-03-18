@@ -75,6 +75,7 @@ class TextSemanticDeduplicationWorkflow:
     embedding_pretokenize: bool = False
     embedding_vllm_init_kwargs: dict[str, Any] | None = None
     hf_token: str | None = None
+    model_cache_dir: str | None = None
     # Semantic deduplication parameters
     n_clusters: int = 100
     id_field: str = CURATOR_DEDUP_ID_STR
@@ -129,6 +130,7 @@ class TextSemanticDeduplicationWorkflow:
         embedding_pretokenize: Whether to pre-tokenize input before passing to vLLM
         embedding_vllm_init_kwargs: Additional kwargs passed to vLLM's LLM initializer
         hf_token: HuggingFace token for private models
+        model_cache_dir: Directory to cache model weights
 
         # Semantic deduplication parameters
         n_clusters: Number of clusters for K-means
@@ -273,7 +275,9 @@ class TextSemanticDeduplicationWorkflow:
             max_chars=self.embedding_max_chars,
             pretokenize=self.embedding_pretokenize,
             vllm_init_kwargs=self.embedding_vllm_init_kwargs,
+            cache_dir=self.model_cache_dir,
             hf_token=self.hf_token,
+            verbose=self.verbose,
         )
         pipeline.add_stage(embedding_stage)
 
