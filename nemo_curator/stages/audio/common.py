@@ -38,8 +38,8 @@ class AudioTaskStage(ProcessingStage[AudioTask, AudioTask]):
     ``process_batch(tasks: list[AudioTask]) -> list[AudioTask]``
         The real entry point called by backends (Xenna / Ray).
         Default implementation validates inputs then loops via
-        ``process_dataset_entry``, reusing the original AudioTask
-        wrapper when the dict is mutated in-place (zero-copy).
+        ``process_dataset_entry``, wrapping each returned dict in
+        a new ``AudioTask``.
         **GPU stages override this** — call ``self._validate_batch``
         at the top, then run batched inference.
 
@@ -96,19 +96,16 @@ class AudioTaskStage(ProcessingStage[AudioTask, AudioTask]):
             result = self.process_dataset_entry(task.data)
             if result is None:
                 continue
-            if result is task.data:
-                results.append(task)
-            else:
-                results.append(
-                    AudioTask(
-                        data=result,
-                        task_id=task.task_id,
-                        dataset_name=task.dataset_name,
-                        filepath_key=task.filepath_key,
-                        _stage_perf=list(task._stage_perf),
-                        _metadata=task._metadata.copy(),
-                    )
+            results.append(
+                AudioTask(
+                    data=result,
+                    task_id=task.task_id,
+                    dataset_name=task.dataset_name,
+                    filepath_key=task.filepath_key,
+                    _stage_perf=list(task._stage_perf),
+                    _metadata=task._metadata.copy(),
                 )
+            )
         return results
 
 

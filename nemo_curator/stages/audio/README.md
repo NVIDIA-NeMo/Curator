@@ -40,10 +40,8 @@ That is it.  The base class handles:
 - **Input validation** — checks that `audio_filepath` exists in the entry
   before your code runs (via `inputs()`).
 - **Task unwrapping / rewrapping** — you receive a plain `dict`, not an
-  `AudioTask`.  When you mutate `data` in-place (the common case), the
-  base class detects this and **reuses the original `AudioTask` wrapper**
-  (zero-copy).  Only when you return a different dict object does it
-  create a new `AudioTask`.
+  `AudioTask`.  The base class wraps your returned dict in a new
+  `AudioTask` automatically.
 - **Filtering** — return `None` to drop an entry from the pipeline.
 
 ### Lazy imports and `setup()`
@@ -220,8 +218,8 @@ process_dataset_entry(dict) -> dict | None
 process_batch(list[AudioTask]) -> list[AudioTask]
     The real entry point called by backends.  Default implementation
     validates every task via _validate_batch(), then loops via
-    process_dataset_entry, reusing the original AudioTask wrapper
-    when the dict is mutated in-place (zero-copy).
+    process_dataset_entry, wrapping each returned dict in a new
+    AudioTask.
     GPU stages override this entirely — call _validate_batch()
     at the top, then run batched inference logic.
 
@@ -253,21 +251,12 @@ _validate_batch(list[AudioTask]) -> None
 
 ## Optimizations in the base class
 
-1. **Zero-copy in-place reuse** — when `process_dataset_entry` returns
-   the same `dict` object (i.e. mutates in-place), the base class detects
-   `result is task.data` and reuses the existing `AudioTask` wrapper.  No
-   new `AudioTask`, no new `_AttrDict`.  Most CPU stages benefit from
-   this.  Video stages use a similar pattern at the stage level — they
-   mutate `VideoTask.data` (a `Video` dataclass) in-place and return the
-   same `task` object from `process()`.  Audio does it in the *base class*
-   `process_batch`, so individual CPU stages get it for free.
-
-2. **Aggregated IO conversion** — `AudioToDocumentStage` overrides
+1. **Aggregated IO conversion** — `AudioToDocumentStage` overrides
    `process_batch` to combine N `AudioTask` dicts into one multi-row
    `pd.DataFrame` in a single `DocumentBatch`, avoiding N single-row
    DataFrame allocations.
 
-3. **Ray Data compatibility** — empty-batch guards use `len(tasks) == 0`
+2. **Ray Data compatibility** — empty-batch guards use `len(tasks) == 0`
    instead of `not tasks` because Ray Data's `map_batches` passes
    `tasks` as a numpy array, and `not ndarray` raises `ValueError`
    for arrays with more than one element.  This applies to
@@ -496,9 +485,9 @@ pipeline.run(executor)
 │   │    │    audio_filepath = data[self.audio_filepath_key]
 │   │    │    raw, samplerate = soundfile.read(audio_filepath)
 │   │    │    data[self.duration_key] = raw.shape[0] / samplerate
-│   │    │    return data                          (same dict → zero-copy reuse)
+│   │    │    return data                          (mutated in-place)
 │   │    │
-│   │    result is task.data → True                reuse existing AudioTask wrapper
+│   │    wrap result in new AudioTask              (preserves task_id, metadata, etc.)
 │   └─ return results
 ```
 
@@ -751,15 +740,15 @@ Writes each row of the DataFrame as one JSON line to
 
 ### Summary table
 
-| Stage | Keys in `data` | Type out | Mutates in-place? |
-|---|---|---|---|
-| `CreateInitialManifestFleursStage` | `audio_filepath`, `text` | `AudioTask` | N/A (creates) |
-| `InferenceAsrNemoStage` | + `pred_text` | `AudioTask` | No (new dict) |
-| `GetPairwiseWerStage` | + `wer` | `AudioTask` | Yes (zero-copy) |
-| `GetAudioDurationStage` | + `duration` | `AudioTask` | Yes (zero-copy) |
-| `PreserveByValueStage` | (unchanged or dropped) | `AudioTask` | Yes (zero-copy) |
-| `AudioToDocumentStage` | (all 5 keys) | `DocumentBatch` | N/A (type change) |
-| `JsonlWriter` | — | file on disk | N/A |
+| Stage | Keys in `data` | Type out |
+|---|---|---|
+| `CreateInitialManifestFleursStage` | `audio_filepath`, `text` | `AudioTask` |
+| `InferenceAsrNemoStage` | + `pred_text` | `AudioTask` |
+| `GetPairwiseWerStage` | + `wer` | `AudioTask` |
+| `GetAudioDurationStage` | + `duration` | `AudioTask` |
+| `PreserveByValueStage` | (unchanged or dropped) | `AudioTask` |
+| `AudioToDocumentStage` | (all 5 keys) | `DocumentBatch` |
+| `JsonlWriter` | — | file on disk |
 
 ### Contrast: high-WER entry
 
@@ -1005,8 +994,7 @@ Appends the entry as a single JSON line to
 | Concern | Audio (`AudioTaskStage`) | Video (`ProcessingStage`) | Text / Image / Interleaved |
 |---|---|---|---|
 | **Dedicated base class** | Yes — `AudioTaskStage` in `common.py` | No — stages subclass `ProcessingStage` directly | No |
-| **In-place mutation** | Yes — CPU stages mutate the `dict` in-place; base class detects via `result is task.data` | Yes — nearly all stages mutate `VideoTask.data` (a `Video` dataclass) in-place and return the same `task` | Rarely — text stages work on `DocumentBatch` DataFrames; pandas manages copies |
-| **Zero-copy at base-class level** | Yes — `AudioTaskStage.process_batch` reuses the `AudioTask` wrapper when the dict is mutated in-place | No — video stages get the same effect manually (return `task` from `process()`) | No |
+| **In-place mutation** | Yes — CPU stages mutate the `dict` in-place | Yes — nearly all stages mutate `VideoTask.data` (a `Video` dataclass) in-place and return the same `task` | Rarely — text stages work on `DocumentBatch` DataFrames; pandas manages copies |
 | **Empty-batch guard** | `if len(tasks) == 0:` (numpy-safe) everywhere | Mixed — some `if not tasks:`, some no guard | Mixed — text checks `df.empty` (safe) |
 | **Task wrapper** | `AudioTask(Task[dict])` | `VideoTask(Task[Video])` — `Video` is a rich dataclass with nested `Clip`/`_Window` | `DocumentBatch`, `ImageBatch` |
 
