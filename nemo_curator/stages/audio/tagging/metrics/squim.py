@@ -47,6 +47,7 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
     """
 
     device: str = "cuda"
+    audio_filepath_key: str = "resampled_audio_filepath"
 
     # Stage metadata
     name: str = "TorchSquimQualityMetrics"
@@ -57,10 +58,10 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
     _model_initialized: bool = field(default=False, repr=False)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["resampled_audio_filepath", "segments"]
+        return [], [self.audio_filepath_key, "segments"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["resampled_audio_filepath", "segments"]
+        return [], [self.audio_filepath_key, "segments"]
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Setup stage on node."""
@@ -89,7 +90,13 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
         if not self._model_initialized:
             self.setup()
 
-        audio_path = data_entry["resampled_audio_filepath"]
+        audio_path = data_entry.get(self.audio_filepath_key)
+        if not audio_path:
+            logger.error(
+                f"[{self.name}] Missing '{self.audio_filepath_key}' for entry: "
+                f"{data_entry.get('audio_item_id', 'unknown')}"
+            )
+            return [AudioBatch(data=[data_entry])]
         info = sf.info(audio_path)
         sr = info.samplerate
 

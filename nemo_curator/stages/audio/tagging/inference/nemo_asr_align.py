@@ -255,10 +255,10 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         logger.info(f"[{self.name}] Initialized ASR model on {self.device}")
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return ["data"], ["duration", "segments", "split_filepaths", "split_metadata"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return ["data"], ["duration", "segments", "split_filepaths", "split_metadata"]
 
     def get_alignments_text(self, hypotheses: Any) -> tuple[list, str]:  # noqa: ANN401
         """Extract word alignments and text from model hypotheses."""

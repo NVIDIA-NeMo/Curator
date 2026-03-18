@@ -96,9 +96,14 @@ class PNCwithBERTStage(LegacySpeechStage):
         if self.update_alignment:
             alignment = segment.get("alignment", [])
             pnc_words = pnc_text.split()
-            for i, word in enumerate(alignment):
+            pnc_idx = 0
+            for word in alignment:
                 if word.get("word", "") != "":
-                    word["word"] = pnc_words[i]
+                    if pnc_idx >= len(pnc_words):
+                        logger.warning(f"[{self.name}] PNC word count mismatch; stopping alignment update.")
+                        break
+                    word["word"] = pnc_words[pnc_idx]
+                    pnc_idx += 1
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         if self.segments_key in data_entry:

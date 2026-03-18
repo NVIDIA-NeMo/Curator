@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import torchaudio
+from loguru import logger
 
 from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
@@ -52,11 +53,12 @@ class SplitLongAudioStage(LegacySpeechStage):
     name: str = "SplitLongAudio"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["duration", "resampled_audio_filepath"]
+        return [], ["duration", "segments", "resampled_audio_filepath"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [
             "duration",
+            "segments",
             "resampled_audio_filepath",
             "split_filepaths",
             "split_metadata",
@@ -132,16 +134,35 @@ class SplitLongAudioStage(LegacySpeechStage):
             split_durations.append(remaining_frames / sr)
             actual_splits.append(split_start / sr)
 
-        # Create entries for each split
         audio_item_id = data_entry.get("audio_item_id", "unknown")
-        all_split_metadata = []
-        for idx, split_path in enumerate(split_filepaths):
-            split_metadata = {
-                "audio_item_id": f"{audio_item_id}_{idx}",
-                "resampled_audio_filepath": split_path,
-                "duration": split_durations[idx],
-            }
-            all_split_metadata.append(split_metadata)
+
+        if not split_filepaths:
+            duration = len(audio[0]) / sr
+            logger.warning(
+                f"[{self.name}] No split files produced for entry "
+                f"'{audio_item_id}' (duration={duration:.1f}s, splits={splits}). "
+                f"Falling back to full audio file."
+            )
+            split_filepaths = [audio_path]
+            split_durations = [duration]
+            actual_splits = [0.0]
+            all_split_metadata = [
+                {
+                    "audio_item_id": audio_item_id,
+                    "resampled_audio_filepath": audio_path,
+                    "duration": duration,
+                }
+            ]
+        else:
+            # Create entries for each split
+            all_split_metadata = []
+            for idx, split_path in enumerate(split_filepaths):
+                split_metadata = {
+                    "audio_item_id": f"{audio_item_id}_{idx}",
+                    "resampled_audio_filepath": split_path,
+                    "duration": split_durations[idx],
+                }
+                all_split_metadata.append(split_metadata)
 
         # Create meta-entry with split information
         data_entry["split_metadata"] = all_split_metadata
@@ -165,7 +186,7 @@ class JoinSplitAudioMetadataStage(LegacySpeechStage):
     name: str = "JoinSplitAudioMetadata"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
+        return [], ["split_filepaths", "split_metadata", "split_offsets", "split_timestamps"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["text", "alignment"]

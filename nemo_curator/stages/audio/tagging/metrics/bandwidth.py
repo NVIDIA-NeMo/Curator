@@ -48,15 +48,16 @@ class BandwidthEstimationStage(LegacySpeechStage):
     stride_seconds: float = 0.01
     top_db: float = 100.0
     frequency_threshold: float = -50.0
+    audio_filepath_key: str = "audio_filepath"
 
     # Stage metadata
     name: str = "BandwidthEstimation"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["audio_filepath", "segments"]
+        return [], [self.audio_filepath_key, "segments"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["audio_filepath", "segments"]
+        return [], [self.audio_filepath_key, "segments"]
 
     def _estimate_bandwidth(self, audio: "np.ndarray", sample_rate: int) -> int:
         """Estimate the bandwidth of an audio signal."""
@@ -80,7 +81,13 @@ class BandwidthEstimationStage(LegacySpeechStage):
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         """Estimate bandwidth for audio entry."""
-        audio_path = data_entry["audio_filepath"]
+        audio_path = data_entry.get(self.audio_filepath_key)
+        if not audio_path:
+            logger.error(
+                f"[{self.name}] Missing '{self.audio_filepath_key}' for entry: "
+                f"{data_entry.get('audio_item_id', 'unknown')}"
+            )
+            return [AudioBatch(data=[data_entry])]
         try:
             audio, sample_rate = librosa.load(path=audio_path, sr=None)
         except Exception as ex:  # noqa: BLE001
