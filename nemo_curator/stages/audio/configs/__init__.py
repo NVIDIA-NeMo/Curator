@@ -12,22 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-NeMo Curator Audio Processing Stages.
+"""Configuration classes for audio processing stages."""
 
-Filtering:
-    - UTMOSFilterStage: UTMOS MOS prediction filtering
-"""
-
-from nemo_curator.stages.audio.filtering import (
-    UTMOSFilterStage,
-)
-
-from nemo_curator.stages.audio.configs import (
-    UTMOSConfig,
-)
+from .utmos import UTMOSConfig
 
 __all__ = [
-    "UTMOSFilterStage",
     "UTMOSConfig",
 ]

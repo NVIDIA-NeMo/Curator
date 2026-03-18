@@ -1,0 +1,238 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+UTMOS (UTokyo-SaruLab MOS Prediction) filter stage.
+
+Filters audio segments based on UTMOS predicted Mean Opinion Score.
+Uses the utmos22_strong model from tarepan/SpeechMOS via torch.hub.
+
+Accepts in-memory (waveform + sample_rate) or audio_filepath input.
+Audio is resampled to 16 kHz internally for UTMOS inference.
+
+Example:
+    from nemo_curator.pipeline import Pipeline
+    from nemo_curator.stages.audio.filtering import UTMOSFilterStage
+    from nemo_curator.stages.resources import Resources
+
+    pipeline = Pipeline(name="quality_pipeline")
+    pipeline.add_stage(
+        UTMOSFilterStage(mos_threshold=3.5)
+        .with_(resources=Resources(gpus=0.3))
+    )
+"""
+
+import os
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
+
+import torch
+import torchaudio
+import soundfile as sf
+from loguru import logger
+
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import AudioBatch
+
+from ..configs import UTMOSConfig
+
+_UTMOS_REPO = "tarepan/SpeechMOS:v1.2.0"
+_UTMOS_ENTRYPOINT = "utmos22_strong"
+_UTMOS_TARGET_SR = 16000
+
+
+def _load_waveform_tensor(item: Dict[str, Any], task_id: str) -> Optional[Tuple[torch.Tensor, int]]:
+    """
+    Extract a mono waveform tensor (1, N) and sample_rate from an item.
+
+    Supports waveform (Tensor/ndarray) + sample_rate or audio_filepath.
+    Returns None if unavailable.
+    """
+    waveform = item.get("waveform")
+    sample_rate = item.get("sample_rate")
+
+    if waveform is not None and sample_rate is not None:
+        if not torch.is_tensor(waveform):
+            import numpy as np
+            waveform = torch.from_numpy(np.asarray(waveform, dtype=np.float32))
+        if waveform.dim() == 1:
+            waveform = waveform.unsqueeze(0)
+        if waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+        return waveform, int(sample_rate)
+
+    path = item.get("audio_filepath")
+    if path and os.path.isfile(path):
+        try:
+            data, sr = sf.read(path, dtype="float32")
+            waveform = torch.from_numpy(data)
+            if waveform.dim() == 1:
+                waveform = waveform.unsqueeze(0)
+            else:
+                waveform = waveform.T
+            if waveform.shape[0] > 1:
+                waveform = waveform.mean(dim=0, keepdim=True)
+            return waveform, int(sr)
+        except Exception as e:
+            logger.error(f"[{task_id}] Failed to load audio file: {e}")
+            return None
+
+    logger.warning(f"[{task_id}] No waveform+sample_rate or valid audio_filepath found")
+    return None
+
+
+@dataclass
+class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
+    """
+    UTMOS quality assessment filter stage.
+
+    Filters audio segments based on the UTMOS predicted MOS score.
+    The model (utmos22_strong) is loaded via torch.hub from tarepan/SpeechMOS.
+    Audio is resampled to 16 kHz for inference.
+
+    UTMOS predicts a single MOS score (1-5 scale):
+    - MOS: Mean Opinion Score for overall speech quality
+
+    Args:
+        config: UTMOSConfig object (overrides other params if provided)
+        mos_threshold: Minimum MOS score to pass (None to disable)
+        sample_rate: Target sample rate for UTMOS inference (default 16000)
+
+    Note:
+        GPU assignment is handled by the executor via _resources.
+        Use .with_(resources=Resources(gpus=X)) to configure GPU allocation.
+    """
+
+    config: Optional[UTMOSConfig] = None
+    mos_threshold: Optional[float] = 3.5
+    sample_rate: int = _UTMOS_TARGET_SR
+
+    name: str = "UTMOSFilter"
+    batch_size: int = 1
+    resources: Resources = field(default_factory=lambda: Resources(gpus=0.3))
+
+    def __post_init__(self):
+        super().__init__()
+        self._model = None
+
+        if self.config is not None:
+            self.mos_threshold = self.config.mos_threshold
+
+    def inputs(self) -> Tuple[List[str], List[str]]:
+        return ["data"], []
+
+    def outputs(self) -> Tuple[List[str], List[str]]:
+        return [], ["utmos_mos"]
+
+    def setup(self, worker_metadata=None) -> None:
+        self._ensure_model()
+
+    def teardown(self) -> None:
+        self._model = None
+        torch.cuda.empty_cache()
+
+    def _ensure_model(self):
+        if self._model is not None:
+            return
+
+        device = torch.device(
+            f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu"
+        )
+
+        try:
+            predictor = torch.hub.load(
+                _UTMOS_REPO, _UTMOS_ENTRYPOINT,
+                trust_repo=True, force_reload=False, skip_validation=True,
+            )
+        except Exception:
+            logger.warning("UTMOS download failed, loading from cache...")
+            predictor = torch.hub.load(
+                _UTMOS_REPO, _UTMOS_ENTRYPOINT,
+                trust_repo=True, source="local", skip_validation=True,
+            )
+
+        predictor = predictor.to(device)
+        predictor.eval()
+
+        dummy = torch.randn(1, self.sample_rate, device=device)
+        with torch.no_grad():
+            _ = predictor(dummy, self.sample_rate)
+
+        self._model = predictor
+        logger.info(f"UTMOS model loaded on {device}")
+
+    def _process_single_item(self, item: Dict[str, Any], task_id: str) -> Optional[Dict[str, Any]]:
+        audio_result = _load_waveform_tensor(item, task_id)
+        if audio_result is None:
+            return None
+        waveform, sr = audio_result
+
+        self._ensure_model()
+        if self._model is None:
+            return None
+
+        try:
+            if sr != self.sample_rate:
+                waveform = torchaudio.transforms.Resample(sr, self.sample_rate)(waveform)
+
+            device = next(self._model.parameters()).device
+            waveform = waveform.to(device)
+
+            with torch.no_grad():
+                score = self._model(waveform, sr=self.sample_rate)
+
+            mos = float(score.item() if torch.is_tensor(score) else score)
+        except Exception as e:
+            logger.exception(f"[{task_id}] UTMOS prediction error: {e}")
+            return None
+
+        logger.debug(f"[{task_id}] UTMOS MOS={mos:.3f}")
+
+        if self.mos_threshold is not None and mos < self.mos_threshold:
+            logger.info(f"[{task_id}] UTMOS FAILED: MOS {mos:.3f} < {self.mos_threshold}")
+            return None
+
+        item["utmos_mos"] = mos
+        return item
+
+    def process(self, task: AudioBatch) -> Optional[AudioBatch]:
+        self._ensure_model()
+        if self._model is None:
+            logger.error("UTMOS model not available")
+            return AudioBatch(
+                data=[],
+                task_id=task.task_id,
+                dataset_name=task.dataset_name,
+                _metadata=task._metadata,
+                _stage_perf=list(task._stage_perf),
+            )
+
+        results = []
+        for item in task.data:
+            out = self._process_single_item(item, task.task_id)
+            if out is not None:
+                results.append(out)
+
+        total = len(task.data)
+        threshold_str = f"MOS>={self.mos_threshold}" if self.mos_threshold is not None else "none"
+        logger.info(f"[UTMOSFilter] {task.task_id}: {len(results)}/{total} passed (thresholds: {threshold_str})")
+
+        return AudioBatch(
+            data=results,
+            task_id=task.task_id,
+            dataset_name=task.dataset_name,
+            _metadata=task._metadata,
+            _stage_perf=list(task._stage_perf),
+        )
