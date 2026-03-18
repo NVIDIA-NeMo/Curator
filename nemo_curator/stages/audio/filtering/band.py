@@ -31,7 +31,6 @@ Example:
 """
 
 import os
-from collections.abc import Generator
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -58,7 +57,6 @@ def _load_audio_file(audio_path: str) -> Tuple[torch.Tensor, int]:
         waveform = waveform.unsqueeze(0)
     else:
         waveform = waveform.T
-    # Convert to mono if stereo
     if waveform.shape[0] > 1:
         waveform = waveform.mean(dim=0, keepdim=True)
     return waveform, sample_rate
@@ -92,7 +90,6 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     config: Optional[BandFilterConfig] = None
     model_path: str = "model/band_classifier_model_band_7000_samples.joblib"
-    model_inference_batch_size: int = 32
     band_value: str = "full_band"
 
     name: str = "BandFilter"
@@ -104,12 +101,8 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         super().__init__()
         self._predictor = None
 
-        # Apply config if provided
         if self.config is not None:
             self.model_path = self.config.model_path
-            self.model_inference_batch_size = getattr(
-                self.config, "model_inference_batch_size", 32
-            )
             self.band_value = self.config.band_value
 
     def inputs(self) -> Tuple[List[str], List[str]]:
@@ -140,15 +133,8 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 from nemo_curator.stages.audio.filtering.band_filter_module.predict import BandPredictor
 
                 model_path = self._resolve_model_path()
-                effective_n_workers = (
-                    max(1, int(self._resources.cpus))
-                    if self._resources and getattr(self._resources, "cpus", None) is not None
-                    else 1
-                )
-
                 self._predictor = BandPredictor(
                     model_path=model_path,
-                    n_workers=effective_n_workers,
                     feature_cache_size=100,
                 )
                 logger.info("Band predictor loaded successfully")
@@ -176,23 +162,6 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         # Return the module path as default
         return os.path.join(module_dir, self.model_path)
 
-    def _yield_next_batch(self, task: AudioBatch) -> Generator[List[Dict[str, Any]], None, None]:
-        """
-        Yield batches of items from task.data for batched model inference.
-
-        Mirrors BaseFilterStage.yield_next_batch from image filters: each batch
-        has at most model_inference_batch_size items.
-
-        Args:
-            task: AudioBatch to process.
-
-        Yields:
-            Slices of task.data of length model_inference_batch_size (last may be smaller).
-        """
-        batch_size = max(1, self.model_inference_batch_size)
-        for i in range(0, len(task.data), batch_size):
-            yield task.data[i : i + batch_size]
-
     def _get_audio_for_item(
         self, item: Dict[str, Any], task_id: str
     ) -> Optional[Tuple[torch.Tensor, int]]:
@@ -201,13 +170,6 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
 
         Updates item with waveform/sample_rate when loaded from file.
         Returns None if waveform is missing and file load fails.
-
-        Args:
-            item: Audio item dict (waveform, sample_rate, or audio_filepath).
-            task_id: Task id for logging.
-
-        Returns:
-            (waveform, sample_rate) or None if unavailable.
         """
         waveform = item.get("waveform")
         sample_rate = item.get("sample_rate", 48000)
@@ -232,9 +194,8 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         """
         Filter audio based on bandwidth classification.
 
-        Uses the same structure as image aesthetic filter: process items in
-        batches with one model call per batch (parallel inference within batch),
-        then filter by band_value.
+        Processes each item sequentially, classifies as full_band/narrow_band,
+        then filters by band_value.
 
         Args:
             task: AudioBatch with waveform data (or audio_filepath for load).
@@ -254,36 +215,22 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 _stage_perf=list(task._stage_perf),
             )
 
-        # Phase 1: Process items in batches to generate band predictions
-        for batch in self._yield_next_batch(task):
-            items_with_audio: List[Tuple[Dict[str, Any], torch.Tensor, int]] = []
-            for item in batch:
-                audio = self._get_audio_for_item(item, task.task_id)
-                if audio is not None:
-                    waveform, sample_rate = audio
-                    items_with_audio.append((item, waveform, sample_rate))
-
-            if not items_with_audio:
+        for item in task.data:
+            audio = self._get_audio_for_item(item, task.task_id)
+            if audio is None:
                 continue
-
-            audio_data = [(w, sr) for (_, w, sr) in items_with_audio]
+            waveform, sample_rate = audio
             try:
-                predictions = self._predictor.predict_audio_batch(
-                    audio_data, use_parallel=True
-                )
-            except Exception as e:
-                logger.exception(f"[BandFilter] Batch prediction error: {e}")
-                continue
-
-            for (item, _, _), pred in zip(items_with_audio, predictions):
+                pred = self._predictor.predict_audio(waveform, sample_rate)
                 if (
                     isinstance(pred, str)
                     and not pred.startswith("Error")
                     and pred in ("full_band", "narrow_band")
                 ):
                     item["band_prediction"] = pred
+            except Exception as e:
+                logger.exception(f"[BandFilter] Prediction error: {e}")
 
-        # Phase 2: Filter by band_value (same as image: score then filter)
         filtered_items = [
             item
             for item in task.data

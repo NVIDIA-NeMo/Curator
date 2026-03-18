@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 _MODEL_PATH = "model/band_classifier_model_band_7000_samples.joblib"
-_MODEL_INFERENCE_BATCH_SIZE = 32
 
 
 @dataclass
@@ -41,10 +40,6 @@ class BandFilterConfig:
     @property
     def model_path(self) -> str:
         return _MODEL_PATH
-
-    @property
-    def model_inference_batch_size(self) -> int:
-        return _MODEL_INFERENCE_BATCH_SIZE
 
     @classmethod
     def from_dict(cls, d: dict) -> "BandFilterConfig":

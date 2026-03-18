@@ -15,13 +15,11 @@
 import numpy as np
 import joblib
 import warnings
-from typing import Dict, List, Tuple, Any, Optional
-import concurrent.futures
+from typing import Optional
 import time
 import torch
 from loguru import logger
 
-# Suppress sklearn version warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*Trying to unpickle estimator.*")
 
 from .features import AudioFeatureExtractor
@@ -31,32 +29,25 @@ class BandPredictor:
     """Class to predict band label (full_band/narrow_band) for audio waveforms."""
 
     def __init__(self, model_path: str = None,
-                 n_workers: int = None,
                  feature_cache_size: int = None,
-                 use_gpu: bool = None,
                  config=None):
         """
         Initialize the band predictor.
 
         Args:
             model_path: Path to the trained model file
-            n_workers: Number of worker threads for parallel processing
             feature_cache_size: Number of feature vectors to cache
-            use_gpu: Whether to use GPU acceleration if available
             config: Configuration manager instance
         """
         cfg_model_path = getattr(config, 'band_model_path', None) if config else None
         if not cfg_model_path:
             cfg_model_path = "band_filter/model/band_classifier_model_band_7000_samples.joblib"
 
-        cfg_n_workers = getattr(config, 'band_n_workers', 4) if config else 4
         cfg_cache_size = getattr(config, 'band_feature_cache_size', 100) if config else 100
         self.model_path = model_path if model_path is not None else cfg_model_path
-        self.n_workers = n_workers if n_workers is not None else cfg_n_workers
         self.feature_cache_size = feature_cache_size if feature_cache_size is not None else cfg_cache_size
 
         self.config = config
-        self.use_batch_processing = True
         self.model = None
         self.feature_cache = {}
 
@@ -153,69 +144,3 @@ class BandPredictor:
         except Exception as e:
             return f"Error during prediction: {e}"
 
-    def predict_audio_batch(self, audio_data: List[Tuple[torch.Tensor, int]],
-                            use_parallel: bool = None) -> List[str]:
-        """
-        Predict band type for multiple audio waveforms.
-
-        Args:
-            audio_data: List of tuples containing (waveform, sample_rate)
-            use_parallel: Whether to use parallel processing
-
-        Returns:
-            List of prediction results in the same order as input
-        """
-        if not audio_data:
-            return []
-
-        if use_parallel is None:
-            use_parallel = self.use_batch_processing
-
-        results = []
-
-        if use_parallel and self.n_workers > 1 and len(audio_data) > 1:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.n_workers) as executor:
-                future_to_index = {}
-                for i, (waveform, sample_rate) in enumerate(audio_data):
-                    future = executor.submit(self.extract_features_from_audio, waveform, sample_rate)
-                    future_to_index[future] = i
-
-                all_features = [None] * len(audio_data)
-                for future in concurrent.futures.as_completed(future_to_index):
-                    idx = future_to_index[future]
-                    try:
-                        all_features[idx] = future.result()
-                    except Exception as e:
-                        logger.error(f"Error processing audio at index {idx}: {e}")
-                        all_features[idx] = None
-
-                try:
-                    valid_indices = [i for i, f in enumerate(all_features) if f is not None]
-                    valid_features = [all_features[i] for i in valid_indices]
-
-                    if valid_features:
-                        batch_features = np.array(valid_features)
-                        batch_predictions = self.model.predict(batch_features)
-
-                        results = ["Error: Feature extraction failed"] * len(audio_data)
-
-                        for i, pred in zip(valid_indices, batch_predictions):
-                            results[i] = 'full_band' if pred == 1 else 'narrow_band'
-                    else:
-                        results = ["Error: Feature extraction failed"] * len(audio_data)
-
-                except Exception as e:
-                    logger.error(f"Error during batch prediction: {e}")
-                    results = []
-                    for waveform, sample_rate in audio_data:
-                        try:
-                            results.append(self.predict_audio(waveform, sample_rate))
-                        except Exception as e2:
-                            logger.error(f"Error predicting audio: {e2}")
-                            results.append(f"Error: {e2}")
-
-        else:
-            for waveform, sample_rate in audio_data:
-                results.append(self.predict_audio(waveform, sample_rate))
-
-        return results
