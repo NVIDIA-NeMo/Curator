@@ -198,9 +198,9 @@ entries:
       num_gpus: 4
       enable_object_spilling: false
     requirements:
-      # Observed throughput of 1068 docs/sec so we allow a 5% buffer to account for variability
+      # Observed throughput of 3945 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
-        min_value: 1015
+        min_value: 3747
 
   - name: embedding_generation_xenna
     enabled: true
@@ -228,9 +228,9 @@ entries:
       num_gpus: 4
       enable_object_spilling: false
     requirements:
-      # Observed throughput of 1199 docs/sec so we allow a 5% buffer to account for variability
+      # Observed throughput of 4923 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
-        min_value: 1139
+        min_value: 4676
 
   - name: exact_dedup_identification
     enabled: true
