@@ -80,6 +80,7 @@ class TestCaptionGenerationStage:
             max_output_tokens=256,
             model_does_preprocess=True,
             disable_mmcache=True,
+            enforce_eager=False,
         )
         mock_model.setup.assert_called_once()
         assert self.stage.model == mock_model
