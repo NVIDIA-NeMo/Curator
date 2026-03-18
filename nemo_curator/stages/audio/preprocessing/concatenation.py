@@ -115,13 +115,17 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
         parts: List[torch.Tensor] = []
         mappings: List[Dict[str, Any]] = []
         current_pos_ms = 0
-        sample_rate = 48000
+        sample_rate: Optional[int] = None
         silence_duration_ms = int(self.silence_duration_sec * 1000)
 
         for idx, item in enumerate(items):
             waveform = item.get('waveform')
-            sr = item.get('sample_rate', 48000)
+            sr = item.get('sample_rate')
             if waveform is None:
+                continue
+            if sr is None:
+                logger.error(f"[SegmentConcat] Skipping segment {idx}: 'sample_rate' key is missing. "
+                             "Please set 'sample_rate' in the item dict.")
                 continue
             if sr <= 0:
                 logger.warning(f"[SegmentConcat] Skipping segment {idx}: invalid sample_rate={sr}")
