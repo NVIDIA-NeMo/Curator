@@ -18,6 +18,7 @@ import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import fsspec
 import numpy as np
 import pandas as pd
 import ray
@@ -32,6 +33,20 @@ from nemo_curator.tasks import DocumentBatch, FileGroupTask
 
 # Enforce contiguous buffers under ~2 GiB
 _MAX_IN_MEMORY_BYTES = 2**31
+
+
+def get_file_size(path: str) -> int:
+    """
+    Returns the file size in bytes, works for local or remote paths.
+    """
+    # Treat as local if it looks like an absolute or relative path
+    if os.path.exists(path):
+        return os.path.getsize(path)
+
+    # Otherwise treat as remote via fsspec
+    fs, relative_path = fsspec.core.url_to_fs(path)
+    info = fs.info(relative_path)
+    return info["size"]
 
 
 def _dataframe_memory_bytes(df: pd.DataFrame) -> int:
@@ -84,15 +99,17 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
     def process(self, task: FileGroupTask) -> DocumentBatch:
         # Verify storage size of input files is not greater than 2 GiB
         # This should be a very quick check per file, so we do it first before reading the data
+        total_storage_size = 0
         for file_path in task.data:
-            file_size = os.path.getsize(file_path)
-            if file_size > _MAX_IN_MEMORY_BYTES:
-                msg = (
-                    f"Error reading data from files: {task.data}. "
-                    f"File {file_path} is {file_size} bytes (limit {_MAX_IN_MEMORY_BYTES} bytes). "
-                    "Large input files should be split into smaller chunks using nemo_curator.utils.split_large_files."
-                )
-                raise ValueError(msg)
+            file_size = get_file_size(file_path)
+            total_storage_size += file_size
+        if total_storage_size > _MAX_IN_MEMORY_BYTES:
+            msg = (
+                f"Error reading data from files: {task.data}. "
+                f"Total storage size is {total_storage_size} bytes (limit {_MAX_IN_MEMORY_BYTES} bytes). "
+                "Large input files should be split into smaller chunks using nemo_curator.utils.split_large_files."
+            )
+            raise ValueError(msg)
 
         # Merge read kwargs with storage options precedence: task.storage_options > self.read_kwargs
         effective_read_kwargs: dict[str, Any] = {}
@@ -113,15 +130,14 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
 
         # Even though we checked the storage size of the input files, the total in-memory size of the DataFrame can still be too large
         # This is a more expensive but more accurate check than the storage size check
-        if isinstance(result, pd.DataFrame):
-            total_bytes = _dataframe_memory_bytes(result)
-            if total_bytes > _MAX_IN_MEMORY_BYTES:
-                msg = (
-                    f"Error reading data from files: {task.data}. "
-                    f"Estimated in-memory size is {total_bytes} bytes (limit {_MAX_IN_MEMORY_BYTES} bytes). "
-                    "Large input files should be split into smaller chunks using nemo_curator.utils.split_large_files."
-                )
-                raise ValueError(msg)
+        total_bytes = _dataframe_memory_bytes(result.to_pandas())
+        if total_bytes > _MAX_IN_MEMORY_BYTES:
+            msg = (
+                f"Error reading data from files: {task.data}. "
+                f"Estimated in-memory size is {total_bytes} bytes (limit {_MAX_IN_MEMORY_BYTES} bytes). "
+                "Large input files should be split into smaller chunks using nemo_curator.utils.split_large_files."
+            )
+            raise ValueError(msg)
 
         # Apply IDs only for Pandas DataFrames
         if isinstance(result, pd.DataFrame):
