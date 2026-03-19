@@ -36,9 +36,9 @@ from nemo_curator.tasks import DocumentBatch, FileGroupTask
 _MAX_IN_MEMORY_BYTES = 2**31
 
 
-def get_file_size(path: str) -> int:
+def _get_file_storage_size(path: str) -> int:
     """
-    Returns the file size in bytes, works for local or remote paths.
+    Returns the file storage size in bytes, works for local or remote paths.
     """
     # Treat as local if it looks like an absolute or relative path
     if os.path.exists(path):
@@ -97,12 +97,12 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
                 )
                 raise RuntimeError(msg) from None
 
-    def process(self, task: FileGroupTask) -> DocumentBatch:
+    def process(self, task: FileGroupTask) -> DocumentBatch:  # noqa: C901
         # Verify storage size of input files is not greater than 2 GiB
         # This should be a very quick check per file, so we do it first before reading the data
         total_storage_size = 0
         for file_path in task.data:
-            file_size = get_file_size(file_path)
+            file_size = _get_file_storage_size(file_path)
             total_storage_size += file_size
         if total_storage_size > _MAX_IN_MEMORY_BYTES:
             msg = (
@@ -136,7 +136,8 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
         elif hasattr(result, "memory_usage"):
             total_bytes = _dataframe_memory_bytes(result)
         else:
-            raise ValueError(f"Unsupported result type: {type(result)}")
+            msg = f"Unsupported result type: {type(result)}"
+            raise ValueError(msg)
 
         if total_bytes > _MAX_IN_MEMORY_BYTES:
             msg = (
