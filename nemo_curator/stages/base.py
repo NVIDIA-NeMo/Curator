@@ -19,6 +19,7 @@ import copy
 import time
 from abc import ABC, ABCMeta, abstractmethod
 from inspect import isabstract
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, final
 
 from loguru import logger
@@ -86,6 +87,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     resources = Resources(cpus=1.0)
     batch_size = 1
     pip_specs: ClassVar[list[str] | None] = None
+    _resolved_site_packages_path: Path | None = None  # set by resolve_stage_pip_envs
 
     @property
     @final

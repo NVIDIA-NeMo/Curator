@@ -39,7 +39,7 @@ def _uv_available() -> bool:
     if not uv_exe:
         return False
     try:
-        subprocess.run([uv_exe, "--version"], check=True, capture_output=True)  # noqa: S603
+        subprocess.run([uv_exe, "--version"], check=True, capture_output=True, text=True)  # noqa: S603
     except subprocess.CalledProcessError:
         return False
     else:
