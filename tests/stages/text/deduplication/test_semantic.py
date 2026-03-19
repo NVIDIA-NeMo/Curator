@@ -29,19 +29,21 @@ from nemo_curator.pipeline.workflow import WorkflowRunResult
 with suppress(ImportError):
     from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
 
+MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
+
 
 @pytest.fixture(scope="session", autouse=True)
 def ensure_semantic_model_downloaded() -> None:
     """Pre-download the model once per session to avoid rate limiting in CI."""
     try:
         snapshot_download(
-            repo_id="sentence-transformers/all-MiniLM-L6-v2",
+            repo_id=MODEL_ID,
             cache_dir=None,
             token=None,
             local_files_only=False,
         )
     except Exception as e:  # noqa: BLE001
-        msg = f"Failed to download sentence-transformers/all-MiniLM-L6-v2 due to {e}"
+        msg = f"Failed to download {MODEL_ID} due to {e}"
         pytest.skip(msg)
 
 
@@ -118,7 +120,8 @@ class TestTextSemanticDeduplicationWorkflow:
             output_path=str(request.cls.output_dir),
             cache_path=str(request.cls.cache_dir),
             perform_removal=True,
-            model_identifier="sentence-transformers/all-MiniLM-L6-v2",
+            model_identifier=MODEL_ID,
+            embedding_vllm_init_kwargs={"enforce_eager": True},
             n_clusters=3,  # Use fewer clusters to group similar documents
             eps=0.1,  # Set epsilon to identify duplicates
             which_to_keep="hard",  # Keep harder examples (less similar to others)
