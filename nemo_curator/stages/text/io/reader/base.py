@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 import fsspec
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import ray
 from loguru import logger
 
@@ -130,7 +131,13 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
 
         # Even though we checked the storage size of the input files, the total in-memory size of the DataFrame can still be too large
         # This is a more expensive but more accurate check than the storage size check
-        total_bytes = _dataframe_memory_bytes(result.to_pandas())
+        if isinstance(result, pa.Table):
+            total_bytes = _dataframe_memory_bytes(result.to_pandas())
+        elif hasattr(result, "memory_usage"):
+            total_bytes = _dataframe_memory_bytes(result)
+        else:
+            raise ValueError(f"Unsupported result type: {type(result)}")
+
         if total_bytes > _MAX_IN_MEMORY_BYTES:
             msg = (
                 f"Error reading data from files: {task.data}. "
