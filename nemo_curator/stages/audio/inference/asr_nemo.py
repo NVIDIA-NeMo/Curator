@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
-    from nemo_curator.backends.base import WorkerMetadata
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
 @dataclass
@@ -37,6 +37,7 @@ class InferenceAsrNemoStage(AudioTaskStage):
 
     Args:
         model_name: Pretrained NeMo ASR model name.
+            See full list at https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/all_chkpt.html
         filepath_key: Key in the entry dict pointing to the audio file.
         pred_text_key: Key where the predicted transcription is stored.
     """
@@ -57,7 +58,20 @@ class InferenceAsrNemoStage(AudioTaskStage):
     def check_cuda(self) -> torch.device:
         return torch.device("cuda") if self.resources.gpus > 0 else torch.device("cpu")
 
-    def setup(self, _worker_metadata: WorkerMetadata = None) -> None:
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        if self.asr_model:
+            return
+        try:
+            nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name, return_model_file=True)
+        except Exception as e:
+            msg = f"Failed to download {self.model_name}"
+            raise RuntimeError(msg) from e
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         if not self.asr_model:
             try:
                 map_location = self.check_cuda()

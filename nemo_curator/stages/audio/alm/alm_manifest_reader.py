@@ -19,8 +19,6 @@ Avoids Pandas to handle large manifests with deeply nested audio metadata
 with pd.read_json.
 """
 
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass, field
 from typing import Any

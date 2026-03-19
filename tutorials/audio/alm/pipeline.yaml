@@ -67,7 +67,7 @@ manifest_path: ???
 # Output directory for results
 output_dir: ./alm_output
 
-# Execution backend: "xenna" (default, production) or "ray_data" (experimental)
+# Execution backend: "xenna" (default) or "ray_data"
 backend: xenna
 
 # Stage chain definition

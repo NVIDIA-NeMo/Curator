@@ -373,9 +373,9 @@ under the hood).
   `→ BaseStageAdapter.process_batch(tasks)` (timing + metrics)
   `→ stage.process_batch(tasks)` (your override or base default)
 
-### Ray Data (experimental)
+### Ray Data
 
-Ray Data is an experimental alternative backend that uses Ray's Dataset
+Ray Data is an alternative backend that uses Ray's Dataset
 API.  It wraps each stage in a `RayDataStageAdapter` and applies stage
 transformations as Ray Data `map_batches` operations.  Audio stages
 work with Ray Data without modification.
@@ -387,7 +387,7 @@ executor = RayDataExecutor()
 pipeline.run(executor)
 ```
 
-> **Note**: Ray ActorPool is a separate experimental backend used
+> **Note**: Ray ActorPool is a separate backend used
 > primarily for deduplication workloads.  It is **not** a recommended
 > backend for audio pipelines.
 
@@ -412,23 +412,23 @@ InferenceAsrNemoStage                     (your stage dataclass)
     batch_size: int = 16                  ← defined as a dataclass field
         │
         │  ProcessingStage (base class)
-        │    stages/base.py:87            batch_size = 1  (default)
-        │    stages/base.py:101-103       @property _batch_size → self.batch_size
-        │    stages/base.py:262-281       with_(batch_size=N) → deepcopy + override
+        │    stages/base.py                batch_size = 1  (default)
+        │    stages/base.py                @property _batch_size → self.batch_size
+        │    stages/base.py                with_(batch_size=N) → deepcopy + override
         │
         ▼
 ┌─── Xenna path ──────────────────────────────────────────────────────────┐
 │                                                                         │
 │  XennaStageAdapter wraps your stage                                     │
-│    backends/xenna/adapter.py:50-53      @property stage_batch_size      │
+│    backends/xenna/adapter.py             @property stage_batch_size     │
 │      → self.processing_stage.batch_size  → 16                           │
 │                                                                         │
 │  Cosmos-Xenna runtime reads adapter.stage_batch_size                    │
 │    → groups incoming tasks into batches of 16                           │
 │    → calls adapter.process_data(batch_of_16)                            │
-│      backends/xenna/adapter.py:61-69                                    │
+│      backends/xenna/adapter.py                                          │
 │      → BaseStageAdapter.process_batch(batch_of_16)                      │
-│        backends/base.py:88             stage.process_batch(batch_of_16) │
+│        backends/base.py                  stage.process_batch(batch_of_16)│
 │          → your process_batch override receives 16 tasks                │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -440,9 +440,9 @@ Key takeaways:
 - The backend adapter reads `stage.batch_size` and groups tasks *before*
   calling `process_batch`.  Your stage never has to split or batch tasks itself.
 
-## Exact call chains with file and line numbers
+## Exact call chains
 
-Every line reference below is relative to the repo root
+Every file reference below is relative to the repo root
 (`nemo_curator/` prefix).  The two chains differ only in the
 stage-level override; everything above and below is shared.
 
@@ -452,34 +452,34 @@ stage-level override; everything above and below is shared.
 
 ```
 pipeline.run(executor)
-│   nemo_curator/pipeline/pipeline.py:215          executor.execute(self.stages, initial_tasks)
+│   nemo_curator/pipeline/pipeline.py              executor.execute(self.stages, initial_tasks)
 │
 ├─ XennaExecutor.execute()
-│   backends/xenna/executor.py:62                  wraps each stage in XennaStageAdapter
-│   backends/xenna/executor.py:83                  create_named_xenna_stage_adapter(stage)
-│   backends/xenna/executor.py:88-100              builds pipelines_v1.StageSpec with:
-│                                                    - required_resources from adapter :41-47
-│                                                    - stage_batch_size from adapter   :50-53
-│   backends/xenna/executor.py:150                 pipelines_v1.run_pipeline(pipeline_spec)
+│   backends/xenna/executor.py                     wraps each stage in XennaStageAdapter
+│                                                  create_named_xenna_stage_adapter(stage)
+│                                                  builds pipelines_v1.StageSpec with:
+│                                                    - required_resources from adapter
+│                                                    - stage_batch_size from adapter
+│                                                  pipelines_v1.run_pipeline(pipeline_spec)
 │
 │   ── Xenna scheduler creates N Ray Actor workers (N = available_cpus / stage.resources.cpus) ──
 │
 ├─ Per worker — one-time setup:
-│   backends/xenna/adapter.py:71-85                XennaStageAdapter.setup_on_node()
-│     → backends/base.py:110                         stage.setup_on_node(node_info, worker_metadata)
-│   backends/xenna/adapter.py:87-100               XennaStageAdapter.setup()
-│     → backends/base.py:118                         stage.setup(worker_metadata)
+│   backends/xenna/adapter.py                      XennaStageAdapter.setup_on_node()
+│     → backends/base.py                             stage.setup_on_node(node_info, worker_metadata)
+│   backends/xenna/adapter.py                      XennaStageAdapter.setup()
+│     → backends/base.py                             stage.setup(worker_metadata)
 │       → stages/audio/common.py                       GetAudioDurationStage.setup() imports soundfile
 │
 ├─ Per batch (batch_size=1, so 1 AudioTask per call):
-│   backends/xenna/adapter.py:61-69                XennaStageAdapter.process_data(tasks)
-│     → backends/base.py:68-99                       BaseStageAdapter.process_batch(tasks)
-│         ├─ :82-84                                    start perf timer
-│         ├─ :88                                       stage.process_batch(tasks)          ──────────┐
-│         ├─ :91-97                                    log stats, attach _stage_perf       │
-│         └─ :99                                       return results                     │
-│                                                                                         │
-│   ┌─────────────────────────────────────────────────────────────────────────────────────┘
+│   backends/xenna/adapter.py                      XennaStageAdapter.process_data(tasks)
+│     → backends/base.py                             BaseStageAdapter.process_batch(tasks)
+│         ├─ start perf timer
+│         ├─ stage.process_batch(tasks)                                                ──────────┐
+│         ├─ log stats, attach _stage_perf                                                       │
+│         └─ return results                                                                      │
+│                                                                                                │
+│   ┌────────────────────────────────────────────────────────────────────────────────────────────┘
 │   │  AudioTaskStage.process_batch()             (default — NOT overridden for CPU stages)
 │   │    stages/audio/common.py                   if len(tasks) == 0: return []
 │   │    stages/audio/common.py                   _validate_batch(tasks) — checks inputs() on every task
@@ -504,34 +504,34 @@ pipeline.run(executor)
 
 ```
 pipeline.run(executor)
-│   nemo_curator/pipeline/pipeline.py:215          executor.execute(self.stages, initial_tasks)
+│   nemo_curator/pipeline/pipeline.py              executor.execute(self.stages, initial_tasks)
 │
 ├─ XennaExecutor.execute()
-│   backends/xenna/executor.py:62                  same wrapping as CPU
-│   backends/xenna/executor.py:88-100              StageSpec with:
+│   backends/xenna/executor.py                     same wrapping as CPU
+│                                                  StageSpec with:
 │                                                    - required_resources: gpus=1.0
 │                                                    - stage_batch_size: 16
 │
 │   ── Xenna creates N workers (N = available_gpus / stage.resources.gpus) ──
 │
 ├─ Per worker — one-time setup:
-│   backends/xenna/adapter.py:71-85                XennaStageAdapter.setup_on_node()
+│   backends/xenna/adapter.py                      XennaStageAdapter.setup_on_node()
 │     → stages/audio/inference/asr_nemo.py           (inherits default — no override)
-│   backends/xenna/adapter.py:87-100               XennaStageAdapter.setup()
-│     → backends/base.py:118                         stage.setup(worker_metadata)
+│   backends/xenna/adapter.py                      XennaStageAdapter.setup()
+│     → backends/base.py                             stage.setup(worker_metadata)
 │       → stages/audio/inference/asr_nemo.py           InferenceAsrNemoStage.setup()
 │         map_location = self.check_cuda()           → "cuda"
 │         self.asr_model = ASRModel.from_pretrained(model_name, map_location=cuda)
 │
 ├─ Per batch (batch_size=16, so 16 AudioTask tasks per call):
-│   backends/xenna/adapter.py:61-69                XennaStageAdapter.process_data(tasks)
-│     → backends/base.py:68-99                       BaseStageAdapter.process_batch(tasks)
-│         ├─ :82-84                                    start perf timer
-│         ├─ :88                                       stage.process_batch(tasks)          ──────────┐
-│         ├─ :91-97                                    log stats, attach _stage_perf       │
-│         └─ :99                                       return results                     │
-│                                                                                         │
-│   ┌─────────────────────────────────────────────────────────────────────────────────────┘
+│   backends/xenna/adapter.py                      XennaStageAdapter.process_data(tasks)
+│     → backends/base.py                             BaseStageAdapter.process_batch(tasks)
+│         ├─ start perf timer
+│         ├─ stage.process_batch(tasks)                                                ──────────┐
+│         ├─ log stats, attach _stage_perf                                                       │
+│         └─ return results                                                                      │
+│                                                                                                │
+│   ┌────────────────────────────────────────────────────────────────────────────────────────────┘
 │   │  InferenceAsrNemoStage.process_batch()       (OVERRIDDEN — batched GPU)
 │   │    stages/audio/inference/asr_nemo.py
 │   │    _validate_batch(tasks)                    schema check on every task

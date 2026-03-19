@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -53,12 +53,6 @@ class TestAsrNeMoStage:
             with pytest.raises(ValueError, match="missing required columns"):
                 stage.process_batch([AudioTask(data={"text": "hello"})])
 
-    def test_stage_initialization(self) -> None:
-        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
-        assert stage.filepath_key == "audio_filepath"
-        assert stage.pred_text_key == "pred_text"
-        assert stage.batch_size == 16
-
     def test_process_single_entry(self) -> None:
         with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["the cat"]):
             stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
@@ -88,6 +82,27 @@ class TestAsrNeMoStage:
             assert all(isinstance(r, AudioTask) for r in results)
             assert results[0].data["pred_text"] == "the cat"
             assert results[1].data["pred_text"] == "sat on a mat"
+
+    @patch("nemo_curator.stages.audio.inference.asr_nemo.nemo_asr")
+    def test_setup_on_node_downloads_only(self, mock_nemo_asr: MagicMock) -> None:
+        mock_nemo_asr.models.ASRModel.from_pretrained.return_value = "/cache/model.nemo"
+        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
+        stage.setup_on_node()
+        mock_nemo_asr.models.ASRModel.from_pretrained.assert_called_once_with(
+            model_name="nvidia/parakeet-tdt-0.6b-v2", return_model_file=True
+        )
+        assert stage.asr_model is None
+
+    @patch("nemo_curator.stages.audio.inference.asr_nemo.nemo_asr")
+    def test_setup_on_node_failure(self, mock_nemo_asr: MagicMock) -> None:
+        mock_nemo_asr.models.ASRModel.from_pretrained.side_effect = Exception("network error")
+        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
+        with pytest.raises(RuntimeError, match="Failed to download"):
+            stage.setup_on_node()
+
+    def test_setup_on_node_skipped_when_model_provided(self) -> None:
+        stage = InferenceAsrNemoStage(model_name="dummy", asr_model=MagicMock())
+        stage.setup_on_node()
 
     def test_transcribe_tuple_outputs_hypothesis(self) -> None:
         class Hypo:

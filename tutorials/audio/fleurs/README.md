@@ -33,8 +33,7 @@ Key arguments:
 - `--lang`: FLEURS language code (e.g., `hy_am`, `en_us`, etc.)
 - `--split`: FLEURS split (`train`, `dev`, or `test`)
 - `--wer_threshold`: Keep samples with WER less-or-equal to this value
-- `--backend`: `xenna` (default, production) or `ray_data` (experimental Ray Data)
-
+- `--backend`: `xenna` (default, production) or `ray_data`
 ### Choosing a Backend
 
 Both the Python script (`pipeline.py`) and the YAML runner (`run.py`) support two execution backends:
@@ -42,7 +41,7 @@ Both the Python script (`pipeline.py`) and the YAML runner (`run.py`) support tw
 | Backend | Description | When to use |
 |---------|-------------|-------------|
 | `xenna` | Production executor (default). Uses Cosmos-Xenna streaming engine with automatic worker allocation. | Production workloads, CI/nightly benchmarks. |
-| `ray_data` | Experimental executor built on Ray Data `map_batches`. | Development, machines where Xenna cannot detect GPUs, or when Ray Data integration is preferred. |
+| `ray_data` | Executor built on Ray Data `map_batches`. | Development, machines where Xenna cannot detect GPUs, or when Ray Data integration is preferred. |
 
 **Python script** — pass `--backend`:
 
@@ -94,8 +93,7 @@ Notes on overrides (match indices in `processors` list inside `pipeline.yaml`):
 - `processors.1.model_name`: NeMo ASR model used for inference
 - `processors.4.target_value`: WER threshold used for filtering
 - `data_split`: top-level variable referenced by the first stage as `split`
-- `backend`: `xenna` (default) or `ray_data` (experimental Ray Data)
-
+- `backend`: `xenna` (default) or `ray_data`
 ### Output
 
 Results are written as JSONL under `${raw_data_dir}/result`. Each line contains fields like:
@@ -109,7 +107,7 @@ Depending on configuration, you may also compute and filter by WER using the pre
 ### GPU/CPU, cleaning, and performance notes
 
 - ASR inference is GPU-accelerated. The YAML config requests one GPU via `processors.1.resources.gpus: 1.0`. For CPU fallback with the Python script, pass `--gpus 0`.
-- Use `--clean` to remove an existing `result/` directory before writing outputs. 
+- Use `--clean` to remove an existing `result/` directory before writing outputs.
 - Use `--verbose` for DEBUG-level logs, helpful for intermittent issues.
 - Reduce or increase batch sizes by editing `pipeline.py` or `pipeline.yaml` (e.g., `CreateInitialManifestFleursStage().with_(batch_size=4)`).
 - Lower-memory GPUs may require smaller batch sizes; high-memory GPUs can use larger ones for higher throughput.

@@ -14,8 +14,6 @@
 
 """ALM Manifest Writer Stage — writes AudioTask dicts to a JSONL manifest."""
 
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass, field
 from typing import Any
