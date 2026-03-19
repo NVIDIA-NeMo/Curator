@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 import time
 from typing import TYPE_CHECKING, Any
 
+import torch
 from huggingface_hub import snapshot_download
 from vllm import LLM
 
@@ -69,9 +71,22 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field, self.embedding_field]
 
-    def _initialize_vllm(self) -> None:
+    def _initialize_vllm(self, local_files_only: bool) -> None:
+        """Download (or locate) the model and initialize vLLM.
+
+        We pass the resolved snapshot path to ``LLM(model=...)`` instead of the
+        HuggingFace repo ID because vLLM does not pass the ``download_dir`` through
+        to its config resolution code — passing a repo ID with a custom cache dir
+        fails offline.
+        """
+        model_path = snapshot_download(
+            self.model_identifier,
+            cache_dir=self.cache_dir,
+            token=self.hf_token,
+            local_files_only=local_files_only,
+        )
+
         vllm_init_kwargs = self.vllm_init_kwargs.copy()
-        # set defaults here
         if "enforce_eager" not in vllm_init_kwargs:
             vllm_init_kwargs["enforce_eager"] = False
         if "runner" not in vllm_init_kwargs:
@@ -86,7 +101,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         if not self.verbose and "disable_log_stats" not in vllm_init_kwargs:
             vllm_init_kwargs["disable_log_stats"] = True
 
-        self.model = LLM(model=self.model_identifier, **vllm_init_kwargs)
+        self.model = LLM(model=model_path, **vllm_init_kwargs)
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         if not self.verbose:
@@ -94,12 +109,22 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
             disable_progress_bars()
 
-        snapshot_download(self.model_identifier, cache_dir=self.cache_dir, token=self.hf_token, local_files_only=False)
-        self._initialize_vllm()
+        # Download model to cache_dir (or default HF cache) and initialize vLLM.
+        # local_files_only=False allows downloading when online; if the model is
+        # already cached (e.g. in air-gapped environments), snapshot_download falls
+        # back to the local cache automatically.
+        self._initialize_vllm(local_files_only=False)
+
+    def teardown(self) -> None:
+        del self.model
+        self.model = None
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         if self.model is None:
-            self._initialize_vllm()
+            # Load from local cache only — model must already be downloaded (by setup_on_node or pre-cached)
+            self._initialize_vllm(local_files_only=True)
         if self.pretokenize:
             from transformers import AutoTokenizer
 
@@ -107,7 +132,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 self.model_identifier,
                 cache_dir=self.cache_dir,
                 token=self.hf_token,
-                local_files_only=False,
+                local_files_only=True,
             )
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:

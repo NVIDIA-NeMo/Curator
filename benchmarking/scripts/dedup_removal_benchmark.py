@@ -50,7 +50,7 @@ def run_removal_benchmark(  # noqa: PLR0913
     # Setup executor
     # TODO: refactor utils.setup_executor to support this and remove this code
     if executor == "ray_data":
-        from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+        from nemo_curator.backends.ray_data import RayDataExecutor
 
         executor_obj = RayDataExecutor()
         if use_ray_data_settings:

@@ -21,7 +21,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from nemo_curator.backends.experimental.ray_actor_pool.executor import RayActorPoolExecutor
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
 
