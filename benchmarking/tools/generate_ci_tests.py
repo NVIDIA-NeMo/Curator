@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import argparse
+import re
 from pathlib import Path
 
 from ruamel.yaml import YAML
@@ -25,42 +26,72 @@ yaml.preserve_quotes = True
 DEFAULT_TIME = "00:10:00"
 
 
-def generate_job(entry: dict) -> dict:
+def seconds_to_time(seconds: int) -> str:
+    """Convert integer seconds to HH:MM:SS format."""
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def get_required_datasets(entry: dict) -> set:
+    """Parse {dataset:NAME,FORMAT} patterns from entry args.
+
+    Returns a set of (name, format) tuples.
+    """
+    args = entry.get("args", "")
+    return set(re.findall(r"\{dataset:([^,}]+),([^}]+)\}", args))
+
+
+def load_available_datasets(test_paths_file: str) -> set:
+    """Load available (name, format) pairs from a test-paths YAML file."""
+    with open(test_paths_file, encoding="utf-8") as f:
+        config = yaml.load(f)
+
+    available = set()
+    for ds in config.get("datasets", []):
+        name = ds["name"]
+        for fmt in ds.get("formats", []):
+            available.add((name, fmt["type"]))
+    return available
+
+
+def generate_job(entry: dict, scope: str) -> dict:
     """
     Generate a GitLab CI job for a single benchmark entry.
 
     Args:
         entry: Dictionary from nightly-benchmark.yaml entries list
+        scope: CI scope (e.g. "nightly")
 
     Returns:
         job: Dictionary defining the GitLab CI job
     """
-    ci = entry["ci"]
     ray = entry.get("ray", {})
+    timeout_s = entry.get("timeout_s")
+    time_str = seconds_to_time(timeout_s) if timeout_s is not None else DEFAULT_TIME
+
     job = {
         "extends": ".curator_benchmark_test",
         "stage": "benchmark",
         "variables": {
             "ENTRY_NAME": entry["name"],
-            "TEST_LEVEL": ci["scope"],
-            "TIME": DoubleQuotedScalarString(ci.get("time", DEFAULT_TIME)),
+            "TEST_LEVEL": scope,
+            "TIME": DoubleQuotedScalarString(time_str),
             "CPUS_PER_TASK": str(ray.get("num_cpus", "")),
         },
     }
 
-    if ci.get("known_issue", False):
-        job["allow_failure"] = True
-
     return job
 
 
-def generate_pipeline(curator_dir: str, scope: str) -> dict:
+def generate_pipeline(curator_dir: str, scope: str, test_paths: str = None) -> dict:
     """
     Generate a GitLab CI pipeline from Curator benchmark entries.
 
     Args:
         curator_dir: Path to the Curator repository
         scope: Scope of the testing (nightly, release, test)
+        test_paths: Optional path to test-paths.yaml for dataset filtering
 
     Returns:
         pipeline: Dictionary defining the GitLab CI pipeline
@@ -72,6 +103,10 @@ def generate_pipeline(curator_dir: str, scope: str) -> dict:
     if scope == "NONE":
         scope = "nightly"
 
+    available_datasets = None
+    if test_paths:
+        available_datasets = load_available_datasets(test_paths)
+
     pipeline = {
         "include": ["curator/curator_ci_template.yml"],
     }
@@ -79,19 +114,22 @@ def generate_pipeline(curator_dir: str, scope: str) -> dict:
     entries = config.get("entries", [])
     job_count = 0
     for entry in entries:
-        ci = entry.get("ci")
-        if ci is None:
-            continue
-        if ci.get("scope") != scope:
-            continue
         if not entry.get("enabled", True):
             continue
 
-        pipeline[entry["name"]] = generate_job(entry)
+        if available_datasets is not None:
+            required = get_required_datasets(entry)
+            missing = required - available_datasets
+            if missing:
+                missing_str = ", ".join(f"{n}:{f}" for n, f in sorted(missing))
+                print(f"Skipping '{entry['name']}': unavailable dataset(s): {missing_str}")
+                continue
+
+        pipeline[entry["name"]] = generate_job(entry, scope)
         job_count += 1
 
     if job_count == 0:
-        msg = f"No benchmark entries found with ci.scope='{scope}' in {config_path}"
+        msg = f"No benchmark entries found for scope='{scope}' in {config_path}"
         raise ValueError(msg)
 
     return pipeline
@@ -113,10 +151,16 @@ def main() -> None:
         required=True,
         help="Scope of the tests (nightly, release, test)",
     )
+    parser.add_argument(
+        "--test-paths",
+        type=str,
+        default=None,
+        help="Path to test-paths.yaml for dataset availability filtering",
+    )
 
     args = parser.parse_args()
 
-    pipeline = generate_pipeline(args.curator_dir, args.scope)
+    pipeline = generate_pipeline(args.curator_dir, args.scope, args.test_paths)
 
     output_file = "generated_curator_benchmark_tests.yml"
     with open(output_file, "w") as f:
