@@ -6,4 +6,4 @@ datasets:
   - name: "tinystories"
     formats:
       - type: "parquet"
-        path: /tmp/curator/datasets/tinystories_train_parquet
+        path: {datasets_path}/tinystories_train_parquet
