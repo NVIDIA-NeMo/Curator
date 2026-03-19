@@ -103,14 +103,14 @@ def generate_job(entry: dict, scope: str) -> dict:
     }
 
 
-def generate_pipeline(curator_dir: str, scope: str, test_paths: str | None = None) -> dict:
+def generate_pipeline(curator_dir: str, scope: str, test_paths: str) -> dict:
     """
     Generate a GitLab CI pipeline from Curator benchmark entries.
 
     Args:
         curator_dir: Path to the Curator repository
         scope: Scope of the testing (nightly, release, test)
-        test_paths: Optional path to test-paths.yaml for dataset filtering
+        test_paths: Path to test-paths.yaml for dataset filtering
 
     Returns:
         pipeline: Dictionary defining the GitLab CI pipeline
@@ -122,9 +122,7 @@ def generate_pipeline(curator_dir: str, scope: str, test_paths: str | None = Non
     if scope == "NONE":
         scope = "nightly"
 
-    available_datasets = None
-    if test_paths:
-        available_datasets = load_available_datasets(test_paths)
+    available_datasets = load_available_datasets(test_paths)
 
     pipeline = {
         "include": ["curator/curator_ci_template.yml"],
@@ -136,13 +134,12 @@ def generate_pipeline(curator_dir: str, scope: str, test_paths: str | None = Non
         if not entry.get("enabled", True):
             continue
 
-        if available_datasets is not None:
-            required = get_required_datasets(entry)
-            missing = required - available_datasets
-            if missing:
-                missing_str = ", ".join(f"{n}:{f}" for n, f in sorted(missing))
-                print(f"Skipping '{entry['name']}': unavailable dataset(s): {missing_str}")
-                continue
+        required = get_required_datasets(entry)
+        missing = required - available_datasets
+        if missing:
+            missing_str = ", ".join(f"{n}:{f}" for n, f in sorted(missing))
+            print(f"Skipping '{entry['name']}': unavailable dataset(s): {missing_str}")
+            continue
 
         pipeline[entry["name"]] = generate_job(entry, scope)
         job_count += 1
@@ -173,7 +170,7 @@ def main() -> None:
     parser.add_argument(
         "--test-paths",
         type=str,
-        default=None,
+        required=True,
         help="Path to test-paths.yaml for dataset availability filtering",
     )
 
