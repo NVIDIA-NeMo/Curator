@@ -112,7 +112,6 @@ class TestCaptionEnhancementStage:
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
-            enforce_eager=False,
         )
         mock_model.setup.assert_called_once()
         assert self.stage.model == mock_model

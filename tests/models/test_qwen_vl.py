@@ -135,7 +135,6 @@ class TestQwenVL:
             mm_processor_kwargs=expected_mm_processor_kwargs,
             mm_processor_cache_gb=4,
             max_num_batched_tokens=32768,
-            enforce_eager=False,
         )
 
         # Verify SamplingParams initialization

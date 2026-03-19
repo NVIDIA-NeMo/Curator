@@ -83,7 +83,6 @@ class TestQwenLM:
         mock_llm_class.assert_called_once_with(
             model="/test/model/dir/Qwen/Qwen2.5-14B-Instruct",
             quantization="fp8",
-            enforce_eager=False,
         )
 
         # Verify SamplingParams initialization
@@ -142,7 +141,6 @@ class TestQwenLM:
         mock_llm_class.assert_called_once_with(
             model="/test/model/dir/Qwen/Qwen2.5-14B-Instruct",
             quantization=None,
-            enforce_eager=False,
         )
 
     def test_generate_single_input(self) -> None:

@@ -94,8 +94,8 @@ def preparation_stage() -> CaptionPreparationStage:
     return stage
 
 
-@pytest.fixture(scope="module")
-def generation_stage(qwen_model_dir: str) -> CaptionGenerationStage:
+@pytest.fixture(scope="class")
+def generation_stage(qwen_model_dir: str):
     """Instantiate and set up CaptionGenerationStage once per module.
 
     setup() loads vLLM's LLM() — the main integration boundary.
@@ -118,12 +118,20 @@ def generation_stage(qwen_model_dir: str) -> CaptionGenerationStage:
         max_output_tokens=64,  # short output keeps the test fast
         model_does_preprocess=False,
         disable_mmcache=True,
-        enforce_eager=True,  # skip CUDA graph capture — ~10s load vs 30+ min
+        vllm_kwargs={"enforce_eager": True},  # skip CUDA graph capture — ~10s load vs 30+ min
         verbose=False,
         generate_stage2_caption=False,
     )
     stage.setup()
-    return stage
+    yield stage
+    # Release GPU memory so the 14B enhancement model can load in the same session
+    import gc
+
+    import torch
+
+    del stage.model.model
+    gc.collect()
+    torch.cuda.empty_cache()
 
 
 # ---------------------------------------------------------------------------

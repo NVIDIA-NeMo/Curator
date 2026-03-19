@@ -15,7 +15,6 @@
 """Fixtures for video caption integration tests."""
 
 import os
-import shutil
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -39,9 +38,6 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 # The local fixture takes precedence over the parent conftest for all tests
 # in this directory.
 # ---------------------------------------------------------------------------
-
-# Repo root: tests/stages/video/caption/conftest.py is 4 levels deep.
-_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -95,15 +91,11 @@ def qwen_model_dir(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def pipeline_tmpdir() -> Generator[Path, None, None]:
-    """Point make_pipeline_named_temporary_file at a short writable tmpdir.
-
-    Uses .tmp/ inside the repo root, short enough to keep vLLM's ZMQ IPC
-    socket path under the 107-character.
-    Unix limit (vLLM appends a UUID to TMPDIR for its socket file).
+def pipeline_tmpdir(tmp_path_factory: pytest.TempPathFactory) -> Generator[Path, None, None]:
+    """Point TMPDIR at a short writable path so vLLM's ZMQ IPC socket stays
+    under the 107-character Unix limit.
     """
-    tmp = _REPO_ROOT / ".tmp"
-    tmp.mkdir(parents=True, exist_ok=True)
+    tmp = tmp_path_factory.mktemp("pipeline")
     old = os.environ.get("TMPDIR")
     os.environ["TMPDIR"] = str(tmp)
     # tempfile caches gettempdir(); clear the cache so the new value is picked up
@@ -114,7 +106,6 @@ def pipeline_tmpdir() -> Generator[Path, None, None]:
         del os.environ["TMPDIR"]
     else:
         os.environ["TMPDIR"] = old
-    shutil.rmtree(tmp, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
@@ -150,7 +141,7 @@ def enhancement_stage(qwen_model_dir: str):
         model_batch_size=1,
         fp8=False,
         max_output_tokens=128,  # short output keeps the test fast
-        enforce_eager=True,  # skip CUDA graph capture
+        vllm_kwargs={"enforce_eager": True},  # skip CUDA graph capture
         verbose=False,
     )
     stage.setup()
