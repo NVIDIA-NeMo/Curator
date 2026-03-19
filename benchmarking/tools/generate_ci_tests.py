@@ -52,7 +52,12 @@ def get_required_datasets(entry: dict) -> set:
         datasets: Set of (name, format) tuples required by the entry
     """
     args = entry.get("args", "")
-    return set(re.findall(r"\{dataset:([^,}]+),([^}]+)\}", args))
+    # Find all {dataset:NAME,FORMAT} references in args
+    all_datasets = set(re.findall(r"\{dataset:([^,}]+),([^}]+)\}", args))
+    # Cache dirs are downloaded at runtime, so they don't need to be pre-available
+    cache_datasets = set(re.findall(r"--cache-dir=\{dataset:([^,}]+),([^}]+)\}", args))
+    # Only require datasets that are not cache dirs
+    return all_datasets - cache_datasets
 
 
 def load_available_datasets(test_paths_file: str) -> set:
@@ -89,6 +94,9 @@ def generate_job(entry: dict, scope: str) -> dict:
     """
     ray = entry.get("ray", {})
     timeout_s = entry.get("timeout_s")
+    # Enforce a minimum of 10 minutes (600s) to allow for setup overhead
+    if timeout_s is not None and timeout_s < 600:
+        timeout_s = 600
     time_str = seconds_to_time(timeout_s) if timeout_s is not None else DEFAULT_TIME
 
     return {
