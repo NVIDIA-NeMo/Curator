@@ -103,10 +103,13 @@ def _extract_tiff_frame(tiff_bytes: bytes, frame_index: int) -> bytes | None:
             if frame_index >= getattr(img, "n_frames", 1):
                 return None
             img.seek(frame_index)
-            compression = img.info.get("compression", "tiff_deflate")
-            buf = io.BytesIO()
-            img.save(buf, format="TIFF", compression=compression)
-            return buf.getvalue()
+            # Copy forces a full pixel decode before the context manager closes the source.
+            # We intentionally do NOT reuse the source compression (e.g. JPEG-in-TIFF) because
+            # lossy codecs (JPEG) do not support alpha channels and corrupt RGBA frames.
+            frame = img.copy()
+        buf = io.BytesIO()
+        frame.save(buf, format="TIFF")
+        return buf.getvalue()
     except (OSError, SyntaxError, ValueError):
         return None
 
