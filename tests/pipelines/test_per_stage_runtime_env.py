@@ -19,7 +19,7 @@ packaging version. Requires `uv` on PATH; test is skipped if uv is not available
 See tutorials/per_stage_runtime_env_example.py and docs/design/per-stage-runtime-environment.md.
 """
 
-import shutil
+import shutil  # noqa: I001
 import subprocess
 
 import pandas as pd
