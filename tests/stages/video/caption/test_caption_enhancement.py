@@ -45,7 +45,6 @@ class TestCaptionEnhancementStage:
     def test_init_default_values(self):
         """Test initialization with default values."""
         stage = CaptionEnhancementStage()
-        assert stage.model_dir == ""
         assert stage.model_variant == "qwen"
         assert stage.prompt_variant == "default"
         assert stage.prompt_text is None

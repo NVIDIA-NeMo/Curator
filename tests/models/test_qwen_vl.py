@@ -151,9 +151,7 @@ class TestQwenVL:
         assert self.qwen_vl.sampling_params == mock_sampling_params_instance
 
         # Verify logger was called
-        mock_logger.info.assert_called_once_with(
-            "CUDA graph enabled for sequences smaller than 16k tokens; adjust accordingly for even longer sequences"
-        )
+        mock_logger.info.assert_called_once_with("CUDA graph capture enabled")
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")

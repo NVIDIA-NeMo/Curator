@@ -49,7 +49,6 @@ class TestCaptionGenerationStage:
     def test_init_default_values(self):
         """Test initialization with default values."""
         stage = CaptionGenerationStage()
-        assert stage.model_dir == ""
         assert stage.model_variant == "qwen"
         assert stage.caption_batch_size == 16
         assert stage.fp8 is False
