@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import builtins
+
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -96,29 +96,13 @@ class TestInferenceSortformerStage:
         stage = InferenceSortformerStage(model_name="nvidia/diar_streaming_sortformer_4spk-v2")
         with patch("nemo_curator.stages.audio.inference.sortformer.snapshot_download") as mock_dl:
             stage.setup_on_node()
-            mock_dl.assert_called_once_with(repo_id="nvidia/diar_streaming_sortformer_4spk-v2")
+            mock_dl.assert_called_once_with(repo_id="nvidia/diar_streaming_sortformer_4spk-v2", cache_dir=None)
 
     def test_setup_on_node_skips_for_local_path(self) -> None:
         stage = InferenceSortformerStage(model_path="/local/model.nemo")
         with patch("nemo_curator.stages.audio.inference.sortformer.snapshot_download") as mock_dl:
             stage.setup_on_node()
             mock_dl.assert_not_called()
-
-    def test_setup_raises_without_nemo(self) -> None:
-        stage = InferenceSortformerStage()
-        real_import = builtins.__import__
-
-        def block_nemo(name: str, *args, **kwargs) -> None:
-            if name == "nemo.collections.asr.models":
-                msg = "mocked"
-                raise ImportError(msg)
-            return real_import(name, *args, **kwargs)
-
-        with (
-            patch("builtins.__import__", side_effect=block_nemo),
-            pytest.raises(ImportError, match="NeMo ASR is required"),
-        ):
-            stage.setup()
 
     def test_setup_skips_when_model_provided(self) -> None:
         mock_model = MagicMock()

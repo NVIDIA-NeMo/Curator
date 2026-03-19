@@ -7,9 +7,7 @@ Inference runs in parallel via `Pipeline` + `XennaExecutor` for high throughput.
 ## Prerequisites
 
 - Python 3.10+
-- NeMo Curator installed (`pip install -e .` from the Curator repo)
-- For XennaExecutor GPU stages: `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0` must be set before any Ray cluster starts. The included `run.py` sets this automatically; if you launch the pipeline from another script or Slurm, set this env var in the process that starts the job (e.g. `export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0` before running Python).
-- NeMo ASR toolkit (`pip install 'git+https://github.com/NVIDIA/NeMo.git@main#egg=nemo_toolkit[asr]'`)
+- NeMo Curator installed (`uv pip install -e .` from the Curator repo)
 - `sox` command-line tool (for stereo-to-mono conversion)
 - CallHome English dataset with `.wav` files and `eng/*.cha` ground-truth annotations
 
@@ -31,8 +29,6 @@ Inference runs in parallel via `Pipeline` + `XennaExecutor` for high throughput.
 ### Quick start
 
 ```bash
-# run.py sets RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0 automatically; if you see "no GPUs are available" on GPU workers, set it before Python:
-export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0
 python tutorials/audio/callhome_diar/run.py \
   --data-dir /path/to/callhome_eng0
 ```

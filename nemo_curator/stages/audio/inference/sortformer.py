@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from huggingface_hub import snapshot_download
 from loguru import logger
+from nemo.collections.asr.models import SortformerEncLabelModel
 
 from nemo_curator.stages.base import ProcessingStage
 
@@ -91,6 +92,7 @@ class InferenceSortformerStage(ProcessingStage[AudioBatch, AudioBatch]):
     Args:
         model_name: Hugging Face model id. Defaults to "nvidia/diar_streaming_sortformer_4spk-v2".
         model_path: Local path to a .nemo checkpoint file; if set, takes precedence over model_name.
+        cache_dir: Directory for caching downloaded model weights. Defaults to HF hub default.
         diar_model: Pre-loaded SortformerEncLabelModel; if provided, setup() is a no-op.
         filepath_key: Key in data for path to audio file. Defaults to "audio_filepath".
         diar_segments_key: Key in output data for diarization segments list. Defaults to "diar_segments".
@@ -106,6 +108,7 @@ class InferenceSortformerStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     model_name: str = "nvidia/diar_streaming_sortformer_4spk-v2"
     model_path: str | None = None
+    cache_dir: str | None = None
     diar_model: Any | None = None
     filepath_key: str = "audio_filepath"
     diar_segments_key: str = "diar_segments"
@@ -125,7 +128,7 @@ class InferenceSortformerStage(ProcessingStage[AudioBatch, AudioBatch]):
         if self.model_path is not None:
             return
         try:
-            snapshot_download(repo_id=self.model_name)
+            snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
         except Exception:  # noqa: BLE001
             logger.info(f"Could not pre-cache {self.model_name}; actors will download on first use")
 
@@ -135,26 +138,17 @@ class InferenceSortformerStage(ProcessingStage[AudioBatch, AudioBatch]):
             self.diar_model.eval()
             self._configure_streaming()
             return
-        try:
-            from nemo.collections.asr.models import SortformerEncLabelModel
-        except ImportError as e:
-            msg = (
-                "NeMo ASR is required for InferenceSortformerStage. "
-                "Install via: pip install 'git+https://github.com/NVIDIA/NeMo.git@main#egg=nemo_toolkit[asr]'"
-            )
-            raise ImportError(msg) from e
 
         if self.model_path is not None:
-            import torch
-
-            map_location = "cuda" if torch.cuda.is_available() else "cpu"
             self.diar_model = SortformerEncLabelModel.restore_from(
                 restore_path=self.model_path,
-                map_location=map_location,
+                map_location="cuda",
                 strict=False,
             )
         else:
-            self.diar_model = SortformerEncLabelModel.from_pretrained(self.model_name)
+            self.diar_model = SortformerEncLabelModel.from_pretrained(
+                self.model_name, cache_dir=self.cache_dir, local_files_only=True
+            )
 
         self.diar_model.eval()
         self._configure_streaming()

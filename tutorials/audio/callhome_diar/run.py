@@ -39,6 +39,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
@@ -480,6 +481,9 @@ def main() -> None:
     cha_dir = data_dir / "eng"
     rttm_out: Path = args.rttm_out_dir
     ckpt_dir: Path = args.checkpoint_dir
+
+    ray_client = RayClient()
+    ray_client.start()
 
     if args.clean and args.output_dir.exists():
         shutil.rmtree(args.output_dir)

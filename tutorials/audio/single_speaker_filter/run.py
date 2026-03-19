@@ -14,8 +14,8 @@
 
 """Filter an ASR manifest to keep only single-speaker audio using Streaming Sortformer.
 
-Three-stage pipeline via XennaExecutor with per-task hash-based checkpointing:
-  ManifestReaderStage → InferenceSortformerStage → SingleSpeakerFilterStage
+Four-stage pipeline via XennaExecutor with per-task hash-based checkpointing:
+  ALMManifestReader → InferenceSortformerStage → SingleSpeakerFilterStage → ALMManifestWriterStage
 
 Input:
   NeMo-style JSONL manifest — one JSON object per line, at minimum:
@@ -50,9 +50,11 @@ from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
+from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
 from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch, _EmptyTask
+from nemo_curator.tasks import AudioBatch
 
 CKPT_HASH_KEY = "_ckpt_hash"
 
@@ -111,39 +113,6 @@ def _load_all_tasks(directory: Path) -> list[AudioBatch]:
 
 
 @dataclass
-class ManifestReaderStage(ProcessingStage[_EmptyTask, AudioBatch]):
-    """Read a NeMo-style JSONL manifest and emit one AudioBatch per entry."""
-
-    manifest_path: str = ""
-    filepath_key: str = "audio_filepath"
-    name: str = "ManifestReaderStage"
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.filepath_key]
-
-    def process(self, task: _EmptyTask) -> list[AudioBatch]:  # noqa: ARG002
-        tasks: list[AudioBatch] = []
-        with open(self.manifest_path) as f:
-            for i, raw_line in enumerate(f):
-                line = raw_line.strip()
-                if not line:
-                    continue
-                entry = json.loads(line)
-                stem = Path(entry[self.filepath_key]).stem
-                tasks.append(
-                    AudioBatch(
-                        data=[entry],
-                        task_id=f"manifest_{stem}_{i}",
-                        dataset_name="asr_manifest",
-                    )
-                )
-        return tasks
-
-
-@dataclass
 class SingleSpeakerFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
     """Keep only audio samples where Sortformer detected exactly one speaker."""
 
@@ -169,7 +138,9 @@ class SingleSpeakerFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             segments = item.get(self.diar_segments_key, [])
             speakers = {seg["speaker"] for seg in segments}
             if len(speakers) == 1:
-                surviving.append(item)
+                entry = {k: v for k, v in item.items() if k != self.diar_segments_key}
+                entry["num_speakers"] = 1
+                surviving.append(entry)
         return AudioBatch(
             task_id=task.task_id,
             dataset_name=task.dataset_name,
@@ -300,7 +271,7 @@ def main() -> None:
     print(f"Manifest: {total_entries} entries{resume_info}", flush=True)
 
     stages: list[ProcessingStage] = [
-        ManifestReaderStage(manifest_path=str(args.manifest)),
+        ALMManifestReader(manifest_path=str(args.manifest)),
         InferenceSortformerStage(
             model_name=args.model,
             chunk_len=args.chunk_len,
@@ -311,24 +282,16 @@ def main() -> None:
             inference_batch_size=1,
         ),
         SingleSpeakerFilterStage(),
+        ALMManifestWriterStage(output_path=str(args.output_manifest)),
     ]
 
     print("Starting pipeline with inter-stage checkpointing...", flush=True)
     output_tasks = _run_stages_with_checkpoints(stages, args.checkpoint_dir)
 
-    entries_out = []
-    for task in output_tasks:
-        for item in task.data:
-            entry = {k: v for k, v in item.items() if k != "diar_segments"}
-            entry["num_speakers"] = 1
-            entries_out.append(entry)
-
-    with open(args.output_manifest, "w") as f:
-        for entry in entries_out:
-            f.write(json.dumps(entry) + "\n")
-
+    with open(args.output_manifest) as f:
+        entries_out = sum(1 for line in f if line.strip())
     print(f"\n{'=' * 60}")
-    print(f"Filtered: {len(entries_out)} / {total_entries} entries have exactly 1 speaker")
+    print(f"Filtered: {entries_out} / {total_entries} entries have exactly 1 speaker")
     print(f"Output manifest: {args.output_manifest}")
     print(f"{'=' * 60}")
 
