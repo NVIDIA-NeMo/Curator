@@ -19,7 +19,6 @@ import copy
 import time
 from abc import ABC, ABCMeta, abstractmethod
 from inspect import isabstract
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, final
 
 from loguru import logger
@@ -28,6 +27,8 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 X = TypeVar("X", bound=Task)  # Input task type
