@@ -91,7 +91,7 @@ def generate_job(entry: dict, scope: str) -> dict:
     timeout_s = entry.get("timeout_s")
     time_str = seconds_to_time(timeout_s) if timeout_s is not None else DEFAULT_TIME
 
-    job = {
+    return {
         "extends": ".curator_benchmark_test",
         "stage": "benchmark",
         "variables": {
@@ -102,10 +102,8 @@ def generate_job(entry: dict, scope: str) -> dict:
         },
     }
 
-    return job
 
-
-def generate_pipeline(curator_dir: str, scope: str, test_paths: str = None) -> dict:
+def generate_pipeline(curator_dir: str, scope: str, test_paths: str | None = None) -> dict:
     """
     Generate a GitLab CI pipeline from Curator benchmark entries.
 
