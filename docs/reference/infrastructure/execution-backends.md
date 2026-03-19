@@ -150,7 +150,7 @@ For more details, refer to {ref}`Text Deduplication <text-process-data-dedup>`.
 - **Scalable transformations**: Efficient map-batch operations across distributed workers
 
 ```python
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 
 executor = RayDataExecutor()
 results = pipeline.run(executor)

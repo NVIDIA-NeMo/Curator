@@ -273,7 +273,7 @@ def main() -> None:  # noqa: PLR0915
 
     import torch
 
-    from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+    from nemo_curator.backends.ray_data import RayDataExecutor
     from nemo_curator.core.client import RayClient
 
     NUM_GPUS = 4  # noqa: N806
