@@ -377,6 +377,7 @@ def preparation_stage() -> CaptionPreparationStage:
 def generation_stage():
     """Instantiate and set up CaptionGenerationStage once per class."""
     stage = CaptionGenerationStage(
+        model_dir="",
         model_variant="qwen",
         caption_batch_size=1,
         fp8=False,

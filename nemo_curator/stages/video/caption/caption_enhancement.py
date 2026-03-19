@@ -44,7 +44,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
     more detailed and refined descriptions of the video content.
     """
 
-    model_dir: str = ""
+    model_dir: str = "models/qwen"
     model_variant: str = "qwen"
     prompt_variant: str = "default"
     prompt_text: str | None = None
