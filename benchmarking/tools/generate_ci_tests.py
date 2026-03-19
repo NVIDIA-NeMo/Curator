@@ -27,23 +27,44 @@ DEFAULT_TIME = "00:10:00"
 
 
 def seconds_to_time(seconds: int) -> str:
-    """Convert integer seconds to HH:MM:SS format."""
+    """
+    Convert integer seconds to HH:MM:SS format.
+
+    Args:
+        seconds: Number of seconds to convert
+
+    Returns:
+        time_str: Formatted time string (e.g. 1000 -> "00:16:40")
+    """
     hours, remainder = divmod(seconds, 3600)
     minutes, secs = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 def get_required_datasets(entry: dict) -> set:
-    """Parse {dataset:NAME,FORMAT} patterns from entry args.
+    """
+    Parse {dataset:NAME,FORMAT} patterns from entry args.
 
-    Returns a set of (name, format) tuples.
+    Args:
+        entry: Dictionary from nightly-benchmark.yaml entries list
+
+    Returns:
+        datasets: Set of (name, format) tuples required by the entry
     """
     args = entry.get("args", "")
     return set(re.findall(r"\{dataset:([^,}]+),([^}]+)\}", args))
 
 
 def load_available_datasets(test_paths_file: str) -> set:
-    """Load available (name, format) pairs from a test-paths YAML file."""
+    """
+    Load available (name, format) pairs from a test-paths YAML file.
+
+    Args:
+        test_paths_file: Path to the test-paths YAML file
+
+    Returns:
+        available: Set of (name, format) tuples available for testing
+    """
     with open(test_paths_file, encoding="utf-8") as f:
         config = yaml.load(f)
 
