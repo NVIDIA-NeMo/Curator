@@ -121,8 +121,8 @@ The pipeline supports two execution backends. Override via `backend=` on the com
 
 | Backend | Description | When to use |
 |---------|-------------|-------------|
-| `xenna` | Production executor (default). Uses Cosmos-Xenna streaming engine with automatic worker allocation. | Production workloads, CI/nightly benchmarks. |
-| `ray_data` | Experimental executor built on Ray Data `map_batches`. | Development, machines where Xenna cannot detect GPUs, or when Ray Data integration is preferred. |
+| `xenna` | Default executor. Uses Cosmos-Xenna streaming engine with automatic worker allocation. | Most workloads, CI/nightly benchmarks. |
+| `ray_data` | Executor built on Ray Data `map_batches`. | Development, machines where Xenna cannot detect GPUs, or when Ray Data integration is preferred. |
 
 ### Running with Xenna (default)
 

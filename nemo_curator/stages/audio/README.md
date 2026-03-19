@@ -351,7 +351,7 @@ extract filepaths → **one** batched GPU call → build result `AudioTask`s.
 
 ### Xenna specifics
 
-Xenna is the production backend built on Cosmos-Xenna (which uses Ray
+Xenna is the default backend built on Cosmos-Xenna (which uses Ray
 under the hood).
 
 - **Worker creation**: Xenna creates Ray Actors.  Each actor gets

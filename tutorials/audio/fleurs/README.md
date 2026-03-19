@@ -33,14 +33,14 @@ Key arguments:
 - `--lang`: FLEURS language code (e.g., `hy_am`, `en_us`, etc.)
 - `--split`: FLEURS split (`train`, `dev`, or `test`)
 - `--wer_threshold`: Keep samples with WER less-or-equal to this value
-- `--backend`: `xenna` (default, production) or `ray_data`
+- `--backend`: `xenna` (default) or `ray_data`
 ### Choosing a Backend
 
 Both the Python script (`pipeline.py`) and the YAML runner (`run.py`) support two execution backends:
 
 | Backend | Description | When to use |
 |---------|-------------|-------------|
-| `xenna` | Production executor (default). Uses Cosmos-Xenna streaming engine with automatic worker allocation. | Production workloads, CI/nightly benchmarks. |
+| `xenna` | Default executor. Uses Cosmos-Xenna streaming engine with automatic worker allocation. | Most workloads, CI/nightly benchmarks. |
 | `ray_data` | Executor built on Ray Data `map_batches`. | Development, machines where Xenna cannot detect GPUs, or when Ray Data integration is preferred. |
 
 **Python script** — pass `--backend`:
