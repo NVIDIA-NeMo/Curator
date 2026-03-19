@@ -47,7 +47,14 @@ class QwenLM(ModelInterface):
     def model_id_names(self) -> list[str]:
         return [_QWEN_LM_MODEL_ID]
 
-    def __init__(self, model_dir: str, caption_batch_size: int, fp8: bool, max_output_tokens: int, **vllm_kwargs):
+    def __init__(
+        self,
+        model_dir: str = "",
+        caption_batch_size: int = 1,
+        fp8: bool = False,
+        max_output_tokens: int = 512,
+        **vllm_kwargs,
+    ):
         self.model_dir = model_dir
         self.caption_batch_size = caption_batch_size
         self.fp8 = fp8
@@ -59,7 +66,7 @@ class QwenLM(ModelInterface):
             msg = "vllm is required for QwenLM model but is not installed. Please install vllm: pip install vllm"
             raise ImportError(msg)
 
-        self.weight_file = str(Path(self.model_dir) / _QWEN_LM_MODEL_ID)
+        self.weight_file = str(Path(self.model_dir) / _QWEN_LM_MODEL_ID) if self.model_dir else _QWEN_LM_MODEL_ID
         self.llm = LLM(
             model=self.weight_file,
             quantization="fp8" if self.fp8 else None,
@@ -82,6 +89,8 @@ class QwenLM(ModelInterface):
     @classmethod
     def download_weights_on_node(cls, model_dir: str) -> None:
         """Download the weights for the QwenLM model on the node."""
+        if not model_dir:
+            return
         model_dir_path = Path(model_dir) / _QWEN_LM_MODEL_ID
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):

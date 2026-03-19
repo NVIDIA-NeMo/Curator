@@ -33,7 +33,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     generate descriptive captions, with support for both synchronous and asynchronous processing.
     """
 
-    model_dir: str = "models/qwen"
+    model_dir: str = ""
     model_variant: str = "qwen"
     caption_batch_size: int = 16
     fp8: bool = False

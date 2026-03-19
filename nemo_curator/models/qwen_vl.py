@@ -71,7 +71,8 @@ class QwenVL(ModelInterface):
         self.vllm_kwargs = vllm_kwargs
         self.stage2_prompt = stage2_prompt_text
         self.verbose = verbose
-        self.weight_file = str(pathlib.Path(model_dir) / _QWEN_VARIANTS_INFO[model_variant])
+        model_id = _QWEN_VARIANTS_INFO[model_variant]
+        self.weight_file = str(pathlib.Path(model_dir) / model_id) if model_dir else model_id
         # Default pattern for stage2 caption generation - matches (.*)(user_prompt)(.*)
         self.pattern = r"(.*)(user_prompt)(.*)"
 
@@ -149,6 +150,8 @@ class QwenVL(ModelInterface):
     @classmethod
     def download_weights_on_node(cls, model_dir: str) -> None:
         """Download the weights for the QwenVL model on the node."""
+        if not model_dir:
+            return
         model_dir_path = Path(model_dir) / _QWEN2_5_VL_MODEL_ID
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):

@@ -342,5 +342,4 @@ testpaths = ["tests"]
 markers = [
     "asyncio",
     "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
-    "integration: marks tests as integration tests requiring real GPU + model weights (select with '-m integration')",
 ]

@@ -46,48 +46,9 @@ def shared_ray_cluster() -> None:  # type: ignore[override]
     return
 
 
-# ---------------------------------------------------------------------------
-# CLI option: --model-dir
-# Priority: CLI arg > env var QWEN_MODEL_DIR > skip
-# ---------------------------------------------------------------------------
-
-_ENV_VAR = "QWEN_MODEL_DIR"
-
 # Small video committed to the repo so tests are self-contained and portable.
 # 3s, 240x136, 2fps, mpeg4 — 3.8 KB
 _DEFAULT_VIDEO_FIXTURE = Path(__file__).parent / "fixtures" / "test_video.mp4"
-
-
-def pytest_addoption(parser: pytest.Parser) -> None:
-    parser.addoption(
-        "--model-dir",
-        action="store",
-        default=None,
-        help=(
-            "Root directory that contains model weights "
-            "(e.g. /path/to/models containing Qwen/Qwen2.5-VL-7B-Instruct/). "
-            f"Falls back to ${_ENV_VAR}. Required for integration tests."
-        ),
-    )
-
-
-@pytest.fixture(scope="session")
-def qwen_model_dir(request: pytest.FixtureRequest) -> str:
-    """Resolve the model-weights root directory using precedence:
-
-    1. --model-dir CLI argument
-    2. QWEN_MODEL_DIR environment variable
-    3. Skip — no personal path fallback so the test is portable
-    """
-    cli_value: str | None = request.config.getoption("--model-dir", default=None)
-    if cli_value:
-        return cli_value
-
-    env_value = os.environ.get(_ENV_VAR)
-    if env_value:
-        return env_value
-
-    pytest.skip(f"Model directory not specified. Pass --model-dir /path/to/models or set ${_ENV_VAR}.")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -118,25 +79,14 @@ def video_fixture_path() -> Path:
 
 
 @pytest.fixture(scope="module")
-def enhancement_stage(qwen_model_dir: str):
+def enhancement_stage():
     """Instantiate and set up CaptionEnhancementStage once per module.
 
-    setup() loads vLLM's LLM() with Qwen2.5-14B-Instruct — the text-only
-    caption enhancement model.
+    setup() loads vLLM's LLM() with Qwen2.5-14B-Instruct via HF auto-download.
     """
-    from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID
     from nemo_curator.stages.video.caption.caption_enhancement import CaptionEnhancementStage
 
-    weight_path = Path(qwen_model_dir) / _QWEN_LM_MODEL_ID
-    if not weight_path.exists():
-        pytest.skip(
-            f"Qwen14B weights not found at {weight_path}. "
-            f"Pass --model-dir or set ${_ENV_VAR} to a directory "
-            f"containing Qwen/Qwen2.5-14B-Instruct/."
-        )
-
     stage = CaptionEnhancementStage(
-        model_dir=qwen_model_dir,
         model_variant="qwen",
         model_batch_size=1,
         fp8=False,
