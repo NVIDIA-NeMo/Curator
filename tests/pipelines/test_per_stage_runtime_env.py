@@ -21,7 +21,6 @@ See tutorials/per_stage_runtime_env_example.py and docs/design/per-stage-runtime
 
 import shutil
 import subprocess
-from typing import ClassVar
 
 import pandas as pd
 import pytest
@@ -58,7 +57,7 @@ class VersionStage1(ProcessingStage[DocumentBatch, DocumentBatch]):
     name = "version_stage_1"
     resources = Resources(cpus=0.5)
     batch_size = 1
-    pip_specs: ClassVar[list[str]] = ["packaging==23.2"]
+    pip_specs = ["packaging==23.2"] # noqa: RUF012
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -86,7 +85,7 @@ class VersionStage2(ProcessingStage[DocumentBatch, DocumentBatch]):
     name = "version_stage_2"
     resources = Resources(cpus=0.5)
     batch_size = 1
-    pip_specs: ClassVar[list[str]] = ["packaging==24.0"]
+    pip_specs = ["packaging==24.0"]  # noqa: RUF012
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["stage1_packaging_version"]
