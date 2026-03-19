@@ -107,10 +107,9 @@ class QwenVL(ModelInterface):
             max_tokens=self.max_output_tokens,
             stop_token_ids=[],
         )
-        if self.vllm_kwargs.get("enforce_eager"):
-            logger.info("CUDA graph capture disabled (enforce_eager=True)")
-        else:
-            logger.info("CUDA graph capture enabled")
+        logger.info(
+            "CUDA graph enabled for sequences smaller than 16k tokens; adjust accordingly for even longer sequences"
+        )
 
     def generate(
         self, videos: list[dict[str, Any]], generate_stage2_caption: bool = False, batch_size: int = 16
