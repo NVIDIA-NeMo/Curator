@@ -15,6 +15,7 @@
 import warnings
 from collections.abc import Iterable
 
+from loguru import logger
 from openai import AsyncOpenAI, OpenAI
 
 from nemo_curator.models.client.llm_client import AsyncLLMClient, ConversationFormatter, GenerationConfig, LLMClient
@@ -56,18 +57,25 @@ class OpenAIClient(LLMClient):
         if generation_config.top_k is not None:
             warnings.warn("top_k is not used in an OpenAIClient", stacklevel=2)
 
-        response = self.client.chat.completions.create(
-            messages=messages,
-            model=model,
-            max_tokens=generation_config.max_tokens,
-            n=generation_config.n,
-            seed=generation_config.seed,
-            stop=generation_config.stop,
-            stream=generation_config.stream,
-            temperature=generation_config.temperature,
-            top_p=generation_config.top_p,
-            timeout=self.timeout,
-        )
+        create_kwargs = {
+            "messages": messages,
+            "model": model,
+            "max_tokens": generation_config.max_tokens,
+            "n": generation_config.n,
+            "seed": generation_config.seed,
+            "stop": generation_config.stop,
+            "stream": generation_config.stream,
+            "temperature": generation_config.temperature,
+            "top_p": generation_config.top_p,
+            "timeout": self.timeout,
+        }
+        if generation_config.extra_kwargs:
+            overlapping = set(generation_config.extra_kwargs) & set(create_kwargs)
+            if overlapping:
+                logger.warning(f"extra_kwargs will overwrite existing parameter(s): {overlapping}")
+            create_kwargs.update(generation_config.extra_kwargs)
+
+        response = self.client.chat.completions.create(**create_kwargs)
 
         return [choice.message.content for choice in response.choices]
 
@@ -123,17 +131,24 @@ class AsyncOpenAIClient(AsyncLLMClient):
         if generation_config.top_k is not None:
             warnings.warn("top_k is not used in an AsyncOpenAIClient", stacklevel=2)
 
-        response = await self.client.chat.completions.create(
-            messages=messages,
-            model=model,
-            max_tokens=generation_config.max_tokens,
-            n=generation_config.n,
-            seed=generation_config.seed,
-            stop=generation_config.stop,
-            stream=generation_config.stream,
-            temperature=generation_config.temperature,
-            top_p=generation_config.top_p,
-            timeout=self.timeout,
-        )
+        create_kwargs = {
+            "messages": messages,
+            "model": model,
+            "max_tokens": generation_config.max_tokens,
+            "n": generation_config.n,
+            "seed": generation_config.seed,
+            "stop": generation_config.stop,
+            "stream": generation_config.stream,
+            "temperature": generation_config.temperature,
+            "top_p": generation_config.top_p,
+            "timeout": self.timeout,
+        }
+        if generation_config.extra_kwargs:
+            overlapping = set(generation_config.extra_kwargs) & set(create_kwargs)
+            if overlapping:
+                logger.warning(f"extra_kwargs will overwrite existing parameter(s): {overlapping}")
+            create_kwargs.update(generation_config.extra_kwargs)
+
+        response = await self.client.chat.completions.create(**create_kwargs)
 
         return [choice.message.content for choice in response.choices]

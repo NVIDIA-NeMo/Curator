@@ -432,7 +432,7 @@ pipeline.add_stage(JsonlWriter(path="filtered_output/"))
 pipeline.run()
 
 # Or use Ray for distributed processing (see Performance Tuning section)
-# from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+# from nemo_curator.backends.ray_data import RayDataExecutor
 # pipeline.run(RayDataExecutor(ignore_head_node=True))
 ```
 :::
@@ -463,11 +463,11 @@ results = pipeline.run(executor)
 If no executor is specified, `pipeline.run()` uses `XennaExecutor` with default settings.
 :::
 
-:::{tab-item} RayDataExecutor (Experimental)
+:::{tab-item} RayDataExecutor
 `RayDataExecutor` provides distributed processing using Ray Data. It has shown performance improvements for filtering workloads compared to the default executor.
 
 ```python
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 
 executor = RayDataExecutor(
     config={"ignore_failures": False},

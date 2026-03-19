@@ -13,7 +13,33 @@
 # limitations under the License.
 
 """
-Quick synthetic data generation example for Nemo Data Designer
+Synthetic data generation example using NeMo Data Designer (NDD).
+
+This tutorial generates synthetic medical notes from a seed CSV of symptom
+descriptions.  It supports two modes:
+
+  1. **Local InferenceServer (default)** - starts a Ray Serve + vLLM server on
+     the local cluster and points NDD at it via a custom ModelProvider.  No
+     external API key is required.
+
+  2. **Remote provider** (e.g. NVIDIA NIM) - uses a hosted API endpoint.
+     Requires the appropriate API key in the environment (e.g. NVIDIA_API_KEY).
+
+Usage examples::
+
+    # Local model (default) - serves openai/gpt-oss-20b locally:
+    python ndd_data_generation_example.py
+
+    # Local model with a different HuggingFace model:
+    python ndd_data_generation_example.py --model google/gemma-3-27b-it
+
+    # Remote NVIDIA NIM API:
+    python ndd_data_generation_example.py \
+        --provider nvidia \
+        --model meta/llama-3.3-70b-instruct
+
+    # Use a Data Designer YAML config file:
+    python ndd_data_generation_example.py --data-designer-config-file config.yaml
 """
 
 import argparse
@@ -51,6 +77,20 @@ def parse_args() -> argparse.Namespace:
         help="Directory path to save the generated synthetic data in JSONL format",
     )
 
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="openai/gpt-oss-20b",
+        help="Model identifier (HuggingFace ID or local path)",
+    )
+
+    parser.add_argument(
+        "--provider",
+        type=str,
+        default=None,
+        help="Model provider name (e.g. 'nvidia'). If not set, a local InferenceServer is started.",
+    )
+
     return parser.parse_args()
 
 
@@ -78,16 +118,15 @@ def download_and_convert_seed_data(
         )
     return str(output_dir)
 
-def _build_config_manually() -> dd.DataDesignerConfigBuilder:
-    """Build the default Data Designer config with medical notes generation."""
-    model_provider = "nvidia"
-    model_id = "meta/llama-3.3-70b-instruct"
-    model_alias = "llama-3.3-70b"
+
+def _build_config(model_id: str, provider_name: str, model_alias: str) -> dd.DataDesignerConfigBuilder:
+    """Build the Data Designer config with medical notes generation."""
     model_configs = [
         dd.ModelConfig(
             alias=model_alias,
             model=model_id,
-            provider=model_provider,
+            provider=provider_name,
+            skip_health_check=True,
             inference_parameters=dd.ChatCompletionInferenceParams(
                 temperature=1.0,
                 top_p=1.0,
@@ -199,9 +238,7 @@ def _build_config_manually() -> dd.DataDesignerConfigBuilder:
 
 def _collect_output_info(output_path: str) -> tuple[list, list]:
     """Collect output file paths and dataframes from files under output_path."""
-    output_files = get_all_file_paths_under(
-        output_path, recurse_subdirectories=True, keep_extensions=".jsonl"
-    )
+    output_files = get_all_file_paths_under(output_path, recurse_subdirectories=True, keep_extensions=".jsonl")
     print(f"\nGenerated data saved to: {output_path}")
     for file_path in output_files:
         print(f"  - {file_path}")
@@ -218,24 +255,90 @@ def _print_sample_documents(output_files: list, all_data_frames: list) -> None:
         print(f"\nFile {i + 1}: {output_files[i]}")
         print(f"Number of documents: {len(df)}")
         print("\nGenerated text (showing first 5):")
-        for j, row in enumerate(df.head(5).to_dict(orient="records")):
+        for j, row in enumerate(df.head(3).to_dict(orient="records")):
             print(f"Document {j + 1}:")
             for key, value in row.items():
                 print(f"[{key}]:")
                 print(f"{value}")
             print("-" * 40)
+        break
 
 
-def main() -> None:
+def main() -> None:  # noqa: PLR0915
     """Main function to run the synthetic data generation pipeline."""
     args = parse_args()
     print("Preparing seed data (download + CSV→JSONL)...")
     seed_dir = download_and_convert_seed_data()
     print(f"Seed data ready: {seed_dir}")
 
-    pipeline = Pipeline(name="ndd_data_generation", description="Generate synthetic text data using Nemo Data Designer")
+    import torch
 
-    # Add reader stage to read the seed dataset
+    from nemo_curator.backends.ray_data import RayDataExecutor
+    from nemo_curator.core.client import RayClient
+
+    NUM_GPUS = 4  # noqa: N806
+
+    if args.provider is None and torch.cuda.device_count() < NUM_GPUS:
+        error_msg = "The number of GPUs on this machine are lesser than the default this tutorial was tested with, please update `num_gpus` passed into `RayClient`"
+        raise ValueError(error_msg)
+
+    client = RayClient(num_cpus=16, num_gpus=NUM_GPUS)
+    client.start()
+
+    model_alias = "local-llm"
+    provider_name = args.provider or "local"
+    inference_server = None
+    model_providers = None
+
+    # If no remote provider specified, start a local InferenceServer
+    if args.provider is None:
+        from nemo_curator.backends.experimental.utils import get_available_cpu_gpu_resources
+        from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+
+        _, num_gpus = get_available_cpu_gpu_resources()
+        num_gpus = int(num_gpus)
+        print(f"Detected {num_gpus} GPUs, using tensor_parallel_size={num_gpus}")
+
+        server_config = InferenceModelConfig(
+            model_identifier=args.model,
+            deployment_config={
+                "autoscaling_config": {
+                    "min_replicas": 1,
+                    "max_replicas": 1,
+                },
+            },
+            engine_kwargs={
+                "tensor_parallel_size": num_gpus,
+            },
+        )
+
+        inference_server = InferenceServer(models=[server_config])
+        inference_server.start()
+
+        # Create a custom ModelProvider pointing at the local server
+        model_providers = [
+            dd.ModelProvider(
+                name=provider_name,
+                endpoint=inference_server.endpoint,
+                api_key="unused",  # pragma: allowlist secret
+            )
+        ]
+        print(f"Local InferenceServer ready at {inference_server.endpoint}")
+
+    # Build the NDD config
+    if args.data_designer_config_file is not None:
+        config_builder = dd.DataDesignerConfigBuilder.from_config(args.data_designer_config_file)
+    else:
+        config_builder = _build_config(
+            model_id=args.model,
+            provider_name=provider_name,
+            model_alias=model_alias,
+        )
+
+    pipeline = Pipeline(
+        name="ndd_data_generation", description="Generate synthetic text data using NeMo Data Designer"
+    )
+
     pipeline.add_stage(
         JsonlReader(
             file_paths=seed_dir + "/*.jsonl",
@@ -243,43 +346,34 @@ def main() -> None:
         )
     )
 
-    # Define Nemo Data Designer config builder
-    if args.data_designer_config_file is not None:
-        config_builder = dd.DataDesignerConfigBuilder.from_config(args.data_designer_config_file)
-    # Manually define the config builder
-    else:
-        config_builder = _build_config_manually()
+    pipeline.add_stage(DataDesignerStage(config_builder=config_builder, model_providers=model_providers))
 
-
-    # Add the Nemo Data Designer stage
-    pipeline.add_stage(
-        DataDesignerStage(config_builder=config_builder)
-    )
-
-    # Add JSONL writer to save the generated data
     pipeline.add_stage(
         JsonlWriter(
             path=args.output_path,
         )
     )
 
-    # Print pipeline description
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
 
-    # Execute pipeline with timing
     print("Starting synthetic data generation pipeline...")
-    start_time = time.time()
-    pipeline.run()
-    end_time = time.time()
+    start_time = time.perf_counter()
+    try:
+        pipeline.run(executor=RayDataExecutor())
+    finally:
+        end_time = time.perf_counter()
+        if inference_server is not None:
+            inference_server.stop()
+        client.stop()
 
     elapsed_time = end_time - start_time
 
-    # Print results
     print("\nPipeline completed!")
     print(f"Total execution time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
     output_files, all_data_frames = _collect_output_info(args.output_path)
     _print_sample_documents(output_files, all_data_frames)
+
 
 if __name__ == "__main__":
     main()

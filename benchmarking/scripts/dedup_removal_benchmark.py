@@ -50,7 +50,7 @@ def run_removal_benchmark(  # noqa: PLR0913
     # Setup executor
     # TODO: refactor utils.setup_executor to support this and remove this code
     if executor == "ray_data":
-        from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+        from nemo_curator.backends.ray_data import RayDataExecutor
 
         executor_obj = RayDataExecutor()
         if use_ray_data_settings:
@@ -124,9 +124,11 @@ def run_removal_benchmark(  # noqa: PLR0913
         for k, v in TaskPerfUtils.aggregate_task_metrics(workflow_run_result).items()
         if k.endswith("_process_time_mean")
     }
-    io_percentage = round(
-        (task_metrics["jsonl_reader"] + task_metrics["parquet_writer"]) * 100 / sum(task_metrics.values()), 2
-    )
+    reader_key = f"{input_filetype}_reader"
+    writer_key = f"{output_filetype}_writer"
+    io_time = task_metrics.get(reader_key, 0) + task_metrics.get(writer_key, 0)
+    total_time = sum(task_metrics.values())
+    io_percentage = round(io_time * 100 / total_time, 2) if total_time > 0 else 0
 
     return {
         "metrics": {
