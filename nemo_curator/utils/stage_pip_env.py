@@ -100,7 +100,6 @@ def resolve_stage_pip_envs(
         stages: Flat list of execution stages (e.g. after pipeline build).
         base_dir: Directory for venv roots. If None, a temp directory is used.
     """
-    import subprocess
     import tempfile
 
     stages_with_pip = [s for s in stages if getattr(s, "pip_specs", None)]
@@ -135,6 +134,6 @@ def resolve_stage_pip_envs(
         key = tuple(sorted(s.strip().lower() for s in specs))
         if key not in unique_specs:
             subdir = f"env_{len(unique_specs)}"
-            unique_specs[key] = _create_venv_for_specs(list(specs), base, subdir, uv_exe)
-            logger.info("Created venv for pip_specs %s at %s", list(specs), unique_specs[key])
+            unique_specs[key] = _create_venv_for_specs(list(key), base, subdir, uv_exe)
+            logger.info("Created venv for pip_specs %s at %s", list(key), unique_specs[key])
         stage._resolved_site_packages_path = unique_specs[key]
