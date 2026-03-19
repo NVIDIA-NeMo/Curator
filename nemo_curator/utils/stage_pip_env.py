@@ -115,22 +115,6 @@ def resolve_stage_pip_envs(
             )
             raise RuntimeError(msg)
         return
-    try:
-        subprocess.run(  # noqa: S603
-            [uv_exe, "--version"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except subprocess.CalledProcessError as e:
-        if stages_with_pip:
-            names = ", ".join(getattr(s, "name", s.__class__.__name__) for s in stages_with_pip)
-            msg = (
-                f"Stages with pip_specs require a working `uv` CLI; uv check failed. "
-                f"Affected stages: {names}. Error: {e}"
-            )
-            raise RuntimeError(msg) from e
-        return
 
     if base_dir is None:
         tmp_dir = tempfile.mkdtemp(prefix="curator_pip_envs_")

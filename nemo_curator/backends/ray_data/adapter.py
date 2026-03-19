@@ -110,6 +110,12 @@ class RayDataStageAdapter(BaseStageAdapter):
         # If pipeline resolved pip_specs to a venv, prepend to PYTHONPATH so workers use that env.
         resolved_path = getattr(self.stage, "_resolved_site_packages_path", None)
         if resolved_path is not None:
+            if ray_remote_args.get("runtime_env", {}).get("pip"):
+                msg = (
+                    f"Stage {self.stage.__class__.__name__} defines both pip_specs and ray_remote_args runtime_env.pip; "
+                    "package versions may conflict. Please use only one of them."
+                )
+                raise RuntimeError(msg)
             env_vars = ray_remote_args.setdefault("runtime_env", {}).setdefault("env_vars", {})
             existing = env_vars.get("PYTHONPATH") or os.environ.get("PYTHONPATH", "")
             env_vars["PYTHONPATH"] = f"{resolved_path}:{existing}" if existing else str(resolved_path)
