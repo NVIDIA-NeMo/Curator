@@ -140,7 +140,7 @@ def resolve_stage_pip_envs(
         base = Path(base_dir)
     base.mkdir(parents=True, exist_ok=True)
 
-    # Dedupe: same sorted specs -> one venv
+    # Dedupe by normalized specs
     unique_specs: dict[tuple[str, ...], Path] = {}
     for stage in stages:
         if getattr(stage, "_resolved_site_packages_path", None):
@@ -148,9 +148,9 @@ def resolve_stage_pip_envs(
         specs = getattr(stage, "pip_specs", None)
         if not specs or not isinstance(specs, list):
             continue
-        key = tuple(sorted(specs))
+        key = tuple(sorted(s.strip().lower() for s in specs))
         if key not in unique_specs:
             subdir = f"env_{len(unique_specs)}"
             unique_specs[key] = _create_venv_for_specs(list(specs), base, subdir, uv_exe)
-            logger.info("Created venv for pip_specs %s at %s", list(key), unique_specs[key])
+            logger.info("Created venv for pip_specs %s at %s", list(specs), unique_specs[key])
         stage._resolved_site_packages_path = unique_specs[key]
