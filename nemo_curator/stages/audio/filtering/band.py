@@ -101,8 +101,8 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         super().__init__()
         self._predictor = None
 
+        # Apply user-facing config fields only; model_path is internal.
         if self.config is not None:
-            self.model_path = self.config.model_path
             self.band_value = self.config.band_value
 
     def inputs(self) -> Tuple[List[str], List[str]]:
@@ -114,9 +114,6 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     def setup(self, worker_metadata=None) -> None:
         """Load band predictor on worker initialization."""
-        from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
-
-        ensure_cudnn_loaded()
         self._initialize_predictor()
 
     def teardown(self) -> None:
