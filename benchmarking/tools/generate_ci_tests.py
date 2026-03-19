@@ -23,7 +23,7 @@ yaml = YAML()
 yaml.default_flow_style = False
 yaml.preserve_quotes = True
 
-DEFAULT_TIME = "00:10:00"
+MIN_TIME_S = 600
 
 
 def seconds_to_time(seconds: int) -> str:
@@ -93,11 +93,9 @@ def generate_job(entry: dict, scope: str) -> dict:
         job: Dictionary defining the GitLab CI job
     """
     ray = entry.get("ray", {})
-    timeout_s = entry.get("timeout_s")
-    # Enforce a minimum of 10 minutes (600s) to allow for setup overhead
-    if timeout_s is not None and timeout_s < 600:
-        timeout_s = 600
-    time_str = seconds_to_time(timeout_s) if timeout_s is not None else DEFAULT_TIME
+    # Enforce a minimum of 10 minutes to allow for setup overhead
+    timeout_s = max(entry.get("timeout_s", MIN_TIME_S), MIN_TIME_S)
+    time_str = seconds_to_time(timeout_s)
 
     return {
         "extends": ".curator_benchmark_test",
