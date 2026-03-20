@@ -584,7 +584,7 @@ entries:
       - metric: num_images_processed
         exact_value: 3800
       - metric: throughput_images_per_sec
-        min_value: 2.5
+        min_value: 3.0
 
   - name: image_curation_xenna
     enabled: true
