@@ -212,4 +212,41 @@ class Pipeline:
                     "The executor will schedule GPU stages on GPUs not held by Serve."
                 )
 
+        from nemo_curator.core.sglang_serve import get_active_sglang_server, is_sglang_active
+
+        if is_sglang_active():
+            gpu_stages = [s for s in self.stages if s.resources.requires_gpu]
+            if gpu_stages:
+                names = ", ".join(s.name for s in gpu_stages)
+                server = get_active_sglang_server()
+                is_ray_managed = server is not None and server.model.nnodes > 1
+                from nemo_curator.backends.xenna import XennaExecutor
+
+                if isinstance(executor, XennaExecutor):
+                    msg = (
+                        f"Cannot run XennaExecutor with GPU stages [{names}] while SGLangInferenceServer is active. "
+                        "Xenna manages GPU assignment independently of Ray's resource scheduler, "
+                        "which causes GPU contention with the SGLang server. "
+                        "Use RayDataExecutor instead."
+                    )
+                    raise RuntimeError(msg)
+                elif is_ray_managed:
+                    # Multi-node: Ray Actors track GPU usage via num_gpus — RayDataExecutor
+                    # will automatically schedule on remaining GPUs.
+                    logger.info(
+                        f"SGLang multi-node (Ray-managed) is active and pipeline has GPU stages: [{names}]. "
+                        "The executor will schedule GPU stages on GPUs not held by SGLang."
+                    )
+                elif server is None or not server.allows_colocated_gpu_stages:
+                    msg = (
+                        f"SGLangInferenceServer (single-node subprocess) is active and pipeline has "
+                        f"GPU stages [{names}]. The SGLang process is not tracked by Ray's resource "
+                        "scheduler, so GPU contention is possible. Either:\n"
+                        "  1. Run SGLang inference and GPU pipeline stages in separate phases "
+                        "(stop the server before running GPU stages), or\n"
+                        "  2. Set gpu_ids on SGLangModelConfig and allows_colocated_gpu_stages=True "
+                        "on SGLangInferenceServer to opt in to manual GPU partitioning."
+                    )
+                    raise RuntimeError(msg)
+
         return executor.execute(self.stages, initial_tasks)

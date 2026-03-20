@@ -84,6 +84,18 @@ inference_server = [
     "ray[serve,llm]>=2.54",
 ]
 
+# SGLang - native multi-instance (dp_size) inference without Ray Serve
+sglang = [
+    "sglang[all]>=0.4.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+]
+
+# Inference Server (SGLang) - for serving LLMs alongside Curator pipelines using SGLang
+inference_server_sglang = [
+    "nemo_curator[cuda12]",
+    "nemo_curator[sglang]",
+    "ray>=2.54",  # for multi-node deployments; serve/llm extras not required
+]
+
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
     "cudf-cu12==25.10.*",

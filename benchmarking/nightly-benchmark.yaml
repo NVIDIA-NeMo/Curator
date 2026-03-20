@@ -800,6 +800,38 @@ entries:
       - metric: output_row_count
         exact_value: 853
 
+  - name: ndd_sglang_dp4
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:ndd_gretel_symptoms,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=sglang
+      --model-id=openai/gpt-oss-20b
+      --executor=ray_data
+      --dp-size=4
+      --tp-size=1
+    timeout_s: 700
+    ray:
+      num_cpus: 16
+      num_gpus: 4
+      enable_object_spilling: false
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - throughput_rows_per_sec
+          - serve_startup_s
+          - dp_size
+          - tp_size
+        ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
+    requirements:
+      - metric: output_row_count
+        exact_value: 853
+
   - name: video_transnetv2_motion_aesthetic_filter_embeddings
     enabled: true
     script: video_pipeline_benchmark.py
