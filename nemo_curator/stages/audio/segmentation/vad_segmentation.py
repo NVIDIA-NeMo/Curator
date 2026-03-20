@@ -41,7 +41,6 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Any, List, Dict, Tuple, Optional
 
-import numpy as np
 import torch
 import torchaudio
 import soundfile as sf
@@ -56,6 +55,7 @@ warnings.filterwarnings('ignore', message='Sampling rate is a multiply of 16000'
 SILERO_SUPPORTED_RATES = {8000, 16000, 32000, 48000, 64000, 96000}
 SILERO_TARGET_RATE = 16000
 
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
@@ -156,13 +156,11 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
         if self.mode not in ("fanout", "batch"):
             raise ValueError(f"mode must be 'fanout' or 'batch', got '{self.mode}'")
         
-        # Apply config if provided
+        # Apply user-facing config fields only; min_interval_ms, threshold,
+        # and speech_pad_ms are internal stage params, not exposed via config.
         if self.config is not None:
-            self.min_interval_ms = self.config.min_interval_ms
             self.min_duration_sec = self.config.min_duration_sec
             self.max_duration_sec = self.config.max_duration_sec
-            self.threshold = self.config.threshold
-            self.speech_pad_ms = self.config.speech_pad_ms
         
         self._vad_model = None
         self._device = None
@@ -175,15 +173,12 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
         return [], ['waveform', 'sample_rate', 'start_ms', 'end_ms', 'segment_num', 'duration_sec']
     
     def ray_stage_spec(self) -> dict[str, Any]:
-        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
         if self.mode == "fanout":
             return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
         return {}
 
     def setup(self, worker_metadata=None) -> None:
         """Load VAD model on worker initialization."""
-        from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
-        ensure_cudnn_loaded()
         self._initialize_model()
     
     def teardown(self) -> None:
@@ -269,7 +264,7 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
             logger.error("VAD model not available")
             if self.mode == "batch":
                 return AudioBatch(data=[], task_id=task.task_id, dataset_name=task.dataset_name,
-                                  _metadata=task._metadata, _stage_perf=list(task._stage_perf))
+                                  _metadata=dict(task._metadata) if task._metadata else {}, _stage_perf=list(task._stage_perf))
             return []
 
         all_segment_items: List[Dict[str, Any]] = []
@@ -315,7 +310,7 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 data=all_segment_items,
                 task_id=task.task_id,
                 dataset_name=task.dataset_name,
-                _metadata=task._metadata,
+                _metadata=dict(task._metadata) if task._metadata else {},
                 _stage_perf=list(task._stage_perf),
             )
 
@@ -335,7 +330,10 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
         """Get speech segments using VAD."""
         # Ensure waveform is 1D for VAD
         if waveform.dim() > 1:
-            waveform = waveform.squeeze(0)
+            if waveform.shape[0] > 1:
+                waveform = waveform.mean(dim=0)
+            else:
+                waveform = waveform.squeeze(0)
         
         # Move waveform to the same device as the model
         if self._device is not None and waveform.device != self._device:

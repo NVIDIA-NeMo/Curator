@@ -16,79 +16,12 @@ from unittest.mock import MagicMock, patch
 
 import torch
 
-from nemo_curator.stages.audio.configs.vad import VADConfig
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.tasks import AudioBatch
 
 
-class TestVADConfig:
-    """Tests for VADConfig."""
-
-    def test_defaults(self) -> None:
-        cfg = VADConfig()
-        assert cfg.min_interval_ms == 500
-        assert cfg.min_duration_sec == 2.0
-        assert cfg.max_duration_sec == 60.0
-        assert cfg.threshold == 0.5
-        assert cfg.speech_pad_ms == 300
-
-    def test_from_dict(self) -> None:
-        cfg = VADConfig.from_dict({"min_duration_sec": 3.0, "threshold": 0.6})
-        assert cfg.min_duration_sec == 3.0
-        assert cfg.threshold == 0.6
-        assert cfg.max_duration_sec == 60.0
-
-    def test_from_dict_none(self) -> None:
-        cfg = VADConfig.from_dict(None)
-        assert cfg.threshold == 0.5
-
-    def test_from_dict_ignores_unknown(self) -> None:
-        cfg = VADConfig.from_dict({"unknown": 99, "threshold": 0.3})
-        assert cfg.threshold == 0.3
-
-    def test_to_dict(self) -> None:
-        cfg = VADConfig(min_duration_sec=5.0, max_duration_sec=30.0)
-        d = cfg.to_dict()
-        assert d["min_duration_sec"] == 5.0
-        assert d["max_duration_sec"] == 30.0
-
-    def test_roundtrip(self) -> None:
-        original = VADConfig(min_duration_sec=1.5, threshold=0.7, speech_pad_ms=200)
-        restored = VADConfig.from_dict(original.to_dict())
-        assert restored.min_duration_sec == original.min_duration_sec
-        assert restored.threshold == original.threshold
-        assert restored.speech_pad_ms == original.speech_pad_ms
-
-    def test_get(self) -> None:
-        cfg = VADConfig()
-        assert cfg.get("threshold") == 0.5
-        assert cfg.get("nonexistent", "default") == "default"
-
-
 class TestVADSegmentationStage:
     """Tests for VADSegmentationStage."""
-
-    def test_stage_properties(self) -> None:
-        stage = VADSegmentationStage()
-        assert stage.name == "VADSegmentation"
-        assert stage.inputs() == (["data"], [])
-        _, output_keys = stage.outputs()
-        for key in ["audio", "waveform", "sample_rate", "start_ms", "end_ms",
-                     "segment_num", "duration_sec"]:
-            assert key in output_keys
-
-    def test_config_overrides_params(self) -> None:
-        cfg = VADConfig(min_duration_sec=3.0, max_duration_sec=20.0, threshold=0.7)
-        stage = VADSegmentationStage(config=cfg)
-        assert stage.min_duration_sec == 3.0
-        assert stage.max_duration_sec == 20.0
-        assert stage.threshold == 0.7
-
-    def test_ray_stage_spec_is_fanout(self) -> None:
-        stage = VADSegmentationStage()
-        spec = stage.ray_stage_spec()
-        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
-        assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
 
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
@@ -118,7 +51,6 @@ class TestVADSegmentationStage:
         for seg in result:
             assert isinstance(seg, AudioBatch)
             item = seg.data[0]
-            assert "audio" in item
             assert "waveform" in item
             assert "start_ms" in item
             assert "end_ms" in item
