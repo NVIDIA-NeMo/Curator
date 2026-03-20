@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@ from nemo_curator.tasks import FileGroupTask, _EmptyTask
 from nemo_curator.utils.file_utils import (
     _split_files_as_per_blocksize,
     get_all_file_paths_and_size_under,
-    get_all_file_paths_under,
     infer_dataset_name_from_path,
 )
 
@@ -52,6 +51,8 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         Storage options to pass to the file system.
     limit: int | None = None
         Maximum number of partitions to create.
+    storage_limit_per_partition: int | None = None
+        Maximum storage size of each partition.
     """
 
     file_paths: str | list[str]
@@ -60,6 +61,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     file_extensions: list[str] | None = None
     storage_options: dict[str, Any] | None = None
     limit: int | None = None
+    storage_limit_per_partition: int | None = None
     name: str = "file_partitioning"
 
     def __post_init__(self):
@@ -102,20 +104,38 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         This stage expects a simple Task with file paths information
         and outputs multiple FileGroupTasks for parallel processing.
         """
-        files = self._get_file_list_with_sizes() if self.blocksize else self._get_file_list()
+        files_with_sizes = self._get_file_list_with_sizes()
+        # Extract list[str] from list[tuple[str, int]]
+        files = [file[0] for file in files_with_sizes]
+
         logger.info(f"Found {len(files)} files")
         if len(files) == 0:
             logger.warning(f"No files found under {self.file_paths}")
             return []
+
         # Partition files
         if self.files_per_partition:
             partitions = self._partition_by_count(files, self.files_per_partition)
         elif self.blocksize:
-            partitions = self._partition_by_size(files, self._blocksize)
+            partitions = self._partition_by_size(files_with_sizes, self._blocksize)
         else:
             # Default to one file per partition
             logger.info("No partitions specified, defaulting to one file per partition")
             partitions = self._partition_by_count(files, 1)
+
+        if self.storage_limit_per_partition:
+            # Verify storage size of input files is not greater than 2 GiB
+            # This should be a very quick check per file, so we do it first before reading the data
+            for partition in partitions:
+                total_storage_size = sum(size for file, size in files_with_sizes if file in partition)
+                if total_storage_size > self.storage_limit_per_partition:
+                    msg = (
+                        f"File group task has exceeded the storage limit per partition: {partition}. "
+                        f"Total storage size is {total_storage_size} bytes (limit {self.storage_limit_per_partition} bytes). "
+                        "Please reduce files_per_partition or blocksize. "
+                        "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
+                    )
+                    raise ValueError(msg)
 
         # Create FileGroupTask for each partition
         tasks = []
@@ -172,44 +192,12 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             raise TypeError(msg)
         return sorted(output_ls, key=lambda x: x[1])
 
-    def _get_file_list(self) -> list[str]:
-        """
-        Get the list of files to process.
-        """
-        logger.debug(f"Getting file list for {self.file_paths}")
-        if isinstance(self.file_paths, str):
-            # Directory: list contents (recursively) and filter extensions
-            output_ls = get_all_file_paths_under(
-                self.file_paths,
-                recurse_subdirectories=True,
-                keep_extensions=self.file_extensions,
-                storage_options=self.storage_options,
-            )
-        elif isinstance(self.file_paths, list):
-            output_ls = []
-            for path in self.file_paths:
-                output_ls.extend(
-                    get_all_file_paths_under(
-                        path,
-                        recurse_subdirectories=False,
-                        keep_extensions=self.file_extensions,
-                        storage_options=self.storage_options,
-                    )
-                )
-        else:
-            msg = f"Invalid file paths: {self.file_paths}, must be a string or list of strings"
-            raise TypeError(msg)
-        return sorted(output_ls)
-
     def _get_dataset_name(self, files: list[str]) -> str:
         """Extract dataset name from file paths (fsspec-compatible)."""
         if not files:
             return "dataset"
 
-        if isinstance(files[0], tuple):
-            return infer_dataset_name_from_path(files[0][0])
-        else:
-            return infer_dataset_name_from_path(files[0])
+        return infer_dataset_name_from_path(files[0])
 
     def _partition_by_count(self, files: list[str], count: int) -> list[list[str]]:
         """Partition files by count."""

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import DocumentBatch, _EmptyTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, pandas_select_columns
 
-from .base import BaseReader
+from .base import _MAX_IN_MEMORY_BYTES, BaseReader
 
 
 @dataclass
@@ -36,6 +36,7 @@ class JsonlReaderStage(BaseReader):
     Args:
         fields (list[str], optional): If specified, only read these fields (columns). Defaults to None.
         read_kwargs (dict[str, Any], optional): Keyword arguments for the reader. Defaults to {}.
+        memory_limit_per_batch (int, optional): Maximum in-memory size of the DataFrame per batch. Defaults to 2 GiB.
         _generate_ids (bool): Whether to generate monotonically increasing IDs across all files.
             This uses IdGenerator actor, which needs to be instantiated before using this stage.
             This can be slow, so it is recommended to use AddId stage instead, unless monotonically increasing IDs
@@ -94,6 +95,8 @@ class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
     blocksize: int | str | None = None
     fields: list[str] | None = None  # If specified, only read these columns
     read_kwargs: dict[str, Any] | None = None
+    storage_limit_per_partition: int = _MAX_IN_MEMORY_BYTES
+    memory_limit_per_batch: int = _MAX_IN_MEMORY_BYTES
     task_type: Literal["document", "image", "video", "audio"] = "document"
     file_extensions: list[str] = field(default_factory=lambda: FILETYPE_TO_DEFAULT_EXTENSIONS["jsonl"])
     _generate_ids: bool = False
@@ -121,10 +124,12 @@ class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
                 storage_options=self.read_kwargs.get("storage_options", None)
                 if self.read_kwargs is not None
                 else None,
+                storage_limit_per_partition=self.storage_limit_per_partition,
             ),
             JsonlReaderStage(
                 fields=self.fields,
                 read_kwargs=(self.read_kwargs or {}),
+                memory_limit_per_batch=self.memory_limit_per_batch,
                 _generate_ids=self._generate_ids,
                 _assign_ids=self._assign_ids,
             ),
