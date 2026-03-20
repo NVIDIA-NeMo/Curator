@@ -40,6 +40,8 @@ import soundfile as sf
 from loguru import logger
 from pydub import AudioSegment
 
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import SpeakerSeparator
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
@@ -119,19 +121,12 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         super().__init__()
         self._separator = None
         
-        # Apply config if provided
+        # Apply user-facing config fields only; gap_threshold, min_duration,
+        # and buffer_time are internal stage params, not exposed via config.
         if self.config is not None:
-            if hasattr(self.config, 'model_path') and self.config.model_path:
+            if self.config.model_path:
                 self.model_path = self.config.model_path
-            if hasattr(self.config, 'exclude_overlaps'):
-                self.exclude_overlaps = self.config.exclude_overlaps
-            if hasattr(self.config, 'min_duration'):
-                self.min_duration = self.config.min_duration
-            if hasattr(self.config, 'gap_threshold'):
-                self.gap_threshold = self.config.gap_threshold
-            if hasattr(self.config, 'buffer_time'):
-                self.buffer_time = self.config.buffer_time
-            # Apply resources from config
+            self.exclude_overlaps = self.config.exclude_overlaps
     
     def inputs(self) -> Tuple[List[str], List[str]]:
         return ["data"], []
@@ -141,13 +136,10 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         return [], ["speaker_id", "num_speakers", "duration_sec"]
     
     def ray_stage_spec(self) -> dict[str, Any]:
-        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def setup(self, worker_metadata=None) -> None:
         """Load NeMo diarization model on worker initialization."""
-        from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
-        ensure_cudnn_loaded()
         self._initialize_separator()
     
     def teardown(self) -> None:
@@ -181,8 +173,6 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         """Initialize the NeMo speaker separator."""
         if self._separator is None:
             try:
-                from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import SpeakerSeparator
-                
                 model_path = self._resolve_model_path()
                 use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
                 
@@ -228,9 +218,8 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         for item in task.data:
             waveform = item.get('waveform')
-            sample_rate = item.get('sample_rate', 48000)
-            
-            # Load from file if waveform not provided (standalone usage). Canonical format only; never set item['audio'].
+            sample_rate = item.get('sample_rate')
+
             if waveform is None:
                 audio_filepath = item.get('audio_filepath')
                 if audio_filepath and os.path.exists(audio_filepath):
@@ -243,6 +232,22 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
                         continue
                 else:
                     logger.warning("No waveform or valid audio_filepath found")
+                    continue
+            elif sample_rate is None:
+                audio_filepath = item.get('audio_filepath')
+                if audio_filepath and os.path.exists(audio_filepath):
+                    try:
+                        info = sf.info(audio_filepath)
+                        sample_rate = info.samplerate
+                        item['sample_rate'] = sample_rate
+                    except Exception as e:
+                        logger.error(f"Waveform present but sample_rate missing and "
+                                     f"could not read it from '{audio_filepath}': {e}")
+                        continue
+                else:
+                    logger.error("Waveform present but 'sample_rate' key is missing "
+                                 "and no audio_filepath available to resolve it. "
+                                 "Please set 'sample_rate' in the item dict.")
                     continue
             
             try:
