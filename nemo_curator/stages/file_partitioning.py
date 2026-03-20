@@ -25,6 +25,7 @@ from nemo_curator.utils.file_utils import (
     _split_files_as_per_blocksize,
     get_all_file_paths_and_size_under,
     infer_dataset_name_from_path,
+    parse_bytes_string_to_int,
 )
 
 
@@ -51,8 +52,6 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         Storage options to pass to the file system.
     limit: int | None = None
         Maximum number of partitions to create.
-    storage_limit_per_partition: int | None = None
-        Maximum storage size of each partition.
     """
 
     file_paths: str | list[str]
@@ -61,23 +60,24 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     file_extensions: list[str] | None = None
     storage_options: dict[str, Any] | None = None
     limit: int | None = None
-    storage_limit_per_partition: int | None = None
     name: str = "file_partitioning"
 
     def __post_init__(self):
         """Initialize default values."""
         if self.files_per_partition is not None and self.blocksize is not None:
-            logger.warning(
-                "Both 'files_per_partition' and 'blocksize' were specified. "
-                "'files_per_partition' will take precedence and 'blocksize' will be ignored."
-            )
-            self.blocksize = None
+            msg = "Both 'files_per_partition' and 'blocksize' were specified, but only one is allowed"
+            raise ValueError(msg)
         if self.file_extensions is None:
             self.file_extensions = [".jsonl", ".json", ".parquet"]
         if self.storage_options is None:
             self.storage_options = {}
+
+        # self.blocksize is the value set by the user
+        # self._blocksize is the value used internally
         if self.blocksize is not None:
-            self._blocksize = self._parse_size(self.blocksize)
+            self._blocksize = parse_bytes_string_to_int(self.blocksize)
+        else:
+            self._blocksize = parse_bytes_string_to_int("2GiB")
 
         self.resources = Resources(cpus=0.5)
 
@@ -122,29 +122,40 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         else:
             # Default to one file per partition
             logger.info("No partitions specified, defaulting to one file per partition")
-            partitions = self._partition_by_count(files, 1)
+            self.files_per_partition = 1
+            partitions = self._partition_by_count(files, self.files_per_partition)
 
-        if self.storage_limit_per_partition is not None:
-            # Build a dictionary of path: size of all files
-            path_to_size: dict[str, int] = dict(files_with_sizes)
+        # Build a dictionary of path: size of all files
+        path_to_size: dict[str, int] = dict(files_with_sizes)
 
-            # Check that no files have size less than 0 (since -1 is used to indicate unknown size)
-            if any(size < 0 for size in path_to_size.values()):
-                msg = "Skipping storage limit check because some files have unknown size"
-                logger.warning(msg)
-            else:
-                # Verify storage size of input files is not greater than self.storage_limit_per_partition
-                # This should be a very quick check per file, so we do it first before reading the data
-                for partition in partitions:
-                    total_storage_size = sum(path_to_size[path] for path in partition)
-                    if total_storage_size > self.storage_limit_per_partition:
-                        msg = (
-                            f"File group task has exceeded the storage limit per partition: {partition}. "
-                            f"Total storage size is {total_storage_size} bytes (limit {self.storage_limit_per_partition} bytes). "
-                            "Please reduce files_per_partition or blocksize. "
-                            "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
-                        )
-                        raise ValueError(msg)
+        # Check that no files have size less than 0 (since -1 is used to indicate unknown size)
+        if any(size < 0 for size in path_to_size.values()):
+            msg = "Skipping storage limit check because some files have unknown size"
+            logger.warning(msg)
+        else:
+            # Verify storage size of input files is not greater than self._blocksize (2GiB by default)
+            # This should be a very quick check per file, so we do it first before reading the data
+            for partition in partitions:
+                total_storage_size = sum(path_to_size[path] for path in partition)
+                # Scenario 1: We are using files_per_partition and the partition created is too large
+                if self.files_per_partition is not None and total_storage_size > self._blocksize:
+                    msg = (
+                        f"File group task has exceeded the storage limit per partition: {partition}. "
+                        f"Total storage size is {total_storage_size} bytes (limit {self._blocksize} bytes). "
+                        "Please reduce files_per_partition if possible, or set blocksize instead (the maximum recommended blocksize is 2GiB). "
+                        "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
+                    )
+                    raise ValueError(msg)
+                # Scenario 2: We are using blocksize and the partition created is too large
+                # This means at least one file is larger than the blocksize
+                elif total_storage_size > self._blocksize:
+                    msg = (
+                        f"File group task has exceeded the storage limit per partition: {partition}. "
+                        f"Total storage size is {total_storage_size} bytes (limit {self._blocksize} bytes). "
+                        "Please increase blocksize if possible (the maximum recommended blocksize is 2GiB). "
+                        "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
+                    )
+                    raise ValueError(msg)
 
         # Create FileGroupTask for each partition
         tasks = []
@@ -227,81 +238,3 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         """
         sorted_files = sorted(files, key=lambda x: x[1])
         return _split_files_as_per_blocksize(sorted_files, blocksize)
-
-    def _parse_size(self, s: float | str) -> int:
-        """
-        Taken from dask.utils.parse_bytes
-        https://github.com/dask/dask/blob/3801bedc7c71c83f37e836af71f740974c0434b3/dask/utils.py#L1585
-        Parse byte string to numbers.
-
-        >>> parse_bytes('100')
-        100
-        >>> parse_bytes('100 MB')
-        100000000
-        >>> parse_bytes('100M')
-        100000000
-        >>> parse_bytes('5kB')
-        5000
-        >>> parse_bytes('5.4 kB')
-        5400
-        >>> parse_bytes('1kiB')
-        1024
-        >>> parse_bytes('1e6')
-        1000000
-        >>> parse_bytes('1e6 kB')
-        1000000000
-        >>> parse_bytes('MB')
-        1000000
-        >>> parse_bytes(123)
-        123
-        >>> parse_bytes('5 foos')
-        Traceback (most recent call last):
-            ...
-        ValueError: Could not interpret 'foos' as a byte unit
-        """
-        byte_sizes = {
-            "kB": 10**3,
-            "MB": 10**6,
-            "GB": 10**9,
-            "TB": 10**12,
-            "PB": 10**15,
-            "KiB": 2**10,
-            "MiB": 2**20,
-            "GiB": 2**30,
-            "TiB": 2**40,
-            "PiB": 2**50,
-            "B": 1,
-            "": 1,
-        }
-        byte_sizes = {k.lower(): v for k, v in byte_sizes.items()}
-        byte_sizes.update({k[0]: v for k, v in byte_sizes.items() if k and "i" not in k})
-        byte_sizes.update({k[:-1]: v for k, v in byte_sizes.items() if k and "i" in k})
-
-        if isinstance(s, (int, float)):
-            return int(s)
-        s = s.replace(" ", "")
-        if not any(char.isdigit() for char in s):
-            s = "1" + s
-
-        for i in range(len(s) - 1, -1, -1):
-            if not s[i].isalpha():
-                break
-        index = i + 1
-
-        prefix = s[:index]
-        suffix = s[index:]
-
-        try:
-            n = float(prefix)
-        except ValueError as e:
-            msg = f"Could not interpret '{prefix}' as a number"
-            raise ValueError(msg) from e
-
-        try:
-            multiplier = byte_sizes[suffix.lower()]
-        except KeyError as e:
-            msg = f"Could not interpret '{suffix}' as a byte unit"
-            raise ValueError(msg) from e
-
-        result = n * multiplier
-        return int(result)

@@ -29,9 +29,7 @@ if TYPE_CHECKING:
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
-
-# Enforce contiguous buffers under ~2 GiB
-_MAX_IN_MEMORY_BYTES = 2**31
+from nemo_curator.utils.file_utils import parse_bytes_string_to_int
 
 
 def _dataframe_memory_bytes(data: pd.DataFrame | pa.Table) -> int:
@@ -54,7 +52,7 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
 
     fields: list[str] | None = None
     read_kwargs: dict[str, Any] = field(default_factory=dict)
-    memory_limit_per_batch: int | None = None
+    blocksize: int | str | None = None
     name: str = ""
     _generate_ids: bool = False
     _assign_ids: bool = False
@@ -63,6 +61,13 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
         if self._generate_ids and self._assign_ids:
             msg = "Cannot generate and assign IDs at the same time"
             raise ValueError(msg)
+
+        # self.blocksize is the value set by the user
+        # self._blocksize is the value used internally
+        if self.blocksize is not None:
+            self._blocksize = parse_bytes_string_to_int(self.blocksize)
+        else:
+            self._blocksize = parse_bytes_string_to_int("2GiB")
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -108,15 +113,25 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
 
         # Even though we checked the storage size of the input files, the total in-memory size of the DataFrame can still be too large
         # This is a more expensive but more accurate check than the storage size check
-        if self.memory_limit_per_batch is not None:
-            total_bytes = _dataframe_memory_bytes(result)
-            if total_bytes > self.memory_limit_per_batch:
-                msg = (
-                    f"Error reading data from files: {task.data}. "
-                    f"Estimated in-memory size is {total_bytes} bytes (limit {self.memory_limit_per_batch} bytes). "
-                    "Any individual file(s) larger than this limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
-                )
-                raise ValueError(msg)
+        total_bytes = _dataframe_memory_bytes(result)
+        # Scenario 1: The user did not specify blocksize and the total in-memory size is too large
+        if self.blocksize is None and total_bytes > self._blocksize:
+            msg = (
+                f"Error reading data from files: {task.data}. "
+                f"Estimated in-memory size is {total_bytes} bytes (limit {self._blocksize} bytes). "
+                "Please reduce files_per_partition if possible, or set blocksize instead (the maximum recommended blocksize is 2GiB). "
+                "Any individual file(s) larger than this limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
+            )
+            raise ValueError(msg)
+        # Scenario 2: The user specified blocksize and the total in-memory size is too large
+        elif self.blocksize is not None and total_bytes > self._blocksize:
+            msg = (
+                f"Error reading data from files: {task.data}. "
+                f"Estimated in-memory size is {total_bytes} bytes (limit {self._blocksize} bytes). "
+                "Please increase blocksize if possible (the maximum recommended blocksize is 2GiB). "
+                "Any individual file(s) larger than this limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
+            )
+            raise ValueError(msg)
 
         # Apply IDs only for Pandas DataFrames
         if isinstance(result, pd.DataFrame):

@@ -20,6 +20,7 @@ import pytest
 from nemo_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
 )
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader, JsonlReaderStage
 from nemo_curator.tasks import FileGroupTask, _EmptyTask
 
@@ -177,31 +178,26 @@ class TestJsonlReaderWithIdGenerator:
         with pytest.raises(RuntimeError, match="actor 'id_generator' does not exist"):
             stage.setup()
 
-def test_jsonl_reader_with_byte_limits(tmp_path: Path):
+
+def test_jsonl_reader_with_blocksize_limit(tmp_path: Path):
     # Storage size is larger than 10 million bytes
     # In-memory size is also larger than 10 million bytes
     size = 1000
     df = pd.DataFrame({"id": list(range(size)), "text": ["a" * 4000] * size, "other_field": ["b" * 10_000] * size})
     df.to_json(tmp_path / "test.jsonl", orient="records", lines=True)
 
-    stage = JsonlReader(
-        file_paths=str(tmp_path), storage_limit_per_partition=10_000_000, memory_limit_per_batch=10_000_000
-    )
+    stage = JsonlReader(file_paths=str(tmp_path), blocksize=10_000_000)
     assert len(stage.decompose()) == 2
     # Since the storage size is larger than 10 million bytes, the FilePartitioningStage should raise ValueError
     file_partitioning_stage = stage.decompose()[0]
     with pytest.raises(ValueError, match="File group task has exceeded the storage limit per partition"):
         file_tasks = file_partitioning_stage.process(_EmptyTask)
 
-    stage = JsonlReader(
-        file_paths=str(tmp_path), storage_limit_per_partition=100_000_000, memory_limit_per_batch=10_000_000
-    )
-    assert len(stage.decompose()) == 2
-    # FilePartitioningStage should succeed since the storage size is smaller than 100 million bytes
-    file_partitioning_stage = stage.decompose()[0]
+    # Now force the file_partitioning_stage to pass
+    file_partitioning_stage = FilePartitioningStage(file_paths=str(tmp_path), blocksize=100_000_000)
     file_tasks = file_partitioning_stage.process(_EmptyTask)
     assert len(file_tasks) == 1
     # Since the in-memory size is larger than 10 million bytes, the JsonlReaderStage should raise ValueError
-    jsonl_reader_stage = stage.decompose()[1]
+    jsonl_reader_stage = JsonlReaderStage(blocksize=10_000_000)
     with pytest.raises(ValueError, match="Error reading data from files"):
         jsonl_reader_stage.process(file_tasks[0])

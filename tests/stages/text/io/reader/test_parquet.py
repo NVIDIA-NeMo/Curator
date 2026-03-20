@@ -278,25 +278,21 @@ def test_parquet_reader_with_file_group_tasks_fixture(parquet_file_group_tasks: 
         assert actual_texts == expected_texts
 
 
-def test_parquet_reader_with_byte_limits(tmp_path: Path):
+def test_parquet_reader_with_blocksize_limit(tmp_path: Path):
     # Storage size is larger than 10_000 bytes
     # In-memory size is larger than 1 billion bytes
     size = 1000
     df = pd.DataFrame({"id": list(range(size)), "text": ["a" * 4000] * size, "other_field": ["b" * 1_000_000] * size})
     df.to_parquet(tmp_path / "test.parquet")
 
-    stage = ParquetReader(
-        file_paths=str(tmp_path), storage_limit_per_partition=10_000, memory_limit_per_batch=1_000_000_000
-    )
+    stage = ParquetReader(file_paths=str(tmp_path), blocksize=10_000)
     assert len(stage.decompose()) == 2
     # Since the storage size is larger than 10_000 bytes, the FilePartitioningStage should raise ValueError
     file_partitioning_stage = stage.decompose()[0]
     with pytest.raises(ValueError, match="File group task has exceeded the storage limit per partition"):
         file_tasks = file_partitioning_stage.process(_EmptyTask)
 
-    stage = ParquetReader(
-        file_paths=str(tmp_path), storage_limit_per_partition=100_000, memory_limit_per_batch=1_000_000_000
-    )
+    stage = ParquetReader(file_paths=str(tmp_path), blocksize=1_000_000_000)
     assert len(stage.decompose()) == 2
     # FilePartitioningStage should succeed since the storage size is smaller than 100_000 bytes
     file_partitioning_stage = stage.decompose()[0]

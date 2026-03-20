@@ -23,6 +23,7 @@ from nemo_curator.utils.file_utils import (
     get_all_file_paths_and_size_under,
     get_all_file_paths_under,
     infer_dataset_name_from_path,
+    parse_bytes_string_to_int,
 )
 
 if TYPE_CHECKING:
@@ -317,3 +318,16 @@ class TestFilePartitioningStageGetters:
 
         with pytest.raises(TypeError, match="Invalid file paths"):
             stage._get_file_list_with_sizes()
+
+    def test_parse_bytes_string_to_int(self):
+        """Test parse_bytes_string_to_int method."""
+        assert parse_bytes_string_to_int("100B") == 100
+        assert parse_bytes_string_to_int("1KB") == 1000
+        assert parse_bytes_string_to_int("1KiB") == 1024
+        assert parse_bytes_string_to_int("1MB") == 1000 * 1000
+        assert parse_bytes_string_to_int("1MiB") == 1024 * 1024
+        assert parse_bytes_string_to_int("1GB") == 1000 * 1000 * 1000
+        assert parse_bytes_string_to_int("1GiB") == 1024 * 1024 * 1024
+        assert parse_bytes_string_to_int("2TB") == 2 * 1000 * 1000 * 1000 * 1000
+        assert parse_bytes_string_to_int("2TiB") == 2 * 1024 * 1024 * 1024 * 1024
+        assert parse_bytes_string_to_int("100") == 100  # No unit defaults to bytes

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -255,21 +255,6 @@ class TestFilePartitioningStage:
         assert partitions[0] == ["file1", "file2"]
         assert partitions[1] == ["file3", "file4"]
         assert partitions[2] == ["file5"]
-
-    def test_parse_size(self):
-        """Test _parse_size method."""
-        stage = FilePartitioningStage(file_paths=[])
-
-        assert stage._parse_size("100B") == 100
-        assert stage._parse_size("1KB") == 1000
-        assert stage._parse_size("1KiB") == 1024
-        assert stage._parse_size("1MB") == 1000 * 1000
-        assert stage._parse_size("1MiB") == 1024 * 1024
-        assert stage._parse_size("1GB") == 1000 * 1000 * 1000
-        assert stage._parse_size("1GiB") == 1024 * 1024 * 1024
-        assert stage._parse_size("2TB") == 2 * 1000 * 1000 * 1000 * 1000
-        assert stage._parse_size("2TiB") == 2 * 1024 * 1024 * 1024 * 1024
-        assert stage._parse_size("100") == 100  # No unit defaults to bytes
 
     def test_task_metadata(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test that created tasks have proper metadata."""
