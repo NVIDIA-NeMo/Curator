@@ -35,7 +35,7 @@ class ParquetReaderStage(BaseReader):
     Args:
         fields (list[str], optional): If specified, only read these columns. Defaults to None.
         read_kwargs (dict[str, Any], optional): Keyword arguments for the underlying reader. Defaults to {}.
-        memory_limit_per_batch (int, optional): Maximum in-memory size of the DataFrame per batch. Defaults to 2 GiB.
+        memory_limit_per_batch (int, optional): Maximum in-memory size of the DataFrame per batch. Defaults to 2**31 (2 GiB).
     """
 
     name: str = "parquet_reader"

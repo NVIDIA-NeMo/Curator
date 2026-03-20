@@ -128,7 +128,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             # Build a dictionary of path: size of all files
             path_to_size: dict[str, int] = dict(files_with_sizes)
 
-            # Verify storage size of input files is not greater than 2 GiB
+            # Verify storage size of input files is not greater than self.storage_limit_per_partition
             # This should be a very quick check per file, so we do it first before reading the data
             for partition in partitions:
                 total_storage_size = sum(path_to_size.get(path, 0) for path in partition)
@@ -196,7 +196,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         else:
             msg = f"Invalid file paths: {self.file_paths}, must be a string or list of strings"
             raise TypeError(msg)
-        return sorted(output_ls, key=lambda x: x[1])
+        return sorted(output_ls, key=lambda x: x[1] if sort_by_size else x[0])
 
     def _get_dataset_name(self, files: list[str]) -> str:
         """Extract dataset name from file paths (fsspec-compatible)."""

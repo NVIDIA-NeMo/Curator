@@ -36,7 +36,7 @@ class JsonlReaderStage(BaseReader):
     Args:
         fields (list[str], optional): If specified, only read these fields (columns). Defaults to None.
         read_kwargs (dict[str, Any], optional): Keyword arguments for the reader. Defaults to {}.
-        memory_limit_per_batch (int, optional): Maximum in-memory size of the DataFrame per batch. Defaults to 2 GiB.
+        memory_limit_per_batch (int, optional): Maximum in-memory size of the DataFrame per batch. Defaults to 2**31 (2 GiB).
         _generate_ids (bool): Whether to generate monotonically increasing IDs across all files.
             This uses IdGenerator actor, which needs to be instantiated before using this stage.
             This can be slow, so it is recommended to use AddId stage instead, unless monotonically increasing IDs

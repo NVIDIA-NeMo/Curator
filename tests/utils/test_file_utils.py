@@ -229,7 +229,7 @@ class TestGetAllFilePathsAndSizeUnder:
 class TestFilePartitioningStageGetters:
     """Test cases for FilePartitioningStage private methods."""
 
-    def test_get_file_list_with_sizes_directory_sorted(self, tmp_path: Path):
+    def test_get_file_list_with_sizes_directory_sort_by_size(self, tmp_path: Path):
         """Test _get_file_list_with_sizes with directory input."""
         root = tmp_path / "sized_stage_test"
 
@@ -244,6 +244,7 @@ class TestFilePartitioningStageGetters:
             _write_test_file(file_path, size_bytes=size)
 
         stage = FilePartitioningStage(file_paths=str(root))
+        # Default is to sort by size
         result = stage._get_file_list_with_sizes()
 
         # Should be sorted by size (ascending)
@@ -252,6 +253,32 @@ class TestFilePartitioningStageGetters:
             (str(root / "small.json"), 20),
             (str(root / "medium.parquet"), 50),
             (str(root / "large.jsonl"), 80),
+        ]
+        assert result == expected
+
+    def test_get_file_list_with_sizes_directory_sort_by_path(self, tmp_path: Path):
+        """Test _get_file_list_with_sizes with directory input and sort_by_size=False."""
+        root = tmp_path / "sized_stage_test"
+
+        files_with_sizes = [
+            (root / "large.jsonl", 80),
+            (root / "small.json", 20),
+            (root / "medium.parquet", 50),
+            (root / "nested" / "tiny.jsonl", 5),
+        ]
+
+        for file_path, size in files_with_sizes:
+            _write_test_file(file_path, size_bytes=size)
+
+        stage = FilePartitioningStage(file_paths=str(root))
+        result = stage._get_file_list_with_sizes(sort_by_size=False)
+
+        # Should be sorted by path (alphabetical)
+        expected = [
+            (str(root / "large.jsonl"), 80),
+            (str(root / "medium.parquet"), 50),
+            (str(root / "nested" / "tiny.jsonl"), 5),
+            (str(root / "small.json"), 20),
         ]
         assert result == expected
 
