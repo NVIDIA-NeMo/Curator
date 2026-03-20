@@ -25,6 +25,8 @@ import subprocess
 import pandas as pd
 import pytest
 
+from typing import ClassVar
+
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline.pipeline import Pipeline
@@ -57,7 +59,7 @@ class VersionStage1(ProcessingStage[DocumentBatch, DocumentBatch]):
     name = "version_stage_1"
     resources = Resources(cpus=0.5)
     batch_size = 1
-    pip_specs = ["packaging==23.2"] # noqa: RUF012
+    pip_specs: ClassVar[list[str]] = ["packaging==23.2"]
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -85,7 +87,7 @@ class VersionStage2(ProcessingStage[DocumentBatch, DocumentBatch]):
     name = "version_stage_2"
     resources = Resources(cpus=0.5)
     batch_size = 1
-    pip_specs = ["packaging==24.0"]  # noqa: RUF012
+    pip_specs: ClassVar[list[str]] = ["packaging==24.0"]
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["stage1_packaging_version"]
