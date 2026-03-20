@@ -69,6 +69,10 @@ datasets:
     formats:
     - type: "jsonl"
       path: "{datasets_path}/gretel_symptoms"
+  - name: "text_models_hf_cache"
+    formats:
+    - type: "files"
+      path: "{model_weights_path}/text_models_hf_cache"
   - name: "multimodal_mint1t"
     formats:
     - type: "wds_tar_dir"
@@ -178,9 +182,10 @@ entries:
       --executor=ray_data
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
-      --model-identifier=sentence-transformers/all-MiniLM-L6-v2
-      --model-inference-batch-size=1024
-    timeout_s: 350
+      --model-identifier=google/embeddinggemma-300m
+      --model-variation=vllm_text
+      --cache-dir={dataset:text_models_hf_cache,files}
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
@@ -193,9 +198,9 @@ entries:
       num_gpus: 4
       enable_object_spilling: false
     requirements:
-      # observed throughput of 7200 docs/sec so we allow a 5% buffer to account for variability
+      # Observed throughput of 3945 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
-        min_value: 6840
+        min_value: 3747
 
   - name: embedding_generation_xenna
     enabled: true
@@ -206,9 +211,10 @@ entries:
       --executor=xenna
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
-      --model-identifier=sentence-transformers/all-MiniLM-L6-v2
-      --model-inference-batch-size=1024
-    timeout_s: 350
+      --model-identifier=google/embeddinggemma-300m
+      --model-variation=vllm_text
+      --cache-dir={dataset:text_models_hf_cache,files}
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
@@ -222,9 +228,9 @@ entries:
       num_gpus: 4
       enable_object_spilling: false
     requirements:
-      # Observed throughput of 8600 docs/sec so we allow a 5% buffer to account for variability
+      # Observed throughput of 4923 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
-        min_value: 8170
+        min_value: 4676
 
   - name: exact_dedup_identification
     enabled: true
@@ -809,7 +815,7 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
-    timeout_s: 3600
+    timeout_s: 700
     ray:
       num_cpus: 16
       num_gpus: 4
