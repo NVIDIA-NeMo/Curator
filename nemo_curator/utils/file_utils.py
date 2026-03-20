@@ -234,12 +234,13 @@ def get_all_file_paths_under(
     )
 
 
-def get_all_file_paths_and_size_under(
+def get_all_file_paths_and_size_under(  # noqa: PLR0913
     path: str,
     recurse_subdirectories: bool = False,
     keep_extensions: str | list[str] | None = None,
     storage_options: dict[str, str] | None = None,
     fs: fsspec.AbstractFileSystem | None = None,
+    sort_by_size: bool = True,
 ) -> list[tuple[str, int]]:
     """
     Get all file paths and their sizes under a given path.
@@ -249,10 +250,12 @@ def get_all_file_paths_and_size_under(
         keep_extensions: The extensions to keep.
         storage_options: The storage options to use.
         fs: The filesystem to use.
+        sort_by_size: Whether to sort the files by size.
+            If False, the files will be sorted by path instead.
     Returns:
         A list of tuples (file_path, file_size).
     """
-    # sort by size
+    # sort by size or path
     return sorted(
         [
             (p, int(s))
@@ -260,7 +263,7 @@ def get_all_file_paths_and_size_under(
                 path, recurse_subdirectories, keep_extensions, storage_options, fs, include_size=True
             )
         ],
-        key=lambda x: x[1],
+        key=lambda x: x[1] if sort_by_size else x[0],
     )
 
 

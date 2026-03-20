@@ -104,7 +104,8 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         This stage expects a simple Task with file paths information
         and outputs multiple FileGroupTasks for parallel processing.
         """
-        files_with_sizes = self._get_file_list_with_sizes()
+        sort_by_size = self.blocksize is not None
+        files_with_sizes = self._get_file_list_with_sizes(sort_by_size)
         # Extract list[str] from list[tuple[str, int]]
         files = [file[0] for file in files_with_sizes]
 
@@ -124,10 +125,13 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             partitions = self._partition_by_count(files, 1)
 
         if self.storage_limit_per_partition:
+            # Build a dictionary of path: size of all files
+            path_to_size: dict[str, int] = dict(files_with_sizes)
+
             # Verify storage size of input files is not greater than 2 GiB
             # This should be a very quick check per file, so we do it first before reading the data
             for partition in partitions:
-                total_storage_size = sum(size for file, size in files_with_sizes if file in partition)
+                total_storage_size = sum(path_to_size.get(path, 0) for path in partition)
                 if total_storage_size > self.storage_limit_per_partition:
                     msg = (
                         f"File group task has exceeded the storage limit per partition: {partition}. "
@@ -163,7 +167,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         logger.info(f"Created {len(tasks)} file groups from {len(files)} files")
         return tasks
 
-    def _get_file_list_with_sizes(self) -> list[tuple[str, int]]:
+    def _get_file_list_with_sizes(self, sort_by_size: bool = True) -> list[tuple[str, int]]:
         """
         Get the list of files to process.
         """
@@ -175,6 +179,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 recurse_subdirectories=True,
                 keep_extensions=self.file_extensions,
                 storage_options=self.storage_options,
+                sort_by_size=sort_by_size,
             )
         elif isinstance(self.file_paths, list):
             output_ls = []
@@ -185,6 +190,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                         recurse_subdirectories=False,
                         keep_extensions=self.file_extensions,
                         storage_options=self.storage_options,
+                        sort_by_size=sort_by_size,
                     )
                 )
         else:
