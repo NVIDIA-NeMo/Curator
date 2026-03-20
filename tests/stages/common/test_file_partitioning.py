@@ -199,8 +199,8 @@ class TestFilePartitioningStage:
     def test_process_with_blocksize(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test processing with blocksize setting."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=6)
-        # Set blocksize to 10B to account for tiny size of test files
-        stage = FilePartitioningStage(file_paths=test_files, blocksize="10B")
+        # Test files are 3 bytes each, so blocksize of 3B should create 6 partitions
+        stage = FilePartitioningStage(file_paths=test_files, blocksize="3B")
 
         result = stage.process(empty_task)
 
