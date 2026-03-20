@@ -136,7 +136,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 # Verify storage size of input files is not greater than self.storage_limit_per_partition
                 # This should be a very quick check per file, so we do it first before reading the data
                 for partition in partitions:
-                    total_storage_size = sum(path_to_size.get(path, 0) for path in partition)
+                    total_storage_size = sum(path_to_size[path] for path in partition)
                     if total_storage_size > self.storage_limit_per_partition:
                         msg = (
                             f"File group task has exceeded the storage limit per partition: {partition}. "

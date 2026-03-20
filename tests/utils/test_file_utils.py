@@ -190,6 +190,35 @@ class TestGetAllFilePathsAndSizeUnder:
         ]
         assert result == expected
 
+    def test_files_with_paths_sorted(self, tmp_path: Path):
+        """Test that files are returned with sizes and sorted by path."""
+        root = tmp_path / "sized_files"
+
+        # Create files with different sizes
+        files_with_sizes = [
+            (root / "large.jsonl", 100),
+            (root / "small.jsonl", 10),
+            (root / "medium.jsonl", 50),
+        ]
+
+        for file_path, size in files_with_sizes:
+            _write_test_file(file_path, size_bytes=size)
+
+        result = get_all_file_paths_and_size_under(
+            str(root),
+            recurse_subdirectories=False,
+            keep_extensions=[".jsonl"],
+            sort_by_size=False,
+        )
+
+        # Should be sorted by path (alphabetical)
+        expected = [
+            (str(root / "large.jsonl"), 100),
+            (str(root / "medium.jsonl"), 50),
+            (str(root / "small.jsonl"), 10),
+        ]
+        assert result == expected
+
     def test_with_recursion_and_filtering(self, tmp_path: Path):
         """Test recursive traversal with extension filtering and size info."""
         root = tmp_path / "nested_sized"
