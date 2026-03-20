@@ -294,7 +294,7 @@ def test_parquet_reader_with_blocksize_limit(tmp_path: Path):
 
     stage = ParquetReader(file_paths=str(tmp_path), blocksize=1_000_000_000)
     assert len(stage.decompose()) == 2
-    # FilePartitioningStage should succeed since the storage size is smaller than 100_000 bytes
+    # FilePartitioningStage should succeed since the storage size is smaller than 1 billion bytes
     file_partitioning_stage = stage.decompose()[0]
     file_tasks = file_partitioning_stage.process(_EmptyTask)
     assert len(file_tasks) == 1

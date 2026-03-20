@@ -69,6 +69,13 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
         else:
             self._blocksize = parse_bytes_string_to_int("2GiB")
 
+        if self._blocksize > parse_bytes_string_to_int("2GiB"):
+            msg = (
+                f"Blocksize is greater than 2 GiB, which is not recommended: {self.blocksize} "
+                "Consider using a smaller blocksize to avoid potential memory issues."
+            )
+            logger.warning(msg)
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
