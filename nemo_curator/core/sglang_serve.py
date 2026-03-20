@@ -292,13 +292,14 @@ class SGLangInferenceServer:
         )
 
         stdout = None if self.verbose else subprocess.DEVNULL
-        stderr = None if self.verbose else subprocess.DEVNULL
+        # Always capture stderr to a pipe so that a startup failure can surface
+        # the server's error output regardless of verbose mode.
         self._process = subprocess.Popen(  # noqa: S603
             cmd,
             env=env,
             start_new_session=True,
             stdout=stdout,
-            stderr=stderr,
+            stderr=subprocess.PIPE,
         )
 
         try:
@@ -528,11 +529,18 @@ class SGLangInferenceServer:
 
             # Fast-fail: check if single-node subprocess has already exited
             if self._process is not None and self._process.poll() is not None:
+                import contextlib
+
+                stderr_output = ""
+                if self._process.stderr is not None:
+                    with contextlib.suppress(Exception):
+                        stderr_output = self._process.stderr.read().decode(errors="replace").strip()
                 msg = (
                     f"SGLang subprocess exited with code {self._process.returncode} "
-                    "before the server became healthy. "
-                    "Enable verbose=True for server logs."
+                    "before the server became healthy."
                 )
+                if stderr_output:
+                    msg += f"\nServer stderr:\n{stderr_output}"
                 raise RuntimeError(msg)
 
             # Fast-fail: check if head actor has exited (multi-node)
