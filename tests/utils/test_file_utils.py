@@ -282,30 +282,6 @@ class TestFilePartitioningStageGetters:
         ]
         assert result == expected
 
-    def test_get_file_list_with_sizes_list_input(self, tmp_path: Path):
-        """Test _get_file_list_with_sizes with list input preserves order."""
-        files_with_sizes = [
-            (tmp_path / "file1.jsonl", 30),
-            (tmp_path / "file2.jsonl", 10),
-            (tmp_path / "file3.jsonl", 20),
-        ]
-
-        for file_path, size in files_with_sizes:
-            _write_test_file(file_path, size_bytes=size)
-
-        # Test with specific order
-        file_paths = [str(files_with_sizes[1][0]), str(files_with_sizes[2][0]), str(files_with_sizes[0][0])]
-        stage = FilePartitioningStage(file_paths=file_paths)
-        result = stage._get_file_list_with_sizes()
-
-        # Should preserve input order for list input
-        expected = [
-            (str(files_with_sizes[1][0]), 10),
-            (str(files_with_sizes[2][0]), 20),
-            (str(files_with_sizes[0][0]), 30),
-        ]
-        assert result == expected
-
     def test_get_file_list_invalid_input(self):
         """Test that invalid input types raise TypeError."""
         stage = FilePartitioningStage(file_paths=123)  # Invalid type

@@ -124,22 +124,27 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             logger.info("No partitions specified, defaulting to one file per partition")
             partitions = self._partition_by_count(files, 1)
 
-        if self.storage_limit_per_partition:
+        if self.storage_limit_per_partition is not None:
             # Build a dictionary of path: size of all files
             path_to_size: dict[str, int] = dict(files_with_sizes)
 
-            # Verify storage size of input files is not greater than self.storage_limit_per_partition
-            # This should be a very quick check per file, so we do it first before reading the data
-            for partition in partitions:
-                total_storage_size = sum(path_to_size.get(path, 0) for path in partition)
-                if total_storage_size > self.storage_limit_per_partition:
-                    msg = (
-                        f"File group task has exceeded the storage limit per partition: {partition}. "
-                        f"Total storage size is {total_storage_size} bytes (limit {self.storage_limit_per_partition} bytes). "
-                        "Please reduce files_per_partition or blocksize. "
-                        "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
-                    )
-                    raise ValueError(msg)
+            # Check that no files have size less than 0 (since -1 is used to indicate unknown size)
+            if any(size < 0 for size in path_to_size.values()):
+                msg = "Skipping storage limit check because some files have unknown size"
+                logger.warning(msg)
+            else:
+                # Verify storage size of input files is not greater than self.storage_limit_per_partition
+                # This should be a very quick check per file, so we do it first before reading the data
+                for partition in partitions:
+                    total_storage_size = sum(path_to_size.get(path, 0) for path in partition)
+                    if total_storage_size > self.storage_limit_per_partition:
+                        msg = (
+                            f"File group task has exceeded the storage limit per partition: {partition}. "
+                            f"Total storage size is {total_storage_size} bytes (limit {self.storage_limit_per_partition} bytes). "
+                            "Please reduce files_per_partition or blocksize. "
+                            "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
+                        )
+                        raise ValueError(msg)
 
         # Create FileGroupTask for each partition
         tasks = []
