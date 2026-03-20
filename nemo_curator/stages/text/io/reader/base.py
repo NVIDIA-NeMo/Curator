@@ -114,21 +114,21 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
         # Even though we checked the storage size of the input files, the total in-memory size of the DataFrame can still be too large
         # This is a more expensive but more accurate check than the storage size check
         total_bytes = _dataframe_memory_bytes(result)
-        # Scenario 1: The user did not specify blocksize and the total in-memory size is too large
-        if self.blocksize is None and total_bytes > self._blocksize:
-            msg = (
-                f"Error reading data from files: {task.data}. "
-                f"Estimated in-memory size is {total_bytes} bytes (limit {self._blocksize} bytes). "
-                "Please reduce files_per_partition if possible, or set blocksize instead (the maximum recommended blocksize is 2GiB). "
-                "Any individual file(s) larger than this limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
-            )
-            raise ValueError(msg)
-        # Scenario 2: The user specified blocksize and the total in-memory size is too large
-        elif self.blocksize is not None and total_bytes > self._blocksize:
+        # Scenario 1: The user specified blocksize and the total in-memory size is too large
+        if self.blocksize is not None and total_bytes > self._blocksize:
             msg = (
                 f"Error reading data from files: {task.data}. "
                 f"Estimated in-memory size is {total_bytes} bytes (limit {self._blocksize} bytes). "
                 "Please increase blocksize if possible (the maximum recommended blocksize is 2GiB). "
+                "Any individual file(s) larger than this limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
+            )
+            raise ValueError(msg)
+        # Scenario 2: The user did not specify blocksize and the total in-memory size is too large
+        elif total_bytes > self._blocksize:
+            msg = (
+                f"Error reading data from files: {task.data}. "
+                f"Estimated in-memory size is {total_bytes} bytes (limit {self._blocksize} bytes). "
+                "Please reduce files_per_partition if possible, or set blocksize instead (the maximum recommended blocksize is 2GiB). "
                 "Any individual file(s) larger than this limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
             )
             raise ValueError(msg)

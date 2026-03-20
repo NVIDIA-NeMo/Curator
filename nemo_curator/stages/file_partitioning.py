@@ -122,8 +122,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         else:
             # Default to one file per partition
             logger.info("No partitions specified, defaulting to one file per partition")
-            self.files_per_partition = 1
-            partitions = self._partition_by_count(files, self.files_per_partition)
+            partitions = self._partition_by_count(files, 1)
 
         # Build a dictionary of path: size of all files
         path_to_size: dict[str, int] = dict(files_with_sizes)
@@ -137,22 +136,22 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             # This should be a very quick check per file, so we do it first before reading the data
             for partition in partitions:
                 total_storage_size = sum(path_to_size[path] for path in partition)
-                # Scenario 1: We are using files_per_partition and the partition created is too large
-                if self.files_per_partition is not None and total_storage_size > self._blocksize:
-                    msg = (
-                        f"File group task has exceeded the storage limit per partition: {partition}. "
-                        f"Total storage size is {total_storage_size} bytes (limit {self._blocksize} bytes). "
-                        "Please reduce files_per_partition if possible, or set blocksize instead (the maximum recommended blocksize is 2GiB). "
-                        "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
-                    )
-                    raise ValueError(msg)
-                # Scenario 2: We are using blocksize and the partition created is too large
+                # Scenario 1: The user specified blocksize and the partition created is too large
                 # This means at least one file is larger than the blocksize
-                elif total_storage_size > self._blocksize:
+                if self.blocksize is not None and total_storage_size > self._blocksize:
                     msg = (
                         f"File group task has exceeded the storage limit per partition: {partition}. "
                         f"Total storage size is {total_storage_size} bytes (limit {self._blocksize} bytes). "
                         "Please increase blocksize if possible (the maximum recommended blocksize is 2GiB). "
+                        "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
+                    )
+                    raise ValueError(msg)
+                # Scenario 2: The user did not specify blocksize and the partition created is too large
+                elif total_storage_size > self._blocksize:
+                    msg = (
+                        f"File group task has exceeded the storage limit per partition: {partition}. "
+                        f"Total storage size is {total_storage_size} bytes (limit {self._blocksize} bytes). "
+                        "Please reduce files_per_partition if possible, or set blocksize instead (the maximum recommended blocksize is 2GiB). "
                         "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
                     )
                     raise ValueError(msg)
