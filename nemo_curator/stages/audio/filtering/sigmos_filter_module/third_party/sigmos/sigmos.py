@@ -112,18 +112,3 @@ class SigMOS:
 def build_sigmos_model(force_cpu=False, device_id=0, model_path=None):
     model_dir = os.path.dirname(os.path.abspath(__file__))
     return SigMOS(model_dir=model_dir, force_cpu=force_cpu, device_id=device_id, model_path=model_path)
-
-
-if __name__ == '__main__':
-    ''' 
-        Sample code to run the SigMOS estimator. 
-        V1 (current model) is an alpha version and should be used in accordance.
-    '''
-    model_dir = r"."
-    sigmos_estimator = SigMOS(model_dir=model_dir)
-
-    # input data must have sr=48kHz, otherwise please specify the sr (it will be resampled to 48kHz internally)
-    sampling_rate = 48_000
-    dummy_data = np.random.rand(5 * sampling_rate)
-    dummy_result = sigmos_estimator.run(dummy_data, sr=sampling_rate)
-    print(dummy_result)

@@ -142,8 +142,8 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         super().__init__()
         self._predict_audio_mos = None
 
+        # Apply user-facing config fields only; model_path is internal.
         if self.config is not None:
-            self.model_path = self.config.model_path
             self.noise_threshold = self.config.noise_threshold
             self.ovrl_threshold = self.config.ovrl_threshold
             self.sig_threshold = self.config.sig_threshold
@@ -247,12 +247,8 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             return None
 
         try:
-            try:
-                gpu_id = int(torch.cuda.current_device()) if torch.cuda.is_available() else 0
-            except RuntimeError:
-                gpu_id = 0
             config = {"model_path": self._resolve_model_path()}
-            score_data = self._predict_audio_mos(audio_np, sample_rate, gpu_id=gpu_id, config=config)
+            score_data = self._predict_audio_mos(audio_np, sample_rate, config=config)
         except Exception as e:
             logger.exception(f"[{task_id}] SIGMOS prediction error: {e}")
             return None

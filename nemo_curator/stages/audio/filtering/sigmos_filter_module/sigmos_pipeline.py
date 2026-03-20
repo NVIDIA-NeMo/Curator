@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +15,7 @@
 """
 SIGMOS pipeline: in-memory MOS prediction for SIGMOSFilterStage.
 
-Only predict_audio_mos(audio_data, sample_rate, gpu_id, config) is used by the stage.
+Only predict_audio_mos(audio_data, sample_rate, config) is used by the stage.
 """
 
 import os
@@ -63,31 +62,29 @@ class _SIGMOSPipeline:
 
     def __init__(
         self,
-        gpu_id: int = 0,
         config: Optional[Union[Dict[str, Any], Any]] = None,
     ) -> None:
-        if torch.cuda.is_available():
-            torch.cuda.set_device(gpu_id)
-
-        use_gpu = _get_config_val(config, "use_gpu")
-        if use_gpu is None:
-            use_gpu = True
-        if isinstance(config, dict):
-            use_gpu = config.get("use_gpu", use_gpu)
-        elif config is not None:
-            use_gpu = getattr(config, "use_gpu", use_gpu)
-        self.force_cpu = not use_gpu
-
         model_path = _get_config_val(config, "model_path", None)
         model_key = f"_{model_path}" if model_path else ""
-        cache_key = f"cpu{model_key}" if self.force_cpu else f"gpu_{gpu_id}{model_key}"
+
+        if torch.cuda.is_available():
+            device_id = int(torch.cuda.current_device())
+            cache_key = f"gpu_{device_id}{model_key}"
+        else:
+            cache_key = f"cpu{model_key}"
 
         if cache_key not in _MODEL_CACHE:
-            _MODEL_CACHE[cache_key] = build_sigmos_model(
-                force_cpu=self.force_cpu,
-                device_id=gpu_id,
-                model_path=model_path,
-            )
+            if torch.cuda.is_available():
+                _MODEL_CACHE[cache_key] = build_sigmos_model(
+                    force_cpu=False,
+                    device_id=device_id,
+                    model_path=model_path,
+                )
+            else:
+                _MODEL_CACHE[cache_key] = build_sigmos_model(
+                    force_cpu=True,
+                    model_path=model_path,
+                )
         self.model = _MODEL_CACHE[cache_key]
 
     def predict_audio(self, audio_data: np.ndarray, sample_rate: int) -> Dict[str, float]:
@@ -102,9 +99,8 @@ class _SIGMOSPipeline:
 def predict_audio_mos(
     audio_data: np.ndarray,
     sample_rate: int,
-    gpu_id: int = 0,
     config: Optional[Union[Dict[str, Any], Any]] = None,
 ) -> Dict[str, float]:
     """Predict MOS for in-memory audio. Used by SIGMOSFilterStage."""
-    pipeline = _SIGMOSPipeline(gpu_id=gpu_id, config=config)
+    pipeline = _SIGMOSPipeline(config=config)
     return pipeline.predict_audio(audio_data, sample_rate)
