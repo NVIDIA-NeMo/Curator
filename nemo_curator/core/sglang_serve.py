@@ -17,6 +17,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -258,6 +259,7 @@ class SGLangInferenceServer:
     allows_colocated_gpu_stages: bool = False
 
     _process: subprocess.Popen | None = field(init=False, default=None, repr=False)
+    _stderr_tempfile: Any | None = field(init=False, default=None, repr=False)
     _head_actor: Any | None = field(init=False, default=None, repr=False)
     _worker_actors: list = field(init=False, default_factory=list, repr=False)
     _started: bool = field(init=False, default=False, repr=False)
@@ -305,14 +307,20 @@ class SGLangInferenceServer:
         )
 
         stdout = None if self.verbose else subprocess.DEVNULL
-        # Always capture stderr to a pipe so that a startup failure can surface
-        # the server's error output regardless of verbose mode.
+        # Use a NamedTemporaryFile for stderr so that:
+        # 1. Startup error output is preserved for diagnostics.
+        # 2. The subprocess never blocks on a full PIPE buffer (SGLang is very
+        #    verbose during initialisation, especially with large dp_size values;
+        #    a PIPE deadlocks once the ~64 KB kernel buffer fills).
+        self._stderr_tempfile = tempfile.NamedTemporaryFile(  # noqa: SIM115
+            mode="w+b", suffix=".log", prefix="sglang_stderr_", delete=False
+        )
         self._process = subprocess.Popen(  # noqa: S603
             cmd,
             env=env,
             start_new_session=True,
             stdout=stdout,
-            stderr=subprocess.PIPE,
+            stderr=self._stderr_tempfile,
         )
 
         try:
@@ -441,6 +449,34 @@ class SGLangInferenceServer:
         except (ProcessLookupError, OSError):
             pass
         self._process = None
+        self._cleanup_stderr_tempfile()
+
+    def _read_stderr_tempfile(self) -> str:
+        """Read all content written to the stderr temp file so far."""
+        if self._stderr_tempfile is None:
+            return ""
+        import contextlib
+
+        content = ""
+        with contextlib.suppress(Exception):
+            self._stderr_tempfile.flush()
+            self._stderr_tempfile.seek(0)
+            content = self._stderr_tempfile.read().decode(errors="replace").strip()
+        return content
+
+    def _cleanup_stderr_tempfile(self) -> None:
+        """Close and delete the stderr temp file."""
+        if self._stderr_tempfile is None:
+            return
+        import contextlib
+
+        path = getattr(self._stderr_tempfile, "name", None)
+        with contextlib.suppress(Exception):
+            self._stderr_tempfile.close()
+        if path:
+            with contextlib.suppress(Exception):
+                os.unlink(path)
+        self._stderr_tempfile = None
 
     def _stop_multinode(self) -> None:
         import contextlib
@@ -474,6 +510,7 @@ class SGLangInferenceServer:
                 except (ProcessLookupError, OSError):
                     pass
             self._process = None
+        self._cleanup_stderr_tempfile()
 
     def _cleanup_failed_start_multinode(self) -> None:
         """Best-effort cleanup after a failed multi-node start."""
@@ -542,16 +579,11 @@ class SGLangInferenceServer:
 
             # Fast-fail: check if single-node subprocess has already exited
             if self._process is not None and self._process.poll() is not None:
-                import contextlib
-
-                stderr_output = ""
-                if self._process.stderr is not None:
-                    with contextlib.suppress(Exception):
-                        stderr_output = self._process.stderr.read().decode(errors="replace").strip()
                 msg = (
                     f"SGLang subprocess exited with code {self._process.returncode} "
                     "before the server became healthy."
                 )
+                stderr_output = self._read_stderr_tempfile()
                 if stderr_output:
                     msg += f"\nServer stderr:\n{stderr_output}"
                 raise RuntimeError(msg)
@@ -571,6 +603,9 @@ class SGLangInferenceServer:
             time.sleep(1)
 
         msg = f"SGLang server did not become ready within {self.health_check_timeout_s}s"
+        stderr_output = self._read_stderr_tempfile()
+        if stderr_output:
+            msg += f"\nServer stderr (last output):\n{stderr_output[-4000:]}"
         raise TimeoutError(msg)
 
     def __enter__(self):

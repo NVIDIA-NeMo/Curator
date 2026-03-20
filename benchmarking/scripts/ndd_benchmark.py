@@ -175,6 +175,7 @@ def _start_sglang_server(
     model_id: str,
     dp_size: int = 1,
     tp_size: int = 1,
+    health_check_timeout_s: int = 600,
 ) -> "SGLangInferenceServer":
     """Start a local SGLangInferenceServer and return it."""
     from nemo_curator.core.sglang_serve import SGLangInferenceServer, SGLangModelConfig
@@ -184,7 +185,7 @@ def _start_sglang_server(
         dp_size=dp_size,
         tp_size=tp_size,
     )
-    server = SGLangInferenceServer(model=config)
+    server = SGLangInferenceServer(model=config, health_check_timeout_s=health_check_timeout_s)
     server.start()
     return server
 
