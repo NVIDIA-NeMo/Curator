@@ -199,7 +199,8 @@ class TestFilePartitioningStage:
     def test_process_with_blocksize(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test processing with blocksize setting."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=6)
-        stage = FilePartitioningStage(file_paths=test_files, blocksize="1B")
+        # Set blocksize to 10B to account for tiny size of test files
+        stage = FilePartitioningStage(file_paths=test_files, blocksize="10B")
 
         result = stage.process(empty_task)
 
@@ -210,18 +211,14 @@ class TestFilePartitioningStage:
             assert len(task.data) == 1
             assert task.data[0] == test_files[i]
 
-    def test_both_blocksize_and_files_per_partition_warns(self, caplog: pytest.LogCaptureFixture):
-        """Test that specifying both blocksize and files_per_partition logs a warning and ignores blocksize."""
-        with caplog.at_level("WARNING"):
-            stage = FilePartitioningStage(
+    def test_both_blocksize_and_files_per_partition_errors(self):
+        """Test that specifying both blocksize and files_per_partition errors."""
+        with pytest.raises(ValueError, match="only one is allowed"):
+            FilePartitioningStage(
                 file_paths="/test/path",
                 files_per_partition=2,
                 blocksize="128MB",
             )
-        assert stage.files_per_partition == 2
-        assert stage.blocksize is None
-        assert "files_per_partition" in caplog.text
-        assert "blocksize" in caplog.text
 
     def test_process_empty_file_list(self, empty_task: _EmptyTask):
         """Test processing with empty file list."""
