@@ -35,7 +35,7 @@ class ParquetReaderStage(BaseReader):
     Args:
         fields (list[str], optional): If specified, only read these columns. Defaults to None.
         read_kwargs (dict[str, Any], optional): Keyword arguments for the underlying reader. Defaults to {}.
-        blocksize (int | str, optional): Target size of the partitions. Defaults to None.
+        blocksize (int | str, optional): Target size of the partitions. If None, a blocksize <= 2 GiB is enforced.
     """
 
     name: str = "parquet_reader"

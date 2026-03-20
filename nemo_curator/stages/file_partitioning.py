@@ -41,10 +41,13 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     file_paths: str | list[str]
         Path to the input files.
     files_per_partition: int | None = None
-        Number of files per partition. If provided, the blocksize is ignored.
-        Defaults to 1 if both files_per_partition and blocksize are not provided.
+        Number of files per partition.
+        If both files_per_partition and blocksize are not provided,
+        then default to files_per_partition = 1 and enforce a blocksize <= 2 GiB per partition safeguard.
+        Errors if both files_per_partition and blocksize are provided.
     blocksize: int | str | None = None
-        Target size of the partitions.
+        Target size of the partitions. A blocksize of 2 GiB or less is recommended.
+        Errors if both files_per_partition and blocksize are provided.
         Note: For compressed files, the compressed size is used for blocksize estimation.
     file_extensions: list[str] | None = None
         File extensions to filter.
@@ -78,6 +81,13 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             self._blocksize = parse_bytes_string_to_int(self.blocksize)
         else:
             self._blocksize = parse_bytes_string_to_int("2GiB")
+
+        if self._blocksize > parse_bytes_string_to_int("2GiB"):
+            msg = (
+                f"Blocksize is greater than 2 GiB, which is not recommended: {self.blocksize} "
+                "Consider using a smaller blocksize to avoid potential memory issues."
+            )
+            logger.warning(msg)
 
         self.resources = Resources(cpus=0.5)
 
