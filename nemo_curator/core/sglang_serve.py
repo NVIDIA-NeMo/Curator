@@ -129,6 +129,16 @@ class SGLangModelConfig:
             For multi-node, Ray controls GPU assignment through Actor ``num_gpus``.
         server_kwargs: Arbitrary extra CLI flags passed to ``sglang.launch_server``.
             Keys map to ``--key value`` pairs (underscores converted to hyphens).
+        python_executable: Python interpreter used to launch the SGLang server.
+            Defaults to ``sys.executable`` (the current interpreter).  Override
+            this when sglang is installed in a different virtual environment from
+            the one running Curator (e.g. when vllm and sglang cannot share an
+            environment due to conflicting ``flashinfer-python`` pins)::
+
+                config = SGLangModelConfig(
+                    model_path="...",
+                    python_executable="/opt/sglang-venv/bin/python",
+                )
     """
 
     model_path: str
@@ -140,6 +150,9 @@ class SGLangModelConfig:
     mem_fraction_static: float | None = None
     gpu_ids: list[int] | None = None
     server_kwargs: dict[str, Any] = field(default_factory=dict)
+    python_executable: str = field(
+        default_factory=lambda: os.environ.get("SGLANG_PYTHON_EXECUTABLE", sys.executable)
+    )
 
     def _build_command(self, port: int, node_rank: int = 0, dist_init_addr: str | None = None) -> list[str]:
         """Build the ``sglang.launch_server`` CLI command for this node.
@@ -150,7 +163,7 @@ class SGLangModelConfig:
             dist_init_addr: ``host:port`` for NCCL rendezvous (multi-node only).
         """
         cmd = [
-            sys.executable,
+            self.python_executable,
             "-m",
             "sglang.launch_server",
             "--model-path",
