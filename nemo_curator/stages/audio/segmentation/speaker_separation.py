@@ -51,9 +51,10 @@ from ..configs import SpeakerSeparationConfig
 
 def _pydub_to_waveform_sr(seg: AudioSegment) -> Tuple[torch.Tensor, int]:
     """Convert PyDub AudioSegment to (waveform, sample_rate). Output is canonical format only."""
-    samples = np.array(seg.get_array_of_samples(), dtype=np.float32) / 32768.0
-    if seg.channels == 2:
-        samples = samples.reshape((-1, 2)).mean(axis=1)
+    max_val = float(1 << (8 * seg.sample_width - 1))
+    samples = np.array(seg.get_array_of_samples(), dtype=np.float32) / max_val
+    if seg.channels > 1:
+        samples = samples.reshape((-1, seg.channels)).mean(axis=1)
     return torch.from_numpy(samples).unsqueeze(0), seg.frame_rate
 
 
@@ -133,7 +134,7 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     def outputs(self) -> Tuple[List[str], List[str]]:
         """Define outputs produced by this stage."""
-        return [], ["speaker_id", "num_speakers", "duration_sec"]
+        return [], ["waveform", "sample_rate", "speaker_id", "num_speakers", "duration_sec"]
     
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
@@ -217,6 +218,7 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         results = []
         
         for item in task.data:
+            item = dict(item)
             waveform = item.get('waveform')
             sample_rate = item.get('sample_rate')
 

@@ -42,13 +42,7 @@ def load_audio(audio_path: str) -> Tuple[torch.Tensor, int]:
         waveform = waveform.T  # soundfile returns (samples, channels), we need (channels, samples)
     return waveform, sample_rate
 
-# NeMo imports
-# We assume the environment is set up correctly for NeMo
-try:
-    from nemo.collections.asr.models import SortformerEncLabelModel
-except ImportError:
-    logger.warning("NeMo not found. Speaker separation will not work.")
-    SortformerEncLabelModel = None
+from nemo.collections.asr.models import SortformerEncLabelModel
 
 class SpeakerSeparator:
     """
@@ -90,19 +84,25 @@ class SpeakerSeparator:
             self.device = "cuda"
             
         self.diar_model = None
-        
-        if SortformerEncLabelModel is not None:
-            self._load_model()
+        self._load_model()
         
     def _load_model(self):
         """Load the diarization model."""
         try:
             logger.info(f"Loading speaker separation model from: {self.model_name}")
-            self.diar_model = SortformerEncLabelModel.restore_from(
-                restore_path=self.model_name,
-                map_location=self.device,
-                strict=False
-            )
+            try:
+                self.diar_model = SortformerEncLabelModel.restore_from(
+                    restore_path=self.model_name,
+                    map_location=self.device,
+                    strict=True
+                )
+            except RuntimeError as weight_err:
+                logger.warning(f"Checkpoint weight mismatch with strict=True, retrying with strict=False: {weight_err}")
+                self.diar_model = SortformerEncLabelModel.restore_from(
+                    restore_path=self.model_name,
+                    map_location=self.device,
+                    strict=False
+                )
             self.diar_model.eval()
         except Exception as e:
             logger.error(f"Error loading model: {e}")
@@ -159,13 +159,16 @@ class SpeakerSeparator:
             # Process any segment endings first
             if event_type == -1:
                 if speaker in active_speakers:
-                    # Only end segments if this speaker was active
                     if current_segments[speaker] is not None:
                         start_time = current_segments[speaker]
-                        if start_time < time:  # Only add if segment has length
+                        if start_time < time:
                             result_segments[speaker].append((start_time, time))
                         current_segments[speaker] = None
                     active_speakers.remove(speaker)
+                    # Restart tracking for speakers still active after this overlap ends
+                    for active_spk in active_speakers:
+                        if current_segments[active_spk] is None:
+                            current_segments[active_spk] = time
 
             # Then handle any new overlaps with existing active speakers
             elif event_type == 1:
@@ -305,26 +308,23 @@ class SpeakerSeparator:
         
         # Check if input is a path or waveform
         if isinstance(audio_path_or_waveform, str):
-            # Input is a file path
             waveform, sample_rate = load_audio(audio_path_or_waveform)
-            if waveform.shape[0] == 2:
+            if waveform.shape[0] > 1:
                 waveform = waveform.mean(dim=0, keepdim=True)
         else:
-            # Input is a waveform tensor
             if sample_rate is None:
                 raise ValueError("Sample rate must be provided when passing a waveform")
             waveform = audio_path_or_waveform
-            if waveform.shape[0] == 2:
+            if waveform.shape[0] > 1:
                 waveform = waveform.mean(dim=0, keepdim=True)
         
         temp_path = None
         try:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
-                temp_path = temp_audio_file.name
-                wav = waveform.squeeze(0) if waveform.dim() > 1 else waveform
-                sf.write(temp_path, wav.cpu().numpy(), sample_rate)
-                result = self.diar_model.diarize(audio=temp_path, batch_size=1)
-                return result
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                temp_path = tmp.name
+            wav = waveform.squeeze(0) if waveform.dim() > 1 else waveform
+            sf.write(temp_path, wav.cpu().numpy(), sample_rate)
+            return self.diar_model.diarize(audio=temp_path, batch_size=1)
         except (RuntimeError, ValueError) as e:
             logger.warning(f"Error during diarization: {e}. Falling back to single speaker mode")
             duration_sec = waveform.shape[1] / sample_rate
@@ -348,6 +348,9 @@ class SpeakerSeparator:
         
         for segment in segments:
             parts = segment.split()
+            if len(parts) < 3:
+                logger.warning(f"Skipping malformed diarization segment: {segment!r}")
+                continue
             start_time = float(parts[0])
             end_time = float(parts[1])
             speaker = parts[2]
@@ -485,14 +488,15 @@ class SpeakerSeparator:
             if sample_rate is None:
                 raise ValueError("Sample rate must be provided when passing a waveform")
             
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
-                temp_path = temp_audio_file.name
+            temp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                    temp_path = tmp.name
                 wav = audio_path_or_waveform.squeeze(0) if audio_path_or_waveform.dim() > 1 else audio_path_or_waveform
                 sf.write(temp_path, wav.cpu().numpy(), sample_rate)
-            try:
                 original_audio = AudioSegment.from_file(temp_path)
             finally:
-                if os.path.exists(temp_path):
+                if temp_path and os.path.exists(temp_path):
                     os.unlink(temp_path)
             
             # Process the audio to get speaker segments
