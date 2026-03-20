@@ -176,6 +176,7 @@ def _start_sglang_server(
     dp_size: int = 1,
     tp_size: int = 1,
     health_check_timeout_s: int = 600,
+    server_kwargs: dict[str, Any] | None = None,
 ) -> "SGLangInferenceServer":
     """Start a local SGLangInferenceServer and return it."""
     from nemo_curator.core.sglang_serve import SGLangInferenceServer, SGLangModelConfig
@@ -184,6 +185,7 @@ def _start_sglang_server(
         model_path=model_id,
         dp_size=dp_size,
         tp_size=tp_size,
+        server_kwargs=server_kwargs or {},
     )
     server = SGLangInferenceServer(model=config, health_check_timeout_s=health_check_timeout_s)
     server.start()
@@ -247,7 +249,7 @@ def run_ndd_benchmark(  # noqa: PLR0915
     elif inference_server_type == "sglang":
         logger.info(f"Starting SGLangInferenceServer with dp_size={dp_size}, tp_size={tp_size}")
         serve_start = time.perf_counter()
-        inference_server = _start_sglang_server(model_id, dp_size=dp_size, tp_size=tp_size)
+        inference_server = _start_sglang_server(model_id, dp_size=dp_size, tp_size=tp_size, server_kwargs=engine_kwargs)
         serve_startup_s = time.perf_counter() - serve_start
         logger.info(f"SGLangInferenceServer ready at {inference_server.endpoint} (startup: {serve_startup_s:.1f}s)")
 
