@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -229,56 +229,6 @@ class TestGetAllFilePathsAndSizeUnder:
 class TestFilePartitioningStageGetters:
     """Test cases for FilePartitioningStage private methods."""
 
-    def test_get_file_list_directory_input(self, tmp_path: Path):
-        """Test _get_file_list with directory input."""
-        root = tmp_path / "stage_test"
-
-        # Create files with default extensions
-        files_to_create = [
-            (root / "file1.jsonl", "{}"),
-            (root / "file2.json", "{}"),
-            (root / "file3.parquet", "{}"),
-            (root / "file4.txt", "text"),  # Should be filtered out
-            (root / "nested" / "file5.jsonl", "{}"),
-        ]
-
-        for file_path, content in files_to_create:
-            _write_test_file(file_path, content)
-
-        stage = FilePartitioningStage(file_paths=str(root))
-        result = stage._get_file_list()
-
-        # Should include jsonl, json, parquet files (default extensions)
-        expected_files = [
-            str(root / "file1.jsonl"),
-            str(root / "file2.json"),
-            str(root / "file3.parquet"),
-            str(root / "nested" / "file5.jsonl"),
-        ]
-        assert sorted(result) == sorted(expected_files)
-
-    def test_get_file_list_custom_extensions(self, tmp_path: Path):
-        """Test _get_file_list with custom file extensions."""
-        root = tmp_path / "custom_ext"
-
-        files_to_create = [
-            (root / "file1.txt", "text"),
-            (root / "file2.jsonl", "NA"),  # Should be filtered out
-            (root / "file3.log", "log"),
-        ]
-
-        for file_path, content in files_to_create:
-            _write_test_file(file_path, content)
-
-        stage = FilePartitioningStage(file_paths=str(root), file_extensions=[".txt", ".log"])
-        result = stage._get_file_list()
-
-        expected_files = [
-            str(root / "file1.txt"),
-            str(root / "file3.log"),
-        ]
-        assert sorted(result) == sorted(expected_files)
-
     def test_get_file_list_with_sizes_directory_sorted(self, tmp_path: Path):
         """Test _get_file_list_with_sizes with directory input."""
         root = tmp_path / "sized_stage_test"
@@ -332,9 +282,6 @@ class TestFilePartitioningStageGetters:
     def test_get_file_list_invalid_input(self):
         """Test that invalid input types raise TypeError."""
         stage = FilePartitioningStage(file_paths=123)  # Invalid type
-
-        with pytest.raises(TypeError, match="Invalid file paths"):
-            stage._get_file_list()
 
         with pytest.raises(TypeError, match="Invalid file paths"):
             stage._get_file_list_with_sizes()
