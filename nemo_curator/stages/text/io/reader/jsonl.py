@@ -95,8 +95,8 @@ class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
     blocksize: int | str | None = None
     fields: list[str] | None = None  # If specified, only read these columns
     read_kwargs: dict[str, Any] | None = None
-    storage_limit_per_partition: int = _MAX_IN_MEMORY_BYTES
-    memory_limit_per_batch: int = _MAX_IN_MEMORY_BYTES
+    storage_limit_per_partition: int | None = _MAX_IN_MEMORY_BYTES
+    memory_limit_per_batch: int | None = _MAX_IN_MEMORY_BYTES
     task_type: Literal["document", "image", "video", "audio"] = "document"
     file_extensions: list[str] = field(default_factory=lambda: FILETYPE_TO_DEFAULT_EXTENSIONS["jsonl"])
     _generate_ids: bool = False

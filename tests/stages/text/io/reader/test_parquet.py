@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,8 +20,8 @@ import pyarrow as pa
 import pytest
 
 from nemo_curator.stages.text.io.reader.parquet import ParquetReader, ParquetReaderStage
+from nemo_curator.tasks import FileGroupTask, _EmptyTask
 from nemo_curator.tasks.document import DocumentBatch
-from nemo_curator.tasks.file_group import FileGroupTask
 
 
 @pytest.fixture
@@ -276,3 +276,33 @@ def test_parquet_reader_with_file_group_tasks_fixture(parquet_file_group_tasks: 
         expected_texts = [f"doc_{i * 2}", f"doc_{i * 2 + 1}"]
         actual_texts = df["text"].tolist()
         assert actual_texts == expected_texts
+
+
+def test_parquet_reader_with_byte_limits(tmp_path: Path):
+    # Storage size is larger than 10_000 bytes
+    # In-memory size is larger than 1 billion bytes
+    size = 1000
+    df = pd.DataFrame({"id": list(range(size)), "text": ["a" * 4000] * size, "other_field": ["b" * 1_000_000] * size})
+    df.to_parquet(tmp_path / "test.parquet")
+
+    stage = ParquetReader(
+        file_paths=str(tmp_path), storage_limit_per_partition=10_000, memory_limit_per_batch=1_000_000_000
+    )
+    assert len(stage.decompose()) == 2
+    # Since the storage size is larger than 10_000 bytes, the FilePartitioningStage should raise ValueError
+    file_partitioning_stage = stage.decompose()[0]
+    with pytest.raises(ValueError, match="File group task has exceeded the storage limit per partition"):
+        file_tasks = file_partitioning_stage.process(_EmptyTask)
+
+    stage = ParquetReader(
+        file_paths=str(tmp_path), storage_limit_per_partition=100_000, memory_limit_per_batch=1_000_000_000
+    )
+    assert len(stage.decompose()) == 2
+    # FilePartitioningStage should succeed since the storage size is smaller than 100_000 bytes
+    file_partitioning_stage = stage.decompose()[0]
+    file_tasks = file_partitioning_stage.process(_EmptyTask)
+    assert len(file_tasks) == 1
+    # Since the in-memory size is larger than 1 billion bytes, the ParquetReaderStage should raise ValueError
+    parquet_reader_stage = stage.decompose()[1]
+    with pytest.raises(ValueError, match="Error reading data from files"):
+        parquet_reader_stage.process(file_tasks[0])
