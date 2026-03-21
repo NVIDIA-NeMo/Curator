@@ -14,6 +14,7 @@
 
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 from nemo_curator.stages.base import ProcessingStage
@@ -38,7 +39,11 @@ class ConvertImageBatchToDocumentBatchStage(ProcessingStage[ImageBatch, Document
         data = {}
         if self.fields:
             for field in self.fields:
-                data[field] = [getattr(image_obj, field, None) for image_obj in task.data]
+                values = [getattr(image_obj, field, None) for image_obj in task.data]
+                data[field] = [
+                    v.flatten().tolist() if isinstance(v, np.ndarray) else v
+                    for v in values
+                ]
         else:
             # Default to image_id if no fields specified
             data["image_id"] = [image_obj.image_id for image_obj in task.data]
