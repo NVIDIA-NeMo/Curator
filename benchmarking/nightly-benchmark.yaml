@@ -815,7 +815,7 @@ entries:
       --engine-kwargs='{"cuda_graph_max_bs": 8, "mem_fraction_static": 0.85}'
     timeout_s: 1500
     ray:
-      num_cpus: 16
+      num_cpus: 4
       num_gpus: 4
       enable_object_spilling: false
     sink_data:
