@@ -5043,7 +5043,7 @@ requires-dist = [
     { name = "av", marker = "extra == 'video-cpu'", specifier = "==13.1.0" },
     { name = "beautifulsoup4", marker = "extra == 'text-cpu'" },
     { name = "boto3", marker = "extra == 'inference-server'", specifier = ">=1.35" },
-    { name = "boto3", marker = "extra == 'math-cpu'" },
+    { name = "boto3", marker = "extra == 'math-cpu'", specifier = ">=1.35" },
     { name = "comment-parser" },
     { name = "cosmos-xenna", specifier = "==0.2.0" },
     { name = "cudf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },

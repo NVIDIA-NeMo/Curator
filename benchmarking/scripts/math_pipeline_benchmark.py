@@ -149,14 +149,26 @@ def compute_extraction_metrics(output_dir: str) -> dict:
         if not jsonl_files:
             return metrics
 
-        ds = ray.data.read_json(jsonl_files)
+        ds = ray.data.read_json(jsonl_files).select_columns(["type", "text"])
 
-        html_docs = ds.filter(lambda row: row.get("type") == "html").count()
-        text_docs = ds.filter(lambda row: row.get("type") == "text").count()
-        notebook_docs = ds.filter(lambda row: row.get("type") == "notebook").count()
-        html_empty = ds.filter(
-            lambda row: row.get("type") == "html" and (not row.get("text") or row.get("text").strip() == "")
-        ).count()
+        html_docs = 0
+        text_docs = 0
+        notebook_docs = 0
+        html_empty = 0
+
+        for batch in ds.iter_batches(batch_format="numpy"):
+            types = batch.get("type", [])
+            texts = batch.get("text", [])
+
+            for doc_type, text in zip(types, texts, strict=False):
+                if doc_type == "html":
+                    html_docs += 1
+                    if not str(text or "").strip():
+                        html_empty += 1
+                elif doc_type == "text":
+                    text_docs += 1
+                elif doc_type == "notebook":
+                    notebook_docs += 1
 
         metrics["type_html_count"] = html_docs
         metrics["type_text_count"] = text_docs
