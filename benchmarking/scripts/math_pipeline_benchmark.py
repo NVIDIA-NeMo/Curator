@@ -189,18 +189,24 @@ def compute_classifier_metrics(output_dir: str) -> dict:
         if not jsonl_files:
             return metrics
 
-        ds = ray.data.read_json(jsonl_files)
+        ds = ray.data.read_json(jsonl_files).select_columns(["finemath_int_scores"])
 
-        scores = [row["finemath_int_scores"] for row in ds.select_columns(["finemath_int_scores"]).iter_rows()]
-        if scores:
-            total = len(scores)
-            score_sum = sum(scores)
-            metrics["mean_finemath_score"] = score_sum / total if total > 0 else 0.0
+        score_counts = [0] * 6
+        score_sum = 0
+        total = 0
+        for batch in ds.iter_batches(batch_format="numpy"):
+            for s in batch["finemath_int_scores"]:
+                score_counts[min(s, 5)] += 1
+                score_sum += s
+                total += 1
+
+        if total > 0:
+            metrics["mean_finemath_score"] = score_sum / total
 
             for i in range(6):
-                metrics[f"score_distribution_{i}"] = sum(1 for s in scores if s == i)
+                metrics[f"score_distribution_{i}"] = score_counts[i]
 
-            metrics["docs_score_ge_3"] = sum(1 for s in scores if s >= MIN_HIGH_QUALITY_SCORE)
+            metrics["docs_score_ge_3"] = sum(score_counts[MIN_HIGH_QUALITY_SCORE:])
 
     except Exception as e:
         logger.warning(f"Could not compute classifier metrics: {e}")
@@ -216,13 +222,13 @@ def compute_llm_cleanup_metrics(output_dir: str) -> dict:
         if not jsonl_files:
             return metrics
 
-        ds = ray.data.read_json(jsonl_files)
-        total = ds.count()
-        metrics["num_chunks_processed"] = total
+        ds = ray.data.read_json(jsonl_files).select_columns(["cleaned_text"])
 
-        text_lengths = [len(row.get("cleaned_text") or "") for row in ds.select_columns(["cleaned_text"]).iter_rows()]
+        text_lengths = [len(row.get("cleaned_text") or "") for row in ds.iter_rows()]
+        total = len(text_lengths)
+        metrics["num_chunks_processed"] = total
         if text_lengths:
-            metrics["avg_output_text_length"] = sum(text_lengths) / len(text_lengths)
+            metrics["avg_output_text_length"] = sum(text_lengths) / total
 
         no_content = sum(1 for length in text_lengths if length == 0)
         metrics["no_useful_content_count"] = no_content
