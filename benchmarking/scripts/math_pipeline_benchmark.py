@@ -334,7 +334,7 @@ def main() -> int:
     llm_group.add_argument("--max-model-len", type=int, default=None, help="Max model context length for vLLM")
 
     # Executor
-    p.add_argument("--executor", type=str, default="xenna", choices=["xenna", "ray_data", "ray_actors"])
+    p.add_argument("--executor", type=str, default="xenna", choices=["xenna", "ray_data"])
 
     args = p.parse_args()
 

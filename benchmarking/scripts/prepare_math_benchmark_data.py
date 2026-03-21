@@ -32,14 +32,13 @@ Example usage:
 from __future__ import annotations
 
 import argparse
-import importlib.util
-import sys
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import types
-
+from huggingface_hub import hf_hub_download, list_repo_files
+from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 from loguru import logger
 
 from nemo_curator.pipeline import Pipeline
@@ -49,16 +48,147 @@ from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-_MATH_TUTORIAL_DIR = REPO_ROOT / "tutorials" / "math"
 
 
-def _import_math_download() -> types.ModuleType:
-    """Import the math tutorial download module (filename starts with a digit)."""
-    spec = importlib.util.spec_from_file_location("math_download", _MATH_TUTORIAL_DIR / "0_download.py")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["math_download"] = mod
-    spec.loader.exec_module(mod)
-    return mod
+# ---------------------------------------------------------------------------
+# HuggingFace download helpers
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DownloadConfig:
+    """Configuration for dataset download."""
+
+    output_dir: Path
+    max_files: int | None = None
+    force: bool = False
+    workers: int = 1
+
+
+def load_datasets_config(config_path: Path) -> dict:
+    """Load dataset configurations from JSON file."""
+    with open(config_path) as f:
+        config = json.load(f)
+    return {k: v for k, v in config.items() if not k.startswith("_")}
+
+
+def _parse_huggingface_path(hf_path: str) -> tuple[str, str | None]:
+    """Parse HuggingFace path into repo_id and optional subset/config."""
+    repo_parts = 2
+    repo_with_subset_parts = 3
+
+    parts = hf_path.split("/")
+    if len(parts) == repo_parts:
+        return hf_path, None
+    elif len(parts) == repo_with_subset_parts:
+        repo_id = f"{parts[0]}/{parts[1]}"
+        subset = parts[2]
+        return repo_id, subset
+    else:
+        msg = f"Invalid HuggingFace path format: {hf_path}"
+        raise ValueError(msg)
+
+
+def _get_parquet_files(repo_id: str, subset: str | None = None) -> list[str]:
+    """Get list of parquet files from a HuggingFace repository."""
+    try:
+        all_files = list_repo_files(repo_id, repo_type="dataset")
+    except (HfHubHTTPError, RepositoryNotFoundError) as e:
+        logger.error(f"Failed to list files in {repo_id}: {e}")
+        raise
+
+    parquet_files = [f for f in all_files if f.endswith(".parquet")]
+
+    if subset:
+        subset_patterns = [f"{subset}/", f"data/{subset}/", f"train/{subset}/"]
+        subset_files = []
+        for pattern in subset_patterns:
+            subset_files.extend([f for f in parquet_files if f.startswith(pattern)])
+        parquet_files = subset_files or [f for f in parquet_files if subset in f]
+
+    if not parquet_files:
+        logger.warning(f"No parquet files found in {repo_id}" + (f" for subset {subset}" if subset else ""))
+
+    return sorted(parquet_files)
+
+
+def _download_single_file(
+    repo_id: str,
+    file_path: str,
+    dataset_dir: Path,
+    force: bool = False,
+) -> tuple[str, Path | None, str | None]:
+    """Download a single file from HuggingFace Hub."""
+    try:
+        downloaded = hf_hub_download(
+            repo_id=repo_id,
+            filename=file_path,
+            repo_type="dataset",
+            local_dir=dataset_dir,
+            force_download=force,
+        )
+        return (file_path, Path(downloaded), None)
+    except (HfHubHTTPError, RepositoryNotFoundError, OSError) as e:
+        return (file_path, None, str(e))
+
+
+def download_dataset(
+    dataset_name: str,
+    config: dict,
+    download_config: DownloadConfig,
+) -> Path:
+    """Download a dataset from HuggingFace Hub."""
+    hf_path = config["huggingface"]
+    repo_id, subset = _parse_huggingface_path(hf_path)
+
+    dataset_dir_name = dataset_name.lower()
+    dataset_dir = download_config.output_dir / dataset_dir_name
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Downloading {dataset_name} from {repo_id}" + (f" (subset: {subset})" if subset else ""))
+    logger.info(f"Output directory: {dataset_dir}")
+
+    parquet_files = _get_parquet_files(repo_id, subset)
+
+    if download_config.max_files:
+        parquet_files = parquet_files[: download_config.max_files]
+        logger.info(f"Limiting download to {download_config.max_files} files")
+
+    total_files = len(parquet_files)
+    logger.info(f"Found {total_files} parquet files to download (workers: {download_config.workers})")
+
+    downloaded_files = []
+    failed_files = []
+
+    with ThreadPoolExecutor(max_workers=download_config.workers) as executor:
+        futures = {
+            executor.submit(_download_single_file, repo_id, fp, dataset_dir, download_config.force): fp
+            for fp in parquet_files
+        }
+
+        for completed, future in enumerate(as_completed(futures), 1):
+            file_path = futures[future]
+            filename = Path(file_path).name
+
+            try:
+                _, local_path, error = future.result()
+                if error:
+                    logger.error(f"[{completed}/{total_files}] Failed {filename}: {error}")
+                    failed_files.append((file_path, error))
+                elif local_path:
+                    logger.info(f"[{completed}/{total_files}] Downloaded {filename}")
+                    downloaded_files.append(local_path)
+            except (RuntimeError, OSError) as e:
+                logger.error(f"[{completed}/{total_files}] Failed {filename}: {e}")
+                failed_files.append((file_path, str(e)))
+
+    logger.info(f"Successfully downloaded {len(downloaded_files)} files to {dataset_dir}")
+    if failed_files:
+        logger.warning(f"Failed to download {len(failed_files)} files:")
+        for fp, err in failed_files:
+            logger.warning(f"  - {fp}: {err}")
+
+    return dataset_dir
 
 
 def build_enrichment_pipeline(input_path: str, output_path: str) -> Pipeline:
@@ -143,7 +273,7 @@ def main() -> int:
     parser.add_argument(
         "--executor",
         default="xenna",
-        choices=["xenna", "ray_data", "ray_actors"],
+        choices=["xenna", "ray_data"],
         help="Executor to use for the enrichment pipeline",
     )
 
@@ -158,9 +288,7 @@ def main() -> int:
         raw_data_dir = args.raw_path.resolve()
         logger.info(f"Skipping download, using existing raw data at: {raw_data_dir}")
     else:
-        math_dl = _import_math_download()
-
-        config = math_dl.load_datasets_config(args.datasets_config)
+        config = load_datasets_config(args.datasets_config)
         if args.dataset_name not in config:
             available = ", ".join(config.keys())
             parser.error(f"Unknown dataset: {args.dataset_name}\nAvailable: {available}")
@@ -169,10 +297,10 @@ def main() -> int:
         scratch_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Downloading {args.dataset_name} from HuggingFace (max_files={args.max_files})...")
-        raw_data_dir = math_dl.download_dataset(
+        raw_data_dir = download_dataset(
             dataset_name=args.dataset_name,
             config=config[args.dataset_name],
-            download_config=math_dl.DownloadConfig(
+            download_config=DownloadConfig(
                 output_dir=scratch_dir,
                 max_files=args.max_files,
                 force=args.force,

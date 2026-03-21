@@ -17,6 +17,7 @@ import gzip
 import io
 import os
 import subprocess
+import threading
 from urllib.parse import urljoin, urlparse
 
 import pandas as pd
@@ -172,13 +173,27 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.name = "CommonCrawlWARCReader"
         self._session = None
         self._s3_client = None
+        self._lock = threading.Lock()
 
         if use_s3 is None:
             self.use_s3 = os.environ.get("CC_USE_S3", "").lower() in ("1", "true", "yes")
         else:
             self.use_s3 = use_s3
         self.s3_bucket = s3_bucket or os.environ.get("CC_S3_BUCKET", "commoncrawl")
-        self.s3_key_prefix = s3_key_prefix or os.environ.get("CC_S3_KEY_PREFIX", "")
+        self.s3_key_prefix = s3_key_prefix if s3_key_prefix is not None else os.environ.get("CC_S3_KEY_PREFIX", "")
+
+    def __getstate__(self) -> dict[str, object]:
+        state = self.__dict__.copy()
+        state["_session"] = None
+        state["_s3_client"] = None
+        state["_lock"] = None
+        return state
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        self.__dict__.update(state)
+        self._session = None
+        self._s3_client = None
+        self._lock = threading.Lock()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return (
@@ -192,42 +207,47 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _get_session(self) -> requests.Session:
         """Get or create a requests session for connection pooling."""
         if self._session is None:
-            self._session = requests.Session()
-            adapter = requests.adapters.HTTPAdapter(
-                pool_connections=self.max_workers,
-                pool_maxsize=self.max_workers * 2,
-                max_retries=self.max_retries,
-            )
-            self._session.mount("https://", adapter)
-            self._session.mount("http://", adapter)
+            with self._lock:
+                if self._session is None:
+                    session = requests.Session()
+                    adapter = requests.adapters.HTTPAdapter(
+                        pool_connections=self.max_workers,
+                        pool_maxsize=self.max_workers * 2,
+                        max_retries=self.max_retries,
+                    )
+                    session.mount("https://", adapter)
+                    session.mount("http://", adapter)
+                    self._session = session
         return self._session
 
     def _get_s3_client(self) -> object:
-        """Get or create a boto3 S3 client (lazy, thread-safe enough for reads).
+        """Get or create a boto3 S3 client with double-checked locking.
 
         Credentials, region, and endpoint are resolved entirely by boto3's
         standard chain (``AWS_*`` env vars, ``~/.aws/config``, instance
         profiles).  Only connection-pool and retry settings are overridden.
         """
         if self._s3_client is None:
-            try:
-                import boto3
-            except ImportError as exc:
-                msg = (
-                    "CommonCrawlWARCReader configured with use_s3=True but boto3 is not installed. "
-                    "Install boto3 or set use_s3=False (or unset CC_USE_S3)."
-                )
-                raise RuntimeError(msg) from exc
-            from botocore.config import Config as BotoConfig
+            with self._lock:
+                if self._s3_client is None:
+                    try:
+                        import boto3
+                    except ImportError as exc:
+                        msg = (
+                            "CommonCrawlWARCReader configured with use_s3=True but boto3 is not installed. "
+                            "Install boto3 or set use_s3=False (or unset CC_USE_S3)."
+                        )
+                        raise RuntimeError(msg) from exc
+                    from botocore.config import Config as BotoConfig
 
-            boto_cfg = BotoConfig(
-                max_pool_connections=self.max_workers * 2,
-                retries={"max_attempts": self.max_retries, "mode": "adaptive"},
-                connect_timeout=self.timeout,
-                read_timeout=self.timeout,
-            )
-            self._s3_client = boto3.client("s3", config=boto_cfg)
-            logger.info(f"S3 client initialized for bucket={self.s3_bucket}")
+                    boto_cfg = BotoConfig(
+                        max_pool_connections=self.max_workers * 2,
+                        retries={"max_attempts": self.max_retries, "mode": "adaptive"},
+                        connect_timeout=self.timeout,
+                        read_timeout=self.timeout,
+                    )
+                    self._s3_client = boto3.client("s3", config=boto_cfg)
+                    logger.info(f"S3 client initialized for bucket={self.s3_bucket}")
         return self._s3_client
 
     def _s3_key_from_filename(self, filename: str) -> str:
