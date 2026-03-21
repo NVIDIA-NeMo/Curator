@@ -15,11 +15,13 @@
 import pathlib
 from collections.abc import Generator
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import torch
 from loguru import logger
 
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask, ImageBatch, ImageObject
@@ -45,6 +47,12 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
         # This allows running with a CPU-only head node
         self.resources = Resources(gpus=self.num_gpus_per_worker)
         logger.info(f"ImageReaderStage requesting {self.num_gpus_per_worker} GPUs per worker.")
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        # Run as a task so GPUs are released between calls, avoiding deadlocks
+        # with downstream GPU stages (e.g. ImageEmbeddingStage) that compete
+        # for the same physical GPUs.
+        return {RayStageSpecKeys.IS_ACTOR_STAGE: False}
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
