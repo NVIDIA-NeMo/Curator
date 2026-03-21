@@ -52,7 +52,12 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _build_config(model_id: str, provider_name: str) -> dd.DataDesignerConfigBuilder:
+def _build_config(
+    model_id: str,
+    provider_name: str,
+    request_timeout: int | None = None,
+    max_parallel_requests: int = 4,
+) -> dd.DataDesignerConfigBuilder:
     """Build the DataDesigner config for the medical-notes generation task."""
     model_alias = model_id
 
@@ -66,6 +71,8 @@ def _build_config(model_id: str, provider_name: str) -> dd.DataDesignerConfigBui
                 temperature=1.0,
                 top_p=1.0,
                 max_tokens=2048,
+                timeout=request_timeout,
+                max_parallel_requests=max_parallel_requests,
             ),
         ),
     ]
@@ -271,7 +278,11 @@ def run_ndd_benchmark(  # noqa: PLR0915
         raise ValueError(msg)
 
     # -- Build config and run pipeline ----------------------------------
-    config_builder = _build_config(model_id, provider_name)
+    # SGLang: limit parallel requests to 1 per worker (one per dp replica) and
+    # set an explicit timeout so long generations don't hit the client default.
+    request_timeout = 300 if inference_server_type == "sglang" else None
+    max_parallel_requests = 1 if inference_server_type == "sglang" else 4
+    config_builder = _build_config(model_id, provider_name, request_timeout=request_timeout, max_parallel_requests=max_parallel_requests)
 
     executor_obj = setup_executor(executor)
 
