@@ -116,6 +116,7 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
         mappings: List[Dict[str, Any]] = []
         current_pos_ms = 0
         sample_rate: Optional[int] = None
+        num_channels: Optional[int] = None
         silence_duration_ms = int(self.silence_duration_sec * 1000)
 
         for idx, item in enumerate(items):
@@ -140,8 +141,21 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
             sample_rate = sr
             silence_samples = int(silence_duration_ms * sample_rate / 1000)
 
-            w = waveform.squeeze() if waveform.dim() > 1 else waveform
-            num_samples = w.shape[-1] if w.dim() > 0 else 0
+            # Normalize to 2D (channels, samples)
+            if waveform.dim() == 1:
+                waveform = waveform.unsqueeze(0)
+
+            cur_channels = waveform.shape[0]
+            if num_channels is None:
+                num_channels = cur_channels
+            elif cur_channels != num_channels:
+                logger.warning(
+                    f"[SegmentConcat] Channel count mismatch at segment {idx}: "
+                    f"expected {num_channels}, got {cur_channels}. Skipping segment."
+                )
+                continue
+
+            num_samples = waveform.shape[-1]
             segment_duration_ms = int(1000 * num_samples / sample_rate)
 
             orig_start = item.get('start_ms', 0)
@@ -159,10 +173,10 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
             )
             mappings.append(mapping.to_dict())
 
-            parts.append(w.unsqueeze(0) if w.dim() == 1 else w)
+            parts.append(waveform)
             current_pos_ms += segment_duration_ms
 
-            parts.append(torch.zeros(1, silence_samples, dtype=w.dtype, device=w.device))
+            parts.append(torch.zeros(num_channels, silence_samples, dtype=waveform.dtype, device=waveform.device))
             current_pos_ms += silence_duration_ms
 
         if not parts:
