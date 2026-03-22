@@ -32,12 +32,11 @@ Usage:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, List
+from typing import List
 
 from loguru import logger
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.stages.resources import Resources
 
 from nemo_curator.stages.audio import (
     MonoConversionStage,
@@ -66,15 +65,14 @@ class AudioDataFilterStage(CompositeStage):
     Complete audio data filtering and curation pipeline (CompositeStage).
 
     Decomposes into independent stages that the executor can schedule with
-    cross-file parallelism. Each stage has its own resource allocation.
+    cross-file parallelism. Each stage owns its own default resource allocation.
+    Use .with_() to override individual stage resources if needed.
 
     Args:
         config: AudioDataFilterConfig with all pipeline settings.
-        gpu_resources: Resources for GPU stages. Defaults to Resources(gpus=1.0).
     """
 
     config: AudioDataFilterConfig = field(default_factory=AudioDataFilterConfig)
-    gpu_resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     name: str = "AudioDataFilter"
 
@@ -83,38 +81,29 @@ class AudioDataFilterStage(CompositeStage):
 
     def decompose(self) -> List[ProcessingStage]:
         cfg = self.config
-        gpu_res = self.gpu_resources
-        cpu_res = Resources(cpus=1.0)
-        band_res = Resources(cpus=4.0)
-
         stages: List[ProcessingStage] = []
 
-        # 1. Mono conversion (CPU)
         stages.append(MonoConversionStage(
             output_sample_rate=cfg.sample_rate,
             strict_sample_rate=cfg.strict_sample_rate,
             name="MonoConversion"))
 
-        # 2. VAD (batch mode)
         if cfg.enable_vad:
             stages.append(VADSegmentationStage(
                 config=VADConfig(min_duration_sec=cfg.vad_min_duration_sec,
                                  max_duration_sec=cfg.vad_max_duration_sec),
-                mode="batch", name="VAD").with_(resources=gpu_res))
+                mode="batch", name="VAD"))
 
-        # 3. Band filter (CPU-only, sklearn classifier)
         if cfg.enable_band_filter:
             stages.append(BandFilterStage(
                 config=BandFilterConfig(band_value=cfg.band_value),
-                name="BandFilter").with_(resources=band_res))
+                name="BandFilter"))
 
-        # 4. UTMOS
         if cfg.enable_utmos:
             stages.append(UTMOSFilterStage(
                 config=UTMOSConfig(mos_threshold=cfg.utmos_mos_threshold),
-                name="UTMOS").with_(resources=gpu_res))
+                name="UTMOS"))
 
-        # 5. SIGMOS
         if cfg.enable_sigmos:
             stages.append(SIGMOSFilterStage(
                 config=SIGMOSConfig(noise_threshold=cfg.sigmos_noise_threshold,
@@ -124,36 +113,34 @@ class AudioDataFilterStage(CompositeStage):
                                     disc_threshold=cfg.sigmos_disc_threshold,
                                     loud_threshold=cfg.sigmos_loud_threshold,
                                     reverb_threshold=cfg.sigmos_reverb_threshold),
-                name="SIGMOS").with_(resources=gpu_res))
+                name="SIGMOS"))
 
         if cfg.enable_speaker_separation:
-            # 6. Concatenation (CPU)
-            stages.append(SegmentConcatenationStage(
-                silence_duration_sec=cfg.silence_duration_ms / 1000.0,
-                name="SegmentConcat"))
+            if cfg.enable_vad:
+                stages.append(SegmentConcatenationStage(
+                    silence_duration_sec=cfg.silence_duration_ms / 1000.0,
+                    name="SegmentConcat"))
 
-            # 7. Speaker separation (GPU, fan-out)
             stages.append(SpeakerSeparationStage(
                 config=SpeakerSeparationConfig(
                     exclude_overlaps=cfg.speaker_exclude_overlaps),
-                name="SpeakerSeparation").with_(resources=gpu_res))
+                name="SpeakerSeparation"))
 
-            # 8-11. Per-speaker stages
             if cfg.enable_vad:
                 stages.append(VADSegmentationStage(
                     config=VADConfig(min_duration_sec=cfg.vad_min_duration_sec,
                                      max_duration_sec=cfg.vad_max_duration_sec),
-                    mode="batch", name="VAD_Speaker").with_(resources=gpu_res))
+                    mode="batch", name="VAD_Speaker"))
 
             if cfg.enable_band_filter:
                 stages.append(BandFilterStage(
                     config=BandFilterConfig(band_value=cfg.band_value),
-                    name="BandFilter_Speaker").with_(resources=band_res))
+                    name="BandFilter_Speaker"))
 
             if cfg.enable_utmos:
                 stages.append(UTMOSFilterStage(
                     config=UTMOSConfig(mos_threshold=cfg.utmos_mos_threshold),
-                    name="UTMOS_Speaker").with_(resources=gpu_res))
+                    name="UTMOS_Speaker"))
 
             if cfg.enable_sigmos:
                 stages.append(SIGMOSFilterStage(
@@ -164,9 +151,8 @@ class AudioDataFilterStage(CompositeStage):
                                         disc_threshold=cfg.sigmos_disc_threshold,
                                         loud_threshold=cfg.sigmos_loud_threshold,
                                         reverb_threshold=cfg.sigmos_reverb_threshold),
-                    name="SIGMOS_Speaker").with_(resources=gpu_res))
+                    name="SIGMOS_Speaker"))
 
-        # 12. Timestamp mapper (CPU)
         stages.append(TimestampMapperStage(
             passthrough_keys=cfg.passthrough_keys,
             name="TimestampMapper",
