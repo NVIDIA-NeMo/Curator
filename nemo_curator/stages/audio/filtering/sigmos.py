@@ -47,6 +47,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
+from ..common import resolve_model_path
 from ..configs import SIGMOSConfig
 
 
@@ -183,15 +184,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 raise
 
     def _resolve_model_path(self) -> str:
-        if os.path.isabs(self.model_path):
-            return self.model_path
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        module_dir = os.path.join(current_dir, "sigmos_filter_module")
-        for base in (module_dir, current_dir):
-            resolved = os.path.join(base, self.model_path)
-            if os.path.exists(resolved):
-                return resolved
-        return os.path.join(module_dir, self.model_path)
+        return resolve_model_path(self.model_path, __file__, 'sigmos_filter_module')
 
     def _scores_from_prediction(self, score_data: Any) -> Dict[str, float]:
         if isinstance(score_data, dict):
