@@ -17,8 +17,6 @@
 from dataclasses import dataclass
 from typing import Any, Literal
 
-_MODEL_PATH = "model/band_classifier_model_band_7000_samples.joblib"
-
 
 @dataclass
 class BandFilterConfig:
@@ -36,10 +34,6 @@ class BandFilterConfig:
     """
 
     band_value: Literal["full_band", "narrow_band"] = "full_band"
-
-    @property
-    def model_path(self) -> str:
-        return _MODEL_PATH
 
     @classmethod
     def from_dict(cls, d: dict) -> "BandFilterConfig":

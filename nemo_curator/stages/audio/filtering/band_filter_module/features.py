@@ -93,7 +93,8 @@ class AudioFeatureExtractor:
             power = D ** 2
             freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
 
-            global_max_power = np.max(power) if np.max(power) > 0 else 1e-10
+            max_power = np.max(power)
+            global_max_power = max_power if max_power > 0 else 1e-10
 
             for band, (f_min, f_max) in AudioFeatureExtractor.BAND_DEFINITIONS.items():
                 mask = (freqs >= f_min) & (freqs < f_max)
@@ -161,6 +162,9 @@ class AudioFeatureExtractor:
 
             if y.ndim > 1 and y.shape[0] > 1:
                 y = np.mean(y, axis=0)
+
+            if y.ndim > 1:
+                y = y.squeeze()
 
             all_features = AudioFeatureExtractor.calculate_band_energy(y, sr)
 

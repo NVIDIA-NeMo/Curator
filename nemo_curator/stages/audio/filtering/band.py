@@ -30,11 +30,9 @@ Example:
     pipeline.add_stage(BandFilterStage(band_value="narrow_band"))
 """
 
-import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
-import soundfile as sf
 import torch
 from loguru import logger
 
@@ -42,24 +40,8 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
+from ..common import resolve_model_path, resolve_waveform_from_item
 from ..configs import BandFilterConfig
-
-
-def _load_audio_file(audio_path: str) -> Tuple[torch.Tensor, int]:
-    """
-    Load audio file and return waveform tensor and sample rate.
-
-    Supports standalone usage of stages without requiring MonoConversionStage.
-    """
-    data, sample_rate = sf.read(audio_path, dtype='float32')
-    waveform = torch.from_numpy(data)
-    if waveform.dim() == 1:
-        waveform = waveform.unsqueeze(0)
-    else:
-        waveform = waveform.T
-    if waveform.shape[0] > 1:
-        waveform = waveform.mean(dim=0, keepdim=True)
-    return waveform, sample_rate
 
 
 @dataclass
@@ -90,20 +72,24 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     config: Optional[BandFilterConfig] = None
     model_path: str = "model/band_classifier_model_band_7000_samples.joblib"
-    band_value: str = "full_band"
+    band_value: Literal["full_band", "narrow_band"] = "full_band"
 
     name: str = "BandFilter"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+
+    _VALID_BAND_VALUES = {"full_band", "narrow_band"}
 
     def __post_init__(self):
         """Initialize after dataclass fields are set."""
         super().__init__()
         self._predictor = None
 
-        # Apply user-facing config fields only; model_path is internal.
         if self.config is not None:
             self.band_value = self.config.band_value
+
+        if self.band_value not in self._VALID_BAND_VALUES:
+            raise ValueError(f"band_value must be one of {self._VALID_BAND_VALUES!r}, got {self.band_value!r}")
 
     def inputs(self) -> Tuple[List[str], List[str]]:
         return ["data"], []
@@ -121,7 +107,8 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         if self._predictor is not None:
             del self._predictor
             self._predictor = None
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     def _initialize_predictor(self):
         """Initialize the band predictor."""
@@ -129,80 +116,15 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             try:
                 from nemo_curator.stages.audio.filtering.band_filter_module.predict import BandPredictor
 
-                model_path = self._resolve_model_path()
+                model_path = resolve_model_path(self.model_path, __file__, 'band_filter_module')
                 self._predictor = BandPredictor(
                     model_path=model_path,
                     feature_cache_size=100,
                 )
                 logger.info("Band predictor loaded successfully")
-            except ImportError as e:
-                logger.error(f"Failed to import Band module: {e}")
+            except Exception as e:
+                logger.error(f"Failed to initialize Band predictor: {e}")
                 raise
-
-    def _resolve_model_path(self) -> str:
-        """Resolve model path to absolute path."""
-        if os.path.isabs(self.model_path):
-            return self.model_path
-
-        # Try relative to band_filter_module first (default location)
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        module_dir = os.path.join(current_dir, 'band_filter_module')
-        resolved = os.path.join(module_dir, self.model_path)
-        if os.path.exists(resolved):
-            return resolved
-
-        # Try relative to filtering directory
-        resolved = os.path.join(current_dir, self.model_path)
-        if os.path.exists(resolved):
-            return resolved
-
-        # Return the module path as default
-        return os.path.join(module_dir, self.model_path)
-
-    def _get_audio_for_item(
-        self, item: Dict[str, Any], task_id: str
-    ) -> Optional[Tuple[torch.Tensor, int]]:
-        """
-        Get (waveform, sample_rate) for an item, loading from file if needed.
-
-        Updates item with waveform/sample_rate when loaded from file.
-        Returns None if waveform is missing and file load fails.
-        """
-        waveform = item.get("waveform")
-        sample_rate = item.get("sample_rate")
-
-        if waveform is None:
-            audio_filepath = item.get("audio_filepath")
-            if audio_filepath and os.path.exists(audio_filepath):
-                try:
-                    waveform, sample_rate = _load_audio_file(audio_filepath)
-                    item["waveform"] = waveform
-                    item["sample_rate"] = sample_rate
-                except Exception as e:
-                    logger.error(f"[{task_id}] Failed to load audio file: {e}")
-                    return None
-            else:
-                logger.warning(f"[{task_id}] No waveform or valid audio_filepath found")
-                return None
-        elif sample_rate is None:
-            audio_filepath = item.get("audio_filepath")
-            if audio_filepath and os.path.exists(audio_filepath):
-                try:
-                    info = sf.info(audio_filepath)
-                    sample_rate = info.samplerate
-                    item["sample_rate"] = sample_rate
-                    logger.debug(f"[{task_id}] Read sample_rate={sample_rate} from file header")
-                except Exception as e:
-                    logger.error(f"[{task_id}] Waveform present but sample_rate missing and "
-                                 f"could not read it from '{audio_filepath}': {e}")
-                    return None
-            else:
-                logger.error(f"[{task_id}] Waveform present but 'sample_rate' key is missing "
-                             "and no audio_filepath available to resolve it. "
-                             "Please set 'sample_rate' in the item dict.")
-                return None
-
-        return (waveform, sample_rate)
 
     def process(self, task: AudioBatch) -> Optional[AudioBatch]:
         """
@@ -230,7 +152,7 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             )
 
         for item in task.data:
-            audio = self._get_audio_for_item(item, task.task_id)
+            audio = resolve_waveform_from_item(item, task.task_id)
             if audio is None:
                 continue
             waveform, sample_rate = audio

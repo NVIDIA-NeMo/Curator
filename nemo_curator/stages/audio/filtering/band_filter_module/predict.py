@@ -20,8 +20,6 @@ import time
 import torch
 from loguru import logger
 
-warnings.filterwarnings("ignore", category=UserWarning, message=".*Trying to unpickle estimator.*")
-
 from .features import AudioFeatureExtractor
 
 
@@ -41,7 +39,7 @@ class BandPredictor:
         """
         cfg_model_path = getattr(config, 'band_model_path', None) if config else None
         if not cfg_model_path:
-            cfg_model_path = "band_filter/model/band_classifier_model_band_7000_samples.joblib"
+            cfg_model_path = "band_filter_module/model/band_classifier_model_band_7000_samples.joblib"
 
         cfg_cache_size = getattr(config, 'band_feature_cache_size', 100) if config else 100
         self.model_path = model_path if model_path is not None else cfg_model_path
