@@ -82,8 +82,8 @@ pipeline = (
             generate_previews=False,
             generate_captions=False,
             embedding_algorithm="cosmos-embed1",
-            caption_models=["qwen"],
-            enhanced_caption_models=["qwen_lm"],
+            caption_models=["Qwen/Qwen3-VL-8B-Instruct"],
+            enhanced_caption_models=["Qwen/Qwen3-14B"],
         )
     )
 )

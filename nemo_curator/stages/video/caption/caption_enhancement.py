@@ -152,7 +152,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
         for idx, result in enumerate(captions):
             clip_idx, window_idx = mapping[idx]
             original_caption = video.clips[clip_idx].windows[window_idx].caption[self.caption_model_name]
-            video.clips[clip_idx].windows[window_idx].enhanced_caption["qwen_lm"] = result
+            video.clips[clip_idx].windows[window_idx].enhanced_caption[self.model_name] = result
 
             if self.verbose:
                 logger.info(

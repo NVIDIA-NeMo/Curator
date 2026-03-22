@@ -50,7 +50,7 @@ pipe.add_stage(PreviewStage(target_fps=1.0, target_height=240, verbose=True))
 pipe.add_stage(
     CaptionGenerationStage(
         model_dir="/models",
-        model_variant="qwen",
+        model_name="Qwen/Qwen3-VL-8B-Instruct",
         caption_batch_size=8,
         fp8=False,
         max_output_tokens=512,
@@ -71,7 +71,7 @@ pipe.run()
 python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --generate-captions \
-  --captioning-algorithm qwen \
+  --captioning-model-name Qwen/Qwen3-VL-8B-Instruct \
   --captioning-window-size 256 \
   --captioning-remainder-threshold 128 \
   --captioning-sampling-fps 2.0 \
@@ -217,7 +217,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 
 ## Caption generation and enhancement
 
-1. Generate window‑level captions with a vision‑language model (Qwen‑VL). This stage reads `clip.windows[*].qwen_llm_input` created earlier and writes `window.caption["qwen"]`.
+1. Generate window‑level captions with a vision‑language model (Qwen‑VL). This stage reads `clip.windows[*].qwen_llm_input` created earlier and writes `window.caption[model_name]`.
 
    ```python
    from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage
@@ -225,7 +225,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 
    gen = CaptionGenerationStage(
        model_dir="/models",
-       model_variant="qwen",
+       model_name="Qwen/Qwen3-VL-8B-Instruct",
        caption_batch_size=8,
        fp8=False,
        max_output_tokens=512,
@@ -237,12 +237,12 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 
    ```
 
-2. Optionally enhance captions with a text‑based LLM (Qwen‑LM) to expand and refine descriptions. This stage reads `window.caption["qwen"]` and writes `window.enhanced_caption["qwen_lm"]`.
+2. Optionally enhance captions with a text‑based LLM (Qwen‑LM) to expand and refine descriptions. This stage reads `window.caption[caption_model_name]` and writes `window.enhanced_caption[model_name]`.
 
    ```python
    enh = CaptionEnhancementStage(
        model_dir="/models",
-       model_variant="qwen",
+       model_name="Qwen/Qwen3-14B",
        prompt_variant="default",
        prompt_text=None,
        model_batch_size=128,
@@ -270,10 +270,10 @@ python tutorials/video/getting-started/video_split_clip_example.py \
   - str
   - `"models/qwen"`
   - Directory for model weights; downloaded on each node if missing.
-* - `model_variant`
-  - {"qwen"}
-  - `"qwen"`
-  - Vision‑language model variant.
+* - `model_name`
+  - str
+  - `"Qwen/Qwen3-VL-8B-Instruct"`
+  - HuggingFace model ID for the vision‑language model. Must be a Qwen model (start with `"Qwen/"`).
 * - `caption_batch_size`
   - int
   - 16
@@ -324,10 +324,14 @@ python tutorials/video/getting-started/video_split_clip_example.py \
   - str
   - `"models/qwen"`
   - Directory for language‑model weights; downloaded per node if missing.
-* - `model_variant`
-  - {"qwen"}
-  - `"qwen"`
-  - Language‑model variant.
+* - `model_name`
+  - str
+  - `"Qwen/Qwen3-14B"`
+  - HuggingFace model ID for the language model. Must be a Qwen model (start with `"Qwen/"`).
+* - `caption_model_name`
+  - str
+  - `"Qwen/Qwen3-VL-8B-Instruct"`
+  - Model ID whose captions are being enhanced (must match the `model_name` used in `CaptionGenerationStage`).
 * - `prompt_variant`
   - {"default", "av-surveillance"}
   - `"default"`

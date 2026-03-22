@@ -219,9 +219,9 @@ class TestCaptionEnhancementStage:
         assert len(second_batch_call) == 1
 
         # Verify enhanced captions were set
-        assert "qwen_lm" in task.data.clips[0].windows[0].enhanced_caption
-        assert "qwen_lm" in task.data.clips[0].windows[1].enhanced_caption
-        assert "qwen_lm" in task.data.clips[1].windows[0].enhanced_caption
+        assert _QWEN_LM_MODEL_ID in task.data.clips[0].windows[0].enhanced_caption
+        assert _QWEN_LM_MODEL_ID in task.data.clips[0].windows[1].enhanced_caption
+        assert _QWEN_LM_MODEL_ID in task.data.clips[1].windows[0].enhanced_caption
 
         # Verify the result is the same task
         assert result is task
@@ -309,8 +309,8 @@ class TestCaptionEnhancementStage:
 
         # Verify all enhanced captions were set
         for i, window in enumerate(task.data.clips[0].windows):
-            assert "qwen_lm" in window.enhanced_caption
-            assert window.enhanced_caption["qwen_lm"] == f"Enhanced caption {i + 1}"
+            assert _QWEN_LM_MODEL_ID in window.enhanced_caption
+            assert window.enhanced_caption[_QWEN_LM_MODEL_ID] == f"Enhanced caption {i + 1}"
 
     def test_process_returns_same_task(self):
         """Test that process method returns the same task object."""

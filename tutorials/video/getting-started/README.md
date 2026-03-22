@@ -108,8 +108,8 @@ Each clip generates a JSON metadata file in `metas/v0/` with the following struc
     {
       "start_frame": 0,
       "end_frame": 30,
-      "qwen_caption": "A person walks across a room",
-      "qwen_lm_enhanced_caption": "A person briskly crosses a bright modern room"
+      "Qwen/Qwen3-VL-8B-Instruct_caption": "A person walks across a room",
+      "Qwen/Qwen3-14B_enhanced_caption": "A person briskly crosses a bright modern room"
     }
   ],
   "valid": true

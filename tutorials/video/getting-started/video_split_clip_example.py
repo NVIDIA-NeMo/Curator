@@ -225,7 +225,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
             generate_captions=args.generate_captions,
             embedding_algorithm=args.embedding_algorithm,
             caption_models=[args.captioning_model_name],
-            enhanced_caption_models=[args.enhanced_caption_models],
+            enhanced_caption_models=[args.enhance_captions_model_name],
             verbose=args.verbose,
         )
     )

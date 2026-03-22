@@ -31,8 +31,8 @@ pipeline.add_stage(
         generate_previews=False,
         generate_captions=False,
         embedding_algorithm="cosmos-embed1-224p",
-        caption_models=["qwen"],
-        enhanced_caption_models=["qwen_lm"],
+        caption_models=["Qwen/Qwen3-VL-8B-Instruct"],
+        enhanced_caption_models=["Qwen/Qwen3-14B"],
         verbose=True,
     )
 )
@@ -118,15 +118,15 @@ Each clip writes a JSON file under `metas/v0/` with clip- and window-level field
     {
       "start_frame": 0,
       "end_frame": 30,
-      "qwen_caption": "A person walks across a room",
-      "qwen_lm_enhanced_caption": "A person briskly crosses a bright modern room"
+      "Qwen/Qwen3-VL-8B-Instruct_caption": "A person walks across a room",
+      "Qwen/Qwen3-14B_enhanced_caption": "A person briskly crosses a bright modern room"
     }
   ],
   "valid": true
 }
 ```
 
-- Caption keys follow `<model>_caption` and `<model>_enhanced_caption`, based on `caption_models` and `enhanced_caption_models`.
+- Caption keys follow `<model-id>_caption` and `<model-id>_enhanced_caption`, using the full HuggingFace model ID from `caption_models` and `enhanced_caption_models`.
 - With `dry_run=True`, per-clip metadata is not written. Video- and chunk-level metadata are still written.
 - The stage writes video-level metadata and per-chunk stats to `processed_videos/` and `processed_clip_chunks/`.
 

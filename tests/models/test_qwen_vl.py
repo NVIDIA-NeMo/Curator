@@ -52,7 +52,7 @@ class TestQwenVL:
 
     def test_constants(self) -> None:
         """Test that module constants are correctly defined."""
-        assert _QWEN_VL_MODEL_ID == "Qwen/Qwen2.5-VL-7B-Instruct"
+        assert _QWEN_VL_MODEL_ID == "Qwen/Qwen3-VL-8B-Instruct"
 
     def test_initialization_default_parameters(self) -> None:
         """Test initialization with default parameters."""

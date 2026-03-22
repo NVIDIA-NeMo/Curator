@@ -18,7 +18,7 @@ import torch
 from transformers import AutoProcessor
 
 VARIANT_MAPPING = {
-    "qwen": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "qwen": "Qwen/Qwen3-VL-8B-Instruct",
 }
 
 

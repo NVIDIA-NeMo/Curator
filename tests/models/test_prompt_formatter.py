@@ -36,7 +36,7 @@ class TestPromptFormatter:
     def test_variant_mapping_constants(self) -> None:
         """Test that variant mapping constants are correctly defined."""
         assert "qwen" in VARIANT_MAPPING
-        assert VARIANT_MAPPING["qwen"] == "Qwen/Qwen2.5-VL-7B-Instruct"
+        assert VARIANT_MAPPING["qwen"] == "Qwen/Qwen3-VL-8B-Instruct"
 
     def test_initialization_valid_variant(self) -> None:
         """Test initialization with valid prompt variant."""

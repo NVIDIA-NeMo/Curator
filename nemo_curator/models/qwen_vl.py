@@ -40,7 +40,7 @@ except ImportError:
 from nemo_curator.models.base import ModelInterface
 from nemo_curator.utils import grouping
 
-_QWEN_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
+_QWEN_VL_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
 _QWEN_VL_MODEL_REVISION = None
 
 
