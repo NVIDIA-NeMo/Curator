@@ -39,13 +39,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torchaudio
-import soundfile as sf
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
+from ..common import load_audio_file
 from ..configs import UTMOSConfig
 
 _UTMOS_REPO = "tarepan/SpeechMOS:v1.2.0"
@@ -73,18 +73,14 @@ def _load_waveform_tensor(item: Dict[str, Any], task_id: str) -> Optional[Tuple[
             waveform = waveform.mean(dim=0, keepdim=True)
         return waveform, int(sample_rate)
 
+    if waveform is not None and sample_rate is None:
+        logger.warning(f"[{task_id}] Waveform present but 'sample_rate' missing, "
+                       "falling back to audio_filepath if available")
+
     path = item.get("audio_filepath")
     if path and os.path.isfile(path):
         try:
-            data, sr = sf.read(path, dtype="float32")
-            waveform = torch.from_numpy(data)
-            if waveform.dim() == 1:
-                waveform = waveform.unsqueeze(0)
-            else:
-                waveform = waveform.T
-            if waveform.shape[0] > 1:
-                waveform = waveform.mean(dim=0, keepdim=True)
-            return waveform, int(sr)
+            return load_audio_file(path, mono=True)
         except Exception as e:
             logger.error(f"[{task_id}] Failed to load audio file: {e}")
             return None
@@ -158,10 +154,15 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             )
         except Exception:
             logger.warning("UTMOS download failed, loading from cache...")
-            predictor = torch.hub.load(
-                _UTMOS_REPO, _UTMOS_ENTRYPOINT,
-                trust_repo=True, source="local", skip_validation=True,
-            )
+            try:
+                predictor = torch.hub.load(
+                    _UTMOS_REPO, _UTMOS_ENTRYPOINT,
+                    trust_repo=True, source="local", skip_validation=True,
+                )
+            except Exception as e:
+                logger.error(f"UTMOS model unavailable (download and cache both failed): {e}")
+                self._model = None
+                return
 
         predictor = predictor.to(device)
         predictor.eval()
