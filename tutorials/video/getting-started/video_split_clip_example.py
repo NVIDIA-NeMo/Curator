@@ -15,6 +15,8 @@
 import argparse
 
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID
+from nemo_curator.models.qwen_vl import _QWEN_VL_MODEL_ID
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.video.caption.caption_enhancement import CaptionEnhancementStage
 from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage
@@ -164,7 +166,6 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
     if args.generate_captions:
         pipeline.add_stage(
             CaptionPreparationStage(
-                model_variant=args.captioning_algorithm,
                 prompt_variant=args.captioning_prompt_variant,
                 prompt_text=args.captioning_prompt_text,
                 sampling_fps=args.captioning_sampling_fps,
@@ -188,7 +189,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
         pipeline.add_stage(
             CaptionGenerationStage(
                 model_dir=args.model_dir,
-                model_variant=args.captioning_algorithm,
+                model_name=args.captioning_model_name,
                 caption_batch_size=args.captioning_batch_size,
                 fp8=args.captioning_use_fp8_weights,
                 max_output_tokens=args.captioning_max_output_tokens,
@@ -203,7 +204,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
             pipeline.add_stage(
                 CaptionEnhancementStage(
                     model_dir=args.model_dir,
-                    model_variant=args.enhance_captions_algorithm,
+                    model_name=args.enhance_captions_model_name,
                     prompt_variant=args.enhance_captioning_prompt_variant,
                     prompt_text=args.enhance_captions_prompt_text,
                     model_batch_size=args.enhance_captions_batch_size,
@@ -223,7 +224,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
             generate_previews=args.generate_previews,
             generate_captions=args.generate_captions,
             embedding_algorithm=args.embedding_algorithm,
-            caption_models=[args.captioning_algorithm],
+            caption_models=[args.captioning_model_name],
             enhanced_caption_models=[args.enhanced_caption_models],
             verbose=args.verbose,
         )
@@ -275,7 +276,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
             "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
             "Default: ./models\n"
             "Example: --model-dir /path/to/models or --model-dir ./models"
-        )
+        ),
     )
     parser.add_argument("--video-limit", type=int, default=None, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
@@ -552,11 +553,10 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         help="Whether to generate captions for clips.",
     )
     parser.add_argument(
-        "--captioning-algorithm",
+        "--captioning-model-name",
         type=str,
-        default="qwen",
-        choices=["qwen"],
-        help="Captioning algorithm to use in annotation pipeline.",
+        default=_QWEN_VL_MODEL_ID,
+        help="HuggingFace model ID for the captioning VL model (e.g. 'Qwen/Qwen2.5-VL-7B-Instruct').",
     )
     parser.add_argument(
         "--captioning-window-size",
@@ -658,11 +658,10 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         help="Whether to enhance captions for clips.",
     )
     parser.add_argument(
-        "--enhance-captions-algorithm",
+        "--enhance-captions-model-name",
         type=str,
-        default="qwen",
-        choices=["qwen"],
-        help="Caption enhancement algorithm to use.",
+        default=_QWEN_LM_MODEL_ID,
+        help="HuggingFace model ID for the caption enhancement LM model (e.g. 'Qwen/Qwen3-14B').",
     )
     parser.add_argument(
         "--enhance-captions-batch-size",

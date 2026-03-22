@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from transformers import AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
 
 from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
@@ -37,28 +37,70 @@ except ImportError:
 
 from nemo_curator.models.base import ModelInterface
 
-_QWEN_LM_MODEL_ID = "Qwen/Qwen2.5-14B-Instruct"
-_QWEN_LM_MODEL_REVISION = "cf98f3b"
+_QWEN_LM_MODEL_ID = "Qwen/Qwen3-14B"
+_QWEN_LM_MODEL_REVISION = None
+
+
+def _validate_qwen_model(model_name: str) -> None:
+    if not model_name.startswith("Qwen/"):
+        msg = f"model_name must be a Qwen model (start with 'Qwen/'). Got: '{model_name}'"
+        raise ValueError(msg)
+
+
+def _check_vllm_supports_model(model_name: str) -> None:
+    if not VLLM_AVAILABLE:
+        return
+    config = AutoConfig.from_pretrained(model_name)
+    architectures = getattr(config, "architectures", None) or []
+    if not architectures:
+        return
+    try:
+        from vllm.model_executor.models import ModelRegistry
+
+        unsupported = [arch for arch in architectures if not ModelRegistry.is_model_supported(arch)]
+        if len(unsupported) == len(architectures):
+            msg = f"Model '{model_name}' has architecture(s) {architectures} not supported by vLLM"
+            raise ValueError(msg)
+    except ImportError:
+        pass  # vLLM registry not accessible, skip check
 
 
 class QwenLM(ModelInterface):
     """Qwen language model."""
 
     def model_id_names(self) -> list[str]:
-        return [_QWEN_LM_MODEL_ID]
+        return [self.model_name]
 
-    def __init__(self, model_dir: str, caption_batch_size: int, fp8: bool, max_output_tokens: int):
+    def __init__(  # noqa: PLR0913
+        self,
+        model_dir: str,
+        caption_batch_size: int,
+        fp8: bool,
+        max_output_tokens: int,
+        model_name: str = _QWEN_LM_MODEL_ID,
+        model_revision: str | None = _QWEN_LM_MODEL_REVISION,
+    ):
+        _validate_qwen_model(model_name)
         self.model_dir = model_dir
         self.caption_batch_size = caption_batch_size
         self.fp8 = fp8
         self.max_output_tokens = max_output_tokens
+        self.model_name = model_name
+        self.model_revision = model_revision
 
     def setup(self) -> None:
         if not VLLM_AVAILABLE:
             msg = "vllm is required for QwenLM model but is not installed. Please install vllm: pip install vllm"
             raise ImportError(msg)
 
-        self.weight_file = str(Path(self.model_dir) / _QWEN_LM_MODEL_ID)
+        _check_vllm_supports_model(self.model_name)
+
+        self.weight_file = str(Path(self.model_dir) / self.model_name)
+        weight_path = Path(self.weight_file)
+        if not weight_path.exists() or not any(weight_path.glob("*.safetensors")):
+            weight_path.mkdir(parents=True, exist_ok=True)
+            download_model_from_hf(model_id=self.model_name, local_dir=weight_path, revision=self.model_revision)
+
         self.llm = LLM(
             model=self.weight_file,
             quantization="fp8" if self.fp8 else None,
@@ -79,15 +121,17 @@ class QwenLM(ModelInterface):
         return [result.outputs[0].text for result in results]
 
     @classmethod
-    def download_weights_on_node(cls, model_dir: str) -> None:
+    def download_weights_on_node(
+        cls,
+        model_dir: str,
+        model_name: str = _QWEN_LM_MODEL_ID,
+        model_revision: str | None = _QWEN_LM_MODEL_REVISION,
+    ) -> None:
         """Download the weights for the QwenLM model on the node."""
-        model_dir_path = Path(model_dir) / _QWEN_LM_MODEL_ID
+        _validate_qwen_model(model_name)
+        model_dir_path = Path(model_dir) / model_name
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
             return
-        download_model_from_hf(
-            model_id=_QWEN_LM_MODEL_ID,
-            local_dir=model_dir_path,
-            revision=_QWEN_LM_MODEL_REVISION,
-        )
+        download_model_from_hf(model_id=model_name, local_dir=model_dir_path, revision=model_revision)
         logger.info(f"QwenLM weights downloaded to: {model_dir_path}")

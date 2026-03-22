@@ -15,9 +15,8 @@
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
-import pytest
-
 from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.models.qwen_vl import _QWEN_VL_MODEL_ID
 from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage
 from nemo_curator.tasks.video import Clip, Video, VideoTask, _Window
 
@@ -29,7 +28,7 @@ class TestCaptionGenerationStage:
         """Set up test fixtures."""
         self.stage = CaptionGenerationStage(
             model_dir="test/models",
-            model_variant="qwen",
+            model_name=_QWEN_VL_MODEL_ID,
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
@@ -43,7 +42,7 @@ class TestCaptionGenerationStage:
         """Test initialization with default values."""
         stage = CaptionGenerationStage()
         assert stage.model_dir == "models/qwen"
-        assert stage.model_variant == "qwen"
+        assert stage.model_name == _QWEN_VL_MODEL_ID
         assert stage.caption_batch_size == 16
         assert stage.fp8 is False
         assert stage.max_output_tokens == 512
@@ -74,7 +73,7 @@ class TestCaptionGenerationStage:
 
         mock_qwen_vl.assert_called_once_with(
             model_dir="test/models",
-            model_variant="qwen",
+            model_name=_QWEN_VL_MODEL_ID,
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
@@ -83,13 +82,6 @@ class TestCaptionGenerationStage:
         )
         mock_model.setup.assert_called_once()
         assert self.stage.model == mock_model
-
-    def test_setup_unsupported_variant(self):
-        """Test setup method with unsupported model variant."""
-        stage = CaptionGenerationStage(model_variant="unsupported")
-
-        with pytest.raises(ValueError, match="Unsupported model variant: unsupported"):
-            stage.setup()
 
     def test_post_init_resources(self):
         """Test __post_init__ sets correct resources."""
@@ -153,9 +145,9 @@ class TestCaptionGenerationStage:
         assert kwargs["batch_size"] == 2
 
         # Verify captions were assigned
-        assert result.data.clips[0].windows[0].caption["qwen"] == "Caption 1"
-        assert result.data.clips[0].windows[1].caption["qwen"] == "Caption 2"
-        assert result.data.clips[1].windows[0].caption["qwen"] == "Caption 3"
+        assert result.data.clips[0].windows[0].caption[_QWEN_VL_MODEL_ID] == "Caption 1"
+        assert result.data.clips[0].windows[1].caption[_QWEN_VL_MODEL_ID] == "Caption 2"
+        assert result.data.clips[1].windows[0].caption[_QWEN_VL_MODEL_ID] == "Caption 3"
 
         # Verify cleanup
         for clip in result.data.clips:
@@ -251,9 +243,9 @@ class TestCaptionGenerationStage:
 
         self.stage._assign_captions(video, mapping, captions)
 
-        assert video.clips[0].windows[0].caption["qwen"] == "Caption for clip1 window1"
-        assert video.clips[0].windows[1].caption["qwen"] == "Caption for clip1 window2"
-        assert video.clips[1].windows[0].caption["qwen"] == "Caption for clip2 window1"
+        assert video.clips[0].windows[0].caption[_QWEN_VL_MODEL_ID] == "Caption for clip1 window1"
+        assert video.clips[0].windows[1].caption[_QWEN_VL_MODEL_ID] == "Caption for clip1 window2"
+        assert video.clips[1].windows[0].caption[_QWEN_VL_MODEL_ID] == "Caption for clip2 window1"
 
     @patch("nemo_curator.stages.video.caption.caption_generation.logger")
     def test_assign_captions_with_logging(self, mock_logger: Mock):

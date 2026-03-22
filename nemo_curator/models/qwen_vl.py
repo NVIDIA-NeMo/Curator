@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from transformers import AutoConfig
 
 from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
@@ -39,20 +40,41 @@ except ImportError:
 from nemo_curator.models.base import ModelInterface
 from nemo_curator.utils import grouping
 
-_QWEN2_5_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
-_QWEN2_5_VL_MODEL_REVISION = "cc59489"
+_QWEN_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
+_QWEN_VL_MODEL_REVISION = None
 
-_QWEN_VARIANTS_INFO = {
-    "qwen": _QWEN2_5_VL_MODEL_ID,
-}
+
+def _validate_qwen_model(model_name: str) -> None:
+    if not model_name.startswith("Qwen/"):
+        msg = f"model_name must be a Qwen model (start with 'Qwen/'). Got: '{model_name}'"
+        raise ValueError(msg)
+
+
+def _check_vllm_supports_model(model_name: str) -> None:
+    if not VLLM_AVAILABLE:
+        return
+    config = AutoConfig.from_pretrained(model_name)
+    architectures = getattr(config, "architectures", None) or []
+    if not architectures:
+        return
+    try:
+        from vllm.model_executor.models import ModelRegistry
+
+        unsupported = [arch for arch in architectures if not ModelRegistry.is_model_supported(arch)]
+        if len(unsupported) == len(architectures):
+            msg = f"Model '{model_name}' has architecture(s) {architectures} not supported by vLLM"
+            raise ValueError(msg)
+    except ImportError:
+        pass  # vLLM registry not accessible, skip check
 
 
 class QwenVL(ModelInterface):
     def __init__(  # noqa: PLR0913
         self,
         model_dir: str,
-        model_variant: str,
         caption_batch_size: int,
+        model_name: str = _QWEN_VL_MODEL_ID,
+        model_revision: str | None = _QWEN_VL_MODEL_REVISION,
         fp8: bool = True,
         max_output_tokens: int = 512,
         model_does_preprocess: bool = False,
@@ -60,8 +82,10 @@ class QwenVL(ModelInterface):
         stage2_prompt_text: str | None = None,
         verbose: bool = False,
     ):
+        _validate_qwen_model(model_name)
         self.model_dir = model_dir
-        self.model_variant = model_variant
+        self.model_name = model_name
+        self.model_revision = model_revision
         self.caption_batch_size = caption_batch_size
         self.fp8 = fp8
         self.max_output_tokens = max_output_tokens
@@ -69,18 +93,29 @@ class QwenVL(ModelInterface):
         self.disable_mmcache = disable_mmcache
         self.stage2_prompt = stage2_prompt_text
         self.verbose = verbose
-        self.weight_file = str(pathlib.Path(model_dir) / _QWEN_VARIANTS_INFO[model_variant])
+        self.weight_file = str(pathlib.Path(model_dir) / model_name)
         # Default pattern for stage2 caption generation - matches (.*)(user_prompt)(.*)
         self.pattern = r"(.*)(user_prompt)(.*)"
 
     @property
     def model_id_names(self) -> list[str]:
-        return [_QWEN_VARIANTS_INFO[self.model_variant]]
+        return [self.model_name]
 
     def setup(self) -> None:
         if not VLLM_AVAILABLE:
             msg = "vllm is required for QwenVL model but is not installed. Please install vllm: pip install vllm"
             raise ImportError(msg)
+
+        _check_vllm_supports_model(self.model_name)
+
+        weight_path = Path(self.weight_file)
+        if not weight_path.exists() or not any(weight_path.glob("*.safetensors")):
+            weight_path.mkdir(parents=True, exist_ok=True)
+            download_model_from_hf(
+                model_id=self.model_name,
+                local_dir=weight_path,
+                revision=self.model_revision,
+            )
 
         mm_processor_kwargs = {
             "do_resize": self.model_does_preprocess,
@@ -143,15 +178,21 @@ class QwenVL(ModelInterface):
         return generated_text
 
     @classmethod
-    def download_weights_on_node(cls, model_dir: str) -> None:
+    def download_weights_on_node(
+        cls,
+        model_dir: str,
+        model_name: str = _QWEN_VL_MODEL_ID,
+        model_revision: str | None = _QWEN_VL_MODEL_REVISION,
+    ) -> None:
         """Download the weights for the QwenVL model on the node."""
-        model_dir_path = Path(model_dir) / _QWEN2_5_VL_MODEL_ID
+        _validate_qwen_model(model_name)
+        model_dir_path = Path(model_dir) / model_name
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
             return
         download_model_from_hf(
-            model_id=_QWEN2_5_VL_MODEL_ID,
+            model_id=model_name,
             local_dir=model_dir_path,
-            revision=_QWEN2_5_VL_MODEL_REVISION,
+            revision=model_revision,
         )
         logger.info(f"QwenVL weights downloaded to: {model_dir_path}")
