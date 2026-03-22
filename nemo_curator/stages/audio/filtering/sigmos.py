@@ -31,7 +31,7 @@ Example:
     pipeline = Pipeline(name="quality_pipeline")
     pipeline.add_stage(
         SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
-        .with_(resources=Resources(gpus=0.3))
+        .with_(resources=Resources(cpus=1.0, gpus=0.5))
     )
 """
 
@@ -137,7 +137,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     name: str = "SIGMOSFilter"
     batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(gpus=0.3))
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=0.5))
 
     def __post_init__(self):
         super().__init__()
