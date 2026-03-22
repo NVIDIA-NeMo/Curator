@@ -16,6 +16,8 @@
 
 from unittest.mock import Mock, patch
 
+import pytest
+
 from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM
 
 
@@ -38,14 +40,24 @@ class TestQwenLM:
             max_output_tokens=self.max_output_tokens,
         )
 
-    def test_constants(self) -> None:
-        assert _QWEN_LM_MODEL_ID == "Qwen/Qwen2.5-14B-Instruct"
+    def test_default_model(self) -> None:
+        assert (
+            QwenLM(
+                model_dir=self.model_dir,
+                caption_batch_size=self.caption_batch_size,
+                fp8=self.fp8,
+                max_output_tokens=self.max_output_tokens,
+            ).model_id
+            == "Qwen/Qwen3-14B"
+        )
 
     def test_initialization(self) -> None:
         assert self.qwen_lm.model_dir == self.model_dir
         assert self.qwen_lm.caption_batch_size == self.caption_batch_size
         assert self.qwen_lm.fp8 == self.fp8
         assert self.qwen_lm.max_output_tokens == self.max_output_tokens
+        assert self.qwen_lm.model_id == _QWEN_LM_MODEL_ID
+        assert self.qwen_lm.model_revision is None
 
     def test_model_id_names(self) -> None:
         model_ids = self.qwen_lm.model_id_names()
@@ -53,40 +65,64 @@ class TestQwenLM:
         assert len(model_ids) == 1
         assert model_ids[0] == _QWEN_LM_MODEL_ID
 
+    def test_custom_model_id(self) -> None:
+        custom_model = "Qwen/Qwen3-8B"
+        qwen_lm = QwenLM(
+            model_dir=self.model_dir,
+            caption_batch_size=self.caption_batch_size,
+            fp8=self.fp8,
+            max_output_tokens=self.max_output_tokens,
+            model_id=custom_model,
+        )
+        assert qwen_lm.model_id == custom_model
+        assert qwen_lm.model_id_names() == [custom_model]
+
+    def test_invalid_model_id_raises(self) -> None:
+        with pytest.raises(ValueError, match="must be a Qwen model"):
+            QwenLM(
+                model_dir=self.model_dir,
+                caption_batch_size=self.caption_batch_size,
+                fp8=self.fp8,
+                max_output_tokens=self.max_output_tokens,
+                model_id="mistralai/Mistral-7B-Instruct",
+            )
+
+    @patch("nemo_curator.models.qwen_lm._check_vllm_supports_model")
     @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
     @patch("nemo_curator.models.qwen_lm.SamplingParams")
     @patch("nemo_curator.models.qwen_lm.LLM")
     @patch("nemo_curator.models.qwen_lm.Path")
     def test_setup_with_fp8(
-        self, mock_path: Mock, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
+        self,
+        mock_path: Mock,
+        mock_llm_class: Mock,
+        mock_sampling_params_class: Mock,
+        mock_tokenizer_class: Mock,
+        mock_check_vllm: Mock,
     ) -> None:
-        # Mock Path behavior
+        expected_weight_path = "/test/model/dir/Qwen/Qwen3-14B"
         mock_path_instance = Mock()
-        mock_path_instance.__truediv__ = Mock(return_value="/test/model/dir/Qwen/Qwen2.5-14B-Instruct")
+        mock_path_instance.__truediv__ = Mock(return_value=expected_weight_path)
+        # Simulate weights already present so auto-download is skipped
+        mock_path_instance.exists.return_value = True
+        mock_path_instance.glob.return_value = ["model.safetensors"]
         mock_path.return_value = mock_path_instance
 
-        # Mock LLM
         mock_llm = Mock()
         mock_llm_class.return_value = mock_llm
-
-        # Mock SamplingParams
         mock_sampling_params = Mock()
         mock_sampling_params_class.return_value = mock_sampling_params
-
-        # Mock tokenizer
         mock_tokenizer = Mock()
         mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
 
         self.qwen_lm.setup()
 
-        # Verify LLM initialization
+        mock_check_vllm.assert_called_once_with(self.qwen_lm.model_id)
         mock_llm_class.assert_called_once_with(
-            model="/test/model/dir/Qwen/Qwen2.5-14B-Instruct",
+            model=expected_weight_path,
             quantization="fp8",
             enforce_eager=False,
         )
-
-        # Verify SamplingParams initialization
         mock_sampling_params_class.assert_called_once_with(
             temperature=0.1,
             top_p=0.001,
@@ -94,24 +130,25 @@ class TestQwenLM:
             max_tokens=self.max_output_tokens,
             stop_token_ids=[],
         )
-
-        # Verify tokenizer initialization
-        mock_tokenizer_class.from_pretrained.assert_called_once_with("/test/model/dir/Qwen/Qwen2.5-14B-Instruct")
-
-        # Verify attributes are set
-        assert self.qwen_lm.weight_file == "/test/model/dir/Qwen/Qwen2.5-14B-Instruct"
+        mock_tokenizer_class.from_pretrained.assert_called_once_with(expected_weight_path)
+        assert self.qwen_lm.weight_file == expected_weight_path
         assert self.qwen_lm.llm == mock_llm
         assert self.qwen_lm.sampling_params == mock_sampling_params
         assert self.qwen_lm.tokenizer == mock_tokenizer
 
+    @patch("nemo_curator.models.qwen_lm._check_vllm_supports_model")
     @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
     @patch("nemo_curator.models.qwen_lm.SamplingParams")
     @patch("nemo_curator.models.qwen_lm.LLM")
     @patch("nemo_curator.models.qwen_lm.Path")
     def test_setup_without_fp8(
-        self, mock_path: Mock, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
+        self,
+        mock_path: Mock,
+        mock_llm_class: Mock,
+        mock_sampling_params_class: Mock,
+        mock_tokenizer_class: Mock,
+        mock_check_vllm: Mock,
     ) -> None:
-        # Create QwenLM without fp8
         qwen_lm_no_fp8 = QwenLM(
             model_dir=self.model_dir,
             caption_batch_size=self.caption_batch_size,
@@ -119,55 +156,116 @@ class TestQwenLM:
             max_output_tokens=self.max_output_tokens,
         )
 
-        # Mock Path behavior
+        expected_weight_path = "/test/model/dir/Qwen/Qwen3-14B"
         mock_path_instance = Mock()
-        mock_path_instance.__truediv__ = Mock(return_value="/test/model/dir/Qwen/Qwen2.5-14B-Instruct")
+        mock_path_instance.__truediv__ = Mock(return_value=expected_weight_path)
+        mock_path_instance.exists.return_value = True
+        mock_path_instance.glob.return_value = ["model.safetensors"]
         mock_path.return_value = mock_path_instance
 
-        # Mock LLM
-        mock_llm = Mock()
-        mock_llm_class.return_value = mock_llm
-
-        # Mock SamplingParams
-        mock_sampling_params = Mock()
-        mock_sampling_params_class.return_value = mock_sampling_params
-
-        # Mock tokenizer
-        mock_tokenizer = Mock()
-        mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
+        mock_llm_class.return_value = Mock()
+        mock_sampling_params_class.return_value = Mock()
+        mock_tokenizer_class.from_pretrained.return_value = Mock()
 
         qwen_lm_no_fp8.setup()
 
-        # Verify LLM initialization without fp8
         mock_llm_class.assert_called_once_with(
-            model="/test/model/dir/Qwen/Qwen2.5-14B-Instruct",
+            model=expected_weight_path,
             quantization=None,
             enforce_eager=False,
         )
 
+    @patch("nemo_curator.models.qwen_lm._check_vllm_supports_model")
+    @patch("nemo_curator.models.qwen_lm.download_model_from_hf")
+    @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
+    @patch("nemo_curator.models.qwen_lm.SamplingParams")
+    @patch("nemo_curator.models.qwen_lm.LLM")
+    @patch("nemo_curator.models.qwen_lm.Path")
+    def test_setup_auto_downloads_if_missing(  # noqa: PLR0913
+        self,
+        mock_path: Mock,
+        mock_llm_class: Mock,
+        mock_sampling_params_class: Mock,
+        mock_tokenizer_class: Mock,
+        mock_download: Mock,
+        mock_check_vllm: Mock,
+    ) -> None:
+        mock_path_instance = Mock()
+        mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
+        mock_path_instance.__str__ = Mock(return_value="/test/model/dir/Qwen/Qwen3-14B")
+        mock_path_instance.exists.return_value = False
+        mock_path_instance.glob.return_value = []
+        mock_path_instance.mkdir = Mock()
+        mock_path.return_value = mock_path_instance
+
+        mock_llm_class.return_value = Mock()
+        mock_sampling_params_class.return_value = Mock()
+        mock_tokenizer_class.from_pretrained.return_value = Mock()
+
+        self.qwen_lm.setup()
+
+        mock_download.assert_called_once_with(
+            model_id=self.qwen_lm.model_id, local_dir=mock_path_instance, revision=None
+        )
+
+    @patch("nemo_curator.models.qwen_lm._check_vllm_supports_model")
+    @patch("nemo_curator.models.qwen_lm.download_model_from_hf")
+    @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
+    @patch("nemo_curator.models.qwen_lm.SamplingParams")
+    @patch("nemo_curator.models.qwen_lm.LLM")
+    @patch("nemo_curator.models.qwen_lm.Path")
+    def test_setup_skips_download_if_weights_present(  # noqa: PLR0913
+        self,
+        mock_path: Mock,
+        mock_llm_class: Mock,
+        mock_sampling_params_class: Mock,
+        mock_tokenizer_class: Mock,
+        mock_download: Mock,
+        mock_check_vllm: Mock,
+    ) -> None:
+        mock_path_instance = Mock()
+        mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
+        mock_path_instance.__str__ = Mock(return_value="/test/model/dir/Qwen/Qwen3-14B")
+        mock_path_instance.exists.return_value = True
+        mock_path_instance.glob.return_value = ["model.safetensors"]
+        mock_path.return_value = mock_path_instance
+
+        mock_llm_class.return_value = Mock()
+        mock_sampling_params_class.return_value = Mock()
+        mock_tokenizer_class.from_pretrained.return_value = Mock()
+
+        self.qwen_lm.setup()
+
+        mock_download.assert_not_called()
+
+    def test_setup_raises_if_vllm_unsupported(self) -> None:
+        with (
+            patch(
+                "nemo_curator.models.qwen_lm._check_vllm_supports_model",
+                side_effect=ValueError("not supported by vLLM"),
+            ),
+            pytest.raises(ValueError, match="not supported by vLLM"),
+        ):
+            self.qwen_lm.setup()
+
     def test_generate_single_input(self) -> None:
-        # Setup mocks
         mock_llm = Mock()
         mock_tokenizer = Mock()
         mock_sampling_params = Mock()
 
-        # Mock tokenizer behavior
         formatted_input = "formatted_prompt"
         mock_tokenizer.apply_chat_template.return_value = formatted_input
 
-        # Mock LLM generate response
         mock_output = Mock()
         mock_output.text = "Generated response"
         mock_result = Mock()
         mock_result.outputs = [mock_output]
         mock_llm.generate.return_value = [mock_result]
 
-        # Set up the model
         self.qwen_lm.llm = mock_llm
         self.qwen_lm.tokenizer = mock_tokenizer
         self.qwen_lm.sampling_params = mock_sampling_params
 
-        # Test input
         test_input = [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "Hello, world!"},
@@ -175,28 +273,20 @@ class TestQwenLM:
 
         result = self.qwen_lm.generate([test_input])
 
-        # Verify tokenizer was called correctly
         mock_tokenizer.apply_chat_template.assert_called_once_with(
             [test_input], tokenize=False, add_generation_prompt=True
         )
-
-        # Verify LLM generate was called correctly
         mock_llm.generate.assert_called_once_with(formatted_input, sampling_params=mock_sampling_params)
-
-        # Verify result
         assert result == ["Generated response"]
 
     def test_generate_multiple_inputs(self) -> None:
-        # Setup mocks
         mock_llm = Mock()
         mock_tokenizer = Mock()
         mock_sampling_params = Mock()
 
-        # Mock tokenizer behavior for multiple inputs
         formatted_inputs = ["formatted_prompt_1", "formatted_prompt_2"]
         mock_tokenizer.apply_chat_template.return_value = formatted_inputs
 
-        # Mock LLM generate response for multiple inputs
         mock_output_1 = Mock()
         mock_output_1.text = "Response 1"
         mock_result_1 = Mock()
@@ -209,77 +299,57 @@ class TestQwenLM:
 
         mock_llm.generate.return_value = [mock_result_1, mock_result_2]
 
-        # Set up the model
         self.qwen_lm.llm = mock_llm
         self.qwen_lm.tokenizer = mock_tokenizer
         self.qwen_lm.sampling_params = mock_sampling_params
 
-        # Test inputs
         test_inputs = [[{"role": "user", "content": "First message"}], [{"role": "user", "content": "Second message"}]]
 
         result = self.qwen_lm.generate(test_inputs)
 
-        # Verify tokenizer was called correctly
         mock_tokenizer.apply_chat_template.assert_called_once_with(
             test_inputs, tokenize=False, add_generation_prompt=True
         )
-
-        # Verify LLM generate was called correctly
         mock_llm.generate.assert_called_once_with(formatted_inputs, sampling_params=mock_sampling_params)
-
-        # Verify result
         assert result == ["Response 1", "Response 2"]
 
     def test_generate_empty_input(self) -> None:
-        # Setup mocks
         mock_llm = Mock()
         mock_tokenizer = Mock()
         mock_sampling_params = Mock()
 
-        # Mock tokenizer behavior for empty input
         mock_tokenizer.apply_chat_template.return_value = []
         mock_llm.generate.return_value = []
 
-        # Set up the model
         self.qwen_lm.llm = mock_llm
         self.qwen_lm.tokenizer = mock_tokenizer
         self.qwen_lm.sampling_params = mock_sampling_params
 
         result = self.qwen_lm.generate([])
 
-        # Verify tokenizer was called correctly
         mock_tokenizer.apply_chat_template.assert_called_once_with([], tokenize=False, add_generation_prompt=True)
-
-        # Verify LLM generate was called correctly
         mock_llm.generate.assert_called_once_with([], sampling_params=mock_sampling_params)
-
-        # Verify result
         assert result == []
 
     def test_generate_with_complex_conversation(self) -> None:
         """Test generate method with complex multi-turn conversation."""
-        # Setup mocks
         mock_llm = Mock()
         mock_tokenizer = Mock()
         mock_sampling_params = Mock()
 
-        # Mock tokenizer behavior
         formatted_input = "complex_formatted_prompt"
         mock_tokenizer.apply_chat_template.return_value = formatted_input
 
-        # Mock LLM generate response
         mock_output = Mock()
         mock_output.text = "Complex response with multiple sentences. This is a detailed answer."
         mock_result = Mock()
         mock_result.outputs = [mock_output]
         mock_llm.generate.return_value = [mock_result]
 
-        # Set up the model
         self.qwen_lm.llm = mock_llm
         self.qwen_lm.tokenizer = mock_tokenizer
         self.qwen_lm.sampling_params = mock_sampling_params
 
-        # Test input with multi-turn conversation
         test_input = [
             {"role": "system", "content": "You are a video caption enhancer."},
             {"role": "user", "content": "A person walks down the street."},
@@ -289,19 +359,19 @@ class TestQwenLM:
 
         result = self.qwen_lm.generate([test_input])
 
-        # Verify result
         assert result == ["Complex response with multiple sentences. This is a detailed answer."]
-
-        # Verify tokenizer was called with correct parameters
         mock_tokenizer.apply_chat_template.assert_called_once_with(
             [test_input], tokenize=False, add_generation_prompt=True
         )
 
-    def test_weight_file_path_construction(self) -> None:
+    @patch("nemo_curator.models.qwen_lm._check_vllm_supports_model")
+    def test_weight_file_path_construction(self, mock_check_vllm: Mock) -> None:
         with patch("nemo_curator.models.qwen_lm.Path") as mock_path:
             mock_path_instance = Mock()
-            expected_path = "/test/model/dir/Qwen/Qwen2.5-14B-Instruct"
+            expected_path = "/test/model/dir/Qwen/Qwen3-14B"
             mock_path_instance.__truediv__ = Mock(return_value=expected_path)
+            mock_path_instance.exists.return_value = True
+            mock_path_instance.glob.return_value = ["model.safetensors"]
             mock_path.return_value = mock_path_instance
 
             with (
@@ -311,13 +381,13 @@ class TestQwenLM:
             ):
                 self.qwen_lm.setup()
 
-                # Verify Path was called correctly
-                mock_path.assert_called_once_with(self.model_dir)
-                mock_path_instance.__truediv__.assert_called_once_with(_QWEN_LM_MODEL_ID)
+                mock_path.assert_any_call(self.model_dir)
+                mock_path_instance.__truediv__.assert_called_once_with(self.qwen_lm.model_id)
                 assert self.qwen_lm.weight_file == expected_path
 
     def test_sampling_params_configuration(self) -> None:
         with (
+            patch("nemo_curator.models.qwen_lm._check_vllm_supports_model"),
             patch("nemo_curator.models.qwen_lm.LLM"),
             patch("nemo_curator.models.qwen_lm.AutoTokenizer"),
             patch("nemo_curator.models.qwen_lm.Path") as mock_path,
@@ -325,6 +395,8 @@ class TestQwenLM:
         ):
             mock_path_instance = Mock()
             mock_path_instance.__truediv__ = Mock(return_value="test_path")
+            mock_path_instance.exists.return_value = True
+            mock_path_instance.glob.return_value = ["model.safetensors"]
             mock_path.return_value = mock_path_instance
 
             mock_sampling_params = Mock()
@@ -332,7 +404,6 @@ class TestQwenLM:
 
             self.qwen_lm.setup()
 
-            # Verify SamplingParams was initialized with correct parameters
             mock_sampling_params_class.assert_called_once_with(
                 temperature=0.1,
                 top_p=0.001,
@@ -340,6 +411,41 @@ class TestQwenLM:
                 max_tokens=self.max_output_tokens,
                 stop_token_ids=[],
             )
+
+    @patch("nemo_curator.models.qwen_lm.download_model_from_hf")
+    def test_download_weights_on_node_custom_model_id(self, mock_download: Mock) -> None:
+        custom_model = "Qwen/Qwen3-8B"
+        with patch("nemo_curator.models.qwen_lm.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
+            mock_path_instance.exists.return_value = False
+            mock_path_instance.glob.return_value = []
+            mock_path_instance.mkdir = Mock()
+            mock_path.return_value = mock_path_instance
+
+            QwenLM.download_weights_on_node(model_dir="/some/dir", model_id=custom_model)
+
+            mock_download.assert_called_once_with(model_id=custom_model, local_dir=mock_path_instance, revision=None)
+
+    @patch("nemo_curator.models.qwen_lm.download_model_from_hf")
+    def test_download_weights_on_node_custom_revision(self, mock_download: Mock) -> None:
+        with patch("nemo_curator.models.qwen_lm.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
+            mock_path_instance.exists.return_value = False
+            mock_path_instance.glob.return_value = []
+            mock_path_instance.mkdir = Mock()
+            mock_path.return_value = mock_path_instance
+
+            QwenLM.download_weights_on_node(model_dir="/some/dir", model_revision="abc1234")
+
+            mock_download.assert_called_once_with(
+                model_id=_QWEN_LM_MODEL_ID, local_dir=mock_path_instance, revision="abc1234"
+            )
+
+    def test_download_weights_on_node_invalid_model_id(self) -> None:
+        with pytest.raises(ValueError, match="must be a Qwen model"):
+            QwenLM.download_weights_on_node(model_dir="/some/dir", model_id="mistralai/Mistral-7B-Instruct")
 
     def teardown_method(self) -> None:
         self.vllm_available_patcher.stop()

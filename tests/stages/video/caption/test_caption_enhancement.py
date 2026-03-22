@@ -18,6 +18,7 @@ from uuid import uuid4
 import pytest
 
 from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID
 from nemo_curator.stages.video.caption.caption_enhancement import (
     _ENHANCE_PROMPTS,
     CaptionEnhancementStage,
@@ -34,6 +35,7 @@ class TestCaptionEnhancementStage:
         self.stage = CaptionEnhancementStage(
             model_dir="test/models",
             model_variant="qwen",
+            model_id=_QWEN_LM_MODEL_ID,
             prompt_variant="default",
             model_batch_size=2,
             fp8=False,
@@ -46,6 +48,7 @@ class TestCaptionEnhancementStage:
         stage = CaptionEnhancementStage()
         assert stage.model_dir == "models/qwen"
         assert stage.model_variant == "qwen"
+        assert stage.model_id == _QWEN_LM_MODEL_ID
         assert stage.prompt_variant == "default"
         assert stage.prompt_text is None
         assert stage.model_batch_size == 128
@@ -60,6 +63,7 @@ class TestCaptionEnhancementStage:
         stage = CaptionEnhancementStage(
             model_dir="custom/models",
             model_variant="qwen",
+            model_id=_QWEN_LM_MODEL_ID,
             prompt_variant="av-surveillance",
             prompt_text=custom_prompt,
             model_batch_size=64,
@@ -69,6 +73,7 @@ class TestCaptionEnhancementStage:
         )
         assert stage.model_dir == "custom/models"
         assert stage.model_variant == "qwen"
+        assert stage.model_id == _QWEN_LM_MODEL_ID
         assert stage.prompt_variant == "av-surveillance"
         assert stage.prompt_text == custom_prompt
         assert stage.model_batch_size == 64
@@ -100,8 +105,8 @@ class TestCaptionEnhancementStage:
             assert stage.prompt == "test prompt"
 
     @patch("nemo_curator.stages.video.caption.caption_enhancement.QwenLM")
-    def test_setup_qwen_variant(self, mock_qwen_lm: Mock):
-        """Test setup method with qwen variant."""
+    def test_setup_initializes_model(self, mock_qwen_lm: Mock):
+        """Test setup method initializes QwenLM with correct parameters."""
         mock_model = Mock()
         mock_qwen_lm.return_value = mock_model
 
@@ -109,6 +114,7 @@ class TestCaptionEnhancementStage:
 
         mock_qwen_lm.assert_called_once_with(
             model_dir="test/models",
+            model_id=_QWEN_LM_MODEL_ID,
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
@@ -122,6 +128,16 @@ class TestCaptionEnhancementStage:
 
         with pytest.raises(ValueError, match="Unsupported model variant: unsupported"):
             stage.setup()
+
+    def test_invalid_model_id_raises(self):
+        """Test that a non-Qwen model name raises ValueError."""
+        with pytest.raises(ValueError, match="must be a Qwen model"):
+            CaptionEnhancementStage(model_id="mistralai/Mistral-7B")
+
+    def test_custom_model_id(self):
+        """Test that a custom Qwen model name is accepted and used."""
+        stage = CaptionEnhancementStage(model_id="Qwen/Qwen3-32B")
+        assert stage.model_id == "Qwen/Qwen3-32B"
 
     def test_setup_with_worker_metadata(self):
         """Test setup method with worker metadata (should be ignored)."""
@@ -222,9 +238,9 @@ class TestCaptionEnhancementStage:
         assert len(second_batch_call) == 1
 
         # Verify enhanced captions were set
-        assert "qwen_lm" in task.data.clips[0].windows[0].enhanced_caption
-        assert "qwen_lm" in task.data.clips[0].windows[1].enhanced_caption
-        assert "qwen_lm" in task.data.clips[1].windows[0].enhanced_caption
+        assert _QWEN_LM_MODEL_ID in task.data.clips[0].windows[0].enhanced_caption
+        assert _QWEN_LM_MODEL_ID in task.data.clips[0].windows[1].enhanced_caption
+        assert _QWEN_LM_MODEL_ID in task.data.clips[1].windows[0].enhanced_caption
 
         # Verify the result is the same task
         assert result is task
@@ -312,8 +328,8 @@ class TestCaptionEnhancementStage:
 
         # Verify all enhanced captions were set
         for i, window in enumerate(task.data.clips[0].windows):
-            assert "qwen_lm" in window.enhanced_caption
-            assert window.enhanced_caption["qwen_lm"] == f"Enhanced caption {i + 1}"
+            assert _QWEN_LM_MODEL_ID in window.enhanced_caption
+            assert window.enhanced_caption[_QWEN_LM_MODEL_ID] == f"Enhanced caption {i + 1}"
 
     def test_process_returns_same_task(self):
         """Test that process method returns the same task object."""

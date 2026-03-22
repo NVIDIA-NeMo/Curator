@@ -18,7 +18,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.models.qwen_lm import QwenLM
+from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM, _validate_qwen_model
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import Clip, Video, VideoTask, _Window
@@ -46,6 +46,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
 
     model_dir: str = "models/qwen"
     model_variant: str = "qwen"
+    model_id: str = _QWEN_LM_MODEL_ID
     prompt_variant: str = "default"
     prompt_text: str | None = None
     model_batch_size: int = 128
@@ -61,6 +62,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], ["clips"]
 
     def __post_init__(self) -> None:
+        _validate_qwen_model(self.model_id)
         self.resources = Resources(gpus=1)
         self.prompt = _get_enhance_prompt(
             self.prompt_variant,
@@ -71,6 +73,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
         if self.model_variant == "qwen":
             self.model = QwenLM(
                 model_dir=self.model_dir,
+                model_id=self.model_id,
                 caption_batch_size=self.model_batch_size,
                 fp8=self.fp8,
                 max_output_tokens=self.max_output_tokens,
@@ -82,7 +85,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
-        QwenLM.download_weights_on_node(self.model_dir)
+        QwenLM.download_weights_on_node(self.model_dir, model_id=self.model_id)
         self._initialize_model()
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
@@ -153,7 +156,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
         for idx, result in enumerate(captions):
             clip_idx, window_idx = mapping[idx]
             original_caption = video.clips[clip_idx].windows[window_idx].caption["qwen"]
-            video.clips[clip_idx].windows[window_idx].enhanced_caption["qwen_lm"] = result
+            video.clips[clip_idx].windows[window_idx].enhanced_caption[self.model_id] = result
 
             if self.verbose:
                 logger.info(

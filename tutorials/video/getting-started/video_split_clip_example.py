@@ -204,6 +204,11 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 CaptionEnhancementStage(
                     model_dir=args.model_dir,
                     model_variant=args.enhance_captions_algorithm,
+                    **(
+                        {"model_id": args.enhance_captioning_algorithm_model_id}
+                        if args.enhance_captioning_algorithm_model_id
+                        else {}
+                    ),
                     prompt_variant=args.enhance_captioning_prompt_variant,
                     prompt_text=args.enhance_captions_prompt_text,
                     model_batch_size=args.enhance_captions_batch_size,
@@ -275,7 +280,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
             "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
             "Default: ./models\n"
             "Example: --model-dir /path/to/models or --model-dir ./models"
-        )
+        ),
     )
     parser.add_argument("--video-limit", type=int, default=None, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
@@ -663,6 +668,12 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         default="qwen",
         choices=["qwen"],
         help="Caption enhancement algorithm to use.",
+    )
+    parser.add_argument(
+        "--enhance-captioning-algorithm-model-id",
+        type=str,
+        default=None,
+        help="HuggingFace model ID for caption enhancement (e.g. 'Qwen/Qwen3-14B'). Uses the default model if not set.",
     )
     parser.add_argument(
         "--enhance-captions-batch-size",
