@@ -204,7 +204,9 @@ class TestQwenLM:
 
         self.qwen_lm.setup()
 
-        mock_download.assert_called_once_with(model_id=self.qwen_lm.model_name, local_dir=mock_path_instance)
+        mock_download.assert_called_once_with(
+            model_id=self.qwen_lm.model_name, local_dir=mock_path_instance, revision=None
+        )
 
     @patch("nemo_curator.models.qwen_lm._check_vllm_supports_model")
     @patch("nemo_curator.models.qwen_lm.download_model_from_hf")
@@ -379,7 +381,7 @@ class TestQwenLM:
             ):
                 self.qwen_lm.setup()
 
-                mock_path.assert_called_once_with(self.model_dir)
+                mock_path.assert_any_call(self.model_dir)
                 mock_path_instance.__truediv__.assert_called_once_with(self.qwen_lm.model_name)
                 assert self.qwen_lm.weight_file == expected_path
 

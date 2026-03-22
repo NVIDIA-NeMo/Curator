@@ -127,10 +127,6 @@ def create_id_generator_actor(filepath: str | None = None, storage_options: dict
         logger.error(f"Error creating id generator actor: {e}")
         raise
 
-    finally:
-        # Shutdown Ray to allow future pipelines to call ray.init with their own configuration
-        ray.shutdown()
-
 
 def write_id_generator_to_disk(filepath: str, storage_options: dict[str, Any] | None = None) -> None:
     storage_options = storage_options or {}
