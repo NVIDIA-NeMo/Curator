@@ -26,7 +26,7 @@ Example:
     pipeline = Pipeline(name="speaker_pipeline")
     pipeline.add_stage(
         SpeakerSeparationStage(exclude_overlaps=True, min_duration=0.8)
-        .with_(resources=Resources(gpus=1.0))
+        .with_(resources=Resources(cpus=1.0, gpus=1.0))
     )
 """
 
@@ -96,7 +96,7 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
     
     name: str = "SpeakerSeparation"
     batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=1.0))
     
     def __post_init__(self):
         """Initialize after dataclass fields are set."""
