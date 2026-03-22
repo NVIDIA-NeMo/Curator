@@ -26,10 +26,10 @@ Example:
     from nemo_curator.stages.audio.segmentation import VADSegmentationStage
     from nemo_curator.stages.resources import Resources
     
-    # CPU execution (default)
+    # Default execution (GPU with cpus=1.0, gpus=0.3)
     pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0, threshold=0.5))
     
-    # GPU execution
+    # Custom GPU allocation
     pipeline.add_stage(
         VADSegmentationStage(min_duration_sec=2.0)
         .with_(resources=Resources(gpus=0.1))
@@ -104,13 +104,12 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
         config = VADConfig(min_duration_sec=3.0, max_duration_sec=30.0)
         stage = VADSegmentationStage(config=config)
         
-        # With GPU support (via resources)
+        # Custom GPU allocation
         stage = VADSegmentationStage().with_(resources=Resources(gpus=0.1))
     
     Note:
-        GPU assignment is handled by the executor via _resources.
-        Use .with_(resources=Resources(gpus=X)) to configure GPU allocation.
-        Silero VAD is lightweight, so gpus=0.1 is usually sufficient.
+        Default resources: cpus=1.0, gpus=0.3. Silero VAD is lightweight.
+        Use .with_(resources=Resources(gpus=X)) to override GPU allocation.
         GPU is used automatically when resources specify gpus > 0.
     """
     
@@ -126,7 +125,7 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
     
     name: str = "VADSegmentation"
     batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=0.3))
     
     def __post_init__(self):
         """Initialize after dataclass fields are set."""
@@ -216,7 +215,7 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
 
             segment_data: Dict[str, Any] = {
                 k: v for k, v in item.items()
-                if k not in ('waveform', 'sample_rate', 'start_ms', 'end_ms',
+                if k not in (self.waveform_key, self.sample_rate_key, 'start_ms', 'end_ms',
                              'segment_num', 'duration_sec', 'duration', 'num_samples')
             }
             segment_data.update({
@@ -307,10 +306,10 @@ class VADSegmentationStage(ProcessingStage[AudioBatch, AudioBatch]):
 
         # Fan-out mode: one AudioBatch per segment item
         output_tasks: List[AudioBatch] = []
-        for seg_item in all_segment_items:
+        for global_idx, seg_item in enumerate(all_segment_items):
             output_tasks.append(AudioBatch(
                 data=seg_item,
-                task_id=f"{task.task_id}_seg_{seg_item['segment_num']}",
+                task_id=f"{task.task_id}_seg_{global_idx}",
                 dataset_name=task.dataset_name,
                 _metadata=dict(task._metadata) if task._metadata else {},
                 _stage_perf=list(task._stage_perf),
