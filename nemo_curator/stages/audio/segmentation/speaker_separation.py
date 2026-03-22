@@ -30,13 +30,11 @@ Example:
     )
 """
 
-import os
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Tuple
 
 import numpy as np
 import torch
-import soundfile as sf
 from loguru import logger
 from pydub import AudioSegment
 
@@ -46,6 +44,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
+from ..common import resolve_model_path, resolve_waveform_from_item
 from ..configs import SpeakerSeparationConfig
 
 
@@ -56,24 +55,6 @@ def _pydub_to_waveform_sr(seg: AudioSegment) -> Tuple[torch.Tensor, int]:
     if seg.channels > 1:
         samples = samples.reshape((-1, seg.channels)).mean(axis=1)
     return torch.from_numpy(samples).unsqueeze(0), seg.frame_rate
-
-
-def _load_audio_as_tensor(audio_path: str):
-    """
-    Load audio file and return waveform tensor and sample rate.
-    
-    Supports standalone usage of stages without requiring previous stages.
-    """
-    data, sample_rate = sf.read(audio_path, dtype='float32')
-    waveform = torch.from_numpy(data)
-    if waveform.dim() == 1:
-        waveform = waveform.unsqueeze(0)
-    else:
-        waveform = waveform.T
-    # Convert to mono if stereo
-    if waveform.shape[0] > 1:
-        waveform = waveform.mean(dim=0, keepdim=True)
-    return waveform, sample_rate
 
 
 @dataclass
@@ -150,31 +131,11 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
             self._separator = None
             torch.cuda.empty_cache()
     
-    def _resolve_model_path(self) -> str:
-        """Resolve model path to absolute path."""
-        if os.path.isabs(self.model_path):
-            return self.model_path
-        
-        # Try relative to speaker_separation_module first (default location)
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        module_dir = os.path.join(current_dir, 'speaker_separation_module')
-        resolved = os.path.join(module_dir, self.model_path)
-        if os.path.exists(resolved):
-            return resolved
-        
-        # Try relative to segmentation directory
-        resolved = os.path.join(current_dir, self.model_path)
-        if os.path.exists(resolved):
-            return resolved
-        
-        # Return the module path as default
-        return os.path.join(module_dir, self.model_path)
-    
     def _initialize_separator(self):
         """Initialize the NeMo speaker separator."""
         if self._separator is None:
             try:
-                model_path = self._resolve_model_path()
+                model_path = resolve_model_path(self.model_path, __file__, 'speaker_separation_module')
                 use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
                 
                 separator_config = {
@@ -219,38 +180,10 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         for item in task.data:
             item = dict(item)
-            waveform = item.get('waveform')
-            sample_rate = item.get('sample_rate')
-
-            if waveform is None:
-                audio_filepath = item.get('audio_filepath')
-                if audio_filepath and os.path.exists(audio_filepath):
-                    try:
-                        waveform, sample_rate = _load_audio_as_tensor(audio_filepath)
-                        item['waveform'] = waveform
-                        item['sample_rate'] = sample_rate
-                    except Exception as e:
-                        logger.error(f"Failed to load audio file {audio_filepath}: {e}")
-                        continue
-                else:
-                    logger.warning("No waveform or valid audio_filepath found")
-                    continue
-            elif sample_rate is None:
-                audio_filepath = item.get('audio_filepath')
-                if audio_filepath and os.path.exists(audio_filepath):
-                    try:
-                        info = sf.info(audio_filepath)
-                        sample_rate = info.samplerate
-                        item['sample_rate'] = sample_rate
-                    except Exception as e:
-                        logger.error(f"Waveform present but sample_rate missing and "
-                                     f"could not read it from '{audio_filepath}': {e}")
-                        continue
-                else:
-                    logger.error("Waveform present but 'sample_rate' key is missing "
-                                 "and no audio_filepath available to resolve it. "
-                                 "Please set 'sample_rate' in the item dict.")
-                    continue
+            audio_result = resolve_waveform_from_item(item, task.task_id)
+            if audio_result is None:
+                continue
+            waveform, sample_rate = audio_result
             
             try:
                 speaker_audio_data = self._separator.get_speaker_audio_data(

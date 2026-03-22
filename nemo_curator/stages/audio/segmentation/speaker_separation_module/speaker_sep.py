@@ -325,10 +325,6 @@ class SpeakerSeparator:
             wav = waveform.squeeze(0) if waveform.dim() > 1 else waveform
             sf.write(temp_path, wav.cpu().numpy(), sample_rate)
             return self.diar_model.diarize(audio=temp_path, batch_size=1)
-        except (RuntimeError, ValueError) as e:
-            logger.warning(f"Error during diarization: {e}. Falling back to single speaker mode")
-            duration_sec = waveform.shape[1] / sample_rate
-            return [f"0.0 {duration_sec:.3f} speaker_0"]
         finally:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
@@ -383,19 +379,9 @@ class SpeakerSeparator:
             # Parse segments by speaker
             speaker_segments = self.get_speaker_segments(predicted_segments)
             
-            # Make sure we have at least one speaker
             if not speaker_segments:
-                logger.warning("No speakers detected. Creating default single speaker.")
-                # Create a default speaker segment if none found
-                if isinstance(audio_path_or_waveform, str):
-                    # Input is a file path - use soundfile
-                    waveform, sample_rate = load_audio(audio_path_or_waveform)
-                    duration_sec = waveform.shape[1] / sample_rate
-                else:
-                    # Input is a waveform tensor
-                    duration_sec = audio_path_or_waveform.shape[1] / sample_rate
-                
-                speaker_segments = {"speaker_0": [(0.0, duration_sec)]}
+                logger.warning("No speakers detected, skipping item")
+                return {}
             
             # Process segments based on overlap handling preference
             if exclude_overlaps:
@@ -406,19 +392,9 @@ class SpeakerSeparator:
                 # Clean cut overlapping segments (divide between speakers)
                 processed_segments = self.clean_cut_overlapping_segments(speaker_segments)
             
-            # Check if we still have segments after processing
             if all(len(segments) == 0 for segments in processed_segments.values()):
-                logger.warning("All segments were removed during processing. Creating a new single segment.")
-                # Create a default speaker segment if all were removed
-                if isinstance(audio_path_or_waveform, str):
-                    # Input is a file path - use soundfile
-                    waveform, sample_rate = load_audio(audio_path_or_waveform)
-                    duration_sec = waveform.shape[1] / sample_rate
-                else:
-                    # Input is a waveform tensor
-                    duration_sec = audio_path_or_waveform.shape[1] / sample_rate
-                
-                processed_segments = {"speaker_0": [(0.0, duration_sec)]}
+                logger.warning("All segments removed during overlap processing, skipping item")
+                return {}
             
             # Merge adjacent segments with small gaps
             for speaker in processed_segments:
@@ -430,30 +406,14 @@ class SpeakerSeparator:
             if min_duration > 0:
                 processed_segments = self.filter_short_segments(processed_segments, min_duration)
                 
-                # Check again if we have any segments left
                 if all(len(segments) == 0 for segments in processed_segments.values()):
-                    logger.warning("All segments were removed after duration filtering. Creating a new single segment.")
-                    # Create a default speaker segment with a slightly shorter duration to pass the filter
-                    if isinstance(audio_path_or_waveform, str):
-                        # Input is a file path - use soundfile
-                        waveform, sample_rate = load_audio(audio_path_or_waveform)
-                        duration_sec = waveform.shape[1] / sample_rate
-                    else:
-                        # Input is a waveform tensor
-                        duration_sec = audio_path_or_waveform.shape[1] / sample_rate
-                    
-                    processed_segments = {"speaker_0": [(0.0, duration_sec)]}
+                    logger.warning("All segments removed after duration filtering, skipping item")
+                    return {}
             
             return processed_segments
             
-        except (RuntimeError, ValueError) as e:
-            logger.warning(f"Error during audio processing: {e}. Falling back to single speaker mode")
-            if isinstance(audio_path_or_waveform, str):
-                waveform, sample_rate = load_audio(audio_path_or_waveform)
-                duration_sec = waveform.shape[1] / sample_rate
-            else:
-                duration_sec = audio_path_or_waveform.shape[1] / sample_rate
-            return {"speaker_0": [(0.0, duration_sec)]}
+        except (RuntimeError, ValueError):
+            raise
     
     def get_speaker_audio_data(self, audio_path_or_waveform, sample_rate=None, gap_threshold=None, exclude_overlaps=None, min_duration=None, buffer_time=None):
         """
@@ -531,14 +491,12 @@ class SpeakerSeparator:
             
             # Add segments for this speaker
             for start_time, end_time in segments:
-                # Convert times from seconds to milliseconds
-                start_ms = int(start_time * 1000)
-                end_ms = int(end_time * 1000)
+                start_ms = max(0, min(int(start_time * 1000), duration_ms))
+                end_ms = max(0, min(int(end_time * 1000), duration_ms))
+                if start_ms >= end_ms:
+                    continue
                 
-                # Extract segment from original audio
                 segment_audio = original_audio[start_ms:end_ms]
-                
-                # Overlay segment onto silent audio
                 silent_audio = silent_audio.overlay(segment_audio, position=start_ms)
             
             # Check if audio is silent (RMS amplitude close to 0)
