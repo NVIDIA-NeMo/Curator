@@ -25,14 +25,21 @@ from nemo_curator.stages.audio.preprocessing import (
     SegmentConcatenationStage,
 )
 
+from nemo_curator.stages.audio.postprocessing import (
+    TimestampMapperStage,
+)
+
 from nemo_curator.stages.audio.configs import (
     MonoConversionConfig,
     SegmentConcatenationConfig,
+    TimestampMapperConfig,
 )
 
 __all__ = [
     "MonoConversionStage",
     "SegmentConcatenationStage",
+    "TimestampMapperStage",
     "MonoConversionConfig",
     "SegmentConcatenationConfig",
+    "TimestampMapperConfig",
 ]

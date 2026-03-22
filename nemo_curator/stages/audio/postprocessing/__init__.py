@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Configuration classes for audio processing stages."""
+"""
+Audio postprocessing stages.
 
-from .mono_conversion import MonoConversionConfig
-from .concatenation import SegmentConcatenationConfig
-from .timestamp_mapper import TimestampMapperConfig
+These stages run after filtering and speaker separation to produce
+the final output:
+- TimestampMapperStage: Map segment positions back to original file timestamps
+"""
 
-__all__ = [
-    "MonoConversionConfig",
-    "SegmentConcatenationConfig",
-    "TimestampMapperConfig",
-]
+from .timestamp_mapper import TimestampMapperStage
+
+__all__ = ["TimestampMapperStage"]

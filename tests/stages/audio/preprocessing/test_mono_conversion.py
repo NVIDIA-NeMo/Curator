@@ -15,10 +15,13 @@
 from pathlib import Path
 from unittest.mock import patch
 
-import numpy as np
+import torch
 
 from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
 from nemo_curator.tasks import AudioBatch
+
+MOCK_TARGET = "nemo_curator.stages.audio.preprocessing.mono_conversion.load_audio_file"
+MOCK_EXISTS = "nemo_curator.stages.audio.preprocessing.mono_conversion.os.path.exists"
 
 
 class TestMonoConversionStage:
@@ -28,10 +31,10 @@ class TestMonoConversionStage:
         wav = tmp_path / "stereo.wav"
         wav.touch()
 
-        stereo = np.random.randn(48000, 2).astype(np.float32)
+        stereo = torch.randn(2, 48000)
 
-        with patch("nemo_curator.stages.audio.preprocessing.mono_conversion.sf.read", return_value=(stereo, 48000)):
-            with patch("os.path.exists", return_value=True):
+        with patch(MOCK_TARGET, return_value=(stereo, 48000)):
+            with patch(MOCK_EXISTS, return_value=True):
                 stage = MonoConversionStage(output_sample_rate=48000)
                 batch = AudioBatch(data=[{"audio_filepath": wav.as_posix()}])
                 result = stage.process(batch)
@@ -49,10 +52,10 @@ class TestMonoConversionStage:
         wav = tmp_path / "mono.wav"
         wav.touch()
 
-        mono = np.random.randn(16000).astype(np.float32)
+        mono = torch.randn(1, 16000)
 
-        with patch("nemo_curator.stages.audio.preprocessing.mono_conversion.sf.read", return_value=(mono, 48000)):
-            with patch("os.path.exists", return_value=True):
+        with patch(MOCK_TARGET, return_value=(mono, 48000)):
+            with patch(MOCK_EXISTS, return_value=True):
                 stage = MonoConversionStage(output_sample_rate=48000)
                 batch = AudioBatch(data=[{"audio_filepath": wav.as_posix()}])
                 result = stage.process(batch)
@@ -65,10 +68,10 @@ class TestMonoConversionStage:
         wav = tmp_path / "wrong_sr.wav"
         wav.touch()
 
-        audio = np.random.randn(22050).astype(np.float32)
+        audio = torch.randn(1, 22050)
 
-        with patch("nemo_curator.stages.audio.preprocessing.mono_conversion.sf.read", return_value=(audio, 22050)):
-            with patch("os.path.exists", return_value=True):
+        with patch(MOCK_TARGET, return_value=(audio, 22050)):
+            with patch(MOCK_EXISTS, return_value=True):
                 stage = MonoConversionStage(output_sample_rate=48000, strict_sample_rate=True)
                 batch = AudioBatch(data=[{"audio_filepath": wav.as_posix()}])
                 result = stage.process(batch)
@@ -79,10 +82,10 @@ class TestMonoConversionStage:
         wav = tmp_path / "any_sr.wav"
         wav.touch()
 
-        audio = np.random.randn(22050).astype(np.float32)
+        audio = torch.randn(1, 22050)
 
-        with patch("nemo_curator.stages.audio.preprocessing.mono_conversion.sf.read", return_value=(audio, 22050)):
-            with patch("os.path.exists", return_value=True):
+        with patch(MOCK_TARGET, return_value=(audio, 22050)):
+            with patch(MOCK_EXISTS, return_value=True):
                 stage = MonoConversionStage(output_sample_rate=48000, strict_sample_rate=False)
                 batch = AudioBatch(data=[{"audio_filepath": wav.as_posix()}])
                 result = stage.process(batch)
@@ -106,8 +109,8 @@ class TestMonoConversionStage:
         wav = tmp_path / "corrupt.wav"
         wav.touch()
 
-        with patch("nemo_curator.stages.audio.preprocessing.mono_conversion.sf.read", side_effect=RuntimeError("bad file")):
-            with patch("os.path.exists", return_value=True):
+        with patch(MOCK_TARGET, side_effect=RuntimeError("bad file")):
+            with patch(MOCK_EXISTS, return_value=True):
                 stage = MonoConversionStage()
                 batch = AudioBatch(data=[{"audio_filepath": wav.as_posix()}])
                 result = stage.process(batch)

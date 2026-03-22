@@ -38,6 +38,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
+from ..common import ensure_waveform_2d
 from ..configs import SegmentConcatenationConfig
 
 
@@ -95,7 +96,7 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
         return ["data"], []
 
     def outputs(self) -> Tuple[List[str], List[str]]:
-        return [], ["waveform", "sample_rate", "num_segments", "total_duration_sec"]
+        return [], ["waveform", "sample_rate", "num_segments", "total_duration_sec", "original_file"]
 
     def process(self, task: AudioBatch) -> Optional[AudioBatch]:
         """
@@ -109,7 +110,8 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
         if not items:
             return AudioBatch(
                 data=[], task_id=task.task_id, dataset_name=task.dataset_name,
-                _metadata=task._metadata, _stage_perf=list(task._stage_perf),
+                _metadata=dict(task._metadata) if task._metadata else {},
+                _stage_perf=list(task._stage_perf),
             )
 
         parts: List[torch.Tensor] = []
@@ -131,8 +133,7 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
             if sr <= 0:
                 logger.warning(f"[SegmentConcat] Skipping segment {idx}: invalid sample_rate={sr}")
                 continue
-            if not torch.is_tensor(waveform):
-                waveform = torch.as_tensor(waveform, dtype=torch.float32)
+            waveform = ensure_waveform_2d(waveform)
             if parts and sr != sample_rate:
                 logger.warning(
                     f"[SegmentConcat] Sample rate mismatch at segment {idx}: "
@@ -140,10 +141,6 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 )
             sample_rate = sr
             silence_samples = int(silence_duration_ms * sample_rate / 1000)
-
-            # Normalize to 2D (channels, samples)
-            if waveform.dim() == 1:
-                waveform = waveform.unsqueeze(0)
 
             cur_channels = waveform.shape[0]
             if num_channels is None:
@@ -182,7 +179,8 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
         if not parts:
             return AudioBatch(
                 data=[], task_id=task.task_id, dataset_name=task.dataset_name,
-                _metadata=task._metadata, _stage_perf=list(task._stage_perf),
+                _metadata=dict(task._metadata) if task._metadata else {},
+                _stage_perf=list(task._stage_perf),
             )
 
         # Remove trailing silence
