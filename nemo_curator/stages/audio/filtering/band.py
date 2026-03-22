@@ -76,7 +76,7 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     name: str = "BandFilter"
     batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    resources: Resources = field(default_factory=lambda: Resources(cpus=4.0))
 
     _VALID_BAND_VALUES = {"full_band", "narrow_band"}
 
