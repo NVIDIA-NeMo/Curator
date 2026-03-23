@@ -133,7 +133,7 @@ def main():
 
 **New: Modular Stages**
 
-In the new version, these operations are defined as discrete stages that operate on batches of data. Each stage can specify resources such as GPU count or CPU threads. For details on [available filters ](/text-process-data-filter-heuristic), [content cleaning operations ](/about-concepts-text-data-processing), and [pipeline concepts ](/about-concepts-video-abstractions), refer to the linked documentation.
+In the new version, these operations are defined as discrete stages that operate on batches of data. Each stage can specify resources such as GPU count or CPU threads. For details on [available filters ](/text-process-data-filter-heuristic), [content cleaning operations ](/about/concepts/text/data/processing), and [pipeline concepts ](/about/concepts/video/abstractions), refer to the linked documentation.
 
 ```python
 # New: Define stages
@@ -165,7 +165,7 @@ pipeline = Pipeline(
     stages=stages,
 )
 
-# Create executor (see [Pipeline Execution Backends ](/reference-execution-backends) for configuration options)
+# Create executor (see [Pipeline Execution Backends ](/reference/infra/execution-backends) for configuration options)
 executor = XennaExecutor()
 
 # Execute pipeline
@@ -242,7 +242,7 @@ dataset = ImageTextPairDataset.from_webdataset(dataset_path, id_col)
 
 **New: Stage-Based Loading**
 
-In the new version, data loading is encapsulated in a dedicated pipeline stage (see [Image Processing Concepts ](/about-concepts-image-data-processing) for details). Instead of directly creating a dataset, users define an `ImageReaderStage` that handles reading from WebDataset `.tar` files.
+In the new version, data loading is encapsulated in a dedicated pipeline stage (see [Image Processing Concepts ](/about/concepts/image-data-processing) for details). Instead of directly creating a dataset, users define an `ImageReaderStage` that handles reading from WebDataset `.tar` files.
 
 ```python
 # New: Read images from webdataset tar files
@@ -369,7 +369,7 @@ dataset.to_webdataset(deduplicated_dataset_path, "is_unique")
 
 **New: Single Deduplication Stage**
 
-In the new version, semantic deduplication is encapsulated in a single stage, `SemanticDeduplicationStage` (see [Deduplication Concepts ](/about-concepts-deduplication) for comprehensive documentation). This stage handles clustering and duplicate removal internally, using the configured number of clusters and similarity threshold.
+In the new version, semantic deduplication is encapsulated in a single stage, `SemanticDeduplicationStage` (see [Deduplication Concepts ](/about/concepts/deduplication) for comprehensive documentation). This stage handles clustering and duplicate removal internally, using the configured number of clusters and similarity threshold.
 
 ```python
 # New: Semantic Deduplication
