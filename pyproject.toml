@@ -53,7 +53,7 @@ classifiers = [
 dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
-    "cosmos-xenna==0.1.2",
+    "cosmos-xenna==0.2.0",
     "fsspec",
     "hydra-core",
     "jieba==0.42.1",
@@ -69,8 +69,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cuda12 = ["gpustat", "nvidia-ml-py"]
+cuda12 = [
+    "gpustat",
+    "nvidia-ml-py",
+]
 vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
+
+# Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
+inference_server = [
+    "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
+    "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
+    "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "ray[serve,llm]>=2.54",
+]
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
@@ -85,6 +97,7 @@ deduplication_cuda12 = [
 
 audio_cpu = [
     "nemo_toolkit[asr]==2.4.0",
+    "soundfile>=0.12.0",
 ]
 audio_cuda12 = [
     "nemo_curator[audio_cpu]",
@@ -172,12 +185,19 @@ sdg_cpu = [
     "data-designer==0.4.0",
 ]
 
+sdg_cuda12 = [
+    "nemo_curator[cuda12]",
+    "nemo_curator[sdg_cpu]",
+    "nemo_curator[inference_server]",
+]
+
 # All dependencies
 all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
+    "nemo_curator[inference_server]",
     "nemo_curator[math_cuda12]",
-    "nemo_curator[sdg_cpu]",
+    "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[video_cuda12]",
 ]
@@ -227,6 +247,7 @@ override-dependencies = [
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "transformers<=4.55.2", # Else Cosmos Embed imports fail
+    "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
 ]
 
 
@@ -257,6 +278,8 @@ torchvision = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
+nixl = { index = "pypi" }
+nixl-cu12 = { index = "pypi" }
 
 [tool.coverage.paths]
 source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]
