@@ -66,7 +66,7 @@ libraries:
       git: https://github.com/NVIDIA-NeMo/Curator
       subpath: nemo_curator
     output:
-      path: ./product-docs/nemo-curator/Library-Reference
+      path: ./product-docs/nemo-curator/Full-Library-Reference
     lang: python
 
 experimental:

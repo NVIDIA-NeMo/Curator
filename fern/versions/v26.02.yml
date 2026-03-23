@@ -574,7 +574,7 @@ navigation:
           - page: Overview
             path: ./v26.02/pages/api-reference/index.mdx
             slug: ""
-          - folder: ../product-docs/nemo-curator/Library-Reference
+          - folder: ../product-docs/nemo-curator/Full-Library-Reference
           - page: Pipeline
             path: ./v26.02/pages/api-reference/pipeline.mdx
             slug: pipeline

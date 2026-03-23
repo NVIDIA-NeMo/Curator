@@ -73,7 +73,7 @@ instance/
 # Sphinx documentation
 docs/_build/
 docs/apidocs/
-fern/product-docs/nemo-curator/Library-Reference/
+fern/product-docs/nemo-curator/Full-Library-Reference/
 
 # PyBuilder
 .pybuilder/
