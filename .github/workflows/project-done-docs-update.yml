@@ -1,0 +1,60 @@
+name: Set docs to "Ready to Document" when status is Done
+
+on:
+  projects_v2_item:
+    types: [edited]
+
+jobs:
+  update-docs-stage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if status is Done and update docs stage
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+          PROJECT_ID: "PVT_kwDODLylHc4A8S01"
+          ITEM_ID: ${{ github.event.projects_v2_item.node_id }}
+          STATUS_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgwVgOk"
+          DONE_OPTION_ID: "98236657"
+          DOCUMENTATION_STAGE_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJjRA"
+          DOCS_NOT_READY_OPTION_ID: "36e5dca1"
+          READY_TO_DOCUMENT_OPTION_ID: "80d991f6"
+        run: |
+          # Query the item's current Status and Documentation Stage values
+          RESULT=$(gh api graphql -f query='
+            query($itemId: ID!) {
+              node(id: $itemId) {
+                ... on ProjectV2Item {
+                  status: fieldValueByName(name: "Status") {
+                    ... on ProjectV2ItemFieldSingleSelectValue { optionId }
+                  }
+                  docs: fieldValueByName(name: "Documentation Stage") {
+                    ... on ProjectV2ItemFieldSingleSelectValue { optionId }
+                  }
+                }
+              }
+            }
+          ' -f itemId="$ITEM_ID")
+
+          STATUS=$(echo "$RESULT" | jq -r '.data.node.status.optionId')
+          DOCS=$(echo "$RESULT" | jq -r '.data.node.docs.optionId')
+
+          echo "Status: $STATUS, Documentation Stage: $DOCS"
+
+          if [ "$STATUS" = "$DONE_OPTION_ID" ] && [ "$DOCS" = "$DOCS_NOT_READY_OPTION_ID" ]; then
+            echo "Status is Done and docs are Required - Not Ready — setting to Ready to Document"
+            gh api graphql -f query='
+              mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $projectId, itemId: $itemId,
+                  fieldId: $fieldId,
+                  value: { singleSelectOptionId: $value }
+                }) { projectV2Item { id } }
+              }
+            ' \
+              -f projectId="$PROJECT_ID" \
+              -f itemId="$ITEM_ID" \
+              -f fieldId="$DOCUMENTATION_STAGE_FIELD_ID" \
+              -f value="$READY_TO_DOCUMENT_OPTION_ID"
+          else
+            echo "Conditions not met — skipping"
+          fi
