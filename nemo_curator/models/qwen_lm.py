@@ -22,6 +22,7 @@ from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
 try:
     from vllm import LLM, SamplingParams
+    from vllm.model_executor.models import ModelRegistry
 
     VLLM_AVAILABLE = True
 except ImportError:
@@ -33,6 +34,8 @@ except ImportError:
 
     class SamplingParams:
         pass
+
+    ModelRegistry = None
 
 
 from nemo_curator.models.base import ModelInterface
@@ -54,15 +57,12 @@ def _check_vllm_supports_model(model_id: str) -> None:
     architectures = getattr(config, "architectures", None) or []
     if not architectures:
         return
-    try:
-        from vllm.model_executor.models import ModelRegistry
-
-        unsupported = [arch for arch in architectures if not ModelRegistry.is_model_supported(arch)]
-        if len(unsupported) == len(architectures):
-            msg = f"Model '{model_id}' has architecture(s) {architectures} not supported by vLLM"
-            raise ValueError(msg)
-    except ImportError:
-        pass  # vLLM registry not accessible, skip check
+    if ModelRegistry is None:
+        return  # vLLM registry not accessible, skip check
+    unsupported = [arch for arch in architectures if not ModelRegistry.is_model_supported(arch)]
+    if len(unsupported) == len(architectures):
+        msg = f"Model '{model_id}' has architecture(s) {architectures} not supported by vLLM"
+        raise ValueError(msg)
 
 
 class QwenLM(ModelInterface):
