@@ -233,7 +233,7 @@ dataset = ImageTextPairDataset.from_webdataset(dataset_path, id_col)
 
 **New: Stage-Based Loading**
 
-In the new version, data loading is encapsulated in a dedicated pipeline stage (see [Image Processing Concepts](/docs/about/concepts/image/data/processing) for details). Instead of directly creating a dataset, users define an `ImageReaderStage` that handles reading from WebDataset `.tar` files.
+In the new version, data loading is encapsulated in a dedicated pipeline stage (see [Image Processing Concepts](/about/concepts/image/data/processing) for details). Instead of directly creating a dataset, users define an `ImageReaderStage` that handles reading from WebDataset `.tar` files.
 
 ```python
 # New: Read images from webdataset tar files
@@ -268,7 +268,7 @@ dataset.save_metadata()
 
 **New: Embedding Stage**
 
-In the new version, embedding generation is handled by a dedicated `ImageEmbeddingStage` pipeline stage with configurable resource parameters (see [CLIP Embedding Stage](/docs/image/process/data/embeddings/clip) for details).
+In the new version, embedding generation is handled by a dedicated `ImageEmbeddingStage` pipeline stage with configurable resource parameters (see [CLIP Embedding Stage](/curate-images/process-data/embeddings/clip-embedder) for details).
 
 ```python
 # New: Generate CLIP embeddings for images
@@ -301,7 +301,7 @@ dataset.to_webdataset(aesthetic_dataset_path, filter_column="passes_aesthetic_ch
 
 **New: Aesthetic Filter Stage**
 
-In the new version, aesthetic scoring and filtering are handled by the `ImageAestheticFilterStage` (see [Aesthetic Filter](/docs/image/process/data/filters/aesthetic) for details). This stage scores each image using a pretrained model and filters out images below a configured threshold.
+In the new version, aesthetic scoring and filtering are handled by the `ImageAestheticFilterStage` (see [Aesthetic Filter](/curate-images/process-data/filters/aesthetic) for details). This stage scores each image using a pretrained model and filters out images below a configured threshold.
 
 ```python
 # New: Generate aesthetic quality scores and filter

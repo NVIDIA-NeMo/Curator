@@ -30,7 +30,7 @@ Each stage processes `ImageBatch` objects containing images, metadata, and proce
 
 <Cards>
 
-<Card title="CLIP Embedding Stage" href="/image/process/data/embeddings/clip">
+<Card title="CLIP Embedding Stage" href="/curate-images/process-data/embeddings/clip-embedder">
 
 Generate image embeddings using CLIP models with GPU acceleration. Supports various CLIP architectures and automatic model downloading.
 ImageEmbeddingStage CLIP GPU-accelerated
@@ -42,13 +42,13 @@ ImageEmbeddingStage CLIP GPU-accelerated
 
 <Cards>
 
-<Card title="Aesthetic Filter Stage" href="/image/process/data/filters/aesthetic">
+<Card title="Aesthetic Filter Stage" href="/curate-images/process-data/filters/aesthetic">
 
 Assess the subjective quality of images using a model trained on human aesthetic preferences. Filters images based on aesthetic score thresholds.
 ImageAestheticFilterStage aesthetic_score
 </Card>
 
-<Card title="NSFW Filter Stage" href="/image/process/data/filters/nsfw">
+<Card title="NSFW Filter Stage" href="/curate-images/process-data/filters/nsfw">
 
 Detect not-safe-for-work (NSFW) content in images using a CLIP-based filter. Filters explicit material from your datasets.
 ImageNSFWFilterStage nsfw_score
