@@ -156,3 +156,6 @@ data/
 # macOS Files
 .DS_Store
 AGENTS.md
+
+# Fern: generated API reference / product docs (local `fern generate` output)
+fern/product-docs/
