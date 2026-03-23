@@ -11,7 +11,9 @@ instances:
 
 redirects:
   - source: "/"
-    destination: "/home"
+    destination: "/home/welcome"
+  - source: "/home"
+    destination: "/home/welcome"
 
 title: NeMo Curator
 
@@ -55,7 +57,7 @@ logo:
   dark: ./assets/NVIDIA_dark.svg
   light: ./assets/NVIDIA_light.svg
   height: 20
-  href: /home
+  href: /home/welcome
   right-text: NeMo Curator
 
 favicon: ./assets/NVIDIA_symbol.svg

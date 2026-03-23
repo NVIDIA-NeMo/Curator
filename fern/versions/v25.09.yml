@@ -10,10 +10,11 @@ navigation:
   - tab: docs
     layout:
       - section: Home
+        slug: home
         contents:
           - page: Welcome
             path: ./v25.09/pages/index.mdx
-            slug: home
+            slug: welcome
       - section: About NeMo Curator
         slug: about
         contents:
