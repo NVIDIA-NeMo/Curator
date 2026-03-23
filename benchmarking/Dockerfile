@@ -39,6 +39,16 @@ RUN cd /opt/Curator \
     slack_sdk \
   && uv cache prune
 
+# Install SGLang in a separate venv — it conflicts with vllm (incompatible
+# flashinfer-python pins) so it cannot share /opt/venv.  Using
+# --system-site-packages lets the sglang venv inherit torch, numpy, and CUDA
+# libraries from /opt/venv without re-downloading them.
+RUN /opt/venv/bin/python -m venv --system-site-packages /opt/sglang-venv \
+ && /opt/sglang-venv/bin/pip install --no-cache-dir sglang
+
+# Tell SGLangInferenceServer which Python has sglang installed
+ENV SGLANG_PYTHON_EXECUTABLE=/opt/sglang-venv/bin/python
+
 # Add the Curator repo to the safe.directory list to avoid GitPython warnings
 RUN git config --global --add safe.directory /opt/Curator
 

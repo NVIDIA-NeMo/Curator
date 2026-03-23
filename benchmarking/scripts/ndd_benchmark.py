@@ -17,9 +17,11 @@
 """NeMo Data Designer (NDD) benchmarking script.
 
 Key args:
-  --inference-server-type  ray-serve | nvidia-nim
-  --engine-kwargs          JSON vLLM kwargs, e.g. '{"tensor_parallel_size": 4}'
+  --inference-server-type  ray-serve | sglang | nvidia-nim
+  --engine-kwargs          JSON vLLM kwargs (ray-serve), e.g. '{"tensor_parallel_size": 4}'
   --autoscaling-config     JSON Ray Serve autoscaling, e.g. '{"min_replicas": 1, "max_replicas": 1}'
+  --dp-size                SGLang data parallelism replicas (sglang only, default: 1)
+  --tp-size                SGLang tensor parallelism GPUs per replica (sglang only, default: 1)
 """
 
 import argparse
@@ -42,6 +44,7 @@ from nemo_curator.utils.file_utils import get_all_file_paths_under
 
 if TYPE_CHECKING:
     from nemo_curator.core.serve import InferenceServer
+    from nemo_curator.core.sglang_serve import SGLangInferenceServer
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +52,12 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _build_config(model_id: str, provider_name: str) -> dd.DataDesignerConfigBuilder:
+def _build_config(
+    model_id: str,
+    provider_name: str,
+    request_timeout: int | None = None,
+    max_parallel_requests: int = 4,
+) -> dd.DataDesignerConfigBuilder:
     """Build the DataDesigner config for the medical-notes generation task."""
     model_alias = model_id
 
@@ -63,6 +71,8 @@ def _build_config(model_id: str, provider_name: str) -> dd.DataDesignerConfigBui
                 temperature=1.0,
                 top_p=1.0,
                 max_tokens=2048,
+                timeout=request_timeout,
+                max_parallel_requests=max_parallel_requests,
             ),
         ),
     ]
@@ -164,6 +174,32 @@ def _start_inference_server(
 
 
 # ---------------------------------------------------------------------------
+# SGLang inference server helper
+# ---------------------------------------------------------------------------
+
+
+def _start_sglang_server(
+    model_id: str,
+    dp_size: int = 1,
+    tp_size: int = 1,
+    health_check_timeout_s: int = 600,
+    server_kwargs: dict[str, Any] | None = None,
+) -> "SGLangInferenceServer":
+    """Start a local SGLangInferenceServer and return it."""
+    from nemo_curator.core.sglang_serve import SGLangInferenceServer, SGLangModelConfig
+
+    config = SGLangModelConfig(
+        model_path=model_id,
+        dp_size=dp_size,
+        tp_size=tp_size,
+        server_kwargs=server_kwargs or {},
+    )
+    server = SGLangInferenceServer(model=config, health_check_timeout_s=health_check_timeout_s)
+    server.start()
+    return server
+
+
+# ---------------------------------------------------------------------------
 # Benchmark runner
 # ---------------------------------------------------------------------------
 
@@ -177,6 +213,8 @@ def run_ndd_benchmark(  # noqa: PLR0915
     num_files: int | None,
     engine_kwargs: dict[str, Any] | None = None,
     autoscaling_config: dict[str, Any] | None = None,
+    dp_size: int = 1,
+    tp_size: int = 1,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the NDD benchmark and collect metrics."""
@@ -215,6 +253,21 @@ def run_ndd_benchmark(  # noqa: PLR0915
                 api_key="unused",  # pragma: allowlist secret
             )
         ]
+    elif inference_server_type == "sglang":
+        logger.info(f"Starting SGLangInferenceServer with dp_size={dp_size}, tp_size={tp_size}")
+        serve_start = time.perf_counter()
+        inference_server = _start_sglang_server(model_id, dp_size=dp_size, tp_size=tp_size, server_kwargs=engine_kwargs)
+        serve_startup_s = time.perf_counter() - serve_start
+        logger.info(f"SGLangInferenceServer ready at {inference_server.endpoint} (startup: {serve_startup_s:.1f}s)")
+
+        provider_name = "local"
+        model_providers = [
+            dd.ModelProvider(
+                name=provider_name,
+                endpoint=inference_server.endpoint,
+                api_key="unused",  # pragma: allowlist secret
+            )
+        ]
     elif inference_server_type == "nvidia-nim":
         if not os.environ.get("NVIDIA_API_KEY"):
             msg = "NVIDIA_API_KEY must be set for nvidia-nim model type"
@@ -225,7 +278,11 @@ def run_ndd_benchmark(  # noqa: PLR0915
         raise ValueError(msg)
 
     # -- Build config and run pipeline ----------------------------------
-    config_builder = _build_config(model_id, provider_name)
+    # SGLang: limit parallel requests to 1 per worker (one per dp replica) and
+    # set an explicit timeout so long generations don't hit the client default.
+    request_timeout = 300 if inference_server_type == "sglang" else None
+    max_parallel_requests = 1 if inference_server_type == "sglang" else 4
+    config_builder = _build_config(model_id, provider_name, request_timeout=request_timeout, max_parallel_requests=max_parallel_requests)
 
     executor_obj = setup_executor(executor)
 
@@ -287,6 +344,7 @@ def run_ndd_benchmark(  # noqa: PLR0915
             "throughput_rows_per_sec": throughput_rows_per_sec,
             "serve_startup_s": serve_startup_s,
             "num_files": num_files or "all",
+            **({"dp_size": dp_size, "tp_size": tp_size} if inference_server_type == "sglang" else {}),
         },
         "tasks": output_tasks,
     }
@@ -305,7 +363,7 @@ def main() -> int:
     parser.add_argument(
         "--inference-server-type",
         required=True,
-        choices=["ray-serve", "nvidia-nim"],
+        choices=["ray-serve", "sglang", "nvidia-nim"],
         help="Model serving backend",
     )
     parser.add_argument("--model-id", default="openai/gpt-oss-20b", help="Model identifier")
@@ -322,6 +380,18 @@ def main() -> int:
         type=str,
         default=None,
         help='JSON string of Ray Serve autoscaling config (e.g. \'{"min_replicas": 1, "max_replicas": 4}\')',
+    )
+    parser.add_argument(
+        "--dp-size",
+        type=int,
+        default=1,
+        help="SGLang data parallelism replicas (sglang only, default: 1)",
+    )
+    parser.add_argument(
+        "--tp-size",
+        type=int,
+        default=1,
+        help="SGLang tensor parallelism GPUs per replica (sglang only, default: 1)",
     )
 
     args = parser.parse_args()
@@ -350,6 +420,8 @@ def main() -> int:
                 num_files=args.num_files,
                 engine_kwargs=engine_kwargs,
                 autoscaling_config=autoscaling_config,
+                dp_size=args.dp_size,
+                tp_size=args.tp_size,
             )
         )
         success_code = 0 if result_dict["metrics"]["is_success"] else 1

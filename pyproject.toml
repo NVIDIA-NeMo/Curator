@@ -84,6 +84,15 @@ inference_server = [
     "ray[serve,llm]>=2.54",
 ]
 
+# SGLang - native multi-instance (dp_size) inference without Ray Serve
+# Note: sglang[all] is intentionally avoided — it bundles vllm which conflicts with
+# nemo-curator's vllm extra (incompatible flashinfer-python versions).  The base
+# sglang package is sufficient for running the SGLang server subprocess.
+sglang = [
+    "sglang>=0.4.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+]
+
+
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
     "cudf-cu12==25.10.*",
@@ -222,6 +231,15 @@ test = [
 package = true
 managed = true
 default-groups = ["dev", "test"]
+# sglang and vllm/inference_server cannot be installed in the same environment:
+# every sglang release pins flashinfer-python at a version incompatible with
+# vllm==0.14.1's flashinfer-python==0.5.3.  Declaring them as conflicts lets
+# uv build a valid lockfile without attempting to solve the two together.
+conflicts = [
+    [{ extra = "sglang" }, { extra = "vllm" }],
+    [{ extra = "sglang" }, { extra = "inference_server" }],
+    [{ extra = "sglang" }, { extra = "all" }],
+]
 index-strategy = "unsafe-best-match"
 no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
