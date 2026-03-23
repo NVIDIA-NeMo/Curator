@@ -13,7 +13,7 @@ navigation:
         contents:
           - page: Welcome
             path: ./v25.09/pages/index.mdx
-            slug: ""
+            slug: home
       - section: About NeMo Curator
         slug: about
         contents:
