@@ -37,11 +37,10 @@ Example:
         utmos_mos_threshold=3.5,
     )
     
-    # Create stage
-    stage = AudioDataFilterStage(config=config)
-    
-    # Process audio
-    results = stage.process(audio_batch)
+    # Add to pipeline (CompositeStage decomposes into independent stages)
+    from nemo_curator.pipeline import Pipeline
+    pipeline = Pipeline(name="audio_filter")
+    pipeline.add_stage(AudioDataFilterStage(config=config))
 """
 
 # Re-export from Audio_data_filter for convenience

@@ -153,10 +153,11 @@ class AudioDataFilterStage(CompositeStage):
                                         reverb_threshold=cfg.sigmos_reverb_threshold),
                     name="SIGMOS_Speaker"))
 
-        stages.append(TimestampMapperStage(
-            passthrough_keys=cfg.passthrough_keys,
-            name="TimestampMapper",
-        ))
+        if cfg.enable_vad or cfg.enable_speaker_separation:
+            stages.append(TimestampMapperStage(
+                passthrough_keys=cfg.passthrough_keys,
+                name="TimestampMapper",
+            ))
 
         logger.info(f"AudioDataFilterStage decomposed into {len(stages)} stages "
                     f"(filters: {cfg.get_enabled_filters()}, "
