@@ -86,27 +86,19 @@ class RayDataStageAdapter(BaseStageAdapter):
 
         is_actor_stage_ = self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
 
-        # Calculate concurrency for ALL stages to prevent unlimited worker spawning
-        calculated_concurrency = calculate_concurrency_for_actors_for_stage(
-            self.stage, ignore_head_node=ignore_head_node
-        )
-
         if is_actor_stage_:
             map_batches_fn = create_actor_from_stage(self.stage)
+            concurrency_kwargs = {
+                "concurrency": calculate_concurrency_for_actors_for_stage(
+                    self.stage, ignore_head_node=ignore_head_node
+                ),
+            }
         else:
             map_batches_fn = create_task_from_stage(self.stage)
+            concurrency_kwargs = {"concurrency": None}
 
-        # Always set explicit concurrency to prevent Ray Data from spawning unlimited workers
-        concurrency_kwargs = {"concurrency": calculated_concurrency}
-
-        # Always explicitly set num_cpus to prevent Ray Data from defaulting to 1 CPU per task
-        # For GPU-only stages, this should be 0 or a small value to leave CPUs for other stages
         if self.stage.resources.cpus > 0:
             concurrency_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
-        else:
-            # Explicitly set to 0 for GPU-only stages to prevent default CPU allocation
-            # Ray Data defaults to 1 CPU per task if not specified, which can exhaust CPUs
-            concurrency_kwargs["num_cpus"] = 0  # type: ignore[reportArgumentType]
         if self.stage.resources.gpus > 0:
             concurrency_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
 
