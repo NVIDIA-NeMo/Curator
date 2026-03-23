@@ -1,0 +1,83 @@
+# Variables (replaced at sync time by convert_curator_specific.py):
+#   {current_release}, {{ current_release }}, <release/> -> version from file path (e.g. 26.02)
+#   Use in source: # NeMo Curator Release Notes: {{ current_release }}  or  <release/>
+#
+# Version display names pair NeMo calendar trains (YY.MM) with git release tags (vMAJOR.MINOR.PATCH).
+# Update both when you cut a new docs version. See CHANGELOG.md / GitHub releases for tag ↔ release alignment.
+
+instances:
+  - url: nemo-curator.docs.buildwithfern.com
+    custom-domain: docs.nvidia.com/nemo/curator
+
+redirects:
+  - source: "/"
+    destination: "/home/welcome"
+  - source: "/home"
+    destination: "/home/welcome"
+
+title: NeMo Curator
+
+footer: ./components/CustomFooter.tsx
+
+versions:
+  - display-name: "Latest · v1.1.0 (26.02)"
+    path: versions/latest.yml
+    slug: latest
+    availability: stable
+  - display-name: "26.02 · v1.1.0"
+    path: versions/v26.02.yml
+    slug: v26.02
+    availability: stable
+  - display-name: "25.09 · v1.0.0"
+    path: versions/v25.09.yml
+    slug: v25.09
+    availability: stable
+
+layout:
+  searchbar-placement: header
+  page-width: 1376px
+  sidebar-width: 248px
+  content-width: 812px
+  tabs-placement: header
+  hide-feedback: true
+
+colors:
+  accentPrimary:
+    dark: "#76B900"
+    light: "#76B900"
+  background:
+    light: "#FFFFFF"
+    dark: "#000000"
+
+theme:
+  page-actions: toolbar
+  footer-nav: minimal
+
+logo:
+  dark: ./assets/NVIDIA_dark.svg
+  light: ./assets/NVIDIA_light.svg
+  height: 20
+  href: /home/welcome
+  right-text: NeMo Curator
+
+favicon: ./assets/NVIDIA_symbol.svg
+
+css:
+  - ./main.css
+
+navbar-links:
+  - type: github
+    value: https://github.com/NVIDIA-NeMo/Curator
+
+libraries:
+  nemo-curator:
+    input:
+      git: https://github.com/NVIDIA-NeMo/Curator
+      subpath: nemo_curator
+    output:
+      path: ./product-docs/nemo-curator/Full-Library-Reference
+    lang: python
+
+experimental:
+  mdx-components:
+    - ./components
