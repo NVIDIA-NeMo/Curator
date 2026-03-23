@@ -50,6 +50,7 @@ class TestCaptionGenerationStage:
         assert stage.model_does_preprocess is False
         assert stage.disable_mmcache is False
         assert stage.verbose is False
+        assert stage.model_id is None
         assert stage.generate_stage2_caption is False
         assert stage.stage2_prompt_text is None
         assert stage._name == "caption_generation"
@@ -80,6 +81,7 @@ class TestCaptionGenerationStage:
             max_output_tokens=256,
             model_does_preprocess=True,
             disable_mmcache=True,
+            model_id=None,
         )
         mock_model.setup.assert_called_once()
         assert self.stage.model == mock_model
@@ -328,3 +330,61 @@ class TestCaptionGenerationStage:
             worker_metadata = WorkerMetadata(worker_id="test")
             self.stage.setup(worker_metadata)
             assert hasattr(self.stage, "model")
+
+    @patch("nemo_curator.stages.video.caption.caption_generation.QwenVL")
+    def test_custom_model_id_passed_to_qwen_vl(self, mock_qwen_vl: Mock):
+        """Test that a custom model_id is forwarded to QwenVL."""
+        mock_model = Mock()
+        mock_qwen_vl.return_value = mock_model
+        custom_id = "Qwen/Qwen3-VL-72B-Instruct"
+
+        stage = CaptionGenerationStage(
+            model_dir="test/models",
+            model_variant="qwen",
+            model_id=custom_id,
+        )
+        stage.setup()
+
+        call_kwargs = mock_qwen_vl.call_args[1]
+        assert call_kwargs["model_id"] == custom_id
+
+    def test_invalid_model_id_raises(self):
+        """Test that a non-Qwen model_id raises ValueError in __post_init__."""
+        with pytest.raises(ValueError, match="must be a Qwen model"):
+            CaptionGenerationStage(model_id="mistralai/Mistral-7B-Instruct")
+
+    @patch("nemo_curator.stages.video.caption.caption_generation.QwenVL")
+    def test_setup_on_node_passes_model_id(self, mock_qwen_vl: Mock):
+        """Test that setup_on_node forwards model_id to download_weights_on_node."""
+        mock_model = Mock()
+        mock_qwen_vl.return_value = mock_model
+        custom_id = "Qwen/Qwen3-VL-72B-Instruct"
+
+        stage = CaptionGenerationStage(
+            model_dir="test/models",
+            model_variant="qwen",
+            model_id=custom_id,
+        )
+
+        from nemo_curator.backends.base import NodeInfo
+
+        stage.setup_on_node(NodeInfo(node_id="node-0"), WorkerMetadata(worker_id="test"))
+
+        mock_qwen_vl.download_weights_on_node.assert_called_once_with(
+            "test/models",
+            model_id=custom_id,
+        )
+
+    @patch("nemo_curator.stages.video.caption.caption_generation.QwenVL")
+    def test_setup_on_node_no_model_id_uses_default(self, mock_qwen_vl: Mock):
+        """Test that setup_on_node calls download_weights_on_node without model_id when not set."""
+        mock_model = Mock()
+        mock_qwen_vl.return_value = mock_model
+
+        stage = CaptionGenerationStage(model_dir="test/models", model_variant="qwen")
+
+        from nemo_curator.backends.base import NodeInfo
+
+        stage.setup_on_node(NodeInfo(node_id="node-0"), WorkerMetadata(worker_id="test"))
+
+        mock_qwen_vl.download_weights_on_node.assert_called_once_with("test/models")

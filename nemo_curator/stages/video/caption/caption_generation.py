@@ -19,7 +19,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.models.qwen_vl import QwenVL
+from nemo_curator.models.qwen_vl import QwenVL, _validate_qwen_vl_model
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import Video, VideoTask
@@ -35,6 +35,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
 
     model_dir: str = "models/qwen"
     model_variant: str = "qwen"
+    model_id: str | None = None
     caption_batch_size: int = 16
     fp8: bool = False
     max_output_tokens: int = 512
@@ -61,6 +62,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 max_output_tokens=self.max_output_tokens,
                 model_does_preprocess=self.model_does_preprocess,
                 disable_mmcache=self.disable_mmcache,
+                model_id=self.model_id,
             )
         else:
             msg = f"Unsupported model variant: {self.model_variant}"
@@ -69,7 +71,10 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
-        QwenVL.download_weights_on_node(self.model_dir)
+        QwenVL.download_weights_on_node(
+            self.model_dir,
+            **({"model_id": self.model_id} if self.model_id else {}),
+        )
         self._initialize_model()
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
@@ -77,6 +82,8 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
             self._initialize_model()
 
     def __post_init__(self) -> None:
+        if self.model_id is not None:
+            _validate_qwen_vl_model(self.model_id)
         self.resources = Resources(gpus=1)
 
     def process(self, task: VideoTask) -> VideoTask:

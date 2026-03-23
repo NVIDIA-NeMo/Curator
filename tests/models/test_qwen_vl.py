@@ -21,7 +21,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from nemo_curator.models.qwen_vl import _QWEN2_5_VL_MODEL_ID, _QWEN_VARIANTS_INFO, QwenVL
+from nemo_curator.models.qwen_vl import (
+    _QWEN_VARIANTS_INFO,
+    _QWEN_VL_MODEL_ID,
+    QwenVL,
+    _check_vllm_supports_vl_model,
+    _validate_qwen_vl_model,
+)
 
 
 class TestQwenVL:
@@ -54,9 +60,9 @@ class TestQwenVL:
 
     def test_constants(self) -> None:
         """Test that module constants are correctly defined."""
-        assert _QWEN2_5_VL_MODEL_ID == "Qwen/Qwen2.5-VL-7B-Instruct"
+        assert _QWEN_VL_MODEL_ID == "Qwen/Qwen3-VL-8B-Instruct"
         assert "qwen" in _QWEN_VARIANTS_INFO
-        assert _QWEN_VARIANTS_INFO["qwen"] == _QWEN2_5_VL_MODEL_ID
+        assert _QWEN_VARIANTS_INFO["qwen"] == _QWEN_VL_MODEL_ID
 
     def test_initialization_default_parameters(self) -> None:
         """Test initialization with default parameters."""
@@ -73,8 +79,9 @@ class TestQwenVL:
         assert qwen_vl.disable_mmcache is False
         assert qwen_vl.stage2_prompt is None
         assert qwen_vl.verbose is False
+        assert qwen_vl.model_id == _QWEN_VL_MODEL_ID
 
-        expected_weight_file = str(pathlib.Path(self.model_dir) / _QWEN_VARIANTS_INFO[self.model_variant])
+        expected_weight_file = str(pathlib.Path(self.model_dir) / qwen_vl.model_id)
         assert qwen_vl.weight_file == expected_weight_file
 
     def test_initialization_custom_parameters(self) -> None:
@@ -103,8 +110,8 @@ class TestQwenVL:
 
         assert isinstance(model_ids, list)
         assert len(model_ids) == 1
-        assert model_ids[0] == _QWEN_VARIANTS_INFO[self.model_variant]
-        assert model_ids[0] == _QWEN2_5_VL_MODEL_ID
+        assert model_ids[0] == self.qwen_vl.model_id
+        assert model_ids[0] == _QWEN_VL_MODEL_ID
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
@@ -371,12 +378,12 @@ class TestQwenVL:
 
     def test_weight_file_path_construction(self) -> None:
         """Test that weight_file path is constructed correctly."""
-        expected_path = str(pathlib.Path(self.model_dir) / _QWEN_VARIANTS_INFO[self.model_variant])
+        expected_path = str(pathlib.Path(self.model_dir) / self.qwen_vl.model_id)
         assert self.qwen_vl.weight_file == expected_path
 
         # Test with different paths
         qwen_vl2 = QwenVL(model_dir="/different/path", model_variant="qwen", caption_batch_size=1)
-        expected_path2 = str(pathlib.Path("/different/path") / _QWEN_VARIANTS_INFO["qwen"])
+        expected_path2 = str(pathlib.Path("/different/path") / qwen_vl2.model_id)
         assert qwen_vl2.weight_file == expected_path2
 
     def test_max_output_tokens_parameter(self) -> None:
@@ -413,3 +420,201 @@ class TestQwenVL:
             max_tokens=custom_tokens,
             stop_token_ids=[],
         )
+
+    def test_custom_model_id(self) -> None:
+        """Test that a custom Qwen model ID is accepted and stored."""
+        custom_id = "Qwen/Qwen3-VL-72B-Instruct"
+        qwen_vl = QwenVL(
+            model_dir=self.model_dir,
+            model_variant=self.model_variant,
+            caption_batch_size=self.caption_batch_size,
+            model_id=custom_id,
+        )
+        assert qwen_vl.model_id == custom_id
+        assert qwen_vl.weight_file == str(pathlib.Path(self.model_dir) / custom_id)
+        assert qwen_vl.model_id_names == [custom_id]
+
+    def test_invalid_model_id_raises(self) -> None:
+        """Test that a non-Qwen model_id raises ValueError."""
+        with pytest.raises(ValueError, match="must be a Qwen model"):
+            QwenVL(
+                model_dir=self.model_dir,
+                model_variant=self.model_variant,
+                caption_batch_size=self.caption_batch_size,
+                model_id="mistralai/Mistral-7B-Instruct",
+            )
+
+    def test_setup_raises_if_vllm_not_available(self) -> None:
+        """Test that setup raises ImportError when vllm is not installed."""
+        with (
+            patch("nemo_curator.models.qwen_vl.VLLM_AVAILABLE", False),
+            pytest.raises(ImportError, match="vllm is required"),
+        ):
+            self.qwen_vl.setup()
+
+    @patch("nemo_curator.models.qwen_vl.download_model_from_hf")
+    def test_setup_auto_downloads_if_missing(self, mock_download: Mock) -> None:
+        """Test that setup downloads weights when they are not present."""
+        with (
+            patch("nemo_curator.models.qwen_vl.LLM"),
+            patch("nemo_curator.models.qwen_vl.SamplingParams"),
+            patch("nemo_curator.models.qwen_vl._check_vllm_supports_vl_model"),
+            patch("nemo_curator.models.qwen_vl.Path") as mock_path,
+        ):
+            mock_path_instance = Mock()
+            mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
+            mock_path_instance.exists.return_value = False
+            mock_path_instance.glob.return_value = []
+            mock_path.return_value = mock_path_instance
+
+            self.qwen_vl.setup()
+
+            mock_download.assert_called_once()
+
+    @patch("nemo_curator.models.qwen_vl.download_model_from_hf")
+    def test_setup_skips_download_if_weights_present(self, mock_download: Mock) -> None:
+        """Test that setup skips download when weights already exist."""
+        with (
+            patch("nemo_curator.models.qwen_vl.LLM"),
+            patch("nemo_curator.models.qwen_vl.SamplingParams"),
+            patch("nemo_curator.models.qwen_vl._check_vllm_supports_vl_model"),
+            patch("nemo_curator.models.qwen_vl.Path") as mock_path,
+        ):
+            mock_path_instance = Mock()
+            mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
+            mock_path_instance.exists.return_value = True
+            mock_path_instance.glob.return_value = ["model.safetensors"]
+            mock_path.return_value = mock_path_instance
+
+            self.qwen_vl.setup()
+
+            mock_download.assert_not_called()
+
+    @patch("nemo_curator.models.qwen_vl.download_model_from_hf")
+    def test_download_weights_on_node_default(self, mock_download: Mock) -> None:
+        """Test download_weights_on_node with default model_id."""
+        with patch("nemo_curator.models.qwen_vl.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
+            mock_path_instance.exists.return_value = False
+            mock_path_instance.glob.return_value = []
+            mock_path.return_value = mock_path_instance
+
+            QwenVL.download_weights_on_node(model_dir="/some/dir")
+
+            mock_download.assert_called_once()
+            call_kwargs = mock_download.call_args[1]
+            assert call_kwargs["model_id"] == _QWEN_VL_MODEL_ID
+
+    @patch("nemo_curator.models.qwen_vl.download_model_from_hf")
+    def test_download_weights_on_node_custom_model_id(self, mock_download: Mock) -> None:
+        """Test download_weights_on_node with a custom model_id."""
+        custom_id = "Qwen/Qwen3-VL-72B-Instruct"
+        with patch("nemo_curator.models.qwen_vl.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
+            mock_path_instance.exists.return_value = False
+            mock_path_instance.glob.return_value = []
+            mock_path.return_value = mock_path_instance
+
+            QwenVL.download_weights_on_node(model_dir="/some/dir", model_id=custom_id)
+
+            mock_download.assert_called_once()
+            call_kwargs = mock_download.call_args[1]
+            assert call_kwargs["model_id"] == custom_id
+
+    @patch("nemo_curator.models.qwen_vl.download_model_from_hf")
+    def test_download_weights_on_node_skips_if_weights_present(self, mock_download: Mock) -> None:
+        """Test that download_weights_on_node skips when weights already exist."""
+        with patch("nemo_curator.models.qwen_vl.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
+            mock_path_instance.exists.return_value = True
+            mock_path_instance.glob.return_value = ["model.safetensors"]
+            mock_path.return_value = mock_path_instance
+
+            QwenVL.download_weights_on_node(model_dir="/some/dir")
+
+            mock_download.assert_not_called()
+
+    def test_download_weights_on_node_invalid_model_id(self) -> None:
+        """Test that download_weights_on_node raises for a non-Qwen model."""
+        with pytest.raises(ValueError, match="must be a Qwen model"):
+            QwenVL.download_weights_on_node(model_dir="/some/dir", model_id="mistralai/Mistral-7B-Instruct")
+
+
+class TestValidateQwenVlModel:
+    """Test cases for _validate_qwen_vl_model helper."""
+
+    def test_valid_qwen_model_passes(self) -> None:
+        _validate_qwen_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
+
+    def test_invalid_model_raises(self) -> None:
+        with pytest.raises(ValueError, match="must be a Qwen model"):
+            _validate_qwen_vl_model("mistralai/Mistral-7B")
+
+    def test_wrong_case_raises(self) -> None:
+        with pytest.raises(ValueError, match="must be a Qwen model"):
+            _validate_qwen_vl_model("qwen/Qwen3-VL-8B-Instruct")
+
+
+class TestCheckVllmSupportsVlModel:
+    """Test cases for _check_vllm_supports_vl_model helper."""
+
+    def test_skips_when_vllm_not_available(self) -> None:
+        with patch("nemo_curator.models.qwen_vl.VLLM_AVAILABLE", False):
+            _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
+
+    def test_skips_when_no_architectures(self) -> None:
+        mock_config = Mock()
+        mock_config.architectures = []
+        with patch("nemo_curator.models.qwen_vl.AutoConfig") as mock_auto_config:
+            mock_auto_config.from_pretrained.return_value = mock_config
+            _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
+
+    def test_skips_when_architectures_is_none(self) -> None:
+        mock_config = Mock()
+        mock_config.architectures = None
+        with patch("nemo_curator.models.qwen_vl.AutoConfig") as mock_auto_config:
+            mock_auto_config.from_pretrained.return_value = mock_config
+            _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
+
+    def test_passes_when_architecture_supported(self) -> None:
+        mock_config = Mock()
+        mock_config.architectures = ["Qwen2_5_VLForConditionalGeneration"]
+        with (
+            patch("nemo_curator.models.qwen_vl.AutoConfig") as mock_auto_config,
+            patch("nemo_curator.models.qwen_vl.VLLM_AVAILABLE", True),
+        ):
+            mock_auto_config.from_pretrained.return_value = mock_config
+            mock_registry = Mock()
+            mock_registry.is_model_supported.return_value = True
+            with patch("vllm.model_executor.models.ModelRegistry", mock_registry):
+                _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
+
+    def test_raises_when_all_architectures_unsupported(self) -> None:
+        mock_config = Mock()
+        mock_config.architectures = ["SomeUnsupportedArch"]
+        with (
+            patch("nemo_curator.models.qwen_vl.AutoConfig") as mock_auto_config,
+            patch("nemo_curator.models.qwen_vl.VLLM_AVAILABLE", True),
+        ):
+            mock_auto_config.from_pretrained.return_value = mock_config
+            mock_registry = Mock()
+            mock_registry.is_model_supported.return_value = False
+            with (
+                patch("vllm.model_executor.models.ModelRegistry", mock_registry),
+                pytest.raises(ValueError, match="not supported by vLLM"),
+            ):
+                _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")
+
+    def test_skips_check_when_registry_import_fails(self) -> None:
+        mock_config = Mock()
+        mock_config.architectures = ["SomeArch"]
+        with (
+            patch("nemo_curator.models.qwen_vl.AutoConfig") as mock_auto_config,
+            patch("nemo_curator.models.qwen_vl.VLLM_AVAILABLE", True),
+        ):
+            mock_auto_config.from_pretrained.return_value = mock_config
+            with patch.dict("sys.modules", {"vllm.model_executor.models": None}):
+                _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
