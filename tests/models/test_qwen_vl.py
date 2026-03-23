@@ -17,7 +17,7 @@
 import pathlib
 import re
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -614,30 +614,46 @@ class TestCheckVllmSupportsVlModel:
     def test_passes_when_architecture_supported(self) -> None:
         mock_config = Mock()
         mock_config.architectures = ["Qwen2_5_VLForConditionalGeneration"]
+        mock_registry = Mock()
+        mock_registry.is_model_supported.return_value = True
+        mock_models = MagicMock()
+        mock_models.ModelRegistry = mock_registry
         with (
             patch("nemo_curator.models.qwen_vl.AutoConfig") as mock_auto_config,
             patch("nemo_curator.models.qwen_vl.VLLM_AVAILABLE", True),
+            patch.dict(
+                "sys.modules",
+                {
+                    "vllm": MagicMock(),
+                    "vllm.model_executor": MagicMock(),
+                    "vllm.model_executor.models": mock_models,
+                },
+            ),
         ):
             mock_auto_config.from_pretrained.return_value = mock_config
-            mock_registry = Mock()
-            mock_registry.is_model_supported.return_value = True
-            with patch("vllm.model_executor.models.ModelRegistry", mock_registry):
-                _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
+            _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
 
     def test_raises_when_all_architectures_unsupported(self) -> None:
         mock_config = Mock()
         mock_config.architectures = ["SomeUnsupportedArch"]
+        mock_registry = Mock()
+        mock_registry.is_model_supported.return_value = False
+        mock_models = MagicMock()
+        mock_models.ModelRegistry = mock_registry
         with (
             patch("nemo_curator.models.qwen_vl.AutoConfig") as mock_auto_config,
             patch("nemo_curator.models.qwen_vl.VLLM_AVAILABLE", True),
+            patch.dict(
+                "sys.modules",
+                {
+                    "vllm": MagicMock(),
+                    "vllm.model_executor": MagicMock(),
+                    "vllm.model_executor.models": mock_models,
+                },
+            ),
         ):
             mock_auto_config.from_pretrained.return_value = mock_config
-            mock_registry = Mock()
-            mock_registry.is_model_supported.return_value = False
-            with (
-                patch("vllm.model_executor.models.ModelRegistry", mock_registry),
-                pytest.raises(ValueError, match="not supported by vLLM"),
-            ):
+            with pytest.raises(ValueError, match="not supported by vLLM"):
                 _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")
 
     def test_skips_check_when_registry_import_fails(self) -> None:
