@@ -102,7 +102,7 @@ Enhanced tracking of pipeline execution:
 - Fixed broken NeMo Framework documentation links
 - Fixed ID generator blocking issues for large-scale processing
 - Fixed vLLM API compatibility with video captioning pipeline
-- Fixed SDG workflow bugs
+- Fixed Gliner tutorial examples and SDG workflow bugs
 - Improved semantic deduplication unit test reliability
 
 ## Infrastructure & Developer Experience
