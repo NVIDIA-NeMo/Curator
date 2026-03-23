@@ -50,6 +50,13 @@ redirects:
     destination: "/reference/infra/resumable-processing"
   - source: "/reference/infra/container/environments"
     destination: "/reference/infra/container-environments"
+  # Text / video concepts & deployment: legacy nested nav → flat slugs
+  - source: "/about/concepts/text/data/curation/pipeline"
+    destination: "/about/concepts/text/data/data-curation-pipeline"
+  - source: "/about/concepts/video/data/flow"
+    destination: "/about/concepts/video/data-flow"
+  - source: "/admin/deployment/slurm/image"
+    destination: "/admin/deployment/slurm-image"
 
 title: NeMo Curator
 

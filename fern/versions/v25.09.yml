@@ -51,12 +51,9 @@ navigation:
                       - page: Processing
                         path: ./v25.09/pages/about/concepts/text/data-processing-concepts.mdx
                         slug: processing
-                      - section: Curation
-                        slug: curation
-                        contents:
-                          - page: Pipeline
-                            path: ./v25.09/pages/about/concepts/text/data-curation-pipeline.mdx
-                            slug: pipeline
+                      - page: Curation Pipeline
+                        path: ./v25.09/pages/about/concepts/text/data-curation-pipeline.mdx
+                        slug: data-curation-pipeline
               - section: Image Concepts
                 slug: image
                 contents:
@@ -87,12 +84,9 @@ navigation:
                   - page: Abstractions
                     path: ./v25.09/pages/about/concepts/video/abstractions.mdx
                     slug: abstractions
-                  - section: Data
-                    slug: data
-                    contents:
-                      - page: Data Flow
-                        path: ./v25.09/pages/about/concepts/video/data-flow.mdx
-                        slug: flow
+                  - page: Data Flow
+                    path: ./v25.09/pages/about/concepts/video/data-flow.mdx
+                    slug: data-flow
               - section: Audio Concepts
                 slug: audio
                 contents:
@@ -153,12 +147,9 @@ navigation:
           - page: Overview
             path: ./v25.09/pages/curate-text/index.mdx
             slug: ""
-          - section: Tutorials
+          - page: Tutorials
+            path: ./v25.09/pages/curate-text/tutorials/index.mdx
             slug: tutorials
-            contents:
-              - page: Overview
-                path: ./v25.09/pages/curate-text/tutorials/index.mdx
-                slug: ""
           - section: Load Data
             slug: load-data
             contents:
@@ -342,12 +333,9 @@ navigation:
                   - page: Add Custom Stage
                     path: ./v25.09/pages/curate-video/tutorials/pipeline-customization/add-cust-stage.mdx
                     slug: add-cust-stage
-          - section: Load Data
+          - page: Load Data
+            path: ./v25.09/pages/curate-video/load-data/index.mdx
             slug: load-data
-            contents:
-              - page: Overview
-                path: ./v25.09/pages/curate-video/load-data/index.mdx
-                slug: ""
           - section: Process Data
             slug: process-data
             contents:
@@ -447,12 +435,9 @@ navigation:
                   - page: Format Validation
                     path: ./v25.09/pages/curate-audio/process-data/audio-analysis/format-validation.mdx
                     slug: format-validation
-              - section: Text Integration
+              - page: Text Integration
+                path: ./v25.09/pages/curate-audio/process-data/text-integration/index.mdx
                 slug: text-integration
-                contents:
-                  - page: Overview
-                    path: ./v25.09/pages/curate-audio/process-data/text-integration/index.mdx
-                    slug: ""
           - page: Save and Export
             path: ./v25.09/pages/curate-audio/save-export.mdx
             slug: save-export

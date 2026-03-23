@@ -46,11 +46,13 @@ REPLACEMENTS: list[tuple[str, str]] = [
     ("/about/concepts/text/data-loading-concepts", "/about/concepts/text/data/loading"),
     ("/about/concepts/text/data-processing-concepts", "/about/concepts/text/data/processing"),
     ("/about/concepts/text/data-acquisition-concepts", "/about/concepts/text/data/acquisition"),
-    ("/about/concepts/text/data-curation-pipeline", "/about/concepts/text/curation/pipeline"),
     ("/about/concepts/image/data-loading-concepts", "/about/concepts/image/data/loading"),
     ("/about/concepts/image/data-processing-concepts", "/about/concepts/image/data/processing"),
     ("/about/concepts/image/data-export-concepts", "/about/concepts/image/data/export"),
-    ("/about/concepts/video/data-flow", "/about/concepts/video/data/flow"),
+    # Legacy nested concept URLs (single-page sections) → flat slugs (canonical)
+    ("/about/concepts/text/data/curation/pipeline", "/about/concepts/text/data/data-curation-pipeline"),
+    ("/about/concepts/video/data/flow", "/about/concepts/video/data-flow"),
+    ("/admin/deployment/slurm/image", "/admin/deployment/slurm-image"),
     # Legacy nested audio URLs (single-page nav sections) → flat slugs (canonical)
     ("/about/concepts/audio/manifests/ingest", "/about/concepts/audio/manifests-ingest"),
     ("/about/concepts/audio/curation/pipeline", "/about/concepts/audio/curation-pipeline"),
