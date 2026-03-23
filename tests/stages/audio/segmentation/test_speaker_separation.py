@@ -149,3 +149,52 @@ class TestSpeakerSeparationStage:
         assert restored.min_duration == 1.0
         assert restored.exclude_overlaps is False
         assert restored._separator is None
+
+    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
+    def test_separator_exception_skips_item(self, mock_init) -> None:
+        """If separator raises on an item, that item is skipped (no crash)."""
+        stage = SpeakerSeparationStage(min_duration=0.5)
+
+        separator = MagicMock()
+        separator.get_speaker_audio_data.side_effect = RuntimeError("Simulated crash")
+        stage._separator = separator
+
+        result = stage.process(_make_batch())
+
+        assert isinstance(result, list)
+        assert len(result) == 0
+
+    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
+    def test_mixed_batch_error_skips_bad_item(self, mock_init) -> None:
+        """Batch with 2 items: first raises, second succeeds. Only second produces output."""
+        stage = SpeakerSeparationStage(min_duration=0.5)
+
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ValueError("Corrupted audio")
+            return {"speaker_0": (_make_audio_segment(3000), 3.0)}
+
+        separator = MagicMock()
+        separator.get_speaker_audio_data.side_effect = side_effect
+        stage._separator = separator
+
+        batch = AudioBatch(
+            data=[_make_item(), _make_item()],
+            task_id="test-mixed",
+            dataset_name="test",
+        )
+        result = stage.process(batch)
+
+        assert isinstance(result, list)
+        assert len(result) == 1, f"Expected 1 result (bad item skipped), got {len(result)}"
+        assert result[0].data[0]["speaker_id"] == "speaker_0"
+
+    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
+    def test_default_model_path_is_hf(self, mock_init) -> None:
+        """Default model_path should be the HuggingFace model ID."""
+        stage = SpeakerSeparationStage()
+        assert stage.model_path == "nvidia/diar_sortformer_4spk-v1"

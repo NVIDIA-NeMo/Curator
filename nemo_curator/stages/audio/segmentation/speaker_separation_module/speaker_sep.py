@@ -14,6 +14,7 @@
 
 import os
 import tempfile
+import time
 from typing import List, Tuple, Dict, Optional
 import torch
 import soundfile as sf
@@ -70,7 +71,7 @@ class SpeakerSeparator:
             elif isinstance(self.config, dict):
                 val = self.config.get('speaker_model_path')
                  
-            self.model_name = val or "model/diar_sortformer_4spk-v1.nemo"
+            self.model_name = val or "nvidia/diar_sortformer_4spk-v1"
 
         # Check for GPU usage
         self.use_gpu = False
@@ -86,27 +87,26 @@ class SpeakerSeparator:
         self.diar_model = None
         self._load_model()
         
-    def _load_model(self):
-        """Load the diarization model."""
-        try:
-            logger.info(f"Loading speaker separation model from: {self.model_name}")
+    def _load_model(self, max_retries: int = 3, retry_delay: float = 5.0):
+        """Load the diarization model from HuggingFace Hub with retry logic."""
+        last_error = None
+        for attempt in range(1, max_retries + 1):
             try:
-                self.diar_model = SortformerEncLabelModel.restore_from(
-                    restore_path=self.model_name,
+                logger.info(f"Loading speaker separation model from HuggingFace: {self.model_name} (attempt {attempt}/{max_retries})")
+                self.diar_model = SortformerEncLabelModel.from_pretrained(
+                    self.model_name,
                     map_location=self.device,
-                    strict=True
                 )
-            except RuntimeError as weight_err:
-                logger.warning(f"Checkpoint weight mismatch with strict=True, retrying with strict=False: {weight_err}")
-                self.diar_model = SortformerEncLabelModel.restore_from(
-                    restore_path=self.model_name,
-                    map_location=self.device,
-                    strict=False
-                )
-            self.diar_model.eval()
-        except Exception as e:
-            logger.error(f"Error loading model: {e}")
-            raise
+                self.diar_model.eval()
+                return
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries:
+                    logger.warning(f"HuggingFace model load attempt {attempt} failed: {e}. Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+        logger.error(f"Failed to load model from HuggingFace after {max_retries} attempts: {last_error}")
+        raise last_error
     
     def _get_param(self, param_name, default_value):
         """Helper to get a parameter from config, handling different config structures."""
@@ -324,7 +324,8 @@ class SpeakerSeparator:
                 temp_path = tmp.name
             wav = waveform.squeeze(0) if waveform.dim() > 1 else waveform
             sf.write(temp_path, wav.cpu().numpy(), sample_rate)
-            return self.diar_model.diarize(audio=temp_path, batch_size=1)
+            with torch.no_grad():
+                return self.diar_model.diarize(audio=temp_path, batch_size=1)
         finally:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
@@ -412,14 +413,18 @@ class SpeakerSeparator:
             
             return processed_segments
             
-        except (RuntimeError, ValueError):
-            raise
+        except torch.cuda.OutOfMemoryError:
+            logger.warning("CUDA out of memory during diarization, skipping item")
+            torch.cuda.empty_cache()
+            return {}
+        except Exception as e:
+            logger.error(f"Error processing audio for speaker segments: {e}")
+            return {}
     
     def get_speaker_audio_data(self, audio_path_or_waveform, sample_rate=None, gap_threshold=None, exclude_overlaps=None, min_duration=None, buffer_time=None):
         """
         Process an audio file or waveform and return AudioSegment objects for each speaker.
         """
-        # Get parameters from config if not provided
         if gap_threshold is None:
             gap_threshold = self._get_param('speaker_gap_threshold', 0.1)
         if exclude_overlaps is None:
@@ -429,12 +434,8 @@ class SpeakerSeparator:
         if buffer_time is None:
             buffer_time = self._get_param('speaker_buffer_time', 0.5)
         
-        # Check if input is a path or waveform
         if isinstance(audio_path_or_waveform, str):
-            # Load the original audio file from path
-            # Using from_file() to support multiple formats (wav, mp3, flac, ogg, etc.)
             original_audio = AudioSegment.from_file(audio_path_or_waveform)
-            # Process the audio to get speaker segments
             speaker_segments = self.process_audio(
                 audio_path_or_waveform, 
                 None, 
@@ -444,7 +445,6 @@ class SpeakerSeparator:
                 buffer_time
             )
         else:
-            # Input is a waveform tensor
             if sample_rate is None:
                 raise ValueError("Sample rate must be provided when passing a waveform")
             
@@ -459,7 +459,6 @@ class SpeakerSeparator:
                 if temp_path and os.path.exists(temp_path):
                     os.unlink(temp_path)
             
-            # Process the audio to get speaker segments
             speaker_segments = self.process_audio(
                 audio_path_or_waveform, 
                 sample_rate, 
@@ -471,25 +470,19 @@ class SpeakerSeparator:
             
         duration_ms = len(original_audio)
         
-        # Create audio segments for each speaker
         speaker_audio = {}
         
         for speaker, segments in speaker_segments.items():
-            # Skip if no segments for this speaker
             if not segments:
                 continue
                 
-            # Calculate total duration of non-overlapping speech for this speaker
             total_duration = sum(end - start for start, end in segments)
             
-            # Skip if total duration is too low (speaker is essentially silent)
-            if total_duration < 0.1:  # less than 100ms of speech
+            if total_duration < 0.1:
                 continue
             
-            # Create a silent audio with the same duration as the original
             silent_audio = AudioSegment.silent(duration=duration_ms)
             
-            # Add segments for this speaker
             for start_time, end_time in segments:
                 start_ms = max(0, min(int(start_time * 1000), duration_ms))
                 end_ms = max(0, min(int(end_time * 1000), duration_ms))
@@ -499,11 +492,12 @@ class SpeakerSeparator:
                 segment_audio = original_audio[start_ms:end_ms]
                 silent_audio = silent_audio.overlay(segment_audio, position=start_ms)
             
-            # Check if audio is silent (RMS amplitude close to 0)
-            if silent_audio.rms < 1:  # Very low RMS indicates silence
+            if silent_audio.rms < 1:
                 continue
                 
-            # Store the speaker's audio and duration
             speaker_audio[speaker] = (silent_audio, total_duration)
+        
+        # Free the original audio to release memory before returning
+        del original_audio
         
         return speaker_audio

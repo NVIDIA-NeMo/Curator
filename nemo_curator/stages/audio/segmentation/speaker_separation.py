@@ -44,7 +44,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
-from ..common import resolve_model_path, resolve_waveform_from_item
+from ..common import resolve_waveform_from_item
 from ..configs import SpeakerSeparationConfig
 
 
@@ -63,12 +63,12 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
     Speaker separation stage using NeMo SortFormer diarization model.
     
     Separates audio by speaker and creates separate AudioBatch outputs
-    for each speaker's segments. Uses local NeMo model from 
-    speaker_separation_module/model/diar_sortformer_4spk-v1.nemo.
+    for each speaker's segments. Downloads the NeMo model from
+    HuggingFace Hub (nvidia/diar_sortformer_4spk-v1).
     
     Args:
         config: SpeakerSeparationConfig object (overrides other params if provided)
-        model_path: Path to NeMo diarization model (.nemo file)
+        model_path: HuggingFace model ID or path to NeMo diarization model
         exclude_overlaps: Whether to exclude overlapping speaker regions
         min_duration: Minimum segment duration in seconds
         gap_threshold: Gap threshold for merging speaker segments
@@ -88,7 +88,7 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
     """
     
     config: Optional[SpeakerSeparationConfig] = None
-    model_path: str = "model/diar_sortformer_4spk-v1.nemo"
+    model_path: str = "nvidia/diar_sortformer_4spk-v1"
     exclude_overlaps: bool = True
     min_duration: float = 0.8
     gap_threshold: float = 0.1
@@ -132,14 +132,13 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
             torch.cuda.empty_cache()
     
     def _initialize_separator(self):
-        """Initialize the NeMo speaker separator."""
+        """Initialize the NeMo speaker separator with HuggingFace model."""
         if self._separator is None:
             try:
-                model_path = resolve_model_path(self.model_path, __file__, 'speaker_separation_module')
                 use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
                 
                 separator_config = {
-                    'speaker_model_path': model_path,
+                    'speaker_model_path': self.model_path,
                     'speaker_gap_threshold': self.gap_threshold,
                     'speaker_exclude_overlaps': self.exclude_overlaps,
                     'speaker_min_duration': self.min_duration,
@@ -148,11 +147,11 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 }
                 
                 self._separator = SpeakerSeparator(
-                    model_name=model_path,
+                    model_name=self.model_path,
                     config=separator_config
                 )
                 
-                logger.info(f"NeMo speaker separator loaded from {model_path}")
+                logger.info(f"NeMo speaker separator loaded from HuggingFace: {self.model_path}")
             except ImportError as e:
                 logger.error(f"Failed to import speaker separation module: {e}")
                 raise
@@ -178,14 +177,15 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         
         results = []
         
-        for item in task.data:
+        for item_idx, item in enumerate(task.data):
             item = dict(item)
-            audio_result = resolve_waveform_from_item(item, task.task_id)
-            if audio_result is None:
-                continue
-            waveform, sample_rate = audio_result
-            
+            waveform = None
             try:
+                audio_result = resolve_waveform_from_item(item, task.task_id)
+                if audio_result is None:
+                    continue
+                waveform, sample_rate = audio_result
+            
                 speaker_audio_data = self._separator.get_speaker_audio_data(
                     waveform,
                     sample_rate=sample_rate,
@@ -203,7 +203,6 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 
                 logger.info(f"Detected {num_speakers} speakers")
                 
-                # Output canonical format only: waveform + sample_rate (no item['audio'])
                 for speaker_id, (speaker_audio_pydub, duration) in speaker_audio_data.items():
                     if duration < self.min_duration:
                         logger.debug(f"Skipping {speaker_id}: duration {duration:.2f}s < {self.min_duration}s")
@@ -225,7 +224,15 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
                         _stage_perf=list(task._stage_perf),
                     ))
                         
+            except torch.cuda.OutOfMemoryError:
+                logger.warning(f"Skipping item {item_idx}: CUDA out of memory (file may be too large)")
+                torch.cuda.empty_cache()
             except Exception as e:
-                logger.exception(f"Error in speaker separation: {e}")
+                logger.warning(f"Skipping item {item_idx}: {e}")
+            finally:
+                if waveform is not None:
+                    del waveform
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
         
         return results

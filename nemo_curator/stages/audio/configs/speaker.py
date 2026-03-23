@@ -32,15 +32,15 @@ class SpeakerSeparationConfig:
     Produces multiple outputs - one AudioBatch per detected speaker.
 
     Attributes:
-        model_path: Path to NeMo model (.nemo file)
+        model_path: HuggingFace model ID (e.g. "nvidia/diar_sortformer_4spk-v1")
         exclude_overlaps: If True, exclude overlapping speech regions
 
     Example:
         config = SpeakerSeparationConfig(exclude_overlaps=True)
-        config = SpeakerSeparationConfig(model_path="/path/to/custom.nemo")
+        config = SpeakerSeparationConfig(model_path="nvidia/diar_sortformer_4spk-v1")
     """
 
-    model_path: str = "model/diar_sortformer_4spk-v1.nemo"
+    model_path: str = "nvidia/diar_sortformer_4spk-v1"
     exclude_overlaps: bool = True
 
     @property
