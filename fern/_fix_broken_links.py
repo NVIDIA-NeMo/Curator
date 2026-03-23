@@ -121,7 +121,6 @@ REPLACEMENTS: list[tuple[str, str]] = [
     ("../../curate-images/process-data/filters/nsfw.md", "/curate-images/process-data/filters/nsfw"),
     ("../concepts/video/architecture.md", "/about/concepts/video/architecture"),
     ("../../apidocs/index.rst", "https://docs.nvidia.com/nemo/curator/latest/py-modindex.html"),
-    ("curate-audio/save-export", "/curate-audio/save-export"),
 ]
 
 REPLACEMENTS.sort(key=lambda x: -len(x[0]))
