@@ -41,6 +41,13 @@ Example:
 python run.py --config-path ./text --config-name heuristic_filter_english_pipeline.yaml input_path=./input_dir output_path=./output_dir
 ```
 
+### Text and Synthetic Data Workflows
+
+Additional text curation and generation workflows in 26.02:
+
+- **Megatron Tokenization Pipeline**: Added a Megatron-LM tokenization tutorial and `MegatronTokenizerWriter` for generating `.bin` and `.idx` outputs from NeMo Curator pipelines
+- **Synthetic Data Generation (SDG)**: Added SDG workflows and Nemotron-CC pipelines for multilingual Q&A generation, paraphrasing, distillation, and knowledge extraction using OpenAI-compatible LLM APIs
+
 ### Pipeline Performance and Metric Logging
 
 Enhanced tracking of pipeline execution:
@@ -100,6 +107,7 @@ Enhanced tracking of pipeline execution:
 
 ## Infrastructure & Developer Experience
 
+- **RayClient Context Manager**: Added `with RayClient(...)` support for automatic Ray cluster startup and cleanup
 - **Secrets Detection**: Automated secret scanning in CI/CD workflows
 - **Dependabot Integration**: Automatic dependency update pull requests
 - **Enhanced Install Tests**: Comprehensive installation validation across environments
@@ -113,6 +121,7 @@ Enhanced tracking of pipeline execution:
 
 ## Documentation Improvements
 
+- **GLiNER PII Tutorial**: Added a tutorial for PII/PHI redaction with NVIDIA's GLiNER-PII model
 - **Heuristic Filter Guide**: Comprehensive documentation for language-specific filtering strategies
 - **Distributed Classifier**: Enhanced GPU memory optimization guidance with length-based sequence sorting
 - **Installation Guide**: Clearer instructions with troubleshooting for common issues

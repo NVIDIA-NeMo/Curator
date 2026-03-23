@@ -6,6 +6,8 @@
 
 - **Stage and Pipeline Benchmarking**: Benchmarking for all modalities (text, image, video, audio)
 - **YAML Configuration**: Declarative pipeline configuration with pre-built configs for code filtering, deduplication, heuristic filtering, and FastText
+- **Megatron Tokenization Pipeline**: Tutorial and `MegatronTokenizerWriter` for Megatron-LM-compatible `.bin` and `.idx` outputs
+- **Synthetic Data Generation**: SDG workflows and Nemotron-CC pipelines for multilingual Q&A generation, paraphrasing, distillation, and knowledge extraction via OpenAI-compatible APIs
 - **Pipeline Performance and Metric Logging**: Automatic tracking of processing time, throughput, and resource usage; detailed logs and error reporting for failed stages
 
 ### Improvements
@@ -15,6 +17,7 @@
 - **Image**: Optimized batch sizes (batch_size=100, num_threads=16), memory guidance
 - **Text**: Better memory management for large-scale semantic deduplication
 - **Deduplication**: Cloud storage (S3, GCS, Azure) for ParquetReader/Writer, non-blocking ID generation, empty batch handling
+- **RayClient**: Context manager support for automatic Ray cluster startup and cleanup
 
 ### Dependency Updates
 
@@ -23,7 +26,7 @@
 
 ### Bug Fixes
 
-- FastText numpy>2 compatibility, NeMo doc links, ID generator blocking, vLLM video API, Gliner/SDG tutorials, semantic dedup test reliability
+- FastText numpy>2 compatibility, NeMo doc links, ID generator blocking, vLLM video API, Gliner tutorial and SDG workflow bugs, semantic dedup test reliability
 
 ### Infrastructure
 
@@ -35,7 +38,7 @@
 
 ### Documentation
 
-- Heuristic filter guide, distributed classifier memory guidance, installation troubleshooting, memory management, AWS credentials
+- GLiNER PII tutorial, heuristic filter guide, distributed classifier memory guidance, installation troubleshooting, memory management, AWS credentials
 
 ## NVIDIA NeMo Curator 1.0.0
 
