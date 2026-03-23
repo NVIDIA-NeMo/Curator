@@ -1,0 +1,161 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/deduplication/semantic/pairwise_io
+title: nemo_curator.stages.deduplication.semantic.pairwise_io
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ClusterWiseFilePartitioningStage`](#nemo_curator-stages-deduplication-semantic-pairwise_io-ClusterWiseFilePartitioningStage) | Stage that partitions input files into PairwiseFileGroupTasks for deduplication. |
+
+### API
+
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise_io-ClusterWiseFilePartitioningStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.deduplication.semantic.pairwise_io.ClusterWiseFilePartitioningStage(
+    input_path: str,
+    storage_options: dict[str, typing.Any] | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ProcessingStage[_EmptyTask, FileGroupTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Stage that partitions input files into PairwiseFileGroupTasks for deduplication.
+
+This stage takes an EmptyTask as input and outputs partition-aware file groups.
+It reads parquet files partitioned by centroid (from kmeans output) and creates
+one PairwiseFileGroupTask per centroid partition.
+
+
+<ParamField path="fs" type="AbstractFileSystem | None = None">
+</ParamField>
+
+<ParamField path="name" type="= 'pairwise_file_partitioning'">
+</ParamField>
+
+<ParamField path="path_normalizer" type="= lambda x: x">
+</ParamField>
+
+<ParamField path="resources" type="= Resources(cpus=0.5)">
+</ParamField>
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise_io-ClusterWiseFilePartitioningStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.pairwise_io.ClusterWiseFilePartitioningStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise_io-ClusterWiseFilePartitioningStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.pairwise_io.ClusterWiseFilePartitioningStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise_io-ClusterWiseFilePartitioningStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks._EmptyTask":"/nemo-curator/nemo_curator/tasks/tasks#nemo_curator-tasks-tasks-_EmptyTask","nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.pairwise_io.ClusterWiseFilePartitioningStage.process(
+    _: nemo_curator.tasks._EmptyTask
+) -> list[nemo_curator.tasks.FileGroupTask]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process the EmptyTask to create PairwiseFileGroupTasks.
+
+**Parameters:**
+
+<ParamField path="task">
+EmptyTask input (ignored, used for triggering the stage)
+</ParamField>
+
+**Returns:** `list[FileGroupTask]`
+
+List of PairwiseFileGroupTask, each containing partitioned file groups per centroid
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise_io-ClusterWiseFilePartitioningStage-ray_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.pairwise_io.ClusterWiseFilePartitioningStage.ray_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Ray stage specification for this stage.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise_io-ClusterWiseFilePartitioningStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.pairwise_io.ClusterWiseFilePartitioningStage.setup(
+    _: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise_io-ClusterWiseFilePartitioningStage-xenna_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.pairwise_io.ClusterWiseFilePartitioningStage.xenna_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

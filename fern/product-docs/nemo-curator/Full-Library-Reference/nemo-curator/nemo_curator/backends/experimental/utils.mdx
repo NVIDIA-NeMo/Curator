@@ -1,0 +1,209 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/backends/experimental/utils
+title: nemo_curator.backends.experimental.utils
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`RayStageSpecKeys`](#nemo_curator-backends-experimental-utils-RayStageSpecKeys) | String enum of different flags that define keys inside ray_stage_spec. |
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`_setup_stage_on_node`](#nemo_curator-backends-experimental-utils-_setup_stage_on_node) | Ray remote function to execute setup_on_node for a stage. |
+| [`execute_setup_on_node`](#nemo_curator-backends-experimental-utils-execute_setup_on_node) | Execute setup on node for a stage. |
+| [`get_available_cpu_gpu_resources`](#nemo_curator-backends-experimental-utils-get_available_cpu_gpu_resources) | Get available CPU and GPU resources from Ray. |
+| [`get_head_node_id`](#nemo_curator-backends-experimental-utils-get_head_node_id) | Get the head node ID from the Ray cluster, with lazy evaluation and caching. |
+| [`get_worker_metadata_and_node_id`](#nemo_curator-backends-experimental-utils-get_worker_metadata_and_node_id) | Get the worker metadata and node id from the runtime context. |
+| [`is_head_node`](#nemo_curator-backends-experimental-utils-is_head_node) | Check if a node is the head node. |
+
+### Data
+
+[`_HEAD_NODE_ID_CACHE`](#nemo_curator-backends-experimental-utils-_HEAD_NODE_ID_CACHE)
+
+### API
+
+<Anchor id="nemo_curator-backends-experimental-utils-RayStageSpecKeys">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.backends.experimental.utils.RayStageSpecKeys
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `enum.Enum`
+
+String enum of different flags that define keys inside ray_stage_spec.
+
+<ParamField path="IS_ACTOR_STAGE" type="= 'is_actor_stage'">
+</ParamField>
+
+<ParamField path="IS_FANOUT_STAGE" type="= 'is_fanout_stage'">
+</ParamField>
+
+<ParamField path="IS_LSH_STAGE" type="= 'is_lsh_stage'">
+</ParamField>
+
+<ParamField path="IS_RAFT_ACTOR" type="= 'is_raft_actor'">
+</ParamField>
+
+<ParamField path="IS_SHUFFLE_STAGE" type="= 'is_shuffle_stage'">
+</ParamField>
+
+<ParamField path="MAX_CALLS_PER_WORKER" type="= 'max_calls_per_worker'">
+</ParamField>
+
+</Indent>
+
+<Anchor id="nemo_curator-backends-experimental-utils-_setup_stage_on_node">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage","nemo_curator.backends.base.NodeInfo":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-NodeInfo","nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.utils._setup_stage_on_node(
+    stage: nemo_curator.stages.base.ProcessingStage,
+    node_info: nemo_curator.backends.base.NodeInfo,
+    worker_metadata: nemo_curator.backends.base.WorkerMetadata
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Ray remote function to execute setup_on_node for a stage.
+
+This runs as a Ray remote task (not an actor).
+vLLM's auto-detection only forces the spawn multiprocessing method inside Ray actors,
+not in Ray tasks. Without this override, vLLM defaults to fork in tasks and hits
+RuntimeError: Cannot re-initialize CUDA in forked subprocess.
+We explicitly set the environment variable to spawn to prevent this.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-backends-experimental-utils-execute_setup_on_node">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.utils.execute_setup_on_node(
+    stages: list[nemo_curator.stages.base.ProcessingStage],
+    ignore_head_node: bool = False
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Execute setup on node for a stage.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-backends-experimental-utils-get_available_cpu_gpu_resources">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.utils.get_available_cpu_gpu_resources(
+    init_and_shutdown: bool = False,
+    ignore_head_node: bool = False
+) -> tuple[int, int]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get available CPU and GPU resources from Ray.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-backends-experimental-utils-get_head_node_id">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.utils.get_head_node_id() -> str | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get the head node ID from the Ray cluster, with lazy evaluation and caching.
+
+**Returns:** `str | None`
+
+The head node ID if a head node exists, otherwise None.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-backends-experimental-utils-get_worker_metadata_and_node_id">
+
+<CodeBlock links={{"nemo_curator.backends.base.NodeInfo":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-NodeInfo","nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.utils.get_worker_metadata_and_node_id() -> tuple[nemo_curator.backends.base.NodeInfo, nemo_curator.backends.base.WorkerMetadata]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get the worker metadata and node id from the runtime context.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-backends-experimental-utils-is_head_node">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.utils.is_head_node(
+    node: dict[str, typing.Any]
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Check if a node is the head node.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-backends-experimental-utils-_HEAD_NODE_ID_CACHE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.utils._HEAD_NODE_ID_CACHE = None
+```
+
+</CodeBlock>
+</Anchor>
+

@@ -1,0 +1,177 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/models/vllm_model
+title: nemo_curator.models.vllm_model
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`LLM`](#nemo_curator-models-vllm_model-LLM) | - |
+| [`SamplingParams`](#nemo_curator-models-vllm_model-SamplingParams) | - |
+| [`VLLMModel`](#nemo_curator-models-vllm_model-VLLMModel) | Generic vLLM language model wrapper for text generation. |
+
+### Data
+
+[`VLLM_AVAILABLE`](#nemo_curator-models-vllm_model-VLLM_AVAILABLE)
+
+### API
+
+<Anchor id="nemo_curator-models-vllm_model-LLM">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.vllm_model.LLM()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+</Indent>
+
+<Anchor id="nemo_curator-models-vllm_model-SamplingParams">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.vllm_model.SamplingParams()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+</Indent>
+
+<Anchor id="nemo_curator-models-vllm_model-VLLMModel">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.vllm_model.VLLMModel(
+    model: str,
+    max_model_len: int | None = None,
+    tensor_parallel_size: int | None = None,
+    max_num_batched_tokens: int = 4096,
+    temperature: float = 0.7,
+    top_p: float = 0.8,
+    top_k: int = 20,
+    min_p: float = 0.0,
+    max_tokens: int | None = None,
+    cache_dir: str | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ModelInterface](/nemo-curator/nemo_curator/models/base#nemo_curator-models-base-ModelInterface)
+
+Generic vLLM language model wrapper for text generation.
+
+
+<ParamField path="_final_max_model_len" type="int | None = None">
+</ParamField>
+
+<ParamField path="_is_qwen3" type="bool = False">
+</ParamField>
+
+<ParamField path="_llm" type="LLM | None = None">
+</ParamField>
+
+<ParamField path="_sampling_params" type="SamplingParams | None = None">
+</ParamField>
+
+<ParamField path="model_id_names" type="list[str]">
+Return the model identifier.
+</ParamField>
+<Anchor id="nemo_curator-models-vllm_model-VLLMModel-generate">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.vllm_model.VLLMModel.generate(
+    prompts: list[str]
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Generate text from prompts.
+
+**Parameters:**
+
+<ParamField path="prompts" type="list[str]">
+List of prompt strings or list of message dicts
+(for chat template).
+</ParamField>
+
+**Returns:** `list[str]`
+
+List of generated text strings.
+
+**Raises:**
+
+- `RuntimeError`: If the model is not set up or generation fails.
+
+
+</Indent>
+<Anchor id="nemo_curator-models-vllm_model-VLLMModel-get_tokenizer">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.vllm_model.VLLMModel.get_tokenizer() -> typing.Any
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get the tokenizer from the LLM instance.
+
+
+</Indent>
+<Anchor id="nemo_curator-models-vllm_model-VLLMModel-setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.vllm_model.VLLMModel.setup() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Set up the vLLM model and sampling parameters.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-vllm_model-VLLM_AVAILABLE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.vllm_model.VLLM_AVAILABLE = True
+```
+
+</CodeBlock>
+</Anchor>
+

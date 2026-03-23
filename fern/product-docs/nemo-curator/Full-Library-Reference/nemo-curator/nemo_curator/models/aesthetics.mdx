@@ -1,0 +1,217 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/models/aesthetics
+title: nemo_curator.models.aesthetics
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`AestheticScorer`](#nemo_curator-models-aesthetics-AestheticScorer) | Public interface for aesthetic scoring of video embeddings. |
+| [`MLP`](#nemo_curator-models-aesthetics-MLP) | Multi-layer perceptron. |
+
+### Data
+
+[`_AESTHETICS_MODEL_ID`](#nemo_curator-models-aesthetics-_AESTHETICS_MODEL_ID)
+
+[`_AESTHETICS_MODEL_REVISION`](#nemo_curator-models-aesthetics-_AESTHETICS_MODEL_REVISION)
+
+### API
+
+<Anchor id="nemo_curator-models-aesthetics-AestheticScorer">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.aesthetics.AestheticScorer(
+    model_dir: str
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ModelInterface](/nemo-curator/nemo_curator/models/base#nemo_curator-models-base-ModelInterface)
+
+Public interface for aesthetic scoring of video embeddings.
+
+This class provides a standardized interface for scoring the aesthetic quality
+of video embeddings using a pre-trained model.
+
+
+<ParamField path="device" type="= 'cuda' if torch.cuda.is_available() else 'cpu'">
+</ParamField>
+
+<ParamField path="dtype" type="= torch.float32">
+</ParamField>
+
+<ParamField path="model_id_names" type="list[str]">
+Get the model ID names associated with this aesthetic scorer.
+</ParamField>
+<Anchor id="nemo_curator-models-aesthetics-AestheticScorer-__call__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.aesthetics.AestheticScorer.__call__(
+    embeddings: torch.Tensor | numpy.typing.NDArray[numpy.float32]
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Score the aesthetics of input embeddings.
+
+**Parameters:**
+
+<ParamField path="embeddings" type="torch.Tensor | npt.NDArray[np.float32]">
+Input embeddings as either a torch tensor or numpy array.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+Aesthetic scores for each input embedding.
+
+
+</Indent>
+<Anchor id="nemo_curator-models-aesthetics-AestheticScorer-download_weights_on_node">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.aesthetics.AestheticScorer.download_weights_on_node(
+    model_dir: str
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>classmethod</Badge>
+
+Download the weights for the aesthetic scorer on the node.
+
+
+</Indent>
+<Anchor id="nemo_curator-models-aesthetics-AestheticScorer-get_weights_path">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.aesthetics.AestheticScorer.get_weights_path() -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get the path to the weights for the aesthetic scorer.
+
+
+</Indent>
+<Anchor id="nemo_curator-models-aesthetics-AestheticScorer-setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.aesthetics.AestheticScorer.setup() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Set up the aesthetic scoring model by loading weights.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-aesthetics-MLP">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.aesthetics.MLP()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`
+
+Multi-layer perceptron.
+
+A neural network that processes embeddings to predict aesthetic scores.
+
+
+<ParamField path="layers">
+</ParamField>
+<Anchor id="nemo_curator-models-aesthetics-MLP-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.aesthetics.MLP.forward(
+    embed: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Forward pass through the MLP.
+
+**Parameters:**
+
+<ParamField path="embed" type="torch.Tensor">
+Input embeddings tensor.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+Predicted aesthetic scores.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-aesthetics-_AESTHETICS_MODEL_ID">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.aesthetics._AESTHETICS_MODEL_ID = 'ttj/sac-logos-ava1-l14-linearMSE'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-models-aesthetics-_AESTHETICS_MODEL_REVISION">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.aesthetics._AESTHETICS_MODEL_REVISION = '1e77fa0'
+```
+
+</CodeBlock>
+</Anchor>
+

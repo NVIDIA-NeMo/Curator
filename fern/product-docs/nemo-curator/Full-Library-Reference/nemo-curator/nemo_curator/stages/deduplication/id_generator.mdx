@@ -1,0 +1,289 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/deduplication/id_generator
+title: nemo_curator.stages.deduplication.id_generator
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`IdGenerator`](#nemo_curator-stages-deduplication-id_generator-IdGenerator) | Ray actor version of IdGenerator. |
+| [`IdGeneratorBase`](#nemo_curator-stages-deduplication-id_generator-IdGeneratorBase) | Base IdGenerator class without Ray decorator for testing and direct use. |
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`create_id_generator_actor`](#nemo_curator-stages-deduplication-id_generator-create_id_generator_actor) | Create an id generator actor. |
+| [`get_id_generator_actor`](#nemo_curator-stages-deduplication-id_generator-get_id_generator_actor) | - |
+| [`kill_id_generator_actor`](#nemo_curator-stages-deduplication-id_generator-kill_id_generator_actor) | - |
+| [`write_id_generator_to_disk`](#nemo_curator-stages-deduplication-id_generator-write_id_generator_to_disk) | - |
+
+### Data
+
+[`CURATOR_DEDUP_ID_STR`](#nemo_curator-stages-deduplication-id_generator-CURATOR_DEDUP_ID_STR)
+
+[`CURATOR_ID_GENERATOR_ACTOR_NAME`](#nemo_curator-stages-deduplication-id_generator-CURATOR_ID_GENERATOR_ACTOR_NAME)
+
+### API
+
+<Anchor id="nemo_curator-stages-deduplication-id_generator-IdGenerator">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.deduplication.id_generator.IdGenerator()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [IdGeneratorBase](#nemo_curator-stages-deduplication-id_generator-IdGeneratorBase)
+
+Ray actor version of IdGenerator.
+
+
+<Anchor id="nemo_curator-stages-deduplication-id_generator-IdGenerator-wait">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.id_generator.IdGenerator.wait() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Function used by create_id_generator_actor to make sure the actor is started.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-deduplication-id_generator-IdGeneratorBase">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.deduplication.id_generator.IdGeneratorBase(
+    start_id: int = 0,
+    batch_registry: dict[str, tuple[int, int]] | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Base IdGenerator class without Ray decorator for testing and direct use.
+
+
+<ParamField path="batch_registry" type="= batch_registry or &#123;&#125;">
+</ParamField>
+<Anchor id="nemo_curator-stages-deduplication-id_generator-IdGeneratorBase-from_disk">
+
+<CodeBlock links={{"nemo_curator.stages.deduplication.id_generator.IdGeneratorBase":"#nemo_curator-stages-deduplication-id_generator-IdGeneratorBase"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.id_generator.IdGeneratorBase.from_disk(
+    filepath: str,
+    storage_options: dict[str, typing.Any] | None = None
+) -> nemo_curator.stages.deduplication.id_generator.IdGeneratorBase
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>classmethod</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-id_generator-IdGeneratorBase-get_batch_range">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.id_generator.IdGeneratorBase.get_batch_range(
+    files: str | list[str] | None,
+    key: str | None
+) -> tuple[int, int]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-id_generator-IdGeneratorBase-hash_files">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.id_generator.IdGeneratorBase.hash_files(
+    filepath: str | list[str]
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-id_generator-IdGeneratorBase-register_batch">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.id_generator.IdGeneratorBase.register_batch(
+    files: str | list[str],
+    count: int
+) -> int
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-id_generator-IdGeneratorBase-to_disk">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.id_generator.IdGeneratorBase.to_disk(
+    filepath: str,
+    storage_options: dict[str, typing.Any] | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-deduplication-id_generator-create_id_generator_actor">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.id_generator.create_id_generator_actor(
+    filepath: str | None = None,
+    storage_options: dict[str, typing.Any] | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Create an id generator actor.
+
+**Parameters:**
+
+<ParamField path="filepath" type="str" default="None">
+Path from where we want to load the id generator state json file.
+If None, a new actor is created.
+</ParamField>
+
+<ParamField path="storage_options" type="dict[str, Any] | None" default="None">
+Storage options to pass to fsspec.open.
+</ParamField>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-deduplication-id_generator-get_id_generator_actor">
+
+<CodeBlock links={{"nemo_curator.stages.deduplication.id_generator.IdGenerator":"#nemo_curator-stages-deduplication-id_generator-IdGenerator"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.id_generator.get_id_generator_actor() -> ray.actor.ActorHandle[nemo_curator.stages.deduplication.id_generator.IdGenerator]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-deduplication-id_generator-kill_id_generator_actor">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.id_generator.kill_id_generator_actor() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-deduplication-id_generator-write_id_generator_to_disk">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.id_generator.write_id_generator_to_disk(
+    filepath: str,
+    storage_options: dict[str, typing.Any] | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-deduplication-id_generator-CURATOR_DEDUP_ID_STR">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.id_generator.CURATOR_DEDUP_ID_STR = '_curator_dedup_id'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-deduplication-id_generator-CURATOR_ID_GENERATOR_ACTOR_NAME">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.id_generator.CURATOR_ID_GENERATOR_ACTOR_NAME = 'curator_deduplication_id_generator'
+```
+
+</CodeBlock>
+</Anchor>
+

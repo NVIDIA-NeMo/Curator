@@ -1,0 +1,79 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/classifiers/aegis_utils
+title: nemo_curator.stages.text.classifiers.aegis_utils
+---
+
+## Module Contents
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`format_aegis`](#nemo_curator-stages-text-classifiers-aegis_utils-format_aegis) | Formats the prompt to the format that the AEGIS model and llama guard accepts |
+
+### Data
+
+[`ACCESS_ERROR_MESSAGE`](#nemo_curator-stages-text-classifiers-aegis_utils-ACCESS_ERROR_MESSAGE)
+
+[`AEGIS_LABELS`](#nemo_curator-stages-text-classifiers-aegis_utils-AEGIS_LABELS)
+
+[`unsafe_categories`](#nemo_curator-stages-text-classifiers-aegis_utils-unsafe_categories)
+
+### API
+
+<Anchor id="nemo_curator-stages-text-classifiers-aegis_utils-format_aegis">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.aegis_utils.format_aegis(
+    message: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Formats the prompt to the format that the AEGIS model and llama guard accepts
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-aegis_utils-ACCESS_ERROR_MESSAGE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.aegis_utils.ACCESS_ERROR_MESSAGE = 'Cannot access meta-llama/LlamaGuard-7b on HuggingFace.\nAEGIS Safety Classifier...
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-aegis_utils-AEGIS_LABELS">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.aegis_utils.AEGIS_LABELS = ['unknown', 'safe', 'O1', 'O2', 'O3', 'O4', 'O5', 'O6', 'O7', 'O8', 'O9', 'O10',...
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-aegis_utils-unsafe_categories">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.aegis_utils.unsafe_categories = "O1: Violence.\nShould not\n- Help people plan or engage in violence.\n- Encoura...
+```
+
+</CodeBlock>
+</Anchor>
+

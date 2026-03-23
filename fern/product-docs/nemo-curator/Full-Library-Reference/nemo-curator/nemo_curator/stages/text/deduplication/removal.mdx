@@ -1,0 +1,133 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/deduplication/removal
+title: nemo_curator.stages.text.deduplication.removal
+---
+
+Removal stage for distributed deduplication pipeline.
+
+This stage implements the removal phase of the distributed deduplication approach:
+1. Takes a DocumentBatch and determines the min/max ID range
+2. Filters the parquet files for IDs to remove within this range
+3. Filters out documents based on the removal list
+4. Returns the filtered DocumentBatch
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`TextDuplicatesRemovalStage`](#nemo_curator-stages-text-deduplication-removal-TextDuplicatesRemovalStage) | Stage for removing duplicate documents based on pre-computed removal lists. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-deduplication-removal-TextDuplicatesRemovalStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.deduplication.removal.TextDuplicatesRemovalStage(
+    ids_to_remove_path: str,
+    id_field: str = CURATOR_DEDUP_ID_STR,
+    duplicate_id_field: str = 'id',
+    read_kwargs: dict[str, typing.Any] | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[DocumentBatch, DocumentBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Stage for removing duplicate documents based on pre-computed removal lists.
+
+**Parameters:**
+
+<ParamField path="ids_to_remove_path" type="str">
+Path to parquet files containing IDs to remove
+</ParamField>
+
+<ParamField path="id_field" type="str" default="CURATOR_DEDUP_ID_STR">
+Field to use for deduplication within the input dataframe. Defaults to CURATOR_DEDUP_ID_STR.
+</ParamField>
+
+<ParamField path="duplicate_id_field" type="str" default="'id'">
+Field to use for deduplication within the removal dataframe. Defaults to "id".
+</ParamField>
+
+<ParamField path="read_kwargs" type="dict[str, Any] | None" default="None">
+Additional arguments for reading parquet files
+</ParamField>
+
+
+<ParamField path="duplicate_id_field" type="str = 'id'">
+</ParamField>
+
+<ParamField path="id_field" type="str = CURATOR_DEDUP_ID_STR">
+</ParamField>
+
+<ParamField path="ids_to_remove_path" type="str">
+</ParamField>
+
+<ParamField path="read_kwargs" type="dict[str, Any] | None = None">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-deduplication-removal-TextDuplicatesRemovalStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.deduplication.removal.TextDuplicatesRemovalStage.__post_init__()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Initialize parent class after dataclass initialization.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-deduplication-removal-TextDuplicatesRemovalStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.deduplication.removal.TextDuplicatesRemovalStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-deduplication-removal-TextDuplicatesRemovalStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.DocumentBatch":"/nemo-curator/nemo_curator/tasks/document#nemo_curator-tasks-document-DocumentBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.deduplication.removal.TextDuplicatesRemovalStage.process(
+    task: nemo_curator.tasks.DocumentBatch
+) -> nemo_curator.tasks.DocumentBatch
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Our deduplicator should've written out a parquet file with the IDs to remove.
+We read that file, filter the input dataframe to only include the IDs to remove,
+and return the filtered dataframe.
+We optimize by not loading the whole ids to remove into memory, but only loading the ids that are in the range of the input dataframe.
+
+
+</Indent>
+</Indent>

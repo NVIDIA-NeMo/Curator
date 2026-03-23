@@ -1,0 +1,198 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/base/url_generation
+title: nemo_curator.stages.text.download.base.url_generation
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`URLGenerationStage`](#nemo_curator-stages-text-download-base-url_generation-URLGenerationStage) | Stage that generates URLs from minimal input parameters. |
+| [`URLGenerator`](#nemo_curator-stages-text-download-base-url_generation-URLGenerator) | Abstract base class for URL generators - generates URLs from minimal input. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-base-url_generation-URLGenerationStage">
+
+<CodeBlock links={{"nemo_curator.stages.text.download.base.url_generation.URLGenerator":"#nemo_curator-stages-text-download-base-url_generation-URLGenerator"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.base.url_generation.URLGenerationStage(
+    url_generator: nemo_curator.stages.text.download.base.url_generation.URLGenerator,
+    limit: int | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[_EmptyTask, FileGroupTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Stage that generates URLs from minimal input parameters.
+
+This allows pipelines to start with URL generation (like Common Crawl).
+
+
+<ParamField path="limit" type="int | None = None">
+</ParamField>
+
+<ParamField path="resources" type="= Resources(cpus=0.5)">
+</ParamField>
+
+<ParamField path="url_generator" type="URLGenerator">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-download-base-url_generation-URLGenerationStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.url_generation.URLGenerationStage.__post_init__()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-url_generation-URLGenerationStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.url_generation.URLGenerationStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Define input requirements - expects empty task.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-url_generation-URLGenerationStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.url_generation.URLGenerationStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Define output - produces FileGroupTask with URLs.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-url_generation-URLGenerationStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks._EmptyTask":"/nemo-curator/nemo_curator/tasks/tasks#nemo_curator-tasks-tasks-_EmptyTask","nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.url_generation.URLGenerationStage.process(
+    task: nemo_curator.tasks._EmptyTask
+) -> list[nemo_curator.tasks.FileGroupTask]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Generate URLs and create FileGroupTasks.
+
+**Parameters:**
+
+<ParamField path="task" type="_EmptyTask">
+Empty input task
+</ParamField>
+
+**Returns:** `list[FileGroupTask]`
+
+list[FileGroupTask]: List of tasks containing URLs
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-url_generation-URLGenerationStage-ray_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.url_generation.URLGenerationStage.ray_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-url_generation-URLGenerationStage-xenna_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.url_generation.URLGenerationStage.xenna_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-download-base-url_generation-URLGenerator">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.base.url_generation.URLGenerator()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Abstract</Badge>
+
+Abstract base class for URL generators - generates URLs from minimal input.
+
+
+<Anchor id="nemo_curator-stages-text-download-base-url_generation-URLGenerator-generate_urls">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.url_generation.URLGenerator.generate_urls() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Generate a list of URLs to download.
+
+
+</Indent>
+</Indent>

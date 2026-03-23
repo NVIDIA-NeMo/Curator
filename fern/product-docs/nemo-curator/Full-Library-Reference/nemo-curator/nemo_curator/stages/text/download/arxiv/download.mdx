@@ -1,0 +1,73 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/arxiv/download
+title: nemo_curator.stages.text.download.arxiv.download
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ArxivDownloader`](#nemo_curator-stages-text-download-arxiv-download-ArxivDownloader) | Downloads Arxiv data from s3://arxiv/src/ |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-arxiv-download-ArxivDownloader">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.arxiv.download.ArxivDownloader(
+    download_dir: str,
+    verbose: bool = False
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `DocumentDownloader`
+
+Downloads Arxiv data from s3://arxiv/src/
+
+
+<Anchor id="nemo_curator-stages-text-download-arxiv-download-ArxivDownloader-_download_to_path">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.arxiv.download.ArxivDownloader._download_to_path(
+    url: str,
+    path: str
+) -> tuple[bool, str | None]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-arxiv-download-ArxivDownloader-_get_output_filename">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.arxiv.download.ArxivDownloader._get_output_filename(
+    url: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

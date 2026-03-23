@@ -1,0 +1,179 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/metrics/constants
+title: nemo_curator.metrics.constants
+---
+
+## Module Contents
+
+### Data
+
+[`DEFAULT_GRAFANA_WEB_PORT`](#nemo_curator-metrics-constants-DEFAULT_GRAFANA_WEB_PORT)
+
+[`DEFAULT_NEMO_CURATOR_METRICS_PATH`](#nemo_curator-metrics-constants-DEFAULT_NEMO_CURATOR_METRICS_PATH)
+
+[`DEFAULT_PROMETHEUS_WEB_PORT`](#nemo_curator-metrics-constants-DEFAULT_PROMETHEUS_WEB_PORT)
+
+[`GRAFANA_DASHBOARD_YAML_TEMPLATE`](#nemo_curator-metrics-constants-GRAFANA_DASHBOARD_YAML_TEMPLATE)
+
+[`GRAFANA_DATASOURCE_YAML_TEMPLATE`](#nemo_curator-metrics-constants-GRAFANA_DATASOURCE_YAML_TEMPLATE)
+
+[`GRAFANA_INI_TEMPLATE`](#nemo_curator-metrics-constants-GRAFANA_INI_TEMPLATE)
+
+[`GRAFANA_PID_FILE`](#nemo_curator-metrics-constants-GRAFANA_PID_FILE)
+
+[`GRAFANA_PORT_FILE`](#nemo_curator-metrics-constants-GRAFANA_PORT_FILE)
+
+[`GRAFANA_VERSION`](#nemo_curator-metrics-constants-GRAFANA_VERSION)
+
+[`PROMETHEUS_PID_FILE`](#nemo_curator-metrics-constants-PROMETHEUS_PID_FILE)
+
+[`PROMETHEUS_PORT_FILE`](#nemo_curator-metrics-constants-PROMETHEUS_PORT_FILE)
+
+[`PROMETHEUS_YAML_TEMPLATE`](#nemo_curator-metrics-constants-PROMETHEUS_YAML_TEMPLATE)
+
+### API
+
+<Anchor id="nemo_curator-metrics-constants-DEFAULT_GRAFANA_WEB_PORT">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.constants.DEFAULT_GRAFANA_WEB_PORT = 3000
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-constants-DEFAULT_NEMO_CURATOR_METRICS_PATH">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.constants.DEFAULT_NEMO_CURATOR_METRICS_PATH = f'/tmp/nemo_curator_metrics_{os.getuid()}'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-constants-DEFAULT_PROMETHEUS_WEB_PORT">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.constants.DEFAULT_PROMETHEUS_WEB_PORT = 9090
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-constants-GRAFANA_DASHBOARD_YAML_TEMPLATE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.constants.GRAFANA_DASHBOARD_YAML_TEMPLATE = '\n\napiVersion: 1\n\nproviders:\n  - name: Ray    # Default dashboards provided...
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-constants-GRAFANA_DATASOURCE_YAML_TEMPLATE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.constants.GRAFANA_DATASOURCE_YAML_TEMPLATE = '\napiVersion: 1\ndatasources:\n- access: proxy\n  isDefault: true\n  jsonData: ...
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-constants-GRAFANA_INI_TEMPLATE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.constants.GRAFANA_INI_TEMPLATE = '\n[security]\nallow_embedding = true\n\n[auth.anonymous]\nenabled = true\norg_n...
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-constants-GRAFANA_PID_FILE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.constants.GRAFANA_PID_FILE = 'grafana.pid'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-constants-GRAFANA_PORT_FILE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.constants.GRAFANA_PORT_FILE = 'grafana_port.txt'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-constants-GRAFANA_VERSION">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.constants.GRAFANA_VERSION = '12.0.2'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-constants-PROMETHEUS_PID_FILE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.constants.PROMETHEUS_PID_FILE = 'prometheus.pid'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-constants-PROMETHEUS_PORT_FILE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.constants.PROMETHEUS_PORT_FILE = 'prometheus_port.txt'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-constants-PROMETHEUS_YAML_TEMPLATE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.constants.PROMETHEUS_YAML_TEMPLATE = "\nglobal:\n  scrape_interval: 10s # Set the scrape interval to every 10 seconds...
+```
+
+</CodeBlock>
+</Anchor>
+

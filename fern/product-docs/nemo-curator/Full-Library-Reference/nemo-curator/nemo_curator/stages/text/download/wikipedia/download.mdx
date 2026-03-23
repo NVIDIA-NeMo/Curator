@@ -1,0 +1,106 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/wikipedia/download
+title: nemo_curator.stages.text.download.wikipedia.download
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`WikipediaDownloader`](#nemo_curator-stages-text-download-wikipedia-download-WikipediaDownloader) | Downloads Wikipedia dump files (.bz2) from wikimedia.org. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-wikipedia-download-WikipediaDownloader">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.wikipedia.download.WikipediaDownloader(
+    download_dir: str,
+    verbose: bool = False
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `DocumentDownloader`
+
+Downloads Wikipedia dump files (.bz2) from wikimedia.org.
+
+
+<Anchor id="nemo_curator-stages-text-download-wikipedia-download-WikipediaDownloader-_download_to_path">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.download.WikipediaDownloader._download_to_path(
+    url: str,
+    path: str
+) -> tuple[bool, str | None]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Download a Wikipedia dump file to the specified path.
+
+**Parameters:**
+
+<ParamField path="url" type="str">
+URL to download
+</ParamField>
+
+<ParamField path="path" type="str">
+Local path to save file
+</ParamField>
+
+**Returns:** `bool`
+
+Tuple of (success, error_message). If success is True, error_message is None.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-download-WikipediaDownloader-_get_output_filename">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.download.WikipediaDownloader._get_output_filename(
+    url: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Generate output filename from URL.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-download-WikipediaDownloader-num_workers_per_node">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.download.WikipediaDownloader.num_workers_per_node() -> int | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

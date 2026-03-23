@@ -1,0 +1,511 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/classifiers/prompt_task_complexity
+title: nemo_curator.stages.text.classifiers.prompt_task_complexity
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`CustomDeberta`](#nemo_curator-stages-text-classifiers-prompt_task_complexity-CustomDeberta) | - |
+| [`MeanPooling`](#nemo_curator-stages-text-classifiers-prompt_task_complexity-MeanPooling) | - |
+| [`MulticlassHead`](#nemo_curator-stages-text-classifiers-prompt_task_complexity-MulticlassHead) | - |
+| [`PromptTaskComplexityClassifier`](#nemo_curator-stages-text-classifiers-prompt_task_complexity-PromptTaskComplexityClassifier) | PromptTaskComplexityClassifier is a multi-headed model which classifies English text prompts across task types and complexity dimensions. |
+| [`PromptTaskComplexityModelStage`](#nemo_curator-stages-text-classifiers-prompt_task_complexity-PromptTaskComplexityModelStage) | Stage for Hugging Face model inference. |
+
+### Data
+
+[`MAX_SEQ_LENGTH`](#nemo_curator-stages-text-classifiers-prompt_task_complexity-MAX_SEQ_LENGTH)
+
+[`OUTPUT_FIELDS`](#nemo_curator-stages-text-classifiers-prompt_task_complexity-OUTPUT_FIELDS)
+
+[`PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER`](#nemo_curator-stages-text-classifiers-prompt_task_complexity-PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER)
+
+### API
+
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-CustomDeberta">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.prompt_task_complexity.CustomDeberta(
+    config: dataclasses.dataclass
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`, `PyTorchModelHubMixin`
+
+<ParamField path="backbone" type="= AutoModel.from_pretrained(config['base_model'])">
+</ParamField>
+
+<ParamField path="device" type="device">
+</ParamField>
+
+<ParamField path="divisor_map" type="= config['divisor_map']">
+</ParamField>
+
+<ParamField path="heads">
+</ParamField>
+
+<ParamField path="pool" type="= MeanPooling()">
+</ParamField>
+
+<ParamField path="target_sizes" type="= config['target_sizes'].values()">
+</ParamField>
+
+<ParamField path="task_type_map" type="= config['task_type_map']">
+</ParamField>
+
+<ParamField path="weights_map" type="= config['weights_map']">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-CustomDeberta-_forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.CustomDeberta._forward(
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor
+) -> dict[str, torch.Tensor]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-CustomDeberta-compute_results">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.CustomDeberta.compute_results(
+    preds: torch.Tensor,
+    target: str,
+    decimal: int = 4
+) -> tuple[list[str], list[str], list[float]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-CustomDeberta-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.CustomDeberta.forward(
+    batch: dict[str, torch.Tensor]
+) -> dict[str, torch.Tensor]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-CustomDeberta-process_logits">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.CustomDeberta.process_logits(
+    logits: list[torch.Tensor]
+) -> dict[str, torch.Tensor]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-MeanPooling">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.prompt_task_complexity.MeanPooling()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`
+
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-MeanPooling-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.MeanPooling.forward(
+    last_hidden_state: torch.Tensor,
+    attention_mask: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-MulticlassHead">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.prompt_task_complexity.MulticlassHead(
+    input_size: int,
+    num_classes: int
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`
+
+<ParamField path="fc" type="= nn.Linear(input_size, num_classes)">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-MulticlassHead-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.MulticlassHead.forward(
+    x: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-PromptTaskComplexityClassifier">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.prompt_task_complexity.PromptTaskComplexityClassifier(
+    cache_dir: str | None = None,
+    text_field: str = 'text',
+    filter_by: list[str] | None = None,
+    max_chars: int = 2000,
+    sort_by_length: bool = True,
+    model_inference_batch_size: int = 256,
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [CompositeStage[DocumentBatch, DocumentBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-CompositeStage)
+
+PromptTaskComplexityClassifier is a multi-headed model which classifies English text prompts across task types and complexity dimensions.
+Tasks are classified across 11 common categories. Complexity is evaluated across 6 dimensions and ensembled to create an overall complexity score.
+Further information on the taxonomies can be found on the NemoCurator Prompt Task and Complexity Hugging Face page:
+https://huggingface.co/nvidia/prompt-task-and-complexity-classifier.
+This class is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
+
+**Parameters:**
+
+<ParamField path="cache_dir" type="str | None" default="None">
+The Hugging Face cache directory. Defaults to None.
+</ParamField>
+
+<ParamField path="text_field" type="str" default="'text'">
+The name of the text field in the input data. Defaults to "text".
+</ParamField>
+
+<ParamField path="filter_by" type="list[str] | None" default="None">
+For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+Not supported with PromptTaskComplexityClassifier (raises NotImplementedError).
+</ParamField>
+
+<ParamField path="max_chars" type="int" default="2000">
+Limits the total number of characters that can be fed to the tokenizer.
+If None, text will not be truncated. Defaults to 2000.
+</ParamField>
+
+<ParamField path="sort_by_length" type="bool" default="True">
+Whether to sort the input data by the length of the input tokens.
+Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+</ParamField>
+
+<ParamField path="model_inference_batch_size" type="int" default="256">
+The size of the batch for model inference. Defaults to 256.
+</ParamField>
+
+<ParamField path="autocast" type="bool" default="True">
+Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+Defaults to True.
+</ParamField>
+
+
+<ParamField path="autocast" type="bool = True">
+</ParamField>
+
+<ParamField path="cache_dir" type="str | None = None">
+</ParamField>
+
+<ParamField path="filter_by" type="list[str] | None = None">
+</ParamField>
+
+<ParamField path="max_chars" type="int = 2000">
+</ParamField>
+
+<ParamField path="model_inference_batch_size" type="int = 256">
+</ParamField>
+
+<ParamField path="sort_by_length" type="bool = True">
+</ParamField>
+
+<ParamField path="text_field" type="str = 'text'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-PromptTaskComplexityClassifier-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.PromptTaskComplexityClassifier.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-PromptTaskComplexityClassifier-decompose">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.PromptTaskComplexityClassifier.decompose() -> list[nemo_curator.stages.base.ProcessingStage]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-PromptTaskComplexityClassifier-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.PromptTaskComplexityClassifier.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-PromptTaskComplexityClassifier-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.PromptTaskComplexityClassifier.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-PromptTaskComplexityModelStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.prompt_task_complexity.PromptTaskComplexityModelStage(
+    cache_dir: str | None = None,
+    model_inference_batch_size: int = 256,
+    has_seq_order: bool = True,
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ModelStage](/nemo-curator/nemo_curator/stages/text/models/model#nemo_curator-stages-text-models-model-ModelStage)
+
+Stage for Hugging Face model inference.
+
+**Parameters:**
+
+<ParamField path="cache_dir" type="str | None" default="None">
+The Hugging Face cache directory. Defaults to None.
+</ParamField>
+
+<ParamField path="model_inference_batch_size" type="int" default="256">
+The size of the batch for model inference. Defaults to 256.
+</ParamField>
+
+<ParamField path="has_seq_order" type="bool" default="True">
+Whether to sort the input data by the length of the input tokens.
+Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+</ParamField>
+
+<ParamField path="autocast" type="bool" default="True">
+Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+Defaults to True.
+</ParamField>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-PromptTaskComplexityModelStage-_setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.PromptTaskComplexityModelStage._setup(
+    local_files_only: bool = True
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-PromptTaskComplexityModelStage-create_output_dataframe">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.PromptTaskComplexityModelStage.create_output_dataframe(
+    df_cpu: pandas.DataFrame,
+    collected_output: dict[str, numpy.ndarray]
+) -> pandas.DataFrame
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-PromptTaskComplexityModelStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.PromptTaskComplexityModelStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-PromptTaskComplexityModelStage-process_model_output">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.PromptTaskComplexityModelStage.process_model_output(
+    outputs: torch.Tensor,
+    _: dict[str, torch.Tensor] | None = None
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-MAX_SEQ_LENGTH">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.MAX_SEQ_LENGTH = 512
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-OUTPUT_FIELDS">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.OUTPUT_FIELDS = ['prompt_complexity_score', 'task_type_1', 'task_type_2', 'task_type_prob', 'cre...
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-prompt_task_complexity-PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.prompt_task_complexity.PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER = 'nvidia/prompt-task-and-complexity-classifier'
+```
+
+</CodeBlock>
+</Anchor>
+

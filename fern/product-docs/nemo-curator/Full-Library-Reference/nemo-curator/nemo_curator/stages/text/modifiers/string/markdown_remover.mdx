@@ -1,0 +1,110 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/modifiers/string/markdown_remover
+title: nemo_curator.stages.text.modifiers.string.markdown_remover
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`MarkdownRemover`](#nemo_curator-stages-text-modifiers-string-markdown_remover-MarkdownRemover) | Removes Markdown formatting in a document including bold, italic, underline, and URL text. |
+
+### Data
+
+[`MARKDOWN_BOLD_REGEX`](#nemo_curator-stages-text-modifiers-string-markdown_remover-MARKDOWN_BOLD_REGEX)
+
+[`MARKDOWN_ITALIC_REGEX`](#nemo_curator-stages-text-modifiers-string-markdown_remover-MARKDOWN_ITALIC_REGEX)
+
+[`MARKDOWN_LINK_REGEX`](#nemo_curator-stages-text-modifiers-string-markdown_remover-MARKDOWN_LINK_REGEX)
+
+[`MARKDOWN_UNDERLINE_REGEX`](#nemo_curator-stages-text-modifiers-string-markdown_remover-MARKDOWN_UNDERLINE_REGEX)
+
+### API
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-markdown_remover-MarkdownRemover">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.modifiers.string.markdown_remover.MarkdownRemover()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentModifier](/nemo-curator/nemo_curator/stages/text/modifiers/doc_modifier#nemo_curator-stages-text-modifiers-doc_modifier-DocumentModifier)
+
+Removes Markdown formatting in a document including bold, italic, underline, and URL text.
+
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-markdown_remover-MarkdownRemover-modify_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modifiers.string.markdown_remover.MarkdownRemover.modify_document(
+    text: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-markdown_remover-MARKDOWN_BOLD_REGEX">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modifiers.string.markdown_remover.MARKDOWN_BOLD_REGEX = '\\*\\*(.*?)\\*\\*'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-markdown_remover-MARKDOWN_ITALIC_REGEX">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modifiers.string.markdown_remover.MARKDOWN_ITALIC_REGEX = '\\*(.*?)\\*'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-markdown_remover-MARKDOWN_LINK_REGEX">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modifiers.string.markdown_remover.MARKDOWN_LINK_REGEX = '\\[.*?\\]\\((.*?)\\)'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-markdown_remover-MARKDOWN_UNDERLINE_REGEX">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modifiers.string.markdown_remover.MARKDOWN_UNDERLINE_REGEX = '_(.*?)_'
+```
+
+</CodeBlock>
+</Anchor>
+

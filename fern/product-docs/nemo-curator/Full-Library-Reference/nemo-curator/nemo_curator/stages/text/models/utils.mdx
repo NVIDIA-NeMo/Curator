@@ -1,0 +1,128 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/models/utils
+title: nemo_curator.stages.text.models.utils
+---
+
+## Module Contents
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`clip_tokens`](#nemo_curator-stages-text-models-utils-clip_tokens) | Clip the tokens to the smallest size possible. |
+| [`format_name_with_suffix`](#nemo_curator-stages-text-models-utils-format_name_with_suffix) | - |
+
+### Data
+
+[`ATTENTION_MASK_FIELD`](#nemo_curator-stages-text-models-utils-ATTENTION_MASK_FIELD)
+
+[`INPUT_ID_FIELD`](#nemo_curator-stages-text-models-utils-INPUT_ID_FIELD)
+
+[`SEQ_ORDER_FIELD`](#nemo_curator-stages-text-models-utils-SEQ_ORDER_FIELD)
+
+[`TOKEN_LENGTH_FIELD`](#nemo_curator-stages-text-models-utils-TOKEN_LENGTH_FIELD)
+
+### API
+
+<Anchor id="nemo_curator-stages-text-models-utils-clip_tokens">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.models.utils.clip_tokens(
+    token_o: dict,
+    padding_side: typing.Literal['left', 'right'] = 'right'
+) -> dict[str, torch.Tensor]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Clip the tokens to the smallest size possible.
+
+**Parameters:**
+
+<ParamField path="token_o" type="dict">
+The dictionary containing the input tokens (input_ids, attention_mask).
+</ParamField>
+
+<ParamField path="padding_side" type="Literal['left', 'right']" default="'right'">
+The side to pad the input tokens. Defaults to "right".
+</ParamField>
+
+**Returns:** `dict[str, torch.Tensor]`
+
+The clipped tokens (input_ids, attention_mask).
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-models-utils-format_name_with_suffix">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.models.utils.format_name_with_suffix(
+    model_identifier: str,
+    suffix: str = '_classifier'
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-models-utils-ATTENTION_MASK_FIELD">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.models.utils.ATTENTION_MASK_FIELD = 'attention_mask'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-models-utils-INPUT_ID_FIELD">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.models.utils.INPUT_ID_FIELD = 'input_ids'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-models-utils-SEQ_ORDER_FIELD">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.models.utils.SEQ_ORDER_FIELD = '_curator_seq_order'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-models-utils-TOKEN_LENGTH_FIELD">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.models.utils.TOKEN_LENGTH_FIELD = '_curator_token_length'
+```
+
+</CodeBlock>
+</Anchor>
+

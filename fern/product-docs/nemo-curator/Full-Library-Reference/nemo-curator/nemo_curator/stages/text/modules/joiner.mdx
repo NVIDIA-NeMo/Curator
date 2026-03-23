@@ -1,0 +1,209 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/modules/joiner
+title: nemo_curator.stages.text.modules.joiner
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`DocumentJoiner`](#nemo_curator-stages-text-modules-joiner-DocumentJoiner) | Joins documents that have a common id back into a single document. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-modules-joiner-DocumentJoiner">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.modules.joiner.DocumentJoiner(
+    separator: str = '\n\n',
+    text_field: str = 'text',
+    segment_id_field: str = 'segment_id',
+    document_id_field: str = 'id',
+    drop_segment_id_field: bool = True,
+    max_length: int | None = None,
+    length_field: str | None = None,
+    name: str = 'document_joiner'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[DocumentBatch, DocumentBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Joins documents that have a common id back into a single document.
+The order of the documents is dictated by an additional segment_id column.
+A maximum length can be specified to limit the size of the joined documents.
+
+The joined documents are joined by a separator.
+
+This stage performs the inverse operation of DocumentSplitter, allowing you
+to reconstruct documents from their segments.
+
+**Parameters:**
+
+<ParamField path="separator" type="str" default="'\n\n'">
+The separator to join the documents on.
+</ParamField>
+
+<ParamField path="text_field" type="str" default="'text'">
+The name of the column containing the text to join.
+Defaults to "text".
+</ParamField>
+
+<ParamField path="segment_id_field" type="str" default="'segment_id'">
+The name of the column containing the segment id.
+Defaults to "segment_id".
+</ParamField>
+
+<ParamField path="document_id_field" type="str" default="'id'">
+The name of the column containing the document id.
+Defaults to "id".
+</ParamField>
+
+<ParamField path="drop_segment_id_field" type="bool" default="True">
+Whether to drop the segment_id_field after joining.
+Defaults to True.
+</ParamField>
+
+<ParamField path="max_length" type="int" default="None">
+The maximum length of the joined documents.
+Both max_length and length_field must be specified or neither can be specified.
+</ParamField>
+
+<ParamField path="length_field" type="str" default="None">
+The name of the column containing the length of the documents.
+Both max_length and length_field must be specified or neither can be specified.
+</ParamField>
+
+
+<ParamField path="document_id_field" type="str = 'id'">
+</ParamField>
+
+<ParamField path="drop_segment_id_field" type="bool = True">
+</ParamField>
+
+<ParamField path="length_field" type="str | None = None">
+</ParamField>
+
+<ParamField path="max_length" type="int | None = None">
+</ParamField>
+
+<ParamField path="name" type="str = 'document_joiner'">
+</ParamField>
+
+<ParamField path="segment_id_field" type="str = 'segment_id'">
+</ParamField>
+
+<ParamField path="separator" type="str = '\n\n'">
+</ParamField>
+
+<ParamField path="text_field" type="str = 'text'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-modules-joiner-DocumentJoiner-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modules.joiner.DocumentJoiner.__post_init__()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-modules-joiner-DocumentJoiner-_join_segments">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modules.joiner.DocumentJoiner._join_segments(
+    group: pandas.DataFrame
+) -> pandas.DataFrame
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Join segments with max_length constraint.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-modules-joiner-DocumentJoiner-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modules.joiner.DocumentJoiner.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Define stage input requirements.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-modules-joiner-DocumentJoiner-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modules.joiner.DocumentJoiner.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Define stage output specification.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-modules-joiner-DocumentJoiner-process">
+
+<CodeBlock links={{"nemo_curator.tasks.DocumentBatch":"/nemo-curator/nemo_curator/tasks/document#nemo_curator-tasks-document-DocumentBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modules.joiner.DocumentJoiner.process(
+    batch: nemo_curator.tasks.DocumentBatch
+) -> nemo_curator.tasks.DocumentBatch
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Joins the documents back into a single document while preserving all the original fields.
+
+**Parameters:**
+
+<ParamField path="batch" type="DocumentBatch">
+Input batch to process
+</ParamField>
+
+**Returns:** `DocumentBatch`
+
+Batch with documents joined by document_id
+
+
+</Indent>
+</Indent>

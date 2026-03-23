@@ -1,0 +1,48 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/utils/column_utils
+title: nemo_curator.utils.column_utils
+---
+
+## Module Contents
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`resolve_filename_column`](#nemo_curator-utils-column_utils-resolve_filename_column) | Resolve the filename column name based on the input parameter. |
+
+### API
+
+<Anchor id="nemo_curator-utils-column_utils-resolve_filename_column">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.column_utils.resolve_filename_column(
+    add_filename_column: bool | str
+) -> str | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Resolve the filename column name based on the input parameter.
+
+**Parameters:**
+
+<ParamField path="add_filename_column" type="bool | str">
+Can be:
+- True: Use default filename column name
+- False: No filename column
+- str: Use the provided string as column name
+</ParamField>
+
+**Returns:** `str | None`
+
+str | None: The filename column name or None if not needed
+
+
+</Indent>

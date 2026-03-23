@@ -1,0 +1,82 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/modifiers/string/newline_normalizer
+title: nemo_curator.stages.text.modifiers.string.newline_normalizer
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`NewlineNormalizer`](#nemo_curator-stages-text-modifiers-string-newline_normalizer-NewlineNormalizer) | Replaces 3 or more consecutive newline characters with only 2 newline characters. |
+
+### Data
+
+[`THREE_OR_MORE_NEWLINES_REGEX`](#nemo_curator-stages-text-modifiers-string-newline_normalizer-THREE_OR_MORE_NEWLINES_REGEX)
+
+[`THREE_OR_MORE_WINDOWS_NEWLINES_REGEX`](#nemo_curator-stages-text-modifiers-string-newline_normalizer-THREE_OR_MORE_WINDOWS_NEWLINES_REGEX)
+
+### API
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-newline_normalizer-NewlineNormalizer">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.modifiers.string.newline_normalizer.NewlineNormalizer()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentModifier](/nemo-curator/nemo_curator/stages/text/modifiers/doc_modifier#nemo_curator-stages-text-modifiers-doc_modifier-DocumentModifier)
+
+Replaces 3 or more consecutive newline characters with only 2 newline characters.
+
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-newline_normalizer-NewlineNormalizer-modify_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modifiers.string.newline_normalizer.NewlineNormalizer.modify_document(
+    text: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-newline_normalizer-THREE_OR_MORE_NEWLINES_REGEX">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modifiers.string.newline_normalizer.THREE_OR_MORE_NEWLINES_REGEX = re.compile('(\\n){3,}')
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-newline_normalizer-THREE_OR_MORE_WINDOWS_NEWLINES_REGEX">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modifiers.string.newline_normalizer.THREE_OR_MORE_WINDOWS_NEWLINES_REGEX = re.compile('(\\r\\n){3,}')
+```
+
+</CodeBlock>
+</Anchor>
+

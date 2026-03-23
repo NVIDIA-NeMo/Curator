@@ -1,0 +1,140 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/backends/utils
+title: nemo_curator.backends.utils
+---
+
+## Module Contents
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`_logger_custom_deserializer`](#nemo_curator-backends-utils-_logger_custom_deserializer) | - |
+| [`_logger_custom_serializer`](#nemo_curator-backends-utils-_logger_custom_serializer) | - |
+| [`merge_executor_configs`](#nemo_curator-backends-utils-merge_executor_configs) | Recursively merge two executor configs with deep merging of nested dicts. |
+| [`register_loguru_serializer`](#nemo_curator-backends-utils-register_loguru_serializer) | Initialize a new local Ray cluster or connects to an existing one. |
+| [`warn_on_env_var_override`](#nemo_curator-backends-utils-warn_on_env_var_override) | - |
+
+### API
+
+<Anchor id="nemo_curator-backends-utils-_logger_custom_deserializer">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.utils._logger_custom_deserializer(
+    _: None
+) -> loguru.Logger
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-backends-utils-_logger_custom_serializer">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.utils._logger_custom_serializer(
+    _: loguru.Logger
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-backends-utils-merge_executor_configs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.utils.merge_executor_configs(
+    base_config: dict | None,
+    override_config: dict | None
+) -> dict
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Recursively merge two executor configs with deep merging of nested dicts.
+
+**Parameters:**
+
+<ParamField path="base_config" type="dict | None">
+Base configuration dictionary
+</ParamField>
+
+<ParamField path="override_config" type="dict | None">
+Configuration to merge on top of base_config
+</ParamField>
+
+**Returns:** `dict`
+
+Merged configuration dictionary with all nested dicts recursively merged
+
+**Examples:**
+
+<CodeBlock showLineNumbers={false}>
+
+```python
+>>> base = {"runtime_env": {"env_vars": {"A": "1", "B": "2"}}}
+>>> override = {"runtime_env": {"env_vars": {"B": "3", "C": "4"}}}
+>>> merge_executor_configs(base, override)
+{"runtime_env": {"env_vars": {"A": "1", "B": "3", "C": "4"}}}
+```
+
+</CodeBlock>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-backends-utils-register_loguru_serializer">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.utils.register_loguru_serializer() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Initialize a new local Ray cluster or connects to an existing one.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-backends-utils-warn_on_env_var_override">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.utils.warn_on_env_var_override(
+    existing_config: dict | None,
+    merged_config: dict | None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>

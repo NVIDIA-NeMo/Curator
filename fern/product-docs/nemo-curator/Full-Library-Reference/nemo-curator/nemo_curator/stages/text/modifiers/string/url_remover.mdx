@@ -1,0 +1,68 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/modifiers/string/url_remover
+title: nemo_curator.stages.text.modifiers.string.url_remover
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`UrlRemover`](#nemo_curator-stages-text-modifiers-string-url_remover-UrlRemover) | Removes all URLs in a document. |
+
+### Data
+
+[`URL_REGEX`](#nemo_curator-stages-text-modifiers-string-url_remover-URL_REGEX)
+
+### API
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-url_remover-UrlRemover">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.modifiers.string.url_remover.UrlRemover()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentModifier](/nemo-curator/nemo_curator/stages/text/modifiers/doc_modifier#nemo_curator-stages-text-modifiers-doc_modifier-DocumentModifier)
+
+Removes all URLs in a document.
+
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-url_remover-UrlRemover-modify_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modifiers.string.url_remover.UrlRemover.modify_document(
+    text: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-url_remover-URL_REGEX">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modifiers.string.url_remover.URL_REGEX = re.compile('https?://\\S+|www\\.\\S+', flags=(re.IGNORECASE))
+```
+
+</CodeBlock>
+</Anchor>
+

@@ -1,0 +1,288 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/common_crawl/url_generation
+title: nemo_curator.stages.text.download.common_crawl.url_generation
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`BaseCommonCrawlUrlGenerator`](#nemo_curator-stages-text-download-common_crawl-url_generation-BaseCommonCrawlUrlGenerator) | Get URLs for Common Crawl data |
+| [`MainCommonCrawlUrlGenerator`](#nemo_curator-stages-text-download-common_crawl-url_generation-MainCommonCrawlUrlGenerator) | - |
+| [`NewsCommonCrawlUrlGenerator`](#nemo_curator-stages-text-download-common_crawl-url_generation-NewsCommonCrawlUrlGenerator) | - |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-BaseCommonCrawlUrlGenerator">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.common_crawl.url_generation.BaseCommonCrawlUrlGenerator(
+    start_snapshot_str: str,
+    end_snapshot_str: str,
+    data_prefix: str = 'https://data.commoncrawl.org',
+    limit: int | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge> <Badge>Abstract</Badge>
+
+**Bases:** `URLGenerator`
+
+Get URLs for Common Crawl data
+Each concrete implementation must implement `_parse_datetime_from_snapshot_string` and `generate_path_urls`
+
+
+<ParamField path="data_prefix" type="str = 'https://data.commoncrawl.org'">
+</ParamField>
+
+<ParamField path="end_snapshot_str" type="str">
+</ParamField>
+
+<ParamField path="limit" type="int | None = None">
+</ParamField>
+
+<ParamField path="start_snapshot_str" type="str">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-BaseCommonCrawlUrlGenerator-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.common_crawl.url_generation.BaseCommonCrawlUrlGenerator.__post_init__()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-BaseCommonCrawlUrlGenerator-_parse_datetime_from_snapshot_string">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.common_crawl.url_generation.BaseCommonCrawlUrlGenerator._parse_datetime_from_snapshot_string(
+    snapshot_str: str,
+    for_start: bool
+) -> datetime.datetime
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Parses a snapshot string (YYYY-WW or YYYY-MM) into a datetime object.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-BaseCommonCrawlUrlGenerator-_start_end_dates">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.common_crawl.url_generation.BaseCommonCrawlUrlGenerator._start_end_dates() -> tuple[datetime.date, datetime.date]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Parses the start and end snapshot strings into date objects.
+For 'news' (YYYY-MM), the day is set to 1 for start_date, and the last day of the month for end_date
+to ensure the full month is covered.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-BaseCommonCrawlUrlGenerator-generate_data_urls">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.common_crawl.url_generation.BaseCommonCrawlUrlGenerator.generate_data_urls(
+    path_urls: str | list[str] | None = None
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Fetches all relevant warc.paths.gz files, decompresses them,
+and returns a list of all individual WARC file URLs.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-BaseCommonCrawlUrlGenerator-generate_path_urls">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.common_crawl.url_generation.BaseCommonCrawlUrlGenerator.generate_path_urls() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Generates the list of URLs pointing to warc.paths.gz files.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-BaseCommonCrawlUrlGenerator-generate_urls">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.common_crawl.url_generation.BaseCommonCrawlUrlGenerator.generate_urls() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process the task and return a list of WARC URLs
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-MainCommonCrawlUrlGenerator">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.common_crawl.url_generation.MainCommonCrawlUrlGenerator(
+    start_snapshot_str: str,
+    end_snapshot_str: str,
+    data_prefix: str = 'https://data.commoncrawl.org',
+    limit: int | None = None,
+    index_prefix: str = 'https://index.commoncrawl....
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [BaseCommonCrawlUrlGenerator](#nemo_curator-stages-text-download-common_crawl-url_generation-BaseCommonCrawlUrlGenerator)
+
+<ParamField path="_snapshot_index" type="list[dict]">
+</ParamField>
+
+<ParamField path="index_prefix" type="str = 'https://index.commoncrawl.org'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-MainCommonCrawlUrlGenerator-_parse_datetime_from_snapshot_string">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.common_crawl.url_generation.MainCommonCrawlUrlGenerator._parse_datetime_from_snapshot_string(
+    snapshot_str: str,
+    for_start: bool
+) -> datetime.datetime
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-MainCommonCrawlUrlGenerator-generate_path_urls">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.common_crawl.url_generation.MainCommonCrawlUrlGenerator.generate_path_urls() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-NewsCommonCrawlUrlGenerator">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.common_crawl.url_generation.NewsCommonCrawlUrlGenerator(
+    start_snapshot_str: str,
+    end_snapshot_str: str,
+    data_prefix: str = 'https://data.commoncrawl.org',
+    limit: int | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [BaseCommonCrawlUrlGenerator](#nemo_curator-stages-text-download-common_crawl-url_generation-BaseCommonCrawlUrlGenerator)
+
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-NewsCommonCrawlUrlGenerator-_parse_datetime_from_snapshot_string">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.common_crawl.url_generation.NewsCommonCrawlUrlGenerator._parse_datetime_from_snapshot_string(
+    snapshot_str: str,
+    for_start: bool
+) -> datetime.datetime
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-common_crawl-url_generation-NewsCommonCrawlUrlGenerator-generate_path_urls">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.common_crawl.url_generation.NewsCommonCrawlUrlGenerator.generate_path_urls() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

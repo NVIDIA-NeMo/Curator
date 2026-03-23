@@ -1,0 +1,333 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/interleaved/stages
+title: nemo_curator.stages.interleaved.stages
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`BaseInterleavedAnnotatorStage`](#nemo_curator-stages-interleaved-stages-BaseInterleavedAnnotatorStage) | Base stage for row-wise interleaved annotation/filter transforms. |
+| [`BaseInterleavedFilterStage`](#nemo_curator-stages-interleaved-stages-BaseInterleavedFilterStage) | Base stage for interleaved filtering based on a keep-mask. |
+| [`InterleavedAspectRatioFilterStage`](#nemo_curator-stages-interleaved-stages-InterleavedAspectRatioFilterStage) | Filter interleaved image rows by aspect-ratio bounds (all image formats). |
+
+### API
+
+<Anchor id="nemo_curator-stages-interleaved-stages-BaseInterleavedAnnotatorStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.interleaved.stages.BaseInterleavedAnnotatorStage(
+    name: str = 'base_interleaved_annotator'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge> <Badge>Abstract</Badge>
+
+**Bases:** [ProcessingStage[InterleavedBatch, InterleavedBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Base stage for row-wise interleaved annotation/filter transforms.
+
+
+<ParamField path="name" type="str = 'base_interleaved_annotator'">
+</ParamField>
+<Anchor id="nemo_curator-stages-interleaved-stages-BaseInterleavedAnnotatorStage-annotate">
+
+<CodeBlock links={{"nemo_curator.tasks.InterleavedBatch":"/nemo-curator/nemo_curator/tasks/interleaved#nemo_curator-tasks-interleaved-InterleavedBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.stages.BaseInterleavedAnnotatorStage.annotate(
+    task: nemo_curator.tasks.InterleavedBatch,
+    df: pandas.DataFrame
+) -> pandas.DataFrame
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Apply annotation/filter logic and return transformed dataframe.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-stages-BaseInterleavedAnnotatorStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.stages.BaseInterleavedAnnotatorStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-stages-BaseInterleavedAnnotatorStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.stages.BaseInterleavedAnnotatorStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-stages-BaseInterleavedAnnotatorStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.InterleavedBatch":"/nemo-curator/nemo_curator/tasks/interleaved#nemo_curator-tasks-interleaved-InterleavedBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.stages.BaseInterleavedAnnotatorStage.process(
+    task: nemo_curator.tasks.InterleavedBatch
+) -> nemo_curator.tasks.InterleavedBatch
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-interleaved-stages-BaseInterleavedFilterStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.interleaved.stages.BaseInterleavedFilterStage(
+    name: str = 'base_interleaved_filter',
+    drop_invalid_rows: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge> <Badge>Abstract</Badge>
+
+**Bases:** [BaseInterleavedAnnotatorStage](#nemo_curator-stages-interleaved-stages-BaseInterleavedAnnotatorStage)
+
+Base stage for interleaved filtering based on a keep-mask.
+
+
+<ParamField path="drop_invalid_rows" type="bool = True">
+</ParamField>
+
+<ParamField path="name" type="str = 'base_interleaved_filter'">
+</ParamField>
+<Anchor id="nemo_curator-stages-interleaved-stages-BaseInterleavedFilterStage-_basic_row_validity_mask">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.stages.BaseInterleavedFilterStage._basic_row_validity_mask(
+    df: pandas.DataFrame
+) -> pandas.Series
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-stages-BaseInterleavedFilterStage-annotate">
+
+<CodeBlock links={{"nemo_curator.tasks.InterleavedBatch":"/nemo-curator/nemo_curator/tasks/interleaved#nemo_curator-tasks-interleaved-InterleavedBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.stages.BaseInterleavedFilterStage.annotate(
+    task: nemo_curator.tasks.InterleavedBatch,
+    df: pandas.DataFrame
+) -> pandas.DataFrame
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-stages-BaseInterleavedFilterStage-content_keep_mask">
+
+<CodeBlock links={{"nemo_curator.tasks.InterleavedBatch":"/nemo-curator/nemo_curator/tasks/interleaved#nemo_curator-tasks-interleaved-InterleavedBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.stages.BaseInterleavedFilterStage.content_keep_mask(
+    task: nemo_curator.tasks.InterleavedBatch,
+    df: pandas.DataFrame
+) -> pandas.Series
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Return content-specific boolean keep-mask aligned to dataframe index.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-stages-BaseInterleavedFilterStage-iter_materialized_bytes">
+
+<CodeBlock links={{"nemo_curator.tasks.InterleavedBatch":"/nemo-curator/nemo_curator/tasks/interleaved#nemo_curator-tasks-interleaved-InterleavedBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.stages.BaseInterleavedFilterStage.iter_materialized_bytes(
+    task: nemo_curator.tasks.InterleavedBatch,
+    df: pandas.DataFrame,
+    row_mask: pandas.Series
+) -> collections.abc.Iterator[tuple[int, bytes | None]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Yield ``(row_index, bytes)`` for masked rows after materialization.
+
+Only the masked subset is materialized, avoiding redundant I/O for
+the full task.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-stages-BaseInterleavedFilterStage-keep_mask">
+
+<CodeBlock links={{"nemo_curator.tasks.InterleavedBatch":"/nemo-curator/nemo_curator/tasks/interleaved#nemo_curator-tasks-interleaved-InterleavedBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.stages.BaseInterleavedFilterStage.keep_mask(
+    task: nemo_curator.tasks.InterleavedBatch,
+    df: pandas.DataFrame
+) -> pandas.Series
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-interleaved-stages-InterleavedAspectRatioFilterStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.interleaved.stages.InterleavedAspectRatioFilterStage(
+    name: str = 'interleaved_aspect_ratio_f...,
+    drop_invalid_rows: bool = True,
+    min_aspect_ratio: float = 1.0,
+    max_aspect_ratio: float = 2.0
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [BaseInterleavedFilterStage](#nemo_curator-stages-interleaved-stages-BaseInterleavedFilterStage)
+
+Filter interleaved image rows by aspect-ratio bounds (all image formats).
+
+
+<ParamField path="max_aspect_ratio" type="float = 2.0">
+</ParamField>
+
+<ParamField path="min_aspect_ratio" type="float = 1.0">
+</ParamField>
+
+<ParamField path="name" type="str = 'interleaved_aspect_ratio_filter'">
+</ParamField>
+<Anchor id="nemo_curator-stages-interleaved-stages-InterleavedAspectRatioFilterStage-_image_aspect_ratio">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.stages.InterleavedAspectRatioFilterStage._image_aspect_ratio(
+    image_bytes: bytes
+) -> float | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-stages-InterleavedAspectRatioFilterStage-_image_keep_mask">
+
+<CodeBlock links={{"nemo_curator.tasks.InterleavedBatch":"/nemo-curator/nemo_curator/tasks/interleaved#nemo_curator-tasks-interleaved-InterleavedBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.stages.InterleavedAspectRatioFilterStage._image_keep_mask(
+    task: nemo_curator.tasks.InterleavedBatch,
+    df: pandas.DataFrame
+) -> pandas.Series
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-stages-InterleavedAspectRatioFilterStage-content_keep_mask">
+
+<CodeBlock links={{"nemo_curator.tasks.InterleavedBatch":"/nemo-curator/nemo_curator/tasks/interleaved#nemo_curator-tasks-interleaved-InterleavedBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.stages.InterleavedAspectRatioFilterStage.content_keep_mask(
+    task: nemo_curator.tasks.InterleavedBatch,
+    df: pandas.DataFrame
+) -> pandas.Series
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

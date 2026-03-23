@@ -1,0 +1,107 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/filters/token/token_count
+title: nemo_curator.stages.text.filters.token.token_count
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`TokenCountFilter`](#nemo_curator-stages-text-filters-token-token_count-TokenCountFilter) | If the document contains more or less than a specified number of tokens, then discard. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-filters-token-token_count-TokenCountFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.token.token_count.TokenCountFilter(
+    tokenizer: transformers.AutoTokenizer | None = None,
+    hf_model_name: str | None = None,
+    hf_token: str | None = None,
+    min_tokens: int = 0,
+    max_tokens: int = float('inf')
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If the document contains more or less than a specified number of tokens, then discard.
+
+
+<ParamField path="_name" type="= 'token_count'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-token-token_count-TokenCountFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.token.token_count.TokenCountFilter.keep_document(
+    score: int
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-token-token_count-TokenCountFilter-load_tokenizer">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.token.token_count.TokenCountFilter.load_tokenizer() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-token-token_count-TokenCountFilter-model_check_or_download">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.token.token_count.TokenCountFilter.model_check_or_download() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-token-token_count-TokenCountFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.token.token_count.TokenCountFilter.score_document(
+    text: str
+) -> int
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

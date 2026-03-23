@@ -1,0 +1,177 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/image/io/image_reader
+title: nemo_curator.stages.image.io.image_reader
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ImageReaderStage`](#nemo_curator-stages-image-io-image_reader-ImageReaderStage) | DALI-based reader that loads images from WebDataset tar shards. |
+
+### API
+
+<Anchor id="nemo_curator-stages-image-io-image_reader-ImageReaderStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.image.io.image_reader.ImageReaderStage(
+    dali_batch_size: int = 100,
+    verbose: bool = True,
+    num_threads: int = 8,
+    num_gpus_per_worker: float = 0.25,
+    name: str = 'image_reader'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[FileGroupTask, ImageBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+DALI-based reader that loads images from WebDataset tar shards.
+
+Works with DALI GPU (CUDA) or DALI CPU; decodes on GPU if CUDA is available,
+otherwise falls back to CPU decoding.
+
+
+<ParamField path="dali_batch_size" type="int = 100">
+</ParamField>
+
+<ParamField path="name" type="str = 'image_reader'">
+</ParamField>
+
+<ParamField path="num_gpus_per_worker" type="float = 0.25">
+</ParamField>
+
+<ParamField path="num_threads" type="int = 8">
+</ParamField>
+
+<ParamField path="verbose" type="bool = True">
+</ParamField>
+<Anchor id="nemo_curator-stages-image-io-image_reader-ImageReaderStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_reader.ImageReaderStage.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_reader-ImageReaderStage-_create_dali_pipeline">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_reader.ImageReaderStage._create_dali_pipeline(
+    tar_paths: list[str]
+) -> object
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_reader-ImageReaderStage-_read_tars_with_dali">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_reader.ImageReaderStage._read_tars_with_dali(
+    tar_paths: list[pathlib.Path]
+) -> collections.abc.Generator[list[nemo_curator.tasks.ImageObject], None, None]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Yield lists of ImageObject per DALI run over one or more tar files.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_reader-ImageReaderStage-_stream_batches">
+
+<CodeBlock links={{"nemo_curator.tasks.ImageBatch":"/nemo-curator/nemo_curator/tasks/image#nemo_curator-tasks-image-ImageBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_reader.ImageReaderStage._stream_batches(
+    tar_files: list[pathlib.Path]
+) -> collections.abc.Generator[nemo_curator.tasks.ImageBatch, None, None]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Emit one ImageBatch per DALI run across all provided tar files.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_reader-ImageReaderStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_reader.ImageReaderStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_reader-ImageReaderStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_reader.ImageReaderStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_reader-ImageReaderStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask","nemo_curator.tasks.ImageBatch":"/nemo-curator/nemo_curator/tasks/image#nemo_curator-tasks-image-ImageBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_reader.ImageReaderStage.process(
+    task: nemo_curator.tasks.FileGroupTask
+) -> list[nemo_curator.tasks.ImageBatch]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

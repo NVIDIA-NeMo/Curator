@@ -1,0 +1,373 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/deduplication/semantic
+title: nemo_curator.stages.text.deduplication.semantic
+---
+
+Monolithic Text Semantic Deduplication Workflow.
+
+This module contains a complete end-to-end workflow for text semantic deduplication:
+1. Embedding generation from text data
+2. Semantic deduplication using clustering and pairwise similarity
+3. Optional duplicate removal based on identified duplicates
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`TextSemanticDeduplicationWorkflow`](#nemo_curator-stages-text-deduplication-semantic-TextSemanticDeduplicationWorkflow) | Monolithic workflow for end-to-end text semantic deduplication. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-deduplication-semantic-TextSemanticDeduplicationWorkflow">
+
+<CodeBlock links={{"nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy":"/nemo-curator/nemo_curator/stages/deduplication/semantic/ranking#nemo_curator-stages-deduplication-semantic-ranking-RankingStrategy"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.deduplication.semantic.TextSemanticDeduplicationWorkflow(
+    input_path: str | list[str],
+    output_path: str,
+    cache_path: str | None = None,
+    perform_removal: bool = True,
+    text_field: str = 'text',
+    embedding_field: str = 'embeddings',
+    model_identifier: str = 'google/embeddinggemma-300m',
+    embedding_max_chars: int | None = None,
+    embedding_pretokenize: bool = False,
+    embedding_vllm_init_kwargs: dict[str, typing.Any] | None = None,
+    hf_token: str | None = None,
+    model_cache_dir: str | None = None,
+    n_clusters: int = 100,
+    id_field: str = CURATOR_DEDUP_ID_STR,
+    embedding_dim: int | None = None,
+    metadata_fields: list[str] | None = None,
+    distance_metric: typing.Literal['cosine', 'l2'] = 'cosine',
+    which_to_keep: typing.Literal['hard', 'easy', 'random'] = 'hard',
+    eps: float | None = 0.01,
+    kmeans_max_iter: int = 300,
+    kmeans_tol: float = 0.0001,
+    kmeans_random_state: int = 42,
+    kmeans_init: str = 'k-means||',
+    kmeans_n_init: int | typing.Literal['auto'] = 1,
+    kmeans_oversampling_factor: float = 2.0,
+    kmeans_max_samples_per_batch: int = 1 << 15,
+    ranking_strategy: nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy | None = None,
+    pairwise_batch_size: int = 1024,
+    _duplicates_num_row_groups_hint: int | None = None,
+    use_id_generator: bool = False,
+    id_generator_state_file: str | None = None,
+    input_filetype: typing.Literal['jsonl', 'parquet'] = 'parquet',
+    input_file_extensions: list[str] | None = None,
+    input_files_per_partition: int | None = None,
+    input_blocksize: int | None = None,
+    output_filetype: typing.Literal['jsonl', 'parquet'] = 'parquet',
+    output_file_extension: str | None = None,
+    output_fields: list[str] | None = None,
+    read_kwargs: dict[str, typing.Any] = dict(),
+    cache_kwargs: dict[str, typing.Any] = dict(),
+    write_kwargs: dict[str, typing.Any] = dict(),
+    verbose: bool = True,
+    clear_output: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+Monolithic workflow for end-to-end text semantic deduplication.
+
+This workflow combines:
+1. Text embedding generation (configurable executor)
+2. Semantic deduplication (configurable executor for pairwise stage)
+3. Duplicate removal (configurable executor)
+
+Supports flexible executor configuration - can use a single executor for all stages
+or different executors for different phases.
+
+
+<ParamField path="_duplicates_num_row_groups_hint" type="int | None = None">
+</ParamField>
+
+<ParamField path="cache_kwargs" type="dict[str, Any] = field(default_factory=dict)">
+</ParamField>
+
+<ParamField path="cache_path" type="str | None = None">
+</ParamField>
+
+<ParamField path="clear_output" type="bool = True">
+Initialize the text semantic deduplication workflow.
+</ParamField>
+
+<ParamField path="distance_metric" type="Literal['cosine', 'l2'] = 'cosine'">
+</ParamField>
+
+<ParamField path="embedding_dim" type="int | None = None">
+</ParamField>
+
+<ParamField path="embedding_field" type="str = 'embeddings'">
+</ParamField>
+
+<ParamField path="embedding_max_chars" type="int | None = None">
+</ParamField>
+
+<ParamField path="embedding_pretokenize" type="bool = False">
+</ParamField>
+
+<ParamField path="embedding_vllm_init_kwargs" type="dict[str, Any] | None = None">
+</ParamField>
+
+<ParamField path="eps" type="float | None = 0.01">
+</ParamField>
+
+<ParamField path="hf_token" type="str | None = None">
+</ParamField>
+
+<ParamField path="id_field" type="str = CURATOR_DEDUP_ID_STR">
+</ParamField>
+
+<ParamField path="id_generator_state_file" type="str | None = None">
+</ParamField>
+
+<ParamField path="input_blocksize" type="int | None = None">
+</ParamField>
+
+<ParamField path="input_file_extensions" type="list[str] | None = None">
+</ParamField>
+
+<ParamField path="input_files_per_partition" type="int | None = None">
+</ParamField>
+
+<ParamField path="input_filetype" type="Literal['jsonl', 'parquet'] = 'parquet'">
+</ParamField>
+
+<ParamField path="input_path" type="str | list[str]">
+</ParamField>
+
+<ParamField path="kmeans_init" type="str = 'k-means||'">
+</ParamField>
+
+<ParamField path="kmeans_max_iter" type="int = 300">
+</ParamField>
+
+<ParamField path="kmeans_max_samples_per_batch" type="int = 1 &lt;&lt; 15">
+</ParamField>
+
+<ParamField path="kmeans_n_init" type="int | Literal['auto'] = 1">
+</ParamField>
+
+<ParamField path="kmeans_oversampling_factor" type="float = 2.0">
+</ParamField>
+
+<ParamField path="kmeans_random_state" type="int = 42">
+</ParamField>
+
+<ParamField path="kmeans_tol" type="float = 0.0001">
+</ParamField>
+
+<ParamField path="metadata_fields" type="list[str] | None = None">
+</ParamField>
+
+<ParamField path="model_cache_dir" type="str | None = None">
+</ParamField>
+
+<ParamField path="model_identifier" type="str = 'google/embeddinggemma-300m'">
+</ParamField>
+
+<ParamField path="n_clusters" type="int = 100">
+</ParamField>
+
+<ParamField path="output_fields" type="list[str] | None = None">
+</ParamField>
+
+<ParamField path="output_file_extension" type="str | None = None">
+</ParamField>
+
+<ParamField path="output_filetype" type="Literal['jsonl', 'parquet'] = 'parquet'">
+</ParamField>
+
+<ParamField path="output_path" type="str">
+</ParamField>
+
+<ParamField path="pairwise_batch_size" type="int = 1024">
+</ParamField>
+
+<ParamField path="perform_removal" type="bool = True">
+</ParamField>
+
+<ParamField path="ranking_strategy" type="RankingStrategy | None = None">
+</ParamField>
+
+<ParamField path="read_kwargs" type="dict[str, Any] = field(default_factory=dict)">
+</ParamField>
+
+<ParamField path="text_field" type="str = 'text'">
+</ParamField>
+
+<ParamField path="use_id_generator" type="bool = False">
+</ParamField>
+
+<ParamField path="verbose" type="bool = True">
+</ParamField>
+
+<ParamField path="which_to_keep" type="Literal['hard', 'easy', 'random'] = 'hard'">
+</ParamField>
+
+<ParamField path="write_kwargs" type="dict[str, Any] = field(default_factory=dict)">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-deduplication-semantic-TextSemanticDeduplicationWorkflow-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.deduplication.semantic.TextSemanticDeduplicationWorkflow.__post_init__()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Initialize parent class after dataclass initialization.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-deduplication-semantic-TextSemanticDeduplicationWorkflow-_log_configuration">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.deduplication.semantic.TextSemanticDeduplicationWorkflow._log_configuration() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Log workflow configuration.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-deduplication-semantic-TextSemanticDeduplicationWorkflow-_run_duplicate_removal">
+
+<CodeBlock links={{"nemo_curator.backends.base.BaseExecutor":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-BaseExecutor","nemo_curator.pipeline.workflow.WorkflowRunResult":"/nemo-curator/nemo_curator/pipeline/workflow#nemo_curator-pipeline-workflow-WorkflowRunResult"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.deduplication.semantic.TextSemanticDeduplicationWorkflow._run_duplicate_removal(
+    executor: nemo_curator.backends.base.BaseExecutor
+) -> nemo_curator.pipeline.workflow.WorkflowRunResult | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Run duplicate removal stage.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-deduplication-semantic-TextSemanticDeduplicationWorkflow-_run_embedding_generation">
+
+<CodeBlock links={{"nemo_curator.backends.base.BaseExecutor":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-BaseExecutor","nemo_curator.tasks.Task":"/nemo-curator/nemo_curator/tasks/tasks#nemo_curator-tasks-tasks-Task"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.deduplication.semantic.TextSemanticDeduplicationWorkflow._run_embedding_generation(
+    executor: nemo_curator.backends.base.BaseExecutor
+) -> list[nemo_curator.tasks.Task]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Run embedding generation stage.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-deduplication-semantic-TextSemanticDeduplicationWorkflow-_run_semantic_deduplication">
+
+<CodeBlock links={{"nemo_curator.backends.base.BaseExecutor":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-BaseExecutor","nemo_curator.pipeline.workflow.WorkflowRunResult":"/nemo-curator/nemo_curator/pipeline/workflow#nemo_curator-pipeline-workflow-WorkflowRunResult"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.deduplication.semantic.TextSemanticDeduplicationWorkflow._run_semantic_deduplication(
+    kmeans_executor: nemo_curator.backends.base.BaseExecutor,
+    pairwise_executor: nemo_curator.backends.base.BaseExecutor
+) -> nemo_curator.pipeline.workflow.WorkflowRunResult
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Run semantic deduplication stage.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-deduplication-semantic-TextSemanticDeduplicationWorkflow-_setup_directories">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.deduplication.semantic.TextSemanticDeduplicationWorkflow._setup_directories() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Setup output directories.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-deduplication-semantic-TextSemanticDeduplicationWorkflow-_validate_config">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.deduplication.semantic.TextSemanticDeduplicationWorkflow._validate_config() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Validate workflow configuration.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-deduplication-semantic-TextSemanticDeduplicationWorkflow-run">
+
+<CodeBlock links={{"nemo_curator.backends.base.BaseExecutor":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-BaseExecutor","nemo_curator.pipeline.workflow.WorkflowRunResult":"/nemo-curator/nemo_curator/pipeline/workflow#nemo_curator-pipeline-workflow-WorkflowRunResult"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.deduplication.semantic.TextSemanticDeduplicationWorkflow.run(
+    streaming_executor: nemo_curator.backends.base.BaseExecutor | tuple[nemo_curator.backends.base.BaseExecutor, nemo_curator.backends.base.BaseExecutor, nemo_curator.backends.base.BaseExecutor] | None = None,
+    batch_executor: nemo_curator.backends.base.BaseExecutor | None = None
+) -> nemo_curator.pipeline.workflow.WorkflowRunResult
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Run the complete text semantic deduplication workflow.
+
+**Returns:** `WorkflowRunResult`
+
+WorkflowRunResult object containing the results and timing information from all stages
+
+
+</Indent>
+</Indent>

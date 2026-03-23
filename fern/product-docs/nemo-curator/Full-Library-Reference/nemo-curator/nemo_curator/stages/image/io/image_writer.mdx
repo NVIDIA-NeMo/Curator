@@ -1,0 +1,209 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/image/io/image_writer
+title: nemo_curator.stages.image.io.image_writer
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ImageWriterStage`](#nemo_curator-stages-image-io-image_writer-ImageWriterStage) | Write images to tar files and corresponding metadata to a Parquet file. |
+
+### API
+
+<Anchor id="nemo_curator-stages-image-io-image_writer-ImageWriterStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.image.io.image_writer.ImageWriterStage(
+    output_dir: str,
+    images_per_tar: int = 1000,
+    verbose: bool = False,
+    deterministic_name: bool = True,
+    remove_image_data: bool = False,
+    name: str = 'image_writer'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[ImageBatch, FileGroupTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Write images to tar files and corresponding metadata to a Parquet file.
+
+- Images are packed into tar archives with at most ``images_per_tar`` entries each.
+- Metadata for all written images in the batch is stored in a single Parquet file.
+- Tar filenames are unique across actors via an actor-scoped prefix.
+
+
+<ParamField path="deterministic_name" type="bool = True">
+</ParamField>
+
+<ParamField path="images_per_tar" type="int = 1000">
+</ParamField>
+
+<ParamField path="name" type="str = 'image_writer'">
+</ParamField>
+
+<ParamField path="output_dir" type="str">
+</ParamField>
+
+<ParamField path="remove_image_data" type="bool = False">
+</ParamField>
+
+<ParamField path="verbose" type="bool = False">
+</ParamField>
+<Anchor id="nemo_curator-stages-image-io-image_writer-ImageWriterStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_writer.ImageWriterStage.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_writer-ImageWriterStage-_encode_image_to_bytes">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_writer.ImageWriterStage._encode_image_to_bytes(
+    image: numpy.ndarray
+) -> tuple[bytes, str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Encode image array to JPEG bytes; always returns (bytes, ".jpg").
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_writer-ImageWriterStage-_write_parquet">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_writer.ImageWriterStage._write_parquet(
+    base_name: str,
+    rows: list[dict[str, typing.Any]]
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Write metadata rows to a Parquet file for a specific tar and return its path.
+
+The Parquet file shares the same base name as the tar file: ``&#123;base_name&#125;.parquet``.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_writer-ImageWriterStage-_write_tar">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_writer.ImageWriterStage._write_tar(
+    base_name: str,
+    members: list[tuple[str, bytes]]
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Write a tar file with given (member_name, bytes) entries using provided base name.
+
+Returns tar path.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_writer-ImageWriterStage-construct_base_name">
+
+<CodeBlock links={{"nemo_curator.tasks.image.ImageBatch":"/nemo-curator/nemo_curator/tasks/image#nemo_curator-tasks-image-ImageBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_writer.ImageWriterStage.construct_base_name(
+    task: nemo_curator.tasks.image.ImageBatch
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Construct a base name for tar files within this actor.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_writer-ImageWriterStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_writer.ImageWriterStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_writer-ImageWriterStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_writer.ImageWriterStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-io-image_writer-ImageWriterStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.image.ImageBatch":"/nemo-curator/nemo_curator/tasks/image#nemo_curator-tasks-image-ImageBatch","nemo_curator.tasks.file_group.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.io.image_writer.ImageWriterStage.process(
+    task: nemo_curator.tasks.image.ImageBatch
+) -> nemo_curator.tasks.file_group.FileGroupTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

@@ -1,0 +1,579 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/models/transnetv2
+title: nemo_curator.models.transnetv2
+---
+
+Model for fast shot transition detection.
+
+@article&#123;soucek2020transnetv2,
+    title=&#123;TransNet V2: An effective deep network architecture for fast shot transition detection&#125;,
+    author=&#123;Sou&#123;\v&#123;c&#125;&#125;ek, Tom&#123;\'a&#125;&#123;\v&#123;s&#125;&#125; and Loko&#123;\v&#123;c&#125;&#125;, Jakub&#125;,
+    year=&#123;2020&#125;,
+    journal=&#123;arXiv preprint arXiv:2008.04838&#125;,
+&#125;
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ColorHistograms`](#nemo_curator-models-transnetv2-ColorHistograms) | Model for computing and comparing color histograms across video frames. |
+| [`Conv3DConfigurable`](#nemo_curator-models-transnetv2-Conv3DConfigurable) | Configurable 3D convolution layer with support for separable convolutions. |
+| [`DilatedDCNNV2`](#nemo_curator-models-transnetv2-DilatedDCNNV2) | Dilated dense convolutional model with multiple dilation rates. |
+| [`FrameSimilarity`](#nemo_curator-models-transnetv2-FrameSimilarity) | Model for computing frame similarity features in video sequences. |
+| [`StackedDDCNNV2`](#nemo_curator-models-transnetv2-StackedDDCNNV2) | Stacked dilated dense convolutional neural network for video feature extraction. |
+| [`TransNetV2`](#nemo_curator-models-transnetv2-TransNetV2) | Interface for TransNetV2 shot transition detection model. |
+| [`_TransNetV2`](#nemo_curator-models-transnetv2-_TransNetV2) | - |
+
+### Data
+
+[`_TRANSNETV2_MODEL_ID`](#nemo_curator-models-transnetv2-_TRANSNETV2_MODEL_ID)
+
+[`_TRANSNETV2_MODEL_REVISION`](#nemo_curator-models-transnetv2-_TRANSNETV2_MODEL_REVISION)
+
+[`_TRANSNETV2_MODEL_WEIGHTS`](#nemo_curator-models-transnetv2-_TRANSNETV2_MODEL_WEIGHTS)
+
+### API
+
+<Anchor id="nemo_curator-models-transnetv2-ColorHistograms">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.transnetv2.ColorHistograms(
+    lookup_window: int = 101,
+    output_dim: int | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`
+
+Model for computing and comparing color histograms across video frames.
+
+
+<ParamField path="fc">
+</ParamField>
+<Anchor id="nemo_curator-models-transnetv2-ColorHistograms-compute_color_histograms">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2.ColorHistograms.compute_color_histograms(
+    frames: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Compute color histograms for video frames.
+
+**Parameters:**
+
+<ParamField path="frames" type="torch.Tensor">
+Input tensor of video frames.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+Color histogram tensor.
+
+
+</Indent>
+<Anchor id="nemo_curator-models-transnetv2-ColorHistograms-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2.ColorHistograms.forward(
+    inputs: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process input frames through the model.
+
+**Parameters:**
+
+<ParamField path="inputs" type="torch.Tensor">
+Input tensor of video frames.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+Model predictions for shot transitions.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-transnetv2-Conv3DConfigurable">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.transnetv2.Conv3DConfigurable(
+    in_filters: int,
+    filters: int,
+    dilation_rate: int,
+    separable: bool = True,
+    use_bias: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`
+
+Configurable 3D convolution layer with support for separable convolutions.
+
+
+<ParamField path="layers" type="= nn.ModuleList([conv1, conv2])">
+</ParamField>
+<Anchor id="nemo_curator-models-transnetv2-Conv3DConfigurable-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2.Conv3DConfigurable.forward(
+    inputs: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process input through the 3D convolutional layers.
+
+**Parameters:**
+
+<ParamField path="inputs" type="torch.Tensor">
+Input tensor.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+Processed tensor.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-transnetv2-DilatedDCNNV2">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.transnetv2.DilatedDCNNV2(
+    in_filters: int,
+    filters: int,
+    batch_norm: bool = True,
+    activation: collections.abc.Callable[[torch.Tensor], torch.Tensor] | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`
+
+Dilated dense convolutional model with multiple dilation rates.
+
+
+<ParamField path="Conv3D_1">
+</ParamField>
+
+<ParamField path="Conv3D_2">
+</ParamField>
+
+<ParamField path="Conv3D_4">
+</ParamField>
+
+<ParamField path="Conv3D_8">
+</ParamField>
+
+<ParamField path="bn">
+</ParamField>
+<Anchor id="nemo_curator-models-transnetv2-DilatedDCNNV2-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2.DilatedDCNNV2.forward(
+    inputs: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process input through the dilated dense convolutional network.
+
+**Parameters:**
+
+<ParamField path="inputs" type="torch.Tensor">
+Input tensor.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+Processed tensor.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-transnetv2-FrameSimilarity">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.transnetv2.FrameSimilarity(
+    in_filters: int,
+    similarity_dim: int = 128,
+    lookup_window: int = 101,
+    output_dim: int = 128,
+    use_bias: bool = False
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`
+
+Model for computing frame similarity features in video sequences.
+
+
+<ParamField path="fc" type="= nn.Linear(lookup_window, output_dim)">
+</ParamField>
+
+<ParamField path="projection">
+</ParamField>
+<Anchor id="nemo_curator-models-transnetv2-FrameSimilarity-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2.FrameSimilarity.forward(
+    inputs: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process input frames through the model.
+
+**Parameters:**
+
+<ParamField path="inputs" type="torch.Tensor">
+Input tensor of video frames.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+Frame similarity features.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-transnetv2-StackedDDCNNV2">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.transnetv2.StackedDDCNNV2(
+    in_filters: int,
+    n_blocks: int,
+    filters: int,
+    shortcut: bool = True,
+    pool_type: str = 'avg',
+    stochastic_depth_drop_prob: float = 0.0
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`
+
+Stacked dilated dense convolutional neural network for video feature extraction.
+
+
+<ParamField path="DDCNN">
+</ParamField>
+
+<ParamField path="pool">
+</ParamField>
+<Anchor id="nemo_curator-models-transnetv2-StackedDDCNNV2-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2.StackedDDCNNV2.forward(
+    inputs: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process input through the stacked dilated dense convolutional network.
+
+**Parameters:**
+
+<ParamField path="inputs" type="torch.Tensor">
+Input tensor.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+Processed tensor.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-transnetv2-TransNetV2">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.transnetv2.TransNetV2(
+    model_dir: str | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ModelInterface](/nemo-curator/nemo_curator/models/base#nemo_curator-models-base-ModelInterface)
+
+Interface for TransNetV2 shot transition detection model.
+
+
+<ParamField path="model_id_names" type="list[str]">
+Get the model ID names.
+</ParamField>
+<Anchor id="nemo_curator-models-transnetv2-TransNetV2-__call__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2.TransNetV2.__call__(
+    inputs: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+TransNetV2 model call.
+
+**Parameters:**
+
+<ParamField path="inputs" type="torch.Tensor">
+tensor of shape [# batch, # frames, height, width, RGB].
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+tensor of shape [# batch, # frames, 1] of probabilities for each frame being a shot transition.
+
+
+</Indent>
+<Anchor id="nemo_curator-models-transnetv2-TransNetV2-download_weights_on_node">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2.TransNetV2.download_weights_on_node(
+    model_dir: str
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>classmethod</Badge>
+
+Download TransNetV2 weights on the node.
+
+**Parameters:**
+
+<ParamField path="model_dir" type="str">
+Directory to save the model weights. If None, uses self.model_dir.
+</ParamField>
+
+
+</Indent>
+<Anchor id="nemo_curator-models-transnetv2-TransNetV2-setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2.TransNetV2.setup() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Set up the TransNetV2 model interface.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-transnetv2-_TransNetV2">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.transnetv2._TransNetV2(
+    rf: int = 16,
+    rl: int = 3,
+    rs: int = 2,
+    rd: int = 1024,
+    use_many_hot_targets: bool = True,
+    use_frame_similarity: bool = True,
+    use_color_histograms: bool = True,
+    use_mean_pooling: bool = False,
+    dropout_rate: float = 0.5
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`
+
+<ParamField path="SDDCNN">
+</ParamField>
+
+<ParamField path="cls_layer1" type="= nn.Linear(rd, 1)">
+</ParamField>
+
+<ParamField path="cls_layer2" type="= nn.Linear(rd, 1) if use_many_hot_targets else None">
+</ParamField>
+
+<ParamField path="color_hist_layer">
+</ParamField>
+
+<ParamField path="dropout">
+</ParamField>
+
+<ParamField path="fc1" type="= nn.Linear(output_dim, rd)">
+</ParamField>
+
+<ParamField path="frame_sim_layer">
+</ParamField>
+<Anchor id="nemo_curator-models-transnetv2-_TransNetV2-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2._TransNetV2.forward(
+    inputs: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process input through the TransNetV2 model.
+
+**Parameters:**
+
+<ParamField path="inputs" type="torch.Tensor">
+Input tensor of video frames.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+Model predictions for shot transitions.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-transnetv2-_TRANSNETV2_MODEL_ID">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2._TRANSNETV2_MODEL_ID: Final = 'Sn4kehead/TransNetV2'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-models-transnetv2-_TRANSNETV2_MODEL_REVISION">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2._TRANSNETV2_MODEL_REVISION: Final = 'db6ceab'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-models-transnetv2-_TRANSNETV2_MODEL_WEIGHTS">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.transnetv2._TRANSNETV2_MODEL_WEIGHTS: Final = 'transnetv2-pytorch-weights.pth'
+```
+
+</CodeBlock>
+</Anchor>
+

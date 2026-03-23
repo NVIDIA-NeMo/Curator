@@ -1,0 +1,280 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/base/download
+title: nemo_curator.stages.text.download.base.download
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`DocumentDownloadStage`](#nemo_curator-stages-text-download-base-download-DocumentDownloadStage) | Stage that downloads files from URLs to local storage. |
+| [`DocumentDownloader`](#nemo_curator-stages-text-download-base-download-DocumentDownloader) | Abstract base class for document downloaders. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-base-download-DocumentDownloadStage">
+
+<CodeBlock links={{"nemo_curator.stages.text.download.base.download.DocumentDownloader":"#nemo_curator-stages-text-download-base-download-DocumentDownloader"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.base.download.DocumentDownloadStage(
+    downloader: nemo_curator.stages.text.download.base.download.DocumentDownloader
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[FileGroupTask, FileGroupTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Stage that downloads files from URLs to local storage.
+
+Takes a FileGroupTask with URLs and returns a FileGroupTask with local file paths.
+This allows the download step to scale independently from iteration/extraction.
+
+
+<ParamField path="downloader" type="DocumentDownloader">
+</ParamField>
+
+<ParamField path="resources" type="= Resources(cpus=0.5)">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-download-base-download-DocumentDownloadStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.download.DocumentDownloadStage.__post_init__()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-download-DocumentDownloadStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.download.DocumentDownloadStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Define input requirements - expects FileGroupTask with URLs.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-download-DocumentDownloadStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.download.DocumentDownloadStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Define output - produces FileGroupTask with local paths.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-download-DocumentDownloadStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.download.DocumentDownloadStage.process(
+    task: nemo_curator.tasks.FileGroupTask
+) -> nemo_curator.tasks.FileGroupTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Download URLs to local files.
+
+**Parameters:**
+
+<ParamField path="task" type="FileGroupTask">
+Task containing URLs to download
+</ParamField>
+
+**Returns:** `FileGroupTask`
+
+Task containing local file paths
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-download-DocumentDownloadStage-xenna_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.download.DocumentDownloadStage.xenna_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-download-base-download-DocumentDownloader">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.base.download.DocumentDownloader(
+    download_dir: str,
+    verbose: bool = False
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Abstract</Badge>
+
+Abstract base class for document downloaders.
+
+
+<Anchor id="nemo_curator-stages-text-download-base-download-DocumentDownloader-_download_to_path">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.download.DocumentDownloader._download_to_path(
+    url: str,
+    path: str
+) -> tuple[bool, str | None]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Download URL to specified path.
+
+**Parameters:**
+
+<ParamField path="url" type="str">
+URL to download
+</ParamField>
+
+<ParamField path="path" type="str">
+Local path to save file
+</ParamField>
+
+**Returns:** `bool`
+
+Tuple of (success, error_message). If success is True, error_message should be None.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-download-DocumentDownloader-_get_output_filename">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.download.DocumentDownloader._get_output_filename(
+    url: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Generate output filename from URL.
+
+**Parameters:**
+
+<ParamField path="url" type="str">
+URL to download
+</ParamField>
+
+**Returns:** `str`
+
+Output filename (without directory path)
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-download-DocumentDownloader-download">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.download.DocumentDownloader.download(
+    url: str
+) -> str | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Download a document from URL with temporary file handling.
+
+Downloads file to temporary location then atomically moves to final path.
+Checks for existing file to avoid re-downloading. Supports resumable downloads.
+Args:
+    url: URL to download
+
+**Returns:** `str | None`
+
+Path to downloaded file, or None if download failed
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-download-DocumentDownloader-num_workers_per_node">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.download.DocumentDownloader.num_workers_per_node() -> int | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Number of workers per node for Downloading. This is sometimes needed to ensure we are not overloading the network.
+
+**Returns:** `int | None`
+
+Number of workers per node, or None if there is no limit and we can download as fast as possible
+
+
+</Indent>
+</Indent>

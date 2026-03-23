@@ -1,0 +1,169 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/backends/ray_data/adapter
+title: nemo_curator.backends.ray_data.adapter
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`RayDataStageAdapter`](#nemo_curator-backends-ray_data-adapter-RayDataStageAdapter) | Adapts ProcessingStage to Ray Data operations. |
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`create_actor_from_stage`](#nemo_curator-backends-ray_data-adapter-create_actor_from_stage) | Create a StageProcessor class with the proper stage name for display. |
+| [`create_task_from_stage`](#nemo_curator-backends-ray_data-adapter-create_task_from_stage) | Create a named Ray Data stage adapter function. |
+
+### API
+
+<Anchor id="nemo_curator-backends-ray_data-adapter-RayDataStageAdapter">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.backends.ray_data.adapter.RayDataStageAdapter(
+    stage: nemo_curator.stages.base.ProcessingStage
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [BaseStageAdapter](/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-BaseStageAdapter)
+
+Adapts ProcessingStage to Ray Data operations.
+
+This adapter converts stages to work with Ray Data datasets by:
+1. Working directly with Task objects (no dictionary conversion)
+2. Using Ray Data's map_batches for parallel processing
+    a. If stage has both gpus and cpus specified, then we use actors
+    b. If stage.setup is overridden, then we use actors
+    c. Else we use tasks
+
+
+<ParamField path="_batch_size" type="= self.stage.batch_size">
+</ParamField>
+
+<ParamField path="batch_size" type="int | None">
+Get the batch size for this stage.
+</ParamField>
+<Anchor id="nemo_curator-backends-ray_data-adapter-RayDataStageAdapter-_process_batch_internal">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.ray_data.adapter.RayDataStageAdapter._process_batch_internal(
+    batch: dict[str, typing.Any]
+) -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Internal method that handles the actual batch processing logic.
+
+**Parameters:**
+
+<ParamField path="batch" type="dict[str, Any]">
+Dictionary with arrays/lists representing a batch of Task objects
+</ParamField>
+
+**Returns:** `dict[str, Any]`
+
+Dictionary with arrays/lists representing processed Task objects
+
+
+</Indent>
+<Anchor id="nemo_curator-backends-ray_data-adapter-RayDataStageAdapter-process_dataset">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.ray_data.adapter.RayDataStageAdapter.process_dataset(
+    dataset: ray.data.Dataset,
+    ignore_head_node: bool = False
+) -> ray.data.Dataset
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process a Ray Data dataset through this stage.
+
+**Parameters:**
+
+<ParamField path="dataset" type="Dataset">
+Ray Data dataset containing Task objects
+</ParamField>
+
+**Returns:** `Dataset`
+
+Processed Ray Data dataset
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-backends-ray_data-adapter-create_actor_from_stage">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage","nemo_curator.backends.ray_data.adapter.RayDataStageAdapter":"#nemo_curator-backends-ray_data-adapter-RayDataStageAdapter"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.ray_data.adapter.create_actor_from_stage(
+    stage: nemo_curator.stages.base.ProcessingStage
+) -> type[nemo_curator.backends.ray_data.adapter.RayDataStageAdapter]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Create a StageProcessor class with the proper stage name for display.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-backends-ray_data-adapter-create_task_from_stage">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.ray_data.adapter.create_task_from_stage(
+    stage: nemo_curator.stages.base.ProcessingStage
+) -> collections.abc.Callable[[dict[str, Any]], dict[str, typing.Any]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Create a named Ray Data stage adapter function.
+
+This creates a standalone function that wraps the stage processing logic
+with a clean name that doesn't include the class qualification.
+
+**Parameters:**
+
+<ParamField path="stage" type="ProcessingStage">
+Processing stage to adapt
+</ParamField>
+
+**Returns:** `Callable[[dict[str, Any]], dict[str, Any]]`
+
+A function that can be used directly with Ray Data's map_batches
+
+
+</Indent>

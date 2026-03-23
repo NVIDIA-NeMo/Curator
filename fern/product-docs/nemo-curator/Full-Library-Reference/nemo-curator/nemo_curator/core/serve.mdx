@@ -1,0 +1,501 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/core/serve
+title: nemo_curator.core.serve
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`InferenceModelConfig`](#nemo_curator-core-serve-InferenceModelConfig) | Configuration for a single model to be served via Ray Serve. |
+| [`InferenceServer`](#nemo_curator-core-serve-InferenceServer) | Serve one or more models via Ray Serve with an OpenAI-compatible endpoint. |
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`is_ray_serve_active`](#nemo_curator-core-serve-is_ray_serve_active) | Check whether any InferenceServer is currently running in this process. |
+
+### Data
+
+[`_active_servers`](#nemo_curator-core-serve-_active_servers)
+
+### API
+
+<Anchor id="nemo_curator-core-serve-InferenceModelConfig">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.core.serve.InferenceModelConfig(
+    model_identifier: str,
+    model_name: str | None = None,
+    deployment_config: dict[str, typing.Any] = dict(),
+    engine_kwargs: dict[str, typing.Any] = dict(),
+    runtime_env: dict[str, typing.Any] = dict()
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+Configuration for a single model to be served via Ray Serve.
+
+**Parameters:**
+
+<ParamField path="model_identifier" type="str">
+HuggingFace model ID or local path (maps to model_source in LLMConfig).
+</ParamField>
+
+<ParamField path="model_name" type="str | None" default="None">
+API-facing model name clients use in requests. Defaults to model_identifier.
+</ParamField>
+
+<ParamField path="deployment_config" type="dict[str, Any]" default="dict()">
+Ray Serve deployment configuration (autoscaling, replicas, etc.).
+Passed directly to LLMConfig.deployment_config.
+</ParamField>
+
+<ParamField path="engine_kwargs" type="dict[str, Any]" default="dict()">
+vLLM engine keyword arguments (tensor_parallel_size, etc.).
+Passed directly to LLMConfig.engine_kwargs.
+</ParamField>
+
+<ParamField path="runtime_env" type="dict[str, Any]" default="dict()">
+Ray runtime environment configuration (pip packages, env_vars, working_dir, etc.).
+Merged with quiet logging overrides when ``verbose=False`` on the InferenceServer.
+</ParamField>
+
+
+<ParamField path="deployment_config" type="dict[str, Any] = field(default_factory=dict)">
+</ParamField>
+
+<ParamField path="engine_kwargs" type="dict[str, Any] = field(default_factory=dict)">
+</ParamField>
+
+<ParamField path="model_identifier" type="str">
+</ParamField>
+
+<ParamField path="model_name" type="str | None = None">
+</ParamField>
+
+<ParamField path="runtime_env" type="dict[str, Any] = field(default_factory=dict)">
+</ParamField>
+<Anchor id="nemo_curator-core-serve-InferenceModelConfig-_merge_runtime_envs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.InferenceModelConfig._merge_runtime_envs(
+    base: dict[str, typing.Any],
+    override: dict[str, typing.Any] | None
+) -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Merge two runtime_env dicts, with special handling for ``env_vars``.
+
+Top-level keys from *override* win, except ``env_vars`` which is
+merged key-by-key (override env vars take precedence over base).
+
+
+</Indent>
+<Anchor id="nemo_curator-core-serve-InferenceModelConfig-to_llm_config">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.InferenceModelConfig.to_llm_config(
+    quiet_runtime_env: dict[str, typing.Any] | None = None
+) -> ray.serve.llm.LLMConfig
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Convert to a Ray Serve LLMConfig.
+
+**Parameters:**
+
+<ParamField path="quiet_runtime_env" type="dict[str, Any] | None" default="None">
+Optional runtime environment with quiet/logging
+overrides.  Merged on top of ``self.runtime_env`` so that
+quiet env vars take precedence while preserving user-provided
+keys (e.g. ``pip``, ``working_dir``).
+</ParamField>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-core-serve-InferenceServer">
+
+<CodeBlock links={{"nemo_curator.core.serve.InferenceModelConfig":"#nemo_curator-core-serve-InferenceModelConfig"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.core.serve.InferenceServer(
+    models: list[nemo_curator.core.serve.InferenceModelConfig],
+    name: str = 'default',
+    port: int = DEFAULT_SERVE_PORT,
+    health_check_timeout_s: int = DEFAULT_SERVE_HEALTH_TIMEOUT_S,
+    verbose: bool = False
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+Serve one or more models via Ray Serve with an OpenAI-compatible endpoint.
+
+Requires a running Ray cluster (e.g. via RayClient or RAY_ADDRESS env var).
+
+Example::
+
+    from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+
+    config = InferenceModelConfig(
+        model_identifier="google/gemma-3-27b-it",
+        engine_kwargs=&#123;"tensor_parallel_size": 4&#125;,
+        deployment_config=&#123;
+            "autoscaling_config": &#123;
+                "min_replicas": 1,
+                "max_replicas": 1,
+            &#125;,
+        &#125;,
+    )
+
+    with InferenceServer(models=[config]) as server:
+        print(server.endpoint)  # http://localhost:8000/v1
+        # Use with NeMo Curator's OpenAIClient or AsyncOpenAIClient
+
+**Parameters:**
+
+<ParamField path="models" type="list[InferenceModelConfig]">
+List of InferenceModelConfig instances to deploy.
+</ParamField>
+
+<ParamField path="name" type="str" default="'default'">
+Ray Serve application name (default ``"default"``).
+</ParamField>
+
+<ParamField path="port" type="int" default="DEFAULT_SERVE_PORT">
+HTTP port for the OpenAI-compatible endpoint.
+</ParamField>
+
+<ParamField path="health_check_timeout_s" type="int" default="DEFAULT_SERVE_HEALTH_TIMEOUT_S">
+Seconds to wait for models to become healthy.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="False">
+If True, keep Ray Serve and vLLM logging at default levels.
+If False (default), suppress per-request logs from both vLLM
+(``VLLM_LOGGING_LEVEL=WARNING``) and Ray Serve access logs
+(``RAY_SERVE_LOG_TO_STDERR=0``).  Serve logs still go to
+files under the Ray session log directory.
+</ParamField>
+
+
+<ParamField path="_started" type="bool = field(init=False, default=False, repr=False)">
+</ParamField>
+
+<ParamField path="endpoint" type="str">
+OpenAI-compatible base URL for the served models.
+
+When multiple models are deployed, clients select a model by passing
+``model="&lt;model_name&gt;"`` in the request body (standard OpenAI API
+convention).  The ``/v1/models`` endpoint lists all available models.
+</ParamField>
+
+<ParamField path="health_check_timeout_s" type="int = DEFAULT_SERVE_HEALTH_TIMEOUT_S">
+</ParamField>
+
+<ParamField path="models" type="list[InferenceModelConfig]">
+</ParamField>
+
+<ParamField path="name" type="str = 'default'">
+</ParamField>
+
+<ParamField path="port" type="int = DEFAULT_SERVE_PORT">
+</ParamField>
+
+<ParamField path="verbose" type="bool = False">
+</ParamField>
+<Anchor id="nemo_curator-core-serve-InferenceServer-__enter__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.InferenceServer.__enter__()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-core-serve-InferenceServer-__exit__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.InferenceServer.__exit__(
+    exc = ()
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-core-serve-InferenceServer-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.InferenceServer.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-core-serve-InferenceServer-_cleanup_failed_deploy">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.InferenceServer._cleanup_failed_deploy() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Best-effort cleanup after a failed deploy (e.g. health check timeout).
+
+Shuts down Ray Serve so that GPU memory and other resources held by
+partially-deployed replicas are released.
+
+
+</Indent>
+<Anchor id="nemo_curator-core-serve-InferenceServer-_deploy">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.InferenceServer._deploy() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Deploy models onto the connected Ray cluster (internal).
+
+Must be called while a Ray connection is active.
+
+
+</Indent>
+<Anchor id="nemo_curator-core-serve-InferenceServer-_quiet_runtime_env">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.InferenceServer._quiet_runtime_env() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Return a ``runtime_env`` dict that suppresses per-request logs.
+
+Works around two upstream bugs in Ray Serve (as of Ray 2.44+):
+
+1. **vLLM request logs** (``Added request chatcmpl-...``):
+   ``_start_async_llm_engine`` creates ``AsyncLLM()`` without passing
+   ``log_requests``, so it defaults to ``True``.
+   Workaround: ``VLLM_LOGGING_LEVEL=WARNING``.
+   TODO: Once we upgrade past Ray 2.54 (see ray-project/ray#60824),
+   pass ``"enable_log_requests": False`` in ``engine_kwargs`` instead
+   and remove the ``VLLM_LOGGING_LEVEL`` env var workaround.
+
+2. **Ray Serve access logs** (``POST /v1/... 200 Xms``):
+   ``configure_component_logger()`` only adds the access-log filter
+   to the *file* handler, not the stderr stream handler, so
+   ``LoggingConfig(enable_access_log=False)`` has no effect on
+   console output.  Workaround: ``RAY_SERVE_LOG_TO_STDERR=0``
+   (logs still go to files under the Ray session log directory).
+   TODO: Ray might fix this in the future.
+
+
+</Indent>
+<Anchor id="nemo_curator-core-serve-InferenceServer-_reset_serve_client_cache">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.InferenceServer._reset_serve_client_cache() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Reset Ray Serve's cached controller client.
+
+Ray Serve caches the controller actor handle in a module-level
+``_global_client``.  This handle becomes stale when the driver
+disconnects and reconnects (e.g. via ``with ray.init()``).  The
+built-in staleness check only catches ``RayActorError``, not the
+"different cluster" exception that occurs across driver sessions.
+
+Resetting forces the next Serve API call to look up the controller
+by its well-known actor name, producing a fresh handle.
+
+TODO: Remove this method once https://github.com/ray-project/ray/issues/61608 is fixed.
+
+
+</Indent>
+<Anchor id="nemo_curator-core-serve-InferenceServer-_wait_for_healthy">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.InferenceServer._wait_for_healthy() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Poll the /v1/models endpoint until all models are ready.
+
+Uses wall-clock time to enforce the timeout accurately, regardless
+of how long individual HTTP requests take.
+
+
+</Indent>
+<Anchor id="nemo_curator-core-serve-InferenceServer-start">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.InferenceServer.start() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Deploy all models and wait for them to become healthy.
+
+The driver connects to the Ray cluster only for the duration of
+deployment.  Once models are healthy the driver disconnects, so that
+the next ``ray.init()`` (e.g. from a pipeline executor) becomes the
+first driver-level init and its ``runtime_env`` takes effect on
+workers.  Serve actors are detached and survive the disconnect.
+
+**Raises:**
+
+- `RuntimeError`: If another InferenceServer is already active in this
+process.  Only one InferenceServer can run at a time because
+Ray Serve uses a single HTTP proxy per cluster, and all
+models are deployed as a single application sharing the
+same ``/v1`` routes.  You can deploy multiple models in one
+InferenceServer (via the ``models`` list) — clients select a
+model by passing ``model="&lt;model_name&gt;"`` in the API
+request body.  Stop the existing server before starting a
+new one.
+
+
+</Indent>
+<Anchor id="nemo_curator-core-serve-InferenceServer-stop">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.InferenceServer.stop() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Shut down Ray Serve (all applications, controller, and HTTP proxy).
+
+Reconnects to the Ray cluster to tear down Serve actors and release
+GPU memory, then disconnects.  If the cluster is already gone (e.g.
+``RayClient`` was stopped first), the shutdown is skipped silently.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-core-serve-is_ray_serve_active">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve.is_ray_serve_active() -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Check whether any InferenceServer is currently running in this process.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-core-serve-_active_servers">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.core.serve._active_servers: set[str] = set()
+```
+
+</CodeBlock>
+</Anchor>
+

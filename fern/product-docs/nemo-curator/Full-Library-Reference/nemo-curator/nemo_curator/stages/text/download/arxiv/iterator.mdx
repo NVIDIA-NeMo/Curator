@@ -1,0 +1,132 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/arxiv/iterator
+title: nemo_curator.stages.text.download.arxiv.iterator
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ArxivIterator`](#nemo_curator-stages-text-download-arxiv-iterator-ArxivIterator) | Processes downloaded Arxiv files and extracts article content. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-arxiv-iterator-ArxivIterator">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.arxiv.iterator.ArxivIterator(
+    log_frequency: int = 1000
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `DocumentIterator`
+
+Processes downloaded Arxiv files and extracts article content.
+
+
+<ParamField path="_counter" type="= 0">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-download-arxiv-iterator-ArxivIterator-_format_arxiv_id">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.arxiv.iterator.ArxivIterator._format_arxiv_id(
+    arxiv_id: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+this function brings the raw arxiv-id into a format compliant with the
+specification from arxiv. This is used to create the url to the arxiv
+abstract page.
+
+- Format prior to March 2007:
+    &lt;archive&gt;/YYMMNNN where N is a 3-digit number
+- Format after March 2007: &lt;archive&gt;/YYMM.NNNNN where N is a
+  5 (or 6)-digit number
+
+References: https://info.arxiv.org/help/arxiv_identifier.html
+
+@param arxiv_id: raw arxiv id which can be in one of the
+                 following formats:
+                 - &lt;archive&gt;&lt;YY&gt;&lt;MM&gt;&lt;NNN&gt;
+                 - &lt;YY&gt;&lt;MM&gt;&lt;NNNNN|NNNNNN&gt;
+
+@return: formatted arxiv id
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-arxiv-iterator-ArxivIterator-_tex_proj_loader">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.arxiv.iterator.ArxivIterator._tex_proj_loader(
+    file_or_dir_path: str
+) -> list[str] | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+function to load the tex files from a tar file or a gzip file. The
+function will return a tuple containing a list of tex files and the
+timestamp of the project.
+
+@param file_or_dir_path: path to the tar file or the gzip file
+
+@return: tuple containing a list of tex files and the timestamp of the
+    project
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-arxiv-iterator-ArxivIterator-iterate">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.arxiv.iterator.ArxivIterator.iterate(
+    file_path: str
+) -> collections.abc.Iterator[dict[str, typing.Any]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-arxiv-iterator-ArxivIterator-output_columns">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.arxiv.iterator.ArxivIterator.output_columns() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

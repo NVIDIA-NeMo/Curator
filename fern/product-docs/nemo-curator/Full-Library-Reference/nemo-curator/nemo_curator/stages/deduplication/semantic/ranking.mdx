@@ -1,0 +1,134 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/deduplication/semantic/ranking
+title: nemo_curator.stages.deduplication.semantic.ranking
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`RankingStrategy`](#nemo_curator-stages-deduplication-semantic-ranking-RankingStrategy) | Flexible ranking strategy that allows users to specify metadata columns and sorting order. |
+
+### API
+
+<Anchor id="nemo_curator-stages-deduplication-semantic-ranking-RankingStrategy">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy(
+    metadata_cols: list[str],
+    ascending: list[bool] | bool = True,
+    strategy: typing.Literal['sort', 'random'] = 'sort',
+    random_seed: int = 42
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Flexible ranking strategy that allows users to specify metadata columns and sorting order.
+
+This design allows for extensible ranking based on any metadata columns with
+user-specified sorting criteria.
+
+
+<ParamField path="ascending" type="= [ascending] * len(metadata_cols)">
+</ParamField>
+<Anchor id="nemo_curator-stages-deduplication-semantic-ranking-RankingStrategy-metadata_based">
+
+<CodeBlock links={{"nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy":"#nemo_curator-stages-deduplication-semantic-ranking-RankingStrategy"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy.metadata_based(
+    metadata_cols: list[str],
+    ascending: list[bool] | bool = True,
+    random_seed: int = 42
+) -> nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>classmethod</Badge>
+
+Create a metadata-based ranking strategy.
+
+**Parameters:**
+
+<ParamField path="metadata_cols" type="list[str]">
+List of metadata column names to sort by (in priority order)
+</ParamField>
+
+<ParamField path="ascending" type="list[bool] | bool" default="True">
+Boolean or list of booleans indicating sort order for each column
+</ParamField>
+
+<ParamField path="random_seed" type="int" default="42">
+Random seed for reproducible results
+</ParamField>
+
+**Returns:** `RankingStrategy`
+
+RankingStrategy instance configured for metadata-based ranking
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-ranking-RankingStrategy-random">
+
+<CodeBlock links={{"nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy":"#nemo_curator-stages-deduplication-semantic-ranking-RankingStrategy"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy.random(
+    random_seed: int = 42
+) -> nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>classmethod</Badge>
+
+Create a random ranking strategy.
+
+**Parameters:**
+
+<ParamField path="random_seed" type="int" default="42">
+Random seed for reproducible results
+</ParamField>
+
+**Returns:** `RankingStrategy`
+
+RankingStrategy instance configured for random ranking
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-ranking-RankingStrategy-rank_cluster">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy.rank_cluster(
+    cluster_df: cudf.DataFrame
+) -> cudf.DataFrame
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Rank cluster based on the specified strategy.
+
+
+</Indent>
+</Indent>

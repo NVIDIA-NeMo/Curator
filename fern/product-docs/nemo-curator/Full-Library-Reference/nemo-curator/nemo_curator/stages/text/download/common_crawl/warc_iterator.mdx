@@ -1,0 +1,69 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/common_crawl/warc_iterator
+title: nemo_curator.stages.text.download.common_crawl.warc_iterator
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`CommonCrawlWarcIterator`](#nemo_curator-stages-text-download-common_crawl-warc_iterator-CommonCrawlWarcIterator) | Processes downloaded WARC files. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-common_crawl-warc_iterator-CommonCrawlWarcIterator">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.common_crawl.warc_iterator.CommonCrawlWarcIterator()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `DocumentIterator`
+
+Processes downloaded WARC files.
+
+
+<Anchor id="nemo_curator-stages-text-download-common_crawl-warc_iterator-CommonCrawlWarcIterator-iterate">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.common_crawl.warc_iterator.CommonCrawlWarcIterator.iterate(
+    file_path: str
+) -> collections.abc.Iterator[dict[str, typing.Any]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process a task containing WARC files and extract their contents.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-common_crawl-warc_iterator-CommonCrawlWarcIterator-output_columns">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.common_crawl.warc_iterator.CommonCrawlWarcIterator.output_columns() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

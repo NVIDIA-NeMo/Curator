@@ -1,0 +1,121 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/audio/alm/alm_manifest_writer
+title: nemo_curator.stages.audio.alm.alm_manifest_writer
+---
+
+ALM Manifest Writer Stage — writes AudioBatch entries to a JSONL manifest.
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ALMManifestWriterStage`](#nemo_curator-stages-audio-alm-alm_manifest_writer-ALMManifestWriterStage) | Append AudioBatch entries to a JSONL manifest file. |
+
+### API
+
+<Anchor id="nemo_curator-stages-audio-alm-alm_manifest_writer-ALMManifestWriterStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.audio.alm.alm_manifest_writer.ALMManifestWriterStage(
+    output_path: str,
+    name: str = 'alm_manifest_writer'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[AudioBatch, FileGroupTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Append AudioBatch entries to a JSONL manifest file.
+
+Each processed AudioBatch has its data entries appended to the output
+file. The file is truncated on ``setup()`` so repeated pipeline runs
+produce a clean output. Supports local and cloud paths via fsspec.
+
+**Parameters:**
+
+<ParamField path="output_path" type="str">
+Destination JSONL path (local or cloud).
+</ParamField>
+
+
+<ParamField path="name" type="str = 'alm_manifest_writer'">
+</ParamField>
+
+<ParamField path="output_path" type="str">
+</ParamField>
+<Anchor id="nemo_curator-stages-audio-alm-alm_manifest_writer-ALMManifestWriterStage-num_workers">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_manifest_writer.ALMManifestWriterStage.num_workers() -> int | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-audio-alm-alm_manifest_writer-ALMManifestWriterStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.AudioBatch":"/nemo-curator/nemo_curator/tasks/audio_batch#nemo_curator-tasks-audio_batch-AudioBatch","nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_manifest_writer.ALMManifestWriterStage.process(
+    task: nemo_curator.tasks.AudioBatch
+) -> nemo_curator.tasks.FileGroupTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-audio-alm-alm_manifest_writer-ALMManifestWriterStage-setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_manifest_writer.ALMManifestWriterStage.setup(
+    worker_metadata: typing.Any = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-audio-alm-alm_manifest_writer-ALMManifestWriterStage-xenna_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_manifest_writer.ALMManifestWriterStage.xenna_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

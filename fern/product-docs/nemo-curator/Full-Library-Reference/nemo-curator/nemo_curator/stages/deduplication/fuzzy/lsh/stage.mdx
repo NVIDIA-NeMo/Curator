@@ -1,0 +1,270 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/deduplication/fuzzy/lsh/stage
+title: nemo_curator.stages.deduplication.fuzzy.lsh.stage
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`LSHStage`](#nemo_curator-stages-deduplication-fuzzy-lsh-stage-LSHStage) | Stage that performs LSH on a FileGroupTask containing minhash data. |
+
+### API
+
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-lsh-stage-LSHStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.deduplication.fuzzy.lsh.stage.LSHStage(
+    num_bands: int,
+    minhashes_per_band: int,
+    id_field: str = CURATOR_DEDUP_ID_STR,
+    minhash_field: str = CURATOR_DEFAULT_MINHASH_FIELD,
+    output_path: str = './',
+    read_kwargs: dict[str, typing.Any] | None = None,
+    write_kwargs: dict[str, typing.Any] | None = None,
+    rmm_pool_size: int | typing.Literal['auto'] | None = 'auto',
+    spill_memory_limit: int | typing.Literal['auto'] | None = 'auto',
+    enable_statistics: bool = False,
+    bands_per_iteration: int = 5,
+    total_nparts: int | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[FileGroupTask, FileGroupTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Stage that performs LSH on a FileGroupTask containing minhash data.
+
+The executor will process this stage in iterations based on bands_per_iteration.
+
+Parameters
+----------
+num_bands
+    Number of LSH bands.
+minhashes_per_band
+    Number of minhashes per band.
+id_field
+    Name of the ID field in input data.
+minhash_field
+    Name of the minhash field in input data.
+output_path
+    Base path to write output files.
+read_kwargs
+    Keyword arguments for the read method.
+write_kwargs
+    Keyword arguments for the write method.
+rmm_pool_size
+    Size of the RMM GPU memory pool in bytes.
+    If "auto", the memory pool is set to 90% of the free GPU memory.
+    If None, the memory pool is set to 50% of the free GPU memory that can expand if needed.
+spill_memory_limit
+    Device memory limit in bytes for spilling to host.
+    If "auto", the limit is set to 80% of the RMM pool size.
+    If None spilling is disabled.
+enable_statistics
+    Whether to collect statistics.
+bands_per_iteration
+    Number of bands to process per shuffle iteration. Between 1 and num_bands.
+    Higher values reduce the number of shuffle iterations but increase the memory usage.
+total_nparts
+    Total number of partitions to write during the shuffle.
+    If None, the number of partitions will be decided automatically by the executor as the closest power of 2 &lt;= number of input tasks.
+
+
+<ParamField path="bands_per_iteration" type="int = 5">
+</ParamField>
+
+<ParamField path="enable_statistics" type="bool = False">
+</ParamField>
+
+<ParamField path="id_field" type="str = CURATOR_DEDUP_ID_STR">
+</ParamField>
+
+<ParamField path="minhash_field" type="str = CURATOR_DEFAULT_MINHASH_FIELD">
+</ParamField>
+
+<ParamField path="minhashes_per_band" type="int">
+</ParamField>
+
+<ParamField path="name" type="= 'LSHStage'">
+</ParamField>
+
+<ParamField path="num_bands" type="int">
+</ParamField>
+
+<ParamField path="output_path" type="str = './'">
+</ParamField>
+
+<ParamField path="read_kwargs" type="dict[str, Any] | None = None">
+</ParamField>
+
+<ParamField path="resources" type="= Resources(gpus=1.0)">
+</ParamField>
+
+<ParamField path="rmm_pool_size" type="int | Literal['auto'] | None = 'auto'">
+</ParamField>
+
+<ParamField path="spill_memory_limit" type="int | Literal['auto'] | None = 'auto'">
+</ParamField>
+
+<ParamField path="total_nparts" type="int | None = None">
+</ParamField>
+
+<ParamField path="write_kwargs" type="dict[str, Any] | None = None">
+</ParamField>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-lsh-stage-LSHStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.lsh.stage.LSHStage.__post_init__()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-lsh-stage-LSHStage-_check_actor_obj">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.lsh.stage.LSHStage._check_actor_obj() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-lsh-stage-LSHStage-extract_and_write">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.lsh.stage.LSHStage.extract_and_write() -> list[nemo_curator.tasks.FileGroupTask]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-lsh-stage-LSHStage-get_band_iterations">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.lsh.stage.LSHStage.get_band_iterations() -> collections.abc.Iterator[tuple[int, int]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get all band ranges for iteration.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-lsh-stage-LSHStage-insert_finished">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.lsh.stage.LSHStage.insert_finished() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-lsh-stage-LSHStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.lsh.stage.LSHStage.process(
+    task: nemo_curator.tasks.FileGroupTask
+) -> nemo_curator.tasks.FileGroupTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-lsh-stage-LSHStage-ray_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.lsh.stage.LSHStage.ray_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Ray stage specification for this stage.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-lsh-stage-LSHStage-read_and_insert">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.lsh.stage.LSHStage.read_and_insert(
+    task: nemo_curator.tasks.FileGroupTask,
+    band_range: tuple[int, int]
+) -> nemo_curator.tasks.FileGroupTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-lsh-stage-LSHStage-teardown">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.lsh.stage.LSHStage.teardown() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

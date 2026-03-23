@@ -1,0 +1,61 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/html_extractors/trafilatura
+title: nemo_curator.stages.text.download.html_extractors.trafilatura
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`TrafilaturaExtractor`](#nemo_curator-stages-text-download-html_extractors-trafilatura-TrafilaturaExtractor) | - |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-html_extractors-trafilatura-TrafilaturaExtractor">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.html_extractors.trafilatura.TrafilaturaExtractor(
+    required_stopword_density: float = 0.32,
+    min_extracted_size: int = 250,
+    min_extracted_comm_size: int = 1,
+    min_output_size: int = 1,
+    min_output_comm_size: int = 1,
+    max_tree_size: int | None = None,
+    min_duplcheck_size: int = 100,
+    max_repetitions: int = 2,
+    extract_kwargs = {}
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [HTMLExtractorAlgorithm](/nemo-curator/nemo_curator/stages/text/download/html_extractors/base#nemo_curator-stages-text-download-html_extractors-base-HTMLExtractorAlgorithm)
+
+<Anchor id="nemo_curator-stages-text-download-html_extractors-trafilatura-TrafilaturaExtractor-extract_text">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.html_extractors.trafilatura.TrafilaturaExtractor.extract_text(
+    html: str,
+    stop_words: frozenset[str],
+    language: str
+) -> list[str] | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

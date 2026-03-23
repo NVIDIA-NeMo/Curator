@@ -1,0 +1,129 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/classifiers/domain
+title: nemo_curator.stages.text.classifiers.domain
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`DomainClassifier`](#nemo_curator-stages-text-classifiers-domain-DomainClassifier) | DomainClassifier is a specialized classifier designed for English text domain classification tasks, |
+| [`MultilingualDomainClassifier`](#nemo_curator-stages-text-classifiers-domain-MultilingualDomainClassifier) | MultilingualDomainClassifier is a specialized classifier designed for domain classification tasks, |
+
+### Data
+
+[`DOMAIN_MODEL_IDENTIFIER`](#nemo_curator-stages-text-classifiers-domain-DOMAIN_MODEL_IDENTIFIER)
+
+[`MAX_SEQ_LENGTH`](#nemo_curator-stages-text-classifiers-domain-MAX_SEQ_LENGTH)
+
+[`MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER`](#nemo_curator-stages-text-classifiers-domain-MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER)
+
+### API
+
+<Anchor id="nemo_curator-stages-text-classifiers-domain-DomainClassifier">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.domain.DomainClassifier(
+    cache_dir: str | None = None,
+    label_field: str = 'domain_pred',
+    score_field: str | None = None,
+    text_field: str = 'text',
+    filter_by: list[str] | None = None,
+    max_chars: int = 2000,
+    sort_by_length: bool = True,
+    model_inference_batch_size: int = 256,
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DistributedDataClassifier](/nemo-curator/nemo_curator/stages/text/classifiers/base#nemo_curator-stages-text-classifiers-base-DistributedDataClassifier)
+
+DomainClassifier is a specialized classifier designed for English text domain classification tasks,
+utilizing the NemoCurator Domain Classifier (https://huggingface.co/nvidia/domain-classifier) model.
+This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
+
+
+<ParamField path="name" type="= format_name_with_suffix(DOMAIN_MODEL_IDENTIFIER)">
+</ParamField>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-domain-MultilingualDomainClassifier">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.domain.MultilingualDomainClassifier(
+    cache_dir: str | None = None,
+    label_field: str = 'multilingual_domain_pred',
+    score_field: str | None = None,
+    text_field: str = 'text',
+    filter_by: list[str] | None = None,
+    max_chars: int = 2000,
+    sort_by_length: bool = True,
+    model_inference_batch_size: int = 256,
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DistributedDataClassifier](/nemo-curator/nemo_curator/stages/text/classifiers/base#nemo_curator-stages-text-classifiers-base-DistributedDataClassifier)
+
+MultilingualDomainClassifier is a specialized classifier designed for domain classification tasks,
+utilizing the NemoCurator Multilingual Domain Classifier (https://huggingface.co/nvidia/multilingual-domain-classifier) model.
+It supports domain classification across 52 languages.
+This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
+
+
+<ParamField path="name">
+</ParamField>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-domain-DOMAIN_MODEL_IDENTIFIER">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.domain.DOMAIN_MODEL_IDENTIFIER = 'nvidia/domain-classifier'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-domain-MAX_SEQ_LENGTH">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.domain.MAX_SEQ_LENGTH = 512
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-domain-MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.domain.MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER = 'nvidia/multilingual-domain-classifier'
+```
+
+</CodeBlock>
+</Anchor>
+

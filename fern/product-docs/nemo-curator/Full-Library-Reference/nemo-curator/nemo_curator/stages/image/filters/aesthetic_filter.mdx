@@ -1,0 +1,132 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/image/filters/aesthetic_filter
+title: nemo_curator.stages.image.filters.aesthetic_filter
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ImageAestheticFilterStage`](#nemo_curator-stages-image-filters-aesthetic_filter-ImageAestheticFilterStage) | Stage for filtering out images based on aesthetic scores. |
+
+### API
+
+<Anchor id="nemo_curator-stages-image-filters-aesthetic_filter-ImageAestheticFilterStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.image.filters.aesthetic_filter.ImageAestheticFilterStage(
+    model_dir: str = None,
+    num_gpus_per_worker: float = 0.25,
+    model_inference_batch_size: int = 32,
+    score_threshold: float = 0.5,
+    verbose: bool = False,
+    name: str = 'image_aesthetic_filter'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [BaseFilterStage](/nemo-curator/nemo_curator/stages/image/filters/base#nemo_curator-stages-image-filters-base-BaseFilterStage)
+
+Stage for filtering out images based on aesthetic scores.
+
+This class processes image batches through an aesthetic scoring model to generate
+aesthetic scores for each image. Images with scores below the threshold will be filtered out.
+
+
+<ParamField path="model_dir" type="str = None">
+</ParamField>
+
+<ParamField path="model_inference_batch_size" type="int = 32">
+</ParamField>
+
+<ParamField path="name" type="str = 'image_aesthetic_filter'">
+</ParamField>
+
+<ParamField path="num_gpus_per_worker" type="float = 0.25">
+</ParamField>
+
+<ParamField path="score_threshold" type="float = 0.5">
+</ParamField>
+
+<ParamField path="verbose" type="bool = False">
+</ParamField>
+<Anchor id="nemo_curator-stages-image-filters-aesthetic_filter-ImageAestheticFilterStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.ImageBatch":"/nemo-curator/nemo_curator/tasks/image#nemo_curator-tasks-image-ImageBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.filters.aesthetic_filter.ImageAestheticFilterStage.process(
+    task: nemo_curator.tasks.ImageBatch
+) -> nemo_curator.tasks.ImageBatch
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process an image batch to filter by aesthetic score threshold.
+
+**Parameters:**
+
+<ParamField path="task" type="ImageBatch">
+ImageBatch containing list of ImageObject instances with aesthetic scores
+</ParamField>
+
+**Returns:** `ImageBatch`
+
+ImageBatch with filtered images that meet the aesthetic score threshold.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-filters-aesthetic_filter-ImageAestheticFilterStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.filters.aesthetic_filter.ImageAestheticFilterStage.setup(
+    _worker_metadata: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Initialize the aesthetic filtering model.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-filters-aesthetic_filter-ImageAestheticFilterStage-setup_on_node">
+
+<CodeBlock links={{"nemo_curator.backends.base.NodeInfo":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-NodeInfo","nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.filters.aesthetic_filter.ImageAestheticFilterStage.setup_on_node(
+    _node_info: nemo_curator.backends.base.NodeInfo | None = None,
+    _worker_metadata: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Download aesthetic model weights from HF
+
+
+</Indent>
+</Indent>

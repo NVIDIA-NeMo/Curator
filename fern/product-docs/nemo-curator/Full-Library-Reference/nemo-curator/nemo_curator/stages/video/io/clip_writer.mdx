@@ -1,0 +1,601 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/video/io/clip_writer
+title: nemo_curator.stages.video.io.clip_writer
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ClipWriterStage`](#nemo_curator-stages-video-io-clip_writer-ClipWriterStage) | Stage that writes clips and metadata for clip transcoding. |
+
+### API
+
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.video.io.clip_writer.ClipWriterStage(
+    output_path: str,
+    input_path: str,
+    upload_clips: bool,
+    dry_run: bool,
+    generate_embeddings: bool,
+    generate_previews: bool,
+    generate_captions: bool,
+    embedding_algorithm: str = 'cosmos-embed1',
+    caption_models: list[str] | None = None,
+    enhanced_caption_models: list[str] | None = None,
+    verbose: bool = False,
+    max_workers: int = 6,
+    log_stats: bool = False,
+    name: str = 'clip_writer'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[VideoTask, VideoTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Stage that writes clips and metadata for clip transcoding.
+
+This class processes video clips through a series of steps including embedding generation,
+metadata extraction, and writing to storage.
+
+
+<ParamField path="caption_models" type="list[str] | None = None">
+</ParamField>
+
+<ParamField path="dry_run" type="bool">
+</ParamField>
+
+<ParamField path="embedding_algorithm" type="str = 'cosmos-embed1'">
+</ParamField>
+
+<ParamField path="enhanced_caption_models" type="list[str] | None = None">
+</ParamField>
+
+<ParamField path="generate_captions" type="bool">
+</ParamField>
+
+<ParamField path="generate_embeddings" type="bool">
+</ParamField>
+
+<ParamField path="generate_previews" type="bool">
+</ParamField>
+
+<ParamField path="input_path" type="str">
+</ParamField>
+
+<ParamField path="log_stats" type="bool = False">
+</ParamField>
+
+<ParamField path="max_workers" type="int = 6">
+</ParamField>
+
+<ParamField path="name" type="str = 'clip_writer'">
+</ParamField>
+
+<ParamField path="output_path" type="str">
+</ParamField>
+
+<ParamField path="upload_clips" type="bool">
+</ParamField>
+
+<ParamField path="verbose" type="bool = False">
+</ParamField>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.__post_init__()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_get_clip_chunk_uri">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._get_clip_chunk_uri(
+    input_video_path: str,
+    idx: int
+) -> pathlib.Path
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_get_clip_uri">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._get_clip_uri(
+    video_span_uuid: uuid.UUID,
+    path_prefix: str,
+    file_type: str
+) -> pathlib.Path
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_get_output_path">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._get_output_path(
+    output_path: str,
+    extra: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_get_video_uri">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._get_video_uri(
+    input_video_path: str
+) -> pathlib.Path
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_get_window_uri">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._get_window_uri(
+    video_span_uuid: uuid.UUID,
+    window: tuple[int, int],
+    path_prefix: str,
+    file_type: str
+) -> pathlib.Path
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_write_clip_embedding">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Clip":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Clip","nemo_curator.tasks.video.ClipStats":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-ClipStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._write_clip_embedding(
+    clip: nemo_curator.tasks.video.Clip
+) -> nemo_curator.tasks.video.ClipStats
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_write_clip_embedding_to_buffer">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Clip":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Clip","nemo_curator.tasks.video.ClipStats":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-ClipStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._write_clip_embedding_to_buffer(
+    clip: nemo_curator.tasks.video.Clip
+) -> nemo_curator.tasks.video.ClipStats
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_write_clip_metadata">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Clip":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Clip","nemo_curator.tasks.video.VideoMetadata":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-VideoMetadata","nemo_curator.tasks.video.ClipStats":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-ClipStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._write_clip_metadata(
+    clip: nemo_curator.tasks.video.Clip,
+    video_metadata: nemo_curator.tasks.video.VideoMetadata,
+    filtered: bool = False
+) -> nemo_curator.tasks.video.ClipStats
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_write_clip_mp4">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Clip":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Clip","nemo_curator.tasks.video.ClipStats":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-ClipStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._write_clip_mp4(
+    clip: nemo_curator.tasks.video.Clip,
+    filtered: bool = False
+) -> nemo_curator.tasks.video.ClipStats
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_write_clip_window_webp">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Clip":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Clip","nemo_curator.tasks.video.ClipStats":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-ClipStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._write_clip_window_webp(
+    clip: nemo_curator.tasks.video.Clip
+) -> nemo_curator.tasks.video.ClipStats
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_write_data">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._write_data(
+    buffer: bytes,
+    dest: pathlib.Path,
+    desc: str,
+    source_video: str
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_write_json_data">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._write_json_data(
+    data: dict,
+    dest: pathlib.Path,
+    desc: str,
+    source_video: str
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_write_video_embeddings_to_parquet">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Video":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Video"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._write_video_embeddings_to_parquet(
+    video: nemo_curator.tasks.video.Video
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-_write_video_metadata">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Video":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Video"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage._write_video_metadata(
+    video: nemo_curator.tasks.video.Video
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-calculate_sha256">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.calculate_sha256(
+    buffer: bytes
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Get sha256 of byte array.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-get_output_path_ce1_embd">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.get_output_path_ce1_embd(
+    output_path: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Get path to store generated clip embeddings of Cosmos-Embed1.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-get_output_path_ce1_embd_parquet">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.get_output_path_ce1_embd_parquet(
+    output_path: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Get path to store generated clip embeddings of Cosmos-Embed1 in a parquet file.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-get_output_path_clips">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.get_output_path_clips(
+    output_path: str,
+    filtered: bool = False
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Get path to store generated clips.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-get_output_path_metas">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.get_output_path_metas(
+    output_path: str,
+    version: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Get path to store clip metadatas.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-get_output_path_previews">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.get_output_path_previews(
+    output_path: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Get path to store generated clips.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-get_output_path_processed_clip_chunks">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.get_output_path_processed_clip_chunks(
+    output_path: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Get path to store processed clip chunks.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-get_output_path_processed_videos">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.get_output_path_processed_videos(
+    output_path: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Get path to store processed videos.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.video.VideoTask":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-VideoTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.process(
+    task: nemo_curator.tasks.video.VideoTask
+) -> nemo_curator.tasks.video.VideoTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-io-clip_writer-ClipWriterStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.io.clip_writer.ClipWriterStage.setup(
+    worker_metadata: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

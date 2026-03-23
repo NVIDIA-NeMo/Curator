@@ -1,0 +1,193 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/filters/fasttext/fasttext_filters
+title: nemo_curator.stages.text.filters.fasttext.fasttext_filters
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`FastTextLangId`](#nemo_curator-stages-text-filters-fasttext-fasttext_filters-FastTextLangId) | - |
+| [`FastTextQualityFilter`](#nemo_curator-stages-text-filters-fasttext-fasttext_filters-FastTextQualityFilter) | - |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-filters-fasttext-fasttext_filters-FastTextLangId">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextLangId(
+    model_path: str | None = None,
+    min_langid_score: float = 0.3
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+<ParamField path="_name" type="= 'lang_id'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-fasttext-fasttext_filters-FastTextLangId-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextLangId.keep_document(
+    score: float | str
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-fasttext-fasttext_filters-FastTextLangId-load_model">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextLangId.load_model() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-fasttext-fasttext_filters-FastTextLangId-model_check_or_download">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextLangId.model_check_or_download() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-fasttext-fasttext_filters-FastTextLangId-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextLangId.score_document(
+    text: str
+) -> list[float | str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-fasttext-fasttext_filters-FastTextQualityFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextQualityFilter(
+    model_path: str | None = None,
+    label: str = '__label__hq',
+    alpha: float = 3,
+    seed: int = 42
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+<ParamField path="_name" type="= 'fasttext_quality_filter'">
+</ParamField>
+
+<ParamField path="_seed" type="= np.random.seed(seed)">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-fasttext-fasttext_filters-FastTextQualityFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextQualityFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-fasttext-fasttext_filters-FastTextQualityFilter-load_model">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextQualityFilter.load_model() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-fasttext-fasttext_filters-FastTextQualityFilter-model_check_or_download">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextQualityFilter.model_check_or_download() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-fasttext-fasttext_filters-FastTextQualityFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextQualityFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

@@ -1,0 +1,140 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/arxiv/extract
+title: nemo_curator.stages.text.download.arxiv.extract
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ArxivExtractor`](#nemo_curator-stages-text-download-arxiv-extract-ArxivExtractor) | Extracts text from Arxiv LaTeX files. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-arxiv-extract-ArxivExtractor">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.arxiv.extract.ArxivExtractor()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `DocumentExtractor`
+
+Extracts text from Arxiv LaTeX files.
+
+
+<Anchor id="nemo_curator-stages-text-download-arxiv-extract-ArxivExtractor-_build_non_arg_macros_dict">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.arxiv.extract.ArxivExtractor._build_non_arg_macros_dict(
+    file_content: str
+) -> dict[str, str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+function takes the content of a tex file and returns a dictionary
+that contains the definitions of all macros that do not use arguments.
+The dictionary is of the form &#123;macro_name: macro_value&#125;.
+
+@param file_content: the content of the tex file as a string.
+
+@return: dict
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-arxiv-extract-ArxivExtractor-_clean_tex_file">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.arxiv.extract.ArxivExtractor._clean_tex_file(
+    file_content: str,
+    arg_macros: dict[str, str],
+    non_arg_macros: dict[str, str]
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+function takes a tex file as input and returns a cleaned version. The
+ cleaned version is a concatenation of the tex files with the
+following modifications:
+
+- remove all comments (i.e. all lines starting with %)
+- remove everything before the first section-like header
+- remove everything after the first occurrence of either \appendix or
+    \bibliography
+- inline-expand definitions and macros
+
+@param file_content: the content of the tex file as a string.
+
+@return: cleaned tex file as a string
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-arxiv-extract-ArxivExtractor-extract">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.arxiv.extract.ArxivExtractor.extract(
+    record: dict[str, str]
+) -> dict[str, typing.Any] | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-arxiv-extract-ArxivExtractor-input_columns">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.arxiv.extract.ArxivExtractor.input_columns() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-arxiv-extract-ArxivExtractor-output_columns">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.arxiv.extract.ArxivExtractor.output_columns() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

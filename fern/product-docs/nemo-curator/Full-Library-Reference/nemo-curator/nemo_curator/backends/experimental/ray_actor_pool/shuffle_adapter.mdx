@@ -1,0 +1,210 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/shuffle_adapter
+title: nemo_curator.backends.experimental.ray_actor_pool.shuffle_adapter
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ShuffleStageAdapter`](#nemo_curator-backends-experimental-ray_actor_pool-shuffle_adapter-ShuffleStageAdapter) | Ray actor that wraps a shuffle stage and its actor. |
+
+### API
+
+<Anchor id="nemo_curator-backends-experimental-ray_actor_pool-shuffle_adapter-ShuffleStageAdapter">
+
+<CodeBlock links={{"nemo_curator.stages.deduplication.fuzzy.lsh.stage.LSHStage":"/nemo-curator/nemo_curator/stages/deduplication/fuzzy/lsh/stage#nemo_curator-stages-deduplication-fuzzy-lsh-stage-LSHStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.backends.experimental.ray_actor_pool.shuffle_adapter.ShuffleStageAdapter(
+    stage: nemo_curator.stages.shuffler.stage.ShuffleStage | nemo_curator.stages.deduplication.fuzzy.lsh.stage.LSHStage,
+    rank: int,
+    nranks: int,
+    num_input_tasks: int | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [BaseStageAdapter](/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-BaseStageAdapter)
+
+Ray actor that wraps a shuffle stage and its actor.
+
+This adapter manages the lifecycle of a shuffle actor (like LSHActor)
+and provides a uniform interface for the executor.
+
+
+<ParamField path="_batch_size" type="= self.stage.batch_size">
+</ParamField>
+
+<ParamField path="output_nparts">
+</ParamField>
+<Anchor id="nemo_curator-backends-experimental-ray_actor_pool-shuffle_adapter-ShuffleStageAdapter-extract_and_write">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.ray_actor_pool.shuffle_adapter.ShuffleStageAdapter.extract_and_write() -> list[nemo_curator.tasks.FileGroupTask]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Extract shuffled data and write to output files.
+
+
+</Indent>
+<Anchor id="nemo_curator-backends-experimental-ray_actor_pool-shuffle_adapter-ShuffleStageAdapter-get_batch_size">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.ray_actor_pool.shuffle_adapter.ShuffleStageAdapter.get_batch_size() -> int
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get the batch size for this stage.
+
+
+</Indent>
+<Anchor id="nemo_curator-backends-experimental-ray_actor_pool-shuffle_adapter-ShuffleStageAdapter-insert_finished">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.ray_actor_pool.shuffle_adapter.ShuffleStageAdapter.insert_finished() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Finish the insertion phase and trigger shuffle.
+
+
+</Indent>
+<Anchor id="nemo_curator-backends-experimental-ray_actor_pool-shuffle_adapter-ShuffleStageAdapter-read_and_insert">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.ray_actor_pool.shuffle_adapter.ShuffleStageAdapter.read_and_insert(
+    tasks: list[nemo_curator.tasks.FileGroupTask],
+    band_range: tuple[int, int] | None = None
+) -> list[nemo_curator.tasks.FileGroupTask]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Read and insert tasks into the shuffler.
+
+
+</Indent>
+<Anchor id="nemo_curator-backends-experimental-ray_actor_pool-shuffle_adapter-ShuffleStageAdapter-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.ray_actor_pool.shuffle_adapter.ShuffleStageAdapter.setup(
+    root_address: bytes,
+    worker_metadata: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Setup shuffle workers and stage
+
+
+</Indent>
+<Anchor id="nemo_curator-backends-experimental-ray_actor_pool-shuffle_adapter-ShuffleStageAdapter-setup_on_node">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.ray_actor_pool.shuffle_adapter.ShuffleStageAdapter.setup_on_node() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Note: This method is not used in the current implementation since we use
+the Ray Data pattern of calling setup_on_node before actor creation.
+
+
+</Indent>
+<Anchor id="nemo_curator-backends-experimental-ray_actor_pool-shuffle_adapter-ShuffleStageAdapter-setup_root">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.ray_actor_pool.shuffle_adapter.ShuffleStageAdapter.setup_root() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Setup the root actor.
+
+
+</Indent>
+<Anchor id="nemo_curator-backends-experimental-ray_actor_pool-shuffle_adapter-ShuffleStageAdapter-setup_worker">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.ray_actor_pool.shuffle_adapter.ShuffleStageAdapter.setup_worker(
+    root_address: bytes
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Setup UCXX communication.
+
+
+</Indent>
+<Anchor id="nemo_curator-backends-experimental-ray_actor_pool-shuffle_adapter-ShuffleStageAdapter-teardown">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.backends.experimental.ray_actor_pool.shuffle_adapter.ShuffleStageAdapter.teardown() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Clean up resources.
+
+
+</Indent>
+</Indent>

@@ -1,0 +1,223 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/deduplication/semantic/pairwise
+title: nemo_curator.stages.deduplication.semantic.pairwise
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`PairwiseCosineSimilarityStage`](#nemo_curator-stages-deduplication-semantic-pairwise-PairwiseCosineSimilarityStage) | Pairwise cosine similarity stage that computes similarity within clusters. |
+| [`PairwiseStage`](#nemo_curator-stages-deduplication-semantic-pairwise-PairwiseStage) | Pairwise similarity stage for semantic deduplication. |
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`pairwise_cosine_similarity_batched`](#nemo_curator-stages-deduplication-semantic-pairwise-pairwise_cosine_similarity_batched) | Computes pairwise cosine similarity between cluster items, |
+
+### API
+
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise-PairwiseCosineSimilarityStage">
+
+<CodeBlock links={{"nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy":"/nemo-curator/nemo_curator/stages/deduplication/semantic/ranking#nemo_curator-stages-deduplication-semantic-ranking-RankingStrategy"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.deduplication.semantic.pairwise.PairwiseCosineSimilarityStage(
+    id_field: str,
+    embedding_field: str,
+    output_path: str,
+    ranking_strategy: nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy,
+    pairwise_batch_size: int = 1024,
+    verbose: bool = False,
+    embedding_dim: int | None = None,
+    read_kwargs: dict[str, typing.Any] | None = None,
+    write_kwargs: dict[str, typing.Any] | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ProcessingStage[FileGroupTask, FileGroupTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage), [DeduplicationIO](/nemo-curator/nemo_curator/stages/deduplication/io_utils#nemo_curator-stages-deduplication-io_utils-DeduplicationIO)
+
+Pairwise cosine similarity stage that computes similarity within clusters.
+
+
+<ParamField path="input_storage_options">
+</ParamField>
+
+<ParamField path="name" type="= 'PairwiseCosineSimilarityStage'">
+</ParamField>
+
+<ParamField path="output_storage_options">
+</ParamField>
+
+<ParamField path="read_kwargs">
+</ParamField>
+
+<ParamField path="resources" type="= Resources(cpus=1.0, gpus=1.0)">
+</ParamField>
+
+<ParamField path="write_kwargs">
+</ParamField>
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise-PairwiseCosineSimilarityStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.pairwise.PairwiseCosineSimilarityStage.process(
+    task: nemo_curator.tasks.FileGroupTask
+) -> nemo_curator.tasks.FileGroupTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process a PairwiseFileGroupTask to compute pairwise similarities.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise-PairwiseStage">
+
+<CodeBlock links={{"nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy":"/nemo-curator/nemo_curator/stages/deduplication/semantic/ranking#nemo_curator-stages-deduplication-semantic-ranking-RankingStrategy"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.deduplication.semantic.pairwise.PairwiseStage(
+    id_field: str,
+    embedding_field: str,
+    input_path: str,
+    output_path: str,
+    ranking_strategy: nemo_curator.stages.deduplication.semantic.ranking.RankingStrategy | None = None,
+    embedding_dim: int | None = None,
+    pairwise_batch_size: int = 1024,
+    verbose: bool = False,
+    read_kwargs: dict[str, typing.Any] | None = None,
+    write_kwargs: dict[str, typing.Any] | None = None,
+    which_to_keep: typing.Literal['hard', 'easy', 'random'] = 'hard',
+    sim_metric: typing.Literal['cosine', 'l2'] = 'cosine',
+    random_seed: int = 42
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [CompositeStage[_EmptyTask, FileGroupTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-CompositeStage)
+
+Pairwise similarity stage for semantic deduplication.
+
+
+<ParamField path="embedding_dim" type="int | None = None">
+</ParamField>
+
+<ParamField path="embedding_field" type="str">
+</ParamField>
+
+<ParamField path="id_field" type="str">
+</ParamField>
+
+<ParamField path="input_path" type="str">
+</ParamField>
+
+<ParamField path="output_path" type="str">
+</ParamField>
+
+<ParamField path="pairwise_batch_size" type="int = 1024">
+</ParamField>
+
+<ParamField path="random_seed" type="int = 42">
+</ParamField>
+
+<ParamField path="ranking_strategy" type="RankingStrategy | None = None">
+</ParamField>
+
+<ParamField path="read_kwargs" type="dict[str, Any] | None = None">
+</ParamField>
+
+<ParamField path="sim_metric" type="Literal['cosine', 'l2'] = 'cosine'">
+</ParamField>
+
+<ParamField path="verbose" type="bool = False">
+</ParamField>
+
+<ParamField path="which_to_keep" type="Literal['hard', 'easy', 'random'] = 'hard'">
+</ParamField>
+
+<ParamField path="write_kwargs" type="dict[str, Any] | None = None">
+</ParamField>
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise-PairwiseStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.pairwise.PairwiseStage.__post_init__()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Initialize parent class after dataclass initialization.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise-PairwiseStage-decompose">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.pairwise.PairwiseStage.decompose() -> list[nemo_curator.stages.base.ProcessingStage]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-deduplication-semantic-pairwise-pairwise_cosine_similarity_batched">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.pairwise.pairwise_cosine_similarity_batched(
+    cluster_reps: torch.Tensor,
+    batch_size: int = 1024
+) -> tuple[cupy.ndarray, cupy.ndarray] | tuple[numpy.ndarray, numpy.ndarray]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Computes pairwise cosine similarity between cluster items,
+then replace to diagonal with zeros to ignore self similarity.
+This function is useful for large clusters where the pairwise similarity matrix
+does not fit into memory.
+We use a batched approach to compute the pairwise similarity matrix in batches.
+Memory requirements are O(N*B) where N is the number of items in the cluster and B is the batch size
+instead of O(N^2) for the full matrix.
+
+TODO: In future we can estimate memory requirement and calculate batch size dynamically.
+
+
+</Indent>

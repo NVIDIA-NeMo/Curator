@@ -1,0 +1,99 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/wikipedia/stage
+title: nemo_curator.stages.text.download.wikipedia.stage
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`WikipediaDownloadExtractStage`](#nemo_curator-stages-text-download-wikipedia-stage-WikipediaDownloadExtractStage) | Composite stage for downloading and processing Wikipedia data. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-wikipedia-stage-WikipediaDownloadExtractStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.wikipedia.stage.WikipediaDownloadExtractStage(
+    language: str = 'en',
+    download_dir: str = './wikipedia_downloads',
+    dump_date: str | None = None,
+    wikidumps_index_prefix: str = 'https://dumps.wikimedia.org',
+    verbose: bool = False,
+    url_limit: int | None = None,
+    record_limit: int | None = None,
+    add_filename_column: bool | str = True,
+    log_frequency: int = 1000
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `DocumentDownloadExtractStage`
+
+Composite stage for downloading and processing Wikipedia data.
+
+This pipeline:
+1. Generates Wikipedia dump URLs for the specified language and date
+2. Downloads Wikipedia .bz2 dump files
+3. Extracts articles from the dump files
+4. Cleans and extracts text from Wikipedia markup
+
+
+<ParamField path="downloader">
+</ParamField>
+
+<ParamField path="extractor" type="= WikipediaExtractor(language=language)">
+</ParamField>
+
+<ParamField path="iterator">
+</ParamField>
+
+<ParamField path="name" type="= f'wikipedia_&#123;self.language&#125;_pipeline'">
+</ParamField>
+
+<ParamField path="url_generator">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-stage-WikipediaDownloadExtractStage-decompose">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.stage.WikipediaDownloadExtractStage.decompose() -> list[nemo_curator.stages.base.ProcessingStage]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Decompose this composite stage into its constituent stages.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-stage-WikipediaDownloadExtractStage-get_description">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.stage.WikipediaDownloadExtractStage.get_description() -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get a description of this composite stage.
+
+
+</Indent>
+</Indent>

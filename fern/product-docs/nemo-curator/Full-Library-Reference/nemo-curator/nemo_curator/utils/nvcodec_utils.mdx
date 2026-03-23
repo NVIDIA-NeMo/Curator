@@ -1,0 +1,380 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/utils/nvcodec_utils
+title: nemo_curator.utils.nvcodec_utils
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`FrameExtractionPolicy`](#nemo_curator-utils-nvcodec_utils-FrameExtractionPolicy) | Policy for extracting frames from video, supporting full extraction or FPS-based sampling. |
+| [`NvVideoDecoder`](#nemo_curator-utils-nvcodec_utils-NvVideoDecoder) | Low-level NVIDIA hardware-accelerated video decoder. |
+| [`PyNvcFrameExtractor`](#nemo_curator-utils-nvcodec_utils-PyNvcFrameExtractor) | High-level frame extraction interface using PyNvVideoCodec. |
+| [`VideoBatchDecoder`](#nemo_curator-utils-nvcodec_utils-VideoBatchDecoder) | GPU-accelerated video decoder that processes video frames in batches. |
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`gpu_decode_for_stitching`](#nemo_curator-utils-nvcodec_utils-gpu_decode_for_stitching) | Decode video frames for stitching using GPU acceleration. |
+
+### Data
+
+[`_PYNVC_AVAILABLE`](#nemo_curator-utils-nvcodec_utils-_PYNVC_AVAILABLE)
+
+[`pixel_format_to_cvcuda_code`](#nemo_curator-utils-nvcodec_utils-pixel_format_to_cvcuda_code)
+
+### API
+
+<Anchor id="nemo_curator-utils-nvcodec_utils-FrameExtractionPolicy">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.utils.nvcodec_utils.FrameExtractionPolicy
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `enum.Enum`
+
+Policy for extracting frames from video, supporting full extraction or FPS-based sampling.
+
+This enum defines the available strategies for frame extraction from video content.
+
+<ParamField path="fps" type="= 1">
+</ParamField>
+
+<ParamField path="full" type="= 0">
+</ParamField>
+
+</Indent>
+
+<Anchor id="nemo_curator-utils-nvcodec_utils-NvVideoDecoder">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.utils.nvcodec_utils.NvVideoDecoder(
+    enc_file: str,
+    device_id: int,
+    batch_size: int,
+    cuda_ctx: typing.Any,
+    cvcuda_stream: typing.Any
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Low-level NVIDIA hardware-accelerated video decoder.
+
+This class provides direct access to NVIDIA's hardware video decoding capabilities,
+handling frame decoding and memory management for video processing pipelines.
+
+
+<ParamField path="decoded_frame_cnt" type="= 0">
+</ParamField>
+
+<ParamField path="input_frame_list" type="= queue.Queue()">
+</ParamField>
+
+<ParamField path="local_frame_index" type="= 0">
+</ParamField>
+
+<ParamField path="nvDec">
+</ParamField>
+
+<ParamField path="nvDemux" type="= Nvc.PyNvDemuxer(self.input_path)">
+</ParamField>
+
+<ParamField path="pixelFormat" type="= self.nvDec.GetPixelFormat()">
+</ParamField>
+
+<ParamField path="sent_frame_cnt" type="= 0">
+</ParamField>
+<Anchor id="nemo_curator-utils-nvcodec_utils-NvVideoDecoder-generate_decoded_frames">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.nvcodec_utils.NvVideoDecoder.generate_decoded_frames() -> list[torch.Tensor]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Generate decoded frames from the video.
+
+**Returns:** `list[torch.Tensor]`
+
+List of decoded frames as tensors.
+
+
+</Indent>
+<Anchor id="nemo_curator-utils-nvcodec_utils-NvVideoDecoder-get_next_frames">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.nvcodec_utils.NvVideoDecoder.get_next_frames() -> torch.Tensor | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get the next frames from the video.
+
+**Returns:** `torch.Tensor | None`
+
+Next frames from the video as a tensor.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-utils-nvcodec_utils-PyNvcFrameExtractor">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.utils.nvcodec_utils.PyNvcFrameExtractor(
+    width: int,
+    height: int,
+    batch_size: int
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+High-level frame extraction interface using PyNvVideoCodec.
+
+This class provides a simplified interface for extracting frames from videos using
+hardware acceleration, supporting both full extraction and FPS-based sampling.
+
+
+<ParamField path="decoder">
+</ParamField>
+
+<ParamField path="torch_stream" type="= torch.cuda.ExternalStream(cvcuda_stream.handle)">
+</ParamField>
+<Anchor id="nemo_curator-utils-nvcodec_utils-PyNvcFrameExtractor-__call__">
+
+<CodeBlock links={{"nemo_curator.utils.nvcodec_utils.FrameExtractionPolicy":"#nemo_curator-utils-nvcodec_utils-FrameExtractionPolicy"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.nvcodec_utils.PyNvcFrameExtractor.__call__(
+    input_path: pathlib.Path,
+    extraction_policy: nemo_curator.utils.nvcodec_utils.FrameExtractionPolicy = FrameExtractionPolicy.full,
+    sampling_fps: int = 1
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Extract frames from the video.
+
+**Parameters:**
+
+<ParamField path="input_path" type="Path">
+Path to the video file to process.
+</ParamField>
+
+<ParamField path="extraction_policy" type="FrameExtractionPolicy" default="FrameExtractionPolicy.full">
+Policy for extracting frames.
+</ParamField>
+
+<ParamField path="sampling_fps" type="int" default="1">
+Sampling rate for FPS-based extraction.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+List of decoded frames as tensors.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-utils-nvcodec_utils-VideoBatchDecoder">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.utils.nvcodec_utils.VideoBatchDecoder(
+    batch_size: int,
+    target_width: int,
+    target_height: int,
+    device_id: int,
+    cuda_ctx: str,
+    cvcuda_stream: str
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+GPU-accelerated video decoder that processes video frames in batches.
+
+This class handles video decoding using NVIDIA hardware acceleration, supporting
+batch processing of frames with color space conversion and resizing capabilities.
+
+
+<ParamField path="decoder" type="NvVideoDecoder | None = None">
+</ParamField>
+
+<ParamField path="input_path" type="str | None = None">
+</ParamField>
+
+<ParamField path="prev_batch_size" type="= self.batch_size">
+</ParamField>
+<Anchor id="nemo_curator-utils-nvcodec_utils-VideoBatchDecoder-__call__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.nvcodec_utils.VideoBatchDecoder.__call__(
+    input_path: str
+) -> torch.Tensor | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process video frames in batches using GPU acceleration.
+
+**Parameters:**
+
+<ParamField path="input_path" type="str">
+Path to the video file to process.
+</ParamField>
+
+**Returns:** `torch.Tensor | None`
+
+Processed video frames as a tensor.
+
+
+</Indent>
+<Anchor id="nemo_curator-utils-nvcodec_utils-VideoBatchDecoder-get_fps">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.nvcodec_utils.VideoBatchDecoder.get_fps() -> int | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get the frame rate of the video.
+
+**Returns:** `int | None`
+
+Frame rate of the video.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-utils-nvcodec_utils-gpu_decode_for_stitching">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.nvcodec_utils.gpu_decode_for_stitching(
+    device_id: int,
+    ctx: str,
+    stream: int,
+    input_path: pathlib.Path,
+    frame_list: list[int],
+    batch_size: int = 1
+) -> list[torch.Tensor]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Decode video frames for stitching using GPU acceleration.
+
+**Parameters:**
+
+<ParamField path="device_id" type="int">
+GPU device ID.
+</ParamField>
+
+<ParamField path="ctx" type="str">
+CUDA context.
+</ParamField>
+
+<ParamField path="stream" type="int">
+CUDA stream.
+</ParamField>
+
+<ParamField path="input_path" type="Path">
+Path to the video file to process.
+</ParamField>
+
+<ParamField path="frame_list" type="list[int]">
+List of frame indices to decode.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="1">
+Number of frames to process in each batch.
+</ParamField>
+
+**Returns:** `list[torch.Tensor]`
+
+List of decoded frames as tensors.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-utils-nvcodec_utils-_PYNVC_AVAILABLE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.nvcodec_utils._PYNVC_AVAILABLE = True
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-utils-nvcodec_utils-pixel_format_to_cvcuda_code">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code = {Nvc.Pixel_Format.YUV444: cvcuda.ColorConversion.YUV2RGB, Nvc.Pixel_Format.NV12:...
+```
+
+</CodeBlock>
+</Anchor>
+

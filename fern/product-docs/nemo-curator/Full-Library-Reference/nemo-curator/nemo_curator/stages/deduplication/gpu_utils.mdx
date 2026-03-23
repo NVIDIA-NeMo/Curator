@@ -1,0 +1,55 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/deduplication/gpu_utils
+title: nemo_curator.stages.deduplication.gpu_utils
+---
+
+## Module Contents
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`align_down_to_256`](#nemo_curator-stages-deduplication-gpu_utils-align_down_to_256) | Aligns a memory size down to the nearest multiple of 256. |
+| [`get_device_free_memory`](#nemo_curator-stages-deduplication-gpu_utils-get_device_free_memory) | Return total memory of the first GPU the caller has access to. |
+
+### API
+
+<Anchor id="nemo_curator-stages-deduplication-gpu_utils-align_down_to_256">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.gpu_utils.align_down_to_256(
+    memory_size: int
+) -> int
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Aligns a memory size down to the nearest multiple of 256.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-deduplication-gpu_utils-get_device_free_memory">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.gpu_utils.get_device_free_memory() -> int | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Return total memory of the first GPU the caller has access to.
+Returns None if the GPU is not available or information could not be retrieved.
+
+
+</Indent>

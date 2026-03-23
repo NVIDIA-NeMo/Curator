@@ -1,0 +1,405 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/classifiers/base
+title: nemo_curator.stages.text.classifiers.base
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ClassifierModelStage`](#nemo_curator-stages-text-classifiers-base-ClassifierModelStage) | Stage for Hugging Face model inference. |
+| [`Deberta`](#nemo_curator-stages-text-classifiers-base-Deberta) | Base PyTorch model where we add a classification head. |
+| [`DistributedDataClassifier`](#nemo_curator-stages-text-classifiers-base-DistributedDataClassifier) | Base composite stage for distributed data classification. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-classifiers-base-ClassifierModelStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.base.ClassifierModelStage(
+    model_identifier: str,
+    cache_dir: str | None = None,
+    label_field: str = 'preds',
+    score_field: str | None = None,
+    model_inference_batch_size: int = 256,
+    has_seq_order: bool = True,
+    padding_side: typing.Literal['left', 'right'] = 'right',
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ModelStage](/nemo-curator/nemo_curator/stages/text/models/model#nemo_curator-stages-text-models-model-ModelStage)
+
+Stage for Hugging Face model inference.
+
+**Parameters:**
+
+<ParamField path="model_identifier" type="str">
+The identifier of the Hugging Face model.
+</ParamField>
+
+<ParamField path="label_field" type="str" default="'preds'">
+The name of the prediction column.
+</ParamField>
+
+<ParamField path="score_field" type="str | None" default="None">
+The name of the probability column. Defaults to None.
+</ParamField>
+
+<ParamField path="model_inference_batch_size" type="int" default="256">
+The size of the batch for model inference. Defaults to 256.
+</ParamField>
+
+<ParamField path="has_seq_order" type="bool" default="True">
+Whether to sort the input data by the length of the input tokens.
+Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+</ParamField>
+
+<ParamField path="padding_side" type="Literal['left', 'right']" default="'right'">
+The side to pad the input tokens. Defaults to "right".
+</ParamField>
+
+<ParamField path="autocast" type="bool" default="True">
+Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+Defaults to True.
+</ParamField>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-base-ClassifierModelStage-_setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.base.ClassifierModelStage._setup(
+    local_files_only: bool = True
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-base-ClassifierModelStage-create_output_dataframe">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.base.ClassifierModelStage.create_output_dataframe(
+    df_cpu: pandas.DataFrame,
+    collected_output: dict[str, numpy.ndarray]
+) -> pandas.DataFrame
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-base-ClassifierModelStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.base.ClassifierModelStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-base-ClassifierModelStage-process_model_output">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.base.ClassifierModelStage.process_model_output(
+    outputs: torch.Tensor,
+    _: dict[str, torch.Tensor] | None = None
+) -> dict[str, numpy.ndarray]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-base-Deberta">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.base.Deberta(
+    config: dataclasses.dataclass
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`, `PyTorchModelHubMixin`
+
+Base PyTorch model where we add a classification head.
+
+**Parameters:**
+
+<ParamField path="config" type="dataclass">
+The configuration of the model.
+</ParamField>
+
+
+<ParamField path="device" type="device">
+</ParamField>
+
+<ParamField path="dropout" type="= nn.Dropout(config['fc_dropout'])">
+</ParamField>
+
+<ParamField path="fc">
+</ParamField>
+
+<ParamField path="model" type="= AutoModel.from_pretrained(config['base_model'])">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-classifiers-base-Deberta-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.base.Deberta.forward(
+    batch: dict[str, torch.Tensor]
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-base-DistributedDataClassifier">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.base.DistributedDataClassifier(
+    model_identifier: str,
+    cache_dir: str | None = None,
+    label_field: str = 'preds',
+    score_field: str | None = None,
+    text_field: str = 'text',
+    filter_by: list[str] | None = None,
+    max_chars: int | None = None,
+    max_seq_length: int | None = None,
+    padding_side: typing.Literal['left', 'right'] = 'right',
+    sort_by_length: bool = True,
+    model_inference_batch_size: int = 256,
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [CompositeStage[DocumentBatch, DocumentBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-CompositeStage)
+
+Base composite stage for distributed data classification.
+
+It decomposes into a tokenizer stage and a model stage.
+
+**Parameters:**
+
+<ParamField path="model_identifier" type="str">
+The identifier of the Hugging Face model.
+</ParamField>
+
+<ParamField path="cache_dir" type="str | None" default="None">
+The Hugging Face cache directory. Defaults to None.
+</ParamField>
+
+<ParamField path="label_field" type="str" default="'preds'">
+The name of the prediction column. Defaults to "preds".
+</ParamField>
+
+<ParamField path="score_field" type="str | None" default="None">
+The name of the probability column. Defaults to None.
+</ParamField>
+
+<ParamField path="text_field" type="str" default="'text'">
+The name of the text field in the input data. Defaults to "text".
+</ParamField>
+
+<ParamField path="filter_by" type="list[str] | None" default="None">
+For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+</ParamField>
+
+<ParamField path="max_chars" type="int | None" default="None">
+Limits the total number of characters that can be fed to the tokenizer.
+If None, text will not be truncated. Defaults to None.
+</ParamField>
+
+<ParamField path="max_seq_length" type="int | None" default="None">
+Limits the total sequence returned by the tokenizer so that it has a maximum length.
+If None, the tokenizer's model_max_length is used. Defaults to 512.
+</ParamField>
+
+<ParamField path="padding_side" type="Literal['left', 'right']" default="'right'">
+The side to pad the input tokens. Defaults to "right".
+</ParamField>
+
+<ParamField path="sort_by_length" type="bool" default="True">
+Whether to sort the input data by the length of the input tokens.
+Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+</ParamField>
+
+<ParamField path="model_inference_batch_size" type="int" default="256">
+The size of the batch for model inference. Defaults to 256.
+</ParamField>
+
+<ParamField path="autocast" type="bool" default="True">
+Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+Defaults to True.
+</ParamField>
+
+
+<ParamField path="autocast" type="bool = True">
+</ParamField>
+
+<ParamField path="cache_dir" type="str | None = None">
+</ParamField>
+
+<ParamField path="filter_by" type="list[str] | None = None">
+</ParamField>
+
+<ParamField path="label_field" type="str = 'preds'">
+</ParamField>
+
+<ParamField path="max_chars" type="int | None = None">
+</ParamField>
+
+<ParamField path="max_seq_length" type="int | None = None">
+</ParamField>
+
+<ParamField path="model_identifier" type="str">
+</ParamField>
+
+<ParamField path="model_inference_batch_size" type="int = 256">
+</ParamField>
+
+<ParamField path="padding_side" type="Literal['left', 'right'] = 'right'">
+</ParamField>
+
+<ParamField path="score_field" type="str | None = None">
+</ParamField>
+
+<ParamField path="sort_by_length" type="bool = True">
+</ParamField>
+
+<ParamField path="text_field" type="str = 'text'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-classifiers-base-DistributedDataClassifier-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.base.DistributedDataClassifier.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-base-DistributedDataClassifier-decompose">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.base.DistributedDataClassifier.decompose() -> list[nemo_curator.stages.base.ProcessingStage]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-base-DistributedDataClassifier-filter_by_category">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.base.DistributedDataClassifier.filter_by_category(
+    value: str
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-base-DistributedDataClassifier-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.base.DistributedDataClassifier.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-base-DistributedDataClassifier-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.base.DistributedDataClassifier.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

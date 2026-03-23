@@ -1,0 +1,62 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/html_extractors/justext
+title: nemo_curator.stages.text.download.html_extractors.justext
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`JusTextExtractor`](#nemo_curator-stages-text-download-html_extractors-justext-JusTextExtractor) | - |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-html_extractors-justext-JusTextExtractor">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.html_extractors.justext.JusTextExtractor(
+    length_low: int = 70,
+    length_high: int = 200,
+    stopwords_low: float = 0.3,
+    stopwords_high: float = 0.32,
+    max_link_density: float = 0.2,
+    max_heading_distance: int = 200,
+    no_headings: bool = False,
+    is_boilerplate: bool | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [HTMLExtractorAlgorithm](/nemo-curator/nemo_curator/stages/text/download/html_extractors/base#nemo_curator-stages-text-download-html_extractors-base-HTMLExtractorAlgorithm)
+
+<ParamField path="_logged_languages" type="set[str] = set()">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-download-html_extractors-justext-JusTextExtractor-extract_text">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.html_extractors.justext.JusTextExtractor.extract_text(
+    html: str,
+    stop_words: frozenset[str],
+    language: str
+) -> list[str] | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

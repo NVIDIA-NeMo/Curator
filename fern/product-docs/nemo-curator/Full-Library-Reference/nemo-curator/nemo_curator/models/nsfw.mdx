@@ -1,0 +1,283 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/models/nsfw
+title: nemo_curator.models.nsfw
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`NSFWModel`](#nemo_curator-models-nsfw-NSFWModel) | NSFW detection model. |
+| [`NSFWScorer`](#nemo_curator-models-nsfw-NSFWScorer) | Public interface for NSFW scoring of image embeddings. |
+| [`Normalization`](#nemo_curator-models-nsfw-Normalization) | Normalization layer for NSFW model. |
+
+### Data
+
+[`_NSFW_MODEL_ID`](#nemo_curator-models-nsfw-_NSFW_MODEL_ID)
+
+[`_URL_MAPPING`](#nemo_curator-models-nsfw-_URL_MAPPING)
+
+### API
+
+<Anchor id="nemo_curator-models-nsfw-NSFWModel">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.nsfw.NSFWModel()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`
+
+NSFW detection model.
+
+A neural network that processes CLIP embeddings to predict NSFW scores.
+Based on LAION's CLIP-based-NSFW-Detector.
+
+
+<ParamField path="act" type="= nn.ReLU()">
+</ParamField>
+
+<ParamField path="act_out" type="= nn.Sigmoid()">
+</ParamField>
+
+<ParamField path="linear_1" type="= nn.Linear(768, 64)">
+</ParamField>
+
+<ParamField path="linear_2" type="= nn.Linear(64, 512)">
+</ParamField>
+
+<ParamField path="linear_3" type="= nn.Linear(512, 256)">
+</ParamField>
+
+<ParamField path="linear_4" type="= nn.Linear(256, 1)">
+</ParamField>
+
+<ParamField path="norm" type="= Normalization([768])">
+</ParamField>
+<Anchor id="nemo_curator-models-nsfw-NSFWModel-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.nsfw.NSFWModel.forward(
+    x: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Forward pass through the NSFW model.
+
+**Parameters:**
+
+<ParamField path="x" type="torch.Tensor">
+Input embeddings tensor.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+NSFW probability scores.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-nsfw-NSFWScorer">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.nsfw.NSFWScorer(
+    model_dir: str
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ModelInterface](/nemo-curator/nemo_curator/models/base#nemo_curator-models-base-ModelInterface)
+
+Public interface for NSFW scoring of image embeddings.
+
+This class provides a standardized interface for scoring the likelihood
+of images containing sexually explicit material using a pre-trained model.
+
+
+<ParamField path="conda_env_name" type="str">
+Get the name of the conda environment required for this model.
+</ParamField>
+
+<ParamField path="device" type="= 'cuda' if torch.cuda.is_available() else 'cpu'">
+</ParamField>
+
+<ParamField path="dtype" type="= torch.float32">
+</ParamField>
+
+<ParamField path="model_id_names" type="list[str]">
+Get the model ID names associated with this NSFW scorer.
+</ParamField>
+<Anchor id="nemo_curator-models-nsfw-NSFWScorer-__call__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.nsfw.NSFWScorer.__call__(
+    embeddings: torch.Tensor | numpy.typing.NDArray[numpy.float32]
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Score the NSFW likelihood of input embeddings.
+
+**Parameters:**
+
+<ParamField path="embeddings" type="torch.Tensor | npt.NDArray[np.float32]">
+Input embeddings as either a torch tensor or numpy array.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+NSFW probability scores for each input embedding.
+
+
+</Indent>
+<Anchor id="nemo_curator-models-nsfw-NSFWScorer-download_weights_on_node">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.nsfw.NSFWScorer.download_weights_on_node(
+    model_dir: str
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>classmethod</Badge>
+
+Download NSFW model weights from LAION repository.
+
+**Parameters:**
+
+<ParamField path="model_dir" type="str">
+Directory to download the weights to.
+</ParamField>
+
+
+</Indent>
+<Anchor id="nemo_curator-models-nsfw-NSFWScorer-setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.nsfw.NSFWScorer.setup() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Set up the NSFW scoring model by loading weights.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-nsfw-Normalization">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.nsfw.Normalization(
+    shape: list[int]
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `Module`
+
+Normalization layer for NSFW model.
+
+Applies normalization to input tensors using pre-computed mean and variance.
+
+
+<Anchor id="nemo_curator-models-nsfw-Normalization-forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.nsfw.Normalization.forward(
+    x: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Apply normalization to input tensor.
+
+**Parameters:**
+
+<ParamField path="x" type="torch.Tensor">
+Input tensor to normalize.
+</ParamField>
+
+**Returns:** `torch.Tensor`
+
+Normalized tensor.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-nsfw-_NSFW_MODEL_ID">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.nsfw._NSFW_MODEL_ID = 'laion/clip-autokeras-binary-nsfw'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-models-nsfw-_URL_MAPPING">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.nsfw._URL_MAPPING = {'laion/clip-autokeras-binary-nsfw': 'https://github.com/LAION-AI/CLIP-based-NSF...
+```
+
+</CodeBlock>
+</Anchor>
+

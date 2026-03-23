@@ -1,0 +1,167 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/video/filtering/clip_aesthetic_filter
+title: nemo_curator.stages.video.filtering.clip_aesthetic_filter
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ClipAestheticFilterStage`](#nemo_curator-stages-video-filtering-clip_aesthetic_filter-ClipAestheticFilterStage) | Stage for filtering video clips based on CLIP aesthetic score. |
+
+### API
+
+<Anchor id="nemo_curator-stages-video-filtering-clip_aesthetic_filter-ClipAestheticFilterStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.video.filtering.clip_aesthetic_filter.ClipAestheticFilterStage(
+    model_dir: str = 'models/clip_aesthetic',
+    score_threshold: float = 0.5,
+    reduction: typing.Literal['mean', 'min'] = 'min',
+    target_fps: float = 1.0,
+    num_gpus_per_worker: float = 0.25,
+    verbose: bool = False,
+    name: str = 'clip_aesthetic_filter'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[VideoTask, VideoTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Stage for filtering video clips based on CLIP aesthetic score.
+
+This class processes video clips through a series of steps including aesthetic score
+calculation and filtering based on thresholds.
+
+
+<ParamField path="model_dir" type="str = 'models/clip_aesthetic'">
+</ParamField>
+
+<ParamField path="name" type="str = 'clip_aesthetic_filter'">
+</ParamField>
+
+<ParamField path="num_gpus_per_worker" type="float = 0.25">
+</ParamField>
+
+<ParamField path="reduction" type="Literal['mean', 'min'] = 'min'">
+</ParamField>
+
+<ParamField path="score_threshold" type="float = 0.5">
+</ParamField>
+
+<ParamField path="target_fps" type="float = 1.0">
+</ParamField>
+
+<ParamField path="verbose" type="bool = False">
+</ParamField>
+<Anchor id="nemo_curator-stages-video-filtering-clip_aesthetic_filter-ClipAestheticFilterStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.filtering.clip_aesthetic_filter.ClipAestheticFilterStage.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-filtering-clip_aesthetic_filter-ClipAestheticFilterStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.filtering.clip_aesthetic_filter.ClipAestheticFilterStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-filtering-clip_aesthetic_filter-ClipAestheticFilterStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.filtering.clip_aesthetic_filter.ClipAestheticFilterStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-filtering-clip_aesthetic_filter-ClipAestheticFilterStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.video.VideoTask":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-VideoTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.filtering.clip_aesthetic_filter.ClipAestheticFilterStage.process(
+    task: nemo_curator.tasks.video.VideoTask
+) -> nemo_curator.tasks.video.VideoTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-filtering-clip_aesthetic_filter-ClipAestheticFilterStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.filtering.clip_aesthetic_filter.ClipAestheticFilterStage.setup(
+    worker_metadata: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-filtering-clip_aesthetic_filter-ClipAestheticFilterStage-setup_on_node">
+
+<CodeBlock links={{"nemo_curator.backends.base.NodeInfo":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-NodeInfo","nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.filtering.clip_aesthetic_filter.ClipAestheticFilterStage.setup_on_node(
+    node_info: nemo_curator.backends.base.NodeInfo,
+    worker_metadata: nemo_curator.backends.base.WorkerMetadata
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Download the weights for the CLIPAestheticScorer model on the node.
+
+
+</Indent>
+</Indent>

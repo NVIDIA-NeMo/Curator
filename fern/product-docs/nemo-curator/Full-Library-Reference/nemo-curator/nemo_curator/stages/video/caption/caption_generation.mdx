@@ -1,0 +1,217 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/video/caption/caption_generation
+title: nemo_curator.stages.video.caption.caption_generation
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`CaptionGenerationStage`](#nemo_curator-stages-video-caption-caption_generation-CaptionGenerationStage) | Stage that generates captions for video windows using specified VL model. |
+
+### API
+
+<Anchor id="nemo_curator-stages-video-caption-caption_generation-CaptionGenerationStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.video.caption.caption_generation.CaptionGenerationStage(
+    model_dir: str = 'models/qwen',
+    model_variant: str = 'qwen',
+    caption_batch_size: int = 16,
+    fp8: bool = False,
+    max_output_tokens: int = 512,
+    model_does_preprocess: bool = False,
+    disable_mmcache: bool = False,
+    verbose: bool = False,
+    generate_stage2_caption: bool = False,
+    stage2_prompt_text: str | None = None,
+    name: str = 'caption_generation'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[VideoTask, VideoTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Stage that generates captions for video windows using specified VL model.
+
+This stage processes prepared video windows through the specified vision-language model to
+generate descriptive captions, with support for both synchronous and asynchronous processing.
+
+
+<ParamField path="caption_batch_size" type="int = 16">
+</ParamField>
+
+<ParamField path="disable_mmcache" type="bool = False">
+</ParamField>
+
+<ParamField path="fp8" type="bool = False">
+</ParamField>
+
+<ParamField path="generate_stage2_caption" type="bool = False">
+</ParamField>
+
+<ParamField path="max_output_tokens" type="int = 512">
+</ParamField>
+
+<ParamField path="model_dir" type="str = 'models/qwen'">
+</ParamField>
+
+<ParamField path="model_does_preprocess" type="bool = False">
+</ParamField>
+
+<ParamField path="model_variant" type="str = 'qwen'">
+</ParamField>
+
+<ParamField path="name" type="str = 'caption_generation'">
+</ParamField>
+
+<ParamField path="stage2_prompt_text" type="str | None = None">
+</ParamField>
+
+<ParamField path="verbose" type="bool = False">
+</ParamField>
+<Anchor id="nemo_curator-stages-video-caption-caption_generation-CaptionGenerationStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.caption.caption_generation.CaptionGenerationStage.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-caption-caption_generation-CaptionGenerationStage-_assign_captions">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Video":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Video"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.caption.caption_generation.CaptionGenerationStage._assign_captions(
+    video: nemo_curator.tasks.video.Video,
+    mapping: dict[int, tuple[int, int]],
+    captions: collections.abc.Iterable[tuple[int, str]]
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-caption-caption_generation-CaptionGenerationStage-_initialize_model">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.caption.caption_generation.CaptionGenerationStage._initialize_model() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-caption-caption_generation-CaptionGenerationStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.caption.caption_generation.CaptionGenerationStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-caption-caption_generation-CaptionGenerationStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.caption.caption_generation.CaptionGenerationStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-caption-caption_generation-CaptionGenerationStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.video.VideoTask":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-VideoTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.caption.caption_generation.CaptionGenerationStage.process(
+    task: nemo_curator.tasks.video.VideoTask
+) -> nemo_curator.tasks.video.VideoTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-caption-caption_generation-CaptionGenerationStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.caption.caption_generation.CaptionGenerationStage.setup(
+    worker_metadata: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-caption-caption_generation-CaptionGenerationStage-setup_on_node">
+
+<CodeBlock links={{"nemo_curator.backends.base.NodeInfo":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-NodeInfo","nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.caption.caption_generation.CaptionGenerationStage.setup_on_node(
+    node_info: nemo_curator.backends.base.NodeInfo,
+    worker_metadata: nemo_curator.backends.base.WorkerMetadata
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Download weights and initialize vLLM once per node to avoid torch.compile race conditions.
+
+
+</Indent>
+</Indent>

@@ -1,0 +1,251 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/synthetic/nemotron_cc/base
+title: nemo_curator.stages.synthetic.nemotron_cc.base
+---
+
+This module contains a simple stage for generating synthetic data. It takes in Empty task and a prompt and produces the output in form of a DocumentBatch.
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`BaseSyntheticStage`](#nemo_curator-stages-synthetic-nemotron_cc-base-BaseSyntheticStage) | A simple stage for generating synthetic data. It takes in Empty task and a prompt and produces the output in form of a DocumentBatch. |
+
+### API
+
+<Anchor id="nemo_curator-stages-synthetic-nemotron_cc-base-BaseSyntheticStage">
+
+<CodeBlock links={{"nemo_curator.models.client.llm_client.AsyncLLMClient":"/nemo-curator/nemo_curator/models/client/llm_client#nemo_curator-models-client-llm_client-AsyncLLMClient","nemo_curator.models.client.llm_client.LLMClient":"/nemo-curator/nemo_curator/models/client/llm_client#nemo_curator-models-client-llm_client-LLMClient","nemo_curator.models.client.llm_client.GenerationConfig":"/nemo-curator/nemo_curator/models/client/llm_client#nemo_curator-models-client-llm_client-GenerationConfig"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.synthetic.nemotron_cc.base.BaseSyntheticStage(
+    system_prompt: str = None,
+    prompt: str = None,
+    input_field: str = None,
+    output_field: str = None,
+    client: nemo_curator.models.client.llm_client.AsyncLLMClient | nemo_curator.models.client.llm_client.LLMClient = None,
+    model_name: str = None,
+    generation_config: nemo_curator.models.client.llm_client.GenerationConfig | None = None,
+    name: str = 'NemotronCCBaseStage'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[DocumentBatch, DocumentBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+A simple stage for generating synthetic data. It takes in Empty task and a prompt and produces the output in form of a DocumentBatch.
+
+
+<ParamField path="client" type="AsyncLLMClient | LLMClient = None">
+</ParamField>
+
+<ParamField path="generation_config" type="GenerationConfig | None = None">
+</ParamField>
+
+<ParamField path="input_field" type="str = None">
+</ParamField>
+
+<ParamField path="model_name" type="str = None">
+</ParamField>
+
+<ParamField path="name" type="str = 'NemotronCCBaseStage'">
+</ParamField>
+
+<ParamField path="output_field" type="str = None">
+</ParamField>
+
+<ParamField path="prompt" type="str = None">
+</ParamField>
+
+<ParamField path="system_prompt" type="str = None">
+</ParamField>
+<Anchor id="nemo_curator-stages-synthetic-nemotron_cc-base-BaseSyntheticStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.synthetic.nemotron_cc.base.BaseSyntheticStage.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-synthetic-nemotron_cc-base-BaseSyntheticStage-_generate_responses_async">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.synthetic.nemotron_cc.base.BaseSyntheticStage._generate_responses_async(
+    df: pandas.DataFrame
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>async</Badge>
+
+Generate responses asynchronously using concurrent requests.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-synthetic-nemotron_cc-base-BaseSyntheticStage-_process_async">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.synthetic.nemotron_cc.base.BaseSyntheticStage._process_async(
+    df: pandas.DataFrame
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process samples using async client (concurrent).
+
+This method handles both cases:
+- Normal case: No event loop exists, creates one with asyncio.run()
+- Edge case: Called from async context, runs in separate thread
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-synthetic-nemotron_cc-base-BaseSyntheticStage-_process_llm_prompt">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.synthetic.nemotron_cc.base.BaseSyntheticStage._process_llm_prompt(
+    sample: dict
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process the input sample to create the LLM prompt.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-synthetic-nemotron_cc-base-BaseSyntheticStage-_process_llm_response">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.synthetic.nemotron_cc.base.BaseSyntheticStage._process_llm_response(
+    response: list[str]
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process a single response from the LLM.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-synthetic-nemotron_cc-base-BaseSyntheticStage-_process_sync">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.synthetic.nemotron_cc.base.BaseSyntheticStage._process_sync(
+    df: pandas.DataFrame
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process DataFrame using synchronous sequential processing.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-synthetic-nemotron_cc-base-BaseSyntheticStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.synthetic.nemotron_cc.base.BaseSyntheticStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-synthetic-nemotron_cc-base-BaseSyntheticStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.synthetic.nemotron_cc.base.BaseSyntheticStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-synthetic-nemotron_cc-base-BaseSyntheticStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.DocumentBatch":"/nemo-curator/nemo_curator/tasks/document#nemo_curator-tasks-document-DocumentBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.synthetic.nemotron_cc.base.BaseSyntheticStage.process(
+    batch: nemo_curator.tasks.DocumentBatch
+) -> nemo_curator.tasks.DocumentBatch
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-synthetic-nemotron_cc-base-BaseSyntheticStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.synthetic.nemotron_cc.base.BaseSyntheticStage.setup(
+    _: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

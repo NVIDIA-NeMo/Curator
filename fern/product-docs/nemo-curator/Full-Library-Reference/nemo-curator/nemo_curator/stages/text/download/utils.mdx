@@ -1,0 +1,156 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/utils
+title: nemo_curator.stages.text.download.utils
+---
+
+## Module Contents
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`check_s5cmd_installed`](#nemo_curator-stages-text-download-utils-check_s5cmd_installed) | Check if s5cmd is installed. |
+| [`decode_html`](#nemo_curator-stages-text-download-utils-decode_html) | - |
+| [`detect_language`](#nemo_curator-stages-text-download-utils-detect_language) | Detect language using cld2. |
+| [`lang_detect`](#nemo_curator-stages-text-download-utils-lang_detect) | Detect language from text. |
+| [`remove_control_characters`](#nemo_curator-stages-text-download-utils-remove_control_characters) | Remove control characters from text. |
+| [`try_decode_with_detected_encoding`](#nemo_curator-stages-text-download-utils-try_decode_with_detected_encoding) | - |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-utils-check_s5cmd_installed">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.utils.check_s5cmd_installed() -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Check if s5cmd is installed.
+
+s5cmd is a command-line tool for interacting with S3-compatible storage.
+This function checks if it's available in the system PATH.
+
+**Returns:** `bool`
+
+True if s5cmd is installed and accessible, False otherwise.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-download-utils-decode_html">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.utils.decode_html(
+    html_bytes: bytes
+) -> str | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-download-utils-detect_language">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.utils.detect_language(
+    text: str
+) -> tuple[bool, int, list[tuple[str, str, float, int]]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Detect language using cld2.
+
+**Returns:** `bool`
+
+tuple[bool, int, list[tuple[str, str, float, int]]]:
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-download-utils-lang_detect">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.utils.lang_detect(
+    text: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Detect language from text.
+
+**Parameters:**
+
+<ParamField path="text" type="str">
+Text to detect language from.
+</ParamField>
+
+**Returns:** `str`
+
+The most likely language code.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-download-utils-remove_control_characters">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.utils.remove_control_characters(
+    text: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Remove control characters from text.
+Control characters are non-printable characters in the Unicode standard that control how text is displayed or processed.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-download-utils-try_decode_with_detected_encoding">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.utils.try_decode_with_detected_encoding(
+    html_bytes: bytes
+) -> str | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>

@@ -1,0 +1,76 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/interleaved/utils/validation_utils
+title: nemo_curator.stages.interleaved.utils.validation_utils
+---
+
+## Module Contents
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`require_source_id_field`](#nemo_curator-stages-interleaved-utils-validation_utils-require_source_id_field) | - |
+| [`resolve_storage_options`](#nemo_curator-stages-interleaved-utils-validation_utils-resolve_storage_options) | - |
+| [`validate_and_project_source_fields`](#nemo_curator-stages-interleaved-utils-validation_utils-validate_and_project_source_fields) | Validate requested source `fields` and normalize selected values for tabular output. |
+
+### API
+
+<Anchor id="nemo_curator-stages-interleaved-utils-validation_utils-require_source_id_field">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.utils.validation_utils.require_source_id_field(
+    source_id_field: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-interleaved-utils-validation_utils-resolve_storage_options">
+
+<CodeBlock links={{"nemo_curator.tasks.Task":"/nemo-curator/nemo_curator/tasks/tasks#nemo_curator-tasks-tasks-Task"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.utils.validation_utils.resolve_storage_options(
+    task: nemo_curator.tasks.Task[typing.Any] | None = None,
+    io_kwargs: dict[str, object] | None = None
+) -> dict[str, object]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-interleaved-utils-validation_utils-validate_and_project_source_fields">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.utils.validation_utils.validate_and_project_source_fields(
+    sample: dict[str, typing.Any],
+    fields: tuple[str, ...] | None,
+    excluded_fields: set[str]
+) -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Validate requested source `fields` and normalize selected values for tabular output.
+
+
+</Indent>

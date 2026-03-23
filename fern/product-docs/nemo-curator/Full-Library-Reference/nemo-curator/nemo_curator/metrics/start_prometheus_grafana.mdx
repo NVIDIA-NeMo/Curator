@@ -1,0 +1,79 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/metrics/start_prometheus_grafana
+title: nemo_curator.metrics.start_prometheus_grafana
+---
+
+## Module Contents
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`start_prometheus_grafana`](#nemo_curator-metrics-start_prometheus_grafana-start_prometheus_grafana) | - |
+
+### Data
+
+[`args`](#nemo_curator-metrics-start_prometheus_grafana-args)
+
+[`display_metrics_dir`](#nemo_curator-metrics-start_prometheus_grafana-display_metrics_dir)
+
+[`parser`](#nemo_curator-metrics-start_prometheus_grafana-parser)
+
+### API
+
+<Anchor id="nemo_curator-metrics-start_prometheus_grafana-start_prometheus_grafana">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.start_prometheus_grafana.start_prometheus_grafana(
+    prometheus_web_port: int = DEFAULT_PROMETHEUS_WEB_PORT,
+    grafana_web_port: int = DEFAULT_GRAFANA_WEB_PORT,
+    metrics_dir: str | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-metrics-start_prometheus_grafana-args">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.start_prometheus_grafana.args = parser.parse_args()
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-start_prometheus_grafana-display_metrics_dir">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.start_prometheus_grafana.display_metrics_dir = args.metrics_dir or DEFAULT_NEMO_CURATOR_METRICS_PATH
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-metrics-start_prometheus_grafana-parser">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.metrics.start_prometheus_grafana.parser = argparse.ArgumentParser()
+```
+
+</CodeBlock>
+</Anchor>
+

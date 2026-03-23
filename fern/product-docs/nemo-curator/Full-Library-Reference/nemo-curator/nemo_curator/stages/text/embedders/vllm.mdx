@@ -1,0 +1,177 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/embedders/vllm
+title: nemo_curator.stages.text.embedders.vllm
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`VLLMEmbeddingModelStage`](#nemo_curator-stages-text-embedders-vllm-VLLMEmbeddingModelStage) | - |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-embedders-vllm-VLLMEmbeddingModelStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.embedders.vllm.VLLMEmbeddingModelStage(
+    model_identifier: str,
+    vllm_init_kwargs: dict[str, typing.Any] | None = None,
+    text_field: str = 'text',
+    pretokenize: bool = False,
+    embedding_field: str = 'embeddings',
+    max_chars: int | None = None,
+    cache_dir: str | None = None,
+    hf_token: str | None = None,
+    verbose: bool = False
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ProcessingStage[DocumentBatch, DocumentBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+<ParamField path="model" type="None | LLM = None">
+</ParamField>
+
+<ParamField path="name">
+</ParamField>
+
+<ParamField path="resources" type="= Resources(cpus=1, gpus=1)">
+</ParamField>
+
+<ParamField path="tokenizer" type="None | AutoTokenizer = None">
+</ParamField>
+
+<ParamField path="vllm_init_kwargs" type="= vllm_init_kwargs or &#123;&#125;">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-embedders-vllm-VLLMEmbeddingModelStage-_initialize_vllm">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.vllm.VLLMEmbeddingModelStage._initialize_vllm(
+    local_files_only: bool
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Download (or locate) the model and initialize vLLM.
+
+We pass the resolved snapshot path to ``LLM(model=...)`` instead of the
+HuggingFace repo ID because vLLM does not pass the ``download_dir`` through
+to its config resolution code — passing a repo ID with a custom cache dir
+fails offline.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-vllm-VLLMEmbeddingModelStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.vllm.VLLMEmbeddingModelStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-vllm-VLLMEmbeddingModelStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.vllm.VLLMEmbeddingModelStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-vllm-VLLMEmbeddingModelStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.DocumentBatch":"/nemo-curator/nemo_curator/tasks/document#nemo_curator-tasks-document-DocumentBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.vllm.VLLMEmbeddingModelStage.process(
+    batch: nemo_curator.tasks.DocumentBatch
+) -> nemo_curator.tasks.DocumentBatch
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-vllm-VLLMEmbeddingModelStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.vllm.VLLMEmbeddingModelStage.setup(
+    worker_metadata: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-vllm-VLLMEmbeddingModelStage-setup_on_node">
+
+<CodeBlock links={{"nemo_curator.backends.base.NodeInfo":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-NodeInfo","nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.vllm.VLLMEmbeddingModelStage.setup_on_node(
+    node_info: nemo_curator.backends.base.NodeInfo | None = None,
+    worker_metadata: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-vllm-VLLMEmbeddingModelStage-teardown">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.vllm.VLLMEmbeddingModelStage.teardown() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

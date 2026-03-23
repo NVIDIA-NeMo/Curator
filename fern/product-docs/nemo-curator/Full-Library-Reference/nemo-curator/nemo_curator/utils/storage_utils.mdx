@@ -1,0 +1,68 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/utils/storage_utils
+title: nemo_curator.utils.storage_utils
+---
+
+## Module Contents
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`_get_local_path`](#nemo_curator-utils-storage_utils-_get_local_path) | Construct a full local path from a base path and additional components. |
+| [`get_full_path`](#nemo_curator-utils-storage_utils-get_full_path) | Construct a full path from a base path and additional components. |
+
+### API
+
+<Anchor id="nemo_curator-utils-storage_utils-_get_local_path">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.storage_utils._get_local_path(
+    localpath: pathlib.Path,
+    args: str = ()
+) -> pathlib.Path
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Construct a full local path from a base path and additional components.
+Args:
+    localpath: The base local path.
+    *args: Additional path components.
+Returns:
+    The full local path as a Path object.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-utils-storage_utils-get_full_path">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.storage_utils.get_full_path(
+    path: str | pathlib.Path,
+    args: str = ()
+) -> pathlib.Path
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Construct a full path from a base path and additional components.
+Args:
+    path: The base path.
+    *args: Additional path components.
+Returns:
+    The full path as a StoragePrefix or Path object.
+
+
+</Indent>

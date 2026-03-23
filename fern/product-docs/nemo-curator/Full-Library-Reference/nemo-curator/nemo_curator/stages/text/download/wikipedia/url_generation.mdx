@@ -1,0 +1,127 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/wikipedia/url_generation
+title: nemo_curator.stages.text.download.wikipedia.url_generation
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`WikipediaUrlGenerator`](#nemo_curator-stages-text-download-wikipedia-url_generation-WikipediaUrlGenerator) | Generates URLs for Wikipedia dump files. |
+
+### Data
+
+[`REQUEST_TIMEOUT`](#nemo_curator-stages-text-download-wikipedia-url_generation-REQUEST_TIMEOUT)
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-wikipedia-url_generation-WikipediaUrlGenerator">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.wikipedia.url_generation.WikipediaUrlGenerator(
+    language: str = 'en',
+    dump_date: str | None = None,
+    wikidumps_index_prefix: str = 'https://dumps.wikimedia.org'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** `URLGenerator`
+
+Generates URLs for Wikipedia dump files.
+
+
+<ParamField path="dump_date" type="str | None = None">
+</ParamField>
+
+<ParamField path="language" type="str = 'en'">
+</ParamField>
+
+<ParamField path="wikidumps_index_prefix" type="str = 'https://dumps.wikimedia.org'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-url_generation-WikipediaUrlGenerator-_get_data_for_dump">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.url_generation.WikipediaUrlGenerator._get_data_for_dump(
+    dump_date: str,
+    wiki_index_url: str
+) -> dict | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get the JSON dump data for a given dump date. Returns None if the dump is not found.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-url_generation-WikipediaUrlGenerator-_get_wikipedia_urls">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.url_generation.WikipediaUrlGenerator._get_wikipedia_urls() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Retrieves all URLs pointing to Wikipedia dumps for the specified language and date.
+
+**Returns:** `list[str]`
+
+List of URLs for Wikipedia dump files
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-url_generation-WikipediaUrlGenerator-generate_urls">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.url_generation.WikipediaUrlGenerator.generate_urls() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Generate Wikipedia dump URLs.
+
+**Returns:** `list[str]`
+
+List of URLs pointing to Wikipedia dump files
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-download-wikipedia-url_generation-REQUEST_TIMEOUT">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.url_generation.REQUEST_TIMEOUT = 30
+```
+
+</CodeBlock>
+</Anchor>
+

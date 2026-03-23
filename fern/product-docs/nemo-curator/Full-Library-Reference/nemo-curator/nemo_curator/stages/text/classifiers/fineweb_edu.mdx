@@ -1,0 +1,538 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/classifiers/fineweb_edu
+title: nemo_curator.stages.text.classifiers.fineweb_edu
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`FineWebEduClassifier`](#nemo_curator-stages-text-classifiers-fineweb_edu-FineWebEduClassifier) | FineWebEduClassifier is a specialized classifier designed for educational content assessment, |
+| [`FineWebMixtralEduClassifier`](#nemo_curator-stages-text-classifiers-fineweb_edu-FineWebMixtralEduClassifier) | FineWebMixtralEduClassifier is a specialized classifier designed for educational content assessment, |
+| [`FineWebModelStage`](#nemo_curator-stages-text-classifiers-fineweb_edu-FineWebModelStage) | Stage for Hugging Face model inference. |
+| [`FineWebNemotronEduClassifier`](#nemo_curator-stages-text-classifiers-fineweb_edu-FineWebNemotronEduClassifier) | FineWebNemotronEduClassifier is a specialized classifier designed for educational content assessment, |
+| [`_FineWebBaseClassifier`](#nemo_curator-stages-text-classifiers-fineweb_edu-_FineWebBaseClassifier) | Parent class for FineWebEduClassifier, FineWebMixtralEduClassifier, and FineWebNemotronEduClassifier, |
+
+### Data
+
+[`FINEWEB_EDU_MODEL_IDENTIFIER`](#nemo_curator-stages-text-classifiers-fineweb_edu-FINEWEB_EDU_MODEL_IDENTIFIER)
+
+[`FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER`](#nemo_curator-stages-text-classifiers-fineweb_edu-FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER)
+
+[`FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER`](#nemo_curator-stages-text-classifiers-fineweb_edu-FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER)
+
+[`MAX_SEQ_LENGTH`](#nemo_curator-stages-text-classifiers-fineweb_edu-MAX_SEQ_LENGTH)
+
+### API
+
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-FineWebEduClassifier">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.fineweb_edu.FineWebEduClassifier(
+    cache_dir: str | None = None,
+    label_field: str = 'fineweb-edu-score-label',
+    float_score_field: str = 'fineweb-edu-score-float',
+    int_score_field: str = 'fineweb-edu-score-int',
+    text_field: str = 'text',
+    filter_by: list[str] | None = None,
+    max_chars: int | None = None,
+    sort_by_length: bool = True,
+    model_inference_batch_size: int = 256,
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [_FineWebBaseClassifier](#nemo_curator-stages-text-classifiers-fineweb_edu-_FineWebBaseClassifier)
+
+FineWebEduClassifier is a specialized classifier designed for educational content assessment,
+utilizing the Hugging Face FineWeb EDU Classifier model (https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier).
+This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
+
+
+<ParamField path="name">
+</ParamField>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-FineWebMixtralEduClassifier">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.fineweb_edu.FineWebMixtralEduClassifier(
+    cache_dir: str | None = None,
+    label_field: str = 'fineweb-mixtral-edu-score-...,
+    float_score_field: str = 'fineweb-mixtral-edu-score-...,
+    int_score_field: str = 'fineweb-mixtral-edu-score-...,
+    text_field: str = 'text',
+    filter_by: list[str] | None = None,
+    max_chars: int | None = None,
+    sort_by_length: bool = True,
+    model_inference_batch_size: int = 1024,
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [_FineWebBaseClassifier](#nemo_curator-stages-text-classifiers-fineweb_edu-_FineWebBaseClassifier)
+
+FineWebMixtralEduClassifier is a specialized classifier designed for educational content assessment,
+utilizing the NemoCurator FineWeb Mixtral Edu Classifier model (https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier).
+It is similar to the FineWeb-Edu classifier and was trained on the same text samples, but using annotations from Mixtral 8x22B-Instruct.
+This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
+
+
+<ParamField path="name">
+</ParamField>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-FineWebModelStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.fineweb_edu.FineWebModelStage(
+    model_identifier: str,
+    cache_dir: str | None = None,
+    label_field: str = 'preds',
+    float_score_field: str = 'float_score',
+    int_score_field: str = 'int_score',
+    model_inference_batch_size: int = 256,
+    has_seq_order: bool = True,
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ModelStage](/nemo-curator/nemo_curator/stages/text/models/model#nemo_curator-stages-text-models-model-ModelStage)
+
+Stage for Hugging Face model inference.
+
+**Parameters:**
+
+<ParamField path="model_identifier" type="str">
+The identifier of the Hugging Face model.
+</ParamField>
+
+<ParamField path="cache_dir" type="str | None" default="None">
+The Hugging Face cache directory. Defaults to None.
+</ParamField>
+
+<ParamField path="label_field" type="str" default="'preds'">
+The name of the prediction column.
+</ParamField>
+
+<ParamField path="float_score_field" type="str" default="'float_score'">
+The name of the float score column.
+</ParamField>
+
+<ParamField path="int_score_field" type="str" default="'int_score'">
+The name of the integer score column.
+</ParamField>
+
+<ParamField path="model_inference_batch_size" type="int" default="256">
+The size of the batch for model inference. Defaults to 256.
+</ParamField>
+
+<ParamField path="has_seq_order" type="bool" default="True">
+Whether to sort the input data by the length of the input tokens.
+Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+</ParamField>
+
+<ParamField path="autocast" type="bool" default="True">
+Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+Defaults to True.
+</ParamField>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-FineWebModelStage-_setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu.FineWebModelStage._setup(
+    local_files_only: bool = True
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-FineWebModelStage-configure_forward">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu.FineWebModelStage.configure_forward(
+    model: torch.nn.Module
+) -> torch.nn.Module
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-FineWebModelStage-create_output_dataframe">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu.FineWebModelStage.create_output_dataframe(
+    df_cpu: pandas.DataFrame,
+    collected_output: dict[str, numpy.ndarray]
+) -> pandas.DataFrame
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-FineWebModelStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu.FineWebModelStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-FineWebModelStage-process_model_output">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu.FineWebModelStage.process_model_output(
+    outputs: torch.Tensor,
+    _: dict[str, torch.Tensor] | None = None
+) -> dict[str, numpy.ndarray]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-FineWebNemotronEduClassifier">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.fineweb_edu.FineWebNemotronEduClassifier(
+    cache_dir: str | None = None,
+    label_field: str = 'fineweb-nemotron-edu-score...,
+    float_score_field: str = 'fineweb-nemotron-edu-score...,
+    int_score_field: str = 'fineweb-nemotron-edu-score...,
+    text_field: str = 'text',
+    filter_by: list[str] | None = None,
+    max_chars: int | None = None,
+    sort_by_length: bool = True,
+    model_inference_batch_size: int = 1024,
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [_FineWebBaseClassifier](#nemo_curator-stages-text-classifiers-fineweb_edu-_FineWebBaseClassifier)
+
+FineWebNemotronEduClassifier is a specialized classifier designed for educational content assessment,
+utilizing the NemoCurator FineWeb Nemotron-4 Edu Classifier model (https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier).
+It is similar to the FineWeb-Edu classifier and was trained on the same text samples, but using annotations from Nemotron-4-340B-Instruct.
+This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
+
+
+<ParamField path="name">
+</ParamField>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-_FineWebBaseClassifier">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.fineweb_edu._FineWebBaseClassifier(
+    model_identifier: str,
+    cache_dir: str | None = None,
+    label_field: str = 'preds',
+    float_score_field: str = 'float_score',
+    int_score_field: str = 'int_score',
+    text_field: str = 'text',
+    filter_by: list[str] | None = None,
+    max_chars: int | None = None,
+    max_seq_length: int = MAX_SEQ_LENGTH,
+    sort_by_length: bool = True,
+    model_inference_batch_size: int = 256,
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [CompositeStage[DocumentBatch, DocumentBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-CompositeStage)
+
+Parent class for FineWebEduClassifier, FineWebMixtralEduClassifier, and FineWebNemotronEduClassifier,
+since their implementations are almost identical.
+
+**Parameters:**
+
+<ParamField path="model_identifier" type="str">
+The identifier of the Hugging Face model.
+</ParamField>
+
+<ParamField path="cache_dir" type="str | None" default="None">
+The Hugging Face cache directory. Defaults to None.
+</ParamField>
+
+<ParamField path="label_field" type="str" default="'preds'">
+The name of the prediction column.
+</ParamField>
+
+<ParamField path="float_score_field" type="str" default="'float_score'">
+The name of the float score column.
+</ParamField>
+
+<ParamField path="int_score_field" type="str" default="'int_score'">
+The name of the integer score column.
+</ParamField>
+
+<ParamField path="text_field" type="str" default="'text'">
+The name of the text field in the input data. Defaults to "text".
+</ParamField>
+
+<ParamField path="filter_by" type="list[str] | None" default="None">
+For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+</ParamField>
+
+<ParamField path="max_chars" type="int | None" default="None">
+Limits the total number of characters that can be fed to the tokenizer.
+If None, text will not be truncated. Defaults to None.
+</ParamField>
+
+<ParamField path="max_seq_length" type="int" default="MAX_SEQ_LENGTH">
+Limits the total sequence returned by the tokenizer so that it has a maximum length.
+Defaults to 512.
+</ParamField>
+
+<ParamField path="sort_by_length" type="bool" default="True">
+Whether to sort the input data by the length of the input tokens.
+Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+</ParamField>
+
+<ParamField path="model_inference_batch_size" type="int" default="256">
+The size of the batch for model inference. Defaults to 256.
+</ParamField>
+
+<ParamField path="autocast" type="bool" default="True">
+Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+Defaults to True.
+</ParamField>
+
+
+<ParamField path="autocast" type="bool = True">
+</ParamField>
+
+<ParamField path="cache_dir" type="str | None = None">
+</ParamField>
+
+<ParamField path="filter_by" type="list[str] | None = None">
+</ParamField>
+
+<ParamField path="float_score_field" type="str = 'float_score'">
+</ParamField>
+
+<ParamField path="int_score_field" type="str = 'int_score'">
+</ParamField>
+
+<ParamField path="label_field" type="str = 'preds'">
+</ParamField>
+
+<ParamField path="max_chars" type="int | None = None">
+</ParamField>
+
+<ParamField path="max_seq_length" type="int = MAX_SEQ_LENGTH">
+</ParamField>
+
+<ParamField path="model_identifier" type="str">
+</ParamField>
+
+<ParamField path="model_inference_batch_size" type="int = 256">
+</ParamField>
+
+<ParamField path="sort_by_length" type="bool = True">
+</ParamField>
+
+<ParamField path="text_field" type="str = 'text'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-_FineWebBaseClassifier-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu._FineWebBaseClassifier.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-_FineWebBaseClassifier-decompose">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu._FineWebBaseClassifier.decompose() -> list[nemo_curator.stages.base.ProcessingStage]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-_FineWebBaseClassifier-filter_by_category">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu._FineWebBaseClassifier.filter_by_category(
+    value: str
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-_FineWebBaseClassifier-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu._FineWebBaseClassifier.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-_FineWebBaseClassifier-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu._FineWebBaseClassifier.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-FINEWEB_EDU_MODEL_IDENTIFIER">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu.FINEWEB_EDU_MODEL_IDENTIFIER = 'HuggingFaceFW/fineweb-edu-classifier'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu.FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER = 'nvidia/nemocurator-fineweb-mixtral-edu-classifier'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu.FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER = 'nvidia/nemocurator-fineweb-nemotron-4-edu-classifier'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-fineweb_edu-MAX_SEQ_LENGTH">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.fineweb_edu.MAX_SEQ_LENGTH = 512
+```
+
+</CodeBlock>
+</Anchor>
+

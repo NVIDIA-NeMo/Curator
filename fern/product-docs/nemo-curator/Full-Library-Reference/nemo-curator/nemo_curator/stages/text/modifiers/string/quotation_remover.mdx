@@ -1,0 +1,58 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/modifiers/string/quotation_remover
+title: nemo_curator.stages.text.modifiers.string.quotation_remover
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`QuotationRemover`](#nemo_curator-stages-text-modifiers-string-quotation_remover-QuotationRemover) | Removes quotations from a document following a few rules: |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-quotation_remover-QuotationRemover">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.modifiers.string.quotation_remover.QuotationRemover()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentModifier](/nemo-curator/nemo_curator/stages/text/modifiers/doc_modifier#nemo_curator-stages-text-modifiers-doc_modifier-DocumentModifier)
+
+Removes quotations from a document following a few rules:
+- If the document is less than 2 characters, it is returned unchanged.
+- If the document starts and ends with a quotation mark and there are
+    no newlines in the document, the quotation marks are removed.
+- If the document starts and ends with a quotation mark and there are
+    newlines in the document, the quotation marks are removed only if
+    the first line does not end with a quotation mark.
+
+
+<Anchor id="nemo_curator-stages-text-modifiers-string-quotation_remover-QuotationRemover-modify_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modifiers.string.quotation_remover.QuotationRemover.modify_document(
+    text: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

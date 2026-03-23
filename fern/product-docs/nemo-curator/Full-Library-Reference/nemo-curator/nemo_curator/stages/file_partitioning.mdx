@@ -1,0 +1,330 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/file_partitioning
+title: nemo_curator.stages.file_partitioning
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`FilePartitioningStage`](#nemo_curator-stages-file_partitioning-FilePartitioningStage) | Stage that partitions input file paths into FileGroupTasks. |
+
+### API
+
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.file_partitioning.FilePartitioningStage(
+    file_paths: str | list[str],
+    files_per_partition: int | None = None,
+    blocksize: int | str | None = None,
+    file_extensions: list[str] | None = None,
+    storage_options: dict[str, typing.Any] | None = None,
+    limit: int | None = None,
+    name: str = 'file_partitioning'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[_EmptyTask, FileGroupTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Stage that partitions input file paths into FileGroupTasks.
+
+This stage runs as a dedicated processing stage (not on the driver)
+and creates file groups based on the partitioning strategy.
+
+Parameters
+----------
+file_paths: str | list[str]
+    Path to the input files.
+files_per_partition: int | None = None
+    Number of files per partition. If provided, the blocksize is ignored.
+    Defaults to 1 if both files_per_partition and blocksize are not provided.
+blocksize: int | str | None = None
+    Target size of the partitions.
+    Note: For compressed files, the compressed size is used for blocksize estimation.
+file_extensions: list[str] | None = None
+    File extensions to filter.
+storage_options: dict[str, Any] | None = None
+    Storage options to pass to the file system.
+limit: int | None = None
+    Maximum number of partitions to create.
+
+
+<ParamField path="blocksize" type="int | str | None = None">
+</ParamField>
+
+<ParamField path="file_extensions" type="list[str] | None = None">
+</ParamField>
+
+<ParamField path="file_paths" type="str | list[str]">
+</ParamField>
+
+<ParamField path="files_per_partition" type="int | None = None">
+</ParamField>
+
+<ParamField path="limit" type="int | None = None">
+</ParamField>
+
+<ParamField path="name" type="str = 'file_partitioning'">
+</ParamField>
+
+<ParamField path="storage_options" type="dict[str, Any] | None = None">
+</ParamField>
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.file_partitioning.FilePartitioningStage.__post_init__()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Initialize default values.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage-_get_dataset_name">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.file_partitioning.FilePartitioningStage._get_dataset_name(
+    files: list[str]
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Extract dataset name from file paths (fsspec-compatible).
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage-_get_file_list">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.file_partitioning.FilePartitioningStage._get_file_list() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get the list of files to process.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage-_get_file_list_with_sizes">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.file_partitioning.FilePartitioningStage._get_file_list_with_sizes() -> list[tuple[str, int]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get the list of files to process.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage-_parse_size">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.file_partitioning.FilePartitioningStage._parse_size(
+    s: float | str
+) -> int
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Taken from dask.utils.parse_bytes
+https://github.com/dask/dask/blob/3801bedc7c71c83f37e836af71f740974c0434b3/dask/utils.py#L1585
+Parse byte string to numbers.
+
+&gt;&gt;&gt; parse_bytes('100')
+100
+&gt;&gt;&gt; parse_bytes('100 MB')
+100000000
+&gt;&gt;&gt; parse_bytes('100M')
+100000000
+&gt;&gt;&gt; parse_bytes('5kB')
+5000
+&gt;&gt;&gt; parse_bytes('5.4 kB')
+5400
+&gt;&gt;&gt; parse_bytes('1kiB')
+1024
+&gt;&gt;&gt; parse_bytes('1e6')
+1000000
+&gt;&gt;&gt; parse_bytes('1e6 kB')
+1000000000
+&gt;&gt;&gt; parse_bytes('MB')
+1000000
+&gt;&gt;&gt; parse_bytes(123)
+123
+&gt;&gt;&gt; parse_bytes('5 foos')
+Traceback (most recent call last):
+    ...
+ValueError: Could not interpret 'foos' as a byte unit
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage-_partition_by_count">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.file_partitioning.FilePartitioningStage._partition_by_count(
+    files: list[str],
+    count: int
+) -> list[list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Partition files by count.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage-_partition_by_size">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.file_partitioning.FilePartitioningStage._partition_by_size(
+    files: list[tuple[str, int]],
+    blocksize: int | str
+) -> list[list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Partition files by target size.
+Args:
+    files: A list of tuples (file_path, file_size)
+    blocksize: The target size of the partitions
+Returns:
+    A list of lists, where each inner list contains the file paths of the files in the partitionN
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.file_partitioning.FilePartitioningStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.file_partitioning.FilePartitioningStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks._EmptyTask":"/nemo-curator/nemo_curator/tasks/tasks#nemo_curator-tasks-tasks-_EmptyTask","nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.file_partitioning.FilePartitioningStage.process(
+    _: nemo_curator.tasks._EmptyTask
+) -> list[nemo_curator.tasks.FileGroupTask]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process the initial task to create file group tasks.
+
+This stage expects a simple Task with file paths information
+and outputs multiple FileGroupTasks for parallel processing.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage-ray_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.file_partitioning.FilePartitioningStage.ray_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Ray stage specification for this stage.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-file_partitioning-FilePartitioningStage-xenna_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.file_partitioning.FilePartitioningStage.xenna_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

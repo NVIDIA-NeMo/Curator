@@ -1,0 +1,269 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/models/client/llm_client
+title: nemo_curator.models.client.llm_client
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`AsyncLLMClient`](#nemo_curator-models-client-llm_client-AsyncLLMClient) | Interface representing a client connecting to an LLM inference server |
+| [`ConversationFormatter`](#nemo_curator-models-client-llm_client-ConversationFormatter) | Represents a way of formatting a conversation with an LLM |
+| [`GenerationConfig`](#nemo_curator-models-client-llm_client-GenerationConfig) | Configuration class for LLM generation parameters. |
+| [`LLMClient`](#nemo_curator-models-client-llm_client-LLMClient) | Interface representing a client connecting to an LLM inference server |
+
+### API
+
+<Anchor id="nemo_curator-models-client-llm_client-AsyncLLMClient">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.client.llm_client.AsyncLLMClient(
+    max_concurrent_requests: int = 5,
+    max_retries: int = 3,
+    base_delay: float = 1.0
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Abstract</Badge>
+
+Interface representing a client connecting to an LLM inference server
+and making requests asynchronously
+
+
+<Anchor id="nemo_curator-models-client-llm_client-AsyncLLMClient-_query_model_impl">
+
+<CodeBlock links={{"nemo_curator.models.client.llm_client.ConversationFormatter":"#nemo_curator-models-client-llm_client-ConversationFormatter","nemo_curator.models.client.llm_client.GenerationConfig":"#nemo_curator-models-client-llm_client-GenerationConfig"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.client.llm_client.AsyncLLMClient._query_model_impl(
+    messages: collections.abc.Iterable,
+    model: str,
+    conversation_formatter: nemo_curator.models.client.llm_client.ConversationFormatter | None = None,
+    generation_config: nemo_curator.models.client.llm_client.GenerationConfig | dict | None = None
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>async</Badge> <Badge>abstract</Badge>
+
+Internal implementation of query_model without retry/concurrency logic.
+Subclasses should implement this method instead of query_model.
+
+
+</Indent>
+<Anchor id="nemo_curator-models-client-llm_client-AsyncLLMClient-query_model">
+
+<CodeBlock links={{"nemo_curator.models.client.llm_client.ConversationFormatter":"#nemo_curator-models-client-llm_client-ConversationFormatter","nemo_curator.models.client.llm_client.GenerationConfig":"#nemo_curator-models-client-llm_client-GenerationConfig"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.client.llm_client.AsyncLLMClient.query_model(
+    messages: collections.abc.Iterable,
+    model: str,
+    conversation_formatter: nemo_curator.models.client.llm_client.ConversationFormatter | None = None,
+    generation_config: nemo_curator.models.client.llm_client.GenerationConfig | dict | None = None
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>async</Badge>
+
+Query the model with automatic retry and concurrency control.
+
+
+</Indent>
+<Anchor id="nemo_curator-models-client-llm_client-AsyncLLMClient-setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.client.llm_client.AsyncLLMClient.setup() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Setup the client.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-client-llm_client-ConversationFormatter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.client.llm_client.ConversationFormatter()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Abstract</Badge>
+
+Represents a way of formatting a conversation with an LLM
+such that it can response appropriately
+
+
+<Anchor id="nemo_curator-models-client-llm_client-ConversationFormatter-format_conversation">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.client.llm_client.ConversationFormatter.format_conversation(
+    conv: list[dict]
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-client-llm_client-GenerationConfig">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.client.llm_client.GenerationConfig(
+    max_tokens: int | None = 2048,
+    n: int | None = 1,
+    seed: int | None = 0,
+    stop: str | None | list[str] = None,
+    stream: bool = False,
+    temperature: float | None = 0.0,
+    top_k: int | None = None,
+    top_p: float | None = 0.95,
+    extra_kwargs: dict | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+Configuration class for LLM generation parameters.
+
+
+<ParamField path="extra_kwargs" type="dict | None = None">
+</ParamField>
+
+<ParamField path="max_tokens" type="int | None = 2048">
+</ParamField>
+
+<ParamField path="n" type="int | None = 1">
+</ParamField>
+
+<ParamField path="seed" type="int | None = 0">
+</ParamField>
+
+<ParamField path="stop" type="str | None | list[str] = None">
+</ParamField>
+
+<ParamField path="stream" type="bool = False">
+</ParamField>
+
+<ParamField path="temperature" type="float | None = 0.0">
+</ParamField>
+
+<ParamField path="top_k" type="int | None = None">
+</ParamField>
+
+<ParamField path="top_p" type="float | None = 0.95">
+</ParamField>
+</Indent>
+
+<Anchor id="nemo_curator-models-client-llm_client-LLMClient">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.client.llm_client.LLMClient()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Abstract</Badge>
+
+Interface representing a client connecting to an LLM inference server
+and making requests synchronously
+
+
+<Anchor id="nemo_curator-models-client-llm_client-LLMClient-query_model">
+
+<CodeBlock links={{"nemo_curator.models.client.llm_client.ConversationFormatter":"#nemo_curator-models-client-llm_client-ConversationFormatter","nemo_curator.models.client.llm_client.GenerationConfig":"#nemo_curator-models-client-llm_client-GenerationConfig"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.client.llm_client.LLMClient.query_model(
+    messages: collections.abc.Iterable,
+    model: str,
+    conversation_formatter: nemo_curator.models.client.llm_client.ConversationFormatter | None = None,
+    generation_config: nemo_curator.models.client.llm_client.GenerationConfig | dict | None = None
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-models-client-llm_client-LLMClient-setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.client.llm_client.LLMClient.setup() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Setup the client.
+
+
+</Indent>
+</Indent>

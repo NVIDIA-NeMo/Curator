@@ -1,0 +1,374 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/audio/alm/alm_data_builder
+title: nemo_curator.stages.audio.alm.alm_data_builder
+---
+
+ALM Data Builder Stage - Native NeMo Curator Implementation.
+
+Creates training windows from audio segments.
+Follows the exact pattern from NeMo Curator:
+https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/audio/common.py
+
+Produces identical output to SDP implementation.
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ALMDataBuilderStage`](#nemo_curator-stages-audio-alm-alm_data_builder-ALMDataBuilderStage) | Build ALM training windows from audio segments. |
+| [`BuilderStats`](#nemo_curator-stages-audio-alm-alm_data_builder-BuilderStats) | Tracks segment loss reasons and counts during window building. |
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`_compute_speaker_durations`](#nemo_curator-stages-audio-alm-alm_data_builder-_compute_speaker_durations) | - |
+| [`_get_bandwidth`](#nemo_curator-stages-audio-alm-alm_data_builder-_get_bandwidth) | - |
+| [`_record_window_loss`](#nemo_curator-stages-audio-alm-alm_data_builder-_record_window_loss) | Record statistics for a rejected window. |
+| [`_truncate_segment`](#nemo_curator-stages-audio-alm-alm_data_builder-_truncate_segment) | Truncate a segment's words at the given end time, returning a modified copy. |
+
+### Data
+
+[`MIN_SEGMENTS_PER_WINDOW`](#nemo_curator-stages-audio-alm-alm_data_builder-MIN_SEGMENTS_PER_WINDOW)
+
+### API
+
+<Anchor id="nemo_curator-stages-audio-alm-alm_data_builder-ALMDataBuilderStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.audio.alm.alm_data_builder.ALMDataBuilderStage(
+    target_window_duration: float = 120.0,
+    tolerance: float = 0.1,
+    min_bandwidth: int = 8000,
+    min_sample_rate: int = 16000,
+    min_speakers: int = 2,
+    max_speakers: int = 5,
+    truncation: bool = True,
+    drop_fields: str = 'words',
+    drop_fields_top_level: str = 'words,segments',
+    name: str = 'alm_data_builder'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [LegacySpeechStage](/nemo-curator/nemo_curator/stages/audio/common#nemo_curator-stages-audio-common-LegacySpeechStage)
+
+Build ALM training windows from audio segments.
+
+Native NeMo Curator stage that filters segments by sample rate,
+bandwidth, speaker count, and duration to create valid training windows.
+
+This follows the exact pattern from nemo_curator.stages.audio.common:
+- Inherits from LegacySpeechStage
+- Uses @dataclass decorator
+- Implements process_dataset_entry() method
+- Returns list[AudioBatch] from process_dataset_entry
+
+Produces identical output to SDP implementation.
+
+
+<ParamField path="drop_fields" type="str = 'words'">
+</ParamField>
+
+<ParamField path="drop_fields_top_level" type="str = 'words,segments'">
+</ParamField>
+
+<ParamField path="max_speakers" type="int = 5">
+</ParamField>
+
+<ParamField path="min_bandwidth" type="int = 8000">
+</ParamField>
+
+<ParamField path="min_sample_rate" type="int = 16000">
+</ParamField>
+
+<ParamField path="min_speakers" type="int = 2">
+</ParamField>
+
+<ParamField path="name" type="str = 'alm_data_builder'">
+</ParamField>
+
+<ParamField path="target_window_duration" type="float = 120.0">
+</ParamField>
+
+<ParamField path="tolerance" type="float = 0.1">
+</ParamField>
+
+<ParamField path="truncation" type="bool = True">
+</ParamField>
+<Anchor id="nemo_curator-stages-audio-alm-alm_data_builder-ALMDataBuilderStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_data_builder.ALMDataBuilderStage.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Compute derived parameters - EXACT match to SDP.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-audio-alm-alm_data_builder-ALMDataBuilderStage-_process_single_entry">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_data_builder.ALMDataBuilderStage._process_single_entry(
+    entry_data: dict[str, typing.Any]
+) -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process a single entry and extract valid training windows.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-audio-alm-alm_data_builder-ALMDataBuilderStage-process_dataset_entry">
+
+<CodeBlock links={{"nemo_curator.tasks.AudioBatch":"/nemo-curator/nemo_curator/tasks/audio_batch#nemo_curator-tasks-audio_batch-AudioBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_data_builder.ALMDataBuilderStage.process_dataset_entry(
+    data_entry: dict[str, typing.Any]
+) -> list[nemo_curator.tasks.AudioBatch]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process a single manifest entry and build windows.
+
+**Parameters:**
+
+<ParamField path="data_entry" type="dict[str, Any]">
+Single entry from manifest (dict with audio_filepath, segments, etc.)
+</ParamField>
+
+**Returns:** `list[AudioBatch]`
+
+list[AudioBatch] - Always returns entry (even with empty windows, matching SDP)
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-audio-alm-alm_data_builder-BuilderStats">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.audio.alm.alm_data_builder.BuilderStats(
+    total_segments: int = 0,
+    total_dur: float = 0.0,
+    swift_path: str = '',
+    audio_sample_rate: int = 0,
+    lost_bw: int = 0,
+    dur_lost_bw: float = 0.0,
+    lost_sr: int = 0,
+    dur_lost_sr: float = 0.0,
+    lost_spk: int = 0,
+    dur_lost_spk: float = 0.0,
+    lost_win: int = 0,
+    dur_lost_win: float = 0.0,
+    lost_no_spkr: int = 0,
+    dur_lost_no_spkr: float = 0.0,
+    lost_next_seg_bm: int = 0,
+    dur_lost_next_seg_bm: float = 0.0,
+    lost_win_full_data: list = list()
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+Tracks segment loss reasons and counts during window building.
+
+
+<ParamField path="audio_sample_rate" type="int = 0">
+</ParamField>
+
+<ParamField path="dur_lost_bw" type="float = 0.0">
+</ParamField>
+
+<ParamField path="dur_lost_next_seg_bm" type="float = 0.0">
+</ParamField>
+
+<ParamField path="dur_lost_no_spkr" type="float = 0.0">
+</ParamField>
+
+<ParamField path="dur_lost_spk" type="float = 0.0">
+</ParamField>
+
+<ParamField path="dur_lost_sr" type="float = 0.0">
+</ParamField>
+
+<ParamField path="dur_lost_win" type="float = 0.0">
+</ParamField>
+
+<ParamField path="lost_bw" type="int = 0">
+</ParamField>
+
+<ParamField path="lost_next_seg_bm" type="int = 0">
+</ParamField>
+
+<ParamField path="lost_no_spkr" type="int = 0">
+</ParamField>
+
+<ParamField path="lost_spk" type="int = 0">
+</ParamField>
+
+<ParamField path="lost_sr" type="int = 0">
+</ParamField>
+
+<ParamField path="lost_win" type="int = 0">
+</ParamField>
+
+<ParamField path="lost_win_full_data" type="list = field(default_factory=list)">
+</ParamField>
+
+<ParamField path="swift_path" type="str = ''">
+</ParamField>
+
+<ParamField path="total_dur" type="float = 0.0">
+</ParamField>
+
+<ParamField path="total_segments" type="int = 0">
+</ParamField>
+<Anchor id="nemo_curator-stages-audio-alm-alm_data_builder-BuilderStats-to_dict">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_data_builder.BuilderStats.to_dict() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-audio-alm-alm_data_builder-_compute_speaker_durations">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_data_builder._compute_speaker_durations(
+    segments: list[dict[str, typing.Any]]
+) -> dict[str, float]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-audio-alm-alm_data_builder-_get_bandwidth">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_data_builder._get_bandwidth(
+    seg: dict[str, typing.Any]
+) -> int
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-audio-alm-alm_data_builder-_record_window_loss">
+
+<CodeBlock links={{"nemo_curator.stages.audio.alm.alm_data_builder.BuilderStats":"#nemo_curator-stages-audio-alm-alm_data_builder-BuilderStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_data_builder._record_window_loss(
+    stat: nemo_curator.stages.audio.alm.alm_data_builder.BuilderStats,
+    seg: dict[str, typing.Any],
+    segments: list[dict[str, typing.Any]],
+    start_idx: int,
+    curr_idx: int,
+    window_segs: list[dict[str, typing.Any]],
+    drop_fields: set[str],
+    min_bandwidth: int
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Record statistics for a rejected window.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-audio-alm-alm_data_builder-_truncate_segment">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_data_builder._truncate_segment(
+    seg: dict[str, typing.Any],
+    truncated_end: float
+) -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Truncate a segment's words at the given end time, returning a modified copy.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-audio-alm-alm_data_builder-MIN_SEGMENTS_PER_WINDOW">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_data_builder.MIN_SEGMENTS_PER_WINDOW = 2
+```
+
+</CodeBlock>
+</Anchor>
+

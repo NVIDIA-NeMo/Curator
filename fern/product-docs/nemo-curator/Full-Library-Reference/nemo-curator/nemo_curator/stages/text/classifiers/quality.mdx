@@ -1,0 +1,79 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/classifiers/quality
+title: nemo_curator.stages.text.classifiers.quality
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`QualityClassifier`](#nemo_curator-stages-text-classifiers-quality-QualityClassifier) | QualityClassifier is a specialized classifier designed for quality assessment tasks, |
+
+### Data
+
+[`MAX_SEQ_LENGTH`](#nemo_curator-stages-text-classifiers-quality-MAX_SEQ_LENGTH)
+
+[`QUALITY_CLASSIFIER_MODEL_IDENTIFIER`](#nemo_curator-stages-text-classifiers-quality-QUALITY_CLASSIFIER_MODEL_IDENTIFIER)
+
+### API
+
+<Anchor id="nemo_curator-stages-text-classifiers-quality-QualityClassifier">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.classifiers.quality.QualityClassifier(
+    cache_dir: str | None = None,
+    label_field: str = 'quality_pred',
+    score_field: str | None = None,
+    text_field: str = 'text',
+    filter_by: list[str] | None = None,
+    max_chars: int = 6000,
+    sort_by_length: bool = True,
+    model_inference_batch_size: int = 256,
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DistributedDataClassifier](/nemo-curator/nemo_curator/stages/text/classifiers/base#nemo_curator-stages-text-classifiers-base-DistributedDataClassifier)
+
+QualityClassifier is a specialized classifier designed for quality assessment tasks,
+utilizing the NemoCurator Quality Classifier DeBERTa model (https://huggingface.co/nvidia/quality-classifier-deberta).
+This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
+
+
+<ParamField path="name">
+</ParamField>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-classifiers-quality-MAX_SEQ_LENGTH">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.quality.MAX_SEQ_LENGTH = 1024
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-text-classifiers-quality-QUALITY_CLASSIFIER_MODEL_IDENTIFIER">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.classifiers.quality.QUALITY_CLASSIFIER_MODEL_IDENTIFIER = 'nvidia/quality-classifier-deberta'
+```
+
+</CodeBlock>
+</Anchor>
+

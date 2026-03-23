@@ -1,0 +1,108 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/math/modifiers/merge_chunks
+title: nemo_curator.stages.math.modifiers.merge_chunks
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ChunkMergeStage`](#nemo_curator-stages-math-modifiers-merge_chunks-ChunkMergeStage) | Merges chunked documents back into one row per document. |
+
+### API
+
+<Anchor id="nemo_curator-stages-math-modifiers-merge_chunks-ChunkMergeStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.math.modifiers.merge_chunks.ChunkMergeStage(
+    text_field: str = 'cleaned_text',
+    raw_text_field: str | None = 'text',
+    chunk_id_field: str = 'chunk_id',
+    groupby_columns: list[str] | None = None,
+    no_content_markers: list[str] | None = None,
+    sum_columns: list[str] | None = None,
+    max_text_length: int = 900000,
+    separator: str = '\n'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ProcessingStage[DocumentBatch, DocumentBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Merges chunked documents back into one row per document.
+
+After LLM cleanup, the pipeline has multiple rows per document (one per
+chunk). This stage deduplicates, filters invalid chunks, sorts by chunk
+order, and concatenates text back into a single row per document.
+
+
+<ParamField path="groupby_columns" type="= groupby_columns or ['url']">
+</ParamField>
+
+<ParamField path="name" type="= 'chunk_merge'">
+</ParamField>
+
+<ParamField path="no_content_markers">
+</ParamField>
+
+<ParamField path="sum_columns">
+</ParamField>
+<Anchor id="nemo_curator-stages-math-modifiers-merge_chunks-ChunkMergeStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.math.modifiers.merge_chunks.ChunkMergeStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-math-modifiers-merge_chunks-ChunkMergeStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.math.modifiers.merge_chunks.ChunkMergeStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-math-modifiers-merge_chunks-ChunkMergeStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.DocumentBatch":"/nemo-curator/nemo_curator/tasks/document#nemo_curator-tasks-document-DocumentBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.math.modifiers.merge_chunks.ChunkMergeStage.process(
+    batch: nemo_curator.tasks.DocumentBatch
+) -> nemo_curator.tasks.DocumentBatch
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Merge chunked rows back into one row per document.
+
+
+</Indent>
+</Indent>

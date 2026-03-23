@@ -1,0 +1,524 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/interleaved/io/readers/webdataset
+title: nemo_curator.stages.interleaved.io.readers.webdataset
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`WebdatasetReaderStage`](#nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage) | Read MINT1T-style WebDataset shards into a row-wise multimodal task. |
+| [`_ReadContext`](#nemo_curator-stages-interleaved-io-readers-webdataset-_ReadContext) | Per-tar state shared across all members in a single tar archive. |
+| [`_SampleContext`](#nemo_curator-stages-interleaved-io-readers-webdataset-_SampleContext) | Per-sample state passed to row builder methods. |
+
+### API
+
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage(
+    read_kwargs: dict[str, typing.Any] = dict(),
+    name: str = 'webdataset_reader',
+    materialize_on_read: bool = False,
+    max_batch_bytes: int | None = None,
+    json_extensions: tuple[str, ...] = DEFAULT_JSON_EXTENSIONS,
+    image_extensions: tuple[str, ...] = (lambda: DEFAULT_IMAGE_EXTE...,
+    source_id_field: str = '',
+    sample_id_field: str | None = None,
+    texts_field: str = 'texts',
+    images_field: str = 'images',
+    image_member_field: str | None = None,
+    fields: tuple[str, ...] | None = None,
+    per_image_fields: tuple[str, ...] = (),
+    per_text_fields: tuple[str, ...] = ()
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [BaseInterleavedReader](/nemo-curator/nemo_curator/stages/interleaved/io/readers/base#nemo_curator-stages-interleaved-io-readers-base-BaseInterleavedReader)
+
+Read MINT1T-style WebDataset shards into a row-wise multimodal task.
+
+
+<ParamField path="fields" type="tuple[str, ...] | None = None">
+</ParamField>
+
+<ParamField path="image_extensions" type="tuple[str, ...]">
+</ParamField>
+
+<ParamField path="image_member_field" type="str | None = None">
+</ParamField>
+
+<ParamField path="images_field" type="str = 'images'">
+</ParamField>
+
+<ParamField path="json_extensions" type="tuple[str, ...] = DEFAULT_JSON_EXTENSIONS">
+</ParamField>
+
+<ParamField path="materialize_on_read" type="bool = False">
+</ParamField>
+
+<ParamField path="max_batch_bytes" type="int | None = None">
+</ParamField>
+
+<ParamField path="name" type="str = 'webdataset_reader'">
+</ParamField>
+
+<ParamField path="per_image_fields" type="tuple[str, ...] = ()">
+</ParamField>
+
+<ParamField path="per_text_fields" type="tuple[str, ...] = ()">
+</ParamField>
+
+<ParamField path="sample_id_field" type="str | None = None">
+</ParamField>
+
+<ParamField path="source_id_field" type="str = ''">
+</ParamField>
+
+<ParamField path="texts_field" type="str = 'texts'">
+</ParamField>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_apply_per_modality_fields">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._apply_per_modality_fields(
+    row: dict[str, typing.Any],
+    passthrough: dict[str, list[typing.Any]],
+    index: int
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_build_passthrough_row">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._build_passthrough_row(
+    sample: dict[str, typing.Any]
+) -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_build_row">
+
+<CodeBlock links={{"nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext":"#nemo_curator-stages-interleaved-io-readers-webdataset-_SampleContext"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._build_row(
+    ctx: nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext,
+    row_fields: dict[str, typing.Any]
+) -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_build_source_ref">
+
+<CodeBlock links={{"nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext":"#nemo_curator-stages-interleaved-io-readers-webdataset-_SampleContext"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._build_source_ref(
+    ctx: nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext,
+    content_key: str | None,
+    frame_index: int | None = None
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_empty_output_schema">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._empty_output_schema() -> pyarrow.Schema
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_extract_per_modality_fields">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._extract_per_modality_fields(
+    sample: dict[str, typing.Any],
+    field_names: tuple[str, ...]
+) -> dict[str, list[typing.Any]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_extract_tar_member">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._extract_tar_member(
+    tf: tarfile.TarFile,
+    member_name: str,
+    cache: dict[str, bytes | None]
+) -> bytes | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_image_rows">
+
+<CodeBlock links={{"nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext":"#nemo_curator-stages-interleaved-io-readers-webdataset-_SampleContext"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._image_rows(
+    ctx: nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext
+) -> list[dict[str, typing.Any]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_metadata_row">
+
+<CodeBlock links={{"nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext":"#nemo_curator-stages-interleaved-io-readers-webdataset-_SampleContext"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._metadata_row(
+    ctx: nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext
+) -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_reconcile_schema">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._reconcile_schema(
+    inferred: pyarrow.Schema
+) -> pyarrow.Schema
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Build a schema with canonical types for reserved columns and inferred types for passthrough.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_resolve_default_image_member_name">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._resolve_default_image_member_name(
+    sample_id: str,
+    sample: dict[str, typing.Any],
+    images: list[object] | None,
+    member_names: set[str]
+) -> str | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_resolve_image_content_key">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._resolve_image_content_key(
+    image_token: object,
+    default_image_member_name: str | None,
+    member_names: set[str]
+) -> str | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_rows_from_member">
+
+<CodeBlock links={{"nemo_curator.stages.interleaved.io.readers.webdataset._ReadContext":"#nemo_curator-stages-interleaved-io-readers-webdataset-_ReadContext"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._rows_from_member(
+    tf: tarfile.TarFile,
+    member: tarfile.TarInfo,
+    read_ctx: nemo_curator.stages.interleaved.io.readers.webdataset._ReadContext
+) -> list[dict[str, typing.Any]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_rows_from_sample">
+
+<CodeBlock links={{"nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext":"#nemo_curator-stages-interleaved-io-readers-webdataset-_SampleContext"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._rows_from_sample(
+    ctx: nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext
+) -> list[dict[str, typing.Any]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_text_rows">
+
+<CodeBlock links={{"nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext":"#nemo_curator-stages-interleaved-io-readers-webdataset-_SampleContext"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._text_rows(
+    ctx: nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext
+) -> list[dict[str, typing.Any]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-_warn_per_modality_length_mismatch">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage._warn_per_modality_length_mismatch(
+    sample_id: str,
+    passthrough: dict[str, list[typing.Any]],
+    actual_count: int,
+    modality: str
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-WebdatasetReaderStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask","nemo_curator.tasks.InterleavedBatch":"/nemo-curator/nemo_curator/tasks/interleaved#nemo_curator-tasks-interleaved-InterleavedBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.interleaved.io.readers.webdataset.WebdatasetReaderStage.process(
+    task: nemo_curator.tasks.FileGroupTask
+) -> nemo_curator.tasks.InterleavedBatch | list[nemo_curator.tasks.InterleavedBatch]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-_ReadContext">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.interleaved.io.readers.webdataset._ReadContext(
+    tar_path: str,
+    member_names: set[str],
+    member_info: dict[str, tarfile.TarInfo],
+    storage_options: dict[str, object],
+    byte_cache: dict[str, bytes | None]
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+Per-tar state shared across all members in a single tar archive.
+
+
+<ParamField path="byte_cache" type="dict[str, bytes | None]">
+</ParamField>
+
+<ParamField path="member_info" type="dict[str, TarInfo]">
+</ParamField>
+
+<ParamField path="member_names" type="set[str]">
+</ParamField>
+
+<ParamField path="storage_options" type="dict[str, object]">
+</ParamField>
+
+<ParamField path="tar_path" type="str">
+</ParamField>
+</Indent>
+
+<Anchor id="nemo_curator-stages-interleaved-io-readers-webdataset-_SampleContext">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.interleaved.io.readers.webdataset._SampleContext(
+    sample_id: str,
+    sample: dict[str, typing.Any],
+    tar_path: str,
+    json_member_name: str,
+    member_names: set[str],
+    member_info: dict[str, tarfile.TarInfo] | None,
+    passthrough: dict[str, typing.Any],
+    per_image_passthrough: dict[str, list[typing.Any]],
+    per_text_passthrough: dict[str, list[typing.Any]]
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+Per-sample state passed to row builder methods.
+
+
+<ParamField path="json_member_name" type="str">
+</ParamField>
+
+<ParamField path="member_info" type="dict[str, TarInfo] | None">
+</ParamField>
+
+<ParamField path="member_names" type="set[str]">
+</ParamField>
+
+<ParamField path="passthrough" type="dict[str, Any]">
+</ParamField>
+
+<ParamField path="per_image_passthrough" type="dict[str, list[Any]]">
+</ParamField>
+
+<ParamField path="per_text_passthrough" type="dict[str, list[Any]]">
+</ParamField>
+
+<ParamField path="sample" type="dict[str, Any]">
+</ParamField>
+
+<ParamField path="sample_id" type="str">
+</ParamField>
+
+<ParamField path="tar_path" type="str">
+</ParamField>
+</Indent>

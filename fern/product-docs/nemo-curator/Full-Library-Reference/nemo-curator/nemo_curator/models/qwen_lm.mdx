@@ -1,0 +1,184 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/models/qwen_lm
+title: nemo_curator.models.qwen_lm
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`LLM`](#nemo_curator-models-qwen_lm-LLM) | - |
+| [`QwenLM`](#nemo_curator-models-qwen_lm-QwenLM) | Qwen language model. |
+| [`SamplingParams`](#nemo_curator-models-qwen_lm-SamplingParams) | - |
+
+### Data
+
+[`VLLM_AVAILABLE`](#nemo_curator-models-qwen_lm-VLLM_AVAILABLE)
+
+[`_QWEN_LM_MODEL_ID`](#nemo_curator-models-qwen_lm-_QWEN_LM_MODEL_ID)
+
+[`_QWEN_LM_MODEL_REVISION`](#nemo_curator-models-qwen_lm-_QWEN_LM_MODEL_REVISION)
+
+### API
+
+<Anchor id="nemo_curator-models-qwen_lm-LLM">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.qwen_lm.LLM()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+</Indent>
+
+<Anchor id="nemo_curator-models-qwen_lm-QwenLM">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.qwen_lm.QwenLM(
+    model_dir: str,
+    caption_batch_size: int,
+    fp8: bool,
+    max_output_tokens: int
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ModelInterface](/nemo-curator/nemo_curator/models/base#nemo_curator-models-base-ModelInterface)
+
+Qwen language model.
+
+
+<Anchor id="nemo_curator-models-qwen_lm-QwenLM-download_weights_on_node">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.qwen_lm.QwenLM.download_weights_on_node(
+    model_dir: str
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>classmethod</Badge>
+
+Download the weights for the QwenLM model on the node.
+
+
+</Indent>
+<Anchor id="nemo_curator-models-qwen_lm-QwenLM-generate">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.qwen_lm.QwenLM.generate(
+    inputs: list[dict[str, typing.Any]]
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-models-qwen_lm-QwenLM-model_id_names">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.qwen_lm.QwenLM.model_id_names() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-models-qwen_lm-QwenLM-setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.qwen_lm.QwenLM.setup() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-qwen_lm-SamplingParams">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.qwen_lm.SamplingParams()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+</Indent>
+
+<Anchor id="nemo_curator-models-qwen_lm-VLLM_AVAILABLE">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.qwen_lm.VLLM_AVAILABLE = True
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-models-qwen_lm-_QWEN_LM_MODEL_ID">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.qwen_lm._QWEN_LM_MODEL_ID = 'Qwen/Qwen2.5-14B-Instruct'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-models-qwen_lm-_QWEN_LM_MODEL_REVISION">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.qwen_lm._QWEN_LM_MODEL_REVISION = 'cf98f3b'
+```
+
+</CodeBlock>
+</Anchor>
+

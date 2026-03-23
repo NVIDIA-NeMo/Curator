@@ -1,0 +1,190 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/deduplication/fuzzy/connected_components
+title: nemo_curator.stages.deduplication.fuzzy.connected_components
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ConnectedComponentsStage`](#nemo_curator-stages-deduplication-fuzzy-connected_components-ConnectedComponentsStage) | - |
+
+### API
+
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-connected_components-ConnectedComponentsStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.deduplication.fuzzy.connected_components.ConnectedComponentsStage(
+    output_path: str,
+    source_field: str | None = None,
+    destination_field: str | None = None,
+    read_kwargs: dict | None = None,
+    write_kwargs: dict | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ProcessingStage[FileGroupTask, FileGroupTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage), [DeduplicationIO](/nemo-curator/nemo_curator/stages/deduplication/io_utils#nemo_curator-stages-deduplication-io_utils-DeduplicationIO)
+
+<ParamField path="destination_field" type="= destination_field or f'&#123;CURATOR_DEDUP_ID_STR&#125;_y'">
+</ParamField>
+
+<ParamField path="name" type="= self.__class__.__name__">
+</ParamField>
+
+<ParamField path="output_fs">
+</ParamField>
+
+<ParamField path="output_path" type="= self.output_fs.sep.join([output_path, self.name])">
+</ParamField>
+
+<ParamField path="read_kwargs" type="= read_kwargs if read_kwargs is not None else &#123;&#125;">
+</ParamField>
+
+<ParamField path="resources" type="= Resources(cpus=1.0, gpus=1.0)">
+</ParamField>
+
+<ParamField path="source_field" type="= source_field or f'&#123;CURATOR_DEDUP_ID_STR&#125;_x'">
+</ParamField>
+
+<ParamField path="write_kwargs" type="= write_kwargs if write_kwargs is not None else &#123;&#125;">
+</ParamField>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-connected_components-ConnectedComponentsStage-_setup_post">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.connected_components.ConnectedComponentsStage._setup_post() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Setup the sub-communicator for cuGraph communications.
+
+This method is specific to cuGraph comms and is used to initialize the
+sub-communicator.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-connected_components-ConnectedComponentsStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.file_group.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.connected_components.ConnectedComponentsStage.process(
+    task: nemo_curator.tasks.file_group.FileGroupTask
+) -> nemo_curator.tasks.file_group.FileGroupTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-connected_components-ConnectedComponentsStage-process_batch">
+
+<CodeBlock links={{"nemo_curator.tasks.file_group.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.connected_components.ConnectedComponentsStage.process_batch(
+    tasks: list[nemo_curator.tasks.file_group.FileGroupTask]
+) -> list[nemo_curator.tasks.file_group.FileGroupTask]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process a batch of input files containing edges between documents.
+Compute the weakly connected components of the graph and write a mapping of document ids to their connected component id.
+
+Parameters
+----------
+tasks: list[FileGroupTask]
+    A list of FileGroupTasks containing the input files.
+Returns
+-------
+list[FileGroupTask]
+    A list of FileGroupTasks containing the output doc_id to connected component id mapping.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-connected_components-ConnectedComponentsStage-ray_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.connected_components.ConnectedComponentsStage.ray_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-connected_components-ConnectedComponentsStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.connected_components.ConnectedComponentsStage.setup(
+    _worker_metadata: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-connected_components-ConnectedComponentsStage-weakly_connected_components">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.connected_components.ConnectedComponentsStage.weakly_connected_components(
+    df: cudf.DataFrame,
+    src_col: str,
+    dst_col: str
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Compute the weakly connected components of a graph.
+
+This method loads a chunk of the graph, creates a cuGraph object, and
+computes the weakly connected components using the MGGraph library.
+
+Parameters
+----------
+start: int
+    The start index of the chunk.
+stop: int
+    The stop index of the chunk.
+
+
+</Indent>
+</Indent>

@@ -1,0 +1,55 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/html_extractors/resiliparse
+title: nemo_curator.stages.text.download.html_extractors.resiliparse
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ResiliparseExtractor`](#nemo_curator-stages-text-download-html_extractors-resiliparse-ResiliparseExtractor) | - |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-html_extractors-resiliparse-ResiliparseExtractor">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.html_extractors.resiliparse.ResiliparseExtractor(
+    required_stopword_density: float = 0.32,
+    main_content: bool = True,
+    alt_texts: bool = False
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [HTMLExtractorAlgorithm](/nemo-curator/nemo_curator/stages/text/download/html_extractors/base#nemo_curator-stages-text-download-html_extractors-base-HTMLExtractorAlgorithm)
+
+<Anchor id="nemo_curator-stages-text-download-html_extractors-resiliparse-ResiliparseExtractor-extract_text">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.html_extractors.resiliparse.ResiliparseExtractor.extract_text(
+    html: str,
+    stop_words: frozenset[str],
+    language: str
+) -> list[str] | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

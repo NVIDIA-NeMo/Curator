@@ -1,0 +1,357 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/deduplication/semantic/kmeans
+title: nemo_curator.stages.deduplication.semantic.kmeans
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`KMeansReadFitWriteStage`](#nemo_curator-stages-deduplication-semantic-kmeans-KMeansReadFitWriteStage) | KMeans clustering stage that requires RAFT for distributed processing. |
+| [`KMeansStage`](#nemo_curator-stages-deduplication-semantic-kmeans-KMeansStage) | KMeans clustering stage that requires RAFT for distributed processing. |
+
+### Data
+
+[`COSINE_DIST_TO_CENT_COL`](#nemo_curator-stages-deduplication-semantic-kmeans-COSINE_DIST_TO_CENT_COL)
+
+[`L2_DIST_TO_CENT_COL`](#nemo_curator-stages-deduplication-semantic-kmeans-L2_DIST_TO_CENT_COL)
+
+### API
+
+<Anchor id="nemo_curator-stages-deduplication-semantic-kmeans-KMeansReadFitWriteStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.deduplication.semantic.kmeans.KMeansReadFitWriteStage(
+    id_field: str,
+    embedding_field: str,
+    output_path: str,
+    filetype: typing.Literal['parquet', 'jsonl'],
+    n_clusters: int,
+    metadata_fields: list[str] | None = None,
+    embedding_dim: int | None = None,
+    verbose: bool = False,
+    max_iter: int = 300,
+    tol: float = 0.0001,
+    random_state: int = 42,
+    init: typing.Literal['k-means||', 'random'] | numpy.ndarray = 'k-means||',
+    n_init: int | typing.Literal['auto'] = 1,
+    oversampling_factor: float = 2.0,
+    max_samples_per_batch: int = 1 << 15,
+    read_kwargs: dict[dict] | None = None,
+    write_kwargs: dict[dict] | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ProcessingStage[FileGroupTask, _EmptyTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage), [DeduplicationIO](/nemo-curator/nemo_curator/stages/deduplication/io_utils#nemo_curator-stages-deduplication-io_utils-DeduplicationIO)
+
+KMeans clustering stage that requires RAFT for distributed processing.
+
+
+<ParamField path="input_storage_options" type="= self.read_kwargs.pop('storage_options', None)">
+</ParamField>
+
+<ParamField path="metadata_fields">
+</ParamField>
+
+<ParamField path="name" type="= 'KMeansStage'">
+</ParamField>
+
+<ParamField path="output_storage_options" type="= self.write_kwargs.pop('storage_options', None)">
+</ParamField>
+
+<ParamField path="read_kwargs">
+</ParamField>
+
+<ParamField path="resources" type="= Resources(cpus=1.0, gpus=1.0)">
+</ParamField>
+
+<ParamField path="write_kwargs">
+</ParamField>
+<Anchor id="nemo_curator-stages-deduplication-semantic-kmeans-KMeansReadFitWriteStage-_assign_distances">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.kmeans.KMeansReadFitWriteStage._assign_distances(
+    df: cudf.DataFrame,
+    embedding_col: str,
+    centroids: cupy.ndarray
+) -> cudf.DataFrame
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+Computes the L2 distance to nearest centroid to each embedding in the DataFrame.
+Embeddings are normalized. For cosine we'll need to normalize the centroids as well.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-kmeans-KMeansReadFitWriteStage-normalize_embeddings_col_in_df">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.kmeans.KMeansReadFitWriteStage.normalize_embeddings_col_in_df(
+    df: cudf.DataFrame,
+    embedding_col: str
+) -> cudf.DataFrame
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>staticmethod</Badge>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-kmeans-KMeansReadFitWriteStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask","nemo_curator.tasks._EmptyTask":"/nemo-curator/nemo_curator/tasks/tasks#nemo_curator-tasks-tasks-_EmptyTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.kmeans.KMeansReadFitWriteStage.process(
+    task: nemo_curator.tasks.FileGroupTask
+) -> nemo_curator.tasks._EmptyTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-kmeans-KMeansReadFitWriteStage-process_batch">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask","nemo_curator.tasks._EmptyTask":"/nemo-curator/nemo_curator/tasks/tasks#nemo_curator-tasks-tasks-_EmptyTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.kmeans.KMeansReadFitWriteStage.process_batch(
+    tasks: list[nemo_curator.tasks.FileGroupTask]
+) -> list[nemo_curator.tasks._EmptyTask]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process a batch of FileGroupTasks using distributed RAFT KMeans.
+
+In RAFT mode, each actor processes its assigned tasks, but the KMeans model
+is trained cooperatively across all actors using RAFT communication.
+
+This method:
+1. Reads data from this actor's assigned tasks
+2. Breaks data into subgroups to avoid cudf row limits
+3. Fits distributed KMeans model (coordinates with other actors via RAFT)
+4. Assigns cluster centroids back to each subgroup
+5. Writes the results for each subgroup
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-kmeans-KMeansReadFitWriteStage-ray_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.kmeans.KMeansReadFitWriteStage.ray_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-kmeans-KMeansReadFitWriteStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.kmeans.KMeansReadFitWriteStage.setup(
+    _: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-deduplication-semantic-kmeans-KMeansStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.deduplication.semantic.kmeans.KMeansStage(
+    n_clusters: int,
+    id_field: str,
+    embedding_field: str,
+    input_path: str | list[str],
+    output_path: str,
+    metadata_fields: list[str] | None = None,
+    verbose: bool = False,
+    embedding_dim: int | None = None,
+    input_filetype: typing.Literal['jsonl', 'parquet'] = 'parquet',
+    input_file_extensions: list[str] | None = None,
+    read_kwargs: dict[dict] | None = None,
+    write_kwargs: dict[dict] | None = None,
+    max_iter: int = 300,
+    tol: float = 0.0001,
+    random_state: int = 42,
+    init: typing.Literal['k-means||', 'random'] | numpy.ndarray = 'k-means||',
+    n_init: int | typing.Literal['auto'] = 1,
+    oversampling_factor: float = 2.0,
+    max_samples_per_batch: int = 1 << 15
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [CompositeStage[_EmptyTask, _EmptyTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-CompositeStage)
+
+KMeans clustering stage that requires RAFT for distributed processing.
+
+
+<ParamField path="embedding_dim" type="int | None = None">
+</ParamField>
+
+<ParamField path="embedding_field" type="str">
+</ParamField>
+
+<ParamField path="id_field" type="str">
+</ParamField>
+
+<ParamField path="init" type="Literal['k-means||', 'random'] | ndarray = 'k-means||'">
+</ParamField>
+
+<ParamField path="input_file_extensions" type="list[str] | None = None">
+</ParamField>
+
+<ParamField path="input_filetype" type="Literal['jsonl', 'parquet'] = 'parquet'">
+</ParamField>
+
+<ParamField path="input_path" type="str | list[str]">
+</ParamField>
+
+<ParamField path="max_iter" type="int = 300">
+</ParamField>
+
+<ParamField path="max_samples_per_batch" type="int = 1 &lt;&lt; 15">
+KMeans clustering stage that requires RAFT for distributed processing.
+</ParamField>
+
+<ParamField path="metadata_fields" type="list[str] | None = None">
+</ParamField>
+
+<ParamField path="n_clusters" type="int">
+</ParamField>
+
+<ParamField path="n_init" type="int | Literal['auto'] = 1">
+</ParamField>
+
+<ParamField path="output_path" type="str">
+</ParamField>
+
+<ParamField path="oversampling_factor" type="float = 2.0">
+</ParamField>
+
+<ParamField path="random_state" type="int = 42">
+</ParamField>
+
+<ParamField path="read_kwargs" type="dict[dict] | None = None">
+</ParamField>
+
+<ParamField path="tol" type="float = 0.0001">
+</ParamField>
+
+<ParamField path="verbose" type="bool = False">
+</ParamField>
+
+<ParamField path="write_kwargs" type="dict[dict] | None = None">
+</ParamField>
+<Anchor id="nemo_curator-stages-deduplication-semantic-kmeans-KMeansStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.kmeans.KMeansStage.__post_init__()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Initialize parent class after dataclass initialization.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-semantic-kmeans-KMeansStage-decompose">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.kmeans.KMeansStage.decompose() -> list[nemo_curator.stages.base.ProcessingStage]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-deduplication-semantic-kmeans-COSINE_DIST_TO_CENT_COL">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.kmeans.COSINE_DIST_TO_CENT_COL = 'cosine_dist_to_cent'
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-stages-deduplication-semantic-kmeans-L2_DIST_TO_CENT_COL">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.semantic.kmeans.L2_DIST_TO_CENT_COL = 'l2_dist_to_cent'
+```
+
+</CodeBlock>
+</Anchor>
+

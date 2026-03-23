@@ -1,0 +1,56 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/math/download/html_extractors/lynx
+title: nemo_curator.stages.math.download.html_extractors.lynx
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`LynxExtractor`](#nemo_curator-stages-math-download-html_extractors-lynx-LynxExtractor) | Extract text from HTML using the lynx command-line browser. |
+
+### API
+
+<Anchor id="nemo_curator-stages-math-download-html_extractors-lynx-LynxExtractor">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.math.download.html_extractors.lynx.LynxExtractor(
+    timeout_sec: int = 20
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Extract text from HTML using the lynx command-line browser.
+
+
+<Anchor id="nemo_curator-stages-math-download-html_extractors-lynx-LynxExtractor-extract_text">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.math.download.html_extractors.lynx.LynxExtractor.extract_text(
+    html: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Extract text from HTML content.
+
+Returns empty string on any failure (timeout, encoding errors, etc).
+
+
+</Indent>
+</Indent>

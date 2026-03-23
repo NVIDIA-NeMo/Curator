@@ -1,0 +1,257 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/utils/performance_utils
+title: nemo_curator.utils.performance_utils
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`StagePerfStats`](#nemo_curator-utils-performance_utils-StagePerfStats) | Statistics for tracking stage performance metrics. |
+| [`StageTimer`](#nemo_curator-utils-performance_utils-StageTimer) | Tracker for stage performance stats. |
+
+### API
+
+<Anchor id="nemo_curator-utils-performance_utils-StagePerfStats">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.utils.performance_utils.StagePerfStats()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Statistics for tracking stage performance metrics.
+Attributes:
+    stage_name: Name of the processing stage.
+    process_time: Total processing time in seconds.
+    actor_idle_time: Time the actor spent idle in seconds.
+    input_data_size_mb: Size of input data in megabytes.
+    num_items_processed: Number of items processed in this stage.
+    custom_metrics: Custom metrics to track.
+
+
+<ParamField path="actor_idle_time" type="float = 0.0">
+</ParamField>
+
+<ParamField path="custom_metrics" type="dict[str, float] = attrs.field(factory=dict)">
+</ParamField>
+
+<ParamField path="input_data_size_mb" type="float = 0.0">
+</ParamField>
+
+<ParamField path="num_items_processed" type="int = 0">
+</ParamField>
+
+<ParamField path="process_time" type="float = 0.0">
+</ParamField>
+
+<ParamField path="stage_name" type="str">
+</ParamField>
+<Anchor id="nemo_curator-utils-performance_utils-StagePerfStats-__add__">
+
+<CodeBlock links={{"nemo_curator.utils.performance_utils.StagePerfStats":"#nemo_curator-utils-performance_utils-StagePerfStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.performance_utils.StagePerfStats.__add__(
+    other: nemo_curator.utils.performance_utils.StagePerfStats
+) -> nemo_curator.utils.performance_utils.StagePerfStats
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Add two StagePerfStats.
+
+
+</Indent>
+<Anchor id="nemo_curator-utils-performance_utils-StagePerfStats-__radd__">
+
+<CodeBlock links={{"nemo_curator.utils.performance_utils.StagePerfStats":"#nemo_curator-utils-performance_utils-StagePerfStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.performance_utils.StagePerfStats.__radd__(
+    other: int | nemo_curator.utils.performance_utils.StagePerfStats
+) -> nemo_curator.utils.performance_utils.StagePerfStats
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Add two StagePerfStats together, if right is 0, returns itself.
+
+
+</Indent>
+<Anchor id="nemo_curator-utils-performance_utils-StagePerfStats-items">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.performance_utils.StagePerfStats.items() -> list[tuple[str, float | int]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Returns (metric_name, metric_value) pairs
+custom_metrics are flattened into the format (custom.&lt;metric_name&gt;, metric_value)
+
+
+</Indent>
+<Anchor id="nemo_curator-utils-performance_utils-StagePerfStats-reset">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.performance_utils.StagePerfStats.reset() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Reset the stats.
+
+
+</Indent>
+<Anchor id="nemo_curator-utils-performance_utils-StagePerfStats-to_dict">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.performance_utils.StagePerfStats.to_dict() -> dict[str, float | int]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Convert the stats to a dictionary.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-utils-performance_utils-StageTimer">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.utils.performance_utils.StageTimer(
+    stage: nemo_curator.stages.base.ProcessingStage
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Tracker for stage performance stats.
+Tracks processing time and other metrics at a per process_data call level.
+
+
+<ParamField path="_last_active_time" type="= time.time()">
+</ParamField>
+
+<ParamField path="_stage_name" type="= str(stage.name)">
+</ParamField>
+<Anchor id="nemo_curator-utils-performance_utils-StageTimer-_reset">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.performance_utils.StageTimer._reset() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Reset internal counters.
+
+
+</Indent>
+<Anchor id="nemo_curator-utils-performance_utils-StageTimer-log_stats">
+
+<CodeBlock links={{"nemo_curator.utils.performance_utils.StagePerfStats":"#nemo_curator-utils-performance_utils-StagePerfStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.performance_utils.StageTimer.log_stats(
+    verbose: bool = False
+) -> tuple[str, nemo_curator.utils.performance_utils.StagePerfStats]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Log the stats of the stage.
+Args:
+    verbose: Whether to log the stats verbosely.
+Returns:
+    A tuple of the stage name and the stage performance stats.
+
+
+</Indent>
+<Anchor id="nemo_curator-utils-performance_utils-StageTimer-reinit">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.performance_utils.StageTimer.reinit(
+    stage_input_size: int = 1
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Reinitialize the stage timer.
+Args:
+    stage: The stage to reinitialize the timer for.
+    stage_input_size: The size of the stage input.
+
+
+</Indent>
+<Anchor id="nemo_curator-utils-performance_utils-StageTimer-time_process">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.utils.performance_utils.StageTimer.time_process(
+    num_items: int = 1
+) -> collections.abc.Generator[None, None, None]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Time the processing of the stage.
+Args:
+    num_items: The number of items being processed.
+
+
+</Indent>
+</Indent>

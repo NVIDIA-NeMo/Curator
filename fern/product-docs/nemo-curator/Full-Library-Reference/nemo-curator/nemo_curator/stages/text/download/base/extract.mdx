@@ -1,0 +1,97 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/base/extract
+title: nemo_curator.stages.text.download.base.extract
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`DocumentExtractor`](#nemo_curator-stages-text-download-base-extract-DocumentExtractor) | Abstract base class for document extractors. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-base-extract-DocumentExtractor">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.base.extract.DocumentExtractor()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Abstract</Badge>
+
+Abstract base class for document extractors.
+
+Takes a record dict and returns processed record dict or None to skip.
+Can transform any fields in the input dict.
+
+
+<Anchor id="nemo_curator-stages-text-download-base-extract-DocumentExtractor-extract">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.extract.DocumentExtractor.extract(
+    record: dict[str, str]
+) -> dict[str, typing.Any] | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Extract/transform a record dict into final record dict.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-extract-DocumentExtractor-input_columns">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.extract.DocumentExtractor.input_columns() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Define input columns - produces DocumentBatch with records.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-base-extract-DocumentExtractor-output_columns">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.base.extract.DocumentExtractor.output_columns() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Define output columns - produces DocumentBatch with records.
+
+
+</Indent>
+</Indent>

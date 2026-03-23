@@ -1,0 +1,67 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/models/base
+title: nemo_curator.models.base
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ModelInterface`](#nemo_curator-models-base-ModelInterface) | Abstract base class that defines an interface for machine learning models. |
+
+### API
+
+<Anchor id="nemo_curator-models-base-ModelInterface">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.base.ModelInterface()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Abstract</Badge>
+
+**Bases:** `ABC`
+
+Abstract base class that defines an interface for machine learning models.
+
+Specifically focused on their weight handling and environmental setup.
+
+This interface allows our pipeline code to download weights locally and setup models in a uniform
+way. It does not place any restrictions on how inference is run.
+
+
+<ParamField path="model_id_names" type="list[str]">
+Returns a list of model IDs associated with the model.
+
+In cosmos-curate, each model has an ID associated with it.
+This is often the huggingspace name for that model (e.g. Salesforce/instructblip-vicuna-13b).
+</ParamField>
+<Anchor id="nemo_curator-models-base-ModelInterface-setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.base.ModelInterface.setup() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Set up the model for use, such as loading weights and building computation graphs.
+
+
+</Indent>
+</Indent>

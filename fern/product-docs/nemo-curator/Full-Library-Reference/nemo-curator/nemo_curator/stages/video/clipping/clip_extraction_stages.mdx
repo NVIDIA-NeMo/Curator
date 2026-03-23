@@ -1,0 +1,556 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/video/clipping/clip_extraction_stages
+title: nemo_curator.stages.video.clipping.clip_extraction_stages
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ClipTranscodingStage`](#nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage) | Stage that transcodes video clips into a standardized format. |
+| [`FixedStrideExtractorStage`](#nemo_curator-stages-video-clipping-clip_extraction_stages-FixedStrideExtractorStage) | Stage that extracts video clips using fixed-length intervals. |
+
+### API
+
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage(
+    num_cpus_per_worker: float = 6.0,
+    encoder: str = 'libx264',
+    encoder_threads: int = 1,
+    encode_batch_size: int = 16,
+    nb_streams_per_gpu: int = 3,
+    use_hwaccel: bool = False,
+    use_input_bit_rate: bool = False,
+    num_clips_per_chunk: int = 32,
+    ffmpeg_verbose: bool = False,
+    verbose: bool = False,
+    name: str = 'clip_transcoding'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[VideoTask, VideoTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Stage that transcodes video clips into a standardized format.
+
+This stage handles the conversion of video clips using FFmpeg, supporting both
+software (libx264, libopenh264) and hardware (NVENC) encoding with configurable parameters.
+
+**Parameters:**
+
+<ParamField path="num_cpus_per_worker" type="float" default="6.0">
+Number of CPUs per worker.
+</ParamField>
+
+<ParamField path="encoder" type="str" default="'libx264'">
+Video encoder to use.
+</ParamField>
+
+<ParamField path="encoder_threads" type="int" default="1">
+Number of threads per encoder.
+</ParamField>
+
+<ParamField path="encode_batch_size" type="int" default="16">
+Number of clips to encode in parallel.
+</ParamField>
+
+<ParamField path="nb_streams_per_gpu" type="int" default="3">
+Number of streams per GPU.
+</ParamField>
+
+<ParamField path="use_hwaccel" type="bool" default="False">
+Whether to use hardware acceleration.
+</ParamField>
+
+<ParamField path="use_input_bit_rate" type="bool" default="False">
+Whether to use input video bit rate.
+</ParamField>
+
+<ParamField path="num_clips_per_chunk" type="int" default="32">
+Number of clips per chunk. If the number of clips is larger than this, the clips will be split into chunks, and created VideoTasks for each chunk.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="False">
+Whether to print verbose logs.
+</ParamField>
+
+<ParamField path="ffmpeg_verbose" type="bool" default="False">
+Whether to print FFmpeg verbose logs.
+</ParamField>
+
+
+<ParamField path="encode_batch_size" type="int = 16">
+</ParamField>
+
+<ParamField path="encoder" type="str = 'libx264'">
+</ParamField>
+
+<ParamField path="encoder_threads" type="int = 1">
+</ParamField>
+
+<ParamField path="ffmpeg_verbose" type="bool = False">
+</ParamField>
+
+<ParamField path="name" type="str = 'clip_transcoding'">
+</ParamField>
+
+<ParamField path="nb_streams_per_gpu" type="int = 3">
+</ParamField>
+
+<ParamField path="num_clips_per_chunk" type="int = 32">
+</ParamField>
+
+<ParamField path="num_cpus_per_worker" type="float = 6.0">
+</ParamField>
+
+<ParamField path="use_hwaccel" type="bool = False">
+</ParamField>
+
+<ParamField path="use_input_bit_rate" type="bool = False">
+</ParamField>
+
+<ParamField path="verbose" type="bool = False">
+</ParamField>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Post-initialization method called after all fields are set.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-_add_decoder_threads">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage._add_decoder_threads(
+    command: list[str]
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Add decoder thread options to command.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-_add_hwaccel_options">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage._add_hwaccel_options(
+    command: list[str]
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Add hardware acceleration options to command.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-_add_input_options">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Clip":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Clip"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage._add_input_options(
+    command: list[str],
+    clip: nemo_curator.tasks.video.Clip,
+    video_filename: str,
+    index: int
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Add input options to command.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-_add_nvenc_options">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage._add_nvenc_options(
+    command: list[str],
+    force_pix_fmt: bool
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Add NVENC-specific encoding options.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-_add_output_options">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Clip":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Clip"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage._add_output_options(
+    command: list[str],
+    clip: nemo_curator.tasks.video.Clip,
+    index: int
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Add output options to command.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-_add_video_encoding_options">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage._add_video_encoding_options(
+    command: list[str],
+    use_bit_rate: str | None,
+    force_pix_fmt: bool
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Add video encoding options to command.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-_build_ffmpeg_command">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Clip":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Clip"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage._build_ffmpeg_command(
+    video_filename: str,
+    clips: list[nemo_curator.tasks.video.Clip],
+    force_pix_fmt: bool,
+    use_bit_rate: str | None
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Build the FFmpeg command for extracting clips.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-_extract_clips">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Clip":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Clip"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage._extract_clips(
+    working_dir: pathlib.Path,
+    video_filename: str,
+    force_pix_fmt: bool,
+    use_bit_rate: str | None,
+    clips: list[nemo_curator.tasks.video.Clip]
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Extract clips using FFmpeg.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-_handle_ffmpeg_error">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Clip":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Clip"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage._handle_ffmpeg_error(
+    error: subprocess.CalledProcessError,
+    command: list[str],
+    clips: list[nemo_curator.tasks.video.Clip]
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Handle FFmpeg command errors.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-_read_clips_to_memory">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Clip":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Clip"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage._read_clips_to_memory(
+    working_dir: pathlib.Path,
+    clips: list[nemo_curator.tasks.video.Clip]
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Read extracted clips back into memory.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-_run_ffmpeg_command">
+
+<CodeBlock links={{"nemo_curator.tasks.video.Clip":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-Clip"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage._run_ffmpeg_command(
+    command: list[str],
+    working_dir: pathlib.Path,
+    clips: list[nemo_curator.tasks.video.Clip]
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Run the FFmpeg command and handle errors.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.video.VideoTask":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-VideoTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage.process(
+    task: nemo_curator.tasks.video.VideoTask
+) -> nemo_curator.tasks.video.VideoTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-ray_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage.ray_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Ray stage specification for this stage.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-ClipTranscodingStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.ClipTranscodingStage.setup(
+    worker_metadata: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Setup method called once before processing begins.
+Override this method to perform any initialization that should
+happen once per worker.
+Args:
+    worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-FixedStrideExtractorStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.video.clipping.clip_extraction_stages.FixedStrideExtractorStage(
+    clip_len_s: float,
+    clip_stride_s: float,
+    min_clip_length_s: float,
+    limit_clips: int,
+    verbose: bool = False,
+    name: str = 'fixed_stride_extractor'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[VideoTask, VideoTask]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Stage that extracts video clips using fixed-length intervals.
+
+This stage splits videos into clips of specified length and stride, ensuring
+each clip meets minimum length requirements and optionally limiting total clips.
+
+
+<ParamField path="clip_len_s" type="float">
+</ParamField>
+
+<ParamField path="clip_stride_s" type="float">
+</ParamField>
+
+<ParamField path="limit_clips" type="int">
+</ParamField>
+
+<ParamField path="min_clip_length_s" type="float">
+</ParamField>
+
+<ParamField path="name" type="str = 'fixed_stride_extractor'">
+</ParamField>
+
+<ParamField path="verbose" type="bool = False">
+</ParamField>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-FixedStrideExtractorStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.FixedStrideExtractorStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-FixedStrideExtractorStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.FixedStrideExtractorStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-video-clipping-clip_extraction_stages-FixedStrideExtractorStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.video.VideoTask":"/nemo-curator/nemo_curator/tasks/video#nemo_curator-tasks-video-VideoTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.clipping.clip_extraction_stages.FixedStrideExtractorStage.process(
+    task: nemo_curator.tasks.video.VideoTask
+) -> nemo_curator.tasks.video.VideoTask
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

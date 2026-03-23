@@ -1,0 +1,131 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/filters/doc_filter
+title: nemo_curator.stages.text.filters.doc_filter
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`DocumentFilter`](#nemo_curator-stages-text-filters-doc_filter-DocumentFilter) | An abstract base class for text-based document filters. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-filters-doc_filter-DocumentFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.doc_filter.DocumentFilter()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Abstract</Badge>
+
+An abstract base class for text-based document filters.
+
+This class serves as a template for creating specific document filters
+in the library. Subclasses should implement the abstract methods to
+define custom filtering behavior.
+
+
+<ParamField path="_name" type="= self.__class__.__name__">
+</ParamField>
+
+<ParamField path="name" type="str">
+</ParamField>
+
+<ParamField path="ngrams" type="dict">
+</ParamField>
+
+<ParamField path="paragraphs" type="list">
+</ParamField>
+
+<ParamField path="sentences" type="list">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-doc_filter-DocumentFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.doc_filter.DocumentFilter.keep_document(
+    scores: float | list[int | float]
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Determine whether to keep a document based on its scores.
+
+This method should be implemented by subclasses to define the
+criteria for keeping or discarding a document based on the
+scores calculated by score_document().
+
+**Parameters:**
+
+<ParamField path="scores" type="float | list[int | float]">
+The score or set of scores returned by score_document().
+          The type should match what is returned by score_document().
+</ParamField>
+
+**Returns:** `bool`
+
+True if the document should be kept, False otherwise.
+
+**Raises:**
+
+- `NotImplementedError`: If the method is not implemented in a subclass.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-doc_filter-DocumentFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.doc_filter.DocumentFilter.score_document(
+    text: str
+) -> float | list[int | float]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Calculate a score for the given document text.
+
+This method should be implemented by subclasses to define how
+a document's text is evaluated and scored.
+
+**Parameters:**
+
+<ParamField path="text" type="str">
+The text content of the document to be scored.
+</ParamField>
+
+**Returns:** `float | list[int | float]`
+
+A score or set of scores representing the document's
+
+**Raises:**
+
+- `NotImplementedError`: If the method is not implemented in a subclass.
+
+
+</Indent>
+</Indent>

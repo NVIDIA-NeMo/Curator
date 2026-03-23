@@ -1,0 +1,353 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/embedders/base
+title: nemo_curator.stages.text.embedders.base
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`EmbeddingCreatorStage`](#nemo_curator-stages-text-embedders-base-EmbeddingCreatorStage) | - |
+| [`EmbeddingModelStage`](#nemo_curator-stages-text-embedders-base-EmbeddingModelStage) | HuggingFace model stage that produces embeddings with pooling. |
+| [`SentenceTransformerEmbeddingModelStage`](#nemo_curator-stages-text-embedders-base-SentenceTransformerEmbeddingModelStage) | - |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-embedders-base-EmbeddingCreatorStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.embedders.base.EmbeddingCreatorStage(
+    model_identifier: str = 'sentence-transformers/all-...,
+    use_sentence_transformer: bool = True,
+    text_field: str = 'text',
+    embedding_field: str = 'embeddings',
+    cache_dir: str | None = None,
+    max_chars: int | None = None,
+    max_seq_length: int | None = None,
+    padding_side: typing.Literal['left', 'right'] = 'right',
+    embedding_pooling: typing.Literal['mean_pooling', 'last_token'] = 'mean_pooling',
+    model_inference_batch_size: int = 1024,
+    autocast: bool = True,
+    sort_by_length: bool = True,
+    hf_token: str | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [CompositeStage[DocumentBatch, DocumentBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-CompositeStage)
+
+<ParamField path="autocast" type="bool = True">
+</ParamField>
+
+<ParamField path="cache_dir" type="str | None = None">
+</ParamField>
+
+<ParamField path="embedding_field" type="str = 'embeddings'">
+</ParamField>
+
+<ParamField path="embedding_pooling" type="Literal['mean_pooling', 'last_token'] = 'mean_pooling'">
+</ParamField>
+
+<ParamField path="hf_token" type="str | None = None">
+</ParamField>
+
+<ParamField path="max_chars" type="int | None = None">
+</ParamField>
+
+<ParamField path="max_seq_length" type="int | None = None">
+</ParamField>
+
+<ParamField path="model_identifier" type="str = 'sentence-transformers/all-MiniLM-L6-v2'">
+</ParamField>
+
+<ParamField path="model_inference_batch_size" type="int = 1024">
+</ParamField>
+
+<ParamField path="padding_side" type="Literal['left', 'right'] = 'right'">
+</ParamField>
+
+<ParamField path="sort_by_length" type="bool = True">
+</ParamField>
+
+<ParamField path="text_field" type="str = 'text'">
+</ParamField>
+
+<ParamField path="use_sentence_transformer" type="bool = True">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-embedders-base-EmbeddingCreatorStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.base.EmbeddingCreatorStage.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-base-EmbeddingCreatorStage-decompose">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.base.EmbeddingCreatorStage.decompose() -> list[nemo_curator.stages.base.ProcessingStage]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-embedders-base-EmbeddingModelStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.embedders.base.EmbeddingModelStage(
+    model_identifier: str,
+    cache_dir: str | None = None,
+    embedding_field: str = 'embeddings',
+    pooling: typing.Literal['mean_pooling', 'last_token'] = 'mean_pooling',
+    hf_token: str | None = None,
+    model_inference_batch_size: int = 1024,
+    has_seq_order: bool = True,
+    padding_side: typing.Literal['left', 'right'] = 'right',
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [ModelStage](/nemo-curator/nemo_curator/stages/text/models/model#nemo_curator-stages-text-models-model-ModelStage)
+
+HuggingFace model stage that produces embeddings with pooling.
+
+
+<Anchor id="nemo_curator-stages-text-embedders-base-EmbeddingModelStage-_get_last_token">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.base.EmbeddingModelStage._get_last_token(
+    model_output: torch.Tensor,
+    attention_mask: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-base-EmbeddingModelStage-_mean_pooling">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.base.EmbeddingModelStage._mean_pooling(
+    model_output: torch.Tensor,
+    attention_mask: torch.Tensor
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-base-EmbeddingModelStage-collect_outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.base.EmbeddingModelStage.collect_outputs(
+    processed_outputs: list[torch.Tensor]
+) -> list[list[float]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-base-EmbeddingModelStage-create_output_dataframe">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.base.EmbeddingModelStage.create_output_dataframe(
+    df_cpu: pandas.DataFrame,
+    collected_output: list[list[float]]
+) -> pandas.DataFrame
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Create output dataframe with embeddings.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-base-EmbeddingModelStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.base.EmbeddingModelStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-base-EmbeddingModelStage-process_model_output">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.base.EmbeddingModelStage.process_model_output(
+    outputs: torch.Tensor,
+    model_input_batch: dict[str, torch.Tensor] | None = None
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process model outputs to create embeddings.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-base-EmbeddingModelStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.base.EmbeddingModelStage.setup(
+    _: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Load the model for inference.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-embedders-base-SentenceTransformerEmbeddingModelStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.embedders.base.SentenceTransformerEmbeddingModelStage(
+    model_identifier: str,
+    cache_dir: str | None = None,
+    embedding_field: str = 'embeddings',
+    hf_token: str | None = None,
+    model_inference_batch_size: int = 1024,
+    has_seq_order: bool = True,
+    padding_side: typing.Literal['left', 'right'] = 'right',
+    autocast: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [EmbeddingModelStage](#nemo_curator-stages-text-embedders-base-EmbeddingModelStage)
+
+<Anchor id="nemo_curator-stages-text-embedders-base-SentenceTransformerEmbeddingModelStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.base.SentenceTransformerEmbeddingModelStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-base-SentenceTransformerEmbeddingModelStage-process_model_output">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.base.SentenceTransformerEmbeddingModelStage.process_model_output(
+    outputs: torch.Tensor,
+    model_input_batch: dict[str, torch.Tensor] | None = None
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-embedders-base-SentenceTransformerEmbeddingModelStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.base.SentenceTransformerEmbeddingModelStage.setup(
+    _: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Load the model for inference.
+
+
+</Indent>
+</Indent>

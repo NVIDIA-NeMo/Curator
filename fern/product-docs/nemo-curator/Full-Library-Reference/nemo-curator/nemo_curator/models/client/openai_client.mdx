@@ -1,0 +1,145 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/models/client/openai_client
+title: nemo_curator.models.client.openai_client
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`AsyncOpenAIClient`](#nemo_curator-models-client-openai_client-AsyncOpenAIClient) | A wrapper around OpenAI's Python async client for querying models |
+| [`OpenAIClient`](#nemo_curator-models-client-openai_client-OpenAIClient) | A wrapper around OpenAI's Python client for querying models |
+
+### API
+
+<Anchor id="nemo_curator-models-client-openai_client-AsyncOpenAIClient">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.client.openai_client.AsyncOpenAIClient(
+    max_concurrent_requests: int = 5,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    kwargs = {}
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [AsyncLLMClient](/nemo-curator/nemo_curator/models/client/llm_client#nemo_curator-models-client-llm_client-AsyncLLMClient)
+
+A wrapper around OpenAI's Python async client for querying models
+
+
+<ParamField path="timeout" type="= kwargs.pop('timeout', 120)">
+</ParamField>
+<Anchor id="nemo_curator-models-client-openai_client-AsyncOpenAIClient-_query_model_impl">
+
+<CodeBlock links={{"nemo_curator.models.client.llm_client.ConversationFormatter":"/nemo-curator/nemo_curator/models/client/llm_client#nemo_curator-models-client-llm_client-ConversationFormatter","nemo_curator.models.client.llm_client.GenerationConfig":"/nemo-curator/nemo_curator/models/client/llm_client#nemo_curator-models-client-llm_client-GenerationConfig"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.client.openai_client.AsyncOpenAIClient._query_model_impl(
+    messages: collections.abc.Iterable,
+    model: str,
+    conversation_formatter: nemo_curator.models.client.llm_client.ConversationFormatter | None = None,
+    generation_config: nemo_curator.models.client.llm_client.GenerationConfig | dict | None = None
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>async</Badge>
+
+Internal implementation of query_model without retry/concurrency logic.
+
+
+</Indent>
+<Anchor id="nemo_curator-models-client-openai_client-AsyncOpenAIClient-setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.client.openai_client.AsyncOpenAIClient.setup() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Setup the client.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-models-client-openai_client-OpenAIClient">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.models.client.openai_client.OpenAIClient(
+    kwargs = {}
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [LLMClient](/nemo-curator/nemo_curator/models/client/llm_client#nemo_curator-models-client-llm_client-LLMClient)
+
+A wrapper around OpenAI's Python client for querying models
+
+
+<ParamField path="timeout" type="= kwargs.pop('timeout', 120)">
+</ParamField>
+<Anchor id="nemo_curator-models-client-openai_client-OpenAIClient-query_model">
+
+<CodeBlock links={{"nemo_curator.models.client.llm_client.ConversationFormatter":"/nemo-curator/nemo_curator/models/client/llm_client#nemo_curator-models-client-llm_client-ConversationFormatter","nemo_curator.models.client.llm_client.GenerationConfig":"/nemo-curator/nemo_curator/models/client/llm_client#nemo_curator-models-client-llm_client-GenerationConfig"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.client.openai_client.OpenAIClient.query_model(
+    messages: collections.abc.Iterable,
+    model: str,
+    conversation_formatter: nemo_curator.models.client.llm_client.ConversationFormatter | None = None,
+    generation_config: nemo_curator.models.client.llm_client.GenerationConfig | dict | None = None
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-models-client-openai_client-OpenAIClient-setup">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.models.client.openai_client.OpenAIClient.setup() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Setup the client.
+
+
+</Indent>
+</Indent>

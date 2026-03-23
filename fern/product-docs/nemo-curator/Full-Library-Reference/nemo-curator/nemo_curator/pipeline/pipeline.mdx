@@ -1,0 +1,194 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/pipeline/pipeline
+title: nemo_curator.pipeline.pipeline
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`Pipeline`](#nemo_curator-pipeline-pipeline-Pipeline) | User-facing pipeline definition for composing processing stages. |
+
+### API
+
+<Anchor id="nemo_curator-pipeline-pipeline-Pipeline">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.pipeline.pipeline.Pipeline(
+    name: str,
+    description: str | None = None,
+    stages: list[nemo_curator.stages.base.ProcessingStage] | None = None,
+    config: dict[str, typing.Any] | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+User-facing pipeline definition for composing processing stages.
+
+
+<ParamField path="config" type="= config or &#123;&#125;">
+</ParamField>
+
+<ParamField path="stages" type="list[ProcessingStage] = stages or []">
+</ParamField>
+<Anchor id="nemo_curator-pipeline-pipeline-Pipeline-__repr__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.pipeline.pipeline.Pipeline.__repr__() -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+String representation of the pipeline.
+
+
+</Indent>
+<Anchor id="nemo_curator-pipeline-pipeline-Pipeline-_decompose_stages">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage","nemo_curator.stages.base.CompositeStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-CompositeStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.pipeline.pipeline.Pipeline._decompose_stages(
+    stages: list[nemo_curator.stages.base.ProcessingStage | nemo_curator.stages.base.CompositeStage]
+) -> tuple[list[nemo_curator.stages.base.ProcessingStage], dict[str, list[str]]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Decompose composite stages into execution stages.
+
+**Parameters:**
+
+<ParamField path="stages" type="list[ProcessingStage | CompositeStage]">
+List of stages that may include composite stages
+</ParamField>
+
+**Returns:** `tuple[list[ProcessingStage], dict[str, list[str]]]`
+
+tuple[list[ProcessingStage], dict[str, list[str]]]: Tuple of (execution stages, decomposition info dict)
+
+**Raises:**
+
+- `TypeError`: If a composite stage is decomposed into another composite stage
+
+
+</Indent>
+<Anchor id="nemo_curator-pipeline-pipeline-Pipeline-add_stage">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage","nemo_curator.pipeline.pipeline.Pipeline":"#nemo_curator-pipeline-pipeline-Pipeline"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.pipeline.pipeline.Pipeline.add_stage(
+    stage: nemo_curator.stages.base.ProcessingStage
+) -> nemo_curator.pipeline.pipeline.Pipeline
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Add a stage to the pipeline.
+
+**Parameters:**
+
+<ParamField path="stage" type="ProcessingStage">
+Processing stage to add
+</ParamField>
+
+**Returns:** `Pipeline`
+
+Self (Pipeline) for method chaining
+
+
+</Indent>
+<Anchor id="nemo_curator-pipeline-pipeline-Pipeline-build">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.pipeline.pipeline.Pipeline.build() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Build an execution plan from the pipeline.
+
+**Raises:**
+
+- `ValueError`: If the pipeline has no stages
+
+
+</Indent>
+<Anchor id="nemo_curator-pipeline-pipeline-Pipeline-describe">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.pipeline.pipeline.Pipeline.describe() -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get a detailed description of the pipeline stages and their requirements.
+
+
+</Indent>
+<Anchor id="nemo_curator-pipeline-pipeline-Pipeline-run">
+
+<CodeBlock links={{"nemo_curator.backends.base.BaseExecutor":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-BaseExecutor","nemo_curator.tasks.Task":"/nemo-curator/nemo_curator/tasks/tasks#nemo_curator-tasks-tasks-Task"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.pipeline.pipeline.Pipeline.run(
+    executor: nemo_curator.backends.base.BaseExecutor | None = None,
+    initial_tasks: list[nemo_curator.tasks.Task] | None = None
+) -> list[nemo_curator.tasks.Task] | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Run the pipeline.
+
+**Parameters:**
+
+<ParamField path="executor" type="BaseExecutor" default="None">
+Executor to use
+</ParamField>
+
+<ParamField path="initial_tasks" type="list[Task]" default="None">
+Initial tasks to start the pipeline with. Defaults to None.
+</ParamField>
+
+**Returns:** `list[Task] | None`
+
+list[Task] | None: List of tasks
+
+
+</Indent>
+</Indent>

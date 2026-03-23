@@ -1,0 +1,197 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/image/filters/base
+title: nemo_curator.stages.image.filters.base
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`BaseFilterStage`](#nemo_curator-stages-image-filters-base-BaseFilterStage) | Base class for image filtering stages. |
+
+### Data
+
+[`__all__`](#nemo_curator-stages-image-filters-base-__all__)
+
+### API
+
+<Anchor id="nemo_curator-stages-image-filters-base-BaseFilterStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.image.filters.base.BaseFilterStage(
+    model_dir: str = None,
+    num_gpus_per_worker: float = 0.25,
+    model_inference_batch_size: int = 32,
+    score_threshold: float = 0.5,
+    verbose: bool = False,
+    name: str = 'image_filter'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[ImageBatch, ImageBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Base class for image filtering stages.
+
+This class provides a base class for image filtering stages.
+
+
+<ParamField path="model_dir" type="str = None">
+</ParamField>
+
+<ParamField path="model_inference_batch_size" type="int = 32">
+</ParamField>
+
+<ParamField path="name" type="str = 'image_filter'">
+</ParamField>
+
+<ParamField path="num_gpus_per_worker" type="float = 0.25">
+</ParamField>
+
+<ParamField path="score_threshold" type="float = 0.5">
+</ParamField>
+
+<ParamField path="verbose" type="bool = False">
+</ParamField>
+<Anchor id="nemo_curator-stages-image-filters-base-BaseFilterStage-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.filters.base.BaseFilterStage.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-filters-base-BaseFilterStage-inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.filters.base.BaseFilterStage.inputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-filters-base-BaseFilterStage-outputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.filters.base.BaseFilterStage.outputs() -> tuple[list[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-filters-base-BaseFilterStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.ImageBatch":"/nemo-curator/nemo_curator/tasks/image#nemo_curator-tasks-image-ImageBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.filters.base.BaseFilterStage.process(
+    task: nemo_curator.tasks.ImageBatch
+) -> nemo_curator.tasks.ImageBatch
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process an image batch to generate scores and filter by threshold.
+
+**Parameters:**
+
+<ParamField path="task" type="ImageBatch">
+ImageBatch containing list of ImageObject instances with pre-computed embeddings
+</ParamField>
+
+**Returns:** `ImageBatch`
+
+ImageBatch with filtered images that have scores below the threshold
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-filters-base-BaseFilterStage-setup">
+
+<CodeBlock links={{"nemo_curator.backends.base.WorkerMetadata":"/nemo-curator/nemo_curator/backends/base#nemo_curator-backends-base-WorkerMetadata"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.filters.base.BaseFilterStage.setup(
+    _worker_metadata: nemo_curator.backends.base.WorkerMetadata | None = None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Initialize the base filter stage.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-image-filters-base-BaseFilterStage-yield_next_batch">
+
+<CodeBlock links={{"nemo_curator.tasks.ImageBatch":"/nemo-curator/nemo_curator/tasks/image#nemo_curator-tasks-image-ImageBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.filters.base.BaseFilterStage.yield_next_batch(
+    task: nemo_curator.tasks.ImageBatch
+) -> collections.abc.Generator[list[nemo_curator.tasks.ImageObject], None, None]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Yields a generator of model inputs for the next batch.
+
+**Parameters:**
+
+<ParamField path="task" type="ImageBatch">
+The ImageBatch to process.
+</ParamField>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-image-filters-base-__all__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.image.filters.base.__all__ = ['BaseFilterStage']
+```
+
+</CodeBlock>
+</Anchor>
+

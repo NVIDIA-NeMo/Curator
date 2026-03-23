@@ -1,0 +1,282 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/video/filtering/motion_vector_backend
+title: nemo_curator.stages.video.filtering.motion_vector_backend
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`DecodedData`](#nemo_curator-stages-video-filtering-motion_vector_backend-DecodedData) | Container for decoded video frames containing motion vector data. |
+| [`MotionInfo`](#nemo_curator-stages-video-filtering-motion_vector_backend-MotionInfo) | Container for motion detection results. |
+| [`VideoResolutionTooSmallError`](#nemo_curator-stages-video-filtering-motion_vector_backend-VideoResolutionTooSmallError) | Exception raised when video resolution is below the minimum required size. |
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`check_if_small_motion`](#nemo_curator-stages-video-filtering-motion_vector_backend-check_if_small_motion) | Check if a video has small motion. |
+| [`decode_for_motion`](#nemo_curator-stages-video-filtering-motion_vector_backend-decode_for_motion) | Decode video for motion detection. |
+| [`motion_vectors_to_flowfield`](#nemo_curator-stages-video-filtering-motion_vector_backend-motion_vectors_to_flowfield) | Compute a canonical flow from motion vectors. |
+
+### Data
+
+[`_MIN_SIDE_RESOLUTION`](#nemo_curator-stages-video-filtering-motion_vector_backend-_MIN_SIDE_RESOLUTION)
+
+### API
+
+<Anchor id="nemo_curator-stages-video-filtering-motion_vector_backend-DecodedData">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.video.filtering.motion_vector_backend.DecodedData(
+    frames: list[numpy.typing.NDArray],
+    frame_size: torch.Size
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+Container for decoded video frames containing motion vector data.
+
+This class stores a list of decoded frames, each containing motion vector data,
+and the dimensions of the RGB decoded frame used to construct the flow vector.
+
+
+<ParamField path="frame_size" type="Size">
+</ParamField>
+
+<ParamField path="frames" type="list[NDArray]">
+</ParamField>
+<Anchor id="nemo_curator-stages-video-filtering-motion_vector_backend-DecodedData-get_major_size">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.filtering.motion_vector_backend.DecodedData.get_major_size() -> int
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Calculate total size in bytes of all frames in the decoded data.
+
+**Returns:** `int`
+
+Total size in bytes.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-video-filtering-motion_vector_backend-MotionInfo">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.video.filtering.motion_vector_backend.MotionInfo(
+    is_small_motion: bool,
+    per_patch_min_256: float,
+    global_mean: float
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+Container for motion detection results.
+
+This class stores the results of motion detection analysis, including:
+- Whether the video has small motion
+- The minimum motion value in a 256x256 patch
+- The global average motion value across the entire videoq
+
+
+<ParamField path="global_mean" type="float">
+</ParamField>
+
+<ParamField path="is_small_motion" type="bool">
+</ParamField>
+
+<ParamField path="per_patch_min_256" type="float">
+</ParamField>
+</Indent>
+
+<Anchor id="nemo_curator-stages-video-filtering-motion_vector_backend-VideoResolutionTooSmallError">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.video.filtering.motion_vector_backend.VideoResolutionTooSmallError()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Exception</Badge>
+
+**Bases:** `Exception`
+
+Exception raised when video resolution is below the minimum required size.
+
+This error occurs when either the width or height of the video is less than
+the minimum resolution threshold required for motion detection.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-video-filtering-motion_vector_backend-check_if_small_motion">
+
+<CodeBlock links={{"nemo_curator.stages.video.filtering.motion_vector_backend.MotionInfo":"#nemo_curator-stages-video-filtering-motion_vector_backend-MotionInfo"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion(
+    mv_list: list[numpy.typing.NDArray],
+    frame_shape: torch.Size,
+    global_mean_threshold: float = 0.00098,
+    per_patch_min_256_threshold: float = 1e-06,
+    use_gpu: bool = False,
+    batch_size: int = 256
+) -> nemo_curator.stages.video.filtering.motion_vector_backend.MotionInfo
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Check if a video has small motion.
+
+This function checks if a video has small motion by calculating the global mean
+and per-pixel average motion values.
+
+**Parameters:**
+
+<ParamField path="mv_list" type="list[npt.NDArray]">
+List of motion vectors.
+</ParamField>
+
+<ParamField path="frame_shape" type="torch.Size">
+Shape of the frame.
+</ParamField>
+
+<ParamField path="global_mean_threshold" type="float" default="0.00098">
+Threshold for global mean motion.
+</ParamField>
+
+<ParamField path="per_patch_min_256_threshold" type="float" default="1e-06">
+Threshold for per-patch minimum motion.
+</ParamField>
+
+<ParamField path="use_gpu" type="bool" default="False">
+Whether to use GPU for computation.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="256">
+Size of the batch for processing.
+</ParamField>
+
+**Returns:** `MotionInfo`
+
+MotionInfo object containing the results of the motion detection.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-video-filtering-motion_vector_backend-decode_for_motion">
+
+<CodeBlock links={{"nemo_curator.stages.video.filtering.motion_vector_backend.DecodedData":"#nemo_curator-stages-video-filtering-motion_vector_backend-DecodedData"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.filtering.motion_vector_backend.decode_for_motion(
+    video: io.BytesIO,
+    thread_count: int = 4,
+    target_fps: float = 2.0,
+    target_duration_ratio: float = 0.5
+) -> nemo_curator.stages.video.filtering.motion_vector_backend.DecodedData
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Decode video for motion detection.
+
+This function decodes a video stream to extract motion vectors.
+
+**Parameters:**
+
+<ParamField path="video" type="io.BytesIO">
+Input video stream as a bytes object.
+</ParamField>
+
+<ParamField path="thread_count" type="int" default="4">
+Number of threads to use for decoding.
+</ParamField>
+
+<ParamField path="target_fps" type="float" default="2.0">
+Target frames per second for motion detection.
+</ParamField>
+
+<ParamField path="target_duration_ratio" type="float" default="0.5">
+Ratio of target duration to source duration.
+</ParamField>
+
+**Returns:** `DecodedData`
+
+DecodedData object containing motion vectors and frame dimensions.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-video-filtering-motion_vector_backend-motion_vectors_to_flowfield">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.filtering.motion_vector_backend.motion_vectors_to_flowfield(
+    mvs: torch.Tensor,
+    size: list[int],
+    flow: torch.Tensor | None = None
+) -> torch.Tensor
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Compute a canonical flow from motion vectors.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-video-filtering-motion_vector_backend-_MIN_SIDE_RESOLUTION">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.video.filtering.motion_vector_backend._MIN_SIDE_RESOLUTION = 256
+```
+
+</CodeBlock>
+</Anchor>
+

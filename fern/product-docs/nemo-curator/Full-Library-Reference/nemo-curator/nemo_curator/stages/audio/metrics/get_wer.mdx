@@ -1,0 +1,172 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/audio/metrics/get_wer
+title: nemo_curator.stages.audio.metrics.get_wer
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`GetPairwiseWerStage`](#nemo_curator-stages-audio-metrics-get_wer-GetPairwiseWerStage) | Count pairwise word-error-rate (WER) * 100% for each pair of text and pred_text. |
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`get_cer`](#nemo_curator-stages-audio-metrics-get_wer-get_cer) | - |
+| [`get_charrate`](#nemo_curator-stages-audio-metrics-get_wer-get_charrate) | - |
+| [`get_wer`](#nemo_curator-stages-audio-metrics-get_wer-get_wer) | - |
+| [`get_wordrate`](#nemo_curator-stages-audio-metrics-get_wer-get_wordrate) | - |
+
+### API
+
+<Anchor id="nemo_curator-stages-audio-metrics-get_wer-GetPairwiseWerStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.audio.metrics.get_wer.GetPairwiseWerStage(
+    text_key: str = 'text',
+    pred_text_key: str = 'pred_text',
+    wer_key: str = 'wer'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [LegacySpeechStage](/nemo-curator/nemo_curator/stages/audio/common#nemo_curator-stages-audio-common-LegacySpeechStage)
+
+Count pairwise word-error-rate (WER) * 100% for each pair of text and pred_text.
+
+WER is measured between ``data[self.text_key]`` and ``data[self.pred_text_key]``.
+
+**Parameters:**
+
+<ParamField path="text_key" type="str" default="'text'">
+a string indicating which key of the data entries
+should be used to find the utterance transcript. Defaults to "text".
+</ParamField>
+
+<ParamField path="pred_text_key" type="str" default="'pred_text'">
+a string indicating which key of the data entries
+should be used to access the ASR predictions. Defaults to "pred_text".
+</ParamField>
+
+**Returns:**
+
+The same data as in the input manifest with wer_key and corresponding values.
+
+
+<ParamField path="name" type="= 'GetPairwiseWerStage'">
+</ParamField>
+
+<ParamField path="pred_text_key" type="str = 'pred_text'">
+</ParamField>
+
+<ParamField path="text_key" type="str = 'text'">
+</ParamField>
+
+<ParamField path="wer_key" type="str = 'wer'">
+</ParamField>
+<Anchor id="nemo_curator-stages-audio-metrics-get_wer-GetPairwiseWerStage-process_dataset_entry">
+
+<CodeBlock links={{"nemo_curator.tasks.AudioBatch":"/nemo-curator/nemo_curator/tasks/audio_batch#nemo_curator-tasks-audio_batch-AudioBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.metrics.get_wer.GetPairwiseWerStage.process_dataset_entry(
+    data_entry: dict
+) -> list[nemo_curator.tasks.AudioBatch]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-audio-metrics-get_wer-get_cer">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.metrics.get_wer.get_cer(
+    text: str,
+    pred_text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-audio-metrics-get_wer-get_charrate">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.metrics.get_wer.get_charrate(
+    text: str,
+    duration: float
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-audio-metrics-get_wer-get_wer">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.metrics.get_wer.get_wer(
+    text: str,
+    pred_text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-audio-metrics-get_wer-get_wordrate">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.metrics.get_wer.get_wordrate(
+    text: str,
+    duration: float
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>

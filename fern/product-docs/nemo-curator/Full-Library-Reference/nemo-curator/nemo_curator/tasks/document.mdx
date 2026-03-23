@@ -1,0 +1,118 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/tasks/document
+title: nemo_curator.tasks.document
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`DocumentBatch`](#nemo_curator-tasks-document-DocumentBatch) | Task for processing batches of text documents. |
+
+### API
+
+<Anchor id="nemo_curator-tasks-document-DocumentBatch">
+
+<CodeBlock links={{"nemo_curator.utils.performance_utils.StagePerfStats":"/nemo-curator/nemo_curator/utils/performance_utils#nemo_curator-utils-performance_utils-StagePerfStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.tasks.document.DocumentBatch(
+    task_id: str,
+    dataset_name: str,
+    data: pyarrow.Table | pandas.DataFrame = pa.Table(),
+    _stage_perf: list[nemo_curator.utils.performance_utils.StagePerfStats] = list(),
+    _metadata: dict[str, typing.Any] = dict()
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [Task[Table | DataFrame]](/nemo-curator/nemo_curator/tasks/tasks#nemo_curator-tasks-tasks-Task)
+
+Task for processing batches of text documents.
+Documents are stored as a dataframe (PyArrow Table or Pandas DataFrame).
+
+
+<ParamField path="data" type="Table | DataFrame = field(default_factory=(pa.Table))">
+</ParamField>
+
+<ParamField path="num_items" type="int">
+Get the number of documents in this batch.
+</ParamField>
+<Anchor id="nemo_curator-tasks-document-DocumentBatch-get_columns">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.tasks.document.DocumentBatch.get_columns() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Get column names from the data.
+
+
+</Indent>
+<Anchor id="nemo_curator-tasks-document-DocumentBatch-to_pandas">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.tasks.document.DocumentBatch.to_pandas() -> pandas.DataFrame
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Convert data to Pandas DataFrame.
+
+
+</Indent>
+<Anchor id="nemo_curator-tasks-document-DocumentBatch-to_pyarrow">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.tasks.document.DocumentBatch.to_pyarrow() -> pyarrow.Table
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Convert data to PyArrow table.
+
+
+</Indent>
+<Anchor id="nemo_curator-tasks-document-DocumentBatch-validate">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.tasks.document.DocumentBatch.validate() -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Validate the task data.
+
+
+</Indent>
+</Indent>

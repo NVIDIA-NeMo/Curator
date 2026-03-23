@@ -1,0 +1,200 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/deduplication/fuzzy/workflow
+title: nemo_curator.stages.deduplication.fuzzy.workflow
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`FuzzyDeduplicationWorkflow`](#nemo_curator-stages-deduplication-fuzzy-workflow-FuzzyDeduplicationWorkflow) | A pipeline that performs fuzzy deduplication of a dataset. |
+
+### Data
+
+[`ID_GENERATOR_OUTPUT_FILENAME`](#nemo_curator-stages-deduplication-fuzzy-workflow-ID_GENERATOR_OUTPUT_FILENAME)
+
+### API
+
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-workflow-FuzzyDeduplicationWorkflow">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.deduplication.fuzzy.workflow.FuzzyDeduplicationWorkflow(
+    cache_path: str,
+    output_path: str,
+    input_path: str | list[str] | None = None,
+    input_filetype: typing.Literal['jsonl', 'parquet'] = 'parquet',
+    input_blocksize: str | int = '1GiB',
+    input_file_extensions: list[str] | None = None,
+    read_kwargs: dict[str, typing.Any] | None = None,
+    cache_kwargs: dict[str, typing.Any] | None = None,
+    write_kwargs: dict[str, typing.Any] | None = None,
+    text_field: str = 'text',
+    perform_removal: bool = False,
+    seed: int = 42,
+    char_ngrams: int = 24,
+    num_bands: int = 20,
+    minhashes_per_band: int = 13,
+    use_64_bit_hash: bool = False,
+    bands_per_iteration: int = 5,
+    env_vars: dict[str, typing.Any] | None = None
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [WorkflowBase](/nemo-curator/nemo_curator/pipeline/workflow#nemo_curator-pipeline-workflow-WorkflowBase)
+
+A pipeline that performs fuzzy deduplication of a dataset.
+It consists of the following stages:
+- FilePartitioningStage
+    Groups input files into smaller groups that can be processed in parallel.
+- MinHashStage
+    Computes minhashes for the input dataset.
+- LSHStage
+    Performs Locality Sensitive Hashing on the minhashes.
+    This is a shuffle stage that involves moving data between workers.
+- BucketsToEdgesStage
+    This stage converts the resulting LSH mapping of bucket ID to document ID into a graph of edges.
+- ConnectedComponentsStage
+    Performs weaklyconnected components clustering on the graph represented by the edgelist.
+- IdentifyDuplicatesStage
+    Generates a list of document ids to remove based on the connected components clusters/components.
+- Removal (Optional)
+    Currently not implemented.
+
+
+<ParamField path="executor_config">
+</ParamField>
+
+<ParamField path="num_hashes" type="= self.num_bands * self.minhashes_per_band">
+</ParamField>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-workflow-FuzzyDeduplicationWorkflow-_create_connected_components_pipeline">
+
+<CodeBlock links={{"nemo_curator.pipeline.Pipeline":"/nemo-curator/nemo_curator/pipeline/pipeline#nemo_curator-pipeline-pipeline-Pipeline"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.workflow.FuzzyDeduplicationWorkflow._create_connected_components_pipeline() -> nemo_curator.pipeline.Pipeline
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-workflow-FuzzyDeduplicationWorkflow-_create_lsh_pipeline">
+
+<CodeBlock links={{"nemo_curator.pipeline.Pipeline":"/nemo-curator/nemo_curator/pipeline/pipeline#nemo_curator-pipeline-pipeline-Pipeline"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.workflow.FuzzyDeduplicationWorkflow._create_lsh_pipeline() -> nemo_curator.pipeline.Pipeline
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-workflow-FuzzyDeduplicationWorkflow-_create_minhash_pipeline">
+
+<CodeBlock links={{"nemo_curator.pipeline.Pipeline":"/nemo-curator/nemo_curator/pipeline/pipeline#nemo_curator-pipeline-pipeline-Pipeline"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.workflow.FuzzyDeduplicationWorkflow._create_minhash_pipeline(
+    generate_input_filegroups: bool
+) -> nemo_curator.pipeline.Pipeline
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-workflow-FuzzyDeduplicationWorkflow-_validate_initial_tasks">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.workflow.FuzzyDeduplicationWorkflow._validate_initial_tasks(
+    initial_tasks: list[nemo_curator.tasks.FileGroupTask] | None
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-workflow-FuzzyDeduplicationWorkflow-_validate_inputs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.workflow.FuzzyDeduplicationWorkflow._validate_inputs() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-workflow-FuzzyDeduplicationWorkflow-run">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask","nemo_curator.backends.experimental.ray_actor_pool.RayActorPoolExecutor":"/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/executor#nemo_curator-backends-experimental-ray_actor_pool-executor-RayActorPoolExecutor","nemo_curator.pipeline.workflow.WorkflowRunResult":"/nemo-curator/nemo_curator/pipeline/workflow#nemo_curator-pipeline-workflow-WorkflowRunResult"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.workflow.FuzzyDeduplicationWorkflow.run(
+    initial_tasks: list[nemo_curator.tasks.FileGroupTask] | None = None,
+    executor: nemo_curator.backends.experimental.ray_actor_pool.RayActorPoolExecutor | None = None
+) -> nemo_curator.pipeline.workflow.WorkflowRunResult
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Run the deduplication pipeline.
+
+**Parameters:**
+
+<ParamField path="initial_tasks" type="list[FileGroupTask] | None" default="None">
+
+</ParamField>
+
+<ParamField path="executor" type="RayActorPoolExecutor | None" default="None">
+Executor to use for the pipeline. Defaults to RayActorPoolExecutor().
+</ParamField>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-deduplication-fuzzy-workflow-ID_GENERATOR_OUTPUT_FILENAME">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.deduplication.fuzzy.workflow.ID_GENERATOR_OUTPUT_FILENAME = 'fuzzy_id_generator.json'
+```
+
+</CodeBlock>
+</Anchor>
+

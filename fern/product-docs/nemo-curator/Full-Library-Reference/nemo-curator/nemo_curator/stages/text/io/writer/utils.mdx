@@ -1,0 +1,72 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/io/writer/utils
+title: nemo_curator.stages.text.io.writer.utils
+---
+
+## Module Contents
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`batched`](#nemo_curator-stages-text-io-writer-utils-batched) | Batch an iterable into lists of size n. |
+| [`get_deterministic_hash`](#nemo_curator-stages-text-io-writer-utils-get_deterministic_hash) | Create a deterministic hash from inputs. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-io-writer-utils-batched">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.io.writer.utils.batched(
+    iterable: collections.abc.Iterable[typing.Any],
+    n: int
+) -> collections.abc.Iterator[tuple[typing.Any, ...]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Batch an iterable into lists of size n.
+
+**Parameters:**
+
+<ParamField path="iterable" type="Iterable[Any]">
+The iterable to batch
+</ParamField>
+
+<ParamField path="n" type="int">
+The size of the batch
+</ParamField>
+
+**Returns:** `Iterator[tuple[Any, ...]]`
+
+Iterator[tuple[...]]: An iterator of tuples, each containing n elements from the iterable
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-io-writer-utils-get_deterministic_hash">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.io.writer.utils.get_deterministic_hash(
+    inputs: list[str],
+    seed: str = ''
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Create a deterministic hash from inputs.
+
+
+</Indent>

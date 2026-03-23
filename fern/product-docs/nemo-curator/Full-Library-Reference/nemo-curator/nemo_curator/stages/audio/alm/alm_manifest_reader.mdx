@@ -1,0 +1,200 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/audio/alm/alm_manifest_reader
+title: nemo_curator.stages.audio.alm.alm_manifest_reader
+---
+
+ALM Manifest Reader — CompositeStage using FilePartitioningStage + line-by-line JSONL reading.
+
+Avoids Pandas to handle large manifests with deeply nested audio metadata
+(word timestamps, segments, metrics) that would cause 3-5x memory blow-up
+with pd.read_json.
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`ALMManifestReader`](#nemo_curator-stages-audio-alm-alm_manifest_reader-ALMManifestReader) | Composite stage for reading ALM JSONL manifests. |
+| [`ALMManifestReaderStage`](#nemo_curator-stages-audio-alm-alm_manifest_reader-ALMManifestReaderStage) | Read JSONL manifest files from a FileGroupTask and emit one AudioBatch per entry. |
+
+### API
+
+<Anchor id="nemo_curator-stages-audio-alm-alm_manifest_reader-ALMManifestReader">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.audio.alm.alm_manifest_reader.ALMManifestReader(
+    manifest_path: str | list[str],
+    files_per_partition: int | None = 1,
+    blocksize: int | str | None = None,
+    file_extensions: list[str] = (lambda: ['.jsonl', '.json'...,
+    storage_options: dict[str, typing.Any] | None = None,
+    name: str = 'alm_manifest_reader'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [CompositeStage[_EmptyTask, AudioBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-CompositeStage)
+
+Composite stage for reading ALM JSONL manifests.
+
+Decomposes into:
+1. FilePartitioningStage — discovers and partitions manifest files
+2. ALMManifestReaderStage — reads each partition line-by-line (no Pandas)
+
+**Parameters:**
+
+<ParamField path="manifest_path" type="str | list[str]">
+Path or list of paths to JSONL manifests (local or cloud).
+</ParamField>
+
+<ParamField path="files_per_partition" type="int | None" default="1">
+Number of manifest files per partition. Defaults to 1.
+</ParamField>
+
+<ParamField path="blocksize" type="int | str | None" default="None">
+Target size per partition (e.g., "100MB"). Ignored if files_per_partition is set.
+</ParamField>
+
+<ParamField path="file_extensions" type="list[str]" default="(lambda: ['.jsonl', '.json'])()">
+File extensions to filter. Defaults to [".jsonl", ".json"].
+</ParamField>
+
+<ParamField path="storage_options" type="dict[str, Any] | None" default="None">
+Storage options for cloud paths (S3, GCS credentials, endpoints).
+</ParamField>
+
+
+<ParamField path="blocksize" type="int | str | None = None">
+</ParamField>
+
+<ParamField path="file_extensions" type="list[str]">
+</ParamField>
+
+<ParamField path="files_per_partition" type="int | None = 1">
+</ParamField>
+
+<ParamField path="manifest_path" type="str | list[str]">
+</ParamField>
+
+<ParamField path="name" type="str = 'alm_manifest_reader'">
+</ParamField>
+
+<ParamField path="storage_options" type="dict[str, Any] | None = None">
+</ParamField>
+<Anchor id="nemo_curator-stages-audio-alm-alm_manifest_reader-ALMManifestReader-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_manifest_reader.ALMManifestReader.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-audio-alm-alm_manifest_reader-ALMManifestReader-decompose">
+
+<CodeBlock links={{"nemo_curator.stages.base.ProcessingStage":"/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_manifest_reader.ALMManifestReader.decompose() -> list[nemo_curator.stages.base.ProcessingStage]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-audio-alm-alm_manifest_reader-ALMManifestReader-get_description">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_manifest_reader.ALMManifestReader.get_description() -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-audio-alm-alm_manifest_reader-ALMManifestReaderStage">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.audio.alm.alm_manifest_reader.ALMManifestReaderStage(
+    name: str = 'alm_manifest_reader_stage'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [ProcessingStage[FileGroupTask, AudioBatch]](/nemo-curator/nemo_curator/stages/base#nemo_curator-stages-base-ProcessingStage)
+
+Read JSONL manifest files from a FileGroupTask and emit one AudioBatch per entry.
+
+Uses line-by-line streaming via fsspec (no Pandas) to keep memory at ~1x file size.
+Supports local and cloud paths (S3, GCS).
+
+
+<ParamField path="name" type="str = 'alm_manifest_reader_stage'">
+</ParamField>
+<Anchor id="nemo_curator-stages-audio-alm-alm_manifest_reader-ALMManifestReaderStage-process">
+
+<CodeBlock links={{"nemo_curator.tasks.FileGroupTask":"/nemo-curator/nemo_curator/tasks/file_group#nemo_curator-tasks-file_group-FileGroupTask","nemo_curator.tasks.AudioBatch":"/nemo-curator/nemo_curator/tasks/audio_batch#nemo_curator-tasks-audio_batch-AudioBatch"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_manifest_reader.ALMManifestReaderStage.process(
+    task: nemo_curator.tasks.FileGroupTask
+) -> list[nemo_curator.tasks.AudioBatch]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-audio-alm-alm_manifest_reader-ALMManifestReaderStage-ray_stage_spec">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.audio.alm.alm_manifest_reader.ALMManifestReaderStage.ray_stage_spec() -> dict[str, typing.Any]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

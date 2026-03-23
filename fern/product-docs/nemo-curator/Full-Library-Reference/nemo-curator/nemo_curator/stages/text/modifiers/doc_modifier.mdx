@@ -1,0 +1,69 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/modifiers/doc_modifier
+title: nemo_curator.stages.text.modifiers.doc_modifier
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`DocumentModifier`](#nemo_curator-stages-text-modifiers-doc_modifier-DocumentModifier) | Abstract base class for text-based document modifiers. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-modifiers-doc_modifier-DocumentModifier">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.modifiers.doc_modifier.DocumentModifier()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Abstract</Badge>
+
+Abstract base class for text-based document modifiers.
+
+Subclasses must implement `modify_document` to transform input value(s)
+and return the modified value. This supports both single-input and
+multi-input usage:
+- Single input: `modify_document(value)`
+- Multiple inputs: `modify_document(**values)` where each input field is
+  expanded as a keyword argument (e.g., `modify_document(column_1=..., column_2=...)`).
+
+
+<ParamField path="_name" type="= self.__class__.__name__">
+</ParamField>
+
+<ParamField path="name" type="str">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-modifiers-doc_modifier-DocumentModifier-modify_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.modifiers.doc_modifier.DocumentModifier.modify_document(
+    args: object = (),
+    kwargs: object = {}
+) -> object
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Transform the provided value(s) and return the result.
+
+
+</Indent>
+</Indent>

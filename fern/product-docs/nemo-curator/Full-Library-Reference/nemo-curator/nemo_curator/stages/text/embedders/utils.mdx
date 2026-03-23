@@ -1,0 +1,51 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/embedders/utils
+title: nemo_curator.stages.text.embedders.utils
+---
+
+## Module Contents
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`create_list_series_from_1d_or_2d_ar`](#nemo_curator-stages-text-embedders-utils-create_list_series_from_1d_or_2d_ar) | Create a cudf list series from 2d arrays. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-embedders-utils-create_list_series_from_1d_or_2d_ar">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.embedders.utils.create_list_series_from_1d_or_2d_ar(
+    ar: typing.Any,
+    index: cudf.Index
+) -> cudf.Series
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Create a cudf list series from 2d arrays.
+This code comes from https://github.com/rapidsai/crossfit/blob/76f74d0d927cf76313a3960d7dd5575d1dff2f06/crossfit/backend/cudf/series.py#L20-L32
+
+**Parameters:**
+
+<ParamField path="ar" type="cp.ndarray">
+any object that can be converted to a cupy array (cupy, numpy, torch, etc.)
+</ParamField>
+
+<ParamField path="index" type="cudf.Index">
+index of the the dataframe to be returned
+</ParamField>
+
+**Returns:** `cudf.Series`
+
+cudf.Series: cudf series with the index respected
+
+
+</Indent>

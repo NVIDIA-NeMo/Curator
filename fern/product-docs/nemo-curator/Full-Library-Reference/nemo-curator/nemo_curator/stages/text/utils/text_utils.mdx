@@ -1,0 +1,266 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/utils/text_utils
+title: nemo_curator.stages.text.utils.text_utils
+---
+
+## Module Contents
+
+### Functions
+
+| Name | Description |
+|------|-------------|
+| [`get_comments`](#nemo_curator-stages-text-utils-text_utils-get_comments) | Returns a string including all coments |
+| [`get_comments_and_docstring`](#nemo_curator-stages-text-utils-text_utils-get_comments_and_docstring) | - |
+| [`get_docstrings`](#nemo_curator-stages-text-utils-text_utils-get_docstrings) | Parse Python source code from file or string and print docstrings. |
+| [`get_ngrams`](#nemo_curator-stages-text-utils-text_utils-get_ngrams) | - |
+| [`get_paragraphs`](#nemo_curator-stages-text-utils-text_utils-get_paragraphs) | - |
+| [`get_sentences`](#nemo_curator-stages-text-utils-text_utils-get_sentences) | - |
+| [`get_word_splitter`](#nemo_curator-stages-text-utils-text_utils-get_word_splitter) | For Chinese and Japanese text, we use external libraries to split the text |
+| [`get_words`](#nemo_curator-stages-text-utils-text_utils-get_words) | - |
+| [`is_paragraph_indices_in_top_or_bottom_only`](#nemo_curator-stages-text-utils-text_utils-is_paragraph_indices_in_top_or_bottom_only) | - |
+| [`parse_docstrings`](#nemo_curator-stages-text-utils-text_utils-parse_docstrings) | Parse Python source code and yield a tuple of ast node instance, name, |
+| [`remove_punctuation`](#nemo_curator-stages-text-utils-text_utils-remove_punctuation) | - |
+
+### Data
+
+[`NODE_TYPES`](#nemo_curator-stages-text-utils-text_utils-NODE_TYPES)
+
+### API
+
+<Anchor id="nemo_curator-stages-text-utils-text_utils-get_comments">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.utils.text_utils.get_comments(
+    s: str,
+    clean: bool = False
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Returns a string including all coments
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-utils-text_utils-get_comments_and_docstring">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.utils.text_utils.get_comments_and_docstring(
+    source: str,
+    comments: bool = True,
+    clean_comments: bool = False
+) -> tuple[str, str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-utils-text_utils-get_docstrings">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.utils.text_utils.get_docstrings(
+    source: str,
+    module: str = '<string>'
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Parse Python source code from file or string and print docstrings.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-utils-text_utils-get_ngrams">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.utils.text_utils.get_ngrams(
+    input_list: list[str],
+    n: int
+) -> list[tuple[str, ...]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-utils-text_utils-get_paragraphs">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.utils.text_utils.get_paragraphs(
+    document: str
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-utils-text_utils-get_sentences">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.utils.text_utils.get_sentences(
+    document: str
+) -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-utils-text_utils-get_word_splitter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.utils.text_utils.get_word_splitter(
+    language: str
+) -> collections.abc.Callable[[str], list[str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+For Chinese and Japanese text, we use external libraries to split the text
+because these languages are not separated by spaces. For all other languages,
+such as English, we assume words are separated by spaces.
+
+Returns:
+    A function which can be used to parse the words of a string into a list.
+
+**Parameters:**
+
+<ParamField path="language" type="str">
+An ISO 639-1 language code.
+For example, "en" for English, "zh" for Chinese, and "ja" for Japanese.
+</ParamField>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-utils-text_utils-get_words">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.utils.text_utils.get_words(
+    text: str
+) -> tuple[list[str], list[int]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-utils-text_utils-is_paragraph_indices_in_top_or_bottom_only">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.utils.text_utils.is_paragraph_indices_in_top_or_bottom_only(
+    boilerplate_paragraph_indices: list[int],
+    num_paragraphs: int
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-utils-text_utils-parse_docstrings">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.utils.text_utils.parse_docstrings(
+    source: str
+) -> list[tuple[ast.AST, str | None, str]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Parse Python source code and yield a tuple of ast node instance, name,
+and docstring for each function/method, class and module.
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-utils-text_utils-remove_punctuation">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.utils.text_utils.remove_punctuation(
+    str_in: str
+) -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-utils-text_utils-NODE_TYPES">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.utils.text_utils.NODE_TYPES = {ast.ClassDef: 'Class', ast.FunctionDef: 'Function/Method', ast.Module: 'Module'...
+```
+
+</CodeBlock>
+</Anchor>
+

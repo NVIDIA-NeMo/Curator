@@ -1,0 +1,182 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/download/wikipedia/iterator
+title: nemo_curator.stages.text.download.wikipedia.iterator
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`WikipediaIterator`](#nemo_curator-stages-text-download-wikipedia-iterator-WikipediaIterator) | Processes downloaded Wikipedia dump files and extracts article content. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-download-wikipedia-iterator-WikipediaIterator">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.download.wikipedia.iterator.WikipediaIterator(
+    language: str = 'en',
+    log_frequency: int = 1000
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** `DocumentIterator`
+
+Processes downloaded Wikipedia dump files and extracts article content.
+
+
+<ParamField path="_counter" type="= 0">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-iterator-WikipediaIterator-_extract_element_text">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.iterator.WikipediaIterator._extract_element_text(
+    elem: xml.etree.ElementTree.Element,
+    namespace: str,
+    tag: str
+) -> str | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Extract text from an XML element.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-iterator-WikipediaIterator-_get_article_content">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.iterator.WikipediaIterator._get_article_content(
+    elem: xml.etree.ElementTree.Element,
+    namespace: str
+) -> str | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Extract raw content from Wikipedia article element.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-iterator-WikipediaIterator-_get_article_metadata">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.iterator.WikipediaIterator._get_article_metadata(
+    elem: xml.etree.ElementTree.Element,
+    namespace: str
+) -> dict[str, typing.Any] | None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Extract metadata from a Wikipedia article element.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-iterator-WikipediaIterator-_should_log_progress">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.iterator.WikipediaIterator._should_log_progress(
+    _: str
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Check if progress should be logged based on counter.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-iterator-WikipediaIterator-_should_skip_article">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.iterator.WikipediaIterator._should_skip_article(
+    metadata: dict[str, typing.Any],
+    raw_content: str | None
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Check if article should be skipped based on metadata and content.
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-iterator-WikipediaIterator-iterate">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.iterator.WikipediaIterator.iterate(
+    file_path: str
+) -> collections.abc.Iterator[dict[str, typing.Any]]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Process a Wikipedia dump file and extract article content.
+
+**Parameters:**
+
+<ParamField path="file_path" type="str">
+Path to the downloaded .bz2 file
+</ParamField>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-download-wikipedia-iterator-WikipediaIterator-output_columns">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.download.wikipedia.iterator.WikipediaIterator.output_columns() -> list[str]
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Define the output columns produced by this iterator.
+
+
+</Indent>
+</Indent>

@@ -1,0 +1,1088 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/stages/text/filters/heuristic/string
+title: nemo_curator.stages.text.filters.heuristic.string
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`BoilerPlateStringFilter`](#nemo_curator-stages-text-filters-heuristic-string-BoilerPlateStringFilter) | If more than 40% of paragraphs contain boilerplate strings, then discard. |
+| [`BulletsFilter`](#nemo_curator-stages-text-filters-heuristic-string-BulletsFilter) | If more than 90% of the lines start with a bullet, then discard. |
+| [`CommonEnglishWordsFilter`](#nemo_curator-stages-text-filters-heuristic-string-CommonEnglishWordsFilter) | If the sentence contains at least 2 common English words, then keep it. |
+| [`EllipsisFilter`](#nemo_curator-stages-text-filters-heuristic-string-EllipsisFilter) | If more than 30% of the sentences end with an elipsis, then discard. |
+| [`LongWordFilter`](#nemo_curator-stages-text-filters-heuristic-string-LongWordFilter) | If the document contains a word longer than 1000 characters, then discard. |
+| [`MeanWordLengthFilter`](#nemo_curator-stages-text-filters-heuristic-string-MeanWordLengthFilter) | If the mean word length is not in a specified range, then discard. |
+| [`NonAlphaNumericFilter`](#nemo_curator-stages-text-filters-heuristic-string-NonAlphaNumericFilter) | If more than 25% of the document is non-alphanumeric, then discard. |
+| [`NumbersFilter`](#nemo_curator-stages-text-filters-heuristic-string-NumbersFilter) | If more than 15% of the document contains numbers, then discard. |
+| [`ParenthesesFilter`](#nemo_curator-stages-text-filters-heuristic-string-ParenthesesFilter) | If more than 10% of the sentence is in parentheses, then discard. |
+| [`PornographicUrlsFilter`](#nemo_curator-stages-text-filters-heuristic-string-PornographicUrlsFilter) | Check if any of the URLs within the document point to pornography. |
+| [`PunctuationFilter`](#nemo_curator-stages-text-filters-heuristic-string-PunctuationFilter) | If more than 85% of the sentences do not end with a |
+| [`SubstringFilter`](#nemo_curator-stages-text-filters-heuristic-string-SubstringFilter) | Keeps documents that contain a substring in a given position. |
+| [`SymbolsToWordsFilter`](#nemo_curator-stages-text-filters-heuristic-string-SymbolsToWordsFilter) | Remove any document with a symbol-to-word ratio greater than |
+| [`UrlsFilter`](#nemo_curator-stages-text-filters-heuristic-string-UrlsFilter) | If more than 20% of the document is comprised of URLs, then discard. |
+| [`WhiteSpaceFilter`](#nemo_curator-stages-text-filters-heuristic-string-WhiteSpaceFilter) | If the document contains a significant number |
+| [`WordCountFilter`](#nemo_curator-stages-text-filters-heuristic-string-WordCountFilter) | If a document contains a number of words not |
+| [`WordsWithoutAlphabetsFilter`](#nemo_curator-stages-text-filters-heuristic-string-WordsWithoutAlphabetsFilter) | 80% of words in a document must contain at least one alphabetic character. |
+
+### API
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-BoilerPlateStringFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.BoilerPlateStringFilter(
+    remove_if_at_top_or_bottom: bool = True,
+    max_boilerplate_string_ratio: float = 0.4
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If more than 40% of paragraphs contain boilerplate strings, then discard.
+This includes things like "terms of use", "privacy policy", etc.
+Source: Adapted significantly from Google C4 processing.
+
+
+<ParamField path="_boilerplate_paragraph_indices" type="= []">
+</ParamField>
+
+<ParamField path="_max_ratio" type="= 1.0">
+</ParamField>
+
+<ParamField path="_name" type="= 'boilerplate_string_ratio'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-BoilerPlateStringFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.BoilerPlateStringFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-BoilerPlateStringFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.BoilerPlateStringFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-BulletsFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.BulletsFilter(
+    max_bullet_lines_ratio: float = 0.9
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If more than 90% of the lines start with a bullet, then discard.
+Source: Gopher (Rae et al., 2021)
+
+
+<ParamField path="_name" type="= 'bullet_ratio'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-BulletsFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.BulletsFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-BulletsFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.BulletsFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-CommonEnglishWordsFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.CommonEnglishWordsFilter(
+    min_num_common_words: int = 2,
+    stop_at_false: bool = True
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If the sentence contains at least 2 common English words, then keep it.
+NOTE: We purposefully check for the lowercase versions of those common words
+to remove documents with over-capitalization.
+
+For Chinese and Japanese text, we use external libraries to split the text
+because these languages are not separated by spaces. For all other languages,
+such as English, we assume words are separated by spaces.
+
+
+<ParamField path="_name" type="= 'common_english_words'">
+</ParamField>
+
+<ParamField path="_word_splitter" type="= get_word_splitter('en')">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-CommonEnglishWordsFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.CommonEnglishWordsFilter.keep_document(
+    score: int
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-CommonEnglishWordsFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.CommonEnglishWordsFilter.score_document(
+    text: str
+) -> int
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-EllipsisFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.EllipsisFilter(
+    max_num_lines_ending_with_ellipsis_ratio: float = 0.3
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If more than 30% of the sentences end with an elipsis, then discard.
+Source: Google C4 processing
+
+
+<ParamField path="_name" type="= 'ellipsis'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-EllipsisFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.EllipsisFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-EllipsisFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.EllipsisFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-LongWordFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.LongWordFilter(
+    max_word_length: int = 1000,
+    lang: str = 'en'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If the document contains a word longer than 1000 characters, then discard.
+NOTE: This seems to be catching things like minified `.js` files
+that don't have spaces anywhere.
+Source: C4 (Google)
+
+For Chinese and Japanese text, we use external libraries to split the text
+because these languages are not separated by spaces. For all other languages,
+such as English, we assume words are separated by spaces.
+
+
+<ParamField path="_name" type="= 'max_word_length'">
+</ParamField>
+
+<ParamField path="_word_splitter" type="= get_word_splitter(lang)">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-LongWordFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.LongWordFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-LongWordFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.LongWordFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-MeanWordLengthFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.MeanWordLengthFilter(
+    min_mean_word_length: int = 3,
+    max_mean_word_length: int = 10,
+    lang: str = 'en'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If the mean word length is not in a specified range, then discard.
+
+For Chinese and Japanese text, we use external libraries to split the text
+because these languages are not separated by spaces. For all other languages,
+such as English, we assume words are separated by spaces.
+
+
+<ParamField path="_name" type="= 'mean_word_length'">
+</ParamField>
+
+<ParamField path="_word_splitter" type="= get_word_splitter(lang)">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-MeanWordLengthFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.MeanWordLengthFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-MeanWordLengthFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.MeanWordLengthFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-NonAlphaNumericFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.NonAlphaNumericFilter(
+    max_non_alpha_numeric_to_text_ratio: float = 0.25
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If more than 25% of the document is non-alphanumeric, then discard.
+Intended to be applied only to English text.
+Source: Adapted from Gopher (Rae et al., 2021)
+
+
+<ParamField path="_name" type="= 'alpha_numeric'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-NonAlphaNumericFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.NonAlphaNumericFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-NonAlphaNumericFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.NonAlphaNumericFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-NumbersFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.NumbersFilter(
+    max_number_to_text_ratio: float = 0.15
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If more than 15% of the document contains numbers, then discard.
+
+
+<ParamField path="_name" type="= 'numbers_ratio'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-NumbersFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.NumbersFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-NumbersFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.NumbersFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-ParenthesesFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.ParenthesesFilter(
+    max_parentheses_ratio: float = 0.1
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If more than 10% of the sentence is in parentheses, then discard.
+
+
+<ParamField path="_name" type="= 'parentheses_ratio'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-ParenthesesFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.ParenthesesFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-ParenthesesFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.ParenthesesFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-PornographicUrlsFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.PornographicUrlsFilter()
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+Check if any of the URLs within the document point to pornography.
+
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-PornographicUrlsFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.PornographicUrlsFilter.keep_document(
+    score: int
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-PornographicUrlsFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.PornographicUrlsFilter.score_document(
+    text: str
+) -> int
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-PunctuationFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.PunctuationFilter(
+    max_num_sentences_without_endmark_ratio: float = 0.85
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If more than 85% of the sentences do not end with a
+punctuation mark, then discard.
+Source: Google C4 processing
+
+
+<ParamField path="_name" type="= 'punctuation'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-PunctuationFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.PunctuationFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-PunctuationFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.PunctuationFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-SubstringFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.SubstringFilter(
+    substring: str,
+    position: typing.Literal['prefix', 'suffix', 'any']
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+Keeps documents that contain a substring in a given position.
+Gives a score of 1 if the substring is found in the given position, otherwise 0.
+
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-SubstringFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.SubstringFilter.keep_document(
+    score: int
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-SubstringFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.SubstringFilter.score_document(
+    text: str
+) -> int
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-SymbolsToWordsFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.SymbolsToWordsFilter(
+    max_symbol_to_word_ratio: float = 0.1,
+    lang: str = 'en'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+Remove any document with a symbol-to-word ratio greater than
+0.1 for either the hash symbol or the elipsis.
+Source: Gopher (Rae et al., 2021)
+
+For Chinese and Japanese text, we use external libraries to split the text
+because these languages are not separated by spaces. For all other languages,
+such as English, we assume words are separated by spaces.
+
+
+<ParamField path="_name" type="= 'symbol_to_word'">
+</ParamField>
+
+<ParamField path="_word_splitter" type="= get_word_splitter(lang)">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-SymbolsToWordsFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.SymbolsToWordsFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-SymbolsToWordsFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.SymbolsToWordsFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-UrlsFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.UrlsFilter(
+    max_url_to_text_ratio: float = 0.2
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If more than 20% of the document is comprised of URLs, then discard.
+
+
+<ParamField path="_name" type="= 'urls_ratio'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-UrlsFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.UrlsFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-UrlsFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.UrlsFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-WhiteSpaceFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.WhiteSpaceFilter(
+    max_white_space_ratio: float = 0.25
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If the document contains a significant number
+of white space characters, then discard.
+
+
+<ParamField path="_name" type="= 'white_space'">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-WhiteSpaceFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.WhiteSpaceFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-WhiteSpaceFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.WhiteSpaceFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-WordCountFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.WordCountFilter(
+    min_words: int = 50,
+    max_words: int = 100000,
+    lang: str = 'en'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+If a document contains a number of words not
+within a specified range, then discard.
+
+For Chinese and Japanese text, we use external libraries to split the text
+because these languages are not separated by spaces. For all other languages,
+such as English, we assume words are separated by spaces.
+
+
+<ParamField path="_name" type="= 'word_count'">
+</ParamField>
+
+<ParamField path="_word_splitter" type="= get_word_splitter(lang)">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-WordCountFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.WordCountFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-WordCountFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.WordCountFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-WordsWithoutAlphabetsFilter">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.stages.text.filters.heuristic.string.WordsWithoutAlphabetsFilter(
+    min_words_with_alphabets: float = 0.8,
+    lang: str = 'en'
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+**Bases:** [DocumentFilter](/nemo-curator/nemo_curator/stages/text/filters/doc_filter#nemo_curator-stages-text-filters-doc_filter-DocumentFilter)
+
+80% of words in a document must contain at least one alphabetic character.
+Source: Gopher (Rae et al., 2021)
+
+For Chinese and Japanese text, we use external libraries to split the text
+because these languages are not separated by spaces. For all other languages,
+such as English, we assume words are separated by spaces.
+
+
+<ParamField path="_name" type="= 'words_without_alphabets'">
+</ParamField>
+
+<ParamField path="_word_splitter" type="= get_word_splitter(lang)">
+</ParamField>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-WordsWithoutAlphabetsFilter-keep_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.WordsWithoutAlphabetsFilter.keep_document(
+    score: float
+) -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-stages-text-filters-heuristic-string-WordsWithoutAlphabetsFilter-score_document">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.stages.text.filters.heuristic.string.WordsWithoutAlphabetsFilter.score_document(
+    text: str
+) -> float
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+</Indent>

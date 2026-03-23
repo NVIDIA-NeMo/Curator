@@ -1,0 +1,219 @@
+---
+layout: overview
+slug: nemo-curator/nemo_curator/tasks/tasks
+title: nemo_curator.tasks.tasks
+---
+
+## Module Contents
+
+### Classes
+
+| Name | Description |
+|------|-------------|
+| [`Task`](#nemo_curator-tasks-tasks-Task) | Abstract base class for tasks in the pipeline. |
+| [`_EmptyTask`](#nemo_curator-tasks-tasks-_EmptyTask) | Dummy task for testing. |
+
+### Data
+
+[`EmptyTask`](#nemo_curator-tasks-tasks-EmptyTask)
+
+[`T`](#nemo_curator-tasks-tasks-T)
+
+### API
+
+<Anchor id="nemo_curator-tasks-tasks-Task">
+
+<CodeBlock links={{"nemo_curator.tasks.tasks.T":"#nemo_curator-tasks-tasks-T","nemo_curator.utils.performance_utils.StagePerfStats":"/nemo-curator/nemo_curator/utils/performance_utils#nemo_curator-utils-performance_utils-StagePerfStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.tasks.tasks.Task(
+    task_id: str,
+    dataset_name: str,
+    data: nemo_curator.tasks.tasks.T,
+    _stage_perf: list[nemo_curator.utils.performance_utils.StagePerfStats] = list(),
+    _metadata: dict[str, typing.Any] = dict()
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge> <Badge>Abstract</Badge>
+
+**Bases:** `Generic[T]`
+
+Abstract base class for tasks in the pipeline.
+A task represents a batch of data to be processed. Different modalities
+(text, audio, video) can implement their own task types.
+Attributes:
+    task_id: Unique identifier for this task
+    dataset_name: Name of the dataset this task belongs to
+    dataframe_attribute: Name of the attribute that contains the dataframe data. We use this for input/output validations.
+    _stage_perf: List of stages perfs this task has passed through
+
+
+<ParamField path="_metadata" type="dict[str, Any] = field(default_factory=dict)">
+</ParamField>
+
+<ParamField path="_stage_perf" type="list[StagePerfStats] = field(default_factory=list)">
+</ParamField>
+
+<ParamField path="_uuid" type="str">
+</ParamField>
+
+<ParamField path="data" type="T">
+</ParamField>
+
+<ParamField path="dataset_name" type="str">
+</ParamField>
+
+<ParamField path="num_items" type="int">
+Get the number of items in this task.
+</ParamField>
+
+<ParamField path="task_id" type="str">
+</ParamField>
+<Anchor id="nemo_curator-tasks-tasks-Task-__post_init__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.tasks.tasks.Task.__post_init__() -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Post-initialization hook.
+
+
+</Indent>
+<Anchor id="nemo_curator-tasks-tasks-Task-__repr__">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.tasks.tasks.Task.__repr__() -> str
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+
+</Indent>
+<Anchor id="nemo_curator-tasks-tasks-Task-add_stage_perf">
+
+<CodeBlock links={{"nemo_curator.utils.performance_utils.StagePerfStats":"/nemo-curator/nemo_curator/utils/performance_utils#nemo_curator-utils-performance_utils-StagePerfStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.tasks.tasks.Task.add_stage_perf(
+    perf_stats: nemo_curator.utils.performance_utils.StagePerfStats
+) -> None
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Add performance stats for a stage.
+
+
+</Indent>
+<Anchor id="nemo_curator-tasks-tasks-Task-validate">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.tasks.tasks.Task.validate() -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>abstract</Badge>
+
+Validate the task data.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-tasks-tasks-_EmptyTask">
+
+<CodeBlock links={{"nemo_curator.tasks.tasks.T":"#nemo_curator-tasks-tasks-T","nemo_curator.utils.performance_utils.StagePerfStats":"/nemo-curator/nemo_curator/utils/performance_utils#nemo_curator-utils-performance_utils-StagePerfStats"}} showLineNumbers={false} wordWrap={true}>
+
+```python
+class nemo_curator.tasks.tasks._EmptyTask(
+    task_id: str,
+    dataset_name: str,
+    data: nemo_curator.tasks.tasks.T,
+    _stage_perf: list[nemo_curator.utils.performance_utils.StagePerfStats] = list(),
+    _metadata: dict[str, typing.Any] = dict()
+)
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+<Badge>Dataclass</Badge>
+
+**Bases:** [Task[None]](#nemo_curator-tasks-tasks-Task)
+
+Dummy task for testing.
+
+
+<ParamField path="num_items" type="int">
+</ParamField>
+<Anchor id="nemo_curator-tasks-tasks-_EmptyTask-validate">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.tasks.tasks._EmptyTask.validate() -> bool
+```
+
+</CodeBlock>
+</Anchor>
+
+<Indent>
+
+Validate the task data.
+
+
+</Indent>
+</Indent>
+
+<Anchor id="nemo_curator-tasks-tasks-EmptyTask">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.tasks.tasks.EmptyTask = _EmptyTask(task_id='empty', dataset_name='empty', data=None)
+```
+
+</CodeBlock>
+</Anchor>
+
+
+<Anchor id="nemo_curator-tasks-tasks-T">
+
+<CodeBlock showLineNumbers={false} wordWrap={true}>
+
+```python
+nemo_curator.tasks.tasks.T = TypeVar('T')
+```
+
+</CodeBlock>
+</Anchor>
+
