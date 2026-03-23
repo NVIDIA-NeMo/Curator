@@ -12,7 +12,11 @@ tests/stages/deduplication/ @ayushdg @praateekmahajan
 docs/ @lbliii
 
 # CI/CD
-.github/ @thomasdc
+.github/ @NVIDIA-NeMo/automation
+
+# Text Embedders and Classifiers
+nemo_curator/stages/text/embedders/ @sarahyurick @praateekmahajan @VibhuJawa
+nemo_curator/stages/text/classifiers/ @sarahyurick @praateekmahajan @VibhuJawa
 
 # Backends
 nemo_curator/backends/ @oyilmaz-nvidia @praateekmahajan @abhinavg4 @ayushdg
