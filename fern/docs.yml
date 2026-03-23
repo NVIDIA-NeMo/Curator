@@ -41,6 +41,15 @@ redirects:
     destination: "/about/concepts/audio/manifests-ingest"
   - source: "/about/concepts/audio/text/integration"
     destination: "/about/concepts/audio/text-integration"
+  # Reference / Infra: legacy nested nav URLs → flat slugs
+  - source: "/reference/infra/memory/management"
+    destination: "/reference/infra/memory-management"
+  - source: "/reference/infra/gpu/processing"
+    destination: "/reference/infra/gpu-processing"
+  - source: "/reference/infra/resumable/processing"
+    destination: "/reference/infra/resumable-processing"
+  - source: "/reference/infra/container/environments"
+    destination: "/reference/infra/container-environments"
 
 title: NeMo Curator
 

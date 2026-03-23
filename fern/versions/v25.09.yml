@@ -492,33 +492,21 @@ navigation:
               - page: Overview
                 path: ./v25.09/pages/reference/infrastructure/index.mdx
                 slug: ""
-              - section: Memory
-                slug: memory
-                contents:
-                  - page: Memory Management
-                    path: ./v25.09/pages/reference/infrastructure/memory-management.mdx
-                    slug: management
-              - section: GPU
-                slug: gpu
-                contents:
-                  - page: GPU Processing
-                    path: ./v25.09/pages/reference/infrastructure/gpu-processing.mdx
-                    slug: processing
-              - section: Resumable
-                slug: resumable
-                contents:
-                  - page: Resumable Processing
-                    path: ./v25.09/pages/reference/infrastructure/resumable-processing.mdx
-                    slug: processing
+              - page: Memory Management
+                path: ./v25.09/pages/reference/infrastructure/memory-management.mdx
+                slug: memory-management
+              - page: GPU Processing
+                path: ./v25.09/pages/reference/infrastructure/gpu-processing.mdx
+                slug: gpu-processing
+              - page: Resumable Processing
+                path: ./v25.09/pages/reference/infrastructure/resumable-processing.mdx
+                slug: resumable-processing
               - page: Execution Backends
                 path: ./v25.09/pages/reference/infrastructure/execution-backends.mdx
                 slug: execution-backends
-              - section: Container
-                slug: container
-                contents:
-                  - page: Container Environments
-                    path: ./v25.09/pages/reference/infrastructure/container-environments.mdx
-                    slug: environments
+              - page: Container Environments
+                path: ./v25.09/pages/reference/infrastructure/container-environments.mdx
+                slug: container-environments
           - page: Related Tools
             path: ./v25.09/pages/reference/related-tools.mdx
             slug: related-tools

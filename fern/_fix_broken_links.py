@@ -11,14 +11,19 @@ REPO_FERN = Path(__file__).resolve().parent
 REPLACEMENTS: list[tuple[str, str]] = [
     # API docs tab paths (slug reference/api-reference)
     ("/api/reference/api-reference/", "/reference/api-reference/"),
-    # Reference infrastructure → infra nested slugs
-    ("/reference/infrastructure/memory-management", "/reference/infra/memory/management"),
-    ("/reference/infrastructure/gpu-processing", "/reference/infra/gpu/processing"),
-    ("/reference/infrastructure/resumable-processing", "/reference/infra/resumable/processing"),
-    ("/reference/infrastructure/container-environments", "/reference/infra/container/environments"),
+    # Reference infrastructure paths → Fern /reference/infra/* slugs
+    ("/reference/infrastructure/memory-management", "/reference/infra/memory-management"),
+    ("/reference/infrastructure/gpu-processing", "/reference/infra/gpu-processing"),
+    ("/reference/infrastructure/resumable-processing", "/reference/infra/resumable-processing"),
+    ("/reference/infrastructure/container-environments", "/reference/infra/container-environments"),
     ("/reference/infrastructure/execution-backends", "/reference/infra/execution-backends"),
+    # Legacy nested infra URLs (single-page nav sections) → flat slugs (canonical)
+    ("/reference/infra/resumable/processing", "/reference/infra/resumable-processing"),
+    ("/reference/infra/memory/management", "/reference/infra/memory-management"),
+    ("/reference/infra/gpu/processing", "/reference/infra/gpu-processing"),
+    ("/reference/infra/container/environments", "/reference/infra/container-environments"),
     # Legacy /docs/* → Fern paths
-    ("/docs/reference/infrastructure/container/environments", "/reference/infra/container/environments"),
+    ("/docs/reference/infrastructure/container/environments", "/reference/infra/container-environments"),
     ("/docs/reference/execution/backends", "/reference/infra/execution-backends"),
     ("/docs/reference/execution/backends", "/reference/infra/execution-backends"),
     ("/docs/admin/deployment/requirements", "/admin/deployment/requirements"),
@@ -60,7 +65,7 @@ REPLACEMENTS: list[tuple[str, str]] = [
     ("/docs/about/concepts/audio/text/integration", "/about/concepts/audio/text-integration"),
     ("/about/concepts/image-data-processing", "/about/concepts/image/data/processing"),
     # Short / legacy slugs → full routes (v26)
-    ("/reference-infrastructure-container-environments", "/reference/infra/container/environments"),
+    ("/reference-infrastructure-container-environments", "/reference/infra/container-environments"),
     ("/admin-deployment-requirements", "/admin/deployment/requirements"),
     ("/deployment/requirements", "/admin/deployment/requirements"),
     ("/migration-guide", "/about/release-notes/migration-guide"),
@@ -104,8 +109,8 @@ REPLACEMENTS: list[tuple[str, str]] = [
     ("/quality-assessment/duration-filtering", "/curate-audio/process-data/quality-assessment/duration-filtering"),
     ("/format-validation", "/curate-audio/process-data/audio-analysis/format-validation"),
     # Relative .md / Sphinx paths → Fern routes
-    ("../../../reference/infrastructure/resumable-processing.md", "/reference/infra/resumable/processing"),
-    ("../../reference/infrastructure/gpu-processing.md", "/reference/infra/gpu/processing"),
+    ("../../../reference/infrastructure/resumable-processing.md", "/reference/infra/resumable-processing"),
+    ("../../reference/infrastructure/gpu-processing.md", "/reference/infra/gpu-processing"),
     ("../../reference/infrastructure/execution-backends.md", "/reference/infra/execution-backends"),
     ("../../curate-video/index.md", "/curate-video"),
     ("../../curate-video/process-data/clipping.md", "/curate-video/process-data/clipping"),
