@@ -40,10 +40,7 @@ def _qr_code_ratio(image: np.ndarray) -> float:
     except cv2.error:
         retval, points = False, None
     if not retval or points is None or points.size == 0:
-        decoded, points, _ = detector.detectAndDecode(image)
-        if not decoded or points is None or points.size == 0:
-            return 0.0
-        points = [np.asarray(points, dtype=np.float32)]
+        return 0.0
     points = np.asarray(points, dtype=np.float32)
     total_qr_area = 0.0
     for i in range(len(points)):
