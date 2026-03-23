@@ -26,7 +26,7 @@
 
 ### Bug Fixes
 
-- FastText numpy>2 compatibility, NeMo doc links, ID generator blocking, vLLM video API, SDG workflow bugs, semantic dedup test reliability
+- FastText numpy>2 compatibility, NeMo doc links, ID generator blocking, vLLM video API, Gliner tutorial and SDG workflow bugs, semantic dedup test reliability
 
 ### Infrastructure
 
