@@ -99,42 +99,24 @@ navigation:
                   - page: Overview
                     path: ./v26.02/pages/about/concepts/audio/index.mdx
                     slug: ""
-                  - section: Curation
-                    slug: curation
-                    contents:
-                      - page: Curation Pipeline
-                        path: ./v26.02/pages/about/concepts/audio/curation-pipeline.mdx
-                        slug: pipeline
-                  - section: Audio
-                    slug: audio
-                    contents:
-                      - page: Audio Batch
-                        path: ./v26.02/pages/about/concepts/audio/audio-batch.mdx
-                        slug: batch
-                  - section: ASR
-                    slug: asr
-                    contents:
-                      - page: ASR Pipeline
-                        path: ./v26.02/pages/about/concepts/audio/asr-pipeline.mdx
-                        slug: pipeline
-                  - section: Quality
-                    slug: quality
-                    contents:
-                      - page: Quality Metrics
-                        path: ./v26.02/pages/about/concepts/audio/quality-metrics.mdx
-                        slug: metrics
-                  - section: Manifests
-                    slug: manifests
-                    contents:
-                      - page: Manifests and Ingest
-                        path: ./v26.02/pages/about/concepts/audio/manifests-ingest.mdx
-                        slug: ingest
-                  - section: Text
-                    slug: text
-                    contents:
-                      - page: Text Integration
-                        path: ./v26.02/pages/about/concepts/audio/text-integration.mdx
-                        slug: integration
+                  - page: Curation Pipeline
+                    path: ./v26.02/pages/about/concepts/audio/curation-pipeline.mdx
+                    slug: curation-pipeline
+                  - page: Audio Batch
+                    path: ./v26.02/pages/about/concepts/audio/audio-batch.mdx
+                    slug: audio-batch
+                  - page: ASR Pipeline
+                    path: ./v26.02/pages/about/concepts/audio/asr-pipeline.mdx
+                    slug: asr-pipeline
+                  - page: Quality Metrics
+                    path: ./v26.02/pages/about/concepts/audio/quality-metrics.mdx
+                    slug: quality-metrics
+                  - page: Manifests and Ingest
+                    path: ./v26.02/pages/about/concepts/audio/manifests-ingest.mdx
+                    slug: manifests-ingest
+                  - page: Text Integration
+                    path: ./v26.02/pages/about/concepts/audio/text-integration.mdx
+                    slug: text-integration
           - section: Release Notes
             slug: release-notes
             contents:

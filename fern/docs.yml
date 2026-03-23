@@ -28,6 +28,19 @@ redirects:
   # Unversioned paths and any slug not listed above (e.g. new version before redirects are updated)
   - source: "/:path*/index.html"
     destination: "/:path*"
+  # Audio concepts: legacy nested nav URLs → flat slugs (aligned with Sphinx filenames)
+  - source: "/about/concepts/audio/curation/pipeline"
+    destination: "/about/concepts/audio/curation-pipeline"
+  - source: "/about/concepts/audio/audio/batch"
+    destination: "/about/concepts/audio/audio-batch"
+  - source: "/about/concepts/audio/asr/pipeline"
+    destination: "/about/concepts/audio/asr-pipeline"
+  - source: "/about/concepts/audio/quality/metrics"
+    destination: "/about/concepts/audio/quality-metrics"
+  - source: "/about/concepts/audio/manifests/ingest"
+    destination: "/about/concepts/audio/manifests-ingest"
+  - source: "/about/concepts/audio/text/integration"
+    destination: "/about/concepts/audio/text-integration"
 
 title: NeMo Curator
 
