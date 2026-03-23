@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM
+from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM, _check_vllm_supports_model
 
 
 class TestQwenLM:
@@ -447,5 +447,106 @@ class TestQwenLM:
         with pytest.raises(ValueError, match="must be a Qwen model"):
             QwenLM.download_weights_on_node(model_dir="/some/dir", model_id="mistralai/Mistral-7B-Instruct")
 
+    def test_setup_raises_if_vllm_not_available(self) -> None:
+        with (
+            patch("nemo_curator.models.qwen_lm.VLLM_AVAILABLE", False),
+            pytest.raises(ImportError, match="vllm is required"),
+        ):
+            self.qwen_lm.setup()
+
+    @patch("nemo_curator.models.qwen_lm.download_model_from_hf")
+    def test_download_weights_on_node_skips_if_weights_present(self, mock_download: Mock) -> None:
+        with patch("nemo_curator.models.qwen_lm.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
+            mock_path_instance.exists.return_value = True
+            mock_path_instance.glob.return_value = ["model.safetensors"]
+            mock_path.return_value = mock_path_instance
+
+            QwenLM.download_weights_on_node(model_dir="/some/dir")
+
+            mock_download.assert_not_called()
+
+    @patch("nemo_curator.models.qwen_lm.download_model_from_hf")
+    def test_download_weights_on_node_default_model(self, mock_download: Mock) -> None:
+        with patch("nemo_curator.models.qwen_lm.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
+            mock_path_instance.exists.return_value = False
+            mock_path_instance.glob.return_value = []
+            mock_path_instance.mkdir = Mock()
+            mock_path.return_value = mock_path_instance
+
+            QwenLM.download_weights_on_node(model_dir="/some/dir")
+
+            mock_download.assert_called_once_with(
+                model_id=_QWEN_LM_MODEL_ID, local_dir=mock_path_instance, revision=None
+            )
+
     def teardown_method(self) -> None:
         self.vllm_available_patcher.stop()
+
+
+class TestCheckVllmSupportsModel:
+    """Tests for _check_vllm_supports_model helper."""
+
+    def test_skips_when_vllm_not_available(self) -> None:
+        with patch("nemo_curator.models.qwen_lm.VLLM_AVAILABLE", False):
+            # Should return without raising even for a bogus model id
+            _check_vllm_supports_model("NotQwen/fake-model")
+
+    def test_skips_when_no_architectures(self) -> None:
+        mock_config = Mock()
+        mock_config.architectures = []
+        with (
+            patch("nemo_curator.models.qwen_lm.VLLM_AVAILABLE", True),
+            patch("nemo_curator.models.qwen_lm.AutoConfig") as mock_auto_config,
+        ):
+            mock_auto_config.from_pretrained.return_value = mock_config
+            _check_vllm_supports_model("Qwen/Qwen3-14B")  # no error expected
+
+    def test_skips_when_architectures_is_none(self) -> None:
+        mock_config = Mock()
+        mock_config.architectures = None
+        with (
+            patch("nemo_curator.models.qwen_lm.VLLM_AVAILABLE", True),
+            patch("nemo_curator.models.qwen_lm.AutoConfig") as mock_auto_config,
+        ):
+            mock_auto_config.from_pretrained.return_value = mock_config
+            _check_vllm_supports_model("Qwen/Qwen3-14B")  # no error expected
+
+    def test_passes_when_all_architectures_supported(self) -> None:
+        mock_config = Mock()
+        mock_config.architectures = ["Qwen2ForCausalLM"]
+        with (
+            patch("nemo_curator.models.qwen_lm.VLLM_AVAILABLE", True),
+            patch("nemo_curator.models.qwen_lm.AutoConfig") as mock_auto_config,
+        ):
+            mock_auto_config.from_pretrained.return_value = mock_config
+            with patch("nemo_curator.models.qwen_lm.ModelRegistry") as mock_registry:
+                mock_registry.is_model_supported.return_value = True
+                _check_vllm_supports_model("Qwen/Qwen3-14B")  # no error expected
+
+    def test_raises_when_all_architectures_unsupported(self) -> None:
+        mock_config = Mock()
+        mock_config.architectures = ["UnknownArch"]
+        with (
+            patch("nemo_curator.models.qwen_lm.VLLM_AVAILABLE", True),
+            patch("nemo_curator.models.qwen_lm.AutoConfig") as mock_auto_config,
+        ):
+            mock_auto_config.from_pretrained.return_value = mock_config
+            with patch("nemo_curator.models.qwen_lm.ModelRegistry") as mock_registry:
+                mock_registry.is_model_supported.return_value = False
+                with pytest.raises(ValueError, match="not supported by vLLM"):
+                    _check_vllm_supports_model("Qwen/Qwen3-14B")
+
+    def test_skips_check_when_registry_import_fails(self) -> None:
+        mock_config = Mock()
+        mock_config.architectures = ["Qwen2ForCausalLM"]
+        with (
+            patch("nemo_curator.models.qwen_lm.VLLM_AVAILABLE", True),
+            patch("nemo_curator.models.qwen_lm.AutoConfig") as mock_auto_config,
+            patch("builtins.__import__", side_effect=ImportError("no module")),
+        ):
+            mock_auto_config.from_pretrained.return_value = mock_config
+            _check_vllm_supports_model("Qwen/Qwen3-14B")  # no error expected

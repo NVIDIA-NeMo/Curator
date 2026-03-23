@@ -374,6 +374,89 @@ class TestCaptionEnhancementStage:
         assert any("Caption for clip" in call for call in info_calls)
         assert any("Enhanced QwenLM Caption" in call for call in info_calls)
 
+    @patch("nemo_curator.stages.video.caption.caption_enhancement.QwenLM")
+    def test_setup_on_node(self, mock_qwen_lm: Mock):
+        """Test setup_on_node downloads weights and initializes model."""
+        mock_model = Mock()
+        mock_qwen_lm.return_value = mock_model
+
+        from nemo_curator.backends.base import NodeInfo
+
+        node_info = NodeInfo(node_id="node-0")
+        worker_metadata = WorkerMetadata(worker_id="test")
+        self.stage.setup_on_node(node_info, worker_metadata)
+
+        mock_qwen_lm.download_weights_on_node.assert_called_once_with(
+            "test/models",
+            model_id=_QWEN_LM_MODEL_ID,
+        )
+        assert self.stage.model == mock_model
+
+    @patch("nemo_curator.stages.video.caption.caption_enhancement.logger")
+    def test_process_caption_count_mismatch(self, mock_logger: Mock):
+        """Test process when model returns fewer captions than inputs."""
+        mock_model = Mock()
+        # Return only 1 caption but 3 inputs exist
+        mock_model.generate.return_value = ["Only one caption"]
+        self.stage.model = mock_model
+        self.stage.prompt = "Enhance:"
+
+        task = self._create_test_video_task_with_captions()
+        # Override batch size so all inputs go in one batch
+        self.stage.model_batch_size = 10
+
+        result = self.stage.process(task)
+
+        # Verify error was logged about mismatch
+        error_calls = [str(call) for call in mock_logger.error.call_args_list]
+        assert any("Caption generation failed" in call for call in error_calls)
+
+        # Verify no enhanced captions were assigned
+        for clip in task.data.clips:
+            for window in clip.windows:
+                assert _QWEN_LM_MODEL_ID not in window.enhanced_caption
+
+        assert result is task
+
+    @patch("nemo_curator.stages.video.caption.caption_enhancement.logger")
+    def test_process_window_caption_missing_qwen_key(self, mock_logger: Mock):
+        """Test process with windows whose caption dict lacks 'qwen' key."""
+        import pathlib
+
+        mock_model = Mock()
+        mock_model.generate.return_value = []
+        self.stage.model = mock_model
+        self.stage.prompt = "Enhance:"
+
+        video = Video(input_video=pathlib.Path("test_video.mp4"))
+        clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 10.0), buffer=b"test_buffer")
+        window = _Window(start_frame=0, end_frame=5)
+        # Caption dict exists but uses a different key
+        window.caption = {"cosmos": "A caption from a different model"}
+        window.enhanced_caption = {}
+        clip.windows = [window]
+        video.clips = [clip]
+        task = VideoTask(task_id="test", dataset_name="test", data=video)
+
+        result = self.stage.process(task)
+
+        # Model should not be called since there are no valid inputs
+        mock_model.generate.assert_not_called()
+        # No enhanced caption should be set
+        assert _QWEN_LM_MODEL_ID not in window.enhanced_caption
+        assert result is task
+
+    def test_setup_skips_init_if_model_already_set(self):
+        """Test setup does not reinitialize if model already exists."""
+        existing_model = Mock()
+        self.stage.model = existing_model
+
+        with patch("nemo_curator.stages.video.caption.caption_enhancement.QwenLM") as mock_qwen_lm:
+            self.stage.setup()
+            mock_qwen_lm.assert_not_called()
+
+        assert self.stage.model is existing_model
+
 
 class TestGetEnhancePrompt:
     """Test cases for _get_enhance_prompt function."""

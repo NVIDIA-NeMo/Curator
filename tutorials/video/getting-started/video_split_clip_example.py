@@ -672,7 +672,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     parser.add_argument(
         "--enhance-captioning-algorithm-model-id",
         type=str,
-        default=None,
+        default="Qwen/Qwen3-14B",
         help="HuggingFace model ID for caption enhancement (e.g. 'Qwen/Qwen3-14B'). Uses the default model if not set.",
     )
     parser.add_argument(
