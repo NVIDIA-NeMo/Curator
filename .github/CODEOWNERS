@@ -31,7 +31,7 @@ nemo_curator/stages/video/ @suiyoubi @abhinavg4
 tests/stages/video/ @suiyoubi @abhinavg4
 
 # Benchmarking
-benchmarking/ @rlratzel
+benchmarking/ @rlratzel @praateekmahajan @sarahyurick @ayushdg
 # Exclude scripts and nightly-benchmark.yaml from Rick's review
 benchmarking/scripts/ @NVIDIA-NeMo/curator_reviewers
 benchmarking/nightly-benchmark.yaml @NVIDIA-NeMo/curator_reviewers
