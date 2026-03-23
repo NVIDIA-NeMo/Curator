@@ -1,0 +1,33 @@
+# CODEOWNERS - defines required reviewers for pull requests
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: all PRs require review from the curator_reviewers team (round-robin assignment)
+* @NVIDIA-NeMo/curator_reviewers
+
+# Deduplication
+nemo_curator/stages/deduplication/ @ayushdg @praateekmahajan
+tests/stages/deduplication/ @ayushdg @praateekmahajan
+
+# Documentation
+docs/ @lbliii
+
+# CI/CD
+.github/ @thomasdc
+
+# Backends
+nemo_curator/backends/ @oyilmaz-nvidia @praateekmahajan @abhinavg4 @ayushdg
+tests/backends/ @oyilmaz-nvidia @praateekmahajan @abhinavg4 @ayushdg
+
+# Synthetic Data Generation (SDG)
+nemo_curator/stages/synthetic/ @huvunvidia
+tests/stages/synthetic/ @huvunvidia
+
+# Video
+nemo_curator/stages/video/ @suiyoubi @abhinavg4
+tests/stages/video/ @suiyoubi @abhinavg4
+
+# Benchmarking
+benchmarking/ @rlratzel
+# Exclude scripts and nightly-benchmark.yaml from Rick's review
+benchmarking/scripts/ @NVIDIA-NeMo/curator_reviewers
+benchmarking/nightly-benchmark.yaml @NVIDIA-NeMo/curator_reviewers
