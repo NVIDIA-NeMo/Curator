@@ -69,6 +69,10 @@ datasets:
     formats:
     - type: "jsonl"
       path: "{datasets_path}/gretel_symptoms"
+  - name: "text_models_hf_cache"
+    formats:
+    - type: "files"
+      path: "{model_weights_path}/text_models_hf_cache"
   - name: "multimodal_mint1t"
     formats:
     - type: "wds_tar_dir"
@@ -178,9 +182,10 @@ entries:
       --executor=ray_data
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
-      --model-identifier=sentence-transformers/all-MiniLM-L6-v2
-      --model-inference-batch-size=1024
-    timeout_s: 350
+      --model-identifier=google/embeddinggemma-300m
+      --model-variation=vllm_text
+      --cache-dir={dataset:text_models_hf_cache,files}
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
@@ -193,9 +198,9 @@ entries:
       num_gpus: 4
       enable_object_spilling: false
     requirements:
-      # observed throughput of 7200 docs/sec so we allow a 5% buffer to account for variability
+      # Observed throughput of 3945 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
-        min_value: 6840
+        min_value: 3747
 
   - name: embedding_generation_xenna
     enabled: true
@@ -206,9 +211,10 @@ entries:
       --executor=xenna
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
-      --model-identifier=sentence-transformers/all-MiniLM-L6-v2
-      --model-inference-batch-size=1024
-    timeout_s: 350
+      --model-identifier=google/embeddinggemma-300m
+      --model-variation=vllm_text
+      --cache-dir={dataset:text_models_hf_cache,files}
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
@@ -222,9 +228,9 @@ entries:
       num_gpus: 4
       enable_object_spilling: false
     requirements:
-      # Observed throughput of 8600 docs/sec so we allow a 5% buffer to account for variability
+      # Observed throughput of 4923 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
-        min_value: 8170
+        min_value: 4676
 
   - name: exact_dedup_identification
     enabled: true
@@ -580,7 +586,7 @@ entries:
       - metric: throughput_images_per_sec
         min_value: 3.0
 
-  - name: audio_fleurs
+  - name: audio_fleurs_xenna
     enabled: true
     script: audio_fleurs_benchmark.py
     args: >-
@@ -588,9 +594,30 @@ entries:
       --scratch-output-path={session_entry_dir}/scratch
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
-      --split=dev
+      --split=train
       --wer-threshold=5.5
       --gpus=1
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+
+  - name: audio_fleurs_raydata
+    enabled: true
+    script: audio_fleurs_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --scratch-output-path={session_entry_dir}/scratch
+      --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
+      --lang=hy_am
+      --split=train
+      --wer-threshold=5.5
+      --gpus=1
+      --executor=ray_data
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -614,8 +641,8 @@ entries:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
-          - num_output_documents
           - num_input_documents
+          - num_output_documents
         ping_on_failure:
           - UGFRT88RE  # Vibhu Jawa
     ray:
@@ -627,7 +654,7 @@ entries:
       - metric: num_tar_files
         exact_value: 45
       - metric: num_input_documents
-        exact_value: 116383
+        exact_value: 90922
       - metric: num_output_documents
         exact_value: 61474
 
@@ -645,8 +672,8 @@ entries:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
-          - num_output_documents
           - num_input_documents
+          - num_output_documents
         ping_on_failure:
           - UGFRT88RE  # Vibhu Jawa
     ray:
@@ -658,7 +685,7 @@ entries:
       - metric: num_tar_files
         exact_value: 45
       - metric: num_input_documents
-        exact_value: 116383
+        exact_value: 90922
       - metric: num_output_documents
         exact_value: 61474
 
@@ -755,7 +782,7 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
-    timeout_s: 3600
+    timeout_s: 700
     ray:
       num_cpus: 16
       num_gpus: 4
@@ -864,6 +891,38 @@ entries:
       --benchmark-results-path={session_entry_dir}
       --input-manifest={curator_repo_dir}/tests/fixtures/audio/alm/sample_input.jsonl
       --executor=xenna
+      --target-window-duration=120.0
+      --tolerance=0.1
+      --min-sample-rate=16000
+      --min-bandwidth=8000
+      --min-speakers=2
+      --max-speakers=5
+      --overlap-percentage=50
+      --repeat-factor=2000
+    timeout_s: 600
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    ray:
+      num_cpus: 8
+      num_gpus: 0
+      enable_object_spilling: false
+    requirements:
+      - metric: is_success
+        exact_value: true
+      - metric: total_builder_windows
+        min_value: 1
+      - metric: total_filtered_windows
+        min_value: 1
+
+  - name: alm_pipeline_ray_data
+    enabled: true
+    script: alm_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={curator_repo_dir}/tests/fixtures/audio/alm/sample_input.jsonl
+      --executor=ray_data
       --target-window-duration=120.0
       --tolerance=0.1
       --min-sample-rate=16000

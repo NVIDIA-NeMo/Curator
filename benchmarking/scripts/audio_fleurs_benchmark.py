@@ -15,10 +15,11 @@
 """Audio Fleurs benchmarking script.
 
 This script runs audio Fleurs benchmarks with comprehensive metrics collection
-using XennaExecutor and logs results to configured sinks.
+and logs results to configured sinks.
 """
 
 import argparse
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         raise ValueError(msg)
 
     logger.info("Starting audio fleurs benchmark")
+    logger.info(f"Executor: {executor}")
     logger.info(f"Model: {model_name}")
     logger.info(f"Language: {lang}")
     logger.info(f"Split: {split}")
@@ -147,6 +149,10 @@ def main() -> int:
     try:
         result_dict.update(run_audio_fleurs_benchmark(**vars(args)))
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
+    except Exception as e:
+        error_traceback = traceback.format_exc()
+        logger.error(f"Benchmark failed: {e}")
+        logger.debug(f"Full traceback:\n{error_traceback}")
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path)
     return success_code
