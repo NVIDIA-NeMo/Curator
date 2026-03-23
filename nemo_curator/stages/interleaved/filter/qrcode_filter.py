@@ -35,7 +35,10 @@ def _qr_code_ratio(image: np.ndarray) -> float:
     if img_area <= 0:
         return 0.0
     detector = cv2.QRCodeDetector()
-    retval, _decoded_info, points, _ = detector.detectAndDecodeMulti(image)
+    try:
+        retval, _decoded_info, points, _ = detector.detectAndDecodeMulti(image)
+    except cv2.error:
+        retval, points = False, None
     if not retval or points is None or points.size == 0:
         decoded, points, _ = detector.detectAndDecode(image)
         if not decoded or points is None or points.size == 0:
