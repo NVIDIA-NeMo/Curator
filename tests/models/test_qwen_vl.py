@@ -113,10 +113,13 @@ class TestQwenVL:
         assert model_ids[0] == self.qwen_vl.model_id
         assert model_ids[0] == _QWEN_VL_MODEL_ID
 
+    @patch("nemo_curator.models.qwen_vl._check_vllm_supports_vl_model")
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
     @patch("nemo_curator.models.qwen_vl.logger")
-    def test_setup_with_fp8(self, mock_logger: Mock, mock_sampling_params: Mock, mock_llm: Mock) -> None:
+    def test_setup_with_fp8(
+        self, mock_logger: Mock, mock_sampling_params: Mock, mock_llm: Mock, mock_check: Mock
+    ) -> None:
         """Test setup method with fp8 quantization enabled."""
         # Mock the LLM and SamplingParams
         mock_llm_instance = Mock()
@@ -124,8 +127,15 @@ class TestQwenVL:
         mock_sampling_params_instance = Mock()
         mock_sampling_params.return_value = mock_sampling_params_instance
 
-        # Call setup
-        self.qwen_vl.setup()
+        # Simulate weights already present so download is skipped
+        with patch("nemo_curator.models.qwen_vl.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.exists.return_value = True
+            mock_path_instance.glob.return_value = ["model.safetensors"]
+            mock_path.return_value = mock_path_instance
+
+            # Call setup
+            self.qwen_vl.setup()
 
         # Verify LLM initialization
         expected_mm_processor_kwargs = {
@@ -162,9 +172,10 @@ class TestQwenVL:
             "CUDA graph enabled for sequences smaller than 16k tokens; adjust accordingly for even longer sequences"
         )
 
+    @patch("nemo_curator.models.qwen_vl._check_vllm_supports_vl_model")
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
-    def test_setup_without_fp8(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
+    def test_setup_without_fp8(self, mock_sampling_params: Mock, mock_llm: Mock, mock_check: Mock) -> None:
         """Test setup method with fp8 quantization disabled."""
         # Create QwenVL instance with fp8=False
         qwen_vl = QwenVL(
@@ -177,15 +188,23 @@ class TestQwenVL:
         mock_llm_instance = Mock()
         mock_llm.return_value = mock_llm_instance
 
-        qwen_vl.setup()
+        with patch("nemo_curator.models.qwen_vl.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.exists.return_value = True
+            mock_path_instance.glob.return_value = ["model.safetensors"]
+            mock_path.return_value = mock_path_instance
+            qwen_vl.setup()
 
         # Verify quantization is None when fp8=False
         call_args = mock_llm.call_args
         assert call_args[1]["quantization"] is None
 
+    @patch("nemo_curator.models.qwen_vl._check_vllm_supports_vl_model")
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
-    def test_setup_with_model_preprocessing(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
+    def test_setup_with_model_preprocessing(
+        self, mock_sampling_params: Mock, mock_llm: Mock, mock_check: Mock
+    ) -> None:
         """Test setup method with model preprocessing enabled."""
         qwen_vl = QwenVL(
             model_dir=self.model_dir,
@@ -195,7 +214,12 @@ class TestQwenVL:
             disable_mmcache=True,
         )
 
-        qwen_vl.setup()
+        with patch("nemo_curator.models.qwen_vl.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.exists.return_value = True
+            mock_path_instance.glob.return_value = ["model.safetensors"]
+            mock_path.return_value = mock_path_instance
+            qwen_vl.setup()
 
         # Verify mm_processor_kwargs with preprocessing enabled
         call_args = mock_llm.call_args
@@ -398,9 +422,12 @@ class TestQwenVL:
 
         assert qwen_vl.max_output_tokens == custom_tokens
 
+    @patch("nemo_curator.models.qwen_vl._check_vllm_supports_vl_model")
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
-    def test_setup_sampling_params_with_custom_tokens(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
+    def test_setup_sampling_params_with_custom_tokens(
+        self, mock_sampling_params: Mock, mock_llm: Mock, mock_check: Mock
+    ) -> None:
         """Test that SamplingParams uses the custom max_output_tokens."""
         custom_tokens = 256
         qwen_vl = QwenVL(
@@ -410,7 +437,12 @@ class TestQwenVL:
             max_output_tokens=custom_tokens,
         )
 
-        qwen_vl.setup()
+        with patch("nemo_curator.models.qwen_vl.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.exists.return_value = True
+            mock_path_instance.glob.return_value = ["model.safetensors"]
+            mock_path.return_value = mock_path_instance
+            qwen_vl.setup()
 
         # Verify SamplingParams was called with custom max_tokens
         mock_sampling_params.assert_called_once_with(
