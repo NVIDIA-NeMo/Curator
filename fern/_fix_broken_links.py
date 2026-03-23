@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """One-off: rewrite internal links in Fern MDX to match versions/*.yml routes. Not imported."""
 
 from __future__ import annotations
