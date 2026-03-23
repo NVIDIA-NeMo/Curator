@@ -1,6 +1,9 @@
 # Variables (replaced at sync time by convert_curator_specific.py):
 #   {current_release}, {{ current_release }}, <release/> -> version from file path (e.g. 26.02)
 #   Use in source: # NeMo Curator Release Notes: {{ current_release }}  or  <release/>
+#
+# Version display names pair NeMo calendar trains (YY.MM) with git release tags (vMAJOR.MINOR.PATCH).
+# Update both when you cut a new docs version. See CHANGELOG.md / GitHub releases for tag ↔ release alignment.
 
 instances:
   - url: https://nemo-curator.docs.buildwithfern.com
@@ -8,11 +11,15 @@ instances:
 title: NeMo Curator
 
 versions:
-  - display-name: 26.02 (Latest)
+  - display-name: "Latest · v1.1.0 (26.02)"
+    path: versions/latest.yml
+    slug: latest
+    availability: stable
+  - display-name: "26.02 · v1.1.0"
     path: versions/v26.02.yml
     slug: v26.02
     availability: stable
-  - display-name: "25.09"
+  - display-name: "25.09 · v1.0.0"
     path: versions/v25.09.yml
     slug: v25.09
     availability: stable

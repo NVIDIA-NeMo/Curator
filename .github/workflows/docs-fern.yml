@@ -31,20 +31,13 @@ jobs:
 
       - name: Substitute variables
         run: |
-          python fern/scripts/substitute_variables.py v25.09 --version 25.09
-          python fern/scripts/substitute_variables.py v26.02 --version 26.02
+          python fern/substitute_variables.py versions/v25.09 --version 25.09
+          python fern/substitute_variables.py versions/v26.02 --version 26.02
         working-directory: .
 
       - name: Validate Fern config
         run: fern check
         working-directory: fern
-
-      - name: Check for unconverted MyST syntax
-        run: |
-          bash scripts/check_unconverted.sh v25.09
-          bash scripts/check_unconverted.sh v26.02
-        working-directory: fern
-        continue-on-error: true
 
       - name: Generate docs (PR preview)
         if: github.event_name == 'pull_request'

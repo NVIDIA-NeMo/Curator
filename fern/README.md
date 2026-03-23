@@ -8,15 +8,26 @@ This directory contains the NeMo Curator documentation built with [Fern](https:/
 fern/
 ├── fern.config.json     # Fern configuration
 ├── docs.yml             # Site config and version list
-├── versions/            # Version-specific navigation
-│   ├── v25.09.yml       # 25.09 navigation
-│   └── v26.02.yml       # 26.02 (latest) navigation
-├── v25.09/pages/        # 25.09 documentation (frozen)
-├── v26.02/pages/        # 26.02 documentation (latest)
+├── versions/            # Version-specific navigation + page trees
+│   ├── v25.09.yml
+│   ├── v26.02.yml
+│   ├── latest.yml       # Symlink to v26.02.yml (same nav; /latest/ URLs in Fern)
+│   ├── v25.09/pages/
+│   └── v26.02/pages/
+├── substitute_variables.py  # CI: substitute {{ variables }} in MDX before generate
 ├── assets/              # Images and static files
-├── scripts/             # Build and conversion scripts
 └── README.md            # This file
 ```
+
+### Versions and URLs
+
+`docs.yml` defines multiple versions. Each **`display-name`** pairs the **NeMo calendar train** (e.g. `26.02`) with the **git release tag** (e.g. `v1.1.0`) so the version picker matches PyPI/GitHub. Align these with `CHANGELOG.md` and `nemo_curator/package_info.py` when you ship.
+
+- **Latest** — same nav as 26.02 (`versions/latest.yml` → `v26.02.yml`); URLs under **`/latest/...`**
+- **26.02** — current train; default ordering depends on list position in `docs.yml`
+- **25.09** — prior train under **`/v25.09/...`**
+
+When you ship a new release, update MDX under `versions/vXX.YY/pages/`, add a `vXX.YY.yml`, repoint `latest.yml` → `vXX.YY.yml`, and refresh the **calendar + `vX.Y.Z` strings** in each version’s `display-name` in `docs.yml`.
 
 ## Local Development
 
@@ -49,47 +60,16 @@ fern docs dev
 fern generate --docs
 ```
 
-## Scripts
+## Variable substitution (CI)
 
-### Variable Substitution
-
-The `scripts/substitute_variables.py` script replaces template variables with their values. Run for each version:
+Before `fern generate`, CI runs `substitute_variables.py` so `{{ container_version }}` and other tokens in MDX are replaced. To run locally (from repo root):
 
 ```bash
-python fern/scripts/substitute_variables.py v25.09 --version 25.09
-python fern/scripts/substitute_variables.py v26.02 --version 26.02
+python fern/substitute_variables.py versions/v25.09 --version 25.09
+python fern/substitute_variables.py versions/v26.02 --version 26.02
 ```
 
-Variables are defined in the script and include:
-- `{{ container_version }}` - Docker container version
-- `{{ product_name }}` - Product name (NeMo Curator)
-- `{{ github_repo }}` - GitHub repository URL
-
-### Check Unconverted Syntax
-
-Verify all MyST syntax has been converted to Fern format:
-
-```bash
-bash fern/scripts/check_unconverted.sh v25.09
-bash fern/scripts/check_unconverted.sh v26.02
-```
-
-### Diff from Release Branch
-
-Compare v26.02 docs against a release branch to see what changed:
-
-```bash
-bash fern/scripts/diff_from_release.sh main
-# Or: bash fern/scripts/diff_from_release.sh origin/main
-```
-
-### Convert MyST to Fern
-
-Convert a MyST markdown file to Fern MDX:
-
-```bash
-python scripts/convert_myst_to_fern.py input.md > output.mdx
-```
+Variables are defined in `substitute_variables.py` (e.g. `{{ product_name }}`, `{{ github_repo }}`).
 
 ## CI/CD
 
@@ -99,24 +79,23 @@ Documentation is automatically built and deployed via GitHub Actions:
 - **Main branch**: Production deployment
 
 Required secrets:
+
 - `FERN_TOKEN`: API token from Fern dashboard
 
 ## Migration from Sphinx
 
-This documentation was migrated from Sphinx MyST format. See:
-- [RFC-FERN-MIGRATION.md](../docs/RFC-FERN-MIGRATION.md) - Migration RFC
-- [scripts/convert_myst_to_fern.py](scripts/convert_myst_to_fern.py) - Conversion script
+This documentation was migrated from Sphinx MyST format. See [RFC-FERN-MIGRATION.md](../docs/RFC-FERN-MIGRATION.md) for historical notes. One-off conversion tooling lives outside this repo.
 
 ## Contributing
 
-1. Make changes to MDX files in `v26.02/pages/` (latest version)
+1. Make changes to MDX files in `versions/v26.02/pages/` (latest version)
 2. Run `fern check` to validate
 3. Test locally with `fern docs dev`
 4. Submit PR for review
 
 ### Adding New Pages
 
-1. Create MDX file in `v26.02/pages/` (or appropriate version)
+1. Create MDX file in `versions/v26.02/pages/` (or appropriate version)
 2. Add frontmatter with `title` and `description`
 3. Add page to `versions/v26.02.yml` navigation
 4. Run `fern check` to validate

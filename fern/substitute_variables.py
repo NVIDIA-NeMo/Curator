@@ -1,12 +1,26 @@
 #!/usr/bin/env python3
-"""
-Replace documentation variables in MDX files.
+# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-This script is run during CI/CD before `fern generate` to substitute
-template variables with their actual values.
+"""Replace documentation variables in MDX files (CI and local).
 
-Usage:
-    python substitute_variables.py [--dry-run] [directory]
+Run before ``fern generate`` to substitute ``{{ variable }}`` in MDX.
+
+Usage (from repo root)::
+
+    python fern/substitute_variables.py versions/v25.09 --version 25.09
+    python fern/substitute_variables.py versions/v26.02 --version 26.02
 """
 
 import argparse
@@ -53,14 +67,25 @@ def process_file(filepath: Path, variables: dict, dry_run: bool = False) -> bool
     return False
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description="Substitute documentation variables in MDX files")
-    parser.add_argument("directory", nargs="?", default="pages", help="Directory to process (e.g. v25.09, v26.02)")
+    parser.add_argument(
+        "directory",
+        nargs="?",
+        default="versions/v26.02",
+        help="Path under fern/ containing MDX (e.g. versions/v25.09, versions/v26.02)",
+    )
     parser.add_argument("--version", help="Version string for version/container_version/current_release (e.g. 25.09, 26.02)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be changed without modifying files")
     args = parser.parse_args()
 
-    base_dir = Path(__file__).parent.parent / args.directory
+    # fern/substitute_variables.py -> fern/<version> or fern/versions/<version>
+    fern_root = Path(__file__).resolve().parent
+    base_dir = fern_root / args.directory
+    if not base_dir.exists():
+        candidate = fern_root / "versions" / args.directory
+        if candidate.exists():
+            base_dir = candidate
     if not base_dir.exists():
         print(f"Error: Directory not found: {base_dir}")
         return 1
@@ -81,4 +106,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    raise SystemExit(main())

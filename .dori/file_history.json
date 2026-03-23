@@ -1,0 +1,175 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-03-23T15:09:56.382504+00:00",
+  "files": {
+    "fern/versions/v26.02.yml": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "fern/versions/v25.09.yml": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "fern/scripts/substitute_variables.py": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "fern/substitute_variables.py": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "fern/scripts/sync_from_r1.1.0.py": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "fern/scripts/sanity_check_migration.py": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "fern/scripts/diff_from_release.sh": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "fern/scripts/check_unconverted.sh": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "fern/scripts/update_links.py": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "fern/scripts/expand_includes.py": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "fern/scripts/convert_curator_specific.py": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "fern/scripts/add_frontmatter.py": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "fern/README.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-release-notes",
+          "command": "Reorganize Fern versions into versions/<ver>/pages",
+          "at": "2026-03-23T15:09:56.340729+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    }
+  }
+}

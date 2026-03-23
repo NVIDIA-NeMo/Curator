@@ -1,0 +1,41 @@
+{
+  "project_name": "NeMo-Curator",
+  "project_path": "/Users/llane/Documents/github/nemo/framework/NeMo-Curator",
+  "discovered_patterns": [
+    {
+      "pattern_type": "readme",
+      "value": "Project README",
+      "path": "README.md",
+      "confidence": 1.0,
+      "discovered_at": "2026-03-23T15:09:56.506054+00:00"
+    },
+    {
+      "pattern_type": "docs_folder",
+      "value": "Documentation folder",
+      "path": "docs/",
+      "confidence": 1.0,
+      "discovered_at": "2026-03-23T15:09:56.506072+00:00"
+    },
+    {
+      "pattern_type": "python_project",
+      "value": "Python project",
+      "path": "pyproject.toml",
+      "confidence": 1.0,
+      "discovered_at": "2026-03-23T15:09:56.506082+00:00"
+    },
+    {
+      "pattern_type": "github_actions",
+      "value": "GitHub Actions",
+      "path": ".github/",
+      "confidence": 1.0,
+      "discovered_at": "2026-03-23T15:09:56.506102+00:00"
+    }
+  ],
+  "doc_style": {},
+  "common_issues": [],
+  "skill_usage": {
+    "doc-release-notes": 1
+  },
+  "created_at": "2026-03-23T15:09:56.506009+00:00",
+  "last_updated": "2026-03-23T15:09:56.506877+00:00"
+}

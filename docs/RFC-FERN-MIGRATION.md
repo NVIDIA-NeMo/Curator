@@ -552,7 +552,9 @@ if __name__ == "__main__":
 
 ```yaml
 - name: Substitute variables
-  run: python scripts/substitute_variables.py
+  run: |
+    python fern/substitute_variables.py versions/v25.09 --version 25.09
+    python fern/substitute_variables.py versions/v26.02 --version 26.02
 
 - name: Generate docs
   run: fern generate --docs
@@ -1959,7 +1961,7 @@ mkdir -p "$FERN_DIR"/api-reference/{tasks,executors}
 
 echo "Directory structure created."
 echo "Run individual converters on each file."
-echo "Example: cat docs/admin/installation.md | python scripts/convert_all.py > fern/pages/admin/installation.mdx"
+echo "Example: run your external MyST-to-Fern conversion pipeline, then place MDX under fern/versions/<ver>/pages/"
 ```
 
 ### 7. Link Checker
