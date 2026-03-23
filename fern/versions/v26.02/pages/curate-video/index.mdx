@@ -65,14 +65,14 @@ Bring videos into your pipeline from local paths or remote sources you control.
 
 <Cards>
 
-<Card title="Local & Cloud" href="/video/load/data/local/cloud">
+<Card title="Local & Cloud" href="/curate-video/load-data#local-and-cloud">
 Load videos from local paths or S3-compatible and HTTP(S) URLs.
 local
 s3
 file-list
 </Card>
 
-<Card title="Remote (JSON)" href="/video/load/data/json/list">
+<Card title="Remote (JSON)" href="/curate-video/load-data#explicit-file-list-json">
 Provide an explicit JSON file list for remote datasets under a root prefix.
 file-list
 s3
@@ -86,14 +86,14 @@ Transform raw videos into curated clips, frames, embeddings, and metadata you ca
 
 <Cards>
 
-<Card title="Clip Videos" href="/video/process/clipping">
+<Card title="Clip Videos" href="/curate-video/process-data/clipping">
 Split long videos into shorter clips using fixed stride or scene-change detection.
 clips
 fixed-stride
 transnetv2
 </Card>
 
-<Card title="Encode Clips" href="/video/process/transcoding">
+<Card title="Encode Clips" href="/curate-video/process-data/transcoding">
 Encode clips to H.264 using CPU or GPU encoders and tune performance.
 clips
 h264_nvenc
@@ -101,7 +101,7 @@ libopenh264
 libx264
 </Card>
 
-<Card title="Filter Clips and Frames" href="/video/process/filtering">
+<Card title="Filter Clips and Frames" href="/curate-video/process-data/filtering">
 Apply motion-based filtering and aesthetic filtering to improve dataset quality.
 clips
 frames
@@ -109,7 +109,7 @@ motion
 aesthetic
 </Card>
 
-<Card title="Extract Frames" href="/video/process/frame/extraction">
+<Card title="Extract Frames" href="/curate-video/process-data/frame-extraction">
 Extract frames from clips or full videos for embeddings, filtering, and analysis.
 frames
 nvdec
@@ -117,13 +117,13 @@ ffmpeg
 fps
 </Card>
 
-<Card title="Create Embeddings" href="/video/process/embeddings">
+<Card title="Create Embeddings" href="/curate-video/process-data/embeddings">
 Generate clip-level embeddings with Cosmos-Embed1 for search and duplicate removal.
 clips
 cosmos-embed1
 </Card>
 
-<Card title="Create Captions & Preview" href="/video/process/captions/preview">
+<Card title="Create Captions & Preview" href="/curate-video/process-data/captions-preview">
 Generate Qwen‑VL captions and optional WebP previews; optionally enhance with Qwen‑LM.
 captions
 previews
@@ -131,7 +131,7 @@ qwen
 webp
 </Card>
 
-<Card title="Remove Duplicate Embeddings" href="/video/process/dedup">
+<Card title="Remove Duplicate Embeddings" href="/curate-video/process-data/dedup">
 Remove near-duplicates using semantic clustering and similarity with generated embeddings.
 clips
 semantic
@@ -147,7 +147,7 @@ Save outputs in formats your training or retrieval systems can consume at scale.
 
 <Cards>
 
-<Card title="Save & Export" href="/video/save/export">
+<Card title="Save & Export" href="/curate-video/save-export">
 Understand output directories, parquet embeddings, and packaging for training.
 parquet
 webdataset
@@ -164,14 +164,14 @@ Practice with guided, hands-on examples to build, customize, and run video pipel
 
 <Cards>
 
-<Card title="Beginner Tutorial" href="/video/tutorials/beginner">
+<Card title="Beginner Tutorial" href="/curate-video/tutorials/beginner">
 Create and run your first video pipeline: read, split, encode, embed, write.
 splitting
 encoding
 embeddings
 </Card>
 
-<Card title="Pipeline Customization Tutorials" href="/video/tutorials/pipeline/cust/series">
+<Card title="Pipeline Customization Tutorials" href="/curate-video/tutorials/pipeline-customization">
 Customize environments, code, models, and stages for video pipelines.
 environments
 code
