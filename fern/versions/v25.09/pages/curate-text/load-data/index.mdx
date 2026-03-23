@@ -9,7 +9,7 @@ Curator provides a task-centric pipeline for downloading and processing large-sc
 
 ## How it Works
 
-Curator uses a [4-step pipeline pattern](/about/concepts/text/data-acquisition-concepts) where data flows through stages as tasks. Each step uses a `ProcessingStage` that transforms tasks according to Curator's [pipeline-based architecture](/about/concepts/text/data-loading-concepts).
+Curator uses a [4-step pipeline pattern](/about/concepts/text/data/acquisition) where data flows through stages as tasks. Each step uses a `ProcessingStage` that transforms tasks according to Curator's [pipeline-based architecture](/about/concepts/text/data/loading).
 
 Data sources provide composite stages that combine these steps into complete download-and-extract pipelines, producing `DocumentBatch` tasks for further processing.
 

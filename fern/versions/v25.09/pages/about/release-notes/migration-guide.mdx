@@ -70,7 +70,7 @@ dask_client = get_client(cluster_type="gpu")
 
 **New: Ray Cluster**
 
-Connect to a Ray cluster, which can manage tasks across CPU or GPU-backed nodes. For cluster setup details, refer to [Production Deployment Requirements](/docs/admin/deployment/requirements) and the [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html).
+Connect to a Ray cluster, which can manage tasks across CPU or GPU-backed nodes. For cluster setup details, refer to [Production Deployment Requirements](/admin/admin/deployment/requirements) and the [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html).
 
 ```python
 # New: Ray
@@ -124,7 +124,7 @@ def main():
 
 **New: Modular Stages**
 
-In the new version, these operations are defined as discrete stages that operate on batches of data. Each stage can specify resources such as GPU count or CPU threads. For details on [available filters](/docs/text/process/data/filter/heuristic), [content cleaning operations](/docs/about/concepts/text/data/processing), and [pipeline concepts](/docs/about/concepts/video/abstractions), refer to the linked documentation.
+In the new version, these operations are defined as discrete stages that operate on batches of data. Each stage can specify resources such as GPU count or CPU threads. For details on [available filters](/curate-text/process-data/quality-assessment/heuristic), [content cleaning operations](/about/concepts/text/data/processing), and [pipeline concepts](/about/concepts/video/abstractions), refer to the linked documentation.
 
 ```python
 # New: Define stages
@@ -139,7 +139,7 @@ stages = [
 ```
 
 <Note>
-In the new version, deduplication should be run as a separate workflow using classes like `ExactDeduplicationWorkflow`, not embedded directly as a pipeline stage. For details and usage, refer to the [text deduplication documentation](/docs/text/process/data/dedup).
+In the new version, deduplication should be run as a separate workflow using classes like `ExactDeduplicationWorkflow`, not embedded directly as a pipeline stage. For details and usage, refer to the [text deduplication documentation](/curate-text/process-data/deduplication).
 </Note>
 
 ### Step 3: Create and Run Pipeline
@@ -156,7 +156,7 @@ pipeline = Pipeline(
     stages=stages,
 )
 
-# Create executor (see [Pipeline Execution Backends](/docs/reference/execution/backends) for configuration options)
+# Create executor (see [Pipeline Execution Backends](/reference/infra/execution-backends) for configuration options)
 executor = XennaExecutor()
 
 # Execute pipeline
@@ -182,7 +182,7 @@ ray_client.stop()
 ```
 
 <Note>
-This is a high-level example, and exact implementation details may vary. For more in-depth information about setting up text curation pipelines, refer to the [text curation quickstart](/docs/get-started/text).
+This is a high-level example, and exact implementation details may vary. For more in-depth information about setting up text curation pipelines, refer to the [text curation quickstart](/get-started/text).
 </Note>
 
 ---
@@ -360,7 +360,7 @@ dataset.to_webdataset(deduplicated_dataset_path, "is_unique")
 
 **New: Single Deduplication Stage**
 
-In the new version, semantic deduplication is encapsulated in a single stage, `SemanticDeduplicationStage` (see [Deduplication Concepts](/docs/about/concepts/deduplication) for comprehensive documentation). This stage handles clustering and duplicate removal internally, using the configured number of clusters and similarity threshold.
+In the new version, semantic deduplication is encapsulated in a single stage, `SemanticDeduplicationStage` (see [Deduplication Concepts](/about/concepts/deduplication) for comprehensive documentation). This stage handles clustering and duplicate removal internally, using the configured number of clusters and similarity threshold.
 
 ```python
 # New: Semantic Deduplication
@@ -416,12 +416,12 @@ ray_client.stop()
 ```
 
 <Note>
-This is a high-level example, and exact implementation details may vary. For more in-depth information about setting up image curation pipelines, refer to the [image curation quickstart](/docs/get-started/image).
+This is a high-level example, and exact implementation details may vary. For more in-depth information about setting up image curation pipelines, refer to the [image curation quickstart](/get-started/image).
 </Note>
 
 ---
 
 ## Additional Resources
 
-For questions about migration or other topics, refer to the [Migration FAQ](/docs/migration/faq).
+For questions about migration or other topics, refer to the [Migration FAQ](/about/release-notes/about/release-notes/migration-faq).
 

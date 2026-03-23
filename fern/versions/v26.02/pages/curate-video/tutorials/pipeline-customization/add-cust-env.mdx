@@ -13,7 +13,7 @@ modality: "video-only"
 
 Learn how to package dependencies for NeMo Curator using a container image.
 
-The NeMo Curator container provides a primary `curator` conda environment with pre-installed dependencies. If your pipeline needs additional system or Python packages, create a custom image. Refer to the [container environments](/reference-infrastructure-container-environments) reference for defaults and build arguments.
+The NeMo Curator container provides a primary `curator` conda environment with pre-installed dependencies. If your pipeline needs additional system or Python packages, create a custom image. Refer to the [container environments](/reference/infra/container/environments) reference for defaults and build arguments.
 
 ## Before You Start
 
@@ -21,7 +21,7 @@ Before you begin, make sure that you have:
 
 * Reviewed the [pipeline concepts and diagrams](/about/concepts/video).  
 * A base container image suitable for NeMo Curator.  
-* Optionally [created custom code](/video-tutorials-pipeline-cust-add-code) that defines your new requirements.  
+* Optionally [created custom code](/curate-video/tutorials/pipeline-customization/add-cust-code) that defines your new requirements.  
 
 ---
 
@@ -68,4 +68,4 @@ docker build -t my-ray-curator:latest .
 
 ## Next Steps
 
-Now that you have created a custom environment, you can [create custom code](/video-tutorials-pipeline-cust-add-code) for that environment.
+Now that you have created a custom environment, you can [create custom code](/curate-video/tutorials/pipeline-customization/add-cust-code) for that environment.

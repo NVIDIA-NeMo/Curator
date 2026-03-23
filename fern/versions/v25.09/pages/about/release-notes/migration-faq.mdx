@@ -34,7 +34,7 @@ Ray pipelines in NeMo Curator are strictly linear. If you need to apply multiple
 ## Pipeline Design and Operation
 
 <Accordion title="How is the Ray pipeline structured? Is it streaming, batch, or hybrid?">
-Ray pipelines use a [streaming architecture](/docs/about/concepts/video/architecture) where data tasks flow from stage to stage in-memory wherever possible (across Ray's object store), minimizing costly file system I/O. Production runs process data continuously for maximum throughput. For more details, refer to [Key Abstractions](/docs/about/concepts/video/abstractions).
+Ray pipelines use a [streaming architecture](/about/concepts/video/architecture) where data tasks flow from stage to stage in-memory wherever possible (across Ray's object store), minimizing costly file system I/O. Production runs process data continuously for maximum throughput. For more details, refer to [Key Abstractions](/about/concepts/video/abstractions).
 </Accordion>
 
 <Accordion title="How do I save or checkpoint intermediate results between stages?">
@@ -62,7 +62,7 @@ An internal adaptive scheduler monitors throughput for each stage every few minu
 </Accordion>
 
 <Accordion title="How do I specify resource requirements (GPUs, CPUs, RAM) for a pipeline stage?">
-Each stage specifies its own resource needs in code (see [Pipeline Execution Backends](/docs/reference/execution/backends) for configuration details). Set required CPU or GPU count, GPU VRAM, and other specs directly. Ray packs tasks optimally (for example, several light jobs on one GPU).
+Each stage specifies its own resource needs in code (see [Pipeline Execution Backends](/reference/infra/execution-backends) for configuration details). Set required CPU or GPU count, GPU VRAM, and other specs directly. Ray packs tasks optimally (for example, several light jobs on one GPU).
 </Accordion>
 
 <Accordion title="What happens if a model's actual memory usage exceeds what I specified (OOM errors)?">
@@ -82,7 +82,7 @@ Internally, an allocator ensures data locality for heavy data transfer stages (f
 ## Data Processing, Models, and Quality
 
 <Accordion title="How do you handle quality filtering for low-resource languages where no good models exist?">
-NeMo Curator suggests several strategies (see [Heuristic Filtering](/docs/text/process/data/filter/heuristic) and [Quality Assessment](/docs/about/concepts/text/data/processing) for details):
+NeMo Curator suggests several strategies (see [Heuristic Filtering](/curate-text/process-data/quality-assessment/heuristic) and [Quality Assessment](/about/concepts/text/data/processing) for details):
 
 - Use available multilingual models (for example, Qwen, Mistral, or other models with many language capabilities)
 - Annotate high-quality English data with a classifier, translate these data to the target language, and then train a smaller in-language model
@@ -106,7 +106,7 @@ Ray will relaunch failed workers or actors, but robust error handling and resump
 </Accordion>
 
 <Accordion title="How is observability handled? Can I track pipeline performance, actor counts, and task durations?">
-All Ray pipelines expose resource and processing metrics via a built-in Grafana dashboard (with process time per task or actor, resource utilization, and so on). You can also summarize stats from task data at pipeline completion for custom reporting. For configuration options, refer to [Pipeline Execution Backends](/docs/reference/execution/backends) and the [Ray Dashboard documentation](https://docs.ray.io/en/latest/ray-observability/getting-started.html).
+All Ray pipelines expose resource and processing metrics via a built-in Grafana dashboard (with process time per task or actor, resource utilization, and so on). You can also summarize stats from task data at pipeline completion for custom reporting. For configuration options, refer to [Pipeline Execution Backends](/reference/infra/execution-backends) and the [Ray Dashboard documentation](https://docs.ray.io/en/latest/ray-observability/getting-started.html).
 </Accordion>
 
 <Accordion title="Can I resume processing from mid-pipeline if interrupted?">
@@ -118,7 +118,7 @@ For streaming pipelines, each completed task can be tracked (temporarily with fi
 ## Extensibility, Customization, and Collaboration
 
 <Accordion title="How customizable is the pipeline? Can I easily add my own stages, models, or data annotations?">
-Yes, by design. Add new stages or modify process functions to integrate custom logic, models, or data preprocessing and postprocessing (see [Key Abstractions](/docs/about/concepts/video/abstractions) for examples). Extend or fork example pipelines to suit new use cases.
+Yes, by design. Add new stages or modify process functions to integrate custom logic, models, or data preprocessing and postprocessing (see [Key Abstractions](/about/concepts/video/abstractions) for examples). Extend or fork example pipelines to suit new use cases.
 </Accordion>
 
 <Accordion title="Can I contribute region or language-specific filters or tools back to NeMo Curator?">
@@ -130,11 +130,11 @@ Contributions are strongly encouraged. Submit pull requests or join community di
 ## Deployment, Infrastructure, and Practicalities
 
 <Accordion title="How do I deploy NeMo Curator or Ray clusters?">
-Ray clusters can be deployed on any major cloud platform (AWS, GCP, Azure) using standard Ray tools (see [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html)). No custom infrastructure is needed. NVIDIA provides ready-to-use [Docker images](/docs/reference/infrastructure/container/environments) and up-to-date quickstart guides. For complete deployment details, refer to [Production Deployment Requirements](/docs/admin/deployment/requirements).
+Ray clusters can be deployed on any major cloud platform (AWS, GCP, Azure) using standard Ray tools (see [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html)). No custom infrastructure is needed. NVIDIA provides ready-to-use [Docker images](/reference/infra/container/environments) and up-to-date quickstart guides. For complete deployment details, refer to [Production Deployment Requirements](/admin/admin/deployment/requirements).
 </Accordion>
 
 <Accordion title="Do I need to build custom Docker images?">
-Not for most standard uses. Use [provided images](/docs/reference/infrastructure/container/environments) or extend as needed (for example, to add proprietary or additional filters). Check out the official Docker container releases on the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator).
+Not for most standard uses. Use [provided images](/reference/infra/container/environments) or extend as needed (for example, to add proprietary or additional filters). Check out the official Docker container releases on the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator).
 </Accordion>
 
 <Accordion title="Is there integration with existing cluster or orchestration tools like Airflow or Slurm?">
@@ -154,7 +154,7 @@ For multi-node operations, you're responsible for managing communication setup (
 </Accordion>
 
 <Accordion title="Are there examples of multi-type data (text, image, audio, video) pipelines?">
-Yes. NeMo Curator supports multiple data modalities including [text](/docs/get-started/text), [image](/docs/get-started/image), [audio](/docs/get-started/audio), and [video](/docs/get-started/video).
+Yes. NeMo Curator supports multiple data modalities including [text](/get-started/text), [image](/get-started/image), [audio](/get-started/audio), and [video](/get-started/video).
 </Accordion>
 
 ---

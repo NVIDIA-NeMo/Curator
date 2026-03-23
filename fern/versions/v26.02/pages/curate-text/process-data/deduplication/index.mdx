@@ -47,7 +47,7 @@ exact_workflow = ExactDeduplicationWorkflow(
 exact_workflow.run()
 ```
 
-For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Exact Duplicate Removal ](/text-process-data-dedup-exact) for details.
+For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Exact Duplicate Removal ](/curate-text/process-data/deduplication/exact) for details.
 </Accordion>
 </Tab>
 
@@ -85,7 +85,7 @@ fuzzy_workflow = FuzzyDeduplicationWorkflow(
 fuzzy_workflow.run()
 ```
 
-For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Fuzzy Duplicate Removal ](/text-process-data-dedup-fuzzy) for details.
+For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Fuzzy Duplicate Removal ](/curate-text/process-data/deduplication/fuzzy) for details.
 </Accordion>
 </Tab>
 
@@ -120,7 +120,7 @@ text_workflow.run()
 - `TextSemanticDeduplicationWorkflow`: For raw text with automatic embedding generation
 - `SemanticDeduplicationWorkflow`: For pre-computed embeddings
 
-See [Semantic Deduplication ](/text-process-data-format-sem-dedup) for details.
+See [Semantic Deduplication ](/curate-text/process-data/deduplication/semdedup) for details.
 </Accordion>
 </Tab>
 
@@ -315,9 +315,9 @@ Run each method independently, then combine duplicate IDs before removal.
 
 For detailed implementation guides, see:
 
-- [Exact Duplicate Removal ](/text-process-data-dedup-exact)
-- [Fuzzy Duplicate Removal ](/text-process-data-dedup-fuzzy)
-- [Semantic Deduplication ](/text-process-data-format-sem-dedup)
+- [Exact Duplicate Removal ](/curate-text/process-data/deduplication/exact)
+- [Fuzzy Duplicate Removal ](/curate-text/process-data/deduplication/fuzzy)
+- [Semantic Deduplication ](/curate-text/process-data/deduplication/semdedup)
 
 <Accordion title="Performance Considerations">
 
@@ -391,8 +391,8 @@ The ID Generator ensures consistent IDs across workflow stages.
 
 **Ready to use deduplication?**
 
-- **New to deduplication**: Start with [Exact Duplicate Removal ](/text-process-data-dedup-exact) for the fastest approach
-- **Need near-duplicate detection**: See [Fuzzy Duplicate Removal ](/text-process-data-dedup-fuzzy) for MinHash-based matching
-- **Require semantic matching**: Explore [Semantic Deduplication ](/text-process-data-format-sem-dedup) for meaning-based deduplication
+- **New to deduplication**: Start with [Exact Duplicate Removal ](/curate-text/process-data/deduplication/exact) for the fastest approach
+- **Need near-duplicate detection**: See [Fuzzy Duplicate Removal ](/curate-text/process-data/deduplication/fuzzy) for MinHash-based matching
+- **Require semantic matching**: Explore [Semantic Deduplication ](/curate-text/process-data/deduplication/semdedup) for meaning-based deduplication
 
-**For hands-on guidance**: See [Text Curation Tutorials ](/text-tutorials) for step-by-step examples.
+**For hands-on guidance**: See [Text Curation Tutorials ](/curate-text/tutorials) for step-by-step examples.

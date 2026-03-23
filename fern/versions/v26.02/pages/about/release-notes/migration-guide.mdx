@@ -79,7 +79,7 @@ dask_client = get_client(cluster_type="gpu")
 
 **New: Ray Cluster**
 
-Connect to a Ray cluster, which can manage tasks across CPU or GPU-backed nodes. For cluster setup details, refer to [Production Deployment Requirements ](/admin-deployment-requirements) and the [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html).
+Connect to a Ray cluster, which can manage tasks across CPU or GPU-backed nodes. For cluster setup details, refer to [Production Deployment Requirements ](/admin/admin/deployment/requirements) and the [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html).
 
 ```python
 # New: Ray
@@ -133,7 +133,7 @@ def main():
 
 **New: Modular Stages**
 
-In the new version, these operations are defined as discrete stages that operate on batches of data. Each stage can specify resources such as GPU count or CPU threads. For details on [available filters ](/text-process-data-filter-heuristic), [content cleaning operations ](/about/concepts/text/data/processing), and [pipeline concepts ](/about/concepts/video/abstractions), refer to the linked documentation.
+In the new version, these operations are defined as discrete stages that operate on batches of data. Each stage can specify resources such as GPU count or CPU threads. For details on [available filters ](/curate-text/process-data/quality-assessment/heuristic), [content cleaning operations ](/about/concepts/text/data/processing), and [pipeline concepts ](/about/concepts/video/abstractions), refer to the linked documentation.
 
 ```python
 # New: Define stages
@@ -148,7 +148,7 @@ stages = [
 ```
 
 <Note>
-In the new version, deduplication should be run as a separate workflow using classes like `ExactDeduplicationWorkflow`, not embedded directly as a pipeline stage. For details and usage, refer to the [text deduplication documentation ](/text-process-data-dedup).
+In the new version, deduplication should be run as a separate workflow using classes like `ExactDeduplicationWorkflow`, not embedded directly as a pipeline stage. For details and usage, refer to the [text deduplication documentation ](/curate-text/process-data/deduplication).
 </Note>
 
 ### Step 3: Create and Run Pipeline
@@ -191,7 +191,7 @@ ray_client.stop()
 ```
 
 <Note>
-This is a high-level example, and exact implementation details may vary. For more in-depth information about setting up text curation pipelines, refer to the [text curation quickstart ](/gs-text).
+This is a high-level example, and exact implementation details may vary. For more in-depth information about setting up text curation pipelines, refer to the [text curation quickstart ](/get-started/text).
 </Note>
 
 ---
@@ -242,7 +242,7 @@ dataset = ImageTextPairDataset.from_webdataset(dataset_path, id_col)
 
 **New: Stage-Based Loading**
 
-In the new version, data loading is encapsulated in a dedicated pipeline stage (see [Image Processing Concepts ](/about/concepts/image-data-processing) for details). Instead of directly creating a dataset, users define an `ImageReaderStage` that handles reading from WebDataset `.tar` files.
+In the new version, data loading is encapsulated in a dedicated pipeline stage (see [Image Processing Concepts ](/about/concepts/image/data/processing) for details). Instead of directly creating a dataset, users define an `ImageReaderStage` that handles reading from WebDataset `.tar` files.
 
 ```python
 # New: Read images from webdataset tar files
@@ -277,7 +277,7 @@ dataset.save_metadata()
 
 **New: Embedding Stage**
 
-In the new version, embedding generation is handled by a dedicated `ImageEmbeddingStage` pipeline stage with configurable resource parameters (see [CLIP Embedding Stage ](/image-process-data-embeddings-clip) for details).
+In the new version, embedding generation is handled by a dedicated `ImageEmbeddingStage` pipeline stage with configurable resource parameters (see [CLIP Embedding Stage ](/curate-images/process-data/embeddings/clip-embedder) for details).
 
 ```python
 # New: Generate CLIP embeddings for images
@@ -310,7 +310,7 @@ dataset.to_webdataset(aesthetic_dataset_path, filter_column="passes_aesthetic_ch
 
 **New: Aesthetic Filter Stage**
 
-In the new version, aesthetic scoring and filtering are handled by the `ImageAestheticFilterStage` (see [Aesthetic Filter ](/image-process-data-filters-aesthetic) for details). This stage scores each image using a pretrained model and filters out images below a configured threshold.
+In the new version, aesthetic scoring and filtering are handled by the `ImageAestheticFilterStage` (see [Aesthetic Filter ](/curate-images/process-data/filters/aesthetic) for details). This stage scores each image using a pretrained model and filters out images below a configured threshold.
 
 ```python
 # New: Generate aesthetic quality scores and filter
@@ -425,11 +425,11 @@ ray_client.stop()
 ```
 
 <Note>
-This is a high-level example, and exact implementation details may vary. For more in-depth information about setting up image curation pipelines, refer to the [image curation quickstart ](/gs-image).
+This is a high-level example, and exact implementation details may vary. For more in-depth information about setting up image curation pipelines, refer to the [image curation quickstart ](/get-started/image).
 </Note>
 
 ---
 
 ## Additional Resources
 
-For questions about migration or other topics, refer to the [Migration FAQ ](/migration-faq).
+For questions about migration or other topics, refer to the [Migration FAQ ](/about/release-notes/migration-faq).

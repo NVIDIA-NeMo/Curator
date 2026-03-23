@@ -13,7 +13,7 @@ modality: "video-only"
 Use clip-level embeddings to identify near-duplicate video clips so your dataset remains compact, diverse, and efficient to train on.
 
 ## Before You Start
-- Make sure you have embeddings which are written by the [`ClipWriterStage`](/video-save-export) under `ce1_embd_parquet/`. For a runnable workflow, refer to the [Split and Remove Duplicates Workflow](/video-tutorials-split-dedup). The embeddings must be in parquet files containing the columns `id` and `embedding`.
+- Make sure you have embeddings which are written by the [`ClipWriterStage`](/curate-video/save-export) under `ce1_embd_parquet/`. For a runnable workflow, refer to the [Split and Remove Duplicates Workflow](/curate-video/tutorials/split-dedup). The embeddings must be in parquet files containing the columns `id` and `embedding`.
 - Verify local paths or configure S3-compatible credentials. Provide `storage_options` in read/write keyword arguments when reading or writing cloud paths.
 
 ## How it Works
@@ -81,7 +81,7 @@ The workflow automatically:
 4. Writes duplicate IDs to `output_path/duplicates/`
 
 <Note>
-For detailed information about how semantic deduplication works, see [Semantic Deduplication](/text-process-data-format-sem-dedup). The algorithm and concepts are the same for video clips as for text documents.
+For detailed information about how semantic deduplication works, see [Semantic Deduplication](/curate-text/process-data/deduplication/semdedup). The algorithm and concepts are the same for video clips as for text documents.
 
 </Note>
 

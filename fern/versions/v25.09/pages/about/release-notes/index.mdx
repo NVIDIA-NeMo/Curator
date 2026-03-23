@@ -3,9 +3,9 @@ title: "NeMo Curator Release Notes: 25.09"
 description: "Release notes and version history for NeMo Curator platform updates and new features"
 ---
 
-This major release represents a fundamental architecture shift from [Dask](https://www.dask.org/) to [Ray](https://www.ray.io/), expanding NeMo Curator to support multimodal data curation with new [video](../../curate-video/index.md) and [audio](../../curate-audio/index.md) capabilities. This refactor enables unified backend processing, better heterogeneous computing support, and enhanced autoscaling for dynamic workloads.
+This major release represents a fundamental architecture shift from [Dask](https://www.dask.org/) to [Ray](https://www.ray.io/), expanding NeMo Curator to support multimodal data curation with new [video](/curate-video) and [audio](/curate-audio) capabilities. This refactor enables unified backend processing, better heterogeneous computing support, and enhanced autoscaling for dynamic workloads.
 
-**Migrating from a previous version of NeMo Curator?** Refer to the [Migration Guide](/docs/migration/guide) for step-by-step instructions and the [Migration FAQ](/docs/migration/faq) for common questions.
+**Migrating from a previous version of NeMo Curator?** Refer to the [Migration Guide](/about/release-notes/about/release-notes/migration-guide) for step-by-step instructions and the [Migration FAQ](/about/release-notes/about/release-notes/migration-faq) for common questions.
 
 ## Installation Updates
 
@@ -34,50 +34,50 @@ This major release represents a fundamental architecture shift from [Dask](https
 
 ### Video
 
-NeMo Curator now supports comprehensive [video data curation](../../curate-video/index.md) with distributed processing capabilities:
+NeMo Curator now supports comprehensive [video data curation](/curate-video) with distributed processing capabilities:
 
-- **Video splitting**: [Fixed-stride](../../curate-video/process-data/clipping.md) and [scene-change detection (TransNetV2)](../../curate-video/process-data/clipping.md) for clip extraction
-- **Semantic deduplication**: [K-means clustering and pairwise similarity](../../curate-video/process-data/dedup.md) for near-duplicate clip removal
-- **Content filtering**: [Motion-based filtering](../../curate-video/process-data/filtering.md) and [aesthetic filtering](../../curate-video/process-data/filtering.md) for quality improvement
+- **Video splitting**: [Fixed-stride](/curate-video/process-data/clipping) and [scene-change detection (TransNetV2)](/curate-video/process-data/clipping) for clip extraction
+- **Semantic deduplication**: [K-means clustering and pairwise similarity](/curate-video/process-data/dedup) for near-duplicate clip removal
+- **Content filtering**: [Motion-based filtering](/curate-video/process-data/filtering) and [aesthetic filtering](/curate-video/process-data/filtering) for quality improvement
 - **Embedding generation**: InternVideo2 and Cosmos-Embed1 models for clip-level embeddings
-- **Enhanced captioning**: [VL-based caption generation with optional LLM-based rewriting](../../curate-video/process-data/captions-preview.md) (Qwen-VL and Qwen-LM supported) for detailed video descriptions
-- **Ray-based distributed architecture**: Scalable video processing with [autoscaling support](../concepts/video/architecture.md)
+- **Enhanced captioning**: [VL-based caption generation with optional LLM-based rewriting](/curate-video/process-data/captions-preview) (Qwen-VL and Qwen-LM supported) for detailed video descriptions
+- **Ray-based distributed architecture**: Scalable video processing with [autoscaling support](/about/concepts/video/architecture)
 
 ### Audio
 
-New [audio curation capabilities](../../curate-audio/index.md) for speech data processing:
+New [audio curation capabilities](/curate-audio) for speech data processing:
 
-- **ASR inference**: [Automatic speech recognition](../../curate-audio/process-data/asr-inference/index.md) using NeMo Framework pretrained models
-- **Quality assessment**: [Word Error Rate (WER) and Character Error Rate (CER)](../../curate-audio/process-data/quality-assessment/index.md) calculation
-- **Speech metrics**: [Duration analysis and speech rate metrics](../../curate-audio/process-data/audio-analysis/index.md) (words/characters per second)
-- **Text integration**: Seamless integration with [text curation workflows](../../curate-audio/process-data/text-integration/index.md) via `AudioToDocumentStage`
+- **ASR inference**: [Automatic speech recognition](/curate-audio/process-data/asr-inference) using NeMo Framework pretrained models
+- **Quality assessment**: [Word Error Rate (WER) and Character Error Rate (CER)](/curate-audio/process-data/quality-assessment) calculation
+- **Speech metrics**: [Duration analysis and speech rate metrics](/curate-audio/process-data/audio-analysis) (words/characters per second)
+- **Text integration**: Seamless integration with [text curation workflows](/curate-audio/process-data/text-integration) via `AudioToDocumentStage`
 - **Manifest support**: JSONL manifest format for audio file management
 
 ## Modality Refactors
 
 ### Text
 
-- **Ray backend migration**: Complete transition from Dask to Ray for distributed [text processing](../../curate-text/index.md)
-- **Improved model-based classifier throughput**: Better overlapping of compute between tokenization and inference through [length-based sequence sorting](../../curate-text/process-data/quality-assessment/distributed-classifier.md) for optimal GPU memory utilization
+- **Ray backend migration**: Complete transition from Dask to Ray for distributed [text processing](/curate-text)
+- **Improved model-based classifier throughput**: Better overlapping of compute between tokenization and inference through [length-based sequence sorting](/curate-text/process-data/quality-assessment/distributed-classifier) for optimal GPU memory utilization
 - **Task-centric architecture**: New `Task`-based processing model for finer-grained control
 - **Pipeline redesign**: Updated `ProcessingStage` and `Pipeline` architecture with resource specification
 
 ### Image
 
-- **Pipeline-based architecture**: Transitioned from legacy `ImageTextPairDataset` to modern [stage-based processing](../../curate-images/index.md) with `ImageReaderStage`, `ImageEmbeddingStage`, and filter stages
+- **Pipeline-based architecture**: Transitioned from legacy `ImageTextPairDataset` to modern [stage-based processing](/curate-images) with `ImageReaderStage`, `ImageEmbeddingStage`, and filter stages
 - **DALI-based image loading**: New `ImageReaderStage` uses NVIDIA DALI for high-performance WebDataset tar shard processing with GPU/CPU fallback
-- **Modular processing stages**: Separate stages for [embedding generation](../../curate-images/process-data/embeddings/index.md), [aesthetic filtering](../../curate-images/process-data/filters/aesthetic.md), and [NSFW filtering](../../curate-images/process-data/filters/nsfw.md)
+- **Modular processing stages**: Separate stages for [embedding generation](/curate-images/process-data/embeddings), [aesthetic filtering](/curate-images/process-data/filters/aesthetic), and [NSFW filtering](/curate-images/process-data/filters/nsfw)
 - **Task-based data flow**: Images processed as `ImageBatch` tasks containing `ImageObject` instances with metadata, embeddings, and classification scores
 
-Learn more about [image curation](../../curate-images/index.md).
+Learn more about [image curation](/curate-images).
 
 ## Deduplication Improvements
 
 Enhanced deduplication capabilities across all modalities with improved performance and flexibility:
 
-- **Exact and Fuzzy deduplication**: Updated [rapidsmpf-based shuffle backend](../../reference/infrastructure/gpu-processing.md) for more efficient GPU-to-GPU data transfer and better spilling capabilities
-- **Semantic deduplication**: Support for deduplicating [text](../../curate-text/process-data/deduplication/semdedup.md) and [video](../../curate-video/process-data/dedup.md) datasets using unified embedding-based workflows
-- **New ranking strategies**: Added `RankingStrategy` which allows you to rank elements within cluster centers to decide which point to prioritize during duplicate removal, supporting [metadata-based ranking](../../curate-text/process-data/deduplication/semdedup.md) to prioritize specific datasets or inputs
+- **Exact and Fuzzy deduplication**: Updated [rapidsmpf-based shuffle backend](/reference/infra/gpu/processing) for more efficient GPU-to-GPU data transfer and better spilling capabilities
+- **Semantic deduplication**: Support for deduplicating [text](/curate-text/process-data/deduplication/semdedup) and [video](/curate-video/process-data/dedup) datasets using unified embedding-based workflows
+- **New ranking strategies**: Added `RankingStrategy` which allows you to rank elements within cluster centers to decide which point to prioritize during duplicate removal, supporting [metadata-based ranking](/curate-text/process-data/deduplication/semdedup) to prioritize specific datasets or inputs
 
 ## Core Refactors
 
@@ -145,7 +145,7 @@ graph LR
 ### Pipelines
 
 - **New Pipeline API**: Ray-based pipeline execution with `BaseExecutor` interface
-- **Multiple backends**: Support for [Xenna, Ray Actor Pool, and Ray Data execution backends](../../reference/infrastructure/execution-backends.md)
+- **Multiple backends**: Support for [Xenna, Ray Actor Pool, and Ray Data execution backends](/reference/infra/execution-backends)
 - **Resource specification**: Configurable CPU and GPU memory requirements per stage
 - **Stage composition**: Improved stage validation and execution orchestration
 
@@ -187,8 +187,8 @@ For all tutorial content, refer to the [tutorials directory](https://github.com/
 ## Docs Refactor
 
 - **Local preview capability**: Improved documentation build system with local preview support
-- **Modality-specific guides**: Comprehensive documentation for each supported modality ([text](../../curate-text/index.md), [image](../../curate-images/index.md), [audio](../../curate-audio/index.md), [video](../../curate-video/index.md))
-- **API reference**: Complete [API documentation](../../apidocs/index.rst) with type annotations and examples
+- **Modality-specific guides**: Comprehensive documentation for each supported modality ([text](/curate-text), [image](/curate-images), [audio](/curate-audio), [video](/curate-video))
+- **API reference**: Complete [API documentation](https://docs.nvidia.com/nemo/curator/latest/py-modindex.html) with type annotations and examples
 
 ---
 

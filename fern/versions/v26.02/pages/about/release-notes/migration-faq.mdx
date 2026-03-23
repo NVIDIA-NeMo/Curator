@@ -13,7 +13,7 @@ modality: "universal"
 Frequently asked questions about migrating from Dask to Ray-based NeMo Curator.
 
 <Note>
-For step-by-step migration instructions, refer to the [Migration Guide ](/migration-guide).
+For step-by-step migration instructions, refer to the [Migration Guide ](/about/release-notes/migration-guide).
 
 </Note>
 
@@ -90,7 +90,7 @@ Internally, an allocator ensures data locality for heavy data transfer stages (f
 ## Data Processing, Models, and Quality
 
 <Accordion title="How do you handle quality filtering for low-resource languages where no good models exist?">
-NeMo Curator suggests several strategies (see [Heuristic Filtering ](/text-process-data-filter-heuristic) and [Quality Assessment ](/about/concepts/text/data/processing) for details):
+NeMo Curator suggests several strategies (see [Heuristic Filtering ](/curate-text/process-data/quality-assessment/heuristic) and [Quality Assessment ](/about/concepts/text/data/processing) for details):
 
 - Use available multilingual models (for example, Qwen, Mistral, or other models with many language capabilities)
 - Annotate high-quality English data with a classifier, translate these data to the target language, and then train a smaller in-language model
@@ -138,11 +138,11 @@ Contributions are strongly encouraged. Submit pull requests or join community di
 ## Deployment, Infrastructure, and Practicalities
 
 <Accordion title="How do I deploy NeMo Curator or Ray clusters?">
-Ray clusters can be deployed on any major cloud platform (AWS, GCP, Azure) using standard Ray tools (see [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html)). No custom infrastructure is needed. NVIDIA provides ready-to-use [Docker images ](/reference-infrastructure-container-environments) and up-to-date quickstart guides. For complete deployment details, refer to [Production Deployment Requirements ](/admin-deployment-requirements).
+Ray clusters can be deployed on any major cloud platform (AWS, GCP, Azure) using standard Ray tools (see [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html)). No custom infrastructure is needed. NVIDIA provides ready-to-use [Docker images ](/reference/infra/container/environments) and up-to-date quickstart guides. For complete deployment details, refer to [Production Deployment Requirements ](/admin/admin/deployment/requirements).
 </Accordion>
 
 <Accordion title="Do I need to build custom Docker images?">
-Not for most standard uses. Use [provided images ](/reference-infrastructure-container-environments) or extend as needed (for example, to add proprietary or additional filters). Check out the official Docker container releases on the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator).
+Not for most standard uses. Use [provided images ](/reference/infra/container/environments) or extend as needed (for example, to add proprietary or additional filters). Check out the official Docker container releases on the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator).
 </Accordion>
 
 <Accordion title="Is there integration with existing cluster or orchestration tools like Airflow or Slurm?">
@@ -162,7 +162,7 @@ For multi-node operations, you're responsible for managing communication setup (
 </Accordion>
 
 <Accordion title="Are there examples of multi-type data (text, image, audio, video) pipelines?">
-Yes. NeMo Curator supports multiple data modalities including [text ](/gs-text), [image ](/gs-image), [audio ](/gs-audio), and [video ](/gs-video).
+Yes. NeMo Curator supports multiple data modalities including [text ](/get-started/text), [image ](/get-started/image), [audio ](/get-started/audio), and [video ](/get-started/video).
 </Accordion>
 
 ---
@@ -185,7 +185,7 @@ Regular community calls and check-ins are also offered to connect with the team 
 
 <Note>
 - [Ray Documentation and Getting Started](https://docs.ray.io/)
-- [Migration Guide ](/migration-guide) for step-by-step migration instructions
+- [Migration Guide ](/about/release-notes/migration-guide) for step-by-step migration instructions
 - [NGC Container Catalog](https://catalog.ngc.nvidia.com/) for Docker images
 
 </Note>
