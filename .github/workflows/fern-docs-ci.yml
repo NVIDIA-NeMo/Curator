@@ -13,37 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Fern docs publish workflow (NeMo Curator)
-# Publishes the Fern documentation site when changes land on the docs-website branch.
-#
-# Required configuration:
-# - Repository secret: FERN_TOKEN (from `fern token` for your Fern org)
-#
-# To generate FERN_TOKEN:
-# 1. Install Fern CLI: npm install -g fern-api
-# 2. Run: fern token
-# 3. Add the token as a repository secret named FERN_TOKEN
+# Validates Fern autodocs generation (fern/product-docs) on pull requests.
+# Output is gitignored; see fern/AUTODOCS_GUIDE.md and docs.yml `libraries`.
 
-name: Publish Fern Docs
+name: Fern docs (autodocs)
 
 on:
-  push:
-    branches:
-      - docs-website
+  pull_request:
     paths:
       - 'fern/**'
-      - '.github/workflows/publish-fern-docs.yml'
-  workflow_dispatch:
+      - '.github/workflows/fern-docs-ci.yml'
 
 permissions:
   contents: read
 
 jobs:
-  publish:
+  generate-library-reference:
     runs-on: ubuntu-latest
-    # Skip the first run after repo creation
-    if: ${{ github.event_name == 'workflow_dispatch' || github.run_number > 1 }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -56,14 +42,6 @@ jobs:
       - name: Install Fern CLI
         run: npm install -g fern-api
 
-      # Libraries in docs.yml write under fern/product-docs/ (gitignored).
-      # Run before publish so the Full Library Reference is included in the site.
-      - name: Generate library reference MDX (autodocs)
+      - name: Generate library reference MDX (product-docs)
         working-directory: ./fern
         run: fern docs md generate
-
-      - name: Publish Docs
-        env:
-          FERN_TOKEN: ${{ secrets.FERN_TOKEN }}
-        working-directory: ./fern
-        run: fern generate --docs

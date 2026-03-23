@@ -14,6 +14,20 @@ redirects:
     destination: "/home/welcome"
   - source: "/home"
     destination: "/home/welcome"
+  # Sphinx HTML used .../path/to/page/index.html; Fern canonical URLs omit index.html.
+  # Add a pair here when you add a new `versions:` slug. See also the catch-all below.
+  # https://www.buildwithfern.com/learn/docs/configuration/site-level-settings#redirects-configuration
+  - source: "/index.html"
+    destination: "/home/welcome"
+  - source: "/latest/:path*/index.html"
+    destination: "/latest/:path*"
+  - source: "/v26.02/:path*/index.html"
+    destination: "/v26.02/:path*"
+  - source: "/v25.09/:path*/index.html"
+    destination: "/v25.09/:path*"
+  # Unversioned paths and any slug not listed above (e.g. new version before redirects are updated)
+  - source: "/:path*/index.html"
+    destination: "/:path*"
 
 title: NeMo Curator
 
