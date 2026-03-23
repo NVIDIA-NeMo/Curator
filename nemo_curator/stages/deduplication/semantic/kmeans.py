@@ -189,9 +189,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         logger.debug(f"Read time: {(t1 - t0):.2f} seconds")
         # Fit the model cooperatively across actors, then predict on local data
         concatenated_embeddings = cp.concatenate(embeddings_arrays, axis=0)
-        # Use public fit() API - _fit() was removed in cuML 25.6+
-        self.kmeans.fit(concatenated_embeddings, sample_weight=None)
-        labels = self.kmeans.predict(concatenated_embeddings).astype(cp.int32)
+        self.kmeans._fit(concatenated_embeddings, sample_weight=None, convert_dtype=False, multigpu=True)
+        labels = self.kmeans.predict(concatenated_embeddings, convert_dtype=False).astype(cp.int32)
 
         t2 = time.perf_counter()
         logger.info(f"KMeans fit+predict time: {(t2 - t1):.2f} seconds")
