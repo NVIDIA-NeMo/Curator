@@ -59,14 +59,6 @@ class RayDataExecutor(BaseExecutor):
         register_loguru_serializer()
         # This prevents verbose logging from Ray Data about serialization of the dataclass
         DataContext.get_current().enable_fallback_to_arrow_object_ext_type = True
-        # Disable operator fusion to prevent stages with different GPU requirements from being merged
-        # Without this, Ray Data fuses ImageReaderStage + ImageEmbeddingStage into one worker,
-        # causing GPU memory accounting to break and OOM errors
-        DataContext.get_current().set_config("operator_fusion_enabled", False)
-        # Limit retries to prevent cascading OOM failures
-        # When actors OOM and die, infinite retries create a death spiral of new actors
-        ctx = DataContext.get_current()
-        ctx.max_errored_blocks = 0  # Fail fast instead of retrying
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
         tasks: list[Task] = initial_tasks if initial_tasks else [EmptyTask]
         output_tasks: list[Task] = []
