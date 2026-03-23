@@ -39,15 +39,12 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
         num_workers_per_node: Number of workers per node for the stage. This is sometimes needed
             to avoid OOM when concurrently running actors on one node loading the same removal
             parquet files into memory.
-        max_concurrent_workers: Maximum number of concurrent workers for this stage.
-            Limits CPU consumption to leave resources for other stages. Default is 8.
     """
 
     removal_parquets_dir: str
     duplicate_id_field: str = "id"
     verbose: bool = False
     num_workers_per_node: int | None = None
-    max_concurrent_workers: int = 8  # Limit concurrency to avoid starving other stages
 
     name: str = "image_dedup_filter"
 
@@ -59,10 +56,6 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-
-    def num_workers(self) -> int | None:
-        """Limit concurrency to avoid consuming all CPUs and starving other stages."""
-        return self.max_concurrent_workers
 
     def setup(self, _worker_metadata=None) -> None:  # noqa: ANN001
         removal_parquets = [os.path.join(self.removal_parquets_dir, f) for f in os.listdir(self.removal_parquets_dir) if f.endswith(".parquet")]
