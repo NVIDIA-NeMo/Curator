@@ -1,4 +1,5 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
+#!/bin/bash
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,16 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Build docs
+set -ex
 
-on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
-  workflow_call:
+mkdir -p "/tmp/curator/results/${BRANCH_NAME}"
 
-jobs:
-  build-docs:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_docs.yml@v0.80.2
-    with:
-      requirements-file: requirements-docs.txt
-      fail-on-warning: false
+cd /opt/Curator
+uv pip install GitPython pynvml pyyaml rich
+
+python benchmarking/run.py \
+  --config /opt/Curator/benchmarking/nightly-benchmark.yaml \
+  --config /opt/Curator/benchmarking/test-paths.yaml \
+  --session-name "benchmark_run_${CI_PIPELINE_ID}" \
+  --entries "${ENTRY_NAME}"
