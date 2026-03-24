@@ -52,7 +52,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+    def _initialize_model(self) -> None:
         if self.model_variant == "qwen":
             self.model = QwenVL(
                 model_dir=self.model_dir,
@@ -78,11 +78,16 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
         self.model.setup()
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
-        """Download/verify weights on the node."""
+        """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
         if self.model_variant == "qwen":
             QwenVL.download_weights_on_node(self.model_dir)
         elif self.model_variant.startswith("nemotron"):
             NemotronHVL.download_weights_on_node(self.model_dir, variant=self.model_variant)
+        self._initialize_model()
+
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        if not hasattr(self, "model") or self.model is None:
+            self._initialize_model()
 
     def __post_init__(self) -> None:
         self.resources = Resources(gpus=1)

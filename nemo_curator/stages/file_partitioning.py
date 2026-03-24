@@ -64,6 +64,12 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
     def __post_init__(self):
         """Initialize default values."""
+        if self.files_per_partition is not None and self.blocksize is not None:
+            logger.warning(
+                "Both 'files_per_partition' and 'blocksize' were specified. "
+                "'files_per_partition' will take precedence and 'blocksize' will be ignored."
+            )
+            self.blocksize = None
         if self.file_extensions is None:
             self.file_extensions = [".jsonl", ".json", ".parquet"]
         if self.storage_options is None:

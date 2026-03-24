@@ -41,7 +41,7 @@ from nemo_curator.stages.deduplication.id_generator import (
 from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
 from nemo_curator.stages.deduplication.semantic.workflow import SemanticDeduplicationWorkflow
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
-from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
+from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.tasks import Task
@@ -70,13 +70,12 @@ class TextSemanticDeduplicationWorkflow:
     # Embedding generation parameters
     text_field: str = "text"
     embedding_field: str = "embeddings"
-    model_identifier: str = "sentence-transformers/all-MiniLM-L6-v2"
-    embedding_max_seq_length: int = 512
+    model_identifier: str = "google/embeddinggemma-300m"
     embedding_max_chars: int | None = None
-    embedding_padding_side: Literal["left", "right"] = "right"
-    embedding_pooling: Literal["mean_pooling", "last_token"] = "mean_pooling"
-    embedding_model_inference_batch_size: int = 256
+    embedding_pretokenize: bool = False
+    embedding_vllm_init_kwargs: dict[str, Any] | None = None
     hf_token: str | None = None
+    model_cache_dir: str | None = None
     # Semantic deduplication parameters
     n_clusters: int = 100
     id_field: str = CURATOR_DEDUP_ID_STR
@@ -127,12 +126,11 @@ class TextSemanticDeduplicationWorkflow:
         text_field: Name of the text field in input data
         embedding_field: Name of the embedding field to create
         model_identifier: HuggingFace model identifier for embeddings
-        embedding_max_seq_length: Maximum sequence length for tokenization
-        embedding_max_chars: Maximum number of characters for tokenization
-        embedding_padding_side: Padding side for tokenization
-        embedding_pooling: Pooling strategy for embeddings
-        embedding_model_inference_batch_size: Batch size for model inference
+        embedding_max_chars: Maximum number of characters for text truncation
+        embedding_pretokenize: Whether to pre-tokenize input before passing to vLLM
+        embedding_vllm_init_kwargs: Additional kwargs passed to vLLM's LLM initializer
         hf_token: HuggingFace token for private models
+        model_cache_dir: Directory to cache model weights
 
         # Semantic deduplication parameters
         n_clusters: Number of clusters for K-means
@@ -270,16 +268,16 @@ class TextSemanticDeduplicationWorkflow:
         pipeline.add_stage(reader)
 
         # Embedding generation stage
-        embedding_stage = EmbeddingCreatorStage(
+        embedding_stage = VLLMEmbeddingModelStage(
             model_identifier=self.model_identifier,
             text_field=self.text_field,
             embedding_field=self.embedding_field,
             max_chars=self.embedding_max_chars,
-            max_seq_length=self.embedding_max_seq_length,
-            padding_side=self.embedding_padding_side,
-            embedding_pooling=self.embedding_pooling,
-            model_inference_batch_size=self.embedding_model_inference_batch_size,
+            pretokenize=self.embedding_pretokenize,
+            vllm_init_kwargs=self.embedding_vllm_init_kwargs,
+            cache_dir=self.model_cache_dir,
             hf_token=self.hf_token,
+            verbose=self.verbose,
         )
         pipeline.add_stage(embedding_stage)
 
@@ -352,14 +350,14 @@ class TextSemanticDeduplicationWorkflow:
             ids_to_remove_path=self.duplicates_path,
             output_path=self.deduplicated_output_path,
             input_filetype=self.input_filetype,
-            input_id_field=self.id_field,
+            id_field=self.id_field,
             input_files_per_partition=self.input_files_per_partition,
             input_blocksize=self.input_blocksize,
             input_file_extensions=self.input_file_extensions,
             input_kwargs=self.read_kwargs,
             # Ids to remove args
-            ids_to_remove_duplicate_id_field="id",
-            ids_to_remove_read_kwargs=self.write_kwargs,
+            duplicate_id_field="id",
+            duplicate_id_read_kwargs=self.write_kwargs,
             # ID generator parameters
             id_generator_path=self.id_generator_state_file if self.use_id_generator else None,
             id_generator_storage_options=self.write_kwargs.get("storage_options"),
@@ -386,8 +384,7 @@ class TextSemanticDeduplicationWorkflow:
         logger.info(f"  - Model: {self.model_identifier}")
         logger.info(f"  - Text field: {self.text_field}")
         logger.info(f"  - Embedding field: {self.embedding_field}")
-        logger.info(f"  - Max sequence length: {self.embedding_max_seq_length}")
-        logger.info(f"  - Batch size: {self.embedding_model_inference_batch_size}")
+        logger.info(f"  - Pretokenize: {self.embedding_pretokenize}")
         logger.info(f"  - Executor: {type(self.embedding_executor).__name__}")
 
         logger.info("Semantic deduplication:")

@@ -231,7 +231,7 @@ class TestReadListJsonRel:
 
         mock_file.read.return_value = b'["/different/path/video1.mp4"]'
 
-        with pytest.raises(ValueError, match="Input path .* is not under root"):
+        with pytest.raises(ValueError, match=r"Input path .* is not under root"):
             _read_list_json_rel(root="/input/path", json_url="/path/to/list.json", storage_options={})
 
         # Test file read exception

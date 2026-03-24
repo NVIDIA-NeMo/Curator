@@ -195,6 +195,7 @@ def run_entry(
         # Execute command with timeout
         logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
+        ray_cluster_data = get_ray_cluster_data()
         run_data = run_command_with_timeout(
             command=cmd,
             timeout=entry.timeout_s,
@@ -216,7 +217,6 @@ def run_entry(
                 "logs_dir": logs_path,
             }
         )
-        ray_cluster_data = get_ray_cluster_data()
         # script_persisted_data is a dictionary with keys "params" and "metrics"
         # "params" will contain everything the script wrote to its params.json file
         # "metrics" will contain everything the script wrote to its metrics.json file plus metrics
@@ -255,7 +255,7 @@ def run_entry(
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> int:  # noqa: C901
+def main() -> int:  # noqa: C901, PLR0912
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
@@ -263,7 +263,7 @@ def main() -> int:  # noqa: C901
         action="append",
         required=True,
         help=(
-            "Path to YAML config for benchmark matrix, machine paths, etc. Can be "
+            "Path to YAML config for the benchmark entries, machine paths, etc. Can be "
             "specified multiple times to merge configs."
         ),
     )
@@ -322,7 +322,7 @@ def main() -> int:  # noqa: C901
     env_dict = dump_env(session_obj=session, output_path=session_path)
 
     for sink in session.sinks:
-        sink.initialize(session_name=session_name, matrix_config=session, env_dict=env_dict)
+        sink.initialize(session_name=session_name, session=session, env_dict=env_dict)
 
     # Print a summary of the entries that will be run in the for loop below
     # Disabled entries will not be printed
@@ -339,6 +339,10 @@ def main() -> int:  # noqa: C901
             "success": run_success,
         }
         logger.info(f"🚀 Running {entry.name} (run ID: {run_id})")
+
+        for sink in session.sinks:
+            sink.register_benchmark_entry_starting(result_dict=result_data, benchmark_entry=entry)
+
         try:
             run_success = run_entry(
                 entry=entry,
@@ -348,7 +352,7 @@ def main() -> int:  # noqa: C901
                 result_data=result_data,
             )
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             run_success = False
             error_traceback = traceback.format_exc()
             logger.error(f"\t\t❌ Entry failed with exception: {e}")
@@ -364,7 +368,7 @@ def main() -> int:  # noqa: C901
         finally:
             session_overall_success &= run_success
             for sink in session.sinks:
-                sink.process_result(result_dict=result_data, matrix_entry=entry)
+                sink.register_benchmark_entry_finished(result_dict=result_data, benchmark_entry=entry)
 
     for sink in session.sinks:
         sink.finalize()

@@ -69,12 +69,11 @@ class TestFilePartitioningStage:
         assert stage.limit is None
         assert stage.name == "file_partitioning"
 
-    def test_initialization_custom_values(self):
-        """Test initialization with custom parameter values."""
+    def test_initialization_custom_values_with_files_per_partition(self):
+        """Test initialization with custom parameter values using files_per_partition."""
         stage = FilePartitioningStage(
             file_paths="/custom/path",
             files_per_partition=5,
-            blocksize="128MB",
             file_extensions=[".txt", ".json"],
             storage_options={"key": "value"},
             limit=3,
@@ -82,6 +81,23 @@ class TestFilePartitioningStage:
 
         assert stage.file_paths == "/custom/path"
         assert stage.files_per_partition == 5
+        assert stage.blocksize is None
+        assert stage.file_extensions == [".txt", ".json"]
+        assert stage.storage_options == {"key": "value"}
+        assert stage.limit == 3
+
+    def test_initialization_custom_values_with_blocksize(self):
+        """Test initialization with custom parameter values using blocksize."""
+        stage = FilePartitioningStage(
+            file_paths="/custom/path",
+            blocksize="128MB",
+            file_extensions=[".txt", ".json"],
+            storage_options={"key": "value"},
+            limit=3,
+        )
+
+        assert stage.file_paths == "/custom/path"
+        assert stage.files_per_partition is None
         assert stage.blocksize == "128MB"
         assert stage.file_extensions == [".txt", ".json"]
         assert stage.storage_options == {"key": "value"}
@@ -193,6 +209,19 @@ class TestFilePartitioningStage:
         for i, task in enumerate(result):
             assert len(task.data) == 1
             assert task.data[0] == test_files[i]
+
+    def test_both_blocksize_and_files_per_partition_warns(self, caplog: pytest.LogCaptureFixture):
+        """Test that specifying both blocksize and files_per_partition logs a warning and ignores blocksize."""
+        with caplog.at_level("WARNING"):
+            stage = FilePartitioningStage(
+                file_paths="/test/path",
+                files_per_partition=2,
+                blocksize="128MB",
+            )
+        assert stage.files_per_partition == 2
+        assert stage.blocksize is None
+        assert "files_per_partition" in caplog.text
+        assert "blocksize" in caplog.text
 
     def test_process_empty_file_list(self, empty_task: _EmptyTask):
         """Test processing with empty file list."""

@@ -90,7 +90,7 @@ docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version 
 ```
 
 ```{seealso}
-For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments-main).
+For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments).
 ```
 
 :::
@@ -182,7 +182,7 @@ You can also run the pipeline using the downloaded configuration:
 
 ```bash
 cd ~/nemo_curator
-python -m nemo_curator.examples.audio.fleurs.run \
+python tutorials/audio/fleurs/run.py \
     --config-path ~/nemo_curator/configs \
     --config-name fleurs_pipeline.yaml \
     raw_data_dir=~/nemo_curator/audio_data

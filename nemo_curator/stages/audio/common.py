@@ -15,8 +15,8 @@
 from abc import abstractmethod
 from dataclasses import dataclass
 from operator import eq, ge, gt, le, lt, ne
+from typing import Any
 
-import soundfile
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
@@ -32,7 +32,13 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
     def process(self, task: AudioBatch) -> list[Task]:
         result = []
         for entry in task.data:
-            result.extend(self.process_dataset_entry(entry))
+            entries = self.process_dataset_entry(entry)
+            for r in entries:
+                if r is not task and not r._stage_perf:
+                    r._stage_perf = list(task._stage_perf)
+                if r is not task and not r._metadata:
+                    r._metadata = task._metadata.copy()
+            result.extend(entries)
         return result
 
     @abstractmethod
@@ -54,15 +60,21 @@ class GetAudioDurationStage(LegacySpeechStage):
         All the same fields as in the input manifest plus duration_key
     """
 
+    name = "GetAudioDurationStage"
     audio_filepath_key: str
     duration_key: str
+
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+        import soundfile
+
+        self._soundfile = soundfile
 
     def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
         audio_filepath = data_entry[self.audio_filepath_key]
         try:
-            data, samplerate = soundfile.read(audio_filepath)
+            data, samplerate = self._soundfile.read(audio_filepath)
             data_entry[self.duration_key] = data.shape[0] / samplerate
-        except soundfile.SoundFileError as e:
+        except self._soundfile.SoundFileError as e:
             logger.warning(str(e) + " file: " + audio_filepath)
             data_entry[self.duration_key] = -1.0
         return [AudioBatch(data=data_entry)]
@@ -80,14 +92,14 @@ class PreserveByValueStage(LegacySpeechStage):
 
     """
 
+    name = "PreserveByValueStage"
+
     def __init__(
         self,
         input_value_key: str,
         target_value: int | str,
         operator: str = "eq",
-        **kwargs,
     ):
-        super().__init__(**kwargs)
         self.input_value_key = input_value_key
         self.target_value = target_value
         if operator == "lt":

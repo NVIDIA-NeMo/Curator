@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-DEFAULT_NEMO_CURATOR_METRICS_PATH = "/tmp/nemo_curator_metrics"  # noqa: S108
+import os
+
+DEFAULT_NEMO_CURATOR_METRICS_PATH = f"/tmp/nemo_curator_metrics_{os.getuid()}"  # noqa: S108
 GRAFANA_VERSION = "12.0.2"
 
 PROMETHEUS_YAML_TEMPLATE = """
@@ -24,10 +26,13 @@ global:
 scrape_configs:
 # Scrape from each Ray node as defined in the service_discovery.json provided by Ray.
 - job_name: 'ray'
-  file_sd_configs:
-  - files:
-    - /tmp/ray/prom_metrics_service_discovery.json
+  file_sd_configs: []
 """
+
+PROMETHEUS_PORT_FILE = "prometheus_port.txt"
+PROMETHEUS_PID_FILE = "prometheus.pid"
+GRAFANA_PORT_FILE = "grafana_port.txt"
+GRAFANA_PID_FILE = "grafana.pid"
 
 GRAFANA_INI_TEMPLATE = """
 [security]

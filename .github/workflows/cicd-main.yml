@@ -35,12 +35,13 @@ env:
 
 jobs:
   pre-flight:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v0.69.1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v0.80.1
     with:
       default_runner_prefix: ${{ vars.DEFAULT_RUNNER_PREFIX }}
       non_nvidia_runner_prefix: ${{ vars.NON_NVIDIA_RUNNER_PREFIX }}
       default_test_data_path: ${{ vars.DEFAULT_TEST_DATA_PATH }}
       non_nvidia_test_data_path: ${{ vars.NON_NVIDIA_TEST_DATA_PATH }}
+      sso_users_filename: ${{ vars.SSO_USERS_FILENAME }}
     secrets:
       NVIDIA_MANAGEMENT_ORG_PAT: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
 
@@ -62,10 +63,12 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.10", "3.12"]
-        folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-synthetic", "stages-text", "stages-video", "tasks", "utils"]
+        folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-math_stages", "stages-synthetic", "stages-text", "stages-video", "tasks", "utils"]
     needs: [pre-flight, cicd-wait-in-queue]
     runs-on: ${{ matrix.os }}
     name: Unit_Test_${{ matrix.folder}}_CPU_python-${{ matrix.python-version }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
     environment: nemo-ci
     if: |
       (
@@ -78,26 +81,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Cache InternVideo
-        id: cache-internvideo
-        uses: actions/cache@v4
-        with:
-          path: InternVideo
-          key: internvideo-${{ hashFiles('external/intern_video2_multimodal.patch') }}-09d872e5093296c6f36b8b3a91fc511b76433bf7
-
-      - name: Checkout InternVideo
-        if: steps.cache-internvideo.outputs.cache-hit != 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: OpenGVLab/InternVideo
-          path: InternVideo
-          ref: 09d872e5093296c6f36b8b3a91fc511b76433bf7
-
-      - name: Patch InternVideo
-        if: steps.cache-internvideo.outputs.cache-hit != 'true'
-        run: cd InternVideo && patch -p1 < ../external/intern_video2_multimodal.patch
-
       - name: Free up disk space on Ubuntu
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -112,12 +95,11 @@ jobs:
       - name: Run tests ${{ matrix.folder }} (CPU)
         timeout-minutes: 40
         run: |
-          sed -i "/InternVideo/d" .gitignore
-          uv sync --link-mode copy --locked --extra audio_cpu --extra text_cpu --extra video_cpu --group test
-          uv add InternVideo/InternVideo2/multi_modality
+          uv sync --link-mode copy --locked --extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu --group test
+          source .venv/bin/activate
           FOLDER="${{ matrix.folder }}"
           FOLDER="${FOLDER/stages-/stages/}"
-          uv run coverage run --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu"
+          coverage run --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu"
 
       - name: Generate report
         id: check
@@ -170,8 +152,9 @@ jobs:
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           PAT: ${{ secrets.PAT }}
-          timeout: 20
+          timeout: 30
           test-data-path: ${{ needs.pre-flight.outputs.test_data_path }}
           runner: ${{ matrix.runner }}
 

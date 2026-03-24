@@ -64,7 +64,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], []
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        self._iv2_embedding_buffer: list[dict[str, Any]] = []
         self._ce1_embedding_buffer: list[dict[str, Any]] = []
 
     @staticmethod
@@ -98,16 +97,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
     def get_output_path_metas(output_path: str, version: str) -> str:
         """Get path to store clip metadatas."""
         return ClipWriterStage._get_output_path(output_path, f"metas/{version}")
-
-    @staticmethod
-    def get_output_path_iv2_embd(output_path: str) -> str:
-        """Get path to store generated clips."""
-        return ClipWriterStage._get_output_path(output_path, "iv2_embd")
-
-    @staticmethod
-    def get_output_path_iv2_embd_parquet(output_path: str) -> str:
-        """Get path to store generated clip embeddings in a parquet file."""
-        return ClipWriterStage._get_output_path(output_path, "iv2_embd_parquet")
 
     @staticmethod
     def get_output_path_ce1_embd(output_path: str) -> str:
@@ -184,7 +173,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
             # clean up intermediate data
             for clip in video.clips:
                 clip.buffer = None
-                clip.intern_video_2_embedding = None
                 clip.cosmos_embed1_embedding = None
                 for window in clip.windows:
                     window.mp4_bytes = None
@@ -199,17 +187,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
 
     def _write_clip_embedding_to_buffer(self, clip: Clip) -> ClipStats:
         clip_stats = ClipStats()
-        if clip.intern_video_2_embedding is not None:
-            self._iv2_embedding_buffer.append(
-                {
-                    "id": str(clip.uuid),
-                    "embedding": clip.intern_video_2_embedding.reshape(-1).tolist(),
-                },
-            )
-        elif self.generate_embeddings and self.embedding_algorithm == "internvideo2":
-            logger.error(
-                f"Clip {clip.uuid} from {clip.source_video} has no InternVideo2 embedding, skip adding to buffer"
-            )
         if clip.cosmos_embed1_embedding is not None:
             self._ce1_embedding_buffer.append(
                 {
@@ -217,7 +194,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
                     "embedding": clip.cosmos_embed1_embedding.reshape(-1).tolist(),
                 },
             )
-        elif self.generate_embeddings and self.embedding_algorithm == "cosmos-embed1":
+        elif self.generate_embeddings and self.embedding_algorithm.startswith("cosmos-embed1"):
             logger.error(
                 f"Clip {clip.uuid} from {clip.source_video} has no Cosmos-Embed1 embedding, skip adding to buffer"
             )
@@ -225,21 +202,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         return clip_stats
 
     def _write_video_embeddings_to_parquet(self, video: Video) -> None:
-        if self._iv2_embedding_buffer and not self.dry_run:
-            path = self._get_clip_uri(
-                uuid.uuid5(uuid.NAMESPACE_URL, f"{video.input_path}_{video.clip_chunk_index}"),
-                self.get_output_path_iv2_embd_parquet(self.output_path),
-                "parquet",
-            )
-            write_parquet(
-                self._iv2_embedding_buffer,
-                path,
-                "embedding",
-                video.input_path,
-                verbose=self.verbose,
-            )
-            self._iv2_embedding_buffer.clear()
-
         if self._ce1_embedding_buffer and not self.dry_run:
             path = self._get_clip_uri(
                 uuid.uuid5(uuid.NAMESPACE_URL, f"{video.input_path}_{video.clip_chunk_index}"),
@@ -336,22 +298,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
 
     def _write_clip_embedding(self, clip: Clip) -> ClipStats:
         clip_stats = ClipStats()
-        if clip.intern_video_2_embedding is not None:
-            buffer = io.BytesIO()
-            pickle.dump(clip.intern_video_2_embedding, buffer)
-            dest = self._get_clip_uri(
-                clip.uuid,
-                self.get_output_path_iv2_embd(self.output_path),
-                "pickle",
-            )
-            if not self.dry_run:
-                self._write_data(buffer.getvalue(), dest, f"embedding {clip.uuid}", clip.source_video)
-            clip_stats.num_with_embeddings += 1
-        elif self.generate_embeddings and self.embedding_algorithm == "internvideo2":
-            logger.error(
-                f"Clip {clip.uuid} from {clip.source_video} has no InternVideo2 embedding, skip uploading to s3"
-            )
-
         if clip.cosmos_embed1_embedding is not None:
             buffer = io.BytesIO()
             pickle.dump(clip.cosmos_embed1_embedding, buffer)
@@ -363,7 +309,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
             if not self.dry_run:
                 self._write_data(buffer.getvalue(), dest, f"embedding {clip.uuid}", clip.source_video)
             clip_stats.num_with_embeddings += 1
-        elif self.generate_embeddings and self.embedding_algorithm == "cosmos-embed1":
+        elif self.generate_embeddings and self.embedding_algorithm.startswith("cosmos-embed1"):
             logger.error(
                 f"Clip {clip.uuid} from {clip.source_video} has no Cosmos-Embed1 embedding, skip uploading to s3"
             )

@@ -18,11 +18,20 @@ Load video data for curation using NeMo Curator.
 
 NeMo Curator loads videos with a composite stage that discovers files and extracts metadata:
 
-1. `VideoReader` decomposes into a partitioning stage plus a reader stage.
-2. Local paths use `FilePartitioningStage` to list files; remote URLs (for example, `s3://`, `gcs://`, `http(s)://`) use `ClientPartitioningStage` backed by `fsspec`.
-3. For remote datasets, you can optionally supply an explicit file list using `ClientPartitioningStage.input_list_json_path`.
-4. `VideoReaderStage` downloads bytes (local or via `FSPath`) and calls `video.populate_metadata()` to extract resolution, fps, duration, encoding format, and other fields.
-5. Set `video_limit` to cap discovery; use `None` for unlimited. Set `verbose=True` to log detailed per-video information.
+`VideoReader` is a composite stage that is broken down into a
+1. Partitioning (list files) stage
+  - Local paths use `FilePartitioningStage` to list files
+  - Remote URLs (for example, `s3://`, `gcs://`)
+    - use `ClientPartitioningStage` backed by `fsspec`.
+    - Optional `input_list_json_path` allows explicit file lists under a root prefix.
+
+2. Reader stage (`VideoReaderStage`)
+  - This stage downloads the bytes (local or via `FSPath`) for each listed file
+  - Calls `video.populate_metadata()` to extract resolution, fps, duration, encoding format, and other fields.
+
+You can set
+  - `video_limit` to limit the number of files to be processed; use `None` for unlimited.
+  - `verbose=True` to log detailed per-video information.
 
 ---
 
@@ -31,24 +40,6 @@ NeMo Curator loads videos with a composite stage that discovers files and extrac
 ## Local and Cloud
 
 Use `VideoReader` to load videos from local paths or remote URLs.
-
-### Local Paths
-
-- Examples: `/data/videos/`, `/mnt/datasets/av/`
-- Uses `FilePartitioningStage` to recursively discover files.
-- Filters by extensions: `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`.
-- Set `video_limit` to cap discovery during testing (`None` means unlimited).
-
-### Remote Paths
-
-- Examples: `s3://bucket/path/`, `gcs://bucket/path/`, `https://host/path/`, and other fsspec-supported protocols such as `s3a://` and `abfs://`.
-- Uses `ClientPartitioningStage` backed by `fsspec` to list files.
-- Optional `input_list_json_path` allows explicit file lists under a root prefix.
-- Wraps entries as `FSPath` for efficient byte access during reading.
-
-```{tip}
-Use an object storage prefix (for example, `s3://my-bucket/videos/`) to stream from cloud storage. Configure credentials in your environment or client configuration.
-```
 
 ### Example
 

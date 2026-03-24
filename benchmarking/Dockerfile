@@ -36,6 +36,7 @@ RUN cd /opt/Curator \
     pynvml \
     pyyaml \
     rich \
+    slack_sdk \
   && uv cache prune
 
 # Add the Curator repo to the safe.directory list to avoid GitPython warnings

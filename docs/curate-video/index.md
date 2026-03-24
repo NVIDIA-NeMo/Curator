@@ -33,7 +33,7 @@ Understand how components work together so you can plan, scale, and troubleshoot
 ```
 
 ```{note}
-Video pipelines use the `XennaExecutor` backend by default, which provides optimized support for GPU-accelerated video processing including hardware decoders (`nvdecs`) and encoders (`nvencs`). You do not need to import or configure the executor unless you want to use an alternative backend. For more information about customizing backends, refer to [Add a Custom Stage](video-tutorials-pipeline-cust-add-stage).
+Video pipelines use the `XennaExecutor` backend by default, which provides optimized support for GPU-accelerated video processing including hardware decoders and encoders. You do not need to import or configure the executor unless you want to use an alternative backend. For more information about customizing backends, refer to [Pipeline Execution Backends](reference-execution-backends).
 ```
 
 ---
@@ -150,10 +150,9 @@ Extract frames from clips or full videos for embeddings, filtering, and analysis
 :::{grid-item-card} {octicon}`graph;1.5em;sd-mr-1` Create Embeddings
 :link: video-process-embeddings
 :link-type: ref
-Generate clip-level embeddings with InternVideo2 or Cosmos-Embed1 for search and duplicate removal.
+Generate clip-level embeddings with Cosmos-Embed1 for search and duplicate removal.
 +++
 {bdg-primary}`clips`
-{bdg-secondary}`internvideo2`
 {bdg-secondary}`cosmos-embed1`
 :::
 

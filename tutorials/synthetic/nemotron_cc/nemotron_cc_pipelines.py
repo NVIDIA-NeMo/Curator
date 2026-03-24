@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,14 +21,17 @@ from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import (
     DiverseQAPostProcessingStage,
     KnowledgeListPostProcessingStage,
 )
-from nemo_curator.stages.text.filters.heuristic_filter import SubstringFilter, TokenCountFilter
-from nemo_curator.stages.text.modifiers.line_remover import LineRemover
-from nemo_curator.stages.text.modifiers.markdown_remover import MarkdownRemover
-from nemo_curator.stages.text.modifiers.quotation_remover import QuotationRemover
-from nemo_curator.stages.text.modifiers.slicer import Slicer
+from nemo_curator.stages.text.filters import Filter, ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import SubstringFilter
+from nemo_curator.stages.text.filters.token import TokenCountFilter
+from nemo_curator.stages.text.modifiers import Modify
+from nemo_curator.stages.text.modifiers.string import (
+    LineRemover,
+    MarkdownRemover,
+    QuotationRemover,
+    Slicer,
+)
 from nemo_curator.stages.text.modules.joiner import DocumentJoiner
-from nemo_curator.stages.text.modules.modifier import Modify
-from nemo_curator.stages.text.modules.score_filter import Filter, ScoreFilter
 from nemo_curator.stages.text.modules.splitter import DocumentSplitter
 
 

@@ -26,8 +26,8 @@ Here's an example of applying code filters to a dataset:
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import (
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic.code import (
     PythonCommentToCodeFilter,
     NumberOfLinesOfCodeFilter,
     AlphaFilter
@@ -196,8 +196,11 @@ When filtering code datasets, consider these best practices:
 1. **Language-specific configurations**: Adjust thresholds based on the programming language
 
    ```python
-   from nemo_curator.stages.text.modules import ScoreFilter
-   from nemo_curator.stages.text.filters import PythonCommentToCodeFilter, GeneralCommentToCodeFilter
+   from nemo_curator.stages.text.filters import ScoreFilter
+   from nemo_curator.stages.text.filters.heuristic.code import (
+    PythonCommentToCodeFilter,
+    GeneralCommentToCodeFilter,
+   )
 
    # Python tends to have more comments than C
    python_comment_filter = ScoreFilter(
@@ -213,8 +216,8 @@ When filtering code datasets, consider these best practices:
 2. **Preserve code structure**: Ensure filters don't inadvertently remove valid coding patterns
 
    ```python
-   from nemo_curator.stages.text.modules import ScoreFilter
-   from nemo_curator.stages.text.filters import GeneralCommentToCodeFilter
+   from nemo_curator.stages.text.filters import ScoreFilter
+   from nemo_curator.stages.text.filters.heuristic.code import GeneralCommentToCodeFilter
 
    # Some languages naturally have low comment ratios
    assembly_filter = ScoreFilter(
@@ -230,13 +233,13 @@ When filtering code datasets, consider these best practices:
 
    ```python
    # First check if the content is actually Python using FastText language ID
-   from nemo_curator.stages.text.filters import FastTextLangId
+   from nemo_curator.stages.text.filters.fasttext import FastTextLangId
    from nemo_curator.pipeline import Pipeline
-   from nemo_curator.stages.text.modules import ScoreFilter
-   
+   from nemo_curator.stages.text.filters import ScoreFilter
+
    # Create pipeline for Python code filtering with language detection
    pipeline = Pipeline(name="python_code_filtering")
-   
+
    # Add language detection stage
    pipeline.add_stage(ScoreFilter(
        filter_obj=FastTextLangId(
@@ -246,7 +249,7 @@ When filtering code datasets, consider these best practices:
        text_field="content",
        score_field="language"
    ))
-   
+
    # Then apply Python-specific filters
    pipeline.add_stage(ScoreFilter(
        filter_obj=PythonCommentToCodeFilter(),
@@ -263,17 +266,17 @@ When filtering code datasets, consider these best practices:
    ```python
    # Track filter statistics by running individual filters and measuring results
    from nemo_curator.stages.text.io.reader import JsonlReader
-   
+
    # Load dataset for testing
    reader = JsonlReader(file_paths="test_data/*.jsonl")
-   
+
    # Test individual filters to measure rejection rates
    filters_to_test = {
        "python_comment": PythonCommentToCodeFilter(),
        "line_count": NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
        "alpha_content": AlphaFilter(min_alpha_ratio=0.3)
    }
-   
+
    # Note: Actual statistics collection would require running the pipeline
    # and analyzing the results to determine optimal thresholds
    ```
@@ -286,8 +289,12 @@ When filtering code datasets, consider these best practices:
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import NumberOfLinesOfCodeFilter, XMLHeaderFilter, GeneralCommentToCodeFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic.code import (
+    NumberOfLinesOfCodeFilter,
+    XMLHeaderFilter,
+    GeneralCommentToCodeFilter,
+)
 
 # Create pipeline to filter non-functional code snippets
 pipeline = Pipeline(name="code_cleaning")
@@ -317,8 +324,12 @@ pipeline.add_stage(ScoreFilter(
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import AlphaFilter, TokenizerFertilityFilter, HTMLBoilerplateFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic.code import (
+    AlphaFilter,
+    TokenizerFertilityFilter,
+    HTMLBoilerplateFilter,
+)
 
 # Create pipeline for training data preparation
 pipeline = Pipeline(name="training_data_prep")

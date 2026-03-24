@@ -48,6 +48,9 @@ inputs:
     description: "Has Azure credentials"
     required: false
     default: "false"
+  HF_TOKEN:
+    description: "Hugging Face Token"
+    required: true
   PAT:
     description: "GitHub Personal Access Token"
     required: true
@@ -96,6 +99,8 @@ runs:
 
     - name: Start container
       shell: bash
+      env:
+        HF_TOKEN: ${{ inputs.HF_TOKEN }}
       run: |
         MNT_PATH=${{ steps.azure-fileshare.outputs.mnt_path }}
 
@@ -112,6 +117,7 @@ runs:
           -d \
           --name nemo_container_${{ github.run_id }} ${ARG[@]} \
           --shm-size=64g \
+          --env HF_TOKEN=${HF_TOKEN} \
           --env RUN_ID=${{ github.run_id }} \
           --volume $(pwd)/NeMo-Curator:/workspace \
           --workdir /workspace \
