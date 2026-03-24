@@ -7,16 +7,16 @@ on:
 jobs:
   update-docs-stage:
     runs-on: ubuntu-latest
+    if: github.event.changes.field_value.field_node_id == 'PVTSSF_lADODLylHc4A8S01zgwVgOk'
     steps:
       - name: Check if status is Done and update docs stage
         env:
           GH_TOKEN: ${{ secrets.PAT }}
           PROJECT_ID: "PVT_kwDODLylHc4A8S01"
           ITEM_ID: ${{ github.event.projects_v2_item.node_id }}
-          STATUS_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgwVgOk"
           DONE_OPTION_ID: "98236657"
           DOCUMENTATION_STAGE_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJjRA"
-          DOCS_NOT_READY_OPTION_ID: "36e5dca1"
+          DOCS_NOT_STARTED_OPTION_ID: "36e5dca1"
           READY_TO_DOCUMENT_OPTION_ID: "80d991f6"
         run: |
           # Query the item's current Status and Documentation Stage values
@@ -40,7 +40,7 @@ jobs:
 
           echo "Status: $STATUS, Documentation Stage: $DOCS"
 
-          if [ "$STATUS" = "$DONE_OPTION_ID" ] && [ "$DOCS" = "$DOCS_NOT_READY_OPTION_ID" ]; then
+          if [ "$STATUS" = "$DONE_OPTION_ID" ] && [ "$DOCS" = "$DOCS_NOT_STARTED_OPTION_ID" ]; then
             echo "Status is Done and docs are Required - Not Ready — setting to Ready to Document"
             gh api graphql -f query='
               mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: String!) {
