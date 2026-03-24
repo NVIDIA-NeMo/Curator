@@ -212,121 +212,15 @@ If you encounter a `torch.OutOfMemoryError` during model classification, it is a
 
 ## Memory Monitoring
 
-### Why Monitor Memory?
+Monitoring memory is essential for production data curation pipelines, especially when processing large-scale datasets over extended periods. Without monitoring, you may encounter silent performance degradation, unexpected out-of-memory failures, resource waste, and difficult-to-debug crashes.
 
-Memory monitoring is essential for production data curation pipelines, especially when processing large-scale datasets over extended periods. Without monitoring, you may encounter:
-
-- **Silent Performance Degradation**: Memory leaks can gradually slow down processing without obvious errors
-- **Unexpected Failures**: Out-of-memory crashes can occur hours or days into long-running jobs
-- **Resource Waste**: Underutilized workers consume resources without contributing to throughput
-- **Difficult Debugging**: Without historical data, it's hard to identify which pipeline stage caused a memory issue
-
-Effective monitoring helps you:
-- **Detect Issues Early**: Identify memory leaks or inefficient stages before they cause failures
-- **Optimize Resource Allocation**: Adjust worker counts and batch sizes based on actual usage patterns
-- **Plan Capacity**: Understand resource requirements for scaling to larger datasets
-- **Debug Failures**: Investigate what happened leading up to a crash using historical metrics
-
-### Monitoring Stack: Prometheus and Grafana
-
-NeMo Curator supports integration with **Prometheus** and **Grafana**, the industry-standard open-source monitoring stack:
-
-**Prometheus** is a time-series database and monitoring system that:
-- Collects metrics from your pipeline at regular intervals (for example, every 15 seconds)
-- Stores metrics like CPU usage, GPU memory, worker counts, and task throughput
-- Provides a query language (PromQL) to aggregate and analyze metrics
-- Runs as a standalone service that "scrapes" metrics exposed by Curator workers
-
-**Grafana** is a visualization platform that:
-- Connects to Prometheus as a data source
-- Displays metrics in customizable dashboards with graphs, gauges, and alerts
-- Provides real-time views of your pipeline's health and performance
-- Allows you to set up alerts (for example, notify when GPU memory exceeds 90%)
-
-**How They Work Together**:
-1. Curator workers expose metrics in a format Prometheus understands
-2. Prometheus periodically scrapes these metrics and stores them
-3. Grafana queries Prometheus and displays the data in dashboards
-4. You view the dashboards to monitor your pipeline in real-time and historically
-
-### Key Metrics to Monitor
-
-When running production pipelines, track these critical metrics:
-
-- **CPU Memory Usage**: Total RAM consumption across workers to prevent out-of-memory errors
-- **GPU Memory Usage**: VRAM consumption per GPU for model-based stages (classifiers, embedders)
-- **Worker Count**: Number of active workers per stage to verify proper scaling
-- **Task Throughput**: Documents or batches processed per second to measure pipeline efficiency
-- **Stage Latency**: Time spent in each pipeline stage to identify bottlenecks
-- **Error Rates**: Failed tasks or worker crashes to detect stability issues
-
-### Setting Up Monitoring
-
-NeMo Curator provides a built-in script to download, configure, and start Prometheus and Grafana. When `RayClient` starts, it automatically registers Ray's metrics with the running Prometheus instance.
-
-#### Step 1: Start Prometheus and Grafana
-
-On the head node, run the setup script before starting your pipeline:
-
-```bash
-python -m nemo_curator.metrics.start_prometheus_grafana
-```
-
-This downloads Prometheus and Grafana binaries, writes configuration files, starts both services, and auto-generates Ray dashboards (default, data, serve, and serve-deployment).
-
-By default, the script stores metrics data in a per-user directory (`/tmp/nemo_curator_metrics_{uid}`). To specify a custom location, use `--metrics_dir`:
-
-```bash
-python -m nemo_curator.metrics.start_prometheus_grafana --metrics_dir /shared/metrics/user_a
-```
-
-You can also customize ports:
-
-```bash
-python -m nemo_curator.metrics.start_prometheus_grafana \
-  --prometheus_web_port 9090 \
-  --grafana_web_port 3000 \
-  --metrics_dir /shared/metrics/user_a
-```
-
-#### Step 2: Configure RayClient
-
-Pass the same `metrics_dir` to `RayClient` so it can locate the running Prometheus instance and register Ray's service discovery:
-
-```python
-from nemo_curator.core.client import RayClient
-
-ray_client = RayClient(
-    include_dashboard=True,
-    metrics_dir="/shared/metrics/user_a"  # Must match --metrics_dir from Step 1
-)
-ray_client.start()
-```
-
-When `RayClient.start()` runs, it checks whether Prometheus and Grafana are running (through PID files in `metrics_dir`) and, if so, adds Ray's metrics service discovery to the Prometheus configuration. When `RayClient.stop()` runs, it removes the service discovery entry automatically.
-
-<Note>
-**SLURM clusters**: The `metrics_dir` passed to `RayClient` must match the `--metrics_dir` used when starting Prometheus and Grafana. Similarly, the `ray_temp_dir` must match the `temp_dir` used when starting the Ray cluster.
-</Note>
-
-#### Multi-User Clusters
-
-On shared clusters, each user can run an isolated monitoring stack by specifying a unique `metrics_dir`. Each instance tracks its own Prometheus and Grafana processes through PID files, so multiple users can monitor their pipelines independently on the same node.
-
-#### Stopping Monitoring Services
-
-To stop Prometheus and Grafana, use the PID files written to your metrics directory:
-
-```bash
-kill $(cat /shared/metrics/user_a/prometheus.pid)
-kill $(cat /shared/metrics/user_a/grafana.pid)
-```
+NeMo Curator integrates with Prometheus and Grafana for pipeline monitoring. Refer to the [Monitoring](/reference/infra/monitoring) page for setup instructions, key metrics to track, and multi-user cluster configuration.
 
 ## Best Practices
 
 1. **Monitor Memory Usage**
    - **During Development** Use system monitoring tools (`htop`, `nvidia-smi`, `watch -n 1 nvidia-smi`) to observe memory usage patterns as your pipeline runs. Start with small datasets to identify memory bottlenecks before scaling up.
-   - **In Production** Set up monitoring dashboards using Prometheus and Grafana (refer to [Memory Monitoring](#memory-monitoring) section above) to track CPU/GPU memory usage, worker utilization, and pipeline throughput over time.
+   - **In Production** Set up monitoring dashboards using Prometheus and Grafana (refer to [Monitoring](/reference/infra/monitoring)) to track CPU/GPU memory usage, worker utilization, and pipeline throughput over time.
    - **Ray Dashboard** If using Ray-based executors, access the Ray dashboard (typically at `http://localhost:8265`) to view real-time resource usage, task execution, and memory consumption across workers.
 
 2. **Optimize Data Loading**

@@ -504,6 +504,9 @@ navigation:
               - page: Memory Management
                 path: ./v26.04/pages/reference/infrastructure/memory-management.mdx
                 slug: memory-management
+              - page: Monitoring
+                path: ./v26.04/pages/reference/infrastructure/monitoring.mdx
+                slug: monitoring
               - page: GPU Processing
                 path: ./v26.04/pages/reference/infrastructure/gpu-processing.mdx
                 slug: gpu-processing
