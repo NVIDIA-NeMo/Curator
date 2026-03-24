@@ -44,7 +44,8 @@ exact_workflow = ExactDeduplicationWorkflow(
     assign_id=True,
     input_filetype="parquet"
 )
-exact_workflow.run()
+result = exact_workflow.run()
+# result.metadata contains: total_time, num_duplicates, identification_time
 ```
 
 For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Exact Duplicate Removal ](/curate-text/process-data/deduplication/exact) for details.
@@ -82,7 +83,8 @@ fuzzy_workflow = FuzzyDeduplicationWorkflow(
     num_bands=20,
     minhashes_per_band=13
 )
-fuzzy_workflow.run()
+result = fuzzy_workflow.run()
+# result.metadata contains: total_time, num_duplicates, minhash_time, lsh_time
 ```
 
 For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Fuzzy Duplicate Removal ](/curate-text/process-data/deduplication/fuzzy) for details.
@@ -112,7 +114,8 @@ text_workflow = TextSemanticDeduplicationWorkflow(
     eps=0.01,  # Similarity threshold
     perform_removal=True  # Complete deduplication
 )
-text_workflow.run()
+result = text_workflow.run()
+# result.metadata contains: total_time, num_duplicates, num_duplicates_removed
 ```
 
 **Note**: Two workflows available:
@@ -158,7 +161,7 @@ semantic_workflow = SemanticDeduplicationWorkflow(
     embedding_field="embeddings",
     eps=None  # Skip duplicate identification for analysis
 )
-semantic_out = semantic_workflow.run()
+result = semantic_workflow.run()
 
 # 4. Analyze results and choose eps parameter
 # 5. Identify and remove duplicates
@@ -227,7 +230,8 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_duplicate_id_field="_curator_dedup_id",
     id_generator_path="/path/to/id_generator.json"  # Required when IDs were auto-assigned
 )
-removal_workflow.run()
+result = removal_workflow.run()
+# result.metadata contains: total_time, num_duplicates_removed
 ```
 
 <Accordion title="ID Field Configuration">
@@ -244,6 +248,19 @@ removal_workflow.run()
 - Set `ids_to_remove_duplicate_id_field` to match your `id_field` value
 - `id_generator_path` not required
 </Accordion>
+
+### Workflow Results
+
+All deduplication workflows return a `WorkflowRunResult` object with timing and duplicate count metadata:
+
+```python
+from nemo_curator.pipeline.workflow import WorkflowRunResult
+
+result = exact_workflow.run()
+print(result.metadata)  # {"total_time": 42.1, "num_duplicates": 1500, ...}
+```
+
+Available metadata varies by workflow. Common keys include `total_time` and `num_duplicates`. See the [WorkflowRunResult API reference](/api-reference/pipeline#workflowrunresult) for the complete list.
 
 ### Outputs and Artifacts
 
@@ -351,7 +368,7 @@ client = RayClient(
 client.start()
 
 try:
-    workflow.run()
+    result = workflow.run()
 finally:
     client.stop()
 ```

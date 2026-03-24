@@ -52,8 +52,8 @@ exact_workflow = ExactDeduplicationWorkflow(
     perform_removal=False,
     input_filetype="parquet"
 )
-exact_workflow.run()
-# Duplicate IDs saved to ./results/ExactDuplicateIds/
+result = exact_workflow.run()
+# result.metadata contains: total_time, num_duplicates, identification_time, id_generator_path
 
 # Step 2: Remove duplicates
 removal_workflow = TextDuplicatesRemovalWorkflow(
@@ -65,8 +65,8 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_duplicate_id_field="_curator_dedup_id",
     id_generator_path="./results/exact_id_generator.json"
 )
-removal_workflow.run()
-# Clean dataset saved to ./deduplicated/
+result = removal_workflow.run()
+# result.metadata contains: total_time, num_duplicates_removed
 ```
 
 ## Configuration
@@ -104,7 +104,7 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_duplicate_id_field="_curator_dedup_id",
     id_generator_path="/path/to/output/exact_id_generator.json"  # Required if assign_id=True
 )
-removal_workflow.run()
+result = removal_workflow.run()
 ```
 
 <Accordion title="ID Field Configuration">
