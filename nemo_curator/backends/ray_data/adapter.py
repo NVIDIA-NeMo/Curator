@@ -79,10 +79,6 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dataset: Processed Ray Data dataset
         """
-        # TODO: Support nvdecs / nvencs
-        if self.stage.resources.gpus <= 0 and (self.stage.resources.nvdecs > 0 or self.stage.resources.nvencs > 0):
-            msg = "Ray Data does not support nvdecs / nvencs. Please use gpus instead."
-            raise ValueError(msg)
 
         is_actor_stage_ = self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
 
@@ -96,6 +92,9 @@ class RayDataStageAdapter(BaseStageAdapter):
         else:
             map_batches_fn = create_task_from_stage(self.stage)
             concurrency_kwargs = {"concurrency": None}
+            max_calls = self.stage.ray_stage_spec().get(RayStageSpecKeys.MAX_CALLS_PER_WORKER, None)
+            if max_calls is not None:
+                concurrency_kwargs["max_calls"] = max_calls
 
         if self.stage.resources.cpus > 0:
             concurrency_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]

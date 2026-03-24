@@ -45,6 +45,7 @@ class GenerationConfig:
     temperature: float | None = 0.0
     top_k: int | None = None
     top_p: float | None = 0.95
+    extra_kwargs: dict | None = None
 
 
 class LLMClient(ABC):
