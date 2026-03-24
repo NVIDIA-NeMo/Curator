@@ -81,6 +81,14 @@ datasets:
     formats:
     - type: "parquet"
       path: "{datasets_path}/finemath4plus/enriched"
+  - name: "cc_index_query_dataset"
+    formats:
+    - type: "parquet"
+      path: "{datasets_path}/cc_index_benchmark/dataset/megamath_web/megamath-web"
+  - name: "cc_index_partitions"
+    formats:
+    - type: "parquet"
+      path: "{datasets_path}/cc_index_benchmark/cc_index"
 default_timeout_s: 7200
 
 # Optional sinks
@@ -1000,6 +1008,9 @@ entries:
           - throughput_docs_per_sec
           - type_html_count
           - extraction_success_rate
+        ping_on_failure:
+          - U07AZ1HPL1X  # Ranjit Rajan
+          - U0849HBGCLD  # Sukrit Rao
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -1021,6 +1032,9 @@ entries:
           - throughput_docs_per_sec
           - mean_finemath_score
           - classifier_percent_time
+        ping_on_failure:
+          - U07AZ1HPL1X  # Ranjit Rajan
+          - U0849HBGCLD  # Sukrit Rao
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -1046,7 +1060,34 @@ entries:
           - throughput_docs_per_sec
           - num_chunks_processed
           - llm_cleanup_percent_time
+        ping_on_failure:
+          - U07AZ1HPL1X  # Ranjit Rajan
+          - U0849HBGCLD  # Sukrit Rao
     ray:
       num_cpus: 64
       num_gpus: 4
+      enable_object_spilling: false
+
+  - name: math_cc_index_lookup
+    enabled: true
+    script: cc_index_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --query-dataset-path={dataset:cc_index_query_dataset,parquet}
+      --cc-index-path={dataset:cc_index_partitions,parquet}
+      --output-path={session_entry_dir}/scratch/output
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_gb_per_sec
+          - total_cc_index_rows_scanned
+          - total_matched_rows
+          - match_rate
+        ping_on_failure:
+          - U07AZ1HPL1X  # Ranjit Rajan
+          - U0849HBGCLD  # Sukrit Rao
+    ray:
+      num_cpus: 64
+      num_gpus: 8
       enable_object_spilling: false

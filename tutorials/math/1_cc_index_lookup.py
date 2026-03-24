@@ -131,25 +131,31 @@ class CCIndexLookupStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
 
 def collect_unique_urls(input_path: str, url_col: str = "url") -> cudf.DataFrame:
-    """Collect unique URLs from input dataset using cuDF."""
+    """Collect unique URLs from input dataset.
+
+    Uses pandas for reading and dedup, then converts the small deduplicated result to cuDF
+    for the downstream GPU merge.
+    """
+    import pandas as pd
+
     logger.info(f"Collecting unique URLs from: {input_path}")
 
-    input_files = get_all_file_paths_under(input_path, keep_extensions=[".parquet"])
+    input_files = get_all_file_paths_under(input_path, recurse_subdirectories=True, keep_extensions=[".parquet"])
     if not input_files:
         msg = f"No parquet files found at {input_path}"
         raise FileNotFoundError(msg)
 
     logger.info(f"Found {len(input_files)} input files")
 
-    dfs = [cudf.read_parquet(f, columns=[url_col]) for f in input_files]
-    combined = cudf.concat(dfs, ignore_index=True)
+    dfs = [pd.read_parquet(f, columns=[url_col]) for f in input_files]
+    combined = pd.concat(dfs, ignore_index=True)
     unique_urls = combined.drop_duplicates(subset=[url_col])
 
     if url_col != "url":
         unique_urls = unique_urls.rename(columns={url_col: "url"})
 
     logger.info(f"Collected {len(unique_urls):,} unique URLs")
-    return unique_urls
+    return cudf.DataFrame(unique_urls)
 
 
 def get_available_crawls(cc_index_base: str) -> list[str]:
@@ -187,6 +193,10 @@ def get_cc_index_files(cc_index_base: str, crawls: list[str] | None = None) -> l
 
 
 def run_cc_index_lookup(config: CCIndexLookupConfig) -> None:
+    # Initialize Ray before ray.put() so the GPU visibility env var is
+    # set for all workers.  Without this, Xenna cannot detect GPUs.
+    os.environ.setdefault("RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES", "1")
+
     ray_client = RayClient()
     ray_client.start()
 

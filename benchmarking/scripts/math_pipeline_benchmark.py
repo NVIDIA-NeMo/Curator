@@ -151,29 +151,28 @@ def compute_extraction_metrics(output_dir: str) -> dict:
 
         ds = ray.data.read_json(jsonl_files).select_columns(["type", "text"])
 
-        html_docs = 0
-        text_docs = 0
-        notebook_docs = 0
-        html_empty = 0
-
-        for batch in ds.iter_batches(batch_format="numpy"):
+        def _count_types(batch: dict) -> dict:
             types = batch.get("type", [])
             texts = batch.get("text", [])
+            return {
+                "html": [sum(1 for t in types if t == "html")],
+                "text": [sum(1 for t in types if t == "text")],
+                "notebook": [sum(1 for t in types if t == "notebook")],
+                "html_empty": [
+                    sum(1 for t, tx in zip(types, texts, strict=False) if t == "html" and not str(tx or "").strip())
+                ],
+            }
 
-            for doc_type, text in zip(types, texts, strict=False):
-                if doc_type == "html":
-                    html_docs += 1
-                    if not str(text or "").strip():
-                        html_empty += 1
-                elif doc_type == "text":
-                    text_docs += 1
-                elif doc_type == "notebook":
-                    notebook_docs += 1
+        counts = ds.map_batches(_count_types, batch_format="numpy")
+        totals = dict.fromkeys(("html", "text", "notebook", "html_empty"), 0)
+        for row in counts.iter_rows():
+            for k in totals:
+                totals[k] += row[k]
 
-        metrics["type_html_count"] = html_docs
-        metrics["type_text_count"] = text_docs
-        metrics["type_notebook_count"] = notebook_docs
-        metrics["html_empty_text_count"] = html_empty
+        metrics["type_html_count"] = totals["html"]
+        metrics["type_text_count"] = totals["text"]
+        metrics["type_notebook_count"] = totals["notebook"]
+        metrics["html_empty_text_count"] = totals["html_empty"]
 
     except Exception as e:
         logger.warning(f"Could not compute extraction metrics: {e}")
@@ -224,14 +223,24 @@ def compute_llm_cleanup_metrics(output_dir: str) -> dict:
 
         ds = ray.data.read_json(jsonl_files).select_columns(["cleaned_text"])
 
-        text_lengths = [len(row.get("cleaned_text") or "") for row in ds.iter_rows()]
-        total = len(text_lengths)
-        metrics["num_chunks_processed"] = total
-        if text_lengths:
-            metrics["avg_output_text_length"] = sum(text_lengths) / total
+        def _text_stats(batch: dict) -> dict:
+            lengths = [len(str(t or "")) for t in batch.get("cleaned_text", [])]
+            return {
+                "count": [len(lengths)],
+                "total_length": [sum(lengths)],
+                "no_content": [sum(1 for ln in lengths if ln == 0)],
+            }
 
-        no_content = sum(1 for length in text_lengths if length == 0)
-        metrics["no_useful_content_count"] = no_content
+        agg = ds.map_batches(_text_stats, batch_format="numpy")
+        totals = {"count": 0, "total_length": 0, "no_content": 0}
+        for row in agg.iter_rows():
+            for k in totals:
+                totals[k] += row[k]
+
+        metrics["num_chunks_processed"] = totals["count"]
+        if totals["count"] > 0:
+            metrics["avg_output_text_length"] = totals["total_length"] / totals["count"]
+        metrics["no_useful_content_count"] = totals["no_content"]
 
     except Exception as e:
         logger.warning(f"Could not compute LLM cleanup metrics: {e}")
@@ -292,7 +301,7 @@ def run_benchmark(args: argparse.Namespace) -> dict:
         "throughput_docs_per_sec": num_input_documents / elapsed if elapsed > 0 else 0,
     }
 
-    if num_input_documents > 0 and num_output_documents > 0:
+    if num_input_documents > 0:
         metrics["extraction_success_rate"] = num_output_documents / num_input_documents
 
     task_metrics = TaskPerfUtils.aggregate_task_metrics(results, prefix="task")
