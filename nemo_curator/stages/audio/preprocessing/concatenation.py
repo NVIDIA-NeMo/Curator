@@ -29,7 +29,7 @@ Example:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import torch
 from loguru import logger
@@ -39,7 +39,6 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
 from ..common import ensure_waveform_2d
-from ..configs import SegmentConcatenationConfig
 
 
 @dataclass
@@ -52,7 +51,7 @@ class SegmentMapping:
     concat_end_ms: int
     segment_index: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             'original_file': self.original_file,
             'original_start_ms': self.original_start_ms,
@@ -73,14 +72,12 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
     ``task._metadata["segment_mappings"]`` for downstream timestamp resolution.
 
     Args:
-        config: SegmentConcatenationConfig object (overrides other params if provided)
         silence_duration_sec: Duration of silence between segments (seconds)
 
     Example:
         stage = SegmentConcatenationStage(silence_duration_sec=0.5)
     """
 
-    config: Optional[SegmentConcatenationConfig] = None
     silence_duration_sec: float = 0.5
 
     name: str = "SegmentConcatenation"
@@ -89,16 +86,14 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     def __post_init__(self):
         super().__init__()
-        if self.config is not None:
-            self.silence_duration_sec = self.config.silence_duration_sec
 
-    def inputs(self) -> Tuple[List[str], List[str]]:
+    def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def outputs(self) -> Tuple[List[str], List[str]]:
+    def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["waveform", "sample_rate", "num_segments", "total_duration_sec", "original_file"]
 
-    def process(self, task: AudioBatch) -> Optional[AudioBatch]:
+    def process(self, task: AudioBatch) -> AudioBatch | None:
         """
         Concatenate all items in the task into a single waveform item.
 
@@ -114,11 +109,11 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 _stage_perf=list(task._stage_perf),
             )
 
-        parts: List[torch.Tensor] = []
-        mappings: List[Dict[str, Any]] = []
+        parts: list[torch.Tensor] = []
+        mappings: list[dict[str, Any]] = []
         current_pos_ms = 0
-        sample_rate: Optional[int] = None
-        num_channels: Optional[int] = None
+        sample_rate: int | None = None
+        num_channels: int | None = None
         silence_duration_ms = int(self.silence_duration_sec * 1000)
 
         for idx, item in enumerate(items):

@@ -23,7 +23,7 @@ Strips waveform from final output items (metadata-only output).
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
@@ -31,12 +31,10 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
-from ..configs import TimestampMapperConfig
-
 
 def _translate_to_original(
-    mappings: List[Dict[str, Any]], concat_start_ms: int, concat_end_ms: int
-) -> List[Dict[str, Any]]:
+    mappings: list[dict[str, Any]], concat_start_ms: int, concat_end_ms: int
+) -> list[dict[str, Any]]:
     """Translate concatenated position range to original file positions."""
     results = []
     for m in mappings:
@@ -83,8 +81,7 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
     metadata-only (timestamps, quality scores, speaker info).
     """
 
-    config: Optional[TimestampMapperConfig] = None
-    passthrough_keys: Optional[List[str]] = None
+    passthrough_keys: list[str] | None = None
     name: str = "TimestampMapper"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
@@ -105,20 +102,18 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     def __post_init__(self):
         super().__init__()
-        if self.config is not None:
-            self.passthrough_keys = self.config.passthrough_keys
 
-    def inputs(self) -> Tuple[List[str], List[str]]:
+    def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def outputs(self) -> Tuple[List[str], List[str]]:
+    def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["original_file", "original_start_ms", "original_end_ms",
                      "duration_ms", "duration_sec"]
 
-    def process(self, task: AudioBatch) -> Optional[AudioBatch]:
+    def process(self, task: AudioBatch) -> AudioBatch | None:
         mappings = (task._metadata or {}).get('segment_mappings')
 
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         rejected = 0
 
         for item in task.data:
@@ -164,7 +159,7 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
             _stage_perf=list(task._stage_perf),
         )
 
-    def _copy_passthrough(self, item: Dict[str, Any], result: Dict[str, Any]) -> None:
+    def _copy_passthrough(self, item: dict[str, Any], result: dict[str, Any]) -> None:
         """Copy passthrough keys from input item to output result."""
         if self.passthrough_keys is not None:
             for key in self.passthrough_keys:
@@ -175,9 +170,9 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
                 if key not in self._STRIP_KEYS and key not in result and val is not None:
                     result[key] = val
 
-    def _build_output_item(self, item: Dict[str, Any], orig: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_output_item(self, item: dict[str, Any], orig: dict[str, Any]) -> dict[str, Any]:
         """Build final output item from mapped original range."""
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             'original_file': orig['original_file'],
             'original_start_ms': orig['original_start_ms'],
             'original_end_ms': orig['original_end_ms'],
@@ -187,7 +182,7 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
         self._copy_passthrough(item, result)
         return result
 
-    def _build_output_item_no_mapping(self, item: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_output_item_no_mapping(self, item: dict[str, Any]) -> dict[str, Any]:
         """Build output item when no segment mappings exist (no concatenation was done)."""
         start_ms = item.get('start_ms', 0)
         end_ms = item.get('end_ms', 0)
@@ -202,7 +197,7 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
                 n = wf.shape[-1] if hasattr(wf, 'shape') else len(wf)
                 duration_ms = int(n / item['sample_rate'] * 1000)
                 end_ms = start_ms + duration_ms
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             'original_file': item.get('original_file', item.get('audio_filepath', 'unknown')),
             'original_start_ms': start_ms,
             'original_end_ms': end_ms,

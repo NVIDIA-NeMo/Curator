@@ -28,7 +28,6 @@ Example:
 
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
 
 import torch
 from loguru import logger
@@ -38,7 +37,6 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
 from ..common import load_audio_file
-from ..configs import MonoConversionConfig
 
 
 @dataclass
@@ -50,24 +48,15 @@ class MonoConversionStage(ProcessingStage[AudioBatch, AudioBatch]):
     Optionally verifies that audio matches expected sample rate.
     
     Args:
-        config: MonoConversionConfig object (overrides other params if provided)
         output_sample_rate: Expected sample rate in Hz (default: 48000)
         audio_filepath_key: Key in data dict for audio file path
         strict_sample_rate: If True, reject audio with wrong sample rate
     
     Example:
-        # Basic usage
         stage = MonoConversionStage(output_sample_rate=48000)
-        
-        # Using config object
-        config = MonoConversionConfig(output_sample_rate=16000)
-        stage = MonoConversionStage(config=config)
-        
-        # Allow any sample rate
         stage = MonoConversionStage(strict_sample_rate=False)
     """
     
-    config: Optional[MonoConversionConfig] = None
     output_sample_rate: int = 48000
     audio_filepath_key: str = "audio_filepath"
     strict_sample_rate: bool = True
@@ -79,21 +68,15 @@ class MonoConversionStage(ProcessingStage[AudioBatch, AudioBatch]):
     def __post_init__(self):
         """Initialize after dataclass fields are set."""
         super().__init__()
-        
-        # Apply config if provided
-        if self.config is not None:
-            self.output_sample_rate = self.config.output_sample_rate
-            self.audio_filepath_key = self.config.audio_filepath_key
-            self.strict_sample_rate = self.config.strict_sample_rate
     
-    def inputs(self) -> Tuple[List[str], List[str]]:
+    def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def outputs(self) -> Tuple[List[str], List[str]]:
+    def outputs(self) -> tuple[list[str], list[str]]:
         """Define outputs produced by this stage."""
         return [], ["waveform", "sample_rate", "is_mono", "duration", "num_samples"]
     
-    def process(self, task: AudioBatch) -> Optional[AudioBatch]:
+    def process(self, task: AudioBatch) -> AudioBatch | None:
         """
         Convert audio to mono and verify sample rate.
         
