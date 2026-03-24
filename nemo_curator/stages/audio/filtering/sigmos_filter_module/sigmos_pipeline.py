@@ -15,12 +15,12 @@
 """
 SIGMOS pipeline: in-memory MOS prediction for SIGMOSFilterStage.
 
-Only predict_audio_mos(audio_data, sample_rate, config) is used by the stage.
+Only predict_audio_mos(audio_data, sample_rate, model_path) is used by the stage.
 """
 
 import os
 import sys
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 import numpy as np
 import torch
@@ -32,39 +32,13 @@ except ImportError:
     sys.path.append(os.path.join(current_dir, "third_party"))
     from sigmos.sigmos import build_sigmos_model
 
-_MODEL_CACHE: Dict[str, Any] = {}
-
-
-def _get_config_val(
-    config: Optional[Union[Dict[str, Any], Any]],
-    key: str,
-    default: Any = None,
-) -> Any:
-    if config is None:
-        return default
-    if isinstance(config, dict) and "sigmos" in config and isinstance(config["sigmos"], dict):
-        val = config["sigmos"].get(key)
-        if val is not None:
-            return val
-    if isinstance(config, dict):
-        val = config.get(f"sigmos_{key}") or config.get(key)
-        if val is not None:
-            return val
-    if hasattr(config, f"sigmos_{key}"):
-        return getattr(config, f"sigmos_{key}")
-    if hasattr(config, key):
-        return getattr(config, key)
-    return default
+_MODEL_CACHE: dict[str, Any] = {}
 
 
 class _SIGMOSPipeline:
     """Internal: model cache + predict_audio. Used only by predict_audio_mos."""
 
-    def __init__(
-        self,
-        config: Optional[Union[Dict[str, Any], Any]] = None,
-    ) -> None:
-        model_path = _get_config_val(config, "model_path", None)
+    def __init__(self, model_path: str | None = None) -> None:
         model_key = f"_{model_path}" if model_path else ""
 
         if torch.cuda.is_available():
@@ -87,7 +61,7 @@ class _SIGMOSPipeline:
                 )
         self.model = _MODEL_CACHE[cache_key]
 
-    def predict_audio(self, audio_data: np.ndarray, sample_rate: int) -> Dict[str, float]:
+    def predict_audio(self, audio_data: np.ndarray, sample_rate: int) -> dict[str, float]:
         if audio_data.ndim > 1:
             audio_data = np.mean(audio_data, axis=0)
         try:
@@ -99,8 +73,8 @@ class _SIGMOSPipeline:
 def predict_audio_mos(
     audio_data: np.ndarray,
     sample_rate: int,
-    config: Optional[Union[Dict[str, Any], Any]] = None,
-) -> Dict[str, float]:
+    model_path: str | None = None,
+) -> dict[str, float]:
     """Predict MOS for in-memory audio. Used by SIGMOSFilterStage."""
-    pipeline = _SIGMOSPipeline(config=config)
+    pipeline = _SIGMOSPipeline(model_path=model_path)
     return pipeline.predict_audio(audio_data, sample_rate)

@@ -52,7 +52,7 @@ class TestSIGMOSFilterStage:
     def test_process_passes_good_scores(self, mock_ensure) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
 
-        def fake_predict(audio_data, sample_rate, config=None):
+        def fake_predict(audio_data, sample_rate, model_path=None):
             return _GOOD_SCORES
 
         stage._predict_audio_mos = fake_predict
@@ -73,7 +73,7 @@ class TestSIGMOSFilterStage:
     def test_process_rejects_bad_scores(self, mock_ensure) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
 
-        def fake_predict(audio_data, sample_rate, config=None):
+        def fake_predict(audio_data, sample_rate, model_path=None):
             return _BAD_SCORES
 
         stage._predict_audio_mos = fake_predict
@@ -96,7 +96,7 @@ class TestSIGMOSFilterStage:
             reverb_threshold=None,
         )
 
-        def fake_predict(audio_data, sample_rate, config=None):
+        def fake_predict(audio_data, sample_rate, model_path=None):
             return _BAD_SCORES
 
         stage._predict_audio_mos = fake_predict
@@ -115,7 +115,7 @@ class TestSIGMOSFilterStage:
         """Item fails if any active threshold is not met."""
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=None)
 
-        def fake_predict(audio_data, sample_rate, config=None):
+        def fake_predict(audio_data, sample_rate, model_path=None):
             return {
                 "MOS_NOISE": 3.0, "MOS_OVRL": 5.0,
                 "MOS_SIG": 5.0, "MOS_COL": 5.0,
@@ -134,7 +134,7 @@ class TestSIGMOSFilterStage:
     def test_sigmos_output_keys(self, mock_ensure) -> None:
         stage = SIGMOSFilterStage(noise_threshold=1.0, ovrl_threshold=1.0)
 
-        def fake_predict(audio_data, sample_rate, config=None):
+        def fake_predict(audio_data, sample_rate, model_path=None):
             return _GOOD_SCORES
 
         stage._predict_audio_mos = fake_predict

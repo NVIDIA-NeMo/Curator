@@ -70,18 +70,30 @@ def ensure_cudnn_loaded() -> bool:
     if cudnn_lib_dir not in ld_path:
         os.environ["LD_LIBRARY_PATH"] = cudnn_lib_dir + (":" + ld_path if ld_path else "")
 
-    cudnn_so = os.path.join(cudnn_lib_dir, "libcudnn.so.9")
-    if not os.path.isfile(cudnn_so):
-        logger.warning("libcudnn.so.9 not found in {}", cudnn_lib_dir)
+    # Eagerly load cuDNN shared libraries into the process address space.
+    # Setting LD_LIBRARY_PATH alone is not enough once the process has started
+    # because the dynamic linker caches its search paths at startup.
+    # ONNX Runtime's CUDA provider uses dlopen() for sub-libraries like
+    # libcudnn_adv.so.9, so we must pre-load all of them.
+    import glob
+
+    cudnn_libs = sorted(glob.glob(os.path.join(cudnn_lib_dir, "libcudnn*.so*")))
+    if not cudnn_libs:
+        logger.warning("No libcudnn*.so* files found in %s", cudnn_lib_dir)
         return False
 
-    try:
-        ctypes.cdll.LoadLibrary(cudnn_so)
-        logger.debug("Pre-loaded cuDNN from {}", cudnn_so)
-        _cudnn_loaded = True
-    except OSError:
-        logger.warning("Failed to load {}", cudnn_so, exc_info=True)
-        return False
+    # Load the main library first (other libs depend on it), then the rest.
+    # The main library matches "libcudnn.so.<version>" (no underscore after "libcudnn").
+    cudnn_libs.sort(key=lambda p: (not os.path.basename(p).startswith("libcudnn.so."), p))
+
+    for lib_path in cudnn_libs:
+        try:
+            ctypes.cdll.LoadLibrary(lib_path)
+            logger.debug("Pre-loaded %s", lib_path)
+        except OSError:
+            logger.warning("Failed to load %s", lib_path, exc_info=True)
+
+    _cudnn_loaded = True
 
     return True
 

@@ -23,11 +23,6 @@ from nemo_curator.stages.audio.filtering import (
     SIGMOSFilterStage,
 )
 
-from nemo_curator.stages.audio.configs import (
-    SIGMOSConfig,
-)
-
 __all__ = [
     "SIGMOSFilterStage",
-    "SIGMOSConfig",
 ]

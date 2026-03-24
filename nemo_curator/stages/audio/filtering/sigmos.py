@@ -37,21 +37,21 @@ Example:
 
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import torch
 from loguru import logger
 
+from nemo_curator.stages.audio.filtering.sigmos_filter_module.sigmos_pipeline import predict_audio_mos
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
 from ..common import resolve_model_path
-from ..configs import SIGMOSConfig
 
 
-def _get_audio_numpy_sr(item: Dict[str, Any], task_id: str) -> Optional[Tuple[np.ndarray, int]]:
+def _get_audio_numpy_sr(item: dict[str, Any], task_id: str) -> tuple[np.ndarray, int] | None:
     """
     Get (audio mono float32 numpy, sample_rate) from item.
 
@@ -110,7 +110,6 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
     - REVERB: Reverberation (higher = less reverb)
 
     Args:
-        config: SIGMOSConfig object (overrides other params if provided)
         model_path: Path to SIGMOS ONNX model
         noise_threshold: Minimum noise score (None to disable)
         ovrl_threshold: Minimum overall score (None to disable)
@@ -125,15 +124,14 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         Use .with_(resources=Resources(gpus=X)) to configure GPU allocation.
     """
 
-    config: Optional[SIGMOSConfig] = None
     model_path: str = "model/model-sigmos_1697718653_41d092e8-epo-200.onnx"
-    noise_threshold: Optional[float] = 4.0
-    ovrl_threshold: Optional[float] = 3.5
-    sig_threshold: Optional[float] = None
-    col_threshold: Optional[float] = None
-    disc_threshold: Optional[float] = None
-    loud_threshold: Optional[float] = None
-    reverb_threshold: Optional[float] = None
+    noise_threshold: float | None = 4.0
+    ovrl_threshold: float | None = 3.5
+    sig_threshold: float | None = None
+    col_threshold: float | None = None
+    disc_threshold: float | None = None
+    loud_threshold: float | None = None
+    reverb_threshold: float | None = None
 
     name: str = "SIGMOSFilter"
     batch_size: int = 1
@@ -143,20 +141,10 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         super().__init__()
         self._predict_audio_mos = None
 
-        # Apply user-facing config fields only; model_path is internal.
-        if self.config is not None:
-            self.noise_threshold = self.config.noise_threshold
-            self.ovrl_threshold = self.config.ovrl_threshold
-            self.sig_threshold = self.config.sig_threshold
-            self.col_threshold = self.config.col_threshold
-            self.disc_threshold = self.config.disc_threshold
-            self.loud_threshold = self.config.loud_threshold
-            self.reverb_threshold = self.config.reverb_threshold
-
-    def inputs(self) -> Tuple[List[str], List[str]]:
+    def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def outputs(self) -> Tuple[List[str], List[str]]:
+    def outputs(self) -> tuple[list[str], list[str]]:
         return [], [
             "sigmos_noise", "sigmos_ovrl", "sigmos_sig", "sigmos_col",
             "sigmos_disc", "sigmos_loud", "sigmos_reverb",
@@ -173,20 +161,13 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
 
     def _ensure_predict(self):
         if self._predict_audio_mos is None:
-            try:
-                from nemo_curator.stages.audio.filtering.sigmos_filter_module.sigmos_pipeline import (
-                    predict_audio_mos,
-                )
-                self._predict_audio_mos = predict_audio_mos
-                logger.info("SIGMOS predict_audio_mos loaded successfully")
-            except ImportError as e:
-                logger.error(f"Failed to import SIGMOS module: {e}")
-                raise
+            self._predict_audio_mos = predict_audio_mos
+            logger.info("SIGMOS predict_audio_mos loaded successfully")
 
     def _resolve_model_path(self) -> str:
-        return resolve_model_path(self.model_path, __file__, 'sigmos_filter_module')
+        return resolve_model_path(self.model_path, __file__, "sigmos_filter_module")
 
-    def _scores_from_prediction(self, score_data: Any) -> Dict[str, float]:
+    def _scores_from_prediction(self, score_data: Any) -> dict[str, float]:
         if isinstance(score_data, dict):
             return {
                 "noise": float(score_data.get("MOS_NOISE", 0)),
@@ -203,7 +184,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         }
 
     def _check_thresholds(self, noise: float, ovrl: float, sig: float, col: float,
-                          disc: float, loud: float, reverb: float) -> Tuple[bool, List[str]]:
+                          disc: float, loud: float, reverb: float) -> tuple[bool, list[str]]:
         passed = True
         fail_reasons = []
         if self.noise_threshold is not None and noise < self.noise_threshold:
@@ -229,7 +210,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             fail_reasons.append(f"REVERB {reverb:.3f} < {self.reverb_threshold}")
         return passed, fail_reasons
 
-    def _process_single_item(self, item: Dict[str, Any], task_id: str) -> Optional[Dict[str, Any]]:
+    def _process_single_item(self, item: dict[str, Any], task_id: str) -> dict[str, Any] | None:
         audio_result = _get_audio_numpy_sr(item, task_id)
         if audio_result is None:
             return None
@@ -240,8 +221,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             return None
 
         try:
-            config = {"model_path": self._resolve_model_path()}
-            score_data = self._predict_audio_mos(audio_np, sample_rate, config=config)
+            score_data = self._predict_audio_mos(audio_np, sample_rate, model_path=self._resolve_model_path())
         except Exception as e:
             logger.exception(f"[{task_id}] SIGMOS prediction error: {e}")
             return None
@@ -268,7 +248,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         item["sigmos_reverb"] = s["reverb"]
         return item
 
-    def process(self, task: AudioBatch) -> Optional[AudioBatch]:
+    def process(self, task: AudioBatch) -> AudioBatch | None:
         self._ensure_predict()
         if self._predict_audio_mos is None:
             logger.error("SIGMOS prediction not available")
