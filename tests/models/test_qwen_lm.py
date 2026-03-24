@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM, _check_vllm_supports_model
+from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, _QWEN_LM_MODEL_REVISION, QwenLM, _check_vllm_supports_model
 
 
 class TestQwenLM:
@@ -48,7 +48,7 @@ class TestQwenLM:
                 fp8=self.fp8,
                 max_output_tokens=self.max_output_tokens,
             ).model_id
-            == "Qwen/Qwen3-14B"
+            == "Qwen/Qwen2.5-14B-Instruct"
         )
 
     def test_initialization(self) -> None:
@@ -57,7 +57,7 @@ class TestQwenLM:
         assert self.qwen_lm.fp8 == self.fp8
         assert self.qwen_lm.max_output_tokens == self.max_output_tokens
         assert self.qwen_lm.model_id == _QWEN_LM_MODEL_ID
-        assert self.qwen_lm.model_revision is None
+        assert self.qwen_lm.model_revision == _QWEN_LM_MODEL_REVISION
 
     def test_model_id_names(self) -> None:
         model_ids = self.qwen_lm.model_id_names()
@@ -100,7 +100,7 @@ class TestQwenLM:
         mock_tokenizer_class: Mock,
         mock_check_vllm: Mock,
     ) -> None:
-        expected_weight_path = "/test/model/dir/Qwen/Qwen3-14B"
+        expected_weight_path = "/test/model/dir/Qwen/Qwen2.5-14B-Instruct"
         mock_path_instance = Mock()
         mock_path_instance.__truediv__ = Mock(return_value=expected_weight_path)
         # Simulate weights already present so auto-download is skipped
@@ -156,7 +156,7 @@ class TestQwenLM:
             max_output_tokens=self.max_output_tokens,
         )
 
-        expected_weight_path = "/test/model/dir/Qwen/Qwen3-14B"
+        expected_weight_path = "/test/model/dir/Qwen/Qwen2.5-14B-Instruct"
         mock_path_instance = Mock()
         mock_path_instance.__truediv__ = Mock(return_value=expected_weight_path)
         mock_path_instance.exists.return_value = True
@@ -192,7 +192,7 @@ class TestQwenLM:
     ) -> None:
         mock_path_instance = Mock()
         mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
-        mock_path_instance.__str__ = Mock(return_value="/test/model/dir/Qwen/Qwen3-14B")
+        mock_path_instance.__str__ = Mock(return_value="/test/model/dir/Qwen/Qwen2.5-14B-Instruct")
         mock_path_instance.exists.return_value = False
         mock_path_instance.glob.return_value = []
         mock_path_instance.mkdir = Mock()
@@ -205,7 +205,7 @@ class TestQwenLM:
         self.qwen_lm.setup()
 
         mock_download.assert_called_once_with(
-            model_id=self.qwen_lm.model_id, local_dir=mock_path_instance, revision=None
+            model_id=self.qwen_lm.model_id, local_dir=mock_path_instance, revision=_QWEN_LM_MODEL_REVISION
         )
 
     @patch("nemo_curator.models.qwen_lm._check_vllm_supports_model")
@@ -225,7 +225,7 @@ class TestQwenLM:
     ) -> None:
         mock_path_instance = Mock()
         mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
-        mock_path_instance.__str__ = Mock(return_value="/test/model/dir/Qwen/Qwen3-14B")
+        mock_path_instance.__str__ = Mock(return_value="/test/model/dir/Qwen/Qwen2.5-14B-Instruct")
         mock_path_instance.exists.return_value = True
         mock_path_instance.glob.return_value = ["model.safetensors"]
         mock_path.return_value = mock_path_instance
@@ -368,7 +368,7 @@ class TestQwenLM:
     def test_weight_file_path_construction(self, mock_check_vllm: Mock) -> None:
         with patch("nemo_curator.models.qwen_lm.Path") as mock_path:
             mock_path_instance = Mock()
-            expected_path = "/test/model/dir/Qwen/Qwen3-14B"
+            expected_path = "/test/model/dir/Qwen/Qwen2.5-14B-Instruct"
             mock_path_instance.__truediv__ = Mock(return_value=expected_path)
             mock_path_instance.exists.return_value = True
             mock_path_instance.glob.return_value = ["model.safetensors"]
@@ -425,7 +425,9 @@ class TestQwenLM:
 
             QwenLM.download_weights_on_node(model_dir="/some/dir", model_id=custom_model)
 
-            mock_download.assert_called_once_with(model_id=custom_model, local_dir=mock_path_instance, revision=None)
+            mock_download.assert_called_once_with(
+                model_id=custom_model, local_dir=mock_path_instance, revision=_QWEN_LM_MODEL_REVISION
+            )
 
     @patch("nemo_curator.models.qwen_lm.download_model_from_hf")
     def test_download_weights_on_node_custom_revision(self, mock_download: Mock) -> None:
@@ -480,7 +482,7 @@ class TestQwenLM:
             QwenLM.download_weights_on_node(model_dir="/some/dir")
 
             mock_download.assert_called_once_with(
-                model_id=_QWEN_LM_MODEL_ID, local_dir=mock_path_instance, revision=None
+                model_id=_QWEN_LM_MODEL_ID, local_dir=mock_path_instance, revision=_QWEN_LM_MODEL_REVISION
             )
 
     def teardown_method(self) -> None:
