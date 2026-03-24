@@ -44,7 +44,7 @@ class WikipediaParaphrasingStage(NDDBaseSyntheticStage):
 
 @dataclass
 class DiverseQAStage(NDDBaseSyntheticStage):
-    system_prompt: str | None = NEMOTRON_CC_SYSTEM_PROMPT
+    system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
     prompt: str = DIVERSE_QA_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "diverse_qa"
@@ -60,7 +60,7 @@ class DistillStage(NDDBaseSyntheticStage):
 
 @dataclass
 class ExtractKnowledgeStage(NDDBaseSyntheticStage):
-    system_prompt: str | None = NEMOTRON_CC_SYSTEM_PROMPT
+    system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
     prompt: str = EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "extract_knowledge"
@@ -68,7 +68,7 @@ class ExtractKnowledgeStage(NDDBaseSyntheticStage):
 
 @dataclass
 class KnowledgeListStage(NDDBaseSyntheticStage):
-    system_prompt: str | None = NEMOTRON_CC_SYSTEM_PROMPT
+    system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
     prompt: str = KNOWLEDGE_LIST_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "knowledge_list"

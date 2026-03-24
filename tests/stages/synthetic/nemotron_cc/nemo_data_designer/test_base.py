@@ -126,6 +126,17 @@ class TestNDDBaseSyntheticStage:
         assert stage._process_llm_response(["first"]) == "first"
         assert stage._process_llm_response([]) == ""
 
+    def test_process_llm_prompt_raises_when_input_field_is_none(self) -> None:
+        real_builder = dd.DataDesignerConfigBuilder(model_configs=_model_configs())
+        stage = NDDBaseSyntheticStage(
+            config_builder=real_builder,
+            prompt="Test: {document}",
+            output_field="result",
+            input_field=None,
+        )
+        with pytest.raises(ValueError, match="'input_field' is None"):
+            stage._process_llm_prompt({"text": "hello"})
+
     def test_process(self) -> None:
         """Covers pre-process prompt formatting, NDD call, post-process response, temp column
         removal, task_id appending, and metadata/stage_perf preservation."""

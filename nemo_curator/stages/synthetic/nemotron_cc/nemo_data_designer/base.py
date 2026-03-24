@@ -128,6 +128,12 @@ class NDDBaseSyntheticStage(DataDesignerStage):
         Called per-row before NDD generation. Child classes can override
         this to customise prompt formatting.
         """
+        if self.input_field is None:
+            msg = (
+                "Cannot format prompt: 'input_field' is None. "
+                "Either set 'input_field' on the stage or override '_process_llm_prompt'."
+            )
+            raise ValueError(msg)
         if self.input_field not in sample:
             msg = f"Expected input field '{self.input_field}' in sample."
             raise KeyError(msg)
