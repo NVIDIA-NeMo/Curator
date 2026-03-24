@@ -18,6 +18,7 @@ from uuid import uuid4
 import pytest
 
 from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.models.qwen_vl import _QWEN2_5_VL_MODEL_ID
 from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage
 from nemo_curator.tasks.video import Clip, Video, VideoTask, _Window
 
@@ -50,7 +51,7 @@ class TestCaptionGenerationStage:
         assert stage.model_does_preprocess is False
         assert stage.disable_mmcache is False
         assert stage.verbose is False
-        assert stage.model_id is None
+        assert stage.model_id == _QWEN2_5_VL_MODEL_ID
         assert stage.generate_stage2_caption is False
         assert stage.stage2_prompt_text is None
         assert stage._name == "caption_generation"
@@ -81,7 +82,7 @@ class TestCaptionGenerationStage:
             max_output_tokens=256,
             model_does_preprocess=True,
             disable_mmcache=True,
-            model_id=None,
+            model_id=_QWEN2_5_VL_MODEL_ID,
         )
         mock_model.setup.assert_called_once()
         assert self.stage.model == mock_model
@@ -377,7 +378,7 @@ class TestCaptionGenerationStage:
 
     @patch("nemo_curator.stages.video.caption.caption_generation.QwenVL")
     def test_setup_on_node_no_model_id_uses_default(self, mock_qwen_vl: Mock):
-        """Test that setup_on_node calls download_weights_on_node without model_id when not set."""
+        """Test that setup_on_node calls download_weights_on_node with default model_id."""
         mock_model = Mock()
         mock_qwen_vl.return_value = mock_model
 
@@ -387,4 +388,7 @@ class TestCaptionGenerationStage:
 
         stage.setup_on_node(NodeInfo(node_id="node-0"), WorkerMetadata(worker_id="test"))
 
-        mock_qwen_vl.download_weights_on_node.assert_called_once_with("test/models")
+        mock_qwen_vl.download_weights_on_node.assert_called_once_with(
+            "test/models",
+            model_id=_QWEN2_5_VL_MODEL_ID,
+        )

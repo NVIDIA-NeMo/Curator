@@ -19,7 +19,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.models.qwen_vl import QwenVL, _validate_qwen_vl_model
+from nemo_curator.models.qwen_vl import _QWEN2_5_VL_MODEL_ID, QwenVL, _validate_qwen_vl_model
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import Video, VideoTask
@@ -35,7 +35,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
 
     model_dir: str = "models/qwen"
     model_variant: str = "qwen"
-    model_id: str | None = None
+    model_id: str = _QWEN2_5_VL_MODEL_ID
     caption_batch_size: int = 16
     fp8: bool = False
     max_output_tokens: int = 512
@@ -73,7 +73,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
         QwenVL.download_weights_on_node(
             self.model_dir,
-            **({"model_id": self.model_id} if self.model_id else {}),
+            model_id=self.model_id,
         )
         self._initialize_model()
 
@@ -82,8 +82,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
             self._initialize_model()
 
     def __post_init__(self) -> None:
-        if self.model_id is not None:
-            _validate_qwen_vl_model(self.model_id)
+        _validate_qwen_vl_model(self.model_id)
         self.resources = Resources(gpus=1)
 
     def process(self, task: VideoTask) -> VideoTask:

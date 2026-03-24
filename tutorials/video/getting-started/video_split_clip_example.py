@@ -196,7 +196,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 generate_stage2_caption=args.captioning_stage2_caption,
                 stage2_prompt_text=args.captioning_stage2_prompt_text,
                 disable_mmcache=not args.captioning_use_vllm_mmcache,
-                captioning_model_id=args.captioning_model_id,
+                model_id=args.captioning_model_id,
             )
         )
 
@@ -563,10 +563,10 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     parser.add_argument(
         "--captioning-model-id",
         type=str,
-        default=None,
+        default="Qwen/Qwen2.5-VL-7B-Instruct",
         help=(
             "HuggingFace model ID for the captioning VL model "
-            "(e.g. 'Qwen/Qwen2.5-VL-72B-Instruct'). Uses the default model if not set."
+            "(e.g. 'Qwen/Qwen2.5-VL-7B-Instruct'). Uses the default model if not set."
         ),
     )
     parser.add_argument(
