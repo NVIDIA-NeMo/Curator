@@ -45,7 +45,7 @@ exact_workflow = ExactDeduplicationWorkflow(
     input_filetype="parquet"
 )
 result = exact_workflow.run()
-# result.metadata contains: total_time, num_duplicates, identification_time
+# result.metadata contains: total_time, num_duplicates, identification_time, id_generator_path
 ```
 
 For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Exact Duplicate Removal ](/curate-text/process-data/deduplication/exact) for details.
@@ -84,7 +84,7 @@ fuzzy_workflow = FuzzyDeduplicationWorkflow(
     minhashes_per_band=13
 )
 result = fuzzy_workflow.run()
-# result.metadata contains: total_time, num_duplicates, minhash_time, lsh_time, connected_components_pipeline_time
+# result.metadata contains: total_time, num_duplicates, minhash_time, lsh_time, connected_components_pipeline_time, id_generator_path
 ```
 
 For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Fuzzy Duplicate Removal ](/curate-text/process-data/deduplication/fuzzy) for details.

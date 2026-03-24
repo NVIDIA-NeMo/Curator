@@ -223,7 +223,7 @@ def get_metadata(self, key: str) -> Any
 
 ## WorkflowBase
 
-Abstract base class for all deduplication workflows. Enforces a consistent `run()` interface that returns `WorkflowRunResult`.
+Abstract base class for deduplication workflows. Enforces a consistent `run()` interface that returns `WorkflowRunResult`. Most deduplication workflows inherit from `WorkflowBase`; `TextSemanticDeduplicationWorkflow` implements the same interface as a dataclass without formal inheritance.
 
 ### Import
 
