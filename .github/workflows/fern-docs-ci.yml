@@ -43,5 +43,7 @@ jobs:
         run: npm install -g fern-api
 
       - name: Generate library reference MDX (product-docs)
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         working-directory: ./fern
         run: fern docs md generate
