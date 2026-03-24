@@ -60,7 +60,7 @@ fuzzy_workflow = FuzzyDeduplicationWorkflow(
     minhashes_per_band=13
 )
 result = fuzzy_workflow.run()
-# result.metadata contains: total_time, num_duplicates, minhash_time, lsh_time, id_generator_path
+# result.metadata contains: total_time, num_duplicates, minhash_time, lsh_time, connected_components_pipeline_time, id_generator_path
 
 # Step 2: Remove duplicates
 removal_workflow = TextDuplicatesRemovalWorkflow(

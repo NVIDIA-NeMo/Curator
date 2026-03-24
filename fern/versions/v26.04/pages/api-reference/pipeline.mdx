@@ -209,11 +209,11 @@ def get_metadata(self, key: str) -> Any
 
 | Workflow | Key Metadata |
 | --- | --- |
-| `ExactDeduplicationWorkflow` | `total_time`, `num_duplicates`, `identification_time`, `id_generator_path` |
-| `FuzzyDeduplicationWorkflow` | `total_time`, `num_duplicates`, `minhash_time`, `lsh_time`, `id_generator_path` |
+| `ExactDeduplicationWorkflow` | `total_time`, `num_duplicates`, `identification_time`, `input_filegroups_time`, `id_generator_path` |
+| `FuzzyDeduplicationWorkflow` | `total_time`, `num_duplicates`, `minhash_time`, `lsh_time`, `connected_components_pipeline_time`, `id_generator_path` |
 | `SemanticDeduplicationWorkflow` | `total_time`, `num_duplicates`, `kmeans_time`, `pairwise_time` |
 | `TextDuplicatesRemovalWorkflow` | `total_time`, `num_duplicates_removed` |
-| `TextSemanticDeduplicationWorkflow` | `total_time`, `num_duplicates`, `num_duplicates_removed`, `embedding_time`, `identification_time`, `removal_time`, `final_output_path` |
+| `TextSemanticDeduplicationWorkflow` | `total_time`, `num_duplicates`, `num_duplicates_removed`, `embedding_time`, `identification_time`, `removal_time`, `kmeans_time`, `pairwise_time`, `embeddings_path`, `semantic_dedup_path`, `final_output_path`, `id_generator_path` |
 
 <Note>
 `TaskPerfUtils.collect_stage_metrics()` and `TaskPerfUtils.aggregate_task_metrics()` also accept `WorkflowRunResult` directly, in addition to `list[Task]`.
@@ -243,4 +243,4 @@ def run(self, *args, **kwargs) -> WorkflowRunResult
 ## Source Code
 
 - [Pipeline](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/pipeline/pipeline.py)
-- [WorkflowRunResult / WorkflowBase](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/pipeline/workflow.py)
+- [WorkflowRunResult / WorkflowBase](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/pipeline/workflow.py) {/* File added in PR #1275 */}
