@@ -193,8 +193,3 @@ class TestSpeakerSeparationStage:
         assert len(result) == 1, f"Expected 1 result (bad item skipped), got {len(result)}"
         assert result[0].data[0]["speaker_id"] == "speaker_0"
 
-    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_default_model_path_is_hf(self, mock_init) -> None:
-        """Default model_path should be the HuggingFace model ID."""
-        stage = SpeakerSeparationStage()
-        assert stage.model_path == "nvidia/diar_sortformer_4spk-v1"

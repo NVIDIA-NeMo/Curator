@@ -31,7 +31,7 @@ Example:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import torch
@@ -45,10 +45,9 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
 from ..common import resolve_waveform_from_item
-from ..configs import SpeakerSeparationConfig
 
 
-def _pydub_to_waveform_sr(seg: AudioSegment) -> Tuple[torch.Tensor, int]:
+def _pydub_to_waveform_sr(seg: AudioSegment) -> tuple[torch.Tensor, int]:
     """Convert PyDub AudioSegment to (waveform, sample_rate). Output is canonical format only."""
     max_val = float(1 << (8 * seg.sample_width - 1))
     samples = np.array(seg.get_array_of_samples(), dtype=np.float32) / max_val
@@ -67,27 +66,19 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
     HuggingFace Hub (nvidia/diar_sortformer_4spk-v1).
     
     Args:
-        config: SpeakerSeparationConfig object (overrides other params if provided)
         model_path: HuggingFace model ID or path to NeMo diarization model
         exclude_overlaps: Whether to exclude overlapping speaker regions
         min_duration: Minimum segment duration in seconds
         gap_threshold: Gap threshold for merging speaker segments
         buffer_time: Buffer time around speaker segments
-    
     Note:
         GPU assignment is handled by the executor via _resources.
         Use .with_(resources=Resources(gpus=X)) to configure GPU allocation.
     
     Example:
-        # Using config
-        config = SpeakerSeparationConfig(exclude_overlaps=True)
-        stage = SpeakerSeparationStage(config=config)
-        
-        # Using parameters
         stage = SpeakerSeparationStage(exclude_overlaps=True, min_duration=0.8)
     """
     
-    config: Optional[SpeakerSeparationConfig] = None
     model_path: str = "nvidia/diar_sortformer_4spk-v1"
     exclude_overlaps: bool = True
     min_duration: float = 0.8
@@ -102,25 +93,26 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         """Initialize after dataclass fields are set."""
         super().__init__()
         self._separator = None
-        
-        # Apply user-facing config fields only; gap_threshold, min_duration,
-        # and buffer_time are internal stage params, not exposed via config.
-        if self.config is not None:
-            if self.config.model_path:
-                self.model_path = self.config.model_path
-            self.exclude_overlaps = self.config.exclude_overlaps
     
-    def inputs(self) -> Tuple[List[str], List[str]]:
+    def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def outputs(self) -> Tuple[List[str], List[str]]:
+    def outputs(self) -> tuple[list[str], list[str]]:
         """Define outputs produced by this stage."""
         return [], ["waveform", "sample_rate", "speaker_id", "num_speakers", "duration_sec"]
     
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
-    def setup(self, worker_metadata=None) -> None:
+    def setup_on_node(self, _node_info=None, _worker_metadata=None) -> None:  # noqa: ARG002
+        """Download the NeMo diarization model from HuggingFace (once per node)."""
+        try:
+            from nemo.collections.asr.models import SortformerEncLabelModel
+            SortformerEncLabelModel.from_pretrained(self.model_path)
+        except Exception:
+            logger.warning("Model pre-download in setup_on_node failed; will retry in setup().")
+
+    def setup(self, _worker_metadata=None) -> None:  # noqa: ARG002
         """Load NeMo diarization model on worker initialization."""
         self._initialize_separator()
     
@@ -135,6 +127,11 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         """Initialize the NeMo speaker separator with HuggingFace model."""
         if self._separator is None:
             try:
+                if self._resources.gpus > 0 and not torch.cuda.is_available():
+                    raise RuntimeError(
+                        "Resources request GPU (gpus > 0) but CUDA is not available. "
+                        "Either set resources=Resources(gpus=0) for CPU-only or install CUDA."
+                    )
                 use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
                 
                 separator_config = {
@@ -148,7 +145,7 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 
                 self._separator = SpeakerSeparator(
                     model_name=self.model_path,
-                    config=separator_config
+                    config=separator_config,
                 )
                 
                 logger.info(f"NeMo speaker separator loaded from HuggingFace: {self.model_path}")
@@ -159,7 +156,7 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 logger.error(f"Failed to load speaker separator: {e}")
                 raise
     
-    def process(self, task: AudioBatch) -> List[AudioBatch]:
+    def process(self, task: AudioBatch) -> list[AudioBatch]:
         """
         Separate audio by speaker.
         
@@ -172,8 +169,7 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         self._initialize_separator()
         
         if self._separator is None:
-            logger.error("Speaker separator not available")
-            return []
+            raise RuntimeError("Speaker separator failed to initialize. Cannot process audio.")
         
         results = []
         
@@ -225,8 +221,12 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
                     ))
                         
             except torch.cuda.OutOfMemoryError:
-                logger.warning(f"Skipping item {item_idx}: CUDA out of memory (file may be too large)")
                 torch.cuda.empty_cache()
+                raise RuntimeError(
+                    f"CUDA out of memory processing item {item_idx}. "
+                    "Consider splitting long audio files into shorter segments, "
+                    "using a GPU with more memory, or setting resources=Resources(gpus=0) for CPU mode."
+                )
             except Exception as e:
                 logger.warning(f"Skipping item {item_idx}: {e}")
             finally:

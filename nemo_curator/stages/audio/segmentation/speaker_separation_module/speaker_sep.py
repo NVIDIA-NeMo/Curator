@@ -14,15 +14,16 @@
 
 import os
 import tempfile
-import time
-from typing import List, Tuple, Dict, Optional
+from typing import Any
+
 import torch
 import soundfile as sf
 from loguru import logger
+from nemo.collections.asr.models import SortformerEncLabelModel
 from pydub import AudioSegment
 
 
-def load_audio(audio_path: str) -> Tuple[torch.Tensor, int]:
+def load_audio(audio_path: str) -> tuple[torch.Tensor, int]:
     """
     Load audio file using soundfile.
     
@@ -43,7 +44,6 @@ def load_audio(audio_path: str) -> Tuple[torch.Tensor, int]:
         waveform = waveform.T  # soundfile returns (samples, channels), we need (channels, samples)
     return waveform, sample_rate
 
-from nemo.collections.asr.models import SortformerEncLabelModel
 
 class SpeakerSeparator:
     """
@@ -64,13 +64,11 @@ class SpeakerSeparator:
         if model_name:
             self.model_name = model_name
         else:
-            # Try to find in config
             val = None
             if hasattr(self.config, 'speaker_model_path'):
                 val = getattr(self.config, 'speaker_model_path')
             elif isinstance(self.config, dict):
                 val = self.config.get('speaker_model_path')
-                 
             self.model_name = val or "nvidia/diar_sortformer_4spk-v1"
 
         # Check for GPU usage
@@ -87,26 +85,22 @@ class SpeakerSeparator:
         self.diar_model = None
         self._load_model()
         
-    def _load_model(self, max_retries: int = 3, retry_delay: float = 5.0):
-        """Load the diarization model from HuggingFace Hub with retry logic."""
-        last_error = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                logger.info(f"Loading speaker separation model from HuggingFace: {self.model_name} (attempt {attempt}/{max_retries})")
-                self.diar_model = SortformerEncLabelModel.from_pretrained(
-                    self.model_name,
-                    map_location=self.device,
-                )
-                self.diar_model.eval()
-                return
-            except Exception as e:
-                last_error = e
-                if attempt < max_retries:
-                    logger.warning(f"HuggingFace model load attempt {attempt} failed: {e}. Retrying in {retry_delay}s...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
-        logger.error(f"Failed to load model from HuggingFace after {max_retries} attempts: {last_error}")
-        raise last_error
+    def _load_model(self):
+        """Load the diarization model from HuggingFace Hub."""
+        logger.info(f"Loading speaker separation model from HuggingFace: {self.model_name}")
+        try:
+            self.diar_model = SortformerEncLabelModel.from_pretrained(
+                self.model_name,
+                map_location=self.device,
+            )
+            self.diar_model.eval()
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load speaker separation model '{self.model_name}': {e}. "
+                "Try downloading the model separately before running the pipeline: "
+                "python -c \"from nemo.collections.asr.models import SortformerEncLabelModel; "
+                f"SortformerEncLabelModel.from_pretrained('{self.model_name}')\""
+            ) from e
     
     def _get_param(self, param_name, default_value):
         """Helper to get a parameter from config, handling different config structures."""
@@ -330,7 +324,7 @@ class SpeakerSeparator:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
     
-    def get_speaker_segments(self, predicted_segments: List[str]) -> Dict[str, List[Tuple[float, float]]]:
+    def get_speaker_segments(self, predicted_segments: list[str]) -> dict[str, list[tuple[float, float]]]:
         """
         Parse predicted segments and organize by speaker.
         """
@@ -414,12 +408,15 @@ class SpeakerSeparator:
             return processed_segments
             
         except torch.cuda.OutOfMemoryError:
-            logger.warning("CUDA out of memory during diarization, skipping item")
             torch.cuda.empty_cache()
-            return {}
+            raise RuntimeError(
+                "CUDA out of memory during speaker diarization. "
+                "Try splitting large audio files into shorter segments, "
+                "using a GPU with more memory, or setting resources=Resources(gpus=0) for CPU mode."
+            )
         except Exception as e:
             logger.error(f"Error processing audio for speaker segments: {e}")
-            return {}
+            raise
     
     def get_speaker_audio_data(self, audio_path_or_waveform, sample_rate=None, gap_threshold=None, exclude_overlaps=None, min_duration=None, buffer_time=None):
         """

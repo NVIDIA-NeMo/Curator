@@ -23,11 +23,6 @@ from nemo_curator.stages.audio.segmentation import (
     SpeakerSeparationStage,
 )
 
-from nemo_curator.stages.audio.configs import (
-    SpeakerSeparationConfig,
-)
-
 __all__ = [
     "SpeakerSeparationStage",
-    "SpeakerSeparationConfig",
 ]
