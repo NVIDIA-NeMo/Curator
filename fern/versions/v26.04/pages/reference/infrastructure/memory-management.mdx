@@ -262,7 +262,65 @@ When running production pipelines, track these critical metrics:
 
 ### Setting Up Monitoring
 
-Refer to [NeMo Curator Metrics](https://github.com/NVIDIA-NeMo/Curator/tree/main/nemo_curator/metrics) for information about how to use Prometheus and Grafana with NeMo Curator.
+NeMo Curator provides a built-in script to download, configure, and start Prometheus and Grafana. When `RayClient` starts, it automatically registers Ray's metrics with the running Prometheus instance.
+
+#### Step 1: Start Prometheus and Grafana
+
+On the head node, run the setup script before starting your pipeline:
+
+```bash
+python -m nemo_curator.metrics.start_prometheus_grafana
+```
+
+This downloads Prometheus and Grafana binaries, writes configuration files, starts both services, and auto-generates Ray dashboards (core, data, serve, and serve-deployment).
+
+By default, metrics data is stored in a per-user directory (`/tmp/nemo_curator_metrics_{uid}`). To specify a custom location, use `--metrics_dir`:
+
+```bash
+python -m nemo_curator.metrics.start_prometheus_grafana --metrics_dir /shared/metrics/user_a
+```
+
+You can also customize ports:
+
+```bash
+python -m nemo_curator.metrics.start_prometheus_grafana \
+  --prometheus_web_port 9090 \
+  --grafana_web_port 3000 \
+  --metrics_dir /shared/metrics/user_a
+```
+
+#### Step 2: Configure RayClient
+
+Pass the same `metrics_dir` to `RayClient` so it can locate the running Prometheus instance and register Ray's service discovery:
+
+```python
+from nemo_curator.core.client import RayClient
+
+ray_client = RayClient(
+    include_dashboard=True,
+    metrics_dir="/shared/metrics/user_a"  # Must match --metrics_dir from Step 1
+)
+ray_client.start()
+```
+
+When `RayClient.start()` runs, it checks whether Prometheus and Grafana are running (through PID files in `metrics_dir`) and, if so, adds Ray's metrics service discovery to the Prometheus configuration. When `RayClient.stop()` runs, it removes the service discovery entry automatically.
+
+<Note>
+**SLURM clusters**: The `metrics_dir` passed to `RayClient` must match the `--metrics_dir` used when starting Prometheus and Grafana. Similarly, the `ray_temp_dir` must match the `temp_dir` used when starting the Ray cluster.
+</Note>
+
+#### Multi-User Clusters
+
+On shared clusters, each user can run an isolated monitoring stack by specifying a unique `metrics_dir`. Each instance tracks its own Prometheus and Grafana processes through PID files, so multiple users can monitor their pipelines independently on the same node.
+
+#### Stopping Monitoring Services
+
+To stop Prometheus and Grafana, use the PID files written to your metrics directory:
+
+```bash
+kill $(cat /shared/metrics/user_a/prometheus.pid)
+kill $(cat /shared/metrics/user_a/grafana.pid)
+```
 
 ## Best Practices
 
