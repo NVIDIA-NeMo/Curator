@@ -17,12 +17,7 @@
 # Publishes the Fern documentation site when changes land on the docs-website branch.
 #
 # Required configuration:
-# - Repository secret: FERN_TOKEN (from `fern token` for your Fern org)
-#
-# To generate FERN_TOKEN:
-# 1. Install Fern CLI: npm install -g fern-api
-# 2. Run: fern token
-# 3. Add the token as a repository secret named FERN_TOKEN
+# - Organization secret: DOCS_FERN_TOKEN (from `fern token` for the nvidia Fern org)
 
 name: Publish Fern Docs
 
@@ -64,6 +59,6 @@ jobs:
 
       - name: Publish Docs
         env:
-          FERN_TOKEN: ${{ secrets.FERN_TOKEN }}
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         working-directory: ./fern
         run: fern generate --docs
