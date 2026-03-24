@@ -40,8 +40,8 @@ except ImportError:
 
 from nemo_curator.models.base import ModelInterface
 
-_QWEN_LM_MODEL_ID = "Qwen/Qwen3-14B"
-_QWEN_LM_MODEL_REVISION = None
+_QWEN2_5_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
+_QWEN2_5_VL_MODEL_REVISION = "cc59489"
 
 
 def _validate_qwen_model(model_id: str) -> None:
@@ -77,8 +77,8 @@ class QwenLM(ModelInterface):
         caption_batch_size: int,
         fp8: bool,
         max_output_tokens: int,
-        model_id: str = _QWEN_LM_MODEL_ID,
-        model_revision: str | None = _QWEN_LM_MODEL_REVISION,
+        model_id: str = _QWEN2_5_VL_MODEL_ID,
+        model_revision: str | None = _QWEN2_5_VL_MODEL_REVISION,
     ):
         _validate_qwen_model(model_id)
         self.model_dir = model_dir
@@ -124,8 +124,8 @@ class QwenLM(ModelInterface):
     def download_weights_on_node(
         cls,
         model_dir: str,
-        model_id: str = _QWEN_LM_MODEL_ID,
-        model_revision: str | None = _QWEN_LM_MODEL_REVISION,
+        model_id: str = _QWEN2_5_VL_MODEL_ID,
+        model_revision: str | None = _QWEN2_5_VL_MODEL_REVISION,
     ) -> None:
         """Download the weights for the QwenLM model on the node."""
         _validate_qwen_model(model_id)

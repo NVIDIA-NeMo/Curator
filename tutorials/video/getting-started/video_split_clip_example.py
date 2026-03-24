@@ -205,11 +205,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 CaptionEnhancementStage(
                     model_dir=args.model_dir,
                     model_variant=args.enhance_captions_algorithm,
-                    **(
-                        {"model_id": args.enhance_captioning_algorithm_model_id}
-                        if args.enhance_captioning_algorithm_model_id
-                        else {}
-                    ),
+                    model_id=args.enhance_captioning_algorithm_model_id,
                     prompt_variant=args.enhance_captioning_prompt_variant,
                     prompt_text=args.enhance_captions_prompt_text,
                     model_batch_size=args.enhance_captions_batch_size,
@@ -682,7 +678,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     parser.add_argument(
         "--enhance-captioning-algorithm-model-id",
         type=str,
-        default="Qwen/Qwen3-14B",
+        default="Qwen2.5-VL-7B-Instruct",
         help="HuggingFace model ID for caption enhancement (e.g. 'Qwen/Qwen3-14B'). Uses the default model if not set.",
     )
     parser.add_argument(
