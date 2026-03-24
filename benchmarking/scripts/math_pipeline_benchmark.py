@@ -167,7 +167,7 @@ def compute_extraction_metrics(output_dir: str) -> dict:
         totals = dict.fromkeys(("html", "text", "notebook", "html_empty"), 0)
         for row in counts.iter_rows():
             for k in totals:
-                totals[k] += row[k]
+                totals[k] += int(row[k])
 
         metrics["type_html_count"] = totals["html"]
         metrics["type_text_count"] = totals["text"]
@@ -195,8 +195,9 @@ def compute_classifier_metrics(output_dir: str) -> dict:
         total = 0
         for batch in ds.iter_batches(batch_format="numpy"):
             for s in batch["finemath_int_scores"]:
-                score_counts[min(s, 5)] += 1
-                score_sum += s
+                score_int = int(s)
+                score_counts[min(score_int, 5)] += 1
+                score_sum += score_int
                 total += 1
 
         if total > 0:
@@ -235,7 +236,7 @@ def compute_llm_cleanup_metrics(output_dir: str) -> dict:
         totals = {"count": 0, "total_length": 0, "no_content": 0}
         for row in agg.iter_rows():
             for k in totals:
-                totals[k] += row[k]
+                totals[k] += int(row[k])
 
         metrics["num_chunks_processed"] = totals["count"]
         if totals["count"] > 0:

@@ -45,6 +45,12 @@ from nemo_curator.utils.file_utils import get_all_file_paths_under
 
 _TUTORIAL_PATH = Path(__file__).resolve().parent.parent.parent / "tutorials" / "math" / "1_cc_index_lookup.py"
 _spec = importlib.util.spec_from_file_location("cc_index_lookup", _TUTORIAL_PATH)
+if _spec is None or _spec.loader is None:
+    msg = (
+        f"Could not load tutorial module from {_TUTORIAL_PATH}. "
+        "Ensure the tutorials directory is present relative to the benchmarking scripts."
+    )
+    raise FileNotFoundError(msg)
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 CCIndexLookupStage = _mod.CCIndexLookupStage
