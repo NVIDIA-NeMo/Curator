@@ -53,16 +53,24 @@ def _validate_qwen_model(model_id: str) -> None:
 def _check_vllm_supports_model(model_id: str) -> None:
     if not VLLM_AVAILABLE:
         return
-    config = AutoConfig.from_pretrained(model_id)
+    try:
+        config = AutoConfig.from_pretrained(model_id)
+    except ValueError:
+        # Transformers does not recognize this architecture in older versions.
+        # vLLM may still support it via its own registry, so skip the check.
+        return
     architectures = getattr(config, "architectures", None) or []
     if not architectures:
         return
     if ModelRegistry is None:
         return  # vLLM registry not accessible, skip check
-    unsupported = [arch for arch in architectures if not ModelRegistry.is_model_supported(arch)]
-    if len(unsupported) == len(architectures):
-        msg = f"Model '{model_id}' has architecture(s) {architectures} not supported by vLLM"
-        raise ValueError(msg)
+    try:
+        unsupported = [arch for arch in architectures if not ModelRegistry.is_model_supported(arch)]
+        if len(unsupported) == len(architectures):
+            msg = f"Model '{model_id}' has architecture(s) {architectures} not supported by vLLM"
+            raise ValueError(msg)
+    except AttributeError:
+        pass  # vLLM registry API differs across versions, skip check
 
 
 class QwenLM(ModelInterface):

@@ -68,8 +68,8 @@ def _check_vllm_supports_vl_model(model_id: str) -> None:
         if len(unsupported) == len(architectures):
             msg = f"Model '{model_id}' has architecture(s) {architectures} not supported by vLLM"
             raise ValueError(msg)
-    except ImportError:
-        pass  # vLLM registry not accessible, skip check
+    except (ImportError, AttributeError):
+        pass  # vLLM registry not accessible or API differs across versions, skip check
 
 
 class QwenVL(ModelInterface):
