@@ -296,8 +296,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
     def ray_stage_spec(self) -> dict[str, Any]:
         """Get Ray configuration for this stage.
-        Note : This is only used for Ray Data which is an experimental backend.
-        The keys are defined in RayStageSpecKeys in backends/experimental/ray_data/utils.py
+        Note : This is only used for Ray Data backend.
+        The keys are defined in RayStageSpecKeys in backends/ray_data/utils.py
 
         Returns (dict[str, Any]):
             Dictionary containing Ray-specific configuration

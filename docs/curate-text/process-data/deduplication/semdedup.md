@@ -52,7 +52,7 @@ Get started with semantic deduplication using the following example of identifyi
 
 ```python
 from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 
 workflow = TextSemanticDeduplicationWorkflow(
     input_path="input_data/",
