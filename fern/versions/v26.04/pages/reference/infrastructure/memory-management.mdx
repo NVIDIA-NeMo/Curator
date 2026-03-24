@@ -274,7 +274,7 @@ python -m nemo_curator.metrics.start_prometheus_grafana
 
 This downloads Prometheus and Grafana binaries, writes configuration files, starts both services, and auto-generates Ray dashboards (core, data, serve, and serve-deployment).
 
-By default, metrics data is stored in a per-user directory (`/tmp/nemo_curator_metrics_{uid}`). To specify a custom location, use `--metrics_dir`:
+By default, the script stores metrics data in a per-user directory (`/tmp/nemo_curator_metrics_{uid}`). To specify a custom location, use `--metrics_dir`:
 
 ```bash
 python -m nemo_curator.metrics.start_prometheus_grafana --metrics_dir /shared/metrics/user_a

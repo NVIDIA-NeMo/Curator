@@ -16,10 +16,10 @@ modality: "universal"
 
 Improved Prometheus and Grafana monitoring support for shared clusters:
 
-- **Per-user metrics directories**: The default metrics path now includes the user ID (`/tmp/nemo_curator_metrics_{uid}`), which prevents conflicts when multiple users share a Ray cluster
-- **`metrics_dir` parameter**: New parameter on `RayClient` and `start_prometheus_grafana.py` for explicit control of where metrics data, PID files, and configuration are stored
-- **PID-file-based process tracking**: Prometheus and Grafana instances are tracked through PID files instead of process-name scanning, which enables multiple isolated monitoring instances per node
-- **Automatic Ray dashboard generation**: Grafana setup now auto-generates Ray core, data, serve, and serve-deployment dashboards from Ray's built-in dashboard factory
-- **Graceful cleanup on shutdown**: `RayClient.stop()` now removes Ray service discovery entries from the Prometheus configuration automatically
+- **Per-user metrics directories**: The default metrics path now includes the user ID (`/tmp/nemo_curator_metrics_{uid}`), which prevents conflicts when multiple users share a Ray cluster.
+- **`metrics_dir` parameter**: New parameter on `RayClient` and `start_prometheus_grafana.py` for explicit control of where metrics data, PID files, and configuration are stored.
+- **PID-file-based process tracking**: NeMo Curator tracks Prometheus and Grafana instances through PID files instead of process-name scanning, which enables multiple isolated monitoring instances per node.
+- **Automatic Ray dashboard generation**: The Grafana setup now auto-generates Ray core, data, serve, and serve-deployment dashboards from the built-in Ray dashboard factory.
+- **Graceful cleanup on shutdown**: `RayClient.stop()` now removes Ray service discovery entries from the Prometheus configuration automatically.
 
 Learn more in the [Memory Management](/reference/infra/memory-management) documentation.
