@@ -123,7 +123,9 @@ class InferenceSortformerStage(ProcessingStage[AudioBatch, AudioBatch]):
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=8.0))
 
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         """Pre-download model weights on the node so actors load from cache."""
         if self.model_path is not None:
             return
@@ -146,9 +148,7 @@ class InferenceSortformerStage(ProcessingStage[AudioBatch, AudioBatch]):
                 strict=False,
             )
         else:
-            self.diar_model = SortformerEncLabelModel.from_pretrained(
-                self.model_name, cache_dir=self.cache_dir, local_files_only=True
-            )
+            self.diar_model = SortformerEncLabelModel.from_pretrained(self.model_name)
 
         self.diar_model.eval()
         self._configure_streaming()

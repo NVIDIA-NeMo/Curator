@@ -61,7 +61,7 @@ def _task_hash(task: AudioBatch) -> str:
     key so the hash stays the same across stages.
     """
     identifiers: list[str] = []
-    for item in (task.data or []):
+    for item in task.data or []:
         if isinstance(item, dict):
             if "session_name" in item:
                 identifiers.append(item["session_name"])
@@ -226,10 +226,7 @@ class DERComputationStage(ProcessingStage[AudioBatch, AudioBatch]):
         # task.data is a list of dicts; base class expects task.data to have the key as attr
         if not isinstance(task.data, list):
             return super().validate_input(task)
-        return all(
-            isinstance(item, dict) and self.diar_segments_key in item
-            for item in task.data
-        )
+        return all(isinstance(item, dict) and self.diar_segments_key in item for item in task.data)
 
     def process(self, task: AudioBatch) -> AudioBatch:
         cha_path = Path(self.cha_dir)
@@ -246,8 +243,11 @@ class DERComputationStage(ProcessingStage[AudioBatch, AudioBatch]):
             item[self.der_metrics_key] = metrics
             items.append(item)
         return AudioBatch(
-            task_id=task.task_id, dataset_name=task.dataset_name,
-            data=items, _metadata=task._metadata, _stage_perf=task._stage_perf,
+            task_id=task.task_id,
+            dataset_name=task.dataset_name,
+            data=items,
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
         )
 
     @staticmethod
@@ -267,7 +267,11 @@ class DERComputationStage(ProcessingStage[AudioBatch, AudioBatch]):
         return segs, min(s["start"] for s in segs), max(s["end"] for s in segs)
 
     def _compute_der(  # noqa: C901, PLR0912
-        self, gt: list[dict], pred: list[dict], uem_start: float, uem_end: float,
+        self,
+        gt: list[dict],
+        pred: list[dict],
+        uem_start: float,
+        uem_end: float,
     ) -> dict | None:
         """Frame-level DER restricted to UEM region with collar tolerance."""
         if not gt or not pred:
@@ -275,7 +279,8 @@ class DERComputationStage(ProcessingStage[AudioBatch, AudioBatch]):
 
         pred = [
             {"speaker": s["speaker"], "start": max(s["start"], uem_start), "end": min(s["end"], uem_end)}
-            for s in pred if s["end"] > uem_start and s["start"] < uem_end
+            for s in pred
+            if s["end"] > uem_start and s["start"] < uem_end
         ]
         pred = [s for s in pred if s["end"] > s["start"]]
         if not pred:
@@ -339,10 +344,15 @@ class DERComputationStage(ProcessingStage[AudioBatch, AudioBatch]):
         if ts == 0:
             return None
         return {
-            "der": (miss + fa + conf) * step / ts * 100, "miss": miss * step / ts * 100,
-            "fa": fa * step / ts * 100, "conf": conf * step / ts * 100, "correct": correct * step / ts * 100,
-            "gt_speech_s": ts, "pred_speech_s": sum(s["end"] - s["start"] for s in pred),
-            "gt_speakers": len({s["speaker"] for s in gt}), "pred_speakers": len({s["speaker"] for s in pred}),
+            "der": (miss + fa + conf) * step / ts * 100,
+            "miss": miss * step / ts * 100,
+            "fa": fa * step / ts * 100,
+            "conf": conf * step / ts * 100,
+            "correct": correct * step / ts * 100,
+            "gt_speech_s": ts,
+            "pred_speech_s": sum(s["end"] - s["start"] for s in pred),
+            "gt_speakers": len({s["speaker"] for s in gt}),
+            "pred_speakers": len({s["speaker"] for s in pred}),
         }
 
 
@@ -493,8 +503,7 @@ def main() -> None:
     # Pre-check: how many files will the reader emit (same logic as CallHomeReaderStage)
     done = {p.stem for p in rttm_out.glob("*.rttm")} if rttm_out.exists() else set()
     wavs_with_cha = [
-        w for w in sorted(data_dir.glob("*.wav"))
-        if w.stem not in done and (cha_dir / f"{w.stem}.cha").exists()
+        w for w in sorted(data_dir.glob("*.wav")) if w.stem not in done and (cha_dir / f"{w.stem}.cha").exists()
     ]
     n_skip = len(done)
 

@@ -17,8 +17,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from nemo_curator.stages.audio.inference.sortformer import (
     InferenceSortformerStage,
     _parse_sortformer_segments,

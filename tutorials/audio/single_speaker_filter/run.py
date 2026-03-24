@@ -201,9 +201,7 @@ def _run_stages_with_checkpoints(
                 todo_tasks.append(task)
 
         if cached_tasks:
-            logger.info(
-                f"Stage {idx} ({stage._name}): {len(cached_tasks)} cached, {len(todo_tasks)} remaining"
-            )
+            logger.info(f"Stage {idx} ({stage._name}): {len(cached_tasks)} cached, {len(todo_tasks)} remaining")
 
         if todo_tasks:
             logger.info(f"Running stage {idx}/{len(stages) - 1}: {stage._name} ({len(todo_tasks)} tasks)")
@@ -286,7 +284,7 @@ def main() -> None:
     ]
 
     print("Starting pipeline with inter-stage checkpointing...", flush=True)
-    output_tasks = _run_stages_with_checkpoints(stages, args.checkpoint_dir)
+    _run_stages_with_checkpoints(stages, args.checkpoint_dir)
 
     with open(args.output_manifest) as f:
         entries_out = sum(1 for line in f if line.strip())
