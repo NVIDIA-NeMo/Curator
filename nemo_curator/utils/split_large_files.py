@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -99,11 +99,76 @@ Target size: {target_size_mb} MB
             )
 
 
+def _flush_jsonl_chunk(
+    lines: list[bytes], outdir: str, outfile_prefix: str, ext: str, file_idx: int
+) -> tuple[list[bytes], int]:
+    if not lines:
+        return lines, file_idx
+    output_file = os.path.join(outdir, f"{outfile_prefix}_{file_idx}{ext}")
+    with open(output_file, "wb") as out_f:
+        out_f.writelines(lines)
+    nbytes = sum(len(line) for line in lines)
+    logger.debug(f"Saved {output_file} (~{nbytes / (1024 * 1024):.2f} MB)")
+    return [], file_idx + 1
+
+
+@ray.remote
+def split_jsonl_file_by_size(input_file: str, outdir: str, target_size_mb: int) -> None:
+    # Stream line-by-line in binary mode (O(line size) memory). Lines larger than the target are
+    # written alone and may exceed the target. JSONL records cannot be split mid-line.
+    root, ext = os.path.splitext(input_file)
+    if not ext:
+        ext = ".jsonl"
+    outfile_prefix = os.path.basename(root)
+
+    logger.info(f"""Splitting jsonl file...
+
+Input file: {input_file}
+Output directory: {outdir}
+Target size: {target_size_mb} MB
+""")
+
+    target_size_bytes = target_size_mb * 1024 * 1024
+    file_idx = 0
+    chunk_lines: list[bytes] = []
+    chunk_bytes = 0
+
+    with open(input_file, "rb") as in_f:
+        for line in in_f:
+            line_len = len(line)
+            if line_len > target_size_bytes:
+                chunk_lines, file_idx = _flush_jsonl_chunk(
+                    chunk_lines, outdir, outfile_prefix, ext, file_idx
+                )
+                output_file = os.path.join(outdir, f"{outfile_prefix}_{file_idx}{ext}")
+                with open(output_file, "wb") as out_f:
+                    out_f.write(line)
+                logger.warning(
+                    f"Single line ({line_len} bytes) exceeds target ({target_size_bytes} bytes); "
+                    f"wrote as its own shard: {output_file}"
+                )
+                file_idx += 1
+                chunk_bytes = 0
+                continue
+
+            if chunk_bytes + line_len > target_size_bytes and chunk_lines:
+                chunk_lines, file_idx = _flush_jsonl_chunk(
+                    chunk_lines, outdir, outfile_prefix, ext, file_idx
+                )
+                chunk_bytes = 0
+
+            chunk_lines.append(line)
+            chunk_bytes += line_len
+
+    _flush_jsonl_chunk(chunk_lines, outdir, outfile_prefix, ext, file_idx)
+
+
 def parse_args(args: argparse.ArgumentParser | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--infile", type=str, required=True, help="Path to input file, or directory of files, to split"
     )
+    parser.add_argument("--file-type", type=str, required=True, help="Type of file to split", choices=["parquet", "jsonl"])
     parser.add_argument("--outdir", type=str, required=True, help="Output directory to store split files")
     parser.add_argument("--target-size-mb", type=int, default=128, help="Target size (in MB) of split output files")
     return parser.parse_args(args)
@@ -119,12 +184,23 @@ def main(args: argparse.ArgumentParser | None = None) -> None:
 
     os.makedirs(args.outdir, exist_ok=True)
     with RayClient():
-        ray.get(
-            [
-                split_parquet_file_by_size.remote(input_file=f, outdir=args.outdir, target_size_mb=args.target_size_mb)
-                for f in files
-            ]
-        )
+        if args.file_type == "parquet":
+            ray.get(
+                [
+                    split_parquet_file_by_size.remote(input_file=f, outdir=args.outdir, target_size_mb=args.target_size_mb)
+                    for f in files
+                ]
+            )
+        elif args.file_type == "jsonl":
+            ray.get(
+                [
+                    split_jsonl_file_by_size.remote(input_file=f, outdir=args.outdir, target_size_mb=args.target_size_mb)
+                    for f in files
+                ]
+            )
+        else:
+            logger.error(f"Invalid file type: {args.file_type}")
+            return
 
 
 if __name__ == "__main__":
