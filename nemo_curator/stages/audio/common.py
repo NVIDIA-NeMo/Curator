@@ -93,9 +93,8 @@ class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.input_value_key]
 
     def process(self, task: AudioTask) -> AudioTask | None:
-        if self.operator(task.data[self.input_value_key], self.target_value):
-            return task
-        return None
+        result = self.process_batch([task])
+        return result[0] if result else None
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         results = []
@@ -103,7 +102,6 @@ class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
             if not self.validate_input(task):
                 msg = f"Task {task!s} failed validation for stage {self}"
                 raise ValueError(msg)
-            result = self.process(task)
-            if result is not None:
-                results.append(result)
+            if self.operator(task.data[self.input_value_key], self.target_value):
+                results.append(task)
         return results

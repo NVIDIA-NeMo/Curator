@@ -28,6 +28,7 @@ class TestALMManifestWriter:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup_on_node()
+        writer.setup()
 
         task = AudioTask(
             data={"audio_filepath": "a.wav", "duration": 1.0},
@@ -44,6 +45,7 @@ class TestALMManifestWriter:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup_on_node()
+        writer.setup()
 
         task = AudioTask(data={"x": 1}, task_id="t1", dataset_name="ds")
         result = writer.process(task)
@@ -57,6 +59,7 @@ class TestALMManifestWriter:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup_on_node()
+        writer.setup()
 
         metadata = {"source_files": ["manifest.jsonl"]}
         stage_perf = {"some_stage": {"process_time": 0.5}}
@@ -76,6 +79,7 @@ class TestALMManifestWriter:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup_on_node()
+        writer.setup()
 
         writer.process(AudioTask(data={"entry": 1}, task_id="t1"))
         writer.process(AudioTask(data={"entry": 2}, task_id="t2"))
@@ -105,6 +109,7 @@ class TestALMManifestWriter:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup_on_node()
+        writer.setup()
 
         task = AudioTask(data={"text": "日本語テスト", "speaker": "Ñoño"}, task_id="t1")
         writer.process(task)
@@ -117,6 +122,7 @@ class TestALMManifestWriter:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup_on_node()
+        writer.setup()
 
         entry = {
             "audio_filepath": "a.wav",
@@ -151,6 +157,7 @@ class TestALMManifestWriterRoundTrip:
 
         writer = ALMManifestWriterStage(output_path=str(out))
         writer.setup_on_node()
+        writer.setup()
         for i, entry in enumerate(sample_entries):
             task = AudioTask(data=entry, task_id=f"t{i}")
             writer.process(task)

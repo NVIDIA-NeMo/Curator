@@ -33,12 +33,16 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
     Args:
         model_name: Pretrained NeMo ASR model name.
             See full list at https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/all_chkpt.html
+        cache_dir: Optional directory for model download cache.
+            When set, NeMo stores/loads the pretrained checkpoint here
+            instead of the default cache location.
         filepath_key: Key in the entry dict pointing to the audio file.
         pred_text_key: Key where the predicted transcription is stored.
     """
 
     name: str = "ASR_inference"
     model_name: str = ""
+    cache_dir: str | None = None
     asr_model: Any | None = field(default=None, repr=False)
     filepath_key: str = "audio_filepath"
     pred_text_key: str = "pred_text"
@@ -61,7 +65,10 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
         if self.asr_model:
             return
         try:
-            nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name, return_model_file=True)
+            kwargs: dict[str, Any] = {"model_name": self.model_name, "return_model_file": True}
+            if self.cache_dir is not None:
+                kwargs["cache_dir"] = self.cache_dir
+            nemo_asr.models.ASRModel.from_pretrained(**kwargs)
         except Exception as e:
             msg = f"Failed to download {self.model_name}"
             raise RuntimeError(msg) from e
@@ -70,9 +77,10 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
         if not self.asr_model:
             try:
                 map_location = self.check_cuda()
-                self.asr_model = nemo_asr.models.ASRModel.from_pretrained(
-                    model_name=self.model_name, map_location=map_location
-                )
+                kwargs: dict[str, Any] = {"model_name": self.model_name, "map_location": map_location}
+                if self.cache_dir is not None:
+                    kwargs["cache_dir"] = self.cache_dir
+                self.asr_model = nemo_asr.models.ASRModel.from_pretrained(**kwargs)
             except Exception as e:
                 msg = f"Failed to load {self.model_name}"
                 raise RuntimeError(msg) from e
