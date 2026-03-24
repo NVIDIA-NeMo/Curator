@@ -16,7 +16,7 @@ import os
 from abc import abstractmethod
 from dataclasses import dataclass
 from operator import eq, ge, gt, le, lt, ne
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import soundfile
 import torch
@@ -123,20 +123,17 @@ class PreserveByValueStage(LegacySpeechStage):
             return []
 
 
-def load_audio_file(audio_path: str, mono: bool = True) -> Tuple[torch.Tensor, int]:
+def load_audio_file(audio_path: str, mono: bool = True) -> tuple[torch.Tensor, int]:
     """Load audio file and return waveform tensor (channels, samples) and sample rate."""
-    data, sample_rate = soundfile.read(audio_path, dtype='float32')
+    data, sample_rate = soundfile.read(audio_path, dtype="float32")
     waveform = torch.from_numpy(data)
-    if waveform.dim() == 1:
-        waveform = waveform.unsqueeze(0)
-    else:
-        waveform = waveform.T
+    waveform = waveform.unsqueeze(0) if waveform.dim() == 1 else waveform.T
     if mono and waveform.shape[0] > 1:
         waveform = waveform.mean(dim=0, keepdim=True)
     return waveform, sample_rate
 
 
-def ensure_waveform_2d(waveform) -> torch.Tensor:
+def ensure_waveform_2d(waveform: Any) -> torch.Tensor:
     """Ensure waveform is a torch.Tensor in 2D (channels, samples) format."""
     if not torch.is_tensor(waveform):
         waveform = torch.as_tensor(waveform, dtype=torch.float32)
@@ -153,8 +150,8 @@ def ensure_mono(waveform: torch.Tensor) -> torch.Tensor:
 
 
 def resolve_waveform_from_item(
-    item: Dict[str, Any], task_id: str, mono: bool = True
-) -> Optional[Tuple[torch.Tensor, int]]:
+    item: dict[str, Any], task_id: str, mono: bool = True
+) -> tuple[torch.Tensor, int] | None:
     """
     Resolve (waveform, sample_rate) from an item dict, loading from file if needed.
 

@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import numpy as np
-import joblib
-import warnings
-from typing import Optional
 import time
+import warnings
+
+import joblib
+import numpy as np
 import torch
 from loguru import logger
 
@@ -26,28 +26,19 @@ from .features import AudioFeatureExtractor
 class BandPredictor:
     """Class to predict band label (full_band/narrow_band) for audio waveforms."""
 
-    def __init__(self, model_path: str = None,
-                 feature_cache_size: int = None,
-                 config=None):
+    def __init__(self, model_path: str,
+                 feature_cache_size: int = 100):
         """
         Initialize the band predictor.
 
         Args:
             model_path: Path to the trained model file
             feature_cache_size: Number of feature vectors to cache
-            config: Configuration manager instance
         """
-        cfg_model_path = getattr(config, 'band_model_path', None) if config else None
-        if not cfg_model_path:
-            cfg_model_path = "band_filter_module/model/band_classifier_model_band_7000_samples.joblib"
-
-        cfg_cache_size = getattr(config, 'band_feature_cache_size', 100) if config else 100
-        self.model_path = model_path if model_path is not None else cfg_model_path
-        self.feature_cache_size = feature_cache_size if feature_cache_size is not None else cfg_cache_size
-
-        self.config = config
+        self.model_path = model_path
+        self.feature_cache_size = feature_cache_size
         self.model = None
-        self.feature_cache = {}
+        self.feature_cache: dict = {}
 
         self._load_model()
 

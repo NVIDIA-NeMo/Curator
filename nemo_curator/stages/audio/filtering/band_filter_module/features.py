@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import numpy as np
 import librosa
-from typing import Dict, List, Tuple
+import numpy as np
 import pyloudnorm as pyln
 from loguru import logger
 
@@ -50,7 +49,7 @@ class AudioFeatureExtractor:
     }
 
     @staticmethod
-    def get_empty_feature_dict() -> Dict[str, float]:
+    def get_empty_feature_dict() -> dict[str, float]:
         """
         Create an empty feature dictionary with all band energy keys set to 0.0.
 
@@ -60,7 +59,7 @@ class AudioFeatureExtractor:
         return {f'band_energy_{band}': 0.0 for band in AudioFeatureExtractor.BAND_DEFINITIONS}
 
     @staticmethod
-    def calculate_band_energy(y: np.ndarray, sr: int) -> Dict[str, float]:
+    def calculate_band_energy(y: np.ndarray, sr: int) -> dict[str, float]:
         """
         Calculate energy in different frequency bands with LUFS normalization.
 
@@ -115,7 +114,7 @@ class AudioFeatureExtractor:
         return band_energy
 
     @staticmethod
-    def features_dict_to_vector(features_dict: Dict[str, float]) -> Tuple[np.ndarray, List[str]]:
+    def features_dict_to_vector(features_dict: dict[str, float]) -> tuple[np.ndarray, list[str]]:
         """
         Convert a dictionary of features to a feature vector.
 
@@ -141,7 +140,7 @@ class AudioFeatureExtractor:
         return np.array(feature_vector), feature_names
 
     @staticmethod
-    def extract_band_features_from_waveform(waveform, sr: int) -> Dict[str, float]:
+    def extract_band_features_from_waveform(waveform, sr: int) -> dict[str, float]:
         """
         Extract band energy features from a waveform tensor/array.
 

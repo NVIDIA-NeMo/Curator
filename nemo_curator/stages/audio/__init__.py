@@ -23,11 +23,6 @@ from nemo_curator.stages.audio.filtering import (
     BandFilterStage,
 )
 
-from nemo_curator.stages.audio.configs import (
-    BandFilterConfig,
-)
-
 __all__ = [
     "BandFilterStage",
-    "BandFilterConfig",
 ]

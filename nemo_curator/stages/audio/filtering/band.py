@@ -31,17 +31,18 @@ Example:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Literal
 
 import torch
 from loguru import logger
 
+from nemo_curator.stages.audio.filtering.band_filter_module.predict import BandPredictor
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 from ..common import resolve_model_path, resolve_waveform_from_item
-from ..configs import BandFilterConfig
 
 
 @dataclass
@@ -53,7 +54,6 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
     based on the specified band_value to pass.
 
     Args:
-        config: BandFilterConfig object (overrides other params if provided)
         model_path: Path to band classifier model (.joblib)
         band_value: Which band type to pass ("full_band" or "narrow_band")
 
@@ -62,15 +62,13 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         Use .with_(resources=Resources(gpus=X)) to configure GPU allocation.
 
     Example:
-        # Using config - pass only full-band audio
-        config = BandFilterConfig(band_value="full_band")
-        stage = BandFilterStage(config=config)
+        # Pass only full-band audio
+        stage = BandFilterStage(band_value="full_band")
 
-        # Using parameters - pass only narrow-band audio
+        # Pass only narrow-band audio
         stage = BandFilterStage(band_value="narrow_band")
     """
 
-    config: Optional[BandFilterConfig] = None
     model_path: str = "model/band_classifier_model_band_7000_samples.joblib"
     band_value: Literal["full_band", "narrow_band"] = "full_band"
 
@@ -85,16 +83,13 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         super().__init__()
         self._predictor = None
 
-        if self.config is not None:
-            self.band_value = self.config.band_value
-
         if self.band_value not in self._VALID_BAND_VALUES:
             raise ValueError(f"band_value must be one of {self._VALID_BAND_VALUES!r}, got {self.band_value!r}")
 
-    def inputs(self) -> Tuple[List[str], List[str]]:
+    def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def outputs(self) -> Tuple[List[str], List[str]]:
+    def outputs(self) -> tuple[list[str], list[str]]:
         """Define outputs produced by this stage."""
         return [], ["band_prediction"]
 
@@ -114,9 +109,7 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         """Initialize the band predictor."""
         if self._predictor is None:
             try:
-                from nemo_curator.stages.audio.filtering.band_filter_module.predict import BandPredictor
-
-                model_path = resolve_model_path(self.model_path, __file__, 'band_filter_module')
+                model_path = resolve_model_path(self.model_path, __file__, "band_filter_module")
                 self._predictor = BandPredictor(
                     model_path=model_path,
                     feature_cache_size=100,
@@ -126,7 +119,7 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 logger.error(f"Failed to initialize Band predictor: {e}")
                 raise
 
-    def process(self, task: AudioBatch) -> Optional[AudioBatch]:
+    def process(self, task: AudioBatch) -> AudioBatch | None:
         """
         Filter audio based on bandwidth classification.
 
@@ -175,14 +168,20 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
 
         total_items = len(task.data)
         passed_count = len(filtered_items)
-        logger.info(
-            f"[BandFilter] {task.task_id}: {passed_count}/{total_items} passed ({self.band_value})"
-        )
 
-        return AudioBatch(
+        result = AudioBatch(
             data=filtered_items,
             task_id=task.task_id,
             dataset_name=task.dataset_name,
             _metadata=task._metadata,
             _stage_perf=list(task._stage_perf),
         )
+        result.add_stage_perf(StagePerfStats(
+            stage_name=self.name,
+            num_items_processed=total_items,
+            custom_metrics={
+                "items_passed": float(passed_count),
+                "items_failed": float(total_items - passed_count),
+            },
+        ))
+        return result
