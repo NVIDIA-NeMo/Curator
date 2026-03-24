@@ -272,7 +272,7 @@ On the head node, run the setup script before starting your pipeline:
 python -m nemo_curator.metrics.start_prometheus_grafana
 ```
 
-This downloads Prometheus and Grafana binaries, writes configuration files, starts both services, and auto-generates Ray dashboards (core, data, serve, and serve-deployment).
+This downloads Prometheus and Grafana binaries, writes configuration files, starts both services, and auto-generates Ray dashboards (default, data, serve, and serve-deployment).
 
 By default, the script stores metrics data in a per-user directory (`/tmp/nemo_curator_metrics_{uid}`). To specify a custom location, use `--metrics_dir`:
 
