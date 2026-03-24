@@ -23,11 +23,6 @@ from nemo_curator.stages.audio.filtering import (
     UTMOSFilterStage,
 )
 
-from nemo_curator.stages.audio.configs import (
-    UTMOSConfig,
-)
-
 __all__ = [
     "UTMOSFilterStage",
-    "UTMOSConfig",
 ]

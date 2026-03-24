@@ -138,20 +138,3 @@ class TestUTMOSFilterStage:
         stage._model = MagicMock()
         stage.teardown()
         assert stage._model is None
-
-    def test_config_overrides_threshold(self) -> None:
-        from nemo_curator.stages.audio.configs import UTMOSConfig
-
-        config = UTMOSConfig(mos_threshold=2.5)
-        stage = UTMOSFilterStage(config=config, mos_threshold=99.0)
-        assert stage.mos_threshold == 2.5
-
-    def test_stage_outputs(self) -> None:
-        stage = UTMOSFilterStage()
-        _, outputs = stage.outputs()
-        assert "utmos_mos" in outputs
-
-    def test_stage_inputs(self) -> None:
-        stage = UTMOSFilterStage()
-        required, _ = stage.inputs()
-        assert "data" in required

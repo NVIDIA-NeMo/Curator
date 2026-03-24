@@ -53,7 +53,7 @@ classifiers = [
 dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
-    "cosmos-xenna==0.1.2",
+    "cosmos-xenna==0.2.0",
     "fsspec",
     "hydra-core",
     "jieba==0.42.1",
@@ -63,14 +63,26 @@ dependencies = [
     "openai>=1.0.0",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data]>=2.50",
+    "ray[default,data]>=2.54",
     "torch",
     "transformers",
 ]
 
 [project.optional-dependencies]
-cuda12 = ["gpustat", "nvidia-ml-py"]
+cuda12 = [
+    "gpustat",
+    "nvidia-ml-py",
+]
 vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
+
+# Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
+inference_server = [
+    "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
+    "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
+    "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "ray[serve,llm]>=2.54",
+]
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
@@ -85,6 +97,7 @@ deduplication_cuda12 = [
 
 audio_cpu = [
     "nemo_toolkit[asr]==2.4.0",
+    "soundfile>=0.12.0",
 ]
 audio_cuda12 = [
     "nemo_curator[audio_cpu]",
@@ -92,6 +105,7 @@ audio_cuda12 = [
 ]
 
 image_cpu = [
+    "Pillow",
     "torchvision"
 ]
 
@@ -154,16 +168,36 @@ video_cuda12 = [
     "torchaudio",
 ]
 
+# Math Curation Dependencies
+math_cpu = [
+    "nemo_curator[text_cpu]",  # Math examples use text processing utilities
+]
+
+math_cuda12 = [
+    "nemo_curator[math_cpu]",
+    "nemo_curator[cuda12]",
+    "nemo_curator[deduplication_cuda12]",
+    "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+]
+
 # Synthetic Data Generation (SDG) Dependencies
 sdg_cpu = [
     "data-designer==0.4.0",
+]
+
+sdg_cuda12 = [
+    "nemo_curator[cuda12]",
+    "nemo_curator[sdg_cpu]",
+    "nemo_curator[inference_server]",
 ]
 
 # All dependencies
 all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
-    "nemo_curator[sdg_cpu]",
+    "nemo_curator[inference_server]",
+    "nemo_curator[math_cuda12]",
+    "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[video_cuda12]",
 ]
@@ -198,7 +232,6 @@ constraint-dependencies = [
     "protobuf>=5.29.6", # Address CVE GHSA-8qvm-5x2c-j2w7
     "pyasn1>=0.6.2", # Address CVE GHSA-63vm-454h-vhhq
     "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
-    "ray[default,data]>=2.52", # Address CVE GHSA-q279-jhrf-cc6v
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
@@ -214,6 +247,7 @@ override-dependencies = [
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "transformers<=4.55.2", # Else Cosmos Embed imports fail
+    "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
 ]
 
 
@@ -244,6 +278,8 @@ torchvision = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
+nixl = { index = "pypi" }
+nixl-cu12 = { index = "pypi" }
 
 [tool.coverage.paths]
 source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]
@@ -266,7 +302,7 @@ ignore = [
     "PERF401",  # don't enforce list comprehension
     "RET505", "RET506", "RET507", "RET508",  # allow branching (if else after return)
     "PGH004",  # allow generic noqa
-    "PD901",  # allow naming dataframes df
+
     "TD002",  # allow TODO without author
     "TD003",  # allow TODO without link
     "TRY003", # allow long exception messages rather than creating a new exception class
@@ -274,6 +310,7 @@ ignore = [
     "EXE002", # don't require for a shebang to be present if it's executable
     "COM812", # disable the trailing comma in linter, because ruff formatter ensures it
     "SLF001", # allow accessing private attributes
+    "PLC0415", # allow imports inside functions (lazy imports for optional/heavy deps)
 ]
 fixable = ["ALL"]
 
@@ -286,8 +323,15 @@ fixable = ["ALL"]
 "tests/**/*.py" = [
     "S101", # asserts allowed in tests
     "ANN201", # allow methods to not return something
+    "ARG002", # allow unused method args (mock.patch decorator injects args not always referenced)
     "PLR2004", # magic value used in comparison
     "ERA001", # allow commented-out code
+]
+"benchmarking/**" = [
+    "BLE001", # allow catching blind exceptions (benchmark runners need catch-all error handling)
+]
+"docs/**" = [
+    "BLE001", # allow catching blind exceptions (Sphinx extensions need robust error handling)
 ]
 "tutorials/**" = [
     "INP001", # no __init__.py is required

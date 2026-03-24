@@ -35,25 +35,26 @@ Example:
 
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+import numpy as np
 import torch
 import torchaudio
 from loguru import logger
 
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
 from ..common import load_audio_file
-from ..configs import UTMOSConfig
 
 _UTMOS_REPO = "tarepan/SpeechMOS:v1.2.0"
 _UTMOS_ENTRYPOINT = "utmos22_strong"
 _UTMOS_TARGET_SR = 16000
 
 
-def _load_waveform_tensor(item: Dict[str, Any], task_id: str) -> Optional[Tuple[torch.Tensor, int]]:
+def _load_waveform_tensor(item: dict[str, Any], task_id: str) -> tuple[torch.Tensor, int] | None:
     """
     Extract a mono waveform tensor (1, N) and sample_rate from an item.
 
@@ -65,7 +66,6 @@ def _load_waveform_tensor(item: Dict[str, Any], task_id: str) -> Optional[Tuple[
 
     if waveform is not None and sample_rate is not None:
         if not torch.is_tensor(waveform):
-            import numpy as np
             waveform = torch.from_numpy(np.asarray(waveform, dtype=np.float32))
         if waveform.dim() == 1:
             waveform = waveform.unsqueeze(0)
@@ -74,8 +74,8 @@ def _load_waveform_tensor(item: Dict[str, Any], task_id: str) -> Optional[Tuple[
         return waveform, int(sample_rate)
 
     if waveform is not None and sample_rate is None:
-        logger.warning(f"[{task_id}] Waveform present but 'sample_rate' missing, "
-                       "falling back to audio_filepath if available")
+        logger.warning(f"[{task_id}] Waveform present but 'sample_rate' missing – item skipped")
+        return None
 
     path = item.get("audio_filepath")
     if path and os.path.isfile(path):
@@ -102,7 +102,6 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
     - MOS: Mean Opinion Score for overall speech quality
 
     Args:
-        config: UTMOSConfig object (overrides other params if provided)
         mos_threshold: Minimum MOS score to pass (None to disable)
         sample_rate: Target sample rate for UTMOS inference (default 16000)
 
@@ -111,8 +110,7 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         Use .with_(resources=Resources(gpus=X)) to configure GPU allocation.
     """
 
-    config: Optional[UTMOSConfig] = None
-    mos_threshold: Optional[float] = 3.5
+    mos_threshold: float | None = 3.5
     sample_rate: int = _UTMOS_TARGET_SR
 
     name: str = "UTMOSFilter"
@@ -122,27 +120,38 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
     def __post_init__(self):
         super().__init__()
         self._model = None
-        self._resamplers: Dict[int, torchaudio.transforms.Resample] = {}
+        self._model_failed = False
+        self._resamplers: dict[int, torchaudio.transforms.Resample] = {}
 
-        if self.config is not None:
-            self.mos_threshold = self.config.mos_threshold
-
-    def inputs(self) -> Tuple[List[str], List[str]]:
+    def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def outputs(self) -> Tuple[List[str], List[str]]:
+    def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["utmos_mos"]
 
-    def setup(self, worker_metadata=None) -> None:
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        """Download the UTMOS model repo via torch.hub (once per node)."""
+        try:
+            torch.hub.load(
+                _UTMOS_REPO, _UTMOS_ENTRYPOINT,
+                trust_repo=True, force_reload=False, skip_validation=True,
+            )
+        except Exception:
+            logger.warning("UTMOS repo pre-download in setup_on_node failed.")
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         self._ensure_model()
 
     def teardown(self) -> None:
         self._model = None
+        self._model_failed = False
         self._resamplers.clear()
         torch.cuda.empty_cache()
 
     def _ensure_model(self):
         if self._model is not None:
+            return
+        if self._model_failed:
             return
 
         device = torch.device(
@@ -163,7 +172,7 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 )
             except Exception as e:
                 logger.error(f"UTMOS model unavailable (download and cache both failed): {e}")
-                self._model = None
+                self._model_failed = True
                 return
 
         predictor = predictor.to(device)
@@ -176,7 +185,7 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         self._model = predictor
         logger.info(f"UTMOS model loaded on {device}")
 
-    def _process_single_item(self, item: Dict[str, Any], task_id: str) -> Optional[Dict[str, Any]]:
+    def _process_single_item(self, item: dict[str, Any], task_id: str) -> dict[str, Any] | None:
         audio_result = _load_waveform_tensor(item, task_id)
         if audio_result is None:
             return None
@@ -212,7 +221,7 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         item["utmos_mos"] = mos
         return item
 
-    def process(self, task: AudioBatch) -> Optional[AudioBatch]:
+    def process(self, task: AudioBatch) -> AudioBatch | None:
         self._ensure_model()
         if self._model is None:
             logger.error("UTMOS model not available")
