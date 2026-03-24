@@ -84,7 +84,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
   --preview-target-height 240 \
   --enhance-captions \
   --enhance-captions-algorithm qwen \
-  --enhance-captioning-algorithm-model-id Qwen/Qwen3-14B \
+  --enhance-captioning-algorithm-model-id Qwen/Qwen2.5-14B-Instruct \
   --enhance-captions-batch-size 128 \
   --enhance-captioning-prompt-variant default \
   --enhance-captions-max-output-tokens 512
@@ -245,13 +245,13 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 
    ```
 
-2. Optionally enhance captions with a text‑based LLM (Qwen‑LM) to expand and refine descriptions. This stage reads `window.caption["qwen"]` and writes the result under `window.enhanced_caption[model_id]` (e.g. `window.enhanced_caption["Qwen/Qwen3-14B"]`).
+2. Optionally enhance captions with a text‑based LLM (Qwen‑LM) to expand and refine descriptions. This stage reads `window.caption["qwen"]` and writes the result under `window.enhanced_caption[model_id]` (e.g. `window.enhanced_caption["Qwen/Qwen2.5-14B-Instruct"]`).
 
    ```python
    enh = CaptionEnhancementStage(
        model_dir="/models",
        model_variant="qwen",
-       model_id="Qwen/Qwen3-14B",   # optional – uses default if omitted
+       model_id="Qwen/Qwen2.5-14B-Instruct",   # optional – uses default if omitted
        prompt_variant="default",
        prompt_text=None,
        model_batch_size=128,
@@ -343,7 +343,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
   - Language‑model family. Only `"qwen"` is currently supported.
 * - `model_id`
   - str
-  - `"Qwen/Qwen3-14B"`
+  - `"Qwen/Qwen2.5-14B-Instruct"`
   - HuggingFace model ID for the enhancement LLM. Must start with `"Qwen/"`. Weights are downloaded automatically if not present.
 * - `prompt_variant`
   - {"default", "av-surveillance"}
