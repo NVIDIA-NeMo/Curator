@@ -17,7 +17,7 @@ import argparse
 
 import ray
 
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.models.client import OpenAIClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.onmi_llm_request import OmniLLMRequestStage, PrepareMessagesStage
@@ -39,34 +39,65 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=0.7, help="Temperature")
     parser.add_argument("--top-p", type=float, default=0.95, help="Top-p")
     parser.add_argument("--no-ray-local", action="store_true", help="Skip ray.init(local); use existing cluster")
+
+    # Optional: launch vLLM as a subprocess (for single-container setups)
+    parser.add_argument(
+        "--start-server", action="store_true", help="Launch vLLM as a subprocess before running the pipeline"
+    )
+    parser.add_argument("--vllm-python", type=str, default="python", help="Python executable for vLLM subprocess")
+    parser.add_argument("--dtype", type=str, default="bfloat16", help="vLLM dtype (with --start-server)")
+    parser.add_argument("--max-model-len", type=int, default=65536, help="vLLM max model length (with --start-server)")
+    parser.add_argument("--tensor-parallel-size", type=int, default=1, help="vLLM tensor parallel size (with --start-server)")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    if not args.no_ray_local:
-        ray.init(address="local", ignore_reinit_error=True)
 
-    base_url = f"http://{args.host}:{args.port}/v1"
-    llm_client = OpenAIClient(base_url=base_url, api_key=args.api_key)
-    generation_config = {
-        "max_tokens": args.max_tokens,
-        "temperature": args.temperature,
-        "top_p": args.top_p,
-    }
+    server = None
+    if args.start_server:
+        from nemo_curator.core.vllm_server import VLLMSubprocessServer
 
-    pipeline = Pipeline(name="qwen3_omni")
-    pipeline.add_stage(JsonlReader(file_paths=args.input_path))
-    pipeline.add_stage(PrepareMessagesStage())
-    pipeline.add_stage(
-        OmniLLMRequestStage(
-            client=llm_client,
-            model_name=args.model_name,
-            generation_config=generation_config,
+        server = VLLMSubprocessServer(
+            model=args.model_name,
+            port=args.port,
+            python_executable=args.vllm_python,
+            extra_args=[
+                "--dtype", args.dtype,
+                "--max-model-len", str(args.max_model_len),
+                "--allowed-local-media-path", "/",
+                "-tp", str(args.tensor_parallel_size),
+            ],
         )
-    )
-    pipeline.add_stage(JsonlWriter(path=args.output_path, write_kwargs={"force_ascii": False}).with_(batch_size=1))
-    pipeline.run(executor=RayDataExecutor())
+        server.start()
+
+    try:
+        if not args.no_ray_local:
+            ray.init(address="local", ignore_reinit_error=True)
+
+        base_url = f"http://{args.host}:{args.port}/v1"
+        llm_client = OpenAIClient(base_url=base_url, api_key=args.api_key)
+        generation_config = {
+            "max_tokens": args.max_tokens,
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+        }
+
+        pipeline = Pipeline(name="qwen3_omni")
+        pipeline.add_stage(JsonlReader(file_paths=args.input_path))
+        pipeline.add_stage(PrepareMessagesStage())
+        pipeline.add_stage(
+            OmniLLMRequestStage(
+                client=llm_client,
+                model_name=args.model_name,
+                generation_config=generation_config,
+            )
+        )
+        pipeline.add_stage(JsonlWriter(path=args.output_path, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+        pipeline.run(executor=RayDataExecutor())
+    finally:
+        if server is not None:
+            server.stop()
 
 
 if __name__ == "__main__":

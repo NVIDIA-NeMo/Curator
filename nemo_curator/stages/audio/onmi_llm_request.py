@@ -62,6 +62,26 @@ def _local_file_to_data_url(path: str) -> str:
     return f"data:{mime_type};base64,{b64}"
 
 
+def _local_file_to_input_audio(path: str) -> dict:
+    """Read a local audio file, return an ``input_audio`` content part.
+
+    The ``input_audio`` format is used by OpenAI-compatible hosted APIs
+    (e.g. NVIDIA inference API with Gemini) as opposed to ``audio_url``
+    which is used by vLLM.
+    """
+    path_obj = Path(path).expanduser().resolve()
+    if not path_obj.is_file():
+        msg = "Local path is not a file: " + path
+        raise FileNotFoundError(msg)
+    raw = path_obj.read_bytes()
+    b64 = base64.standard_b64encode(raw).decode("ascii")
+    # Derive format from extension (wav, mp3, flac, etc.)
+    ext = path_obj.suffix.lstrip(".").lower()
+    if not ext:
+        ext = "wav"
+    return {"type": "input_audio", "input_audio": {"data": b64, "format": ext}}
+
+
 def _url_or_data_url(value: str) -> str:
     """Return value as-is if remote URL; if local path, read file and return data URL."""
     if not _is_local_path(value):
@@ -69,8 +89,16 @@ def _url_or_data_url(value: str) -> str:
     return _local_file_to_data_url(value)
 
 
-def _row_to_messages(row: dict) -> list[dict]:
-    """Build LLM messages from a row with optional system_text, text, image_url, audio_url."""
+def _row_to_messages(row: dict, audio_format: str = "audio_url") -> list[dict]:
+    """Build LLM messages from a row with optional system_text, text, image_url, audio_url.
+
+    Args:
+        row: A dictionary with optional keys: system_text, text, image_url, audio_url.
+        audio_format: How to encode audio content parts.
+            ``"audio_url"`` — vLLM / Qwen3-Omni format (default).
+            ``"input_audio"`` — OpenAI-compatible hosted API format
+            (e.g. NVIDIA inference API with Gemini).
+    """
     messages: list[dict] = []
     if row.get("system_text"):
         messages.append({"role": "system", "content": row["system_text"]})
@@ -80,8 +108,21 @@ def _row_to_messages(row: dict) -> list[dict]:
         url = _url_or_data_url(row["image_url"])
         content_parts.append({"type": "image_url", "image_url": {"url": url}})
     if "audio_url" in row and _is_valid_url(row.get("audio_url")):
-        url = _url_or_data_url(row["audio_url"])
-        content_parts.append({"type": "audio_url", "audio_url": {"url": url}})
+        audio_value = row["audio_url"]
+        if audio_format == "input_audio":
+            if _is_local_path(audio_value):
+                content_parts.append(_local_file_to_input_audio(audio_value))
+            else:
+                # Remote URL — encode as data URL in audio_url format as fallback,
+                # since input_audio requires inline base64 data.
+                logger.warning(
+                    f"Remote audio URL with input_audio format is not supported; "
+                    f"falling back to audio_url for: {audio_value}"
+                )
+                content_parts.append({"type": "audio_url", "audio_url": {"url": audio_value}})
+        else:
+            url = _url_or_data_url(audio_value)
+            content_parts.append({"type": "audio_url", "audio_url": {"url": url}})
 
     text_val = row.get("text") if "text" in row else None
     if text_val is not None and not (isinstance(text_val, float) and pd.isna(text_val)) and str(text_val).strip():
@@ -110,14 +151,22 @@ class PrepareMessagesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     ]}
     ]
     and return a DocumentBatch with the LLM messages.
+
+    Args:
+        audio_format: How to encode audio content parts.
+            ``"audio_url"`` (default) — vLLM / Qwen3-Omni format.
+            ``"input_audio"`` — OpenAI-compatible hosted API format
+            (e.g. NVIDIA inference API with Gemini).
     """
 
     name: str = "MakeMessagesStage"
+    audio_format: str = "audio_url"
 
     def process(self, input_batch: DocumentBatch) -> DocumentBatch:
         """Build LLM messages from each row and add a 'messages' column."""
+        af = self.audio_format
         df = input_batch.to_pandas().copy()
-        df["messages"] = df.apply(lambda row: _row_to_messages(row.to_dict()), axis=1)
+        df["messages"] = df.apply(lambda row: _row_to_messages(row.to_dict(), audio_format=af), axis=1)
         return DocumentBatch(
             data=df,
             dataset_name=input_batch.dataset_name,
