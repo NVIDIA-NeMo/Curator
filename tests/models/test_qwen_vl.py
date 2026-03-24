@@ -22,8 +22,9 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from nemo_curator.models.qwen_vl import (
+    _QWEN2_5_VL_MODEL_ID,
+    _QWEN2_5_VL_MODEL_REVISION,
     _QWEN_VARIANTS_INFO,
-    _QWEN_VL_MODEL_ID,
     QwenVL,
     _check_vllm_supports_vl_model,
     _validate_qwen_vl_model,
@@ -60,9 +61,10 @@ class TestQwenVL:
 
     def test_constants(self) -> None:
         """Test that module constants are correctly defined."""
-        assert _QWEN_VL_MODEL_ID == "Qwen/Qwen3-VL-8B-Instruct"
+        assert _QWEN2_5_VL_MODEL_ID == "Qwen/Qwen2.5-VL-7B-Instruct"
+        assert _QWEN2_5_VL_MODEL_REVISION == "cc59489"
         assert "qwen" in _QWEN_VARIANTS_INFO
-        assert _QWEN_VARIANTS_INFO["qwen"] == _QWEN_VL_MODEL_ID
+        assert _QWEN_VARIANTS_INFO["qwen"] == _QWEN2_5_VL_MODEL_ID
 
     def test_initialization_default_parameters(self) -> None:
         """Test initialization with default parameters."""
@@ -79,7 +81,7 @@ class TestQwenVL:
         assert qwen_vl.disable_mmcache is False
         assert qwen_vl.stage2_prompt is None
         assert qwen_vl.verbose is False
-        assert qwen_vl.model_id == _QWEN_VL_MODEL_ID
+        assert qwen_vl.model_id == _QWEN2_5_VL_MODEL_ID
 
         expected_weight_file = str(pathlib.Path(self.model_dir) / qwen_vl.model_id)
         assert qwen_vl.weight_file == expected_weight_file
@@ -111,7 +113,7 @@ class TestQwenVL:
         assert isinstance(model_ids, list)
         assert len(model_ids) == 1
         assert model_ids[0] == self.qwen_vl.model_id
-        assert model_ids[0] == _QWEN_VL_MODEL_ID
+        assert model_ids[0] == _QWEN2_5_VL_MODEL_ID
 
     @patch("nemo_curator.models.qwen_vl._check_vllm_supports_vl_model")
     @patch("nemo_curator.models.qwen_vl.LLM")
@@ -455,7 +457,7 @@ class TestQwenVL:
 
     def test_custom_model_id(self) -> None:
         """Test that a custom Qwen model ID is accepted and stored."""
-        custom_id = "Qwen/Qwen3-VL-72B-Instruct"
+        custom_id = "Qwen/Qwen2.5-VL-72B-Instruct"
         qwen_vl = QwenVL(
             model_dir=self.model_dir,
             model_variant=self.model_variant,
@@ -536,12 +538,12 @@ class TestQwenVL:
 
             mock_download.assert_called_once()
             call_kwargs = mock_download.call_args[1]
-            assert call_kwargs["model_id"] == _QWEN_VL_MODEL_ID
+            assert call_kwargs["model_id"] == _QWEN2_5_VL_MODEL_ID
 
     @patch("nemo_curator.models.qwen_vl.download_model_from_hf")
     def test_download_weights_on_node_custom_model_id(self, mock_download: Mock) -> None:
         """Test download_weights_on_node with a custom model_id."""
-        custom_id = "Qwen/Qwen3-VL-72B-Instruct"
+        custom_id = "Qwen/Qwen2.5-VL-72B-Instruct"
         with patch("nemo_curator.models.qwen_vl.Path") as mock_path:
             mock_path_instance = Mock()
             mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
@@ -579,7 +581,7 @@ class TestValidateQwenVlModel:
     """Test cases for _validate_qwen_vl_model helper."""
 
     def test_valid_qwen_model_passes(self) -> None:
-        _validate_qwen_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
+        _validate_qwen_vl_model("Qwen/Qwen2.5-VL-7B-Instruct")  # should not raise
 
     def test_invalid_model_raises(self) -> None:
         with pytest.raises(ValueError, match="must be a Qwen model"):
@@ -595,21 +597,21 @@ class TestCheckVllmSupportsVlModel:
 
     def test_skips_when_vllm_not_available(self) -> None:
         with patch("nemo_curator.models.qwen_vl.VLLM_AVAILABLE", False):
-            _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
+            _check_vllm_supports_vl_model("Qwen/Qwen2.5-VL-7B-Instruct")  # should not raise
 
     def test_skips_when_no_architectures(self) -> None:
         mock_config = Mock()
         mock_config.architectures = []
         with patch("nemo_curator.models.qwen_vl.AutoConfig") as mock_auto_config:
             mock_auto_config.from_pretrained.return_value = mock_config
-            _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
+            _check_vllm_supports_vl_model("Qwen/Qwen2.5-VL-7B-Instruct")  # should not raise
 
     def test_skips_when_architectures_is_none(self) -> None:
         mock_config = Mock()
         mock_config.architectures = None
         with patch("nemo_curator.models.qwen_vl.AutoConfig") as mock_auto_config:
             mock_auto_config.from_pretrained.return_value = mock_config
-            _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
+            _check_vllm_supports_vl_model("Qwen/Qwen2.5-VL-7B-Instruct")  # should not raise
 
     def test_passes_when_architecture_supported(self) -> None:
         mock_config = Mock()
@@ -631,7 +633,7 @@ class TestCheckVllmSupportsVlModel:
             ),
         ):
             mock_auto_config.from_pretrained.return_value = mock_config
-            _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
+            _check_vllm_supports_vl_model("Qwen/Qwen2.5-VL-7B-Instruct")  # should not raise
 
     def test_raises_when_all_architectures_unsupported(self) -> None:
         mock_config = Mock()
@@ -654,7 +656,7 @@ class TestCheckVllmSupportsVlModel:
         ):
             mock_auto_config.from_pretrained.return_value = mock_config
             with pytest.raises(ValueError, match="not supported by vLLM"):
-                _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")
+                _check_vllm_supports_vl_model("Qwen/Qwen2.5-VL-7B-Instruct")
 
     def test_skips_check_when_registry_import_fails(self) -> None:
         mock_config = Mock()
@@ -665,4 +667,4 @@ class TestCheckVllmSupportsVlModel:
         ):
             mock_auto_config.from_pretrained.return_value = mock_config
             with patch.dict("sys.modules", {"vllm.model_executor.models": None}):
-                _check_vllm_supports_vl_model("Qwen/Qwen3-VL-8B-Instruct")  # should not raise
+                _check_vllm_supports_vl_model("Qwen/Qwen2.5-VL-7B-Instruct")  # should not raise

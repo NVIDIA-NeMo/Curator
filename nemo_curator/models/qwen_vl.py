@@ -40,11 +40,11 @@ except ImportError:
 from nemo_curator.models.base import ModelInterface
 from nemo_curator.utils import grouping
 
-_QWEN_VL_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
-_QWEN_VL_MODEL_REVISION = None
+_QWEN2_5_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
+_QWEN2_5_VL_MODEL_REVISION = "cc59489"
 
 _QWEN_VARIANTS_INFO = {
-    "qwen": _QWEN_VL_MODEL_ID,
+    "qwen": _QWEN2_5_VL_MODEL_ID,
 }
 
 
@@ -85,9 +85,11 @@ class QwenVL(ModelInterface):
         stage2_prompt_text: str | None = None,
         verbose: bool = False,
         model_id: str | None = None,
-        model_revision: str | None = _QWEN_VL_MODEL_REVISION,
+        model_revision: str | None = _QWEN2_5_VL_MODEL_REVISION,
     ):
-        resolved_id = model_id if model_id is not None else _QWEN_VARIANTS_INFO.get(model_variant, _QWEN_VL_MODEL_ID)
+        resolved_id = (
+            model_id if model_id is not None else _QWEN_VARIANTS_INFO.get(model_variant, _QWEN2_5_VL_MODEL_ID)
+        )
         _validate_qwen_vl_model(resolved_id)
         self.model_id = resolved_id
         self.model_revision = model_revision
@@ -184,8 +186,8 @@ class QwenVL(ModelInterface):
     def download_weights_on_node(
         cls,
         model_dir: str,
-        model_id: str = _QWEN_VL_MODEL_ID,
-        model_revision: str | None = _QWEN_VL_MODEL_REVISION,
+        model_id: str = _QWEN2_5_VL_MODEL_ID,
+        model_revision: str | None = _QWEN2_5_VL_MODEL_REVISION,
     ) -> None:
         """Download the weights for the QwenVL model on the node."""
         _validate_qwen_vl_model(model_id)

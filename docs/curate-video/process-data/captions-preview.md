@@ -72,7 +72,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --generate-captions \
   --captioning-algorithm qwen \
-  --captioning-model-id Qwen/Qwen3-VL-8B-Instruct \
+  --captioning-model-id Qwen/Qwen2.5-VL-7B-Instruct \
   --captioning-window-size 256 \
   --captioning-remainder-threshold 128 \
   --captioning-sampling-fps 2.0 \
@@ -233,7 +233,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
    gen = CaptionGenerationStage(
        model_dir="/models",
        model_variant="qwen",
-       model_id="Qwen/Qwen3-VL-8B-Instruct",   # optional – uses default if omitted
+       model_id="Qwen/Qwen2.5-VL-7B-Instruct",   # optional – uses default if omitted
        caption_batch_size=8,
        fp8=False,
        max_output_tokens=512,
@@ -286,7 +286,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 * - `model_id`
   - str | None
   - `None`
-  - HuggingFace model ID for the VL model (e.g. `"Qwen/Qwen3-VL-8B-Instruct"`). Must start with `"Qwen/"`. Weights are downloaded automatically if not present. When `None`, uses the default model for the selected `model_variant`.
+  - HuggingFace model ID for the VL model (e.g. `"Qwen/Qwen2.5-VL-7B-Instruct"`). Must start with `"Qwen/"`. Weights are downloaded automatically if not present. When `None`, uses the default model for the selected `model_variant`.
 * - `caption_batch_size`
   - int
   - 16

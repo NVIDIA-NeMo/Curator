@@ -336,7 +336,7 @@ class TestCaptionGenerationStage:
         """Test that a custom model_id is forwarded to QwenVL."""
         mock_model = Mock()
         mock_qwen_vl.return_value = mock_model
-        custom_id = "Qwen/Qwen3-VL-72B-Instruct"
+        custom_id = "Qwen/Qwen2.5-VL-72B-Instruct"
 
         stage = CaptionGenerationStage(
             model_dir="test/models",
@@ -358,7 +358,7 @@ class TestCaptionGenerationStage:
         """Test that setup_on_node forwards model_id to download_weights_on_node."""
         mock_model = Mock()
         mock_qwen_vl.return_value = mock_model
-        custom_id = "Qwen/Qwen3-VL-72B-Instruct"
+        custom_id = "Qwen/Qwen2.5-VL-72B-Instruct"
 
         stage = CaptionGenerationStage(
             model_dir="test/models",
