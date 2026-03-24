@@ -21,6 +21,8 @@ redirects:
     destination: "/home/welcome"
   - source: "/latest/:path*/index.html"
     destination: "/latest/:path*"
+  - source: "/v26.04/:path*/index.html"
+    destination: "/v26.04/:path*"
   - source: "/v26.02/:path*/index.html"
     destination: "/v26.02/:path*"
   - source: "/v25.09/:path*/index.html"
@@ -63,9 +65,13 @@ title: NeMo Curator
 footer: ./components/CustomFooter.tsx
 
 versions:
-  - display-name: "Latest · v1.1.0 (26.02)"
+  - display-name: "Latest · v1.1.2 (26.04)"
     path: versions/latest.yml
     slug: latest
+    availability: stable
+  - display-name: "26.04 · v1.1.2"
+    path: versions/v26.04.yml
+    slug: v26.04
     availability: stable
   - display-name: "26.02 · v1.1.0"
     path: versions/v26.02.yml
