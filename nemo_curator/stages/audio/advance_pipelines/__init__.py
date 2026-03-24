@@ -23,33 +23,28 @@ Available Pipelines:
       quality filtering (UTMOS, SIGMOS, Band), speaker separation,
       and timestamp tracking.
 
-Example:
+Example::
+
     from nemo_curator.stages.audio.advance_pipelines import (
         AudioDataFilterStage,
-        AudioDataFilterConfig,
     )
-    
-    # Create config
-    config = AudioDataFilterConfig(
-        enable_utmos=True,
-        enable_sigmos=True,
-        enable_speaker_separation=True,
-        utmos_mos_threshold=3.5,
-    )
-    
-    # Add to pipeline (CompositeStage decomposes into independent stages)
-    from nemo_curator.pipeline import Pipeline
-    pipeline = Pipeline(name="audio_filter")
-    pipeline.add_stage(AudioDataFilterStage(config=config))
+
+    # Using default config (all stages enabled)
+    pipeline.add_stage(AudioDataFilterStage())
+
+    # Using custom YAML config
+    pipeline.add_stage(AudioDataFilterStage(config_path="my_config.yaml"))
+
+    # Using dict overrides
+    pipeline.add_stage(AudioDataFilterStage(
+        config={"utmos": {"mos_threshold": 4.0}},
+    ))
 """
 
-# Re-export from Audio_data_filter for convenience
 from nemo_curator.stages.audio.advance_pipelines.Audio_data_filter import (
     AudioDataFilterStage,
-    AudioDataFilterConfig,
 )
 
 __all__ = [
     "AudioDataFilterStage",
-    "AudioDataFilterConfig",
 ]

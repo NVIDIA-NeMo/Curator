@@ -12,80 +12,128 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Configuration for Audio Data Filter Stage."""
+"""
+Configuration loader for the Audio Data Filter pipeline.
 
-from dataclasses import dataclass, asdict
-from typing import Dict, Any, List, Literal, Optional, Tuple
+Loads pipeline parameters from a YAML config file organised by stage.
+Users edit the YAML to override defaults without touching code.
 
-SUPPORTED_AUDIO_FORMATS: Tuple[str, ...] = (
+Example:
+    from nemo_curator.stages.audio.advance_pipelines.Audio_data_filter.config import (
+        load_config,
+    )
+
+    # Load defaults
+    cfg = load_config()
+
+    # Load user overrides (only specified values override defaults)
+    cfg = load_config("/path/to/my_config.yaml")
+"""
+
+import copy
+from pathlib import Path
+from typing import Any
+
+import yaml
+from loguru import logger
+
+SUPPORTED_AUDIO_FORMATS: tuple[str, ...] = (
     ".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus", ".webm",
 )
 
 DEFAULT_OUTPUT_FORMAT: str = "wav"
 
+_DEFAULT_CONFIG_PATH = Path(__file__).parent / "default_config.yaml"
 
-@dataclass
-class AudioDataFilterConfig:
+
+def _deep_merge(base: dict, overrides: dict) -> dict:
+    """Recursively merge *overrides* into *base*, returning a new dict."""
+    merged = copy.deepcopy(base)
+    for key, value in overrides.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
+    """Load pipeline configuration from YAML.
+
+    Loads the shipped default config and deep-merges any user overrides
+    on top.  Only the values explicitly set in the user file override
+    defaults; everything else keeps its default value.
+
+    Args:
+        config_path: Path to a user YAML config file.  When *None*,
+            the built-in ``default_config.yaml`` is used as-is.
+
+    Returns:
+        A nested dict keyed by stage name with parameter values.
+
+    Raises:
+        FileNotFoundError: If *config_path* does not exist.
+        yaml.YAMLError: If either YAML file is malformed.
     """
-    Configuration for the complete Audio Data Filter pipeline.
+    with open(_DEFAULT_CONFIG_PATH) as fh:
+        defaults = yaml.safe_load(fh)
 
-    Example:
-        config = AudioDataFilterConfig(enable_utmos=True)
-    """
+    if config_path is None:
+        return defaults
 
-    # General
-    sample_rate: int = 48000
-    strict_sample_rate: bool = True
-    output_format: str = DEFAULT_OUTPUT_FORMAT
+    user_path = Path(config_path)
+    if not user_path.is_file():
+        raise FileNotFoundError(f"Config file not found: {user_path}")
 
-    # VAD
-    enable_vad: bool = True
-    vad_min_duration_sec: float = 2.0
-    vad_max_duration_sec: float = 60.0
+    with open(user_path) as fh:
+        user_cfg = yaml.safe_load(fh)
 
-    # Concatenation
-    silence_duration_ms: int = 500
+    if not user_cfg:
+        logger.warning(f"User config file is empty, using defaults: {user_path}")
+        return defaults
 
-    # Band Filter
-    enable_band_filter: bool = True
-    band_value: Literal["full_band", "narrow_band"] = "full_band"
+    unknown_sections = set(user_cfg) - set(defaults)
+    if unknown_sections:
+        logger.warning(f"Unknown config sections (ignored): {unknown_sections}")
 
-    # UTMOS Filter
-    enable_utmos: bool = True
-    utmos_mos_threshold: Optional[float] = 3.5
+    merged = _deep_merge(defaults, user_cfg)
 
-    # SIGMOS Filter
-    enable_sigmos: bool = True
-    sigmos_noise_threshold: Optional[float] = 4.0
-    sigmos_ovrl_threshold: Optional[float] = 3.5
-    sigmos_sig_threshold: Optional[float] = None
-    sigmos_col_threshold: Optional[float] = None
-    sigmos_disc_threshold: Optional[float] = None
-    sigmos_loud_threshold: Optional[float] = None
-    sigmos_reverb_threshold: Optional[float] = None
+    _validate(merged)
 
-    # Speaker Separation
-    enable_speaker_separation: bool = True
-    speaker_exclude_overlaps: bool = True
+    return merged
 
-    # TimestampMapper output control
-    # When set, only these keys (plus the standard timestamp fields) are
-    # included in the final output.  When None, all non-internal keys pass through.
-    passthrough_keys: Optional[List[str]] = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+def _validate(cfg: dict[str, Any]) -> None:
+    """Validate cross-field constraints after merge."""
+    vad = cfg.get("vad", {})
+    if vad.get("enable", False):
+        mn = vad.get("min_duration_sec", 0)
+        mx = vad.get("max_duration_sec", float("inf"))
+        if mn >= mx:
+            raise ValueError(
+                f"vad.min_duration_sec ({mn}) must be less than "
+                f"vad.max_duration_sec ({mx})"
+            )
 
-    @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "AudioDataFilterConfig":
-        return cls(**{k: v for k, v in config_dict.items() if k in cls.__dataclass_fields__})
+    concat = cfg.get("concatenation", {})
+    silence = concat.get("silence_duration_sec", 0)
+    if silence < 0:
+        raise ValueError(
+            f"concatenation.silence_duration_sec must be non-negative, got {silence}"
+        )
 
-    def get_enabled_filters(self) -> List[str]:
-        filters = []
-        if self.enable_band_filter:
-            filters.append("band")
-        if self.enable_utmos:
-            filters.append("utmos")
-        if self.enable_sigmos:
-            filters.append("sigmos")
-        return filters
+
+def get_enabled_stages(cfg: dict[str, Any]) -> list[str]:
+    """Return a list of enabled stage names from a loaded config."""
+    stages: list[str] = []
+    if cfg.get("vad", {}).get("enable", False):
+        stages.append("vad")
+    if cfg.get("band_filter", {}).get("enable", False):
+        stages.append("band_filter")
+    if cfg.get("utmos", {}).get("enable", False):
+        stages.append("utmos")
+    if cfg.get("sigmos", {}).get("enable", False):
+        stages.append("sigmos")
+    if cfg.get("speaker_separation", {}).get("enable", False):
+        stages.append("speaker_separation")
+    return stages
