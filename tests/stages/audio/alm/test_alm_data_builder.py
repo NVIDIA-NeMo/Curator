@@ -35,15 +35,15 @@ class TestALMDataBuilder:
         stage = ALMDataBuilderStage()
         assert stage.validate_input(AudioTask(data={"audio_filepath": "a.wav", "segments": []})) is False
 
-    def test_process_raises_on_missing_segments(self) -> None:
+    def test_process_batch_raises_on_missing_segments(self) -> None:
         stage = ALMDataBuilderStage()
-        with pytest.raises(ValueError, match="missing required columns"):
-            stage.process(AudioTask(data={"audio_filepath": "a.wav", "audio_sample_rate": 16000}))
+        with pytest.raises(ValueError, match="failed validation"):
+            stage.process_batch([AudioTask(data={"audio_filepath": "a.wav", "audio_sample_rate": 16000})])
 
-    def test_process_raises_on_missing_sample_rate(self) -> None:
+    def test_process_batch_raises_on_missing_sample_rate(self) -> None:
         stage = ALMDataBuilderStage()
-        with pytest.raises(ValueError, match="missing required columns"):
-            stage.process(AudioTask(data={"audio_filepath": "a.wav", "segments": []}))
+        with pytest.raises(ValueError, match="failed validation"):
+            stage.process_batch([AudioTask(data={"audio_filepath": "a.wav", "segments": []})])
 
     def test_creates_windows_from_sample(self, sample_entry: dict) -> None:
         stage = ALMDataBuilderStage(

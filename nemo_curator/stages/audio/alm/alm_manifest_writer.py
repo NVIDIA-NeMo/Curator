@@ -15,12 +15,13 @@
 """ALM Manifest Writer Stage — writes AudioTask dicts to a JSONL manifest."""
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from fsspec.core import url_to_fs
 from loguru import logger
 
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask
 
@@ -29,27 +30,27 @@ from nemo_curator.tasks import AudioTask, FileGroupTask
 class ALMManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
     """Append a single AudioTask to a JSONL manifest file.
 
-    The file is truncated on ``setup()`` so repeated pipeline runs
-    produce a clean output. Supports local and cloud paths via fsspec.
+    The output file is truncated once per node in ``setup_on_node()``
+    so repeated pipeline runs produce a clean output.
+    Supports local and cloud paths via fsspec.
 
     Args:
         output_path: Destination JSONL path (local or cloud).
     """
 
-    output_path: str = ""
     name: str = "alm_manifest_writer"
-    _setup_done: bool = field(default=False, init=False, repr=False)
+    output_path: str = ""
 
     def __post_init__(self) -> None:
         if not self.output_path:
             msg = "output_path is required for ALMManifestWriterStage"
             raise ValueError(msg)
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
-        if self._setup_done:
-            return
-        # Truncate to ensure a clean file; guard prevents re-truncation
-        # if setup() is called again (e.g. after Ray serialization).
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
         fs, path = url_to_fs(self.output_path)
         parent_dir = "/".join(path.split("/")[:-1])
         if parent_dir:
@@ -57,7 +58,6 @@ class ALMManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         with fs.open(path, "w", encoding="utf-8"):
             pass
         logger.info(f"ALMManifestWriterStage: writing to {self.output_path}")
-        self._setup_done = True
 
     def process(self, task: AudioTask) -> FileGroupTask:
         fs, path = url_to_fs(self.output_path)

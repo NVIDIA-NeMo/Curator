@@ -50,20 +50,22 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
     Dataset link: https://huggingface.co/datasets/google/fleurs
 
     Downloads all files, extracts them, and emits one ``AudioTask`` per
-    transcript line with ``audio_filepath`` and ``text`` fields.
+    transcript line keyed by ``filepath_key`` and ``text_key``.
 
     Args:
         lang: Language code (e.g. ``"hy_am"`` for Armenian).
         split: Dataset split (``"test"``, ``"train"``, or ``"dev"``).
         raw_data_dir: Folder for downloading and extracting the archive.
+        filepath_key: Key name used for the audio file path in each emitted entry.
+        text_key: Key name used for the transcript text in each emitted entry.
     """
 
+    name: str = "CreateInitialManifestFleurs"
     lang: str = ""
     split: str = ""
     raw_data_dir: str = ""
     filepath_key: str = "audio_filepath"
     text_key: str = "text"
-    name: str = "CreateInitialManifestFleurs"
     batch_size: int = 1
 
     def __post_init__(self) -> None:
@@ -71,6 +73,12 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
             if not getattr(self, attr):
                 msg = f"{attr} is required for CreateInitialManifestFleursStage"
                 raise ValueError(msg)
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.filepath_key, self.text_key]
 
     def process_transcript(self, file_path: str) -> list[AudioTask]:
         """Parse transcript TSV file and emit one AudioTask per line."""
@@ -84,12 +92,12 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
                     continue
 
                 file_name, transcript_text = parts[1], parts[2]
-                wav_file = os.path.join(root, file_name)
+                abs_wav = os.path.abspath(os.path.join(root, file_name))
 
                 entries.append(
                     AudioTask(
-                        data={self.filepath_key: os.path.abspath(wav_file), self.text_key: transcript_text},
-                        task_id=f"task_id_{file_path}",
+                        data={self.filepath_key: abs_wav, self.text_key: transcript_text},
+                        task_id=f"task_id_{abs_wav}",
                         dataset_name=f"Fleurs_{self.lang}_{self.split}_{self.raw_data_dir}",
                         filepath_key=self.filepath_key,
                     )

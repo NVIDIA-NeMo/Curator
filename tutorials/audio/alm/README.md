@@ -446,8 +446,8 @@ tests/stages/audio/alm/
 | `test_returns_file_group_task` | Returns `FileGroupTask` with output path, task_id, dataset_name |
 | `test_propagates_metadata_and_stage_perf` | `_metadata` and `_stage_perf` pass through to output task |
 | `test_appends_across_multiple_process_calls` | 3 sequential `process()` calls produce 3 lines |
-| `test_setup_truncates_existing_file` | `setup()` clears pre-existing file content |
-| `test_setup_creates_parent_directories` | `setup()` creates nested directories for output path |
+| `test_setup_truncates_existing_file` | `setup_on_node()` clears pre-existing file content |
+| `test_setup_creates_parent_directories` | `setup_on_node()` creates nested directories for output path |
 | `test_handles_unicode_content` | Japanese and accented characters survive write/read |
 | `test_preserves_nested_structures` | `windows[].segments[]` and `stats` dict survive serialization |
 | `test_empty_data_writes_nothing` | Empty `data=[]` writes no lines, still returns `FileGroupTask` |

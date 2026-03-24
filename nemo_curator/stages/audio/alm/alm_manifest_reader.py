@@ -81,12 +81,12 @@ class ALMManifestReader(CompositeStage[_EmptyTask, AudioTask]):
         storage_options: Storage options for cloud paths (S3, GCS credentials, endpoints).
     """
 
+    name: str = "alm_manifest_reader"
     manifest_path: str | list[str] = ""
     files_per_partition: int | None = 1
     blocksize: int | str | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
     storage_options: dict[str, Any] | None = None
-    name: str = "alm_manifest_reader"
 
     def __post_init__(self) -> None:
         super().__init__()

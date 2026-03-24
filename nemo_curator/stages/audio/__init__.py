@@ -21,7 +21,6 @@ including ASR inference, quality assessment, and ALM data preparation.
 
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
-    AudioTaskStage,
     GetAudioDurationStage,
     PreserveByValueStage,
 )
@@ -29,7 +28,6 @@ from nemo_curator.stages.audio.common import (
 __all__ = [
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
-    "AudioTaskStage",
     "GetAudioDurationStage",
     "PreserveByValueStage",
 ]

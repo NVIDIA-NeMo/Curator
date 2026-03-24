@@ -20,7 +20,7 @@ from nemo_curator.pipeline import Pipeline
 
 _EXECUTOR_FACTORIES = {
     "xenna": "nemo_curator.backends.xenna:XennaExecutor",
-    "ray_data": "nemo_curator.backends.experimental.ray_data:RayDataExecutor",
+    "ray_data": "nemo_curator.backends.ray_data:RayDataExecutor",
 }
 
 

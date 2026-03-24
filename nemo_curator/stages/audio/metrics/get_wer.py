@@ -16,7 +16,8 @@ from dataclasses import dataclass
 
 import editdistance
 
-from nemo_curator.stages.audio.common import AudioTaskStage
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 def get_wer(text: str, pred_text: str) -> float:
@@ -45,7 +46,7 @@ def get_wordrate(text: str, duration: float) -> float:
 
 
 @dataclass
-class GetPairwiseWerStage(AudioTaskStage):
+class GetPairwiseWerStage(ProcessingStage[AudioTask, AudioTask]):
     """Count pairwise word-error-rate (WER) * 100% for each pair of text and pred_text.
 
     WER is measured between ``data[self.text_key]`` and ``data[self.pred_text_key]``.
@@ -67,6 +68,6 @@ class GetPairwiseWerStage(AudioTaskStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.text_key, self.pred_text_key, self.wer_key]
 
-    def process_dataset_entry(self, data: dict) -> dict:
-        data[self.wer_key] = get_wer(data[self.text_key], data[self.pred_text_key])
-        return data
+    def process(self, task: AudioTask) -> AudioTask:
+        task.data[self.wer_key] = get_wer(task.data[self.text_key], task.data[self.pred_text_key])
+        return task

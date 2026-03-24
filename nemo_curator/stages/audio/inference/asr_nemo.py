@@ -12,28 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import nemo.collections.asr as nemo_asr
 import torch
 
-from nemo_curator.stages.audio.common import AudioTaskStage
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-if TYPE_CHECKING:
-    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-
 
 @dataclass
-class InferenceAsrNemoStage(AudioTaskStage):
+class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
     """Speech recognition inference using a NeMo ASR model.
 
-    Overrides ``process_batch`` for batched GPU inference
-    instead of ``process_dataset_entry``.
+    Overrides ``process_batch`` for batched GPU inference.
 
     Args:
         model_name: Pretrained NeMo ASR model name.
@@ -42,13 +37,13 @@ class InferenceAsrNemoStage(AudioTaskStage):
         pred_text_key: Key where the predicted transcription is stored.
     """
 
+    name: str = "ASR_inference"
     model_name: str = ""
     asr_model: Any | None = field(default=None, repr=False)
     filepath_key: str = "audio_filepath"
     pred_text_key: str = "pred_text"
-    name: str = "ASR_inference"
-    batch_size: int = 16
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    batch_size: int = 16
 
     def __post_init__(self) -> None:
         if not self.model_name and not self.asr_model:
@@ -101,23 +96,18 @@ class InferenceAsrNemoStage(AudioTaskStage):
 
         return [output.text for output in outputs]
 
+    def process(self, task: AudioTask) -> AudioTask:
+        return self.process_batch([task])[0]
+
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         if len(tasks) == 0:
             return []
-        self._validate_batch(tasks)
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
         files = [t.data[self.filepath_key] for t in tasks]
         texts = self.transcribe(files)
-        results = []
         for task, text in zip(tasks, texts, strict=True):
-            out_data = {**task.data, self.pred_text_key: text}
-            results.append(
-                AudioTask(
-                    data=out_data,
-                    task_id=task.task_id,
-                    dataset_name=task.dataset_name,
-                    filepath_key=task.filepath_key,
-                    _stage_perf=list(task._stage_perf),
-                    _metadata=task._metadata.copy(),
-                )
-            )
-        return results
+            task.data[self.pred_text_key] = text
+        return tasks

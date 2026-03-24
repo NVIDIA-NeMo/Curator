@@ -52,16 +52,16 @@ def test_pairwise_wer_validate_input_missing_pred_text() -> None:
     assert stage.validate_input(AudioTask(data={"text": "a b c"})) is False
 
 
-def test_pairwise_wer_process_raises_on_missing_text() -> None:
+def test_pairwise_wer_process_batch_raises_on_missing_text() -> None:
     stage = GetPairwiseWerStage()
-    with pytest.raises(ValueError, match="missing required columns"):
-        stage.process(AudioTask(data={"pred_text": "a x c"}))
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([AudioTask(data={"pred_text": "a x c"})])
 
 
-def test_pairwise_wer_process_raises_on_missing_pred_text() -> None:
+def test_pairwise_wer_process_batch_raises_on_missing_pred_text() -> None:
     stage = GetPairwiseWerStage()
-    with pytest.raises(ValueError, match="missing required columns"):
-        stage.process(AudioTask(data={"text": "a b c"}))
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([AudioTask(data={"text": "a b c"})])
 
 
 def test_pairwise_wer_stage() -> None:

@@ -27,7 +27,7 @@ class TestALMManifestWriter:
     def test_writes_entry_to_jsonl(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
-        writer.setup()
+        writer.setup_on_node()
 
         task = AudioTask(
             data={"audio_filepath": "a.wav", "duration": 1.0},
@@ -43,7 +43,7 @@ class TestALMManifestWriter:
     def test_returns_file_group_task(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
-        writer.setup()
+        writer.setup_on_node()
 
         task = AudioTask(data={"x": 1}, task_id="t1", dataset_name="ds")
         result = writer.process(task)
@@ -56,7 +56,7 @@ class TestALMManifestWriter:
     def test_propagates_metadata_and_stage_perf(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
-        writer.setup()
+        writer.setup_on_node()
 
         metadata = {"source_files": ["manifest.jsonl"]}
         stage_perf = {"some_stage": {"process_time": 0.5}}
@@ -75,7 +75,7 @@ class TestALMManifestWriter:
     def test_appends_across_multiple_process_calls(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
-        writer.setup()
+        writer.setup_on_node()
 
         writer.process(AudioTask(data={"entry": 1}, task_id="t1"))
         writer.process(AudioTask(data={"entry": 2}, task_id="t2"))
@@ -85,26 +85,26 @@ class TestALMManifestWriter:
         assert len(lines) == 3
         assert [json.loads(line)["entry"] for line in lines] == [1, 2, 3]
 
-    def test_setup_truncates_existing_file(self, tmp_path: Path) -> None:
+    def test_setup_on_node_truncates_existing_file(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         out.write_text('{"old": "data"}\n')
 
         writer = ALMManifestWriterStage(output_path=str(out))
-        writer.setup()
+        writer.setup_on_node()
 
         assert out.read_text() == ""
 
-    def test_setup_creates_parent_directories(self, tmp_path: Path) -> None:
+    def test_setup_on_node_creates_parent_directories(self, tmp_path: Path) -> None:
         out = tmp_path / "nested" / "deep" / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
-        writer.setup()
+        writer.setup_on_node()
 
         assert out.parent.exists()
 
     def test_handles_unicode_content(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
-        writer.setup()
+        writer.setup_on_node()
 
         task = AudioTask(data={"text": "日本語テスト", "speaker": "Ñoño"}, task_id="t1")
         writer.process(task)
@@ -116,7 +116,7 @@ class TestALMManifestWriter:
     def test_preserves_nested_structures(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ALMManifestWriterStage(output_path=str(out))
-        writer.setup()
+        writer.setup_on_node()
 
         entry = {
             "audio_filepath": "a.wav",
@@ -150,7 +150,7 @@ class TestALMManifestWriterRoundTrip:
         out = tmp_path / "round_trip.jsonl"
 
         writer = ALMManifestWriterStage(output_path=str(out))
-        writer.setup()
+        writer.setup_on_node()
         for i, entry in enumerate(sample_entries):
             task = AudioTask(data=entry, task_id=f"t{i}")
             writer.process(task)

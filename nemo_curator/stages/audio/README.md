@@ -1,22 +1,25 @@
 # Audio Stages Developer Guide
 
-All audio processing stages inherit from `AudioTaskStage` (defined in
-`common.py`), which itself inherits from the framework's `ProcessingStage`.
+All audio processing stages subclass `ProcessingStage[AudioTask, AudioTask]`
+directly — the same base class used by video, text, and image modalities.
+There is no audio-specific intermediate base class.
 
-Each `AudioTask` wraps a single manifest entry as a plain `dict`.  Stages
-read keys from that dict, add or modify keys, and return the result.
+Each `AudioTask` wraps a single manifest entry as a plain `dict` (backed by
+`_AttrDict` for attribute-style access).  Stages read keys from that dict,
+mutate it in-place, and return the same task object.
 
 ## Writing a CPU stage
 
-Override **one** method: `process_dataset_entry`.
+Override **one** method: `process`.
 
 ```python
 from dataclasses import dataclass
-from nemo_curator.stages.audio.common import AudioTaskStage
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class ComputeSNRStage(AudioTaskStage):
+class ComputeSNRStage(ProcessingStage[AudioTask, AudioTask]):
     """Compute signal-to-noise ratio for an audio file."""
 
     name: str = "ComputeSNRStage"
@@ -29,20 +32,18 @@ class ComputeSNRStage(AudioTaskStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.snr_key]
 
-    def process_dataset_entry(self, data: dict) -> dict | None:
-        # data is the manifest entry dict, e.g. {"audio_filepath": "/a.wav", ...}
-        data[self.snr_key] = _compute_snr(data[self.audio_filepath_key])
-        return data          # return dict to keep, or None to drop this entry
+    def process(self, task: AudioTask) -> AudioTask | None:
+        # task.data is the manifest entry dict, e.g. {"audio_filepath": "/a.wav", ...}
+        task.data[self.snr_key] = _compute_snr(task.data[self.audio_filepath_key])
+        return task          # return task to keep, or None to drop this entry
 ```
 
 That is it.  The base class handles:
 
-- **Input validation** — checks that `audio_filepath` exists in the entry
-  before your code runs (via `inputs()`).
-- **Task unwrapping / rewrapping** — you receive a plain `dict`, not an
-  `AudioTask`.  The base class wraps your returned dict in a new
-  `AudioTask` automatically.
-- **Filtering** — return `None` to drop an entry from the pipeline.
+- **Input validation** — `ProcessingStage.process_batch` checks that
+  `audio_filepath` exists in the entry before your code runs (via `inputs()`).
+- **Filtering** — return `None` from `process()` to drop an entry from
+  the pipeline (matching the text-modality filter convention).
 
 ### Lazy imports and `setup()`
 
@@ -59,17 +60,18 @@ def setup(self, worker_metadata=None) -> None:
 
 ## Writing a GPU or IO stage
 
-Override **one** method: `process_batch`.
+Override **`process_batch`** for batched processing, and provide a thin
+**`process`** that delegates to it (to satisfy the ABC contract).
 
 ```python
 from dataclasses import dataclass, field
-from nemo_curator.stages.audio.common import AudioTaskStage
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class InferenceSpeakerIDStage(AudioTaskStage):
+class InferenceSpeakerIDStage(ProcessingStage[AudioTask, AudioTask]):
     """Speaker identification using a GPU model."""
 
     name: str = "SpeakerID_inference"
@@ -91,35 +93,31 @@ class InferenceSpeakerIDStage(AudioTaskStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.filepath_key, self.speaker_key]
 
+    def process(self, task: AudioTask) -> AudioTask:
+        return self.process_batch([task])[0]
+
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         if len(tasks) == 0:
             return []
-        self._validate_batch(tasks)
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
         files = [t.data[self.filepath_key] for t in tasks]
         speaker_ids = self.model.get_label(files)       # one batched GPU call
-        results = []
         for task, sid in zip(tasks, speaker_ids, strict=True):
-            results.append(
-                AudioTask(
-                    data={**task.data, self.speaker_key: sid},
-                    task_id=task.task_id,
-                    dataset_name=task.dataset_name,
-                    filepath_key=task.filepath_key,
-                    _stage_perf=list(task._stage_perf),
-                    _metadata=task._metadata.copy(),
-                )
-            )
-        return results
+            task.data[self.speaker_key] = sid            # mutate in-place
+        return tasks
 ```
 
 Key differences from a CPU stage:
 
 | | CPU stage | GPU / IO stage |
 |---|---|---|
-| Override | `process_dataset_entry` | `process_batch` |
-| Receives | One `dict` | `list[AudioTask]` (the whole batch) |
-| Returns | `dict \| None` | `list[AudioTask]` (or `list[DocumentBatch]` for IO) |
-| Validation | Automatic (base `process_batch`) | Call `self._validate_batch(tasks)` |
+| Override | `process` | `process_batch` (+ thin `process` delegating to it) |
+| Receives | One `AudioTask` | `list[AudioTask]` (the whole batch) |
+| Returns | `AudioTask \| None` | `list[AudioTask]` (or `list[DocumentBatch]` for IO) |
+| Validation | Automatic (base `process_batch`) | Call `self.validate_input(task)` in a loop |
 | `batch_size` | Default `1` | Set to match GPU throughput or IO aggregation (e.g. `16`, `64`) |
 | `resources` | Default `cpus=1.0` | Set `gpus=1.0` for GPU stages; cpus for IO |
 
@@ -129,6 +127,8 @@ Key differences from a CPU stage:
   dicts into a single multi-row `pd.DataFrame` in one `DocumentBatch`,
   avoiding N single-row DataFrame allocations.  Not a GPU stage, but
   benefits from batched processing.
+- `ALMManifestWriterStage` (`alm/alm_manifest_writer.py`) — writes
+  entries to JSONL, returns `FileGroupTask`.
 
 ### Setting `batch_size` for GPU inference
 
@@ -141,7 +141,7 @@ inference call.
 
 ```python
 @dataclass
-class InferenceAsrNemoStage(AudioTaskStage):
+class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
     batch_size: int = 16      # default for this stage
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 ```
@@ -209,52 +209,41 @@ Every stage (CPU or GPU) should declare:
 
 To drop an entry from the pipeline:
 
-- **CPU stage**: return `None` from `process_dataset_entry`.
+- **CPU filter stage**: return `None` from `process()` **and** override
+  `process_batch` to filter out `None` results before returning.  This is
+  necessary because the base `ProcessingStage.process_batch` appends all
+  results (including `None`) to the list, and the backend adapter calls
+  `task.add_stage_perf()` on every element.  See `PreserveByValueStage`
+  in `common.py` for the canonical pattern.
 - **GPU / IO stage**: omit the entry from the returned list in `process_batch`.
 
 ## Method reference
 
-`AudioTaskStage` provides three methods.  Each exists for a reason that
-cannot be collapsed further:
+Audio stages use two methods from `ProcessingStage`:
 
 ```
-process_dataset_entry(dict) -> dict | None
-    CPU-stage hook.  Dict in, dict out.  Eliminates unwrap/rewrap
-    boilerplate for CPU stages.  Five+ concrete stages use this.
+process(AudioTask) -> AudioTask | None
+    The primary hook for CPU stages.  Receives a single task, mutates
+    task.data in-place, and returns the task (or None to filter).
+    GPU stages provide a thin wrapper that delegates to process_batch.
 
 process_batch(list[AudioTask]) -> list[AudioTask]
-    The real entry point called by backends.  Default implementation
-    validates every task via _validate_batch(), then loops via
-    process_dataset_entry, wrapping each returned dict in a new
-    AudioTask.
-    GPU stages and IO stages (e.g. AudioToDocumentStage) override
-    this entirely for batched processing.
-
-process(AudioTask) -> AudioTask | list[AudioTask]
-    Required by the abstract ProcessingStage base.  Delegates to
-    process_batch([task]).  Cannot hold logic itself because backends
-    call process_batch directly with N tasks; putting logic here
-    would force process_batch to loop through process per task,
-    preventing GPU stages from batching N tasks in one kernel call.
+    The entry point called by backends.  The base ProcessingStage
+    implementation validates each task via validate_input(), then
+    loops calling process() per task.
+    GPU stages and IO stages override this entirely for batched
+    processing.
 ```
 
-**Why not fewer?**
+**Why both?**
 
-- Removing `process_dataset_entry` would force every CPU stage to
-  unwrap/rewrap `AudioTask` manually — pure boilerplate for 5+ stages.
-- Removing `process_batch` is impossible — it's the backend entry point.
-- Removing `process` is impossible — it's required by `ProcessingStage` ABC.
-
-**Helper method:**
-
-```
-_validate_batch(list[AudioTask]) -> None
-    Validates every task in the batch against inputs().
-    Raises ValueError on the first task that fails.
-    GPU stages call this at the top of their process_batch
-    override.  CPU stages get it for free from the default
-    process_batch.
-```
+- `process_batch` is the backend entry point — backends always call it
+  with N tasks.
+- `process` is the natural single-task hook for CPU stages — no
+  boilerplate to handle lists.
+- GPU stages override `process_batch` to receive the full batch for one
+  batched kernel call.  Their `process()` simply delegates to
+  `process_batch([task])[0]`.
 
 ## Optimizations in the base class
 
@@ -267,7 +256,7 @@ _validate_batch(list[AudioTask]) -> None
    instead of `not tasks` because Ray Data's `map_batches` passes
    `tasks` as a numpy array, and `not ndarray` raises `ValueError`
    for arrays with more than one element.  This applies to
-   `process_batch` in the base class, `InferenceAsrNemoStage`, and
+   `process_batch` in `InferenceAsrNemoStage` and
    `AudioToDocumentStage`.
 
 ## How backends parallelise your stage
@@ -318,8 +307,8 @@ For a CPU stage with default `resources=Resources(cpus=1.0)` and
 ```
 
 Each `process_batch([single_task])` call goes through:
-`AudioTaskStage.process_batch` → validate all tasks →
-`process_dataset_entry(data)` → your code.
+`ProcessingStage.process_batch` → `validate_input(task)` →
+`stage.process(task)` → your code.
 
 ### GPU stage parallelism
 
@@ -346,8 +335,8 @@ For a GPU stage with `resources=Resources(cpus=1.0, gpus=1.0)` and
 ```
 
 Each `process_batch([16 tasks])` call goes directly to:
-`InferenceAsrNemoStage.process_batch` → `_validate_batch` →
-extract filepaths → **one** batched GPU call → build result `AudioTask`s.
+`InferenceAsrNemoStage.process_batch` → `validate_input` per task →
+extract filepaths → **one** batched GPU call → mutate each task in-place.
 
 ### Xenna specifics
 
@@ -381,7 +370,7 @@ transformations as Ray Data `map_batches` operations.  Audio stages
 work with Ray Data without modification.
 
 ```python
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 
 executor = RayDataExecutor()
 pipeline.run(executor)
@@ -480,21 +469,20 @@ pipeline.run(executor)
 │         └─ return results                                                                      │
 │                                                                                                │
 │   ┌────────────────────────────────────────────────────────────────────────────────────────────┘
-│   │  AudioTaskStage.process_batch()             (default — NOT overridden for CPU stages)
-│   │    stages/audio/common.py                   if len(tasks) == 0: return []
-│   │    stages/audio/common.py                   _validate_batch(tasks) — checks inputs() on every task
-│   │    stages/audio/common.py                   for task in tasks:
-│   │      result = self.process_dataset_entry(task.data)
+│   │  ProcessingStage.process_batch()              (base class — NOT overridden for CPU stages)
+│   │    stages/base.py                             for task in tasks:
+│   │      if not self.validate_input(task): raise ValueError(...)
+│   │      result = self.process(task)
 │   │        │
 │   │    ┌───┘
-│   │    │  GetAudioDurationStage.process_dataset_entry(data)
+│   │    │  GetAudioDurationStage.process(task)
 │   │    │    stages/audio/common.py
-│   │    │    audio_filepath = data[self.audio_filepath_key]
+│   │    │    audio_filepath = task.data[self.audio_filepath_key]
 │   │    │    raw, samplerate = soundfile.read(audio_filepath)
-│   │    │    data[self.duration_key] = raw.shape[0] / samplerate
-│   │    │    return data                          (mutated in-place)
+│   │    │    task.data[self.duration_key] = raw.shape[0] / samplerate
+│   │    │    return task                           (mutated in-place)
 │   │    │
-│   │    wrap result in new AudioTask              (preserves task_id, metadata, etc.)
+│   │    append result to results list
 │   └─ return results
 ```
 
@@ -516,7 +504,9 @@ pipeline.run(executor)
 │
 ├─ Per worker — one-time setup:
 │   backends/xenna/adapter.py                      XennaStageAdapter.setup_on_node()
-│     → stages/audio/inference/asr_nemo.py           (inherits default — no override)
+│     → stages/audio/inference/asr_nemo.py           InferenceAsrNemoStage.setup_on_node()
+│       nemo_asr.models.ASRModel.from_pretrained(model_name, return_model_file=True)
+│       (downloads model to shared cache — one download per node)
 │   backends/xenna/adapter.py                      XennaStageAdapter.setup()
 │     → backends/base.py                             stage.setup(worker_metadata)
 │       → stages/audio/inference/asr_nemo.py           InferenceAsrNemoStage.setup()
@@ -534,7 +524,7 @@ pipeline.run(executor)
 │   ┌────────────────────────────────────────────────────────────────────────────────────────────┘
 │   │  InferenceAsrNemoStage.process_batch()       (OVERRIDDEN — batched GPU)
 │   │    stages/audio/inference/asr_nemo.py
-│   │    _validate_batch(tasks)                    schema check on every task
+│   │    validate_input(task) per task              schema check
 │   │    files = [t.data[self.filepath_key] for t in tasks]
 │   │                                                → list of 16 audio file paths
 │   │    texts = self.transcribe(files)
@@ -543,8 +533,8 @@ pipeline.run(executor)
 │   │          → ONE batched GPU kernel call for all 16 files
 │   │        return [output.text for output in outputs]
 │   │    for task, text in zip(tasks, texts):
-│   │      AudioTask(data={**task.data, pred_text_key: text}, ...)
-│   └─ return results                              → 16 AudioTask results
+│   │      task.data[self.pred_text_key] = text     (mutate in-place)
+│   └─ return tasks                                 → same 16 AudioTask objects
 ```
 
 ## Memory characteristics of `AudioTask`
@@ -639,7 +629,7 @@ one `AudioTask` per line (394 entries for `en_us` dev).
 
 ```
 AudioTask(
-  task_id      = "task_id_./example_audio/fleurs_en/dev.tsv",
+  task_id      = "task_id_/home/user/example_audio/fleurs_en/dev/10146705666908229607.wav",
   dataset_name = "Fleurs_en_us_dev_./example_audio/fleurs_en",
   filepath_key = "audio_filepath",
   data = {
@@ -655,7 +645,7 @@ AudioTask(
 
 Loads `nvidia/parakeet-tdt-0.6b-v2` onto the GPU.  Receives a batch
 of 16 `AudioTask`s, extracts file paths, runs one batched
-`transcribe()` call, and writes predictions back.
+`transcribe()` call, and writes predictions back **in-place**.
 
 **Output** — `data` gains `pred_text`:
 
@@ -708,13 +698,13 @@ Opens the WAV file with `soundfile`, reads `shape[0] / samplerate`.
 
 Filters: keep only entries where `wer <= 75.0`.
 
-- This entry has `wer = 0.0` → **kept** (returns same `data` dict).
+- This entry has `wer = 0.0` → **kept** (returns same task).
 - An entry with `wer = 88.5` would be **dropped** (returns `None`).
 
 In this run all 394 entries passed (max WER was 50.0% — the Parakeet
 model transcribes English FLEURS very accurately).
 
-**Output**: unchanged `data` dict (5 keys), or entry removed from pipeline.
+**Output**: unchanged task, or entry removed from pipeline.
 
 ### Stage 6: `AudioToDocumentStage`
 
@@ -724,7 +714,7 @@ single-row `pd.DataFrame`:
 
 ```
 DocumentBatch(
-  task_id      = "task_id_./example_audio/fleurs_en/dev.tsv",
+  task_id      = "task_id_/home/user/.../10146705666908229607.wav,...",
   dataset_name = "Fleurs_en_us_dev_./example_audio/fleurs_en",
   data = pd.DataFrame({
     "audio_filepath": ["/home/user/example_audio/fleurs_en/dev/10146705666908229607.wav"],
@@ -990,19 +980,24 @@ Appends the entry as a single JSON line to
 | Stage | Keys in `data` | Notable changes | Mutates in-place? |
 |---|---|---|---|
 | `ALMManifestReader` | 54 (all original) | N/A (creates from JSONL line) | N/A |
-| `ALMDataBuilderStage` | 55 (−2, +3) | Drops `segments`/`words`; adds `windows`, `stats`, `truncation_events` | No (new dict) |
-| `ALMDataOverlapStage` | 64 (+9) | Adds `filtered_windows`, `filtered_dur`, overlap metadata | No (new dict via `.copy()`) |
+| `ALMDataBuilderStage` | 55 (−2, +3) | Drops `segments`/`words`; adds `windows`, `stats`, `truncation_events` | Yes (clear + update) |
+| `ALMDataOverlapStage` | 64 (+9) | Adds `filtered_windows`, `filtered_dur`, overlap metadata | Yes (clear + update) |
 | `ALMManifestWriterStage` | — | Writes JSON line to disk, returns `FileGroupTask` | N/A |
 
 ---
 
 ## Quick checklist for adding a new audio stage
 
-1. Subclass `AudioTaskStage` (not `ProcessingStage` directly)
-2. Implement `inputs()` and `outputs()` to declare required/produced keys
-3. For CPU stages: override `process_dataset_entry(data: dict) -> dict | None`
-4. For GPU / IO stages: override `process_batch(tasks) -> list[AudioTask]`,
-   call `self._validate_batch(tasks)` at the top, guard with
-   `if len(tasks) == 0: return []`
-5. Declare GPU resources via `.with_(resources=Resources(gpus=1.0))`
-6. Add tests in `tests/stages/audio/` using `AudioTask` for fixtures
+1. Subclass `ProcessingStage[AudioTask, AudioTask]`
+2. Order dataclass fields: `name` first, stage-specific params, then `resources`, then `batch_size`
+3. Implement `inputs()` and `outputs()` to declare required/produced keys
+4. For CPU stages: override `process(task: AudioTask) -> AudioTask | None`
+   — mutate `task.data` in-place and return `task` (or `None` to filter)
+5. For filtering stages: also override `process_batch` to filter out `None`
+   results (see `PreserveByValueStage` in `common.py`)
+6. For GPU / IO stages: override `process_batch(tasks) -> list[AudioTask]`,
+   call `self.validate_input(task)` per task at the top, guard with
+   `if len(tasks) == 0: return []`.  Add a thin
+   `process(task) -> AudioTask` that delegates to `process_batch([task])[0]`.
+7. Declare GPU resources via `.with_(resources=Resources(gpus=1.0))`
+8. Add tests in `tests/stages/audio/` using `AudioTask` for fixtures

@@ -55,8 +55,3 @@ def test_process_batch_empty() -> None:
     stage = AudioToDocumentStage()
     result = stage.process_batch([])
     assert result == []
-
-
-def test_batch_size_default() -> None:
-    stage = AudioToDocumentStage()
-    assert stage.batch_size == 64
