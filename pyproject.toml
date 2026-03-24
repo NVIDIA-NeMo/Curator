@@ -180,6 +180,18 @@ math_cuda12 = [
     "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
+# Interleaved / PDF Curation Dependencies
+interleaved_cpu = [
+    "opencv-python",
+    "pypdfium2",
+]
+
+interleaved_cuda12 = [
+    "nemo_curator[interleaved_cpu]",
+    "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
+]
+
 # Synthetic Data Generation (SDG) Dependencies
 sdg_cpu = [
     "data-designer==0.4.0",
@@ -196,6 +208,7 @@ all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
+    "nemo_curator[interleaved_cuda12]",
     "nemo_curator[math_cuda12]",
     "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
