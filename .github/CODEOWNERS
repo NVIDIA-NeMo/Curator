@@ -11,12 +11,18 @@ tests/stages/deduplication/ @ayushdg @praateekmahajan
 # Documentation
 docs/ @NVIDIA-NeMo/docs_team
 
-# CI/CD
+# CI/CD and Build Configuration
 .github/ @NVIDIA-NeMo/automation
+codecov.yml @NVIDIA-NeMo/automation
+docker/ @NVIDIA-NeMo/automation
+pyproject.toml @NVIDIA-NeMo/automation
+uv.lock @NVIDIA-NeMo/automation
 
 # Text Embedders and Classifiers
 nemo_curator/stages/text/embedders/ @sarahyurick @praateekmahajan @VibhuJawa
+tests/stages/text/embedders/ @sarahyurick @praateekmahajan @VibhuJawa
 nemo_curator/stages/text/classifiers/ @sarahyurick @praateekmahajan @VibhuJawa
+tests/stages/text/classifiers/ @sarahyurick @praateekmahajan @VibhuJawa
 
 # Backends
 nemo_curator/backends/ @oyilmaz-nvidia @praateekmahajan @abhinavg4 @ayushdg
