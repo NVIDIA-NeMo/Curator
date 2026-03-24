@@ -9,7 +9,7 @@ nemo_curator/stages/deduplication/ @ayushdg @praateekmahajan
 tests/stages/deduplication/ @ayushdg @praateekmahajan
 
 # Documentation
-docs/ @lbliii
+docs/ @NVIDIA-NeMo/docs_team
 
 # CI/CD
 .github/ @NVIDIA-NeMo/automation
