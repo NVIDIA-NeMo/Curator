@@ -1,60 +1,102 @@
 name: Set docs to "Ready to Document" when status is Done
 
 on:
-  projects_v2_item:
-    types: [edited]
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
 
 jobs:
   update-docs-stage:
     runs-on: ubuntu-latest
-    if: github.event.changes.field_value.field_node_id == 'PVTSSF_lADODLylHc4A8S01zgwVgOk'
+    env:
+      GH_TOKEN: ${{ secrets.PAT }}
+      PROJECT_ID: "PVT_kwDODLylHc4A8S01"
+      DONE_OPTION_ID: "98236657"
+      DOCUMENTATION_STAGE_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJjRA"
+      DOCS_NOT_STARTED_OPTION_ID: "36e5dca1"
+      READY_TO_DOCUMENT_OPTION_ID: "80d991f6"
     steps:
-      - name: Check if status is Done and update docs stage
-        env:
-          GH_TOKEN: ${{ secrets.PAT }}
-          PROJECT_ID: "PVT_kwDODLylHc4A8S01"
-          ITEM_ID: ${{ github.event.projects_v2_item.node_id }}
-          DONE_OPTION_ID: "98236657"
-          DOCUMENTATION_STAGE_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJjRA"
-          DOCS_NOT_STARTED_OPTION_ID: "36e5dca1"
-          READY_TO_DOCUMENT_OPTION_ID: "80d991f6"
+      - name: Find recently Done items with unstarted docs and update them
         run: |
-          # Query the item's current Status and Documentation Stage values
-          RESULT=$(gh api graphql -f query='
-            query($itemId: ID!) {
-              node(id: $itemId) {
-                ... on ProjectV2Item {
-                  status: fieldValueByName(name: "Status") {
-                    ... on ProjectV2ItemFieldSingleSelectValue { optionId }
-                  }
-                  docs: fieldValueByName(name: "Documentation Stage") {
-                    ... on ProjectV2ItemFieldSingleSelectValue { optionId }
+          # Only process items updated in the last 3 hours (covers 2-hour cron with buffer)
+          CUTOFF=$(date -u -d '3 hours ago' '+%Y-%m-%dT%H:%M:%SZ')
+          echo "Processing items updated after $CUTOFF"
+
+          # Fetch all project items with Status and Documentation Stage, paginating
+          CURSOR=""
+          ALL_ITEMS="[]"
+
+          while true; do
+            if [ -z "$CURSOR" ]; then
+              AFTER_ARG=""
+            else
+              AFTER_ARG=", after: \"$CURSOR\""
+            fi
+
+            RESULT=$(gh api graphql -f query="
+              query {
+                node(id: \"$PROJECT_ID\") {
+                  ... on ProjectV2 {
+                    items(first: 100${AFTER_ARG}) {
+                      pageInfo { hasNextPage endCursor }
+                      nodes {
+                        id
+                        updatedAt
+                        status: fieldValueByName(name: \"Status\") {
+                          ... on ProjectV2ItemFieldSingleSelectValue { optionId }
+                        }
+                        docs: fieldValueByName(name: \"Documentation Stage\") {
+                          ... on ProjectV2ItemFieldSingleSelectValue { optionId }
+                        }
+                      }
+                    }
                   }
                 }
               }
-            }
-          ' -f itemId="$ITEM_ID")
+            ")
 
-          STATUS=$(echo "$RESULT" | jq -r '.data.node.status.optionId')
-          DOCS=$(echo "$RESULT" | jq -r '.data.node.docs.optionId')
+            NODES=$(echo "$RESULT" | jq '.data.node.items.nodes')
+            ALL_ITEMS=$(echo "$ALL_ITEMS $NODES" | jq -s '.[0] + .[1]')
 
-          echo "Status: $STATUS, Documentation Stage: $DOCS"
+            HAS_NEXT=$(echo "$RESULT" | jq -r '.data.node.items.pageInfo.hasNextPage')
+            if [ "$HAS_NEXT" != "true" ]; then
+              break
+            fi
+            CURSOR=$(echo "$RESULT" | jq -r '.data.node.items.pageInfo.endCursor')
+          done
 
-          if [ "$STATUS" = "$DONE_OPTION_ID" ] && [ "$DOCS" = "$DOCS_NOT_STARTED_OPTION_ID" ]; then
-            echo "Status is Done and docs are Required - Not Ready — setting to Ready to Document"
-            gh api graphql -f query='
-              mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: String!) {
+          TOTAL=$(echo "$ALL_ITEMS" | jq 'length')
+          echo "Fetched $TOTAL total project items"
+
+          # Filter to recently updated items, then find Status=Done with docs unset/Not Started
+          ITEMS_TO_UPDATE=$(echo "$ALL_ITEMS" | jq -c --arg cutoff "$CUTOFF" --arg done "$DONE_OPTION_ID" --arg notStarted "$DOCS_NOT_STARTED_OPTION_ID" '[
+            .[] | select(
+              .updatedAt > $cutoff and
+              .status.optionId == $done and
+              (.docs == null or .docs.optionId == $notStarted)
+            )
+          ]')
+
+          COUNT=$(echo "$ITEMS_TO_UPDATE" | jq 'length')
+          echo "Found $COUNT items with Status=Done and docs unset or Not Started"
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "Nothing to update"
+            exit 0
+          fi
+
+          # Update each matching item
+          echo "$ITEMS_TO_UPDATE" | jq -c '.[]' | while read -r ITEM; do
+            ITEM_ID=$(echo "$ITEM" | jq -r '.id')
+            echo "Setting Documentation Stage to Ready to Document for item $ITEM_ID"
+
+            gh api graphql -f query="
+              mutation {
                 updateProjectV2ItemFieldValue(input: {
-                  projectId: $projectId, itemId: $itemId,
-                  fieldId: $fieldId,
-                  value: { singleSelectOptionId: $value }
+                  projectId: \"$PROJECT_ID\", itemId: \"$ITEM_ID\",
+                  fieldId: \"$DOCUMENTATION_STAGE_FIELD_ID\",
+                  value: { singleSelectOptionId: \"$READY_TO_DOCUMENT_OPTION_ID\" }
                 }) { projectV2Item { id } }
               }
-            ' \
-              -f projectId="$PROJECT_ID" \
-              -f itemId="$ITEM_ID" \
-              -f fieldId="$DOCUMENTATION_STAGE_FIELD_ID" \
-              -f value="$READY_TO_DOCUMENT_OPTION_ID"
-          else
-            echo "Conditions not met — skipping"
-          fi
+            "
+          done
