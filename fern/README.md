@@ -73,14 +73,32 @@ Variables are defined in `substitute_variables.py` (e.g. `{{ product_name }}`, `
 
 ## CI/CD
 
-Documentation is automatically built and deployed via GitHub Actions:
+Documentation is managed via three GitHub Actions workflows:
 
-- **Pull Requests**: Preview deployments generated
-- **Main branch**: Production deployment
+| Workflow | Trigger | Purpose |
+|---|---|---|
+| `fern-docs-ci.yml` | PR touching `fern/**` | Validates autodocs generation |
+| `fern-docs-preview.yml` | PR touching `fern/**` | Builds a preview site and posts a :herb: comment on the PR |
+| `publish-fern-docs.yml` | `docs/v*` tag push or manual dispatch | Publishes to production at [docs.nvidia.com/nemo/curator](https://docs.nvidia.com/nemo/curator) |
 
-Required secrets:
+### Previewing
 
-- `FERN_TOKEN`: API token from Fern dashboard
+Every PR that touches `fern/**` automatically gets a Fern preview URL posted as a PR comment. The preview updates on each push to the same branch (stable URL per branch name). No action needed — just open a PR.
+
+### Publishing to Production
+
+Push a docs tag:
+
+```bash
+git tag docs/v1.1.0
+git push origin docs/v1.1.0
+```
+
+Or trigger manually from the **Actions** tab → **Publish Fern Docs** → **Run workflow**.
+
+### Required Secrets
+
+- `DOCS_FERN_TOKEN`: Fern API token (org-level secret in the nemo org)
 
 ## Migration from Sphinx
 
@@ -91,7 +109,7 @@ This documentation was migrated from Sphinx MyST format. See [RFC-FERN-MIGRATION
 1. Make changes to MDX files in `versions/v26.02/pages/` (latest version)
 2. Run `fern check` to validate
 3. Test locally with `fern docs dev`
-4. Submit PR for review
+4. Submit PR — a preview URL will be posted automatically as a PR comment
 
 ### Adding New Pages
 

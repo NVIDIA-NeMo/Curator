@@ -25,8 +25,6 @@ name: Preview Fern Docs
 on:
   pull_request_target:
     types: [opened, synchronize, ready_for_review]
-    branches:
-      - docs-website
     paths:
       - 'fern/**'
       - '.github/workflows/fern-docs-preview.yml'
@@ -53,6 +51,8 @@ jobs:
         uses: fern-api/setup-fern-cli@v1
 
       - name: Generate library reference MDX (autodocs)
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         working-directory: ./fern
         run: fern docs md generate
 
