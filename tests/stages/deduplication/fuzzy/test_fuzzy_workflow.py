@@ -227,11 +227,11 @@ class TestFuzzyDuplicates:
             for got_group, expected_group in zip(result_df, duplicate_docs, strict=False)
         )
         if lsh_num_output_partitions is not None:
-            for i in range(0, num_bands, bands_per_iteration):
-                assert (
-                    len(os.listdir(cache_path / "LSHStage" / f"band_{i}-band_{i + bands_per_iteration}"))
-                    == lsh_num_output_partitions
-                )
+            for band_start in range(0, num_bands, bands_per_iteration):
+                band_end = min(band_start + bands_per_iteration, num_bands)
+                band_dir = cache_path / "LSHStage" / f"band_{band_start}-band_{band_end}"
+                parquet_files = [f for f in os.listdir(band_dir) if f.endswith(".parquet")]
+                assert len(parquet_files) == lsh_num_output_partitions
 
         removal_ids_df = cudf.read_parquet(output_path / DUPLICATE_IDS_SUBDIR)
         removal_ids_df = removal_ids_df.merge(original_df_with_curator_ids, on=CURATOR_DEDUP_ID_STR, how="left")

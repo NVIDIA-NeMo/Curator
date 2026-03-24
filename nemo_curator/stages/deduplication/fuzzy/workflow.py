@@ -144,6 +144,14 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             Total number of partitions to write during the LSH shuffle.
             If None, the number of partitions will be decided automatically by the executor
             as the closest power of 2 <= number of input tasks.
+        lsh_rmm_pool_size: int | Literal["auto"] | None = "auto"
+            Size of the RMM GPU memory pool in bytes for the LSH stage.
+            If "auto", the memory pool is set to 90% of the free GPU memory.
+            If None, the memory pool is set to 50% of free GPU memory and can expand if needed.
+        lsh_spill_memory_limit: int | Literal["auto"] | None = "auto"
+            Device memory limit in bytes for spilling to host during the LSH stage.
+            If "auto", the limit is set to 80% of the RMM pool size.
+            If None, spilling is disabled.
         """
         self.input_path = input_path
         self.cache_path = cache_path
