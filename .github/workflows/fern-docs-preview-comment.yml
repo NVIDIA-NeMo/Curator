@@ -93,7 +93,8 @@ jobs:
           fi
 
           BASE_URL=$(echo "$PREVIEW_URL" | grep -oP 'https?://[^/]+')
-          FILES_PARAM=$(echo "$CHANGED_FILES" | tr '\n' ',' | sed 's/,$//')
+          FILES_PARAM=$(echo "$CHANGED_FILES" | tr '\n' ',' | sed 's/,$//' \
+            | python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read().strip(), safe=',/'))")
           RESPONSE=$(curl -sf -H "FERN_TOKEN: $FERN_TOKEN" "${PREVIEW_URL}/api/fern-docs/get-slug-for-file?files=${FILES_PARAM}" 2>/dev/null) || {
             echo "page_links=" >> "$GITHUB_OUTPUT"; exit 0
           }
