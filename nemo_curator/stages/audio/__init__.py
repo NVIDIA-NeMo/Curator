@@ -23,11 +23,6 @@ from nemo_curator.stages.audio.segmentation import (
     VADSegmentationStage,
 )
 
-from nemo_curator.stages.audio.configs import (
-    VADConfig,
-)
-
 __all__ = [
     "VADSegmentationStage",
-    "VADConfig",
 ]
