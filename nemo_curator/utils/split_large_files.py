@@ -64,7 +64,7 @@ def _split_table(table: pa.Table, target_size: int) -> list[pa.Table]:
     return results
 
 
-def _write_table_to_file(
+def _write_table_to_file(  # noqa: PLR0913
     table: pa.Table,
     output_path: str,
     output_prefix: str,
@@ -148,7 +148,7 @@ Target size: {target_size_mb} MB
                 )
 
 
-def _flush_jsonl_chunk(
+def _flush_jsonl_chunk(  # noqa: PLR0913
     lines: list[bytes],
     output_path: str,
     outfile_prefix: str,
