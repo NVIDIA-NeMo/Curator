@@ -28,6 +28,8 @@ jobs:
       VDR_DEFAULT_OPTION_ID: "894a1a7c"
     steps:
       - name: Find recently added items with unset fields and set defaults
+        env:
+          LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '3' }}
         run: |
           set_field() {
             local item_id="$1" field_id="$2" option_id="$3"
@@ -43,7 +45,7 @@ jobs:
           }
 
           # Only process items added in the lookback window (default 3 hours covers 2-hour cron with buffer)
-          HOURS="${{ github.event.inputs.lookback_hours || '3' }}"
+          HOURS="${LOOKBACK_HOURS:-3}"
           CUTOFF=$(date -u -d "$HOURS hours ago" '+%Y-%m-%dT%H:%M:%SZ')
           echo "Processing items created after $CUTOFF"
 

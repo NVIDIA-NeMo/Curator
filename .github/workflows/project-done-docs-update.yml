@@ -22,9 +22,11 @@ jobs:
       READY_TO_DOCUMENT_OPTION_ID: "80d991f6"
     steps:
       - name: Find recently Done items with unstarted docs and update them
+        env:
+          LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '3' }}
         run: |
           # Only process items updated in the lookback window (default 3 hours covers 2-hour cron with buffer)
-          HOURS="${{ github.event.inputs.lookback_hours || '3' }}"
+          HOURS="${LOOKBACK_HOURS:-3}"
           CUTOFF=$(date -u -d "$HOURS hours ago" '+%Y-%m-%dT%H:%M:%SZ')
           echo "Processing items updated after $CUTOFF"
 
