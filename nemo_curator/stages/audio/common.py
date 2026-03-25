@@ -140,7 +140,7 @@ def load_audio_file(audio_path: str, mono: bool = True) -> tuple[torch.Tensor, i
     return waveform, sample_rate
 
 
-def ensure_waveform_2d(waveform: Any) -> torch.Tensor:
+def ensure_waveform_2d(waveform: Any) -> torch.Tensor:  # noqa: ANN401
     """Ensure waveform is a torch.Tensor in 2D (channels, samples) format."""
     if not torch.is_tensor(waveform):
         waveform = torch.as_tensor(waveform, dtype=torch.float32)
@@ -177,7 +177,7 @@ def resolve_waveform_from_item(
                 waveform, sample_rate = load_audio_file(audio_filepath, mono=mono)
                 item["waveform"] = waveform
                 item["sample_rate"] = sample_rate
-            except Exception as e:
+            except (OSError, RuntimeError, soundfile.SoundFileError) as e:
                 logger.error(f"[{task_id}] Failed to load audio file: {e}")
                 return None
         else:
@@ -190,7 +190,7 @@ def resolve_waveform_from_item(
                 info = soundfile.info(audio_filepath)
                 sample_rate = info.samplerate
                 item["sample_rate"] = sample_rate
-            except Exception as e:
+            except (OSError, RuntimeError, soundfile.SoundFileError) as e:
                 logger.error(f"[{task_id}] Waveform present but sample_rate missing "
                              f"and could not read from '{audio_filepath}': {e}")
                 return None

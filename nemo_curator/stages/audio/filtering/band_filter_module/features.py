@@ -22,30 +22,30 @@ class AudioFeatureExtractor:
     """Audio feature extractor for band energy classification."""
 
     BAND_DEFINITIONS = {
-        'low1': (0, 1000),
-        'low2': (1000, 2000),
-        'low3': (2000, 3000),
-        'mid1': (3000, 4000),
-        'mid2': (4000, 5000),
-        'mid3': (5000, 6000),
-        'mid4': (6000, 7000),
-        'mid5': (7000, 8000),
-        'mid6': (8000, 9000),
-        'mid7': (9000, 10000),
-        'mid8': (10000, 11000),
-        'mid9': (11000, 12000),
-        'mid10': (12000, 13000),
-        'high': (13000, 14000),
-        'high1': (14000, 15000),
-        'high2': (15000, 16000),
-        'high3': (16000, 17000),
-        'high4': (17000, 18000),
-        'high5': (18000, 19000),
-        'high6': (19000, 20000),
-        'high7': (20000, 21000),
-        'high8': (21000, 22000),
-        'high9': (22000, 23000),
-        'high10': (23000, 24000),
+        "low1": (0, 1000),
+        "low2": (1000, 2000),
+        "low3": (2000, 3000),
+        "mid1": (3000, 4000),
+        "mid2": (4000, 5000),
+        "mid3": (5000, 6000),
+        "mid4": (6000, 7000),
+        "mid5": (7000, 8000),
+        "mid6": (8000, 9000),
+        "mid7": (9000, 10000),
+        "mid8": (10000, 11000),
+        "mid9": (11000, 12000),
+        "mid10": (12000, 13000),
+        "high": (13000, 14000),
+        "high1": (14000, 15000),
+        "high2": (15000, 16000),
+        "high3": (16000, 17000),
+        "high4": (17000, 18000),
+        "high5": (18000, 19000),
+        "high6": (19000, 20000),
+        "high7": (20000, 21000),
+        "high8": (21000, 22000),
+        "high9": (22000, 23000),
+        "high10": (23000, 24000),
     }
 
     @staticmethod
@@ -56,7 +56,7 @@ class AudioFeatureExtractor:
         Returns:
             Dictionary with all band energy feature keys initialized to 0.0
         """
-        return {f'band_energy_{band}': 0.0 for band in AudioFeatureExtractor.BAND_DEFINITIONS}
+        return {f"band_energy_{band}": 0.0 for band in AudioFeatureExtractor.BAND_DEFINITIONS}
 
     @staticmethod
     def calculate_band_energy(y: np.ndarray, sr: int) -> dict[str, float]:
@@ -99,17 +99,17 @@ class AudioFeatureExtractor:
                 mask = (freqs >= f_min) & (freqs < f_max)
                 if np.any(mask):
                     mean_power = np.mean(power[mask, :])
-                    band_energy[f'band_energy_{band}'] = float(librosa.power_to_db(mean_power, ref=global_max_power))
+                    band_energy[f"band_energy_{band}"] = float(librosa.power_to_db(mean_power, ref=global_max_power))
 
                     if f_min >= 10000:
                         attenuation_factor = (f_min - 10000) / 14000 * 12
-                        band_energy[f'band_energy_{band}'] -= attenuation_factor
+                        band_energy[f"band_energy_{band}"] -= attenuation_factor
                 else:
-                    band_energy[f'band_energy_{band}'] = -120.0
-        except Exception as e:
+                    band_energy[f"band_energy_{band}"] = -120.0
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error calculating band energy: {e}")
             for band in AudioFeatureExtractor.BAND_DEFINITIONS:
-                band_energy[f'band_energy_{band}'] = -120.0
+                band_energy[f"band_energy_{band}"] = -120.0
 
         return band_energy
 
@@ -152,9 +152,9 @@ class AudioFeatureExtractor:
             Dictionary of band energy feature names and values
         """
         try:
-            if hasattr(waveform, 'cpu'):
+            if hasattr(waveform, "cpu"):
                 y = waveform.cpu().numpy()
-            elif hasattr(waveform, 'numpy'):
+            elif hasattr(waveform, "numpy"):
                 y = waveform.numpy()
             else:
                 y = waveform
@@ -174,6 +174,6 @@ class AudioFeatureExtractor:
 
             return all_features
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error processing waveform: {e}")
             return AudioFeatureExtractor.get_empty_feature_dict()

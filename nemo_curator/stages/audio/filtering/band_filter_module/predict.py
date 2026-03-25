@@ -50,17 +50,17 @@ class BandPredictor:
                 warnings.filterwarnings("ignore", category=UserWarning)
                 self.model = joblib.load(self.model_path)
 
-                if hasattr(self.model, 'estimators_'):
+                if hasattr(self.model, "estimators_"):
                     for estimator in self.model.estimators_:
-                        if hasattr(estimator, 'tree_'):
-                            if not hasattr(estimator, 'monotonic_cst'):
+                        if hasattr(estimator, "tree_"):
+                            if not hasattr(estimator, "monotonic_cst"):
                                 estimator.monotonic_cst = None
-                elif hasattr(self.model, 'tree_'):
-                    if not hasattr(self.model, 'monotonic_cst'):
+                elif hasattr(self.model, "tree_"):
+                    if not hasattr(self.model, "monotonic_cst"):
                         self.model.monotonic_cst = None
 
             logger.info(f"Band prediction model loaded in {time.time() - start_time:.2f} seconds")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.error(f"Error loading model from {self.model_path}: {e}")
             raise
 
@@ -76,10 +76,10 @@ class BandPredictor:
             Array of extracted features
         """
         try:
-            if hasattr(waveform, 'cpu'):
+            if hasattr(waveform, "cpu"):
                 w_np = waveform.cpu().numpy()
             else:
-                w_np = waveform.numpy() if hasattr(waveform, 'numpy') else waveform
+                w_np = waveform.numpy() if hasattr(waveform, "numpy") else waveform
 
             flat_data = w_np.ravel()
             step = max(1, len(flat_data) // 1000)
@@ -102,7 +102,7 @@ class BandPredictor:
 
             return feature_vector
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error processing audio for features: {e}")
             sample_dict = AudioFeatureExtractor.get_empty_feature_dict()
             sample_vector, _ = AudioFeatureExtractor.features_dict_to_vector(sample_dict)
@@ -122,14 +122,14 @@ class BandPredictor:
         if self.model is None:
             try:
                 self._load_model()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 return f"Error: Could not load model: {e}"
 
         try:
             features = self.extract_features_from_audio(waveform, sample_rate)
             prediction = self.model.predict(features.reshape(1, -1))[0]
-            return 'full_band' if prediction == 1 else 'narrow_band'
+            return "full_band" if prediction == 1 else "narrow_band"
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             return f"Error during prediction: {e}"
 

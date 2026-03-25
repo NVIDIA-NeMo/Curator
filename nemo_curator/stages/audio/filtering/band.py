@@ -31,7 +31,7 @@ Example:
 """
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, ClassVar, Literal
 
 import torch
 from loguru import logger
@@ -42,7 +42,7 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 from nemo_curator.utils.performance_utils import StagePerfStats
 
-from ..common import resolve_model_path, resolve_waveform_from_item
+from nemo_curator.stages.audio.common import resolve_model_path, resolve_waveform_from_item
 
 
 @dataclass
@@ -76,7 +76,7 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=4.0))
 
-    _VALID_BAND_VALUES = {"full_band", "narrow_band"}
+    _VALID_BAND_VALUES: ClassVar[set[str]] = {"full_band", "narrow_band"}
 
     def __post_init__(self):
         """Initialize after dataclass fields are set."""
@@ -84,7 +84,8 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         self._predictor = None
 
         if self.band_value not in self._VALID_BAND_VALUES:
-            raise ValueError(f"band_value must be one of {self._VALID_BAND_VALUES!r}, got {self.band_value!r}")
+            msg = f"band_value must be one of {self._VALID_BAND_VALUES!r}, got {self.band_value!r}"
+            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -93,7 +94,7 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         """Define outputs produced by this stage."""
         return [], ["band_prediction"]
 
-    def setup(self, worker_metadata=None) -> None:
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Load band predictor on worker initialization."""
         self._initialize_predictor()
 
@@ -105,7 +106,7 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-    def _initialize_predictor(self):
+    def _initialize_predictor(self) -> None:
         """Initialize the band predictor."""
         if self._predictor is None:
             try:
