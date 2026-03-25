@@ -398,10 +398,10 @@ pytest tests/stages/audio/alm/ -v
 ```
 tests/stages/audio/alm/
 ├── conftest.py                    # Shared fixtures
-├── test_alm_manifest_reader.py    # 11 tests (2 classes)
-├── test_alm_manifest_writer.py    # 12 tests (2 classes)
-├── test_alm_data_builder.py       #  8 tests (2 classes)
-└── test_alm_data_overlap.py       #  7 tests (2 classes)
+├── test_alm_manifest_reader.py    # 14 tests (3 classes)
+├── test_alm_manifest_writer.py    # 11 tests (2 classes)
+├── test_alm_data_builder.py       # 13 tests (2 classes)
+└── test_alm_data_overlap.py       # 10 tests (2 classes)
 ```
 
 ### Shared Fixtures (`conftest.py`)
@@ -414,7 +414,7 @@ tests/stages/audio/alm/
 
 ### ALMManifestReaderStage Tests
 
-**`TestALMManifestReader`** (unit tests):
+**`TestALMManifestReaderStage`** (unit tests):
 
 | Test | What it verifies |
 |------|-----------------|
@@ -425,16 +425,23 @@ tests/stages/audio/alm/
 | `test_empty_manifest` | Empty file returns `[]` |
 | `test_preserves_nested_data` | Nested `segments[].metrics.bandwidth` survives round-trip |
 | `test_duplicate_manifests_for_repeat` | Same path repeated 3x produces 3 batches (repeat-factor pattern) |
-| `test_manifest_path_coerced_to_list` | Tuple input is coerced to list |
-| `test_string_path_stays_string` | Single string path is not wrapped |
-| `test_xenna_stage_spec` | Returns `{"num_workers_per_node": 1}` |
-| `test_ray_stage_spec` | Returns `{"is_fanout_stage": True}` |
+
+**`TestALMManifestReaderDirectory`**:
+
+| Test | What it verifies |
+|------|-----------------|
+| `test_reads_all_jsonl_from_directory` | Recursively discovers and reads all JSONL files in a directory tree |
+| `test_reads_from_subdirectory_a` | Reads manifests from a specific subdirectory |
+| `test_reads_from_subdirectory_b` | Reads manifests from another subdirectory |
+| `test_composite_discovers_nested_directory` | Composite stage discovers nested directories end-to-end |
+| `test_ignores_non_jsonl_files` | Non-JSONL files in the directory are skipped |
 
 **`TestALMManifestReaderIntegration`**:
 
 | Test | What it verifies |
 |------|-----------------|
 | `test_reads_sample_fixture` | Reads the real `sample_input.jsonl` fixture, verifies 5 entries with segments |
+| `test_composite_end_to_end_with_directory` | Composite reader processes a directory of manifests end-to-end |
 
 ### ALMManifestWriterStage Tests
 
@@ -442,15 +449,14 @@ tests/stages/audio/alm/
 
 | Test | What it verifies |
 |------|-----------------|
-| `test_writes_entries_to_jsonl` | 2 entries written as 2 JSONL lines with correct `audio_filepath` |
+| `test_writes_entry_to_jsonl` | Entry written as JSONL line with correct `audio_filepath` |
 | `test_returns_file_group_task` | Returns `FileGroupTask` with output path, task_id, dataset_name |
 | `test_propagates_metadata_and_stage_perf` | `_metadata` and `_stage_perf` pass through to output task |
 | `test_appends_across_multiple_process_calls` | 3 sequential `process()` calls produce 3 lines |
-| `test_setup_truncates_existing_file` | `setup_on_node()` clears pre-existing file content |
-| `test_setup_creates_parent_directories` | `setup_on_node()` creates nested directories for output path |
+| `test_setup_on_node_truncates_existing_file` | `setup_on_node()` clears pre-existing file content |
+| `test_setup_on_node_creates_parent_directories` | `setup_on_node()` creates nested directories for output path |
 | `test_handles_unicode_content` | Japanese and accented characters survive write/read |
 | `test_preserves_nested_structures` | `windows[].segments[]` and `stats` dict survive serialization |
-| `test_empty_data_writes_nothing` | Empty `data=[]` writes no lines, still returns `FileGroupTask` |
 | `test_num_workers_returns_one` | `num_workers()` returns 1 (single-writer constraint) |
 | `test_xenna_stage_spec` | Returns `{"num_workers": 1}` |
 
@@ -473,6 +479,11 @@ tests/stages/audio/alm/
 | `test_empty_segments` | Entry with `segments=[]` returns empty windows |
 | `test_drop_fields` | `words` removed from segments inside windows; `words` and `segments` removed from top-level |
 | `test_different_sample_rates` | All 5 fixture entries (16-48kHz) process without error |
+| `test_validate_input_valid` | `validate_input()` returns True when required keys present |
+| `test_validate_input_missing_segments` | `validate_input()` returns False when `segments` key missing |
+| `test_validate_input_missing_sample_rate` | `validate_input()` returns False when `audio_sample_rate` key missing |
+| `test_process_batch_raises_on_missing_segments` | `process_batch()` raises ValueError on missing `segments` |
+| `test_process_batch_raises_on_missing_sample_rate` | `process_batch()` raises ValueError on missing `audio_sample_rate` |
 
 **`TestALMDataBuilderIntegration`**:
 
@@ -486,6 +497,9 @@ tests/stages/audio/alm/
 
 | Test | What it verifies |
 |------|-----------------|
+| `test_validate_input_valid` | `validate_input()` returns True when `windows` key present |
+| `test_validate_input_missing_windows` | `validate_input()` returns False when `windows` key missing |
+| `test_process_batch_raises_on_missing_windows` | `process_batch()` raises ValueError on missing `windows` |
 | `test_filters_overlapping_windows` | `filtered_windows` count <= input `windows` count |
 | `test_keeps_closer_to_target` | Aggressive filtering (`overlap_percentage=0`) produces valid output |
 | `test_permissive_mode` | `overlap_percentage=100` keeps >= windows than `overlap_percentage=0` |
@@ -526,9 +540,3 @@ tests/stages/audio/alm/
 
 - Process manifest in smaller batches
 - Reduce number of parallel workers
-
-## Related Documentation
-
-- [Audio Getting Started Guide](https://docs.nvidia.com/nemo/curator/latest/get-started/audio.html)
-- [NeMo Curator Installation](https://docs.nvidia.com/nemo/curator/latest/get-started/installation.html)
-- [Pipeline Architecture](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html)

@@ -60,8 +60,9 @@ def setup(self, worker_metadata=None) -> None:
 
 ## Writing a GPU or IO stage
 
-Override **`process_batch`** for batched processing, and provide a thin
-**`process`** that delegates to it (to satisfy the ABC contract).
+Override **`process_batch`** for batched processing.  `process()` should
+raise `NotImplementedError` — matching the pattern used by deduplication
+stages (`ConnectedComponentsStage`, `KMeansReadFitWriteStage`, etc.).
 
 ```python
 from dataclasses import dataclass, field
@@ -94,7 +95,8 @@ class InferenceSpeakerIDStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.filepath_key, self.speaker_key]
 
     def process(self, task: AudioTask) -> AudioTask:
-        return self.process_batch([task])[0]
+        msg = "InferenceSpeakerIDStage only supports process_batch"
+        raise NotImplementedError(msg)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         if len(tasks) == 0:
@@ -114,7 +116,7 @@ Key differences from a CPU stage:
 
 | | CPU stage | GPU / IO stage |
 |---|---|---|
-| Override | `process` | `process_batch` (+ thin `process` delegating to it) |
+| Override | `process` | `process_batch` (+ `process` raising `NotImplementedError`) |
 | Receives | One `AudioTask` | `list[AudioTask]` (the whole batch) |
 | Returns | `AudioTask \| None` | `list[AudioTask]` (or `list[DocumentBatch]` for IO) |
 | Validation | Automatic (base `process_batch`) | Call `self.validate_input(task)` in a loop |
@@ -209,12 +211,14 @@ Every stage (CPU or GPU) should declare:
 
 To drop an entry from the pipeline:
 
-- **CPU filter stage**: return `None` from `process()` **and** override
-  `process_batch` to filter out `None` results before returning.  This is
-  necessary because the base `ProcessingStage.process_batch` appends all
-  results (including `None`) to the list, and the backend adapter calls
+- **CPU filter stage**: return `None` from `process()`.  The base
+  `ProcessingStage.process_batch` will include `None` in the results list.
+- **Batch filter stage**: override `process_batch` to return only the
+  entries that pass the filter (omit entries that should be dropped).
+  This avoids `None` reaching the backend adapter, which calls
   `task.add_stage_perf()` on every element.  See `PreserveByValueStage`
-  in `common.py` for the canonical pattern.
+  in `common.py` for the canonical pattern — its `process()` raises
+  `NotImplementedError` and all logic lives in `process_batch`.
 - **GPU / IO stage**: omit the entry from the returned list in `process_batch`.
 
 ## Method reference
@@ -225,7 +229,8 @@ Audio stages use two methods from `ProcessingStage`:
 process(AudioTask) -> AudioTask | None
     The primary hook for CPU stages.  Receives a single task, mutates
     task.data in-place, and returns the task (or None to filter).
-    GPU stages provide a thin wrapper that delegates to process_batch.
+    GPU/IO stages raise NotImplementedError here — all work goes
+    through process_batch.
 
 process_batch(list[AudioTask]) -> list[AudioTask]
     The entry point called by backends.  The base ProcessingStage
@@ -241,9 +246,10 @@ process_batch(list[AudioTask]) -> list[AudioTask]
   with N tasks.
 - `process` is the natural single-task hook for CPU stages — no
   boilerplate to handle lists.
-- GPU stages override `process_batch` to receive the full batch for one
-  batched kernel call.  Their `process()` simply delegates to
-  `process_batch([task])[0]`.
+- GPU/IO stages override `process_batch` to receive the full batch for
+  one batched kernel call.  Their `process()` raises
+  `NotImplementedError`, matching the dedup-stage convention
+  (`ConnectedComponentsStage`, `KMeansReadFitWriteStage`, etc.).
 
 ## Optimizations in the base class
 
@@ -993,11 +999,12 @@ Appends the entry as a single JSON line to
 3. Implement `inputs()` and `outputs()` to declare required/produced keys
 4. For CPU stages: override `process(task: AudioTask) -> AudioTask | None`
    — mutate `task.data` in-place and return `task` (or `None` to filter)
-5. For filtering stages: also override `process_batch` to filter out `None`
-   results (see `PreserveByValueStage` in `common.py`)
+5. For filtering stages: override `process_batch` to return only passing
+   entries (see `PreserveByValueStage` in `common.py`); `process()` should
+   raise `NotImplementedError`
 6. For GPU / IO stages: override `process_batch(tasks) -> list[AudioTask]`,
    call `self.validate_input(task)` per task at the top, guard with
-   `if len(tasks) == 0: return []`.  Add a thin
-   `process(task) -> AudioTask` that delegates to `process_batch([task])[0]`.
+   `if len(tasks) == 0: return []`.  `process()` should raise
+   `NotImplementedError` (matching the dedup-stage convention).
 7. Declare GPU resources via `.with_(resources=Resources(gpus=1.0))`
 8. Add tests in `tests/stages/audio/` using `AudioTask` for fixtures
