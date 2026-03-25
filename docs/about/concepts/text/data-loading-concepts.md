@@ -103,6 +103,72 @@ reader = JsonlReader(
   )
   ```
 
+### Memory Tips
+
+**Please note that currently, if you set the `blocksize` parameter to a size smaller than your input file size(s), Curator will NOT split up the input file(s) for you and instead attempt to read the entire file as-is. To avoid memory issues, you must use the helper script as described below.**
+
+If any of your individual JSONL or Parquet files are greater than 2 GiB, we recommend using the `nemo_curator/utils/split_large_files.py` helper script to split them into more digestible sizes and prevent memory issues. You can run it with:
+
+```bash
+python nemo_curator/utils/split_large_files.py --input-path "/path/to/input/dir" --file-type "parquet" --output-path "/path/to/output/dir" --target-size-mb 128
+```
+
+It supports splitting JSONL or Parquet files as specified by the `--file-type` argument.
+
+Another option is running file splitting within your existing script. For example, you can split large JSONL files with:
+
+```python
+import ray
+from nemo_curator.core.client import RayClient
+from nemo_curator.utils.split_large_files import split_jsonl_file_by_size
+
+# Start Ray client as usual
+ray_client = RayClient()
+ray_client.start()
+
+input_files = []  # your list of input jsonl files
+
+ray.get(
+  [
+    split_jsonl_file_by_size.remote(
+      input_file=f,
+      output_path="/path/to/output/dir",
+      target_size_mb=128,
+    )
+    for f in input_files
+  ]
+)
+
+# initialize your Curator pipeline with JsonlReader, etc.
+```
+
+Similarly for Parquet files:
+
+```python
+import ray
+from nemo_curator.core.client import RayClient
+from nemo_curator.utils.split_large_files import split_parquet_file_by_size
+
+# Start Ray client as usual
+ray_client = RayClient()
+ray_client.start()
+
+input_files = []  # your list of input parquet files
+
+ray.get(
+  [
+    split_parquet_file_by_size.remote(
+      input_file=f,
+      output_path="/path/to/output/dir",
+      target_size_mb=128,
+    )
+    for f in input_files
+  ]
+)
+
+# initialize your Curator pipeline with ParquetReader, etc.
+```
+
 ## Data Export Options
 
 NeMo Curator provides flexible export options for processed datasets:
