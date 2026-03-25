@@ -48,7 +48,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
-from ..common import resolve_model_path
+from nemo_curator.stages.audio.common import resolve_model_path
 
 
 def _get_audio_numpy_sr(item: dict[str, Any], task_id: str) -> tuple[np.ndarray, int] | None:
@@ -65,10 +65,7 @@ def _get_audio_numpy_sr(item: dict[str, Any], task_id: str) -> tuple[np.ndarray,
     sample_rate = item.get("sample_rate")
 
     if waveform is not None and sample_rate is not None:
-        if torch.is_tensor(waveform):
-            audio = waveform.cpu().numpy()
-        else:
-            audio = np.asarray(waveform, dtype=np.float32)
+        audio = waveform.cpu().numpy() if torch.is_tensor(waveform) else np.asarray(waveform, dtype=np.float32)
         if audio.ndim > 1:
             audio = np.mean(audio, axis=0)
         if audio.dtype != np.float32:
@@ -83,7 +80,7 @@ def _get_audio_numpy_sr(item: dict[str, Any], task_id: str) -> tuple[np.ndarray,
             if audio.dtype != np.float32:
                 audio = audio.astype(np.float32)
             return audio, int(sr)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[{task_id}] Failed to load audio file: {e}")
             return None
 
@@ -150,7 +147,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             "sigmos_disc", "sigmos_loud", "sigmos_reverb",
         ]
 
-    def setup(self, worker_metadata=None) -> None:
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
         ensure_cudnn_loaded()
         self._ensure_predict()
@@ -159,7 +156,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         self._predict_audio_mos = None
         torch.cuda.empty_cache()
 
-    def _ensure_predict(self):
+    def _ensure_predict(self) -> None:
         if self._predict_audio_mos is None:
             self._predict_audio_mos = predict_audio_mos
             logger.info("SIGMOS predict_audio_mos loaded successfully")
@@ -167,7 +164,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
     def _resolve_model_path(self) -> str:
         return resolve_model_path(self.model_path, __file__, "sigmos_filter_module")
 
-    def _scores_from_prediction(self, score_data: Any) -> dict[str, float]:
+    def _scores_from_prediction(self, score_data: Any) -> dict[str, float]:  # noqa: ANN401
         if isinstance(score_data, dict):
             return {
                 "noise": float(score_data.get("MOS_NOISE", 0)),
@@ -222,7 +219,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
 
         try:
             score_data = self._predict_audio_mos(audio_np, sample_rate, model_path=self._resolve_model_path())
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.exception(f"[{task_id}] SIGMOS prediction error: {e}")
             return None
 
