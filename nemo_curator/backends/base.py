@@ -17,6 +17,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from loguru import logger
+
 from nemo_curator.tasks import Task
 from nemo_curator.utils.performance_utils import StageTimer
 
@@ -57,6 +59,31 @@ class BaseExecutor(ABC):
     @abstractmethod
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
         """Execute the pipeline."""
+
+    def _mark_pipeline_checkpoint(self, stages: list["ProcessingStage"]) -> None:
+        """Mark the last ResumableStage as the pipeline checkpoint.
+
+        This stage writes completion records to ``{checkpoint_dir}/pipeline_complete/``,
+        which input stages (FilePartitioningStage) read to skip already-completed inputs.
+        Must be called before any stage is serialized to workers.
+        """
+        from nemo_curator.stages.resumable import ResumableStage
+
+        last_resumable = None
+        for stage in stages:
+            if (
+                isinstance(stage, ResumableStage)
+                and getattr(stage, "resume", False)
+                and getattr(stage, "checkpoint_dir", None)
+            ):
+                last_resumable = stage
+
+        if last_resumable is not None:
+            last_resumable._is_pipeline_checkpoint = True
+            logger.info(
+                f"Pipeline checkpoint: '{last_resumable.name}' will write to "
+                f"{last_resumable.checkpoint_dir}/pipeline_complete/"
+            )
 
 
 class BaseStageAdapter:

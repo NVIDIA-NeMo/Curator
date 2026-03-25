@@ -176,7 +176,7 @@ def get_docstrings(source: str, module: str = "<string>") -> list[str]:
     results = []
     for _, group in grouped:
         for _, name, docstring in group:
-            name = name if name else module  # noqa: PLW2901
+            name = name or module  # noqa: PLW2901
             if docstring:
                 results.append(docstring)
     return results

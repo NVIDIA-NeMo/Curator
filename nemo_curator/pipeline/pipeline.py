@@ -174,6 +174,35 @@ class Pipeline:
 
         return "\n".join(lines)
 
+    def enable_resumability(self, checkpoint_dir: str) -> "Pipeline":
+        """Enable resumability on all applicable stages in the pipeline.
+
+        For input stages (FilePartitioningStage, ClientPartitioningStage): sets ``resume=True``
+        and ``checkpoint_dir`` so they read the completion manifest and skip already-finished
+        partitions on re-runs.
+
+        For writer stages (BaseWriter, InterleavedBaseWriter): sets ``resume=True`` and
+        ``checkpoint_dir`` so they write a completion record after each successful write.
+
+        The executor automatically marks the last writer as the pipeline checkpoint, routing
+        its completion records to ``{checkpoint_dir}/pipeline_complete/`` — the same directory
+        that input stages read from.
+
+        Args:
+            checkpoint_dir (str): Path (local or remote, e.g. ``s3://...``) to the directory
+                where completion records are stored.
+
+        Returns:
+            Pipeline: Self for method chaining.
+        """
+        from nemo_curator.stages.resumable import ResumableInputStage, ResumableStage
+
+        for stage in self.stages:
+            if isinstance(stage, (ResumableStage, ResumableInputStage)):
+                stage.resume = True
+                stage.checkpoint_dir = checkpoint_dir
+        return self
+
     def run(self, executor: BaseExecutor | None = None, initial_tasks: list[Task] | None = None) -> list[Task] | None:
         """Run the pipeline.
 

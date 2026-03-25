@@ -25,7 +25,7 @@ TOKEN_LENGTH_FIELD = "_curator_token_length"  # noqa: S105
 
 
 def format_name_with_suffix(model_identifier: str, suffix: str = "_classifier") -> str:
-    return model_identifier.split("/")[-1].replace("-", "_").lower() + suffix
+    return model_identifier.rsplit("/", maxsplit=1)[-1].replace("-", "_").lower() + suffix
 
 
 def clip_tokens(token_o: dict, padding_side: Literal["left", "right"] = "right") -> dict[str, torch.Tensor]:

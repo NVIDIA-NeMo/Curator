@@ -29,7 +29,7 @@ class CommonCrawlWarcIterator(DocumentIterator):
 
     def iterate(self, file_path: str) -> Iterator[dict[str, Any]]:
         """Process a task containing WARC files and extract their contents."""
-        filename = file_path.name if isinstance(file_path, Path) else file_path.split("/")[-1]
+        filename = file_path.name if isinstance(file_path, Path) else file_path.rsplit("/", maxsplit=1)[-1]
 
         num_records = 0
         # TODO: Support cloud storage https://github.com/NVIDIA-NeMo/Curator/issues/779

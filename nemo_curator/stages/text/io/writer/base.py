@@ -22,13 +22,14 @@ from loguru import logger
 
 import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resumable import ResumableStage
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import check_output_mode
 
 
 @dataclass
-class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
+class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ResumableStage, ABC):
     """Base class for all writer stages.
 
     This abstract base class provides common functionality for writing DocumentBatch
@@ -42,6 +43,8 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
     name: str = "BaseWriter"
     mode: Literal["ignore", "overwrite", "append", "error"] = "ignore"
     append_mode_implemented: bool = False
+    resume: bool = False
+    checkpoint_dir: str | None = None
 
     def __post_init__(self):
         # Use fsspec's url_to_fs to get both filesystem and normalized path
@@ -93,7 +96,7 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
         logger.debug(f"Written {task.num_items} records to {file_path_with_protocol}")
 
         # Create FileGroupTask with written files using the full protocol-prefixed path
-        return FileGroupTask(
+        output_task = FileGroupTask(
             task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=[file_path_with_protocol],
@@ -103,3 +106,8 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
             },
             _stage_perf=task._stage_perf,
         )
+
+        if self.resume and self.checkpoint_dir:
+            self.record_completion(task, output_task)
+
+        return output_task

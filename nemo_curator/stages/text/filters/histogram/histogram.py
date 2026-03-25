@@ -48,7 +48,7 @@ class HistogramFilter(DocumentFilter):
         super().__init__()
         self._lang = lang
         self._threshold = threshold
-        self._cache_dir = cache_dir if cache_dir else user_cache_dir()
+        self._cache_dir = cache_dir or user_cache_dir()
         self._threshold_char = threshold_char
         self._name = "histogram"
 
