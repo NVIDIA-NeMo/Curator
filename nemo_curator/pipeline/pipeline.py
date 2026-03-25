@@ -129,7 +129,7 @@ class Pipeline:
         stage_info = ", ".join([f"{s.name}({s.__class__.__name__})" for s in self.stages])
         return f"Pipeline(name='{self.name}', stages=[{stage_info}])"
 
-    def describe(self) -> str:  # noqa: C901
+    def describe(self) -> str:
         """Get a detailed description of the pipeline stages and their requirements."""
         lines = [
             f"Pipeline: {self.name}",
@@ -148,10 +148,6 @@ class Pipeline:
                 lines.append(f"  Resources: {stage.resources.cpus} CPUs")
                 if stage.resources.requires_gpu:
                     lines.append(f"    GPU Memory: {stage.resources.gpu_memory_gb} GB ({stage.resources.gpus} GPUs)")
-                if stage.resources.nvdecs > 0:
-                    lines.append(f"    NVDEC: {stage.resources.nvdecs}")
-                if stage.resources.nvencs > 0:
-                    lines.append(f"    NVENC: {stage.resources.nvencs}")
 
                 lines.append(f"  Batch size: {stage.batch_size}")
 
@@ -189,9 +185,31 @@ class Pipeline:
             list[Task] | None: List of tasks
         """
         self.build()
+
         if executor is None:
             from nemo_curator.backends.xenna import XennaExecutor
 
             executor = XennaExecutor()
+
+        from nemo_curator.core.serve import is_ray_serve_active
+
+        if is_ray_serve_active():
+            gpu_stages = [s for s in self.stages if s.resources.requires_gpu]
+            if gpu_stages:
+                names = ", ".join(s.name for s in gpu_stages)
+                from nemo_curator.backends.xenna import XennaExecutor
+
+                if isinstance(executor, XennaExecutor):
+                    msg = (
+                        f"Cannot run XennaExecutor with GPU stages [{names}] while Ray Serve is active. "
+                        "Xenna manages GPU assignment independently of Ray's resource scheduler, "
+                        "which causes GPU contention with served models. "
+                        "Use RayDataExecutor instead."
+                    )
+                    raise RuntimeError(msg)
+                logger.info(
+                    f"Ray Serve is active and pipeline has GPU stages: [{names}]. "
+                    "The executor will schedule GPU stages on GPUs not held by Serve."
+                )
 
         return executor.execute(self.stages, initial_tasks)
