@@ -254,6 +254,10 @@ def main(args: argparse.Namespace) -> None:
     print("\nPipeline completed!")
 
 
+def _none_or_str(value: str) -> str | None:
+    return None if value == "None" else value
+
+
 def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0915
     """Create and return the argument parser for video splitting pipeline.
 
@@ -573,7 +577,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     )
     parser.add_argument(
         "--captioning-model-revision",
-        type=str,
+        type=_none_or_str,
         default="cc59489",
         help="HuggingFace revision (commit hash or branch) for the captioning VL model. Uses the default revision if not set.",
     )
@@ -691,7 +695,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     )
     parser.add_argument(
         "--enhance-captioning-model-revision",
-        type=str,
+        type=_none_or_str,
         default="cf98f3b",
         help="HuggingFace revision (commit hash or branch) for the caption enhancement LM model. Uses the default revision if not set.",
     )
