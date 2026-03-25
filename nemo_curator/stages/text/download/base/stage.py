@@ -41,6 +41,9 @@ class DocumentDownloadExtractStage(CompositeStage[_EmptyTask, DocumentBatch]):
     url_limit: int | None = None
     record_limit: int | None = None
     add_filename_column: bool | str = True
+    # Restart worker Process every N tasks to mitigate memory fragmentation
+    # Only used if executor is Ray Data
+    extractor_max_calls_per_worker: int | None = None
 
     def __post_init__(self):
         """Initialize the constituent stages."""
@@ -61,6 +64,7 @@ class DocumentDownloadExtractStage(CompositeStage[_EmptyTask, DocumentBatch]):
             extractor=self.extractor,
             record_limit=self.record_limit,
             add_filename_column=self.add_filename_column,
+            max_calls_per_worker=self.extractor_max_calls_per_worker,
         )
 
         stages = [url_stage, download_stage, iterate_extract_stage]

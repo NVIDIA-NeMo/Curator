@@ -170,6 +170,9 @@ class TestExactDuplicatesWorkflow:
             text_field="content",
             perform_removal=False,
             input_path=str(tmpdir),
+            total_nparts=2,
+            rmm_pool_size=None,
+            spill_memory_limit="auto",
         )
         result = workflow.run(initial_tasks=exact_no_dedup_data_jsonl)
         assert result.pipeline_tasks

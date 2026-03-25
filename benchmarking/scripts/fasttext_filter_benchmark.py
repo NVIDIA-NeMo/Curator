@@ -106,7 +106,7 @@ def run_fasttext_filter_benchmark(  # noqa: PLR0913
 
         success = True
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.error(f"Benchmark failed: {e}")
         logger.debug(traceback.format_exc())
         output_tasks = []
@@ -165,6 +165,11 @@ def main() -> int:
     logger.info("=== FastText Filter Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
+    results = {
+        "params": vars(args),
+        "metrics": {"is_success": False},
+        "tasks": [],
+    }
     try:
         results = run_fasttext_filter_benchmark(
             input_path=args.input_path,
@@ -176,12 +181,6 @@ def main() -> int:
             fasttext_quality_model_path=args.fasttext_quality_model_path,
             overrides=args.overrides,
         )
-    except Exception:  # noqa: BLE001
-        results = {
-            "params": vars(args),
-            "metrics": {"is_success": False},
-            "tasks": [],
-        }
     finally:
         write_benchmark_results(results, args.benchmark_results_path)
 

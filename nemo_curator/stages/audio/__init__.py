@@ -13,16 +13,28 @@
 # limitations under the License.
 
 """
-NeMo Curator Audio Processing Stages.
+Audio curation stages for NeMo Curator.
 
-Filtering:
-    - UTMOSFilterStage: UTMOS MOS prediction filtering
+This module provides stages for processing and curating audio data,
+including ASR inference, quality assessment, ALM data preparation,
+and audio quality filtering (UTMOS).
 """
 
+from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
+from nemo_curator.stages.audio.common import (
+    GetAudioDurationStage,
+    LegacySpeechStage,
+    PreserveByValueStage,
+)
 from nemo_curator.stages.audio.filtering import (
     UTMOSFilterStage,
 )
 
 __all__ = [
+    "ALMDataBuilderStage",
+    "ALMDataOverlapStage",
+    "GetAudioDurationStage",
+    "LegacySpeechStage",
+    "PreserveByValueStage",
     "UTMOSFilterStage",
 ]

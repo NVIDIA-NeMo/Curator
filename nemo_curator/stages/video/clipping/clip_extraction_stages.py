@@ -19,13 +19,12 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from cosmos_xenna.ray_utils.resources import _get_local_gpu_info, _make_gpu_resources_from_gpu_name
 from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.resources import Resources, _get_gpu_memory_gb
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import Clip, Video, VideoTask
 from nemo_curator.utils import grouping
 from nemo_curator.utils.operation_utils import make_pipeline_temporary_dir
@@ -79,12 +78,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         if self.encoder == "h264_nvenc" or self.use_hwaccel:
             if self.nb_streams_per_gpu > 0:
                 # Assume that we have same type of GPUs
-                gpu_info = _get_local_gpu_info()[0]
-                nvencs = _make_gpu_resources_from_gpu_name(gpu_info.name).num_nvencs
-                gpu_memory_gb = _get_gpu_memory_gb()
-                self.resources = Resources(
-                    nvencs=nvencs // self.nb_streams_per_gpu, gpu_memory_gb=gpu_memory_gb // self.nb_streams_per_gpu
-                )
+                self.resources = Resources(gpus=1.0 / self.nb_streams_per_gpu)
             else:
                 self.resources = Resources(gpus=1)
         else:

@@ -31,9 +31,9 @@ from utils.jsonl_utils import interleave_datasets, split_jsonl_by_size
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.filters import ScoreFilter
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
-from nemo_curator.stages.text.modules import ScoreFilter
 from nemo_curator.utils.file_utils import get_all_file_paths_under
 
 

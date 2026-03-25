@@ -25,7 +25,7 @@ from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.tasks import FileGroupTask
 from nemo_curator.tasks.utils import TaskPerfUtils
@@ -237,7 +237,7 @@ class TestBackendIntegrations:
 
 
 class TestEnvVars:
-    def test_max_limit_env_vars(self, shared_ray_client: None):  # noqa: ARG002
+    def test_max_limit_env_vars(self, shared_ray_client: None):
         """We set these env vars in __init__.py of the package
 
 
