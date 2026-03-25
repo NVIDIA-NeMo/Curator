@@ -102,7 +102,8 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
             file_size = os.path.getsize(filepath)
             if file_size == 0:
                 os.remove(filepath)
-                raise RuntimeError("Download failed - empty file")
+                msg = "Download failed - empty file"
+                raise RuntimeError(msg)
             logger.info(f"Downloaded: {file_size / (1024**3):.2f} GB")
 
         logger.info("Extracting archive...")
@@ -110,7 +111,8 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
 
         extracted_dir = self._find_extracted_wavs(self.raw_data_dir)
         if not extracted_dir:
-            raise RuntimeError("Extraction failed - no WAV files found")
+            msg = "Extraction failed - no WAV files found"
+            raise RuntimeError(msg)
 
         wav_count = self._count_wavs_recursive(extracted_dir)
         logger.info(f"Extraction complete: {wav_count} WAV files in {extracted_dir}")
@@ -128,10 +130,10 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
     def _find_extracted_wavs(self, search_dir: str) -> str | None:
         """
         Recursively search for directory containing WAV files.
-        
+
         Args:
             search_dir: Directory to search in
-            
+
         Returns:
             Path to directory containing WAV files, or None if not found
         """
@@ -149,7 +151,7 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
             "mnt/dnsv5/clean/read_speech",
             "data/mnt/dnsv5/clean/read_speech",
         ]
-        
+
         for subdir in known_subdirs:
             check_path = os.path.join(search_dir, subdir)
             if os.path.exists(check_path):
@@ -158,7 +160,7 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
                     return check_path
 
         # Recursive search as fallback
-        for root, dirs, files in os.walk(search_dir):
+        for root, _dirs, files in os.walk(search_dir):
             wav_files = [f for f in files if f.endswith(".wav")]
             if wav_files:
                 return root
@@ -170,7 +172,7 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         if not os.path.exists(directory):
             return 0
         count = 0
-        for root, dirs, files in os.walk(directory):
+        for _root, _dirs, files in os.walk(directory):
             count += len([f for f in files if f.endswith(".wav")])
         return count
 
@@ -179,7 +181,7 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         wav_files = []
         if not os.path.exists(directory):
             return wav_files
-        for root, dirs, files in os.walk(directory):
+        for root, _dirs, files in os.walk(directory):
             for f in files:
                 if f.endswith(".wav"):
                     wav_files.append(os.path.join(root, f))
@@ -188,7 +190,7 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
     def _extract_archive(self, archive_path: str, extract_path: str) -> None:
         """
         Extract a tar.gz archive using tar command.
-        
+
         Handles split/partial archives using --ignore-zeros flag.
         """
         logger.info(f"Extracting {os.path.basename(archive_path)}...")
@@ -203,7 +205,7 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         # Try extraction methods in order
         extraction_methods = [
             # Method 1: tar with gzip and ignore-zeros
-            ["tar", "-xzf", archive_path, "-C", extract_path, 
+            ["tar", "-xzf", archive_path, "-C", extract_path,
              "--ignore-zeros", "--warning=no-alone-zero-block"],
             # Method 2: plain tar (no gzip)
             ["tar", "-xf", archive_path, "-C", extract_path, "--ignore-zeros"],
@@ -212,7 +214,7 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         for i, cmd in enumerate(extraction_methods):
             logger.info(f"  Trying extraction method {i+1}...")
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
+
             # Check if any WAV files were extracted
             extracted_dir = self._find_extracted_wavs(extract_path)
             if extracted_dir:
