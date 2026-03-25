@@ -58,7 +58,7 @@ def parquet_file_factory(tmp_path: pathlib.Path):
 def test_default_target_size(parquet_file_factory: Callable, tmp_path: pathlib.Path):
     parquet_file = parquet_file_factory()
     args = parse_args(
-        ["--infile", str(parquet_file), "--outdir", str(tmp_path), "--file-type", "parquet"]
+        ["--input-path", str(parquet_file), "--output-path", str(tmp_path), "--file-type", "parquet"]
     )
     assert args.target_size_mb == 128
 
@@ -68,18 +68,18 @@ def test_split_parquet_file_by_size(parquet_file_factory: Callable, tmp_path: pa
     parquet_file = parquet_file_factory(num_row_groups=num_row_groups)
     size_original_mb = pq.read_table(parquet_file).nbytes / (1024 * 1024)
     target_size_mb = size_original_mb / 3
-    outdir = tmp_path / "out"
-    outdir.mkdir(exist_ok=True)
-    split_parquet_file_by_size._function(input_file=parquet_file, outdir=outdir, target_size_mb=target_size_mb)
+    output_path = tmp_path / "out"
+    output_path.mkdir(exist_ok=True)
+    split_parquet_file_by_size._function(input_file=parquet_file, output_path=output_path, target_size_mb=target_size_mb)
 
     expected = pd.read_parquet(parquet_file)
-    result = pd.read_parquet(outdir)
+    result = pd.read_parquet(output_path)
 
     # Ensure the original and split data is the same
     pd.testing.assert_frame_equal(expected, result)
 
     # Check that split data files have expected sizes
-    files = sorted(outdir.rglob("*"))
+    files = sorted(output_path.rglob("*"))
     sizes_mb = [pq.read_table(f).nbytes / (1024 * 1024) for f in files]
     # Below the target size
     assert all(s_mb < target_size_mb for s_mb in sizes_mb), (sizes_mb, files)
@@ -94,11 +94,11 @@ def test_split_jsonl_file_by_size(tmp_path: pathlib.Path):
 
     size_original_mb = len(payload) / (1024 * 1024)
     target_size_mb = max(size_original_mb / 4, 1e-6)
-    outdir = tmp_path / "out"
-    outdir.mkdir(exist_ok=True)
-    split_jsonl_file_by_size._function(input_file=str(jsonl_file), outdir=str(outdir), target_size_mb=target_size_mb)
+    output_path = tmp_path / "out"
+    output_path.mkdir(exist_ok=True)
+    split_jsonl_file_by_size._function(input_file=str(jsonl_file), output_path=str(output_path), target_size_mb=target_size_mb)
 
-    files = sorted(outdir.glob("data_*.jsonl"))
+    files = sorted(output_path.glob("data_*.jsonl"))
     assert len(files) >= 2
     roundtrip = b"".join(f.read_bytes() for f in files)
     assert roundtrip == payload

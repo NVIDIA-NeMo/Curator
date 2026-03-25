@@ -109,7 +109,7 @@ This tutorial can be run with:
 LOGURU_LEVEL="ERROR" python main.py \
     --input-dir "/path/to/Llama-Nemotron-Post-Training-Dataset/SFT" \
     --filename-filter "chat" "math_v1.1" \
-    --json-blocksize "100mb" \
+    --jsonl-blocksize-mb 100 \
     --tokenizer "meta-llama/Llama-3.1-8B-Instruct" \
     --lang-id-model-path "/path/to/lid.176.ftz" \
     --max-token-count 16384 \
@@ -145,7 +145,7 @@ After filtering, it sorts all samples by completion (output response) length, th
 
 If you encounter out-of-memory (OOM) errors:
 
-1. **Reduce partition size**: Lower the blocksize to reduce per-partition memory. Set `--json-blocksize "50mb"` (default is "100mb").
+1. **Reduce partition size**: Lower the blocksize to reduce per-partition memory. Set `--jsonl-blocksize-mb 50` (default is 100 MB).
 2. **Reduce CPU count**: Lower `--num-cpus` to reduce parallel memory pressure rather than using all available cores.
 3. **Subset the data**: Use `--filename-filter` to process only specific subsets relevant to your use case (such as `--filename-filter "chat"`).
 
