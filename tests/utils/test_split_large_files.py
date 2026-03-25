@@ -70,7 +70,7 @@ def test_split_parquet_file_by_size(parquet_file_factory: Callable, tmp_path: pa
     target_size_mb = size_original_mb / 3
     output_path = tmp_path / "out"
     output_path.mkdir(exist_ok=True)
-    split_parquet_file_by_size._function(input_file=parquet_file, output_path=output_path, target_size_mb=target_size_mb)
+    split_parquet_file_by_size._function(input_file=str(parquet_file), output_path=str(output_path), target_size_mb=target_size_mb)
 
     expected = pd.read_parquet(parquet_file)
     result = pd.read_parquet(output_path)
