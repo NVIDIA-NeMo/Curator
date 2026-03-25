@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,8 +16,20 @@ import hydra
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
+
+_EXECUTOR_FACTORIES = {
+    "xenna": "nemo_curator.backends.xenna:XennaExecutor",
+    "ray_data": "nemo_curator.backends.ray_data:RayDataExecutor",
+}
+
+
+def _create_executor(backend: str) -> object:
+    module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
+    import importlib
+
+    mod = importlib.import_module(module_path)
+    return getattr(mod, class_name)()
 
 
 def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
@@ -36,18 +48,19 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
     pipeline = create_pipeline_from_yaml(cfg)
 
-    # Print pipeline description
     logger.info(pipeline.describe())
     logger.info("\n" + "=" * 50 + "\n")
 
-    # Create executor
-    executor = XennaExecutor()
+    backend = cfg.get("backend", "xenna")
+    if backend not in _EXECUTOR_FACTORIES:
+        msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
+        raise ValueError(msg)
+    logger.info(f"Using backend: {backend}")
+    executor = _create_executor(backend)
 
-    # Execute pipeline
     logger.info("Starting pipeline execution...")
     pipeline.run(executor)
 
-    # Print results
     logger.info("\nPipeline completed!")
 
 

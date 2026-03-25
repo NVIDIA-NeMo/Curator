@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,28 +13,75 @@
 # limitations under the License.
 
 import pandas as pd
+import pytest
 
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask, DocumentBatch
 
 
-def test_audio_to_document_stage_converts_batch() -> None:
-    audio = AudioBatch(
+def test_audio_to_document_stage_process_raises() -> None:
+    entry = AudioTask(
         task_id="t1",
         dataset_name="ds",
-        data=[
-            {"audio_filepath": "/a.wav", "text": "hello"},
-            {"audio_filepath": "/b.wav", "text": "world"},
-        ],
+        data={"audio_filepath": "/a.wav", "text": "hello"},
     )
 
     stage = AudioToDocumentStage()
-    out = stage.process(audio)
+    with pytest.raises(NotImplementedError, match="only supports process_batch"):
+        stage.process(entry)
 
-    assert isinstance(out, list)
-    assert len(out) == 1
-    doc = out[0]
+
+def test_process_batch_aggregates_into_single_dataframe() -> None:
+    tasks = [
+        AudioTask(task_id=f"t{i}", dataset_name="ds", data={"audio_filepath": f"/{i}.wav", "text": f"text{i}"})
+        for i in range(5)
+    ]
+
+    stage = AudioToDocumentStage()
+    result = stage.process_batch(tasks)
+
+    assert len(result) == 1
+    doc = result[0]
+    assert isinstance(doc, DocumentBatch)
     assert isinstance(doc.data, pd.DataFrame)
-    assert list(doc.data.columns) == ["audio_filepath", "text"]
-    assert doc.task_id == audio.task_id
-    assert doc.dataset_name == audio.dataset_name
+    assert len(doc.data) == 5
+    assert list(doc.data["audio_filepath"]) == ["/0.wav", "/1.wav", "/2.wav", "/3.wav", "/4.wav"]
+    assert list(doc.data["text"]) == ["text0", "text1", "text2", "text3", "text4"]
+    assert doc.task_id == "t0,t1,t2,t3,t4"
+    assert doc.dataset_name == "ds"
+
+
+def test_process_batch_empty() -> None:
+    stage = AudioToDocumentStage()
+    result = stage.process_batch([])
+    assert result == []
+
+
+def test_process_batch_preserves_stage_perf() -> None:
+    tasks = [
+        AudioTask(task_id="t1", dataset_name="ds", data={"audio_filepath": "/a.wav"}, _stage_perf=["perf1"]),
+        AudioTask(task_id="t2", dataset_name="ds", data={"audio_filepath": "/b.wav"}, _stage_perf=["perf2"]),
+    ]
+    stage = AudioToDocumentStage()
+    result = stage.process_batch(tasks)
+    assert result[0]._stage_perf == ["perf1", "perf2"]
+
+
+def test_process_batch_deduplicates_dataset_names() -> None:
+    tasks = [
+        AudioTask(task_id="t1", dataset_name="ds_a", data={"audio_filepath": "/a.wav"}),
+        AudioTask(task_id="t2", dataset_name="ds_b", data={"audio_filepath": "/b.wav"}),
+        AudioTask(task_id="t3", dataset_name="ds_a", data={"audio_filepath": "/c.wav"}),
+    ]
+    stage = AudioToDocumentStage()
+    result = stage.process_batch(tasks)
+    assert result[0].dataset_name == "ds_a,ds_b"
+
+
+def test_process_batch_single_task() -> None:
+    task = AudioTask(task_id="only", dataset_name="ds", data={"audio_filepath": "/x.wav", "text": "hi"})
+    stage = AudioToDocumentStage()
+    result = stage.process_batch([task])
+    assert len(result) == 1
+    assert len(result[0].data) == 1
+    assert result[0].data.iloc[0]["text"] == "hi"
