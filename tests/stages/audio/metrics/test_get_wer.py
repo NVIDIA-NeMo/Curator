@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
+
 from nemo_curator.stages.audio.metrics.get_wer import (
     GetPairwiseWerStage,
     get_cer,
@@ -19,7 +21,7 @@ from nemo_curator.stages.audio.metrics.get_wer import (
     get_wer,
     get_wordrate,
 )
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 def test_get_wer_basic() -> None:
@@ -35,9 +37,36 @@ def test_rates() -> None:
     assert get_wordrate("a b c d", 2.0) == 2.0
 
 
+def test_pairwise_wer_validate_input_valid() -> None:
+    stage = GetPairwiseWerStage()
+    assert stage.validate_input(AudioTask(data={"text": "a b c", "pred_text": "a x c"})) is True
+
+
+def test_pairwise_wer_validate_input_missing_text() -> None:
+    stage = GetPairwiseWerStage()
+    assert stage.validate_input(AudioTask(data={"pred_text": "a x c"})) is False
+
+
+def test_pairwise_wer_validate_input_missing_pred_text() -> None:
+    stage = GetPairwiseWerStage()
+    assert stage.validate_input(AudioTask(data={"text": "a b c"})) is False
+
+
+def test_pairwise_wer_process_batch_raises_on_missing_text() -> None:
+    stage = GetPairwiseWerStage()
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([AudioTask(data={"pred_text": "a x c"})])
+
+
+def test_pairwise_wer_process_batch_raises_on_missing_pred_text() -> None:
+    stage = GetPairwiseWerStage()
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([AudioTask(data={"text": "a b c"})])
+
+
 def test_pairwise_wer_stage() -> None:
     stage = GetPairwiseWerStage()
-    entry = {"text": "a b c", "pred_text": "a x c"}
-    out = stage.process(AudioBatch(data=[entry]))
-    assert len(out) == 1
-    assert out[0].data[0]["wer"] == 33.33
+    entry = AudioTask(data={"text": "a b c", "pred_text": "a x c"})
+    result = stage.process(entry)
+    assert isinstance(result, AudioTask)
+    assert result.data["wer"] == 33.33
