@@ -53,12 +53,12 @@ class SegmentMapping:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            'original_file': self.original_file,
-            'original_start_ms': self.original_start_ms,
-            'original_end_ms': self.original_end_ms,
-            'concat_start_ms': self.concat_start_ms,
-            'concat_end_ms': self.concat_end_ms,
-            'segment_index': self.segment_index,
+            "original_file": self.original_file,
+            "original_start_ms": self.original_start_ms,
+            "original_end_ms": self.original_end_ms,
+            "concat_start_ms": self.concat_start_ms,
+            "concat_end_ms": self.concat_end_ms,
+            "segment_index": self.segment_index,
         }
 
 
@@ -117,8 +117,8 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
         silence_duration_ms = int(self.silence_duration_sec * 1000)
 
         for idx, item in enumerate(items):
-            waveform = item.get('waveform')
-            sr = item.get('sample_rate')
+            waveform = item.get("waveform")
+            sr = item.get("sample_rate")
             if waveform is None:
                 continue
             if sr is None:
@@ -150,13 +150,13 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
             num_samples = waveform.shape[-1]
             segment_duration_ms = int(1000 * num_samples / sample_rate)
 
-            orig_start = item.get('start_ms', 0)
-            orig_end = item.get('end_ms', 0)
+            orig_start = item.get("start_ms", 0)
+            orig_end = item.get("end_ms", 0)
             if orig_end <= orig_start:
                 orig_end = orig_start + segment_duration_ms
 
             mapping = SegmentMapping(
-                original_file=item.get('original_file', item.get('audio_filepath', 'unknown')),
+                original_file=item.get("original_file", item.get("audio_filepath", "unknown")),
                 original_start_ms=orig_start,
                 original_end_ms=orig_end,
                 concat_start_ms=current_pos_ms,
@@ -183,18 +183,18 @@ class SegmentConcatenationStage(ProcessingStage[AudioBatch, AudioBatch]):
         current_pos_ms -= silence_duration_ms
         total_duration_sec = current_pos_ms / 1000.0
 
-        original_file = items[0].get('original_file', items[0].get('audio_filepath', 'unknown'))
+        original_file = items[0].get("original_file", items[0].get("audio_filepath", "unknown"))
 
         output_data = {
-            'waveform': combined,
-            'sample_rate': sample_rate,
-            'original_file': original_file,
-            'num_segments': len(mappings),
-            'total_duration_sec': total_duration_sec,
+            "waveform": combined,
+            "sample_rate": sample_rate,
+            "original_file": original_file,
+            "num_segments": len(mappings),
+            "total_duration_sec": total_duration_sec,
         }
 
         metadata = dict(task._metadata) if task._metadata else {}
-        metadata['segment_mappings'] = mappings
+        metadata["segment_mappings"] = mappings
 
         logger.info(f"[SegmentConcat] {len(mappings)} segments -> {total_duration_sec:.2f}s combined")
 

@@ -115,16 +115,16 @@ class MonoConversionStage(ProcessingStage[AudioBatch, AudioBatch]):
                 
                 result_item = {
                     **item,
-                    'waveform': mono_waveform,
-                    'sample_rate': sr,
-                    'is_mono': True,
-                    'duration': mono_waveform.shape[1] / sr,
-                    'num_samples': mono_waveform.shape[1],
+                    "waveform": mono_waveform,
+                    "sample_rate": sr,
+                    "is_mono": True,
+                    "duration": mono_waveform.shape[1] / sr,
+                    "num_samples": mono_waveform.shape[1],
                 }
                 
                 results.append(result_item)
                 
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 logger.error(f"Error processing {audio_filepath}: {e}")
                 continue
         

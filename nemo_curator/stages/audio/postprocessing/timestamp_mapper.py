@@ -39,20 +39,20 @@ def _translate_to_original(
     results = []
     for m in mappings:
         try:
-            if m['concat_end_ms'] <= concat_start_ms or m['concat_start_ms'] >= concat_end_ms:
+            if m["concat_end_ms"] <= concat_start_ms or m["concat_start_ms"] >= concat_end_ms:
                 continue
-            overlap_start = max(concat_start_ms, m['concat_start_ms'])
-            overlap_end = min(concat_end_ms, m['concat_end_ms'])
+            overlap_start = max(concat_start_ms, m["concat_start_ms"])
+            overlap_end = min(concat_end_ms, m["concat_end_ms"])
             duration = overlap_end - overlap_start
             if duration <= 0:
                 continue
-            start_offset = overlap_start - m['concat_start_ms']
-            end_offset = overlap_end - m['concat_start_ms']
+            start_offset = overlap_start - m["concat_start_ms"]
+            end_offset = overlap_end - m["concat_start_ms"]
             results.append({
-                'original_file': m['original_file'],
-                'original_start_ms': m['original_start_ms'] + start_offset,
-                'original_end_ms': m['original_start_ms'] + end_offset,
-                'duration_ms': duration,
+                "original_file": m["original_file"],
+                "original_start_ms": m["original_start_ms"] + start_offset,
+                "original_end_ms": m["original_start_ms"] + end_offset,
+                "duration_ms": duration,
             })
         except KeyError as e:
             logger.warning(
@@ -95,9 +95,9 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
     # - original_file: re-added explicitly from the mapped result, stripped here
     #       to avoid stale values from earlier stages overwriting the mapped value
     _STRIP_KEYS = frozenset({
-        'waveform', 'audio', 'audio_filepath',
-        'start_ms', 'end_ms', 'segment_num',
-        'original_file',
+        "waveform", "audio", "audio_filepath",
+        "start_ms", "end_ms", "segment_num",
+        "original_file",
     })
 
     def __post_init__(self):
@@ -111,15 +111,15 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
                      "duration_ms", "duration_sec"]
 
     def process(self, task: AudioBatch) -> AudioBatch | None:
-        mappings = (task._metadata or {}).get('segment_mappings')
+        mappings = (task._metadata or {}).get("segment_mappings")
 
         results: list[dict[str, Any]] = []
         rejected = 0
 
         for item in task.data:
             if mappings:
-                concat_start = item.get('start_ms', 0)
-                concat_end = item.get('end_ms', 0)
+                concat_start = item.get("start_ms", 0)
+                concat_end = item.get("end_ms", 0)
                 if concat_end <= concat_start:
                     logger.warning(
                         f"[TimestampMapper] Skipping item with invalid range: "
@@ -173,36 +173,36 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
     def _build_output_item(self, item: dict[str, Any], orig: dict[str, Any]) -> dict[str, Any]:
         """Build final output item from mapped original range."""
         result: dict[str, Any] = {
-            'original_file': orig['original_file'],
-            'original_start_ms': orig['original_start_ms'],
-            'original_end_ms': orig['original_end_ms'],
-            'duration_ms': orig['duration_ms'],
-            'duration_sec': orig['duration_ms'] / 1000.0,
+            "original_file": orig["original_file"],
+            "original_start_ms": orig["original_start_ms"],
+            "original_end_ms": orig["original_end_ms"],
+            "duration_ms": orig["duration_ms"],
+            "duration_sec": orig["duration_ms"] / 1000.0,
         }
         self._copy_passthrough(item, result)
         return result
 
     def _build_output_item_no_mapping(self, item: dict[str, Any]) -> dict[str, Any]:
         """Build output item when no segment mappings exist (no concatenation was done)."""
-        start_ms = item.get('start_ms', 0)
-        end_ms = item.get('end_ms', 0)
+        start_ms = item.get("start_ms", 0)
+        end_ms = item.get("end_ms", 0)
         duration_ms = end_ms - start_ms
         if duration_ms <= 0:
-            dur = item.get('duration') or item.get('duration_sec')
+            dur = item.get("duration") or item.get("duration_sec")
             if dur is not None and float(dur) > 0:
                 duration_ms = int(float(dur) * 1000)
                 end_ms = start_ms + duration_ms
-            elif 'waveform' in item and 'sample_rate' in item:
-                wf = item['waveform']
-                n = wf.shape[-1] if hasattr(wf, 'shape') else len(wf)
-                duration_ms = int(n / item['sample_rate'] * 1000)
+            elif "waveform" in item and "sample_rate" in item:
+                wf = item["waveform"]
+                n = wf.shape[-1] if hasattr(wf, "shape") else len(wf)
+                duration_ms = int(n / item["sample_rate"] * 1000)
                 end_ms = start_ms + duration_ms
         result: dict[str, Any] = {
-            'original_file': item.get('original_file', item.get('audio_filepath', 'unknown')),
-            'original_start_ms': start_ms,
-            'original_end_ms': end_ms,
-            'duration_ms': duration_ms,
-            'duration_sec': duration_ms / 1000.0,
+            "original_file": item.get("original_file", item.get("audio_filepath", "unknown")),
+            "original_start_ms": start_ms,
+            "original_end_ms": end_ms,
+            "duration_ms": duration_ms,
+            "duration_sec": duration_ms / 1000.0,
         }
         self._copy_passthrough(item, result)
         return result
