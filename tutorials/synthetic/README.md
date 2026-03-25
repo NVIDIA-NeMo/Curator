@@ -19,7 +19,22 @@ For comprehensive documentation, refer to the [Synthetic Data Generation Guide](
 export NVIDIA_API_KEY="your-api-key-here"
 ```
 
+## SDG Backends
+
+NeMo Curator supports two backends for synthetic data generation:
+
+- **OpenAI Client-based**: A lightweight approach where you manually craft prompt templates and call any OpenAI-compatible REST endpoint via `AsyncOpenAIClient` + `GenerationConfig`. Best for custom pipelines where you want full control over prompt logic and request parameters.
+- **NeMo Data Designer (NDD)**: A declarative, high-level framework where you define a data schema (structured samplers, Jinja expressions, LLM-generated columns) and NDD handles prompt rendering, batching, and concurrency automatically. Best for structured dataset generation with minimal boilerplate.
+
+The tutorials below cover both backends across a range of use cases.
+
 ## Available Tutorials
+
+### OpenAI Client-based
+
+These tutorials use NeMo Curator's `AsyncOpenAIClient` paired with a `GenerationConfig` to call any OpenAI-compatible REST endpoint (e.g. NVIDIA NIM, self-hosted vLLM, or OpenAI itself).
+You write the prompt template and control generation parameters (temperature, top-p, token limits) directly in Python.
+This approach is lightweight and portable — no additional frameworks are required beyond NeMo Curator — making it a good starting point for custom pipelines where you want full control over the request logic.
 
 | Tutorial | Description | Difficulty |
 |----------|-------------|------------|
@@ -27,9 +42,28 @@ export NVIDIA_API_KEY="your-api-key-here"
 | [Nemotron-CC High-Quality](nemotron_cc/nemotron_cc_sdg_high_quality_example_pipeline.py) | Advanced SDG for high-quality data (DiverseQA, Distill, ExtractKnowledge, KnowledgeList) | Advanced |
 | [Nemotron-CC Low-Quality](nemotron_cc/nemotron_cc_sdg_low_quality_example_pipeline.py) | Improve low-quality data via Wikipedia-style paraphrasing | Advanced |
 
+### NeMo Data Designer (NDD)-based
+
+[NeMo Data Designer](https://developer.nvidia.com/nemo-data-designer) is NVIDIA's high-level synthetic data generation framework.
+Instead of hand-crafting prompt strings and managing API calls, you declare your data schema — samplers for structured fields (names, dates, UUIDs), Jinja-style expression columns, and LLM-generated text columns — using a `DataDesignerConfigBuilder`.
+NDD then orchestrates prompt rendering, batching, and concurrency automatically via its `ModelConfig` / `ModelProvider` / `ChatCompletionInferenceParams` API.
+
+Key advantages over the OpenAI Client-based approach:
+- **Structured column generation**: mix faker-based samplers, datetime ranges, UUID generators, and LLM-generated text in a single config.
+- **Local or remote inference**: point NDD at a local `InferenceServer` (Ray Serve + vLLM) or any remote OpenAI-compatible endpoint without changing pipeline code.
+- **Declarative config**: pipelines can be defined in YAML (`--data-designer-config-file`) for easy reproducibility and sharing.
+
+| Tutorial | Description | Difficulty |
+|----------|-------------|------------|
+| [NDD Medical Notes](nemo_data_designer/ndd_data_generation_example.py) | Generate synthetic medical notes from symptom seed data; supports local vLLM server or remote provider | Intermediate |
+| [NDD Nemotron-CC High-Quality](nemotron_cc/nemo_data_designer/nemotron_cc_sdg_high_quality_example_pipeline.py) | NDD-backed SDG for high-quality data (DiverseQA, Distill, ExtractKnowledge, KnowledgeList) | Advanced |
+| [NDD Nemotron-CC Low-Quality](nemotron_cc/nemo_data_designer/nemotron_cc_sdg_low_quality_example_pipeline.py) | NDD-backed Wikipedia-style paraphrasing to improve low-quality data | Advanced |
+
 ## Quick Examples
 
-### Basic Multilingual Q&A
+### OpenAI Client-based
+
+#### Multilingual Q&A
 
 ```bash
 # Generate 20 synthetic Q&A pairs in multiple languages
@@ -42,7 +76,7 @@ python synthetic_data_generation_example.py \
     --no-filter-languages
 ```
 
-### Nemotron-CC Pipelines
+#### Nemotron-CC Pipelines
 
 ```bash
 # High-quality processing: Run any task (diverse_qa, distill, extract_knowledge, knowledge_list)
@@ -57,7 +91,7 @@ python nemotron_cc/nemotron_cc_sdg_low_quality_example_pipeline.py \
     --mock
 ```
 
-### Using Real Data
+#### Using Real Data
 
 ```bash
 # Process Parquet input files
@@ -69,9 +103,56 @@ python nemotron_cc/nemotron_cc_sdg_high_quality_example_pipeline.py \
     --output-format parquet
 ```
 
+### NeMo Data Designer (NDD)-based
+
+#### Medical Notes Generation
+
+```bash
+# Local vLLM server (default, requires GPUs)
+python nemo_data_designer/ndd_data_generation_example.py
+
+# Different local model
+python nemo_data_designer/ndd_data_generation_example.py \
+    --model google/gemma-3-27b-it
+
+# Remote NVIDIA NIM API
+python nemo_data_designer/ndd_data_generation_example.py \
+    --provider nvidia \
+    --model meta/llama-3.3-70b-instruct
+```
+
+#### Nemotron-CC Pipelines
+
+```bash
+# High-quality processing: Run any task (diverse_qa, distill, extract_knowledge, knowledge_list)
+python nemotron_cc/nemo_data_designer/nemotron_cc_sdg_high_quality_example_pipeline.py \
+    --task diverse_qa \
+    --tokenizer meta-llama/Llama-3.3-70B-Instruct \
+    --mock
+
+# Low-quality processing: Wikipedia-style paraphrasing to improve text quality
+python nemotron_cc/nemo_data_designer/nemotron_cc_sdg_low_quality_example_pipeline.py \
+    --tokenizer meta-llama/Llama-3.3-70B-Instruct \
+    --mock
+```
+
+#### Using Real Data
+
+```bash
+# Process Parquet input files
+python nemotron_cc/nemo_data_designer/nemotron_cc_sdg_high_quality_example_pipeline.py \
+    --task diverse_qa \
+    --tokenizer meta-llama/Llama-3.3-70B-Instruct \
+    --input-parquet-path ./my_data/*.parquet \
+    --output-path ./synthetic_output \
+    --output-format parquet
+```
+
 ## Command-Line Arguments
 
 Refer to each script's `--help` output for the complete list of available arguments.
+
+### OpenAI Client-based scripts
 
 | Argument | Default | Description |
 |----------|---------|-------------|
@@ -82,18 +163,20 @@ Refer to each script's `--help` output for the complete list of available argume
 | `--max-concurrent-requests` | 3 | Concurrent API requests |
 | `--temperature` | 0.9 (QA) / 0.5 (Nemotron-CC) | Sampling temperature |
 
-## Example Output
+### NDD-based scripts
 
-### Multilingual Q&A
-
-```json
-{"text": "[EN] Question: What causes ocean tides? Answer: Ocean tides are primarily caused by the gravitational pull of the Moon and Sun on Earth's water bodies."}
-{"text": "[FR] Question: Qu'est-ce que la photosynthèse? Answer: La photosynthèse est le processus par lequel les plantes convertissent la lumière du soleil en énergie."}
-```
-
-### Nemotron-CC
-
-See the [Nemotron-CC documentation](../../docs/curate-text/synthetic/nemotron-cc/index.md) for output format details for each task type.
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--provider` | local (NDD medical) / `--provider-name nvidia` (Nemotron-CC) | Model provider (`nvidia`, or omit for local server) |
+| `--model` / `--model-name` | openai/gpt-oss-20b (NDD medical) / meta/llama-3.3-70b-instruct | Model identifier |
+| `--output-path` | ./synthetic_output | Output directory |
+| `--output-format` | parquet | Output format (`jsonl` or `parquet`) — Nemotron-CC NDD scripts |
+| `--temperature` | 0.5 | Sampling temperature |
+| `--top-p` | 0.9 | Nucleus sampling parameter |
+| `--max-tokens` | task-dependent | Maximum tokens to generate |
+| `--max-parallel-requests` | 4 | NDD concurrency for parallel LLM requests |
+| `--mock` | false | Use built-in sample data instead of Parquet input |
+| `--data-designer-config-file` | none | Path to a Data Designer YAML config (NDD medical script) |
 
 ---
 
