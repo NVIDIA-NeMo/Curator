@@ -37,37 +37,49 @@ def create_image_embedding_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline = Pipeline(name="image_curation", description="Curate images with embeddings and quality scoring")
 
     # Stage 0: Partition tar files for parallel processing
-    pipeline.add_stage(FilePartitioningStage(
-        file_paths=args.input_wds_dataset_dir,
-        files_per_partition=args.tar_files_per_partition,
-        file_extensions=[".tar"],
-    ))
+    pipeline.add_stage(
+        FilePartitioningStage(
+            file_paths=args.input_wds_dataset_dir,
+            files_per_partition=args.tar_files_per_partition,
+            file_extensions=[".tar"],
+        )
+    )
 
     # Stage 1: Read images from webdataset tar files (now runs in parallel)
-    pipeline.add_stage(ImageReaderStage(
-        dali_batch_size=args.batch_size,
-        verbose=args.verbose,
-        num_threads=16,  # More threads for I/O
-        num_gpus_per_worker=0.25,
-    ))
+    pipeline.add_stage(
+        ImageReaderStage(
+            dali_batch_size=args.batch_size,
+            verbose=args.verbose,
+            num_threads=16,  # More threads for I/O
+            num_gpus_per_worker=0.25,
+        )
+    )
 
     # Stage 2: Generate CLIP embeddings for images
-    pipeline.add_stage(ImageEmbeddingStage(
-        model_dir=args.model_dir,
-        num_gpus_per_worker=args.embedding_gpus_per_worker,
-        model_inference_batch_size=args.embedding_batch_size,
-        verbose=args.verbose,
-    ))
+    pipeline.add_stage(
+        ImageEmbeddingStage(
+            model_dir=args.model_dir,
+            num_gpus_per_worker=args.embedding_gpus_per_worker,
+            model_inference_batch_size=args.embedding_batch_size,
+            verbose=args.verbose,
+        )
+    )
 
     # Stage 3: Convert embeddings to document batch
     pipeline.add_stage(ConvertImageBatchToDocumentBatchStage(fields=["image_id", "embedding"]))
 
     # Stage 4: Save embeddings to parquet file
-    pipeline.add_stage(ParquetWriter(
-        path=args.embeddings_dir,
-    ))
+    pipeline.add_stage(
+        ParquetWriter(
+            path=args.embeddings_dir,
+        )
+    )
+
+    if args.checkpoint_dir:
+        pipeline.enable_resumability(checkpoint_dir=os.path.join(args.checkpoint_dir, "image_embedding"))
 
     return pipeline
+
 
 def create_embedding_deduplication_workflow(args: argparse.Namespace) -> Pipeline:
     """Create image deduplication pipeline with embedding deduplication."""
@@ -83,39 +95,51 @@ def create_embedding_deduplication_workflow(args: argparse.Namespace) -> Pipelin
         verbose=args.verbose,
     )
 
+
 def create_image_deduplication_pipeline(args: argparse.Namespace) -> Pipeline:
     """Create image deduplication pipeline with image deduplication."""
     # Define pipeline
     pipeline = Pipeline(name="image_deduplication", description="Deduplicate images with image deduplication")
 
     # Stage 0: Partition tar files for parallel processing
-    pipeline.add_stage(FilePartitioningStage(
-        file_paths=args.input_wds_dataset_dir,
-        files_per_partition=args.tar_files_per_partition,
-        file_extensions=[".tar"],
-    ))
+    pipeline.add_stage(
+        FilePartitioningStage(
+            file_paths=args.input_wds_dataset_dir,
+            files_per_partition=args.tar_files_per_partition,
+            file_extensions=[".tar"],
+        )
+    )
 
     # Stage 1: Read images from webdataset tar files (now runs in parallel)
-    pipeline.add_stage(ImageReaderStage(
-        dali_batch_size=args.batch_size,
-        verbose=args.verbose,
-        num_threads=16,  # More threads for I/O
-        num_gpus_per_worker=0.25,
-    ))
+    pipeline.add_stage(
+        ImageReaderStage(
+            dali_batch_size=args.batch_size,
+            verbose=args.verbose,
+            num_threads=16,  # More threads for I/O
+            num_gpus_per_worker=0.25,
+        )
+    )
 
     # Stage 2: Read removal list from parquet file and filter images
-    pipeline.add_stage(ImageDuplicatesRemovalStage(
-        removal_parquets_dir=args.removal_parquets_dir + "/duplicates",
-        duplicate_id_field="id",
-        verbose=args.verbose,
-    ))
+    pipeline.add_stage(
+        ImageDuplicatesRemovalStage(
+            removal_parquets_dir=args.removal_parquets_dir + "/duplicates",
+            duplicate_id_field="id",
+            verbose=args.verbose,
+        )
+    )
 
     # Stage 3: Write filtered images to disk
-    pipeline.add_stage(ImageWriterStage(
-        output_dir=args.output_dataset_dir,
-        remove_image_data=True,
-        verbose=args.verbose,
-    ))
+    pipeline.add_stage(
+        ImageWriterStage(
+            output_dir=args.output_dataset_dir,
+            remove_image_data=True,
+            verbose=args.verbose,
+        )
+    )
+
+    if args.checkpoint_dir:
+        pipeline.enable_resumability(checkpoint_dir=os.path.join(args.checkpoint_dir, "image_deduplication"))
 
     return pipeline
 
@@ -133,6 +157,8 @@ def main(args: argparse.Namespace) -> None:
     print(f"Model directory: {args.model_dir}")
     print(f"Tar files per partition: {args.tar_files_per_partition}")
     print(f"Task batch size: {args.batch_size}")
+    if args.checkpoint_dir:
+        print(f"Checkpoint directory: {args.checkpoint_dir} (resumability enabled)")
     print("\n" + "=" * 50 + "\n")
 
     # Step 1: Download and prepare webdataset from parquet file
@@ -171,14 +197,12 @@ def main(args: argparse.Namespace) -> None:
 
     # Step 2.2: Create image deduplication pipeline (pairwise executor is XennaExecutor by default)
     print("Step 2.2: Running image deduplication pipeline...")
-    start_time = time.time()
     pipeline = create_embedding_deduplication_workflow(args)
     print("\n" + "=" * 50 + "\n")
     pipeline.run()
 
     # Step 2.3: Create image deduplication pipeline
     print("Step 2.3: Running image deduplication pipeline...")
-    start_time = time.time()
     pipeline = create_image_deduplication_pipeline(args)
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
@@ -210,49 +234,37 @@ if __name__ == "__main__":
         type=str,
         required=False,
         default=None,
-        help="Path to input parquet file containing image URLs and metadata"
+        help="Path to input parquet file containing image URLs and metadata",
     )
     parser.add_argument(
-        "--input-wds-dataset-dir",
+        "--input-wds-dataset-dir", type=str, required=True, help="Directory to save the downloaded webdataset"
+    )
+    parser.add_argument(
+        "--output-dataset-dir", type=str, required=True, help="Directory to save the resulting webdataset"
+    )
+    parser.add_argument("--embeddings-dir", type=str, required=True, help="Directory to save the embeddings")
+    parser.add_argument(
+        "--removal-parquets-dir", type=str, required=True, help="Directory to save the remove parquets"
+    )
+    parser.add_argument(
+        "--download-processes", type=int, default=8, help="Number of parallel processes for downloading images"
+    )
+    parser.add_argument(
+        "--entries-per-tar", type=int, default=1000, help="Number of entries per tar shard during download"
+    )
+    parser.add_argument(
+        "--skip-download", action="store_true", default=False, help="Skip dataset download and use existing webdataset"
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
         type=str,
-        required=True,
-        help="Directory to save the downloaded webdataset"
-    )
-    parser.add_argument(
-        "--output-dataset-dir",
-        type=str,
-        required=True,
-        help="Directory to save the resulting webdataset"
-    )
-    parser.add_argument(
-        "--embeddings-dir",
-        type=str,
-        required=True,
-        help="Directory to save the embeddings"
-    )
-    parser.add_argument(
-        "--removal-parquets-dir",
-        type=str,
-        required=True,
-        help="Directory to save the remove parquets"
-    )
-    parser.add_argument(
-        "--download-processes",
-        type=int,
-        default=8,
-        help="Number of parallel processes for downloading images"
-    )
-    parser.add_argument(
-        "--entries-per-tar",
-        type=int,
-        default=1000,
-        help="Number of entries per tar shard during download"
-    )
-    parser.add_argument(
-        "--skip-download",
-        action="store_true",
-        default=False,
-        help="Skip dataset download and use existing webdataset"
+        default=None,
+        help=(
+            "Directory to store pipeline resumability checkpoints. "
+            "When set, completed partitions are recorded so interrupted pipelines "
+            "can resume without reprocessing already-finished work. "
+            "Each pipeline writes to its own subdirectory under this path."
+        ),
     )
 
     # Image reader arguments
@@ -260,41 +272,25 @@ if __name__ == "__main__":
         "--tar-files-per-partition",
         type=int,
         default=1,
-        help="Number of tar files to process per partition (controls parallelism) for FilePartitioningStage"
+        help="Number of tar files to process per partition (controls parallelism) for FilePartitioningStage",
     )
     parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=100,
-        help="Number of images per ImageBatch for the reader stage"
+        "--batch-size", type=int, default=100, help="Number of images per ImageBatch for the reader stage"
     )
 
     # General arguments
     parser.add_argument(
-        "--model-dir",
-        type=str,
-        required=True,
-        help="Path to model directory containing all model weights"
+        "--model-dir", type=str, required=True, help="Path to model directory containing all model weights"
     )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="Enable verbose logging for all stages"
-    )
+    parser.add_argument("--verbose", action="store_true", default=False, help="Enable verbose logging for all stages")
 
     # Embedding stage arguments
-    parser.add_argument(
-        "--embedding-batch-size",
-        type=int,
-        default=32,
-        help="Batch size for embedding generation"
-    )
+    parser.add_argument("--embedding-batch-size", type=int, default=32, help="Batch size for embedding generation")
     parser.add_argument(
         "--embedding-gpus-per-worker",
         type=float,
         default=0.25,
-        help="GPU allocation per worker for embedding generation"
+        help="GPU allocation per worker for embedding generation",
     )
 
     args = parser.parse_args()

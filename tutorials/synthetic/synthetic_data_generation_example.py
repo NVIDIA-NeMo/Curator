@@ -170,9 +170,7 @@ def main() -> None:
 
     # Define a prompt for synthetic data generation
     prompt = (
-        args.prompt
-        if args.prompt
-        else """
+        args.prompt or """
     Generate a short question and a short answer in the general science domain in the language {language}.
     Begin with the language name using the 2-letter code, which is in square brackets, e.g. [EN] for English, [FR] for French, [DE] for German, [ES] for Spanish, [IT] for Italian.
     """
