@@ -18,7 +18,7 @@ from uuid import uuid4
 import pytest
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.models.qwen_vl import _QWEN2_5_VL_MODEL_ID
+from nemo_curator.models.qwen_vl import _QWEN2_5_VL_MODEL_ID, _QWEN2_5_VL_MODEL_REVISION
 from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage
 from nemo_curator.tasks.video import Clip, Video, VideoTask, _Window
 
@@ -83,6 +83,7 @@ class TestCaptionGenerationStage:
             model_does_preprocess=True,
             disable_mmcache=True,
             model_id=_QWEN2_5_VL_MODEL_ID,
+            model_revision=_QWEN2_5_VL_MODEL_REVISION,
         )
         mock_model.setup.assert_called_once()
         assert self.stage.model == mock_model
@@ -374,6 +375,7 @@ class TestCaptionGenerationStage:
         mock_qwen_vl.download_weights_on_node.assert_called_once_with(
             "test/models",
             model_id=custom_id,
+            model_revision=_QWEN2_5_VL_MODEL_REVISION,
         )
 
     @patch("nemo_curator.stages.video.caption.caption_generation.QwenVL")
@@ -391,4 +393,5 @@ class TestCaptionGenerationStage:
         mock_qwen_vl.download_weights_on_node.assert_called_once_with(
             "test/models",
             model_id=_QWEN2_5_VL_MODEL_ID,
+            model_revision=_QWEN2_5_VL_MODEL_REVISION,
         )

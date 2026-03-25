@@ -18,7 +18,7 @@ from uuid import uuid4
 import pytest
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID
+from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, _QWEN_LM_MODEL_REVISION
 from nemo_curator.stages.video.caption.caption_enhancement import (
     _ENHANCE_PROMPTS,
     CaptionEnhancementStage,
@@ -115,6 +115,7 @@ class TestCaptionEnhancementStage:
         mock_qwen_lm.assert_called_once_with(
             model_dir="test/models",
             model_id=_QWEN_LM_MODEL_ID,
+            model_revision=_QWEN_LM_MODEL_REVISION,
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
@@ -389,6 +390,7 @@ class TestCaptionEnhancementStage:
         mock_qwen_lm.download_weights_on_node.assert_called_once_with(
             "test/models",
             model_id=_QWEN_LM_MODEL_ID,
+            model_revision=_QWEN_LM_MODEL_REVISION,
         )
         assert self.stage.model == mock_model
 

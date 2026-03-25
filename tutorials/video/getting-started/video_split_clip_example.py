@@ -197,7 +197,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 stage2_prompt_text=args.captioning_stage2_prompt_text,
                 disable_mmcache=not args.captioning_use_vllm_mmcache,
                 model_id=args.captioning_model_id,
-                **({"model_revision": args.captioning_model_revision} if args.captioning_model_revision else {}),
+                model_revision=args.captioning_model_revision,
             )
         )
 
@@ -207,11 +207,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                     model_dir=args.model_dir,
                     model_variant=args.enhance_captions_algorithm,
                     model_id=args.enhance_captioning_algorithm_model_id,
-                    **(
-                        {"model_revision": args.enhance_captioning_model_revision}
-                        if args.enhance_captioning_model_revision
-                        else {}
-                    ),
+                    model_revision=args.enhance_captioning_model_revision,
                     prompt_variant=args.enhance_captioning_prompt_variant,
                     prompt_text=args.enhance_captions_prompt_text,
                     model_batch_size=args.enhance_captions_batch_size,
@@ -578,7 +574,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     parser.add_argument(
         "--captioning-model-revision",
         type=str,
-        default=None,
+        default="cc59489",
         help="HuggingFace revision (commit hash or branch) for the captioning VL model. Uses the default revision if not set.",
     )
     parser.add_argument(
@@ -696,7 +692,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     parser.add_argument(
         "--enhance-captioning-model-revision",
         type=str,
-        default=None,
+        default="cf98f3b",
         help="HuggingFace revision (commit hash or branch) for the caption enhancement LM model. Uses the default revision if not set.",
     )
     parser.add_argument(
