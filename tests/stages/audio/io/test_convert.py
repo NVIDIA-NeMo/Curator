@@ -55,3 +55,33 @@ def test_process_batch_empty() -> None:
     stage = AudioToDocumentStage()
     result = stage.process_batch([])
     assert result == []
+
+
+def test_process_batch_preserves_stage_perf() -> None:
+    tasks = [
+        AudioTask(task_id="t1", dataset_name="ds", data={"audio_filepath": "/a.wav"}, _stage_perf=["perf1"]),
+        AudioTask(task_id="t2", dataset_name="ds", data={"audio_filepath": "/b.wav"}, _stage_perf=["perf2"]),
+    ]
+    stage = AudioToDocumentStage()
+    result = stage.process_batch(tasks)
+    assert result[0]._stage_perf == ["perf1", "perf2"]
+
+
+def test_process_batch_deduplicates_dataset_names() -> None:
+    tasks = [
+        AudioTask(task_id="t1", dataset_name="ds_a", data={"audio_filepath": "/a.wav"}),
+        AudioTask(task_id="t2", dataset_name="ds_b", data={"audio_filepath": "/b.wav"}),
+        AudioTask(task_id="t3", dataset_name="ds_a", data={"audio_filepath": "/c.wav"}),
+    ]
+    stage = AudioToDocumentStage()
+    result = stage.process_batch(tasks)
+    assert result[0].dataset_name == "ds_a,ds_b"
+
+
+def test_process_batch_single_task() -> None:
+    task = AudioTask(task_id="only", dataset_name="ds", data={"audio_filepath": "/x.wav", "text": "hi"})
+    stage = AudioToDocumentStage()
+    result = stage.process_batch([task])
+    assert len(result) == 1
+    assert len(result[0].data) == 1
+    assert result[0].data.iloc[0]["text"] == "hi"
