@@ -209,13 +209,19 @@ linting = ["pre-commit", "ruff==0.14.10"]
 test = [
     "coverage",
     "debugpy",
+    "GitPython",
+    "oauth2client",
+    "pydrive2",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
     "pytest-httpserver",
     "pytest-loguru",
+    "pyyaml",
+    "rich",
     "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
     "s3fs", # added for testing cloud fs
+    "slack_sdk",
 ]
 
 [tool.uv]
