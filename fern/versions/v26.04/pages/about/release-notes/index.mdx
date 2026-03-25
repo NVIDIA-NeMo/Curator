@@ -12,6 +12,18 @@ modality: "universal"
 
 ## What's New in 26.04
 
+### Inference Server (Ray Serve)
+
+Built-in LLM serving alongside curation pipelines using Ray Serve and vLLM:
+
+- **`InferenceServer` and `InferenceModelConfig`**: New APIs to deploy one or more LLMs as OpenAI-compatible endpoints directly within a Ray cluster, eliminating the need for separate inference infrastructure.
+- **Context manager support**: `InferenceServer` works as a context manager for automatic startup and cleanup of served models.
+- **GPU contention detection**: `Pipeline.run()` automatically detects when an InferenceServer is active and enforces `RayDataExecutor` usage for GPU pipeline stages to prevent resource conflicts.
+- **`GenerationConfig.extra_kwargs`**: New field for passing arbitrary parameters through to the OpenAI API `create()` call.
+- **New install extras**: `inference_server` (Ray Serve + vLLM dependencies) and `sdg_cuda12` (SDG with local inference support).
+
+Learn more in the [Inference Server](/curate-text/synthetic/inference-server) documentation.
+
 ### vLLM Default for Semantic Deduplication Embeddings
 
 The default embedding backend for `TextSemanticDeduplicationWorkflow` switched from SentenceTransformers to vLLM:
