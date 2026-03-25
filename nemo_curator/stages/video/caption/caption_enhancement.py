@@ -18,7 +18,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM, _validate_qwen_model
+from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, _QWEN_LM_MODEL_REVISION, QwenLM, _validate_qwen_model
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import Clip, Video, VideoTask, _Window
@@ -47,6 +47,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
     model_dir: str = "models/qwen"
     model_variant: str = "qwen"
     model_id: str = _QWEN_LM_MODEL_ID
+    model_revision: str | None = _QWEN_LM_MODEL_REVISION
     prompt_variant: str = "default"
     prompt_text: str | None = None
     model_batch_size: int = 128
@@ -74,6 +75,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
             self.model = QwenLM(
                 model_dir=self.model_dir,
                 model_id=self.model_id,
+                model_revision=self.model_revision,
                 caption_batch_size=self.model_batch_size,
                 fp8=self.fp8,
                 max_output_tokens=self.max_output_tokens,
@@ -85,7 +87,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
-        QwenLM.download_weights_on_node(self.model_dir, model_id=self.model_id)
+        QwenLM.download_weights_on_node(self.model_dir, model_id=self.model_id, model_revision=self.model_revision)
         self._initialize_model()
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002

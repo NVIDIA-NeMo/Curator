@@ -19,7 +19,12 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.models.qwen_vl import _QWEN2_5_VL_MODEL_ID, QwenVL, _validate_qwen_vl_model
+from nemo_curator.models.qwen_vl import (
+    _QWEN2_5_VL_MODEL_ID,
+    _QWEN2_5_VL_MODEL_REVISION,
+    QwenVL,
+    _validate_qwen_vl_model,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import Video, VideoTask
@@ -36,6 +41,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     model_dir: str = "models/qwen"
     model_variant: str = "qwen"
     model_id: str = _QWEN2_5_VL_MODEL_ID
+    model_revision: str | None = _QWEN2_5_VL_MODEL_REVISION
     caption_batch_size: int = 16
     fp8: bool = False
     max_output_tokens: int = 512
@@ -63,6 +69,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 model_does_preprocess=self.model_does_preprocess,
                 disable_mmcache=self.disable_mmcache,
                 model_id=self.model_id,
+                model_revision=self.model_revision,
             )
         else:
             msg = f"Unsupported model variant: {self.model_variant}"
@@ -74,6 +81,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
         QwenVL.download_weights_on_node(
             self.model_dir,
             model_id=self.model_id,
+            model_revision=self.model_revision,
         )
         self._initialize_model()
 
