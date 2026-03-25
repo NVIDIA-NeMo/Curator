@@ -36,6 +36,15 @@ from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
 
 
 def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # noqa: PLR0912, C901
+    # Apply pinned revisions for the default models when no revision was explicitly provided.
+    if args.captioning_model_revision is None and args.captioning_model_id == "Qwen/Qwen2.5-VL-7B-Instruct":
+        args.captioning_model_revision = "cc59489"
+    if (
+        args.enhance_captioning_model_revision is None
+        and args.enhance_captioning_algorithm_model_id == "Qwen/Qwen2.5-14B-Instruct"
+    ):
+        args.enhance_captioning_model_revision = "cf98f3b"
+
     # Define pipeline
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
@@ -252,10 +261,6 @@ def main(args: argparse.Namespace) -> None:
 
     # Print results
     print("\nPipeline completed!")
-
-
-def _none_or_str(value: str) -> str | None:
-    return None if value == "None" else value
 
 
 def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0915
@@ -577,9 +582,9 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     )
     parser.add_argument(
         "--captioning-model-revision",
-        type=_none_or_str,
-        default="cc59489",
-        help="HuggingFace revision (commit hash or branch) for the captioning VL model. Uses the default revision if not set.",
+        type=str,
+        default=None,
+        help="HuggingFace revision (commit hash or branch) for the captioning VL model. Defaults to the pinned revision for the default model. Pass 'None' to use the latest.",
     )
     parser.add_argument(
         "--captioning-window-size",
@@ -695,9 +700,9 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     )
     parser.add_argument(
         "--enhance-captioning-model-revision",
-        type=_none_or_str,
-        default="cf98f3b",
-        help="HuggingFace revision (commit hash or branch) for the caption enhancement LM model. Uses the default revision if not set.",
+        type=str,
+        default=None,
+        help="HuggingFace revision (commit hash or branch) for the caption enhancement LM model. Defaults to the pinned revision for the default model. Pass 'None' to use the latest.",
     )
     parser.add_argument(
         "--enhance-captions-batch-size",
