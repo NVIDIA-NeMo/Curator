@@ -48,6 +48,12 @@ def test_get_audio_duration_process_batch_raises_on_missing_column() -> None:
         stage.process_batch([AudioTask(data={"text": "hello"})])
 
 
+def test_preserve_by_value_process_raises_not_implemented() -> None:
+    stage = PreserveByValueStage(input_value_key="v", target_value=3, operator="eq")
+    with pytest.raises(NotImplementedError, match="only supports process_batch"):
+        stage.process(AudioTask(data={"v": 3}))
+
+
 def test_preserve_by_value_process_batch_raises_on_missing_column() -> None:
     stage = PreserveByValueStage(input_value_key="wer", target_value=50, operator="le")
     with pytest.raises(ValueError, match="failed validation"):
@@ -56,28 +62,29 @@ def test_preserve_by_value_process_batch_raises_on_missing_column() -> None:
 
 def test_preserve_by_value_eq_keeps_match() -> None:
     stage = PreserveByValueStage(input_value_key="v", target_value=3, operator="eq")
-    result = stage.process(AudioTask(data={"v": 3}))
-    assert isinstance(result, AudioTask)
-    assert result.data["v"] == 3
+    result = stage.process_batch([AudioTask(data={"v": 3})])
+    assert len(result) == 1
+    assert isinstance(result[0], AudioTask)
+    assert result[0].data["v"] == 3
 
 
 def test_preserve_by_value_eq_filters_non_match() -> None:
     stage = PreserveByValueStage(input_value_key="v", target_value=3, operator="eq")
-    result = stage.process(AudioTask(data={"v": 1}))
-    assert result is None
+    result = stage.process_batch([AudioTask(data={"v": 1})])
+    assert len(result) == 0
 
 
 def test_preserve_by_value_lt() -> None:
     stage = PreserveByValueStage(input_value_key="v", target_value=5, operator="lt")
-    assert isinstance(stage.process(AudioTask(data={"v": 2})), AudioTask)
-    assert stage.process(AudioTask(data={"v": 7})) is None
+    assert len(stage.process_batch([AudioTask(data={"v": 2})])) == 1
+    assert len(stage.process_batch([AudioTask(data={"v": 7})])) == 0
 
 
 def test_preserve_by_value_ge() -> None:
     stage = PreserveByValueStage(input_value_key="v", target_value=10, operator="ge")
-    assert stage.process(AudioTask(data={"v": 9})) is None
-    assert isinstance(stage.process(AudioTask(data={"v": 10})), AudioTask)
-    assert isinstance(stage.process(AudioTask(data={"v": 11})), AudioTask)
+    assert len(stage.process_batch([AudioTask(data={"v": 9})])) == 0
+    assert len(stage.process_batch([AudioTask(data={"v": 10})])) == 1
+    assert len(stage.process_batch([AudioTask(data={"v": 11})])) == 1
 
 
 def test_get_audio_duration_success(tmp_path: Path) -> None:

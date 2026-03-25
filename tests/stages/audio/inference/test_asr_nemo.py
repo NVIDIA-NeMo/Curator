@@ -37,13 +37,10 @@ class TestAsrNeMoStage:
         stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
         assert stage.validate_input(AudioTask(data={"text": "hello"})) is False
 
-    def test_process_raises_on_missing_filepath(self) -> None:
-        with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["x"]):
-            stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
-            stage.setup_on_node()
-            stage.setup()
-            with pytest.raises(ValueError, match="missing required columns"):
-                stage.process(AudioTask(data={"text": "hello"}))
+    def test_process_raises_not_implemented(self) -> None:
+        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
+        with pytest.raises(NotImplementedError, match="only supports process_batch"):
+            stage.process(AudioTask(data={"audio_filepath": "/a.wav"}))
 
     def test_process_batch_raises_on_missing_filepath(self) -> None:
         with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["x"]):
@@ -53,18 +50,19 @@ class TestAsrNeMoStage:
             with pytest.raises(ValueError, match="missing required columns"):
                 stage.process_batch([AudioTask(data={"text": "hello"})])
 
-    def test_process_single_entry(self) -> None:
+    def test_process_batch_single_entry(self) -> None:
         with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["the cat"]):
             stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
             stage.setup_on_node()
             stage.setup()
 
             entry = AudioTask(data={"audio_filepath": "/test/audio1.wav"})
-            result = stage.process(entry)
+            results = stage.process_batch([entry])
 
-            assert isinstance(result, AudioTask)
-            assert result.data["audio_filepath"] == "/test/audio1.wav"
-            assert result.data["pred_text"] == "the cat"
+            assert len(results) == 1
+            assert isinstance(results[0], AudioTask)
+            assert results[0].data["audio_filepath"] == "/test/audio1.wav"
+            assert results[0].data["pred_text"] == "the cat"
 
     def test_process_batch_success(self) -> None:
         with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["the cat", "sat on a mat"]):

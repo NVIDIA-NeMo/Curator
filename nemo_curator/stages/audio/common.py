@@ -93,8 +93,8 @@ class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.input_value_key]
 
     def process(self, task: AudioTask) -> AudioTask | None:
-        result = self.process_batch([task])
-        return result[0] if result else None
+        msg = "PreserveByValueStage only supports process_batch"
+        raise NotImplementedError(msg)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         results = []

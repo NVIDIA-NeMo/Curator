@@ -105,7 +105,8 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
         return [output.text for output in outputs]
 
     def process(self, task: AudioTask) -> AudioTask:
-        return self.process_batch([task])[0]
+        msg = "InferenceAsrNemoStage only supports process_batch"
+        raise NotImplementedError(msg)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         if len(tasks) == 0:
