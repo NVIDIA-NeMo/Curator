@@ -225,7 +225,7 @@ class PromptTaskComplexityModelStage(ModelStage):
         max_seq_length: If provided, clips the input tokens before the forward pass. Defaults to None.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
-        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
 
     """
 
@@ -236,7 +236,7 @@ class PromptTaskComplexityModelStage(ModelStage):
         has_seq_order: bool = True,
         max_seq_length: int | None = None,
         autocast: bool = True,
-        drop_tokens: bool = True,
+        keep_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
@@ -249,7 +249,7 @@ class PromptTaskComplexityModelStage(ModelStage):
             autocast=autocast,
         )
 
-        self.drop_tokens = drop_tokens
+        self.keep_tokens = keep_tokens
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], OUTPUT_FIELDS
@@ -269,7 +269,7 @@ class PromptTaskComplexityModelStage(ModelStage):
         return outputs
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        if self.drop_tokens:
+        if not self.keep_tokens:
             df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         for column in OUTPUT_FIELDS:
@@ -299,7 +299,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
-        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
             Defaults to False.
@@ -313,7 +313,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
     sort_by_length: bool = True
     model_inference_batch_size: int = 256
     autocast: bool = True
-    drop_tokens: bool = True
+    keep_tokens: bool = False
     use_existing_tokens: bool = False
 
     def __post_init__(self) -> None:
@@ -355,7 +355,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
             has_seq_order=self.sort_by_length,
             max_seq_length=model_max_seq_length,
             autocast=self.autocast,
-            drop_tokens=self.drop_tokens,
+            keep_tokens=self.keep_tokens,
         )
         self.stages.append(model_stage)
 

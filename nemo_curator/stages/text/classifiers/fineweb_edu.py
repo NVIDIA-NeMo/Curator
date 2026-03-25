@@ -52,7 +52,7 @@ class FineWebModelStage(ModelStage):
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
-        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
 
     """
 
@@ -66,7 +66,7 @@ class FineWebModelStage(ModelStage):
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         autocast: bool = True,
-        drop_tokens: bool = True,
+        keep_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -81,7 +81,7 @@ class FineWebModelStage(ModelStage):
         self.label_field = label_field
         self.float_score_field = float_score_field
         self.int_score_field = int_score_field
-        self.drop_tokens = drop_tokens
+        self.keep_tokens = keep_tokens
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.label_field, self.float_score_field, self.int_score_field]
@@ -124,7 +124,7 @@ class FineWebModelStage(ModelStage):
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        if self.drop_tokens:
+        if not self.keep_tokens:
             df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         df_cpu[self.float_score_field] = collected_output[self.float_score_field]
@@ -157,7 +157,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
-        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
             Defaults to False.
@@ -176,7 +176,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     sort_by_length: bool = True
     model_inference_batch_size: int = 256
     autocast: bool = True
-    drop_tokens: bool = True
+    keep_tokens: bool = False
     use_existing_tokens: bool = False
 
     def __post_init__(self) -> None:
@@ -210,7 +210,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             model_inference_batch_size=self.model_inference_batch_size,
             has_seq_order=self.sort_by_length,
             autocast=self.autocast,
-            drop_tokens=self.drop_tokens,
+            keep_tokens=self.keep_tokens,
         )
         self.stages.append(model_stage)
 
@@ -250,7 +250,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
-        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
             Defaults to False.
@@ -269,7 +269,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 256,
         autocast: bool = True,
-        drop_tokens: bool = True,
+        keep_tokens: bool = False,
         use_existing_tokens: bool = False,
     ):
         super().__init__(
@@ -285,7 +285,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
-            drop_tokens=drop_tokens,
+            keep_tokens=keep_tokens,
             use_existing_tokens=use_existing_tokens,
         )
 
@@ -313,7 +313,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 1024.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
-        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
             Defaults to False.
@@ -332,7 +332,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 1024,
         autocast: bool = True,
-        drop_tokens: bool = True,
+        keep_tokens: bool = False,
         use_existing_tokens: bool = False,
     ):
         super().__init__(
@@ -348,7 +348,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
-            drop_tokens=drop_tokens,
+            keep_tokens=keep_tokens,
             use_existing_tokens=use_existing_tokens,
         )
 
@@ -376,7 +376,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 1024.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
-        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
             Defaults to False.
@@ -395,7 +395,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 1024,
         autocast: bool = True,
-        drop_tokens: bool = True,
+        keep_tokens: bool = False,
         use_existing_tokens: bool = False,
     ):
         super().__init__(
@@ -411,7 +411,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
-            drop_tokens=drop_tokens,
+            keep_tokens=keep_tokens,
             use_existing_tokens=use_existing_tokens,
         )
 

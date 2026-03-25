@@ -413,7 +413,7 @@ The classifiers optimize throughput through:
 
 ### Avoid Unnecessary Re-Tokenization
 
-Several of the text classifiers use the same tokenizer before running the model forward pass. To avoid unnecessary re-tokenization, the `drop_tokens` and `use_existing_tokens` parameters can be used.
+Several of the text classifiers use the same tokenizer before running the model forward pass. To avoid unnecessary re-tokenization, the `keep_tokens` and `use_existing_tokens` parameters can be used.
 
 **Important: Not every text classifier uses the same tokenizer, so it is important to confirm that classifiers' tokenizers are compatible with each other. Curator will not verify this for you.**
 
@@ -422,33 +422,33 @@ The `ContentTypeClassifier`, `QualityClassifier`, `DomainClassifier`, and `Promp
 ```python
 # Since this is the first classifier in the pipeline, there are no existing tokens to use,
 # but we can make sure to keep the computed tokens for the next classifier
-content_type_classifier = ContentTypeClassifier(use_existing_tokens=False, drop_tokens=False, ...)
+content_type_classifier = ContentTypeClassifier(use_existing_tokens=False, keep_tokens=True, ...)
 pipeline.add_stage(content_type_classifier)
 
 # Use tokens from the previous classifier and keep tokens for the next classifier
-quality_classifier = QualityClassifier(use_existing_tokens=True, drop_tokens=False, ...)
+quality_classifier = QualityClassifier(use_existing_tokens=True, keep_tokens=True, ...)
 pipeline.add_stage(quality_classifier)
 
 # Use tokens from the previous classifier and keep tokens for the next classifier
-domain_classifier = DomainClassifier(use_existing_tokens=True, drop_tokens=False, ...)
+domain_classifier = DomainClassifier(use_existing_tokens=True, keep_tokens=True, ...)
 pipeline.add_stage(domain_classifier)
 
 # Use tokens from the previous classifier
 # Since this is the final classifier in the pipeline, we drop the computed tokens
-prompt_task_complexity_classifier = PromptTaskComplexityClassifier(use_existing_tokens=True, drop_tokens=True, ...)
+prompt_task_complexity_classifier = PromptTaskComplexityClassifier(use_existing_tokens=True, keep_tokens=False, ...)
 pipeline.add_stage(prompt_task_complexity_classifier)
 ```
 
 In addition to the above example, the `FineWebEduClassifier`, `FineWebMixtralEduClassifier`, and `FineWebNemotronEduClassifier` are all compatible with each other:
 
 ```python
-fineweb_classifier = FineWebEduClassifier(use_existing_tokens=False, drop_tokens=False, ...)
+fineweb_classifier = FineWebEduClassifier(use_existing_tokens=False, keep_tokens=True, ...)
 pipeline.add_stage(fineweb_classifier)
 
-fineweb_mixtral_classifier = FineWebMixtralEduClassifier(use_existing_tokens=True, drop_tokens=False, ...)
+fineweb_mixtral_classifier = FineWebMixtralEduClassifier(use_existing_tokens=True, keep_tokens=True, ...)
 pipeline.add_stage(fineweb_mixtral_classifier)
 
-fineweb_nemotron_classifier = FineWebNemotronEduClassifier(use_existing_tokens=True, drop_tokens=True, ...)
+fineweb_nemotron_classifier = FineWebNemotronEduClassifier(use_existing_tokens=True, keep_tokens=False, ...)
 pipeline.add_stage(fineweb_nemotron_classifier)
 ```
 
@@ -458,7 +458,7 @@ The `AegisClassifier` variants ([nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defen
 aegis_defensive_classifier = AegisClassifier(
     aegis_variant="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
     use_existing_tokens=False,
-    drop_tokens=False,
+    keep_tokens=True,
     keep_aegis_prompt_field=True,
     ...
 )
@@ -468,7 +468,7 @@ aegis_permissive_classifier = AegisClassifier(
     aegis_variant="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
     use_existing_tokens=True,
     aegis_prompt_field="_curator_hidden_text",  # created by aegis_defensive_classifier
-    drop_tokens=True,
+    keep_tokens=False,
     keep_aegis_prompt_field=False,
     ...
 )

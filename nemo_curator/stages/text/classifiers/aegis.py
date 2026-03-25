@@ -161,7 +161,7 @@ class AegisModelStage(ModelStage):
         has_seq_order: bool = True,
         add_instruction_data_guard: bool = False,
         autocast: bool = True,
-        drop_tokens: bool = True,
+        keep_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -177,7 +177,7 @@ class AegisModelStage(ModelStage):
         self.add_instruction_data_guard = add_instruction_data_guard
         self.label_field = label_field
         self.score_field = score_field
-        self.drop_tokens = drop_tokens
+        self.keep_tokens = keep_tokens
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.label_field] + ([self.score_field] if self.add_instruction_data_guard else [])
@@ -212,7 +212,7 @@ class AegisModelStage(ModelStage):
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        if self.drop_tokens:
+        if not self.keep_tokens:
             df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         if self.add_instruction_data_guard:
@@ -403,7 +403,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         model_inference_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
         autocast (bool): If True, will use autocast to run the classifier. Defaults to True.
-        drop_tokens (bool): If True, will drop the input tokens from the output dataframe. Defaults to True.
+        keep_tokens (bool): If True, will keep the input tokens in the output dataframe. Defaults to False.
         aegis_prompt_field (Optional[str]): The field in the dataset that contains the formatted prompts for the AEGIS model,
             if they are already in the dataset. Defaults to None.
         keep_aegis_prompt_field (bool): If True, will keep the formatted prompts in the output dataframe. Defaults to False.
@@ -425,7 +425,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     sort_by_length: bool = True
     model_inference_batch_size: int = 64
     autocast: bool = True
-    drop_tokens: bool = True
+    keep_tokens: bool = False
     aegis_prompt_field: str | None = None
     keep_aegis_prompt_field: bool = False
     use_existing_tokens: bool = False
@@ -476,7 +476,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             has_seq_order=self.sort_by_length,
             add_instruction_data_guard=False,
             autocast=self.autocast,
-            drop_tokens=self.drop_tokens,
+            keep_tokens=self.keep_tokens,
         )
         self.stages.append(model_stage)
 
@@ -565,7 +565,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         model_inference_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
         autocast (bool): If True, will use autocast to run the classifier. Defaults to True.
-        drop_tokens (bool): If True, will drop the input tokens from the output dataframe. Defaults to True.
+        keep_tokens (bool): If True, will keep the input tokens in the output dataframe. Defaults to False.
         use_existing_tokens (bool): Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
             Defaults to False.
@@ -582,7 +582,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
     sort_by_length: bool = True
     model_inference_batch_size: int = 64
     autocast: bool = True
-    drop_tokens: bool = True
+    keep_tokens: bool = False
     use_existing_tokens: bool = False
 
     def __post_init__(self) -> None:
@@ -621,7 +621,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
             has_seq_order=self.sort_by_length,
             add_instruction_data_guard=True,
             autocast=self.autocast,
-            drop_tokens=self.drop_tokens,
+            keep_tokens=self.keep_tokens,
         )
         self.stages.append(model_stage)
 

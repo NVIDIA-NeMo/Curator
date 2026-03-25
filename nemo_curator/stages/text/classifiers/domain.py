@@ -44,7 +44,7 @@ class DomainClassifier(DistributedDataClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
-        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
             Defaults to False.
@@ -62,7 +62,7 @@ class DomainClassifier(DistributedDataClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 256,
         autocast: bool = True,
-        drop_tokens: bool = True,
+        keep_tokens: bool = False,
         use_existing_tokens: bool = False,
     ):
         super().__init__(
@@ -78,7 +78,7 @@ class DomainClassifier(DistributedDataClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
-            drop_tokens=drop_tokens,
+            keep_tokens=keep_tokens,
             use_existing_tokens=use_existing_tokens,
         )
 
@@ -104,7 +104,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
-        drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
             Defaults to False.
@@ -122,7 +122,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 256,
         autocast: bool = True,
-        drop_tokens: bool = True,
+        keep_tokens: bool = False,
         use_existing_tokens: bool = False,
     ):
         super().__init__(
@@ -138,7 +138,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
-            drop_tokens=drop_tokens,
+            keep_tokens=keep_tokens,
             use_existing_tokens=use_existing_tokens,
         )
 
