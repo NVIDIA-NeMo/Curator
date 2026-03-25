@@ -83,7 +83,8 @@ def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
 
     user_path = Path(config_path)
     if not user_path.is_file():
-        raise FileNotFoundError(f"Config file not found: {user_path}")
+        msg = f"Config file not found: {user_path}"
+        raise FileNotFoundError(msg)
 
     with open(user_path) as fh:
         user_cfg = yaml.safe_load(fh)
@@ -110,17 +111,17 @@ def _validate(cfg: dict[str, Any]) -> None:
         mn = vad.get("min_duration_sec", 0)
         mx = vad.get("max_duration_sec", float("inf"))
         if mn >= mx:
-            raise ValueError(
+            msg = (
                 f"vad.min_duration_sec ({mn}) must be less than "
                 f"vad.max_duration_sec ({mx})"
             )
+            raise ValueError(msg)
 
     concat = cfg.get("concatenation", {})
     silence = concat.get("silence_duration_sec", 0)
     if silence < 0:
-        raise ValueError(
-            f"concatenation.silence_duration_sec must be non-negative, got {silence}"
-        )
+        msg = f"concatenation.silence_duration_sec must be non-negative, got {silence}"
+        raise ValueError(msg)
 
 
 def get_enabled_stages(cfg: dict[str, Any]) -> list[str]:

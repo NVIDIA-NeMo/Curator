@@ -39,8 +39,10 @@ Usage::
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from loguru import logger
 
@@ -147,7 +149,7 @@ class AudioDataFilterStage(CompositeStage):
         return stages
 
     @staticmethod
-    def _append_filter_stages(
+    def _append_filter_stages(  # noqa: PLR0913
         stages: list[ProcessingStage],
         vad: dict, band: dict, utmos: dict, sigmos: dict,
         enable_vad: bool, enable_band: bool,
