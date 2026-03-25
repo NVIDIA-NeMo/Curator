@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '0 */2 * * *'
   workflow_dispatch:
+    inputs:
+      lookback_hours:
+        description: 'Hours to look back (default: 3)'
+        required: false
+        default: '3'
 
 jobs:
   update-docs-stage:
@@ -18,8 +23,9 @@ jobs:
     steps:
       - name: Find recently Done items with unstarted docs and update them
         run: |
-          # Only process items updated in the last 3 hours (covers 2-hour cron with buffer)
-          CUTOFF=$(date -u -d '3 hours ago' '+%Y-%m-%dT%H:%M:%SZ')
+          # Only process items updated in the lookback window (default 3 hours covers 2-hour cron with buffer)
+          HOURS="${{ github.event.inputs.lookback_hours || '3' }}"
+          CUTOFF=$(date -u -d "$HOURS hours ago" '+%Y-%m-%dT%H:%M:%SZ')
           echo "Processing items updated after $CUTOFF"
 
           # Fetch all project items with Status and Documentation Stage, paginating
@@ -86,7 +92,7 @@ jobs:
           fi
 
           # Update each matching item
-          echo "$ITEMS_TO_UPDATE" | jq -c '.[]' | while read -r ITEM; do
+          while read -r ITEM; do
             ITEM_ID=$(echo "$ITEM" | jq -r '.id')
             echo "Setting Documentation Stage to Ready to Document for item $ITEM_ID"
 
@@ -99,4 +105,4 @@ jobs:
                 }) { projectV2Item { id } }
               }
             "
-          done
+          done < <(echo "$ITEMS_TO_UPDATE" | jq -c '.[]')

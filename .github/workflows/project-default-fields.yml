@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '0 */2 * * *'
   workflow_dispatch:
+    inputs:
+      lookback_hours:
+        description: 'Hours to look back (default: 3)'
+        required: false
+        default: '3'
 
 jobs:
   set-defaults:
@@ -37,8 +42,9 @@ jobs:
             "
           }
 
-          # Only process items added in the last 3 hours (covers 2-hour cron with buffer)
-          CUTOFF=$(date -u -d '3 hours ago' '+%Y-%m-%dT%H:%M:%SZ')
+          # Only process items added in the lookback window (default 3 hours covers 2-hour cron with buffer)
+          HOURS="${{ github.event.inputs.lookback_hours || '3' }}"
+          CUTOFF=$(date -u -d "$HOURS hours ago" '+%Y-%m-%dT%H:%M:%SZ')
           echo "Processing items created after $CUTOFF"
 
           # Fetch all project items with their field values, paginating through results
@@ -105,7 +111,7 @@ jobs:
 
           # Process each recent item — only set fields that are currently null
           UPDATED=0
-          echo "$RECENT_ITEMS" | jq -c '.[]' | while read -r ITEM; do
+          while read -r ITEM; do
             ITEM_ID=$(echo "$ITEM" | jq -r '.id')
             CV=$(echo "$ITEM" | jq '.containerVersion')
             SWQA_VAL=$(echo "$ITEM" | jq '.swqa')
@@ -141,6 +147,6 @@ jobs:
             fi
 
             UPDATED=$((UPDATED + 1))
-          done
+          done < <(echo "$RECENT_ITEMS" | jq -c '.[]')
 
-          echo "Done. Updated items with missing defaults."
+          echo "Done. Updated $UPDATED items with missing defaults."
