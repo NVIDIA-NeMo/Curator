@@ -238,7 +238,7 @@ def compute_llm_cleanup_metrics(output_dir: str) -> dict:
             for k in totals:
                 totals[k] += int(row[k])
 
-        metrics["num_chunks_processed"] = totals["count"]
+        metrics["num_output_documents_post_merge"] = totals["count"]
         if totals["count"] > 0:
             metrics["avg_output_text_length"] = totals["total_length"] / totals["count"]
         metrics["no_useful_content_count"] = totals["no_content"]

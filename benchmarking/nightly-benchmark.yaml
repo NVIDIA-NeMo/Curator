@@ -1015,6 +1015,11 @@ entries:
       num_cpus: 64
       num_gpus: 0
       enable_object_spilling: false
+    requirements:
+      - metric: num_input_documents
+        exact_value: 1300
+      - metric: extraction_success_rate
+        min_value: 1.0
 
   - name: math_preprocess_classifier
     enabled: true
@@ -1039,6 +1044,11 @@ entries:
       num_cpus: 64
       num_gpus: 4
       enable_object_spilling: false
+    requirements:
+      - metric: num_input_documents
+        exact_value: 1300
+      - metric: docs_score_ge_3
+        exact_value: 1057
 
   - name: math_preprocess_llm_cleanup
     enabled: true
@@ -1058,7 +1068,7 @@ entries:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
-          - num_chunks_processed
+          - num_output_documents_post_merge
           - llm_cleanup_percent_time
         ping_on_failure:
           - U07AZ1HPL1X  # Ranjit Rajan
@@ -1067,6 +1077,11 @@ entries:
       num_cpus: 64
       num_gpus: 4
       enable_object_spilling: false
+    requirements:
+      - metric: num_input_documents
+        exact_value: 1300
+      - metric: num_output_documents_post_merge
+        exact_value: 1300
 
   - name: math_cc_index_lookup
     enabled: true
@@ -1092,3 +1107,8 @@ entries:
       num_cpus: 64
       num_gpus: 8
       enable_object_spilling: false
+    requirements:
+      - metric: total_matched_rows
+        exact_value: 2384
+      - metric: num_cc_index_files
+        exact_value: 50
