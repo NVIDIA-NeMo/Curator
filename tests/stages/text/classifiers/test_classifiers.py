@@ -88,6 +88,10 @@ def run_and_assert_classifier_stages(
     # Check that the classifier output columns are correct
     assert all(col in result_batch.data.columns for col in classifier.outputs()[1])
 
+    # Teardown stages to release GPU memory
+    model_stage.teardown()
+    tokenizer_stage.teardown()
+
     return result_batch
 
 
@@ -234,6 +238,10 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
 
     # Check that the classifier output columns are correct
     assert all(col in postprocessed_batch.data.columns for col in classifier.outputs()[1])
+
+    # Teardown stages to release GPU memory
+    model_stage.teardown()
+    tokenizer_stage.teardown()
 
     # Check that the classifier output values are correct
     expected_pred = pd.Series(["safe", "O3", "O13", "O3"])

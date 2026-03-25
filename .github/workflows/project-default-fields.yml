@@ -1,0 +1,64 @@
+name: Set default fields on new project items
+
+on:
+  projects_v2_item:
+    types: [created]
+
+jobs:
+  set-defaults:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set default field values
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+          PROJECT_ID: "PVT_kwDODLylHc4A8S01"
+          ITEM_ID: ${{ github.event.projects_v2_item.node_id }}
+          # Field IDs
+          CONTAINER_VERSION_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgwVmS4"
+          SWQA_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJjL4"
+          DOCUMENTATION_STAGE_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJjRA"
+          VDR_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zhAFQUA"
+          # Default option IDs
+          CONTAINER_BACKLOG_OPTION_ID: "9cc7169c"
+          SWQA_DEFAULT_OPTION_ID: "ec62cb4d"
+          DOCS_NOT_STARTED_OPTION_ID: "36e5dca1"
+          VDR_DEFAULT_OPTION_ID: "894a1a7c"
+        run: |
+          gh api graphql -f query='
+            mutation($projectId: ID!, $itemId: ID!,
+                     $containerFieldId: ID!, $containerValue: String!,
+                     $swqaFieldId: ID!, $swqaValue: String!,
+                     $docsFieldId: ID!, $docsValue: String!,
+                     $vdrFieldId: ID!, $vdrValue: String!) {
+              containerVersion: updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId, itemId: $itemId,
+                fieldId: $containerFieldId,
+                value: { singleSelectOptionId: $containerValue }
+              }) { projectV2Item { id } }
+              swqa: updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId, itemId: $itemId,
+                fieldId: $swqaFieldId,
+                value: { singleSelectOptionId: $swqaValue }
+              }) { projectV2Item { id } }
+              documentationStage: updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId, itemId: $itemId,
+                fieldId: $docsFieldId,
+                value: { singleSelectOptionId: $docsValue }
+              }) { projectV2Item { id } }
+              vdr: updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId, itemId: $itemId,
+                fieldId: $vdrFieldId,
+                value: { singleSelectOptionId: $vdrValue }
+              }) { projectV2Item { id } }
+            }
+          ' \
+            -f projectId="$PROJECT_ID" \
+            -f itemId="$ITEM_ID" \
+            -f containerFieldId="$CONTAINER_VERSION_FIELD_ID" \
+            -f containerValue="$CONTAINER_BACKLOG_OPTION_ID" \
+            -f swqaFieldId="$SWQA_FIELD_ID" \
+            -f swqaValue="$SWQA_DEFAULT_OPTION_ID" \
+            -f docsFieldId="$DOCUMENTATION_STAGE_FIELD_ID" \
+            -f docsValue="$DOCS_NOT_STARTED_OPTION_ID" \
+            -f vdrFieldId="$VDR_FIELD_ID" \
+            -f vdrValue="$VDR_DEFAULT_OPTION_ID"

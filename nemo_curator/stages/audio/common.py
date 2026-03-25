@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -39,6 +39,8 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
             for r in entries:
                 if r is not task and not r._stage_perf:
                     r._stage_perf = list(task._stage_perf)
+                if r is not task and not r._metadata:
+                    r._metadata = task._metadata.copy()
             result.extend(entries)
         return result
 
@@ -65,12 +67,17 @@ class GetAudioDurationStage(LegacySpeechStage):
     audio_filepath_key: str
     duration_key: str
 
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+        import soundfile
+
+        self._soundfile = soundfile
+
     def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
         audio_filepath = data_entry[self.audio_filepath_key]
         try:
-            data, samplerate = soundfile.read(audio_filepath)
+            data, samplerate = self._soundfile.read(audio_filepath)
             data_entry[self.duration_key] = data.shape[0] / samplerate
-        except soundfile.SoundFileError as e:
+        except self._soundfile.SoundFileError as e:
             logger.warning(str(e) + " file: " + audio_filepath)
             data_entry[self.duration_key] = -1.0
         return [AudioBatch(data=data_entry)]
