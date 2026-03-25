@@ -457,6 +457,7 @@ The `AegisClassifier` variants ([nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defen
 ```python
 aegis_defensive_classifier = AegisClassifier(
     aegis_variant="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
+    label_field="aegis_defensive_pred",
     use_existing_tokens=False,
     keep_tokens=True,
     keep_aegis_prompt_field=True,
@@ -466,6 +467,7 @@ pipeline.add_stage(aegis_defensive_classifier)
 
 aegis_permissive_classifier = AegisClassifier(
     aegis_variant="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
+    label_field="aegis_permissive_pred",
     use_existing_tokens=True,
     aegis_prompt_field="_curator_hidden_text",  # created by aegis_defensive_classifier
     keep_tokens=False,
