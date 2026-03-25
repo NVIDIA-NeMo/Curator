@@ -243,7 +243,7 @@ def main(args: argparse.ArgumentParser | None = None) -> None:
 
     storage_options: dict[str, Any] | None = json.loads(args.storage_options) if args.storage_options else None
 
-    files = get_all_file_paths_under(args.input_path, storage_options=storage_options)
+    files = get_all_file_paths_under(args.input_path, keep_extensions=args.file_type, storage_options=storage_options)
     if not files:
         logger.error(f"No file(s) found at '{args.input_path}'")
         return
