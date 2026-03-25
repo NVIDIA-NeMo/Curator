@@ -77,6 +77,7 @@ class ClassifierModelStage(ModelStage):
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         padding_side: The side to pad the input tokens. Defaults to "right".
+        max_seq_length: If provided, clips the input tokens before the forward pass. Defaults to None.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
@@ -92,6 +93,7 @@ class ClassifierModelStage(ModelStage):
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
+        max_seq_length: int | None = None,
         autocast: bool = True,
         drop_tokens: bool = True,
     ):
@@ -101,6 +103,7 @@ class ClassifierModelStage(ModelStage):
             has_seq_order=has_seq_order,
             model_inference_batch_size=model_inference_batch_size,
             padding_side=padding_side,
+            max_seq_length=max_seq_length,
             unpack_inference_batch=False,
             autocast=autocast,
         )
