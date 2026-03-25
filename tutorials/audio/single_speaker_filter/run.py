@@ -49,6 +49,7 @@ from pathlib import Path
 from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
 from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
@@ -253,6 +254,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    ray_client = RayClient()
+    ray_client.start()
+
     if args.clean and args.output_dir.exists():
         shutil.rmtree(args.output_dir)
         logger.info(f"Cleaned output directory: {args.output_dir}")
@@ -262,6 +266,7 @@ def main() -> None:
         total_entries = sum(1 for line in f if line.strip())
     if total_entries == 0:
         print(f"Empty manifest: {args.manifest}")
+        ray_client.stop()
         return
 
     has_checkpoint = args.checkpoint_dir.exists() and any(args.checkpoint_dir.iterdir())
@@ -292,6 +297,8 @@ def main() -> None:
     print(f"Filtered: {entries_out} / {total_entries} entries have exactly 1 speaker")
     print(f"Output manifest: {args.output_manifest}")
     print(f"{'=' * 60}")
+
+    ray_client.stop()
 
 
 if __name__ == "__main__":

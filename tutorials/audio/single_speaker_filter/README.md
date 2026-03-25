@@ -7,10 +7,8 @@ The pipeline includes **per-task hash-based checkpointing** — if a run is inte
 ## Prerequisites
 
 - Python 3.10+
-- NeMo Curator installed (`pip install -e .` from the Curator repo)
-- NeMo ASR toolkit (`pip install 'git+https://github.com/NVIDIA/NeMo.git@main#egg=nemo_toolkit[asr]'`)
-- GPU(s) for Sortformer inference
-- `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0` set before the Ray cluster starts (see below)
+- NeMo Curator installed (see [installation guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
+- NVIDIA GPU(s) with at least 8 GB VRAM (e.g. V100, A100, H100, or RTX 3090+)
 
 ## Input format
 
@@ -26,8 +24,6 @@ All fields are preserved in the output; extra fields (e.g. `duration`) pass thro
 ## Usage
 
 ```bash
-export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0
-
 python tutorials/audio/single_speaker_filter/run.py \
   --manifest /path/to/manifest.jsonl \
   --output-dir /path/to/output
@@ -67,9 +63,10 @@ python tutorials/audio/single_speaker_filter/run.py \
 
 ## Pipeline stages
 
-1. **ManifestReaderStage** — Reads the JSONL manifest and emits one `AudioBatch` per entry.
+1. **ALMManifestReader** — Reads the JSONL manifest and emits one `AudioBatch` per entry.
 2. **InferenceSortformerStage** — Runs Streaming Sortformer on each audio file (GPU). Adds `diar_segments` to each task.
 3. **SingleSpeakerFilterStage** — Counts unique speakers from `diar_segments`. Keeps only entries with exactly 1 speaker; multi-speaker or zero-speaker entries produce an empty task (no output rows).
+4. **ALMManifestWriterStage** — Writes the surviving entries to the output JSONL manifest.
 
 ## Output
 

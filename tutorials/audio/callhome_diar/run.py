@@ -514,6 +514,7 @@ def main() -> None:
             f"{n_skip} already have RTTM (skipped). Need WAVs and matching {cha_dir}/<stem>.cha. Use --clean to re-run all.",
             flush=True,
         )
+        ray_client.stop()
         return
     print(f"Files to process: {len(wavs_with_cha)} (skipping {n_skip} with existing RTTM)", flush=True)
 
@@ -549,6 +550,8 @@ def main() -> None:
     with open(args.results_json, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nDetailed results saved to {args.results_json}")
+
+    ray_client.stop()
 
 
 if __name__ == "__main__":

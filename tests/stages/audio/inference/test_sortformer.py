@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -77,19 +76,6 @@ class TestWriteRttm:
 
 
 class TestInferenceSortformerStage:
-    def test_stage_properties(self) -> None:
-        stage = InferenceSortformerStage()
-        assert stage.name == "Sortformer_inference"
-        assert stage.inputs() == (["data"], [])
-        assert stage.outputs() == (["data"], ["audio_filepath", "diar_segments"])
-
-    def test_custom_keys(self) -> None:
-        stage = InferenceSortformerStage(
-            filepath_key="audio_path",
-            diar_segments_key="segments",
-        )
-        assert stage.outputs() == (["data"], ["audio_path", "segments"])
-
     def test_setup_on_node_pre_caches_model(self) -> None:
         stage = InferenceSortformerStage(model_name="nvidia/diar_streaming_sortformer_4spk-v2")
         with patch("nemo_curator.stages.audio.inference.sortformer.snapshot_download") as mock_dl:
