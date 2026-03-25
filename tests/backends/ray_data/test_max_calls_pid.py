@@ -15,8 +15,6 @@
 import math
 import os
 import re
-import shutil
-import subprocess
 import tempfile
 
 import pandas as pd
@@ -24,12 +22,12 @@ import pytest
 import ray
 from loguru import logger
 
-from nemo_curator.backends.experimental.ray_data.executor import RayDataExecutor
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.ray_data.executor import RayDataExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.stages.base import ProcessingStage, Resources
 from nemo_curator.tasks import DocumentBatch, EmptyTask
 from tests.backends.utils import capture_logs
-from tests.conftest import build_ray_command
 
 
 @pytest.fixture(scope="module")
@@ -44,18 +42,21 @@ def single_cpu_ray_cluster():
     original_ray_address = os.environ.pop("RAY_ADDRESS", None)
 
     temp_dir = tempfile.mkdtemp(prefix="ray1cpu_")
-    cmd, ray_port = build_ray_command(str(temp_dir), num_cpus=1, num_gpus=0, object_store_memory=2 * (1024**3))
-    ray_process = subprocess.Popen(cmd, shell=False)  # noqa: S603
+    ray_client = RayClient(
+        num_cpus=1,
+        num_gpus=0,
+        object_store_memory=2 * (1024**3),
+        ray_temp_dir=str(temp_dir),
+        include_dashboard=False,
+    )
+    ray_client.start()
 
-    ray_address = f"localhost:{ray_port}"
-    os.environ["RAY_ADDRESS"] = ray_address
+    ray_address = os.environ["RAY_ADDRESS"]
 
     try:
         yield ray_address
     finally:
-        ray_process.kill()
-        ray_process.wait()
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        ray_client.stop()
         if original_ray_address is not None:
             os.environ["RAY_ADDRESS"] = original_ray_address
         elif "RAY_ADDRESS" in os.environ:

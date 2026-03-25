@@ -67,7 +67,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
             self.prompt_text,
         )
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+    def _initialize_model(self) -> None:
         if self.model_variant == "qwen":
             self.model = QwenLM(
                 model_dir=self.model_dir,
@@ -81,8 +81,13 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
         self.model.setup()
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
-        """Download the weights for the QwenLM model on the node."""
+        """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
         QwenLM.download_weights_on_node(self.model_dir)
+        self._initialize_model()
+
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        if not hasattr(self, "model") or self.model is None:
+            self._initialize_model()
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data

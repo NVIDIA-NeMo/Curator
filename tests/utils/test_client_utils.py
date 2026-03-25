@@ -329,6 +329,7 @@ class TestFSPath:
 
     def test_is_remote_url_with_mock_fsspec(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test is_remote_url with mocked fsspec to test protocol handling."""
+        import nemo_curator.utils.client_utils as _client_utils
         from nemo_curator.utils.client_utils import is_remote_url
 
         # Mock the url_to_fs function
@@ -349,7 +350,7 @@ class TestFSPath:
             else:
                 return MockFS(None), ""
 
-        monkeypatch.setattr("nemo_curator.utils.client_utils.url_to_fs", mock_url_to_fs)
+        monkeypatch.setattr(_client_utils, "url_to_fs", mock_url_to_fs)
 
         # Test with mocked protocols
         assert is_remote_url("s3://bucket/key")
@@ -360,6 +361,7 @@ class TestFSPath:
 
     def test_is_remote_url_multiple_protocols(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test is_remote_url with filesystem that has multiple protocols."""
+        import nemo_curator.utils.client_utils as _client_utils
         from nemo_curator.utils.client_utils import is_remote_url
 
         def mock_url_to_fs(_url: str) -> tuple:
@@ -370,13 +372,14 @@ class TestFSPath:
 
             return MockFS(), ""
 
-        monkeypatch.setattr("nemo_curator.utils.client_utils.url_to_fs", mock_url_to_fs)
+        monkeypatch.setattr(_client_utils, "url_to_fs", mock_url_to_fs)
 
         # Should return True since first protocol is "s3" (remote)
         assert is_remote_url("s3://bucket/key")
 
     def test_is_remote_url_no_protocol(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test is_remote_url with filesystem that has no protocol."""
+        import nemo_curator.utils.client_utils as _client_utils
         from nemo_curator.utils.client_utils import is_remote_url
 
         def mock_url_to_fs(_url: str) -> tuple:
@@ -387,7 +390,7 @@ class TestFSPath:
 
             return MockFS(), ""
 
-        monkeypatch.setattr("nemo_curator.utils.client_utils.url_to_fs", mock_url_to_fs)
+        monkeypatch.setattr(_client_utils, "url_to_fs", mock_url_to_fs)
 
         # Should return False since protocol is None
         assert not is_remote_url("unknown://path")

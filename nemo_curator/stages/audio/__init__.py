@@ -13,16 +13,28 @@
 # limitations under the License.
 
 """
-NeMo Curator Audio Processing Stages.
+Audio curation stages for NeMo Curator.
 
-Segmentation:
-    - VADSegmentationStage: Voice Activity Detection segmentation
+This module provides stages for processing and curating audio data,
+including ASR inference, quality assessment, ALM data preparation,
+and VAD segmentation.
 """
 
+from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
+from nemo_curator.stages.audio.common import (
+    GetAudioDurationStage,
+    LegacySpeechStage,
+    PreserveByValueStage,
+)
 from nemo_curator.stages.audio.segmentation import (
     VADSegmentationStage,
 )
 
 __all__ = [
+    "ALMDataBuilderStage",
+    "ALMDataOverlapStage",
+    "GetAudioDurationStage",
+    "LegacySpeechStage",
+    "PreserveByValueStage",
     "VADSegmentationStage",
 ]
