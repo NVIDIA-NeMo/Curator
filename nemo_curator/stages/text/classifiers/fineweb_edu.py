@@ -50,7 +50,6 @@ class FineWebModelStage(ModelStage):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        max_seq_length: If provided, clips the input tokens before the forward pass. Defaults to None.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
@@ -66,7 +65,6 @@ class FineWebModelStage(ModelStage):
         int_score_field: str = "int_score",
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
-        max_seq_length: int | None = None,
         autocast: bool = True,
         drop_tokens: bool = True,
     ):
@@ -76,7 +74,6 @@ class FineWebModelStage(ModelStage):
             has_seq_order=has_seq_order,
             model_inference_batch_size=model_inference_batch_size,
             padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
-            max_seq_length=max_seq_length,
             unpack_inference_batch=True,
             autocast=autocast,
         )
@@ -198,11 +195,6 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 sort_by_length=self.sort_by_length,
             )
             self.stages.append(tokenizer_stage)
-            # The TokenizerStage already truncates to the max_seq_length, so the ModelStage does not need to do it again
-            model_max_seq_length = None
-        else:
-            # The ModelStage will truncate to the max_seq_length before the forward pass
-            model_max_seq_length = self.max_seq_length
 
         # Ensure that the data is sorted by length if the tokens are already present and sort_by_length is True
         if self.use_existing_tokens and self.sort_by_length:
@@ -217,7 +209,6 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             int_score_field=self.int_score_field,
             model_inference_batch_size=self.model_inference_batch_size,
             has_seq_order=self.sort_by_length,
-            max_seq_length=model_max_seq_length,
             autocast=self.autocast,
             drop_tokens=self.drop_tokens,
         )
