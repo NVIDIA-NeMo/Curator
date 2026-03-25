@@ -119,9 +119,7 @@ LOGURU_LEVEL="ERROR" python main.py \
     --num-cpus 16
 ```
 
-:::{note}
 Setting `LOGURU_LEVEL="ERROR"` minimizes log output. Remove it when debugging. If you encounter issues, see the **Debugging Out of Memory Errors** section for help (reducing `--num-cpus` is the most common fix).
-:::
 
 Set `--hf-token` as needed for the tokenizer.
 
