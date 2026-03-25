@@ -10,14 +10,12 @@ For comprehensive documentation, refer to the [Synthetic Data Generation Guide](
 
 ### Prerequisites
 
-- **NVIDIA API Key**: Obtain from [NVIDIA Build](https://build.nvidia.com/settings/api-keys)
-- **NeMo Curator**: Installed with text extras (`pip install nemo-curator[text_cuda12]`)
-
-### Setup
-
+- **NVIDIA API Key**: To use public Nvidia's endpoint, obtain Nvidia API key from [NVIDIA Build](https://build.nvidia.com/settings/api-keys).
 ```bash
 export NVIDIA_API_KEY="your-api-key-here"
 ```
+- **NeMo Curator**: Installed with text extras (`pip install nemo-curator[text_cuda12]`)
+
 
 ## SDG Backends
 
@@ -108,13 +106,6 @@ python nemotron_cc/nemotron_cc_sdg_high_quality_example_pipeline.py \
 #### Medical Notes Generation
 
 ```bash
-# Local vLLM server (default, requires GPUs)
-python nemo_data_designer/ndd_data_generation_example.py
-
-# Different local model
-python nemo_data_designer/ndd_data_generation_example.py \
-    --model google/gemma-3-27b-it
-
 # Remote NVIDIA NIM API
 python nemo_data_designer/ndd_data_generation_example.py \
     --provider nvidia \
