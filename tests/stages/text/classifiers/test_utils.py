@@ -26,7 +26,7 @@ class TestSortByLengthStage:
             dataset_name="test",
             data=pd.DataFrame({"attention_mask": [[1, 1, 1, 1, 0], [1, 1, 1, 1, 1], [1, 1, 1, 0, 0]]}),
         )
-        stage = SortByLengthStage(attention_mask_field="attention_mask")
+        stage = SortByLengthStage()
         result = stage.process(batch)
         assert SEQ_ORDER_FIELD in result.data.columns
         assert result.data[SEQ_ORDER_FIELD].tolist() == [2, 0, 1]
@@ -40,7 +40,7 @@ class TestSortByLengthStage:
                 {"attention_mask": [[1, 1, 1, 1, 0], [1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], SEQ_ORDER_FIELD: [1, 2, 0]}
             ),
         )
-        stage = SortByLengthStage(attention_mask_field="attention_mask")
+        stage = SortByLengthStage()
         result = stage.process(batch)
         # Check that the data is not modified
         assert result.data.equals(batch.data)

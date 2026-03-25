@@ -28,12 +28,7 @@ def format_name_with_suffix(model_identifier: str, suffix: str = "_classifier") 
     return model_identifier.split("/")[-1].replace("-", "_").lower() + suffix
 
 
-def clip_tokens(
-    token_o: dict,
-    padding_side: Literal["left", "right"] = "right",
-    input_id_field: str = INPUT_ID_FIELD,
-    attention_mask_field: str = ATTENTION_MASK_FIELD,
-) -> dict[str, torch.Tensor]:
+def clip_tokens(token_o: dict, padding_side: Literal["left", "right"] = "right") -> dict[str, torch.Tensor]:
     """
     Clip the tokens to the smallest size possible.
 
@@ -45,14 +40,14 @@ def clip_tokens(
         The clipped tokens (input_ids, attention_mask).
 
     """
-    clip_len = token_o[attention_mask_field].sum(axis=1).max()
+    clip_len = token_o[ATTENTION_MASK_FIELD].sum(axis=1).max()
 
     if padding_side == "right":
-        token_o[input_id_field] = token_o[input_id_field][:, :clip_len]
-        token_o[attention_mask_field] = token_o[attention_mask_field][:, :clip_len]
+        token_o[INPUT_ID_FIELD] = token_o[INPUT_ID_FIELD][:, :clip_len]
+        token_o[ATTENTION_MASK_FIELD] = token_o[ATTENTION_MASK_FIELD][:, :clip_len]
     else:
-        token_o[input_id_field] = token_o[input_id_field][:, -clip_len:]
-        token_o[attention_mask_field] = token_o[attention_mask_field][:, -clip_len:]
+        token_o[INPUT_ID_FIELD] = token_o[INPUT_ID_FIELD][:, -clip_len:]
+        token_o[ATTENTION_MASK_FIELD] = token_o[ATTENTION_MASK_FIELD][:, -clip_len:]
 
     token_o.pop("metadata", None)
 

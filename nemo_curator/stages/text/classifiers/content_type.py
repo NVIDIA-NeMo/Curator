@@ -48,7 +48,6 @@ class ContentTypeClassifier(DistributedDataClassifier):
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
-            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
             Defaults to False.
 
     """
@@ -65,7 +64,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
         model_inference_batch_size: int = 256,
         autocast: bool = True,
         drop_tokens: bool = True,
-        use_existing_tokens: bool | list[str] = False,
+        use_existing_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=CONTENT_TYPE_MODEL_IDENTIFIER,

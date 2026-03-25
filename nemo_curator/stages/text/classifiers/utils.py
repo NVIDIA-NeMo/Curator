@@ -26,14 +26,14 @@ class SortByLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     Stage that sorts the input data by the length of the input tokens.
     """
 
-    def __init__(self, attention_mask_field: str = ATTENTION_MASK_FIELD):
-        self.attention_mask_field = attention_mask_field
+    def __init__(self):
+        self.name = "sort_by_length_stage"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.attention_mask_field]
+        return ["data"], [ATTENTION_MASK_FIELD]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.attention_mask_field, SEQ_ORDER_FIELD]
+        return ["data"], [ATTENTION_MASK_FIELD, SEQ_ORDER_FIELD]
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         if SEQ_ORDER_FIELD in batch.data.columns:
@@ -43,7 +43,7 @@ class SortByLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         # Add column to preserve original order
         output[SEQ_ORDER_FIELD] = np.arange(len(output))
-        output[TOKEN_LENGTH_FIELD] = output[self.attention_mask_field].map(sum)
+        output[TOKEN_LENGTH_FIELD] = output[ATTENTION_MASK_FIELD].map(sum)
         output = output.sort_values(by=TOKEN_LENGTH_FIELD, kind="stable", ignore_index=True).drop(
             columns=[TOKEN_LENGTH_FIELD]
         )

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,28 +41,6 @@ def test_clip_tokens_right_padding():
     assert result[ATTENTION_MASK_FIELD].shape == (2, 4)
     assert torch.equal(result[INPUT_ID_FIELD].to("cpu"), torch.tensor([[1, 2, 3, 0], [1, 2, 3, 4]]))
     assert torch.equal(result[ATTENTION_MASK_FIELD].to("cpu"), torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]]))
-
-
-def test_clip_tokens_custom_input_id_field_and_attention_mask_field():
-    input_id_field = "custom_input_ids"
-    attention_mask_field = "custom_attention_masks"
-    input_ids = torch.tensor([[1, 2, 3, 0, 0], [1, 2, 3, 4, 0]])
-    attention_mask = torch.tensor([[1, 1, 1, 0, 0], [1, 1, 1, 1, 0]])
-    token_o = {input_id_field: input_ids, attention_mask_field: attention_mask}
-
-    result = clip_tokens(
-        token_o,
-        padding_side="right",
-        input_id_field=input_id_field,
-        attention_mask_field=attention_mask_field,
-    )
-
-    assert isinstance(result[input_id_field], torch.Tensor)
-    assert isinstance(result[attention_mask_field], torch.Tensor)
-    assert result[input_id_field].shape == (2, 4)
-    assert result[attention_mask_field].shape == (2, 4)
-    assert torch.equal(result[input_id_field].to("cpu"), torch.tensor([[1, 2, 3, 0], [1, 2, 3, 4]]))
-    assert torch.equal(result[attention_mask_field].to("cpu"), torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]]))
 
 
 # Test modified from CrossFit: https://github.com/rapidsai/crossfit/blob/main/tests/op/test_tokenize.py

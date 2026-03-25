@@ -27,15 +27,14 @@ from nemo_curator.tasks import DocumentBatch
 
 
 class MockTorchModel(nn.Module):
-    def __init__(self, output_size: int = 2, device: str = "cpu", input_id_field: str = INPUT_ID_FIELD):
+    def __init__(self, output_size: int = 2, device: str = "cpu"):
         super().__init__()
         self.linear = nn.Linear(10, output_size)
         self.device_name = device
-        self.input_id_field = input_id_field
 
     def forward(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
-        batch_size = inputs[self.input_id_field].shape[0]
-        seq_len = inputs[self.input_id_field].shape[1]
+        batch_size = inputs[INPUT_ID_FIELD].shape[0]
+        seq_len = inputs[INPUT_ID_FIELD].shape[1]
         return torch.randn(batch_size, seq_len, 2, device=self.device_name)
 
     @property
@@ -53,7 +52,7 @@ class MockModelStage(ModelStage):
         return ["data"], [self.label_field]
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        self.model = MockTorchModel(device="cpu", input_id_field=self.input_id_field)
+        self.model = MockTorchModel(device="cpu")
 
     def process_model_output(
         self, outputs: torch.Tensor, _model_input_batch: dict[str, torch.Tensor] | None = None
@@ -63,7 +62,8 @@ class MockModelStage(ModelStage):
         return {self.label_field: processed}
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[self.input_id_field, self.attention_mask_field])
+        if self.max_seq_length is None:
+            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
         result = df_cpu.copy()
         result[self.label_field] = None
 
@@ -178,6 +178,36 @@ class TestModelStage:
         expected_texts = ["sample text 2", "sample text 4", "sample text 1", "sample text 3"]
         assert result["text"].tolist() == expected_texts
 
+    def test_process_with_max_seq_length_right_padding(self):
+        stage = MockModelStage(
+            model_identifier="test/model", max_seq_length=2, padding_side="right", has_seq_order=False
+        )
+        stage.setup()
+
+        df = self.create_sample_dataframe(4, include_seq_order=False)
+        batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=df)
+
+        result = stage.process(batch).to_pandas()
+
+        # Check that the tokenized inputs were truncated on the right side
+        assert result[INPUT_ID_FIELD].tolist() == [[1, 2], [4, 5], [6, 7], [10, 11]]
+        assert result[ATTENTION_MASK_FIELD].tolist() == [[1, 1], [1, 1], [1, 1], [1, 1]]
+
+    def test_process_with_max_seq_length_left_padding(self):
+        stage = MockModelStage(
+            model_identifier="test/model", max_seq_length=2, padding_side="left", has_seq_order=False
+        )
+        stage.setup()
+
+        df = self.create_sample_dataframe(4, include_seq_order=False)
+        batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=df)
+
+        result = stage.process(batch).to_pandas()
+
+        # Check that the tokenized inputs were truncated on the left side
+        assert result[INPUT_ID_FIELD].tolist() == [[3, 0], [0, 0], [8, 9], [0, 0]]
+        assert result[ATTENTION_MASK_FIELD].tolist() == [[1, 0], [0, 0], [1, 1], [0, 0]]
+
     def test_process_without_seq_order(self):
         stage = MockModelStage(model_identifier="test/model", has_seq_order=False, model_inference_batch_size=10)
         stage.setup()
@@ -218,24 +248,6 @@ class TestModelStage:
         _args, kwargs = stage.model.call_args
         assert INPUT_ID_FIELD in kwargs
         assert ATTENTION_MASK_FIELD in kwargs
-
-    def test_process_with_custom_token_fields(self):
-        input_id_field = "custom_input_ids"
-        attention_mask_field = "custom_attention_mask"
-
-        stage = MockModelStage(model_identifier="test/model", has_seq_order=False, token_fields=[input_id_field, attention_mask_field])
-        stage.setup()
-
-        data = {
-            input_id_field: [[1, 2, 3, 0], [4, 5, 0, 0], [6, 7, 8, 9], [10, 11, 0, 0]],
-            attention_mask_field: [[1, 1, 1, 0], [1, 1, 0, 0], [1, 1, 1, 1], [1, 1, 0, 0]],
-            "text": ["sample text 1", "sample text 2", "sample text 3", "sample text 4"],
-        }
-        df = pd.DataFrame(data)
-        batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=df)
-
-        result = stage.process(batch)
-        assert "predictions" in result.to_pandas().columns
 
     @patch("nemo_curator.stages.text.models.model.torch.cuda.empty_cache")
     @patch("nemo_curator.stages.text.models.model.gc.collect")

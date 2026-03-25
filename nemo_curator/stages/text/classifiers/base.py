@@ -44,16 +44,8 @@ class Deberta(nn.Module, PyTorchModelHubMixin):
 
     """
 
-    def __init__(
-        self,
-        config: dataclass,
-        input_id_field: str = INPUT_ID_FIELD,
-        attention_mask_field: str = ATTENTION_MASK_FIELD
-    ):
+    def __init__(self, config: dataclass):
         super().__init__()
-        self.input_id_field = input_id_field
-        self.attention_mask_field = attention_mask_field
-
         self.model = AutoModel.from_pretrained(config["base_model"])
         self.dropout = nn.Dropout(config["fc_dropout"])
         self.fc = nn.Linear(self.model.config.hidden_size, len(config["id2label"]))
@@ -64,7 +56,7 @@ class Deberta(nn.Module, PyTorchModelHubMixin):
 
     @torch.no_grad()
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        features = self.model(batch[self.input_id_field], batch[self.attention_mask_field]).last_hidden_state
+        features = self.model(batch[INPUT_ID_FIELD], batch[ATTENTION_MASK_FIELD]).last_hidden_state
         dropped = self.dropout(features)
         outputs = self.fc(dropped)
 
@@ -88,7 +80,6 @@ class ClassifierModelStage(ModelStage):
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
-        token_fields: The fields to use for the input tokens. Defaults to ["input_ids", "attention_mask"].
 
     """
 
@@ -103,7 +94,6 @@ class ClassifierModelStage(ModelStage):
         padding_side: Literal["left", "right"] = "right",
         autocast: bool = True,
         drop_tokens: bool = True,
-        token_fields: list[str] | None = None,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -113,7 +103,6 @@ class ClassifierModelStage(ModelStage):
             padding_side=padding_side,
             unpack_inference_batch=False,
             autocast=autocast,
-            token_fields=token_fields,
         )
 
         self.label_field = label_field
@@ -131,13 +120,7 @@ class ClassifierModelStage(ModelStage):
 
     def _setup(self, local_files_only: bool = True) -> None:
         self.model = (
-            Deberta.from_pretrained(
-                self.model_identifier,
-                cache_dir=self.cache_dir,
-                local_files_only=local_files_only,
-                input_id_field=self.input_id_field,
-                attention_mask_field=self.attention_mask_field,
-            )
+            Deberta.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only)
             .cuda()
             .eval()
         )
@@ -163,7 +146,7 @@ class ClassifierModelStage(ModelStage):
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
         if self.drop_tokens:
-            df_cpu = df_cpu.drop(columns=[self.input_id_field, self.attention_mask_field])
+            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         df_cpu[self.label_field] = collected_output[self.label_field]
 
@@ -200,7 +183,6 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
-            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
             Defaults to False.
 
     """
@@ -218,7 +200,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     model_inference_batch_size: int = 256
     autocast: bool = True
     drop_tokens: bool = True
-    use_existing_tokens: bool | list[str] = False
+    use_existing_tokens: bool = False
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -236,18 +218,15 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 sort_by_length=self.sort_by_length,
             )
             self.stages.append(tokenizer_stage)
-
-        if isinstance(self.use_existing_tokens, list):
-            if len(self.use_existing_tokens) != 2:  # noqa: PLR2004
-                msg = "use_existing_tokens must be a list of two strings representing the [input_ids, attention_mask] fields"
-                raise ValueError(msg)
-            token_fields = self.use_existing_tokens
+            # The TokenizerStage already truncates to the max_seq_length, so the ModelStage does not need to do it again
+            model_max_seq_length = None
         else:
-            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+            # The ModelStage will truncate to the max_seq_length before the forward pass
+            model_max_seq_length = self.max_seq_length
 
-        # Ensure that the data is sorted by length if no tokenization is performed and sort_by_length is True
-        if len(self.stages) == 0 and self.sort_by_length:
-            sort_by_length_stage = SortByLengthStage(attention_mask_field=token_fields[1])
+        # Ensure that the data is sorted by length if the tokens are already present and sort_by_length is True
+        if self.use_existing_tokens and self.sort_by_length:
+            sort_by_length_stage = SortByLengthStage()
             self.stages.append(sort_by_length_stage)
 
         model_stage = ClassifierModelStage(
@@ -258,9 +237,9 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             model_inference_batch_size=self.model_inference_batch_size,
             has_seq_order=self.sort_by_length,
             padding_side=self.padding_side,
+            max_seq_length=model_max_seq_length,
             autocast=self.autocast,
             drop_tokens=self.drop_tokens,
-            token_fields=token_fields,
         )
         self.stages.append(model_stage)
 

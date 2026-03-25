@@ -50,10 +50,10 @@ class FineWebModelStage(ModelStage):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        max_seq_length: If provided, clips the input tokens before the forward pass. Defaults to None.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
-        token_fields: The fields to use for the input tokens. Defaults to ["input_ids", "attention_mask"].
 
     """
 
@@ -66,9 +66,9 @@ class FineWebModelStage(ModelStage):
         int_score_field: str = "int_score",
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
+        max_seq_length: int | None = None,
         autocast: bool = True,
         drop_tokens: bool = True,
-        token_fields: list[str] | None = None,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -76,9 +76,9 @@ class FineWebModelStage(ModelStage):
             has_seq_order=has_seq_order,
             model_inference_batch_size=model_inference_batch_size,
             padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
+            max_seq_length=max_seq_length,
             unpack_inference_batch=True,
             autocast=autocast,
-            token_fields=token_fields,
         )
 
         self.label_field = label_field
@@ -128,7 +128,7 @@ class FineWebModelStage(ModelStage):
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
         if self.drop_tokens:
-            df_cpu = df_cpu.drop(columns=[self.input_id_field, self.attention_mask_field])
+            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         df_cpu[self.float_score_field] = collected_output[self.float_score_field]
         df_cpu[self.int_score_field] = collected_output[self.int_score_field]
@@ -163,7 +163,6 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
-            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
             Defaults to False.
 
     """
@@ -181,7 +180,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     model_inference_batch_size: int = 256
     autocast: bool = True
     drop_tokens: bool = True
-    use_existing_tokens: bool | list[str] = False
+    use_existing_tokens: bool = False
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -199,18 +198,15 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 sort_by_length=self.sort_by_length,
             )
             self.stages.append(tokenizer_stage)
-
-        if isinstance(self.use_existing_tokens, list):
-            if len(self.use_existing_tokens) != 2:  # noqa: PLR2004
-                msg = "use_existing_tokens must be a list of two strings representing the [input_ids, attention_mask] fields"
-                raise ValueError(msg)
-            token_fields = self.use_existing_tokens
+            # The TokenizerStage already truncates to the max_seq_length, so the ModelStage does not need to do it again
+            model_max_seq_length = None
         else:
-            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
+            # The ModelStage will truncate to the max_seq_length before the forward pass
+            model_max_seq_length = self.max_seq_length
 
-        # Ensure that the data is sorted by length if no tokenization is performed and sort_by_length is True
-        if len(self.stages) == 0 and self.sort_by_length:
-            sort_by_length_stage = SortByLengthStage(attention_mask_field=token_fields[1])
+        # Ensure that the data is sorted by length if the tokens are already present and sort_by_length is True
+        if self.use_existing_tokens and self.sort_by_length:
+            sort_by_length_stage = SortByLengthStage()
             self.stages.append(sort_by_length_stage)
 
         model_stage = FineWebModelStage(
@@ -221,9 +217,9 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             int_score_field=self.int_score_field,
             model_inference_batch_size=self.model_inference_batch_size,
             has_seq_order=self.sort_by_length,
+            max_seq_length=model_max_seq_length,
             autocast=self.autocast,
             drop_tokens=self.drop_tokens,
-            token_fields=token_fields,
         )
         self.stages.append(model_stage)
 
@@ -266,7 +262,6 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
-            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
             Defaults to False.
 
     """
@@ -284,7 +279,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: int = 256,
         autocast: bool = True,
         drop_tokens: bool = True,
-        use_existing_tokens: bool | list[str] = False,
+        use_existing_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=FINEWEB_EDU_MODEL_IDENTIFIER,
@@ -330,7 +325,6 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
-            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
             Defaults to False.
 
     """
@@ -348,7 +342,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: int = 1024,
         autocast: bool = True,
         drop_tokens: bool = True,
-        use_existing_tokens: bool | list[str] = False,
+        use_existing_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER,
@@ -394,7 +388,6 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         drop_tokens: Whether to drop the input tokens from the output dataframe. Defaults to True.
         use_existing_tokens: Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
-            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
             Defaults to False.
 
     """
@@ -412,7 +405,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: int = 1024,
         autocast: bool = True,
         drop_tokens: bool = True,
-        use_existing_tokens: bool | list[str] = False,
+        use_existing_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER,

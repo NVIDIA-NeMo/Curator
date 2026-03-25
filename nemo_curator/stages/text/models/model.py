@@ -45,10 +45,10 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         padding_side: The side to pad the input tokens. Defaults to "right".
+        max_seq_length: If provided, clips the input tokens before the forward pass. Defaults to None.
         unpack_inference_batch: Whether to unpack the inference batch with **kwargs. Defaults to False.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
-        token_fields: The fields to use for the input tokens. Defaults to ["input_ids", "attention_mask"].
 
     """
 
@@ -60,13 +60,10 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
+        max_seq_length: int | None = None,
         unpack_inference_batch: bool = False,
         autocast: bool = True,
-        token_fields: list[str] | None = None,
     ):
-        if token_fields is None:
-            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
-
         self.name = format_name_with_suffix(model_identifier, suffix="_model")
         # Assume that the model can fit on a single GPU
         self.resources = Resources(cpus=1, gpus=1)
@@ -77,13 +74,12 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.model_inference_batch_size = model_inference_batch_size
         self.has_seq_order = has_seq_order
         self.padding_side = padding_side
+        self.max_seq_length = max_seq_length
         self.unpack_inference_batch = unpack_inference_batch
         self.autocast = autocast
-        self.input_id_field = token_fields[0]
-        self.attention_mask_field = token_fields[1]
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.input_id_field, self.attention_mask_field] + ([SEQ_ORDER_FIELD] if self.has_seq_order else [])
+        return ["data"], [INPUT_ID_FIELD, ATTENTION_MASK_FIELD] + ([SEQ_ORDER_FIELD] if self.has_seq_order else [])
 
     def outputs(self) -> tuple[list[str], list[str]]:
         msg = "Subclasses must implement this method"
@@ -132,16 +128,14 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         for i in range(0, len(df), self.model_inference_batch_size):
             yield clip_tokens(
                 {
-                    self.input_id_field: torch.tensor(
-                        df[self.input_id_field][i : i + self.model_inference_batch_size].tolist()
+                    INPUT_ID_FIELD: torch.tensor(
+                        df[INPUT_ID_FIELD][i : i + self.model_inference_batch_size].tolist()
                     ).to(self.model.device),
-                    self.attention_mask_field: torch.tensor(
-                        df[self.attention_mask_field][i : i + self.model_inference_batch_size].tolist()
+                    ATTENTION_MASK_FIELD: torch.tensor(
+                        df[ATTENTION_MASK_FIELD][i : i + self.model_inference_batch_size].tolist()
                     ).to(self.model.device),
                 },
                 padding_side=self.padding_side,
-                input_id_field=self.input_id_field,
-                attention_mask_field=self.attention_mask_field,
             )
 
     def process_model_output(
@@ -168,6 +162,15 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df_cpu = batch.to_pandas()
+
+        if self.max_seq_length is not None:
+            # Slice each row to the maximum sequence length
+            if self.padding_side == "right":
+                df_cpu[INPUT_ID_FIELD] = df_cpu[INPUT_ID_FIELD].apply(lambda x: x[: self.max_seq_length])
+                df_cpu[ATTENTION_MASK_FIELD] = df_cpu[ATTENTION_MASK_FIELD].apply(lambda x: x[: self.max_seq_length])
+            elif self.padding_side == "left":
+                df_cpu[INPUT_ID_FIELD] = df_cpu[INPUT_ID_FIELD].apply(lambda x: x[-self.max_seq_length :])
+                df_cpu[ATTENTION_MASK_FIELD] = df_cpu[ATTENTION_MASK_FIELD].apply(lambda x: x[-self.max_seq_length :])
 
         processed_outputs = []
         for model_input_batch in self.yield_next_batch(df_cpu):

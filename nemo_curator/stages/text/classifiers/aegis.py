@@ -162,7 +162,6 @@ class AegisModelStage(ModelStage):
         add_instruction_data_guard: bool = False,
         autocast: bool = True,
         drop_tokens: bool = True,
-        token_fields: list[str] | None = None,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -173,7 +172,6 @@ class AegisModelStage(ModelStage):
             padding_side=TOKENIZER_PADDING_SIDE,
             unpack_inference_batch=False,
             autocast=autocast,
-            token_fields=token_fields,
         )
 
         self.add_instruction_data_guard = add_instruction_data_guard
@@ -215,7 +213,7 @@ class AegisModelStage(ModelStage):
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
         if self.drop_tokens:
-            df_cpu = df_cpu.drop(columns=[self.input_id_field, self.attention_mask_field])
+            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         if self.add_instruction_data_guard:
             df_cpu[self.score_field] = collected_output[self.label_field].tolist()
@@ -409,9 +407,8 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         aegis_prompt_field (Optional[str]): The field in the dataset that contains the formatted prompts for the AEGIS model,
             if they are already in the dataset. Defaults to None.
         keep_aegis_prompt_field (bool): If True, will keep the formatted prompts in the output dataframe. Defaults to False.
-        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+        use_existing_tokens (bool): Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
-            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
             Defaults to False.
 
     """
@@ -431,7 +428,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     drop_tokens: bool = True
     aegis_prompt_field: str | None = None
     keep_aegis_prompt_field: bool = False
-    use_existing_tokens: bool | list[str] = False
+    use_existing_tokens: bool = False
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -465,17 +462,9 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             )
             self.stages.append(tokenizer_stage)
 
-        if isinstance(self.use_existing_tokens, list):
-            if len(self.use_existing_tokens) != 2:  # noqa: PLR2004
-                msg = "use_existing_tokens must be a list of two strings representing the [input_ids, attention_mask] fields"
-                raise ValueError(msg)
-            token_fields = self.use_existing_tokens
-        else:
-            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
-
-        # Ensure that the data is sorted by length if no tokenization is performed and sort_by_length is True
-        if len(self.stages) == 0 and self.sort_by_length:
-            sort_by_length_stage = SortByLengthStage(attention_mask_field=token_fields[1])
+        # Ensure that the data is sorted by length if the tokens are already present and sort_by_length is True
+        if self.use_existing_tokens and self.sort_by_length:
+            sort_by_length_stage = SortByLengthStage()
             self.stages.append(sort_by_length_stage)
 
         model_stage = AegisModelStage(
@@ -488,7 +477,6 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             add_instruction_data_guard=False,
             autocast=self.autocast,
             drop_tokens=self.drop_tokens,
-            token_fields=token_fields,
         )
         self.stages.append(model_stage)
 
@@ -578,9 +566,8 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
         model_inference_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
         autocast (bool): If True, will use autocast to run the classifier. Defaults to True.
         drop_tokens (bool): If True, will drop the input tokens from the output dataframe. Defaults to True.
-        use_existing_tokens (bool | list[str]): Whether to use the existing tokens from the input dataframe.
+        use_existing_tokens (bool): Whether to use the existing tokens from the input dataframe.
             If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
-            The use_existing_tokens field can be either a boolean or a list of strings representing the token fields.
             Defaults to False.
 
     """
@@ -596,7 +583,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
     model_inference_batch_size: int = 64
     autocast: bool = True
     drop_tokens: bool = True
-    use_existing_tokens: bool | list[str] = False
+    use_existing_tokens: bool = False
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -619,17 +606,9 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
             )
             self.stages.append(tokenizer_stage)
 
-        if isinstance(self.use_existing_tokens, list):
-            if len(self.use_existing_tokens) != 2:  # noqa: PLR2004
-                msg = "use_existing_tokens must be a list of two strings representing the [input_ids, attention_mask] fields"
-                raise ValueError(msg)
-            token_fields = self.use_existing_tokens
-        else:
-            token_fields = [INPUT_ID_FIELD, ATTENTION_MASK_FIELD]
-
-        # Ensure that the data is sorted by length if no tokenization is performed and sort_by_length is True
-        if len(self.stages) == 0 and self.sort_by_length:
-            sort_by_length_stage = SortByLengthStage(attention_mask_field=token_fields[1])
+        # Ensure that the data is sorted by length if the tokens are already present and sort_by_length is True
+        if self.use_existing_tokens and self.sort_by_length:
+            sort_by_length_stage = SortByLengthStage()
             self.stages.append(sort_by_length_stage)
 
         model_stage = AegisModelStage(
@@ -643,7 +622,6 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
             add_instruction_data_guard=True,
             autocast=self.autocast,
             drop_tokens=self.drop_tokens,
-            token_fields=token_fields,
         )
         self.stages.append(model_stage)
 
