@@ -47,7 +47,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioBatch
 
-from ..common import load_audio_file
+from nemo_curator.stages.audio.common import load_audio_file
 
 _UTMOS_REPO = "tarepan/SpeechMOS:v1.2.0"
 _UTMOS_ENTRYPOINT = "utmos22_strong"
@@ -74,14 +74,14 @@ def _load_waveform_tensor(item: dict[str, Any], task_id: str) -> tuple[torch.Ten
         return waveform, int(sample_rate)
 
     if waveform is not None and sample_rate is None:
-        logger.warning(f"[{task_id}] Waveform present but 'sample_rate' missing – item skipped")
+        logger.warning(f"[{task_id}] Waveform present but 'sample_rate' missing - item skipped")
         return None
 
     path = item.get("audio_filepath")
     if path and os.path.isfile(path):
         try:
             return load_audio_file(path, mono=True)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[{task_id}] Failed to load audio file: {e}")
             return None
 
@@ -129,17 +129,17 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["utmos_mos"]
 
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Download the UTMOS model repo via torch.hub (once per node)."""
         try:
             torch.hub.load(
                 _UTMOS_REPO, _UTMOS_ENTRYPOINT,
                 trust_repo=True, force_reload=False, skip_validation=True,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning("UTMOS repo pre-download in setup_on_node failed.")
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         self._ensure_model()
 
     def teardown(self) -> None:
@@ -148,7 +148,7 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         self._resamplers.clear()
         torch.cuda.empty_cache()
 
-    def _ensure_model(self):
+    def _ensure_model(self) -> None:
         if self._model is not None:
             return
         if self._model_failed:
@@ -163,14 +163,14 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 _UTMOS_REPO, _UTMOS_ENTRYPOINT,
                 trust_repo=True, force_reload=False, skip_validation=True,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning("UTMOS download failed, loading from cache...")
             try:
                 predictor = torch.hub.load(
                     _UTMOS_REPO, _UTMOS_ENTRYPOINT,
                     trust_repo=True, source="local", skip_validation=True,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"UTMOS model unavailable (download and cache both failed): {e}")
                 self._model_failed = True
                 return
@@ -208,7 +208,7 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 score = self._model(waveform, sr=self.sample_rate)
 
             mos = float(score.item() if torch.is_tensor(score) else score)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.exception(f"[{task_id}] UTMOS prediction error: {e}")
             return None
 
