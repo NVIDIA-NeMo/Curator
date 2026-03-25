@@ -16,18 +16,18 @@ This guide covers the core concepts for loading and managing text data from loca
 
 ## Pipeline-Based Data Loading
 
-NeMo Curator uses a **pipeline-based architecture** for handling large-scale text data processing. Data flows through processing stages that transform tasks, enabling distributed processing of local files.
+NeMo Curator uses a **pipeline-based architecture** for handling large-scale text data processing. Data flows through processing stages that transform data, enabling distributed processing of local files.
 
 The system provides two primary readers for text data:
 
-- **JsonlReader** - For JSON Lines format files (most common)
-- **ParquetReader** - For columnar Parquet files (better performance for large datasets with PyArrow optimization)
+- **JsonlReader** - For JSON Lines format files (most common).
+- **ParquetReader** - For columnar Parquet files (better performance for large datasets with PyArrow optimization).
 
 Both readers support optimization through:
 
-- **Field selection** - Reading specified columns to reduce memory usage
-- **Partitioning control** - Using `blocksize` or `files_per_partition` to optimize `DocumentBatch` sizes during distributed processing
-- **Recommended block size** - Use ~128MB for optimal object store performance with smaller data chunks
+- **Field selection** - Reading specified columns to reduce memory usage.
+- **Partitioning control** - Using `blocksize` or `files_per_partition` to optimize `DocumentBatch` sizes during distributed processing.
+- **Recommended block size** - Use ~128MB for optimal object store performance with smaller data chunks.
 
 ```python
 from nemo_curator.core.client import RayClient
@@ -72,9 +72,9 @@ ray_client.stop()
 
 ### Partitioning Control
 
-```{note}
+:::{note}
 **Partitioning Strategy**: Specify either `files_per_partition` or `blocksize`. If `files_per_partition` is provided, `blocksize` is ignored.
-```
+:::
 
 ```python
 # Option 1: Size-based partitioning (recommended)
@@ -92,8 +92,8 @@ reader = JsonlReader(
 
 ### Performance Recommendations
 
-- **Block size and files per partition**: Use ~128MB for optimal performance. Very large batches lead to memory overheads when passing data between stages through the object store, while very small batches induce overhead from processing many more tasks. We recommend ~128MB as a good balance. Try to avoid going below 32MB or above 1GiB partition sizes.
-- **Field selection**: Specify `fields` parameter to read required columns only
+- **Block size and files per partition**: Use ~128MB for optimal performance. Very large batches lead to memory overhead when passing data between stages through the object store, while very small batches induce overhead from processing many more tasks. We recommend ~128MB as a good balance. Try to avoid going below 32MB or above 1GiB partition sizes.
+- **Field selection**: Specify the `fields` parameter to read only the required columns.
 - **Engine choice**: ParquetReader defaults to PyArrow with `dtype_backend="pyarrow"` for optimal performance and memory efficiency. If you encounter compatibility issues with certain data types or schemas, you can override these defaults through `read_kwargs`:
   ```python
   # Remove PyArrow dtype backend if compatibility issues arise
@@ -105,9 +105,11 @@ reader = JsonlReader(
 
 ### Memory Tips
 
-**Please note that currently, if you set the `blocksize` parameter to a size smaller than your input file size(s), Curator will NOT split up the input file(s) for you and instead attempt to read the entire file as-is. To avoid memory issues, you must use the helper script as described below.**
+:::{warning}
+If you set the `blocksize` parameter to a size smaller than your input file size(s), Curator does not split the input files and instead attempts to read each file in full. To avoid out-of-memory issues, use the helper script described below.
+:::
 
-If any of your individual JSONL or Parquet files are greater than 2 GiB, we recommend using the `nemo_curator/utils/split_large_files.py` helper script to split them into more digestible sizes and prevent memory issues. You can run it with:
+If any of your individual JSONL or Parquet files are greater than 2 GiB, we recommend using the `nemo_curator/utils/split_large_files.py` helper script to split them into more manageable sizes and prevent out-of-memory issues. You can run it with:
 
 ```bash
 python nemo_curator/utils/split_large_files.py --input-path "/path/to/input/dir" --file-type "parquet" --output-path "/path/to/output/dir" --target-size-mb 128
@@ -205,9 +207,9 @@ This page focuses on loading text data from **local files** using `JsonlReader` 
 
 For downloading and processing data from **remote sources** like ArXiv, Common Crawl, and Wikipedia, refer to the {ref}`Data Acquisition Concepts <about-concepts-text-data-acquisition>` page which covers:
 
-- **URLGenerator, DocumentDownloader, DocumentIterator, DocumentExtractor** components
-- **Built-in support** for Common Crawl, ArXiv, Wikipedia, and custom sources  
-- **Integration patterns** with pipeline-based processing
-- **Configuration and scaling** strategies
+- **URLGenerator, DocumentDownloader, DocumentIterator, DocumentExtractor** components.
+- **Built-in support** for Common Crawl, ArXiv, Wikipedia, and custom sources.
+- **Integration patterns** with pipeline-based processing.
+- **Configuration and scaling** strategies.
 
 The data acquisition process produces standardized output that integrates seamlessly with the pipeline-based loading concepts described on this page.

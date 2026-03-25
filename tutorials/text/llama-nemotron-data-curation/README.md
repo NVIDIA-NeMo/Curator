@@ -1,13 +1,13 @@
-# Curating the Llama Nemotron Reasoning Dataset with NVIDIA NeMo Curator
+# Curate the Llama Nemotron Reasoning Dataset with NVIDIA NeMo Curator
 
-The [Llama Nemotron Post-Training Dataset](https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset) is a curated collection of approximately 30 million high-quality synthetic samples, designed to enhance the reasoning capabilities of large language models.
-Organized into distinct subsets for supervised fine-tuning (SFT) or reinforcement learning (RL), it encompasses samples from various problem domains.
+The [Llama Nemotron Post-Training Dataset](https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset) is a curated collection of approximately 30 million high-quality synthetic samples designed to enhance the reasoning capabilities of large language models.
+It is organized into distinct subsets for supervised fine-tuning (SFT) or reinforcement learning (RL) and encompasses samples from various problem domains.
 All samples are in JSON lines (JSONL) format and contain metadata such as license type, source model, as well as the [Llama Nemotron](https://www.nvidia.com/en-us/ai-data-science/foundation-models/llama-nemotron/) model(s) trained with that sample.
 
-Each sample consists of a prompt, along with an expected response with detailed chain-of-thought (CoT) reasoning traces followed by responses (that is, "reasoning on"), as well as samples with direct responses (that is, "reasoning off").
+Each sample consists of a prompt and an expected response. Samples either include detailed chain-of-thought (CoT) reasoning traces followed by a response ("reasoning on"), or contain a direct response without reasoning traces ("reasoning off").
 Here is an example of what a sample from the dataset may look like:
 
-```bash
+```json
 {
   "input": [
     {"role": "user", "content": "Can you explain the Pythagorean theorem?"}
@@ -25,13 +25,13 @@ Here is an example of what a sample from the dataset may look like:
 
 The relevant attributes for this tutorial are as follows:
 
-- `input`: the prompt(s) to the model in the multi-turn chat completions message format. It always contains a message with the role `user`, followed by zero or more turns
-- `output`: the expected response from the model (ground truth)
+- `input`: the prompt(s) to the model in the multi-turn chat completions message format. It always contains a message with the role `user`, followed by zero or more turns.
+- `output`: the expected response from the model (ground truth).
 - `reasoning`: whether the sample is for reasoning "on" mode or not
-    - If the value is "on", then the output contains a detailed CoT trace encoded inside think HTML tags followed by the output
-    - If the value is "off", then the output doesn't contain any reasoning traces and contains a direct response
-- `system_prompt`: the (suggested) system prompt to control the reasoning mode of the system. For Llama Nemotron training, the system prompt is always either "detailed thinking on" or "detailed thinking off". Needless to say, this field is tied to the value in the field `reasoning` (and vice versa)
-- `used_in_training`: the list of Llama Nemotron models that used this sample for training. For instance, a value of `["Ultra", "Nano"]` indicates that this sample was used for training Llama Nemotron and Ultra, but not Super
+    - If the value is "on", then the output contains a detailed CoT trace encoded inside think HTML tags followed by the output.
+    - If the value is "off", then the output doesn't contain any reasoning traces and contains a direct response.
+- `system_prompt`: the (suggested) system prompt to control the reasoning mode of the system. For Llama Nemotron training, the system prompt is always either "detailed thinking on" or "detailed thinking off". This field is tied to the value in the `reasoning` field.
+- `used_in_training`: the list of Llama Nemotron models that used this sample for training. For instance, a value of `["Ultra", "Nano"]` indicates that this sample was used for training the Ultra and Nano models, but not Super.
 
 This tutorial demonstrates how a user can process a subset of the Llama Nemotron dataset using NeMo Curator. The output files are created in the `input/output` JSONL format, suitable for use with various training frameworks, including [NVIDIA NeMo Framework](https://github.com/NVIDIA/NeMo). You can easily modify this pipeline as you see fit and adapt it to your domain- or business-specific needs, and the resulting dataset can be used to train a reasoning model with a modest computing budget.
 
@@ -46,9 +46,9 @@ Refer to the NeMo Curator [documentation](https://docs.nvidia.com/nemo/curator/l
 
 ## Prerequisites
 
-### Download input dataset
+### Download Input Dataset
 
-The input dataset can be downloaded from Hugging Face here: https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset
+The input dataset can be downloaded from Hugging Face: https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset
 
 The following commands can be used to download the dataset:
 
@@ -82,20 +82,20 @@ $ du -sh /path/to/Llama-Nemotron-Post-Training-Dataset/SFT
 
 The above example ensures that the full SFT dataset was downloaded and is ready to use for the tutorial. If you only selected a subset of the data to download, then you should check that it matches the files on the [Hugging Face page](https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset).
 
-### Tokenizer access instructions
+### Tokenizer Access Instructions
 
 The tokenizer used by this tutorial is called [meta-llama/Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct). Using it requires requesting access:
 
-1. Visit https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct
-2. Click "Access request"
-3. Fill out the form and wait for approval
-4. After approval, log in to your Hugging Face account using the Hugging Face CLI. In the terminal, run `huggingface-cli login`
+1. Visit the [meta-llama/Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct) model page on Hugging Face.
+2. Click "Access request".
+3. Fill out the form and wait for approval.
+4. After approval, log in to your Hugging Face account using the Hugging Face CLI. In the terminal, run `huggingface-cli login`.
 
-### Download FastText language identification model
+### Download FastText Language Identification Model
 
-The FastText language identification model is used to identify and filter out non-English text from the dataset. It can be downloaded from here: https://fasttext.cc/docs/en/language-identification.html
+The FastText language identification model is used to identify and filter out non-English text from the dataset. It can be downloaded from the FastText language identification page: https://fasttext.cc/docs/en/language-identification.html
 
-The following command can be used to download the FastText language identification model to your current working directory:
+Use the following command to download the FastText language identification model to your current working directory:
 
 ```bash
 wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz -P ./
@@ -119,29 +119,31 @@ LOGURU_LEVEL="ERROR" python main.py \
     --num-cpus 16
 ```
 
-Setting `LOGURU_LEVEL="ERROR"` helps minimize long logs. Removing it can be helpful for debugging. See the **Debugging Out of Memory Errors** section for help (most likely, the answer is to reduce `--num-cpus`).
+:::{note}
+Setting `LOGURU_LEVEL="ERROR"` minimizes log output. Remove it when debugging. If you encounter issues, see the **Debugging Out of Memory Errors** section for help (reducing `--num-cpus` is the most common fix).
+:::
 
-The user may set `--hf-token` as needed for the tokenizer.
+Set `--hf-token` as needed for the tokenizer.
 
-Since the entire input dataset is very large, we recommend curating a focused subset of the data that aligns closely with your domain-specific tasks. To help with this, we provide a way to filter files before reading. There are many ways to subset the Llama Nemotron dataset, but we recommend starting with the math and chat subsets because they contain strong examples of domain-agnostic reasoning. To filter files by name, the user may pass `--filename-filter` followed by any number of strings, such as "chat" and "math_v1.1". When reading the input data directory, the list of files will be filtered to only include files with names containing at least 1 of the strings provided by `--filename-filter`. If `--filename-filter` is not specified, then all files within the directory (over 30 million rows) will be used.
+Since the entire input dataset is very large, we recommend curating a focused subset of the data that aligns closely with your domain-specific tasks. To help with this, we provide a way to filter files before reading. There are many ways to subset the Llama Nemotron dataset, but we recommend starting with the math and chat subsets because they contain strong examples of domain-agnostic reasoning. To filter files by name, pass `--filename-filter` followed by any number of strings, such as "chat" and "math_v1.1". When reading the input data directory, the list of files will be filtered to only include files with names containing at least one of the strings provided by `--filename-filter`. If `--filename-filter` is not specified, then all files within the directory (over 30 million rows) will be used.
 
 The above script applies basic filtering to the input dataset:
 
-- Only take samples used for Nemotron Nano training
-- Remove empty and malformed samples
-- Remove non-English samples
-- Remove samples with total length (system prompt, input, and output responses) longer than 16k tokens (with chat template applied using the tokenizer)
-- Remove samples with output responses longer than 8k tokens (with chat template applied using the tokenizer)
-- Only keep columns specified by the `--keep-columns` parameter. We recommend keeping the "input", "output", and "completion_token_count" columns (the "completion_token_count" column always needs to be kept, so that we can sort the samples)
+- Only take samples used for Nemotron Nano training.
+- Remove empty and malformed samples.
+- Remove non-English samples.
+- Remove samples with total length (system prompt, input, and output responses) longer than 16k tokens (with chat template applied using the tokenizer).
+- Remove samples with output responses longer than 8k tokens (with chat template applied using the tokenizer).
+- Only keep columns specified by the `--keep-columns` parameter. We recommend keeping the "input", "output", and "completion_token_count" columns (the "completion_token_count" column always needs to be kept, so that the samples can be sorted).
 
-After filtering, it sorts all samples by completion (output response) length, then "interleaves" thinking ON/thinking OFF for curriculum learning. The idea here is to sort the samples in increasing order of difficulty, using the completion token count as a measure of sample difficulty. By default, we interleave one record at a time (that is, one thinking ON sample, then one thinking OFF sample, then one thinking ON sample, and so on). The user may pass `--chunk-size` followed by an integer to interleave 10 records at a time (10 thinking ON samples, then 10 thinking OFF samples, then 10 thinking ON samples, and so on), 100 records at a time, and so on as desired. We interleave samples from the "reasoning on" and "reasoning off" buckets to gradually introduce complexity.
+After filtering, it sorts all samples by completion (output response) length, then interleaves thinking ON and thinking OFF samples for curriculum learning. Samples are sorted in increasing order of difficulty, using the completion token count as a measure of difficulty. By default, records are interleaved one at a time (alternating one thinking ON sample with one thinking OFF sample). Pass `--chunk-size` followed by an integer to interleave in larger groups (for example, 10 or 100 records at a time). Interleaving samples from the "reasoning on" and "reasoning off" buckets gradually introduces complexity.
 
 ## System Requirements
 
 - **Memory**: This tutorial can be CPU-only but is memory-intensive. For smaller memory systems, use `--filename-filter` to select a subset of the data.
 - **CPU allocation**: The `--num-cpus` parameter controls parallelism. Each CPU worker processes data in parallel, so more CPUs means more memory usage. Start with a conservative value and increase gradually.
 
-## Debugging Out of Memory Errors
+## Debugging Out-of-Memory Errors
 
 If you encounter out-of-memory (OOM) errors:
 
