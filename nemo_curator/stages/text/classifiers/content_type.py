@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from nemo_curator.stages.text.models.utils import format_name_with_suffix
 
 from .base import DistributedDataClassifier
-from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
+from .utils import DEBERTA_TOKENIZER_PADDING_SIDE
 
 CONTENT_TYPE_MODEL_IDENTIFIER = "nvidia/content-type-classifier-deberta"
 MAX_SEQ_LENGTH = 1024
@@ -39,12 +39,16 @@ class ContentTypeClassifier(DistributedDataClassifier):
         score_field: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
-        max_chars: The maximum number of characters to use from the input text. Defaults to 5000.
+        max_chars: The maximum number of characters to use from the input text. Defaults to 6000.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            Defaults to False.
 
     """
 
@@ -55,10 +59,12 @@ class ContentTypeClassifier(DistributedDataClassifier):
         score_field: str | None = None,
         text_field: str = "text",
         filter_by: list[str] | None = None,
-        max_chars: int = 5000,
+        max_chars: int = 6000,
         sort_by_length: bool = True,
         model_inference_batch_size: int = 256,
         autocast: bool = True,
+        keep_tokens: bool = False,
+        use_existing_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=CONTENT_TYPE_MODEL_IDENTIFIER,
@@ -73,6 +79,8 @@ class ContentTypeClassifier(DistributedDataClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
+            keep_tokens=keep_tokens,
+            use_existing_tokens=use_existing_tokens,
         )
 
         self.name = format_name_with_suffix(CONTENT_TYPE_MODEL_IDENTIFIER)
