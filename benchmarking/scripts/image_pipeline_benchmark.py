@@ -27,7 +27,6 @@ from typing import Any
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
-from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
@@ -172,9 +171,6 @@ def run_image_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
 
 def main() -> int:
     """Main entry point for image pipeline benchmark."""
-    ray_client = RayClient()
-    ray_client.start()
-
     parser = argparse.ArgumentParser(
         description="Image curation pipeline benchmark with embedding generation and quality scoring"
     )
@@ -255,23 +251,17 @@ def main() -> int:
     logger.info("=== Image Pipeline Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
+    results = {
+        "params": vars(args),
+        "metrics": {
+            "is_success": False,
+        },
+        "tasks": [],
+    }
     try:
         results = run_image_pipeline_benchmark(args)
-
-    except Exception as e:
-        error_traceback = traceback.format_exc()
-        print(f"Benchmark failed: {e}")
-        logger.debug(f"Full traceback:\n{error_traceback}")
-        results = {
-            "params": vars(args),
-            "metrics": {
-                "is_success": False,
-            },
-            "tasks": [],
-        }
     finally:
         write_benchmark_results(results, args.benchmark_results_path)
-        ray_client.stop()
 
     # Return proper exit code based on success
     return 0 if results["metrics"]["is_success"] else 1

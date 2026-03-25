@@ -106,6 +106,10 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     num_duplicates = workflow_run_result.metadata.get("num_duplicates")
 
     # Calculate percentage times
+    kmeans_read_percent_time = None
+    kmeans_write_percent_time = None
+    kmeans_fit_predict_percent_time = None
+    kmeans_percent_time = None
     pairwise_percent_time = None
     if workflow_total_time:
         # we get read / fit / write time from task_metrics
@@ -116,9 +120,10 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         # while this is just sum of mean time taken across actors across the three steps
         _kmeans_time_taken = kmeans_read_time + kmeans_write_time + kmeans_fit_predict_time
 
-        kmeans_read_percent_time = round((kmeans_read_time / _kmeans_time_taken) * 100, 2)
-        kmeans_write_percent_time = round((kmeans_write_time / _kmeans_time_taken) * 100, 2)
-        kmeans_fit_predict_percent_time = round((kmeans_fit_predict_time / _kmeans_time_taken) * 100, 2)
+        if _kmeans_time_taken > 0:
+            kmeans_read_percent_time = round((kmeans_read_time / _kmeans_time_taken) * 100, 2)
+            kmeans_write_percent_time = round((kmeans_write_time / _kmeans_time_taken) * 100, 2)
+            kmeans_fit_predict_percent_time = round((kmeans_fit_predict_time / _kmeans_time_taken) * 100, 2)
 
         kmeans_percent_time = round((kmeans_time / workflow_total_time) * 100, 2)
         pairwise_percent_time = round((pairwise_time / workflow_total_time) * 100, 2)

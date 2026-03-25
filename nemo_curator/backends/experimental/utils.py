@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import time
 from enum import Enum
 from typing import Any
@@ -102,7 +103,15 @@ def get_available_cpu_gpu_resources(
 
 @ray.remote
 def _setup_stage_on_node(stage: ProcessingStage, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:
-    """Ray remote function to execute setup_on_node for a stage."""
+    """Ray remote function to execute setup_on_node for a stage.
+
+    This runs as a Ray remote task (not an actor).
+    vLLM's auto-detection only forces the spawn multiprocessing method inside Ray actors,
+    not in Ray tasks. Without this override, vLLM defaults to fork in tasks and hits
+    RuntimeError: Cannot re-initialize CUDA in forked subprocess.
+    We explicitly set the environment variable to spawn to prevent this.
+    """
+    os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
     stage.setup_on_node(node_info, worker_metadata)
 
 
