@@ -24,8 +24,9 @@ from stages import (
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.filters import ScoreFilter
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import Modify, ScoreFilter
+from nemo_curator.stages.text.modifiers import Modify
 
 
 def main(args: argparse.Namespace) -> None:

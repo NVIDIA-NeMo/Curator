@@ -19,6 +19,7 @@ from unittest import mock
 
 import pytest
 
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage, DocumentIterator
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
@@ -89,7 +90,7 @@ class TestBaseDocumentIterator:
         error_file = tmp_path / "error_file.txt"
         error_file.write_text("test content")
 
-        with pytest.raises(ValueError, match="Mock error processing error_file.txt"):
+        with pytest.raises(ValueError, match=r"Mock error processing error_file.txt"):
             list(iterator.iterate(str(error_file)))
 
     def test_iterator_empty_results(self) -> None:
@@ -520,3 +521,19 @@ class TestDocumentIterateExtractStage:
 
         # Check that error was logged
         assert "Error iterating" in caplog.text
+
+    def test_ray_stage_spec_default_no_max_calls(self) -> None:
+        """Test that ray_stage_spec returns empty dict when max_calls_per_worker is not set."""
+        iterator = MockDocumentIterator()
+        stage = DocumentIterateExtractStage(iterator=iterator)
+
+        assert stage.ray_stage_spec() == {}
+
+    @pytest.mark.parametrize("max_calls", [1, 5])
+    def test_ray_stage_spec_with_max_calls(self, max_calls: int) -> None:
+        """Test that ray_stage_spec returns max_calls_per_worker when set."""
+        iterator = MockDocumentIterator()
+        stage = DocumentIterateExtractStage(iterator=iterator, max_calls_per_worker=max_calls)
+
+        spec = stage.ray_stage_spec()
+        assert spec[RayStageSpecKeys.MAX_CALLS_PER_WORKER] == max_calls

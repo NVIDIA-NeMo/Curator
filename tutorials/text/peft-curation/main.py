@@ -28,9 +28,10 @@ from transformers import AutoTokenizer
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.filters import ScoreFilter
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modifiers import UnicodeReformatter
-from nemo_curator.stages.text.modules import Modify, ScoreFilter
+from nemo_curator.stages.text.modifiers import Modify
+from nemo_curator.stages.text.modifiers.unicode import UnicodeReformatter
 
 
 def main(args: argparse.Namespace) -> None:

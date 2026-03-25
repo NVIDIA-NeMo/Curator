@@ -23,10 +23,10 @@ import torch
 from transformers import AutoModelForSequenceClassification
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.text.filters import Filter
 from nemo_curator.stages.text.models.model import ModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD, format_name_with_suffix
-from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks import DocumentBatch
 
 from .constants import DEBERTA_TOKENIZER_PADDING_SIDE

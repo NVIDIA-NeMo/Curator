@@ -38,9 +38,7 @@ from data_designer.interface import DataDesigner
 
 def _minimal_config_builder() -> dd.DataDesignerConfigBuilder:
     """Real minimal DataDesignerConfigBuilder (avoids 'model configs required' where no local defaults)."""
-    return dd.DataDesignerConfigBuilder(
-        model_configs=[dd.ModelConfig(alias="test_model", model="test/model")]
-    )
+    return dd.DataDesignerConfigBuilder(model_configs=[dd.ModelConfig(alias="test_model", model="test/model")])
 
 
 class TestBaseDataDesignerStage:
@@ -56,10 +54,10 @@ class TestBaseDataDesignerStage:
         """Either config_builder or data_designer_config_file must be set; only one can be set."""
         real_builder = _minimal_config_builder()
 
-        with pytest.raises(ValueError, match="Either .* must be set"):
+        with pytest.raises(ValueError, match=r"Either .* must be set"):
             DataDesignerStage(config_builder=None, data_designer_config_file=None)
 
-        with pytest.raises(ValueError, match="Only one of .* can be set"):
+        with pytest.raises(ValueError, match=r"Only one of .* can be set"):
             DataDesignerStage(
                 config_builder=real_builder,
                 data_designer_config_file="/path/to/config.yaml",
@@ -85,9 +83,7 @@ class TestBaseDataDesignerStage:
 
         # When only data_designer_config_file is set, __post_init__ calls from_config();
         # patch it so we don't need a real file, and assert the path is stored and builder set.
-        with patch.object(
-            dd.DataDesignerConfigBuilder, "from_config", return_value=real_builder
-        ) as mock_from_config:
+        with patch.object(dd.DataDesignerConfigBuilder, "from_config", return_value=real_builder) as mock_from_config:
             stage_file = DataDesignerStage(data_designer_config_file="/some/config.yaml")
         mock_from_config.assert_called_once_with("/some/config.yaml")
         assert stage_file.config_builder is real_builder
@@ -113,9 +109,7 @@ class TestBaseDataDesignerStage:
         """When data_designer_config_file is set, setup calls from_config and uses the returned builder."""
         config_path = tmp_path / "config.yaml"
         real_builder = _minimal_config_builder()
-        with patch.object(
-            dd.DataDesignerConfigBuilder, "from_config", return_value=real_builder
-        ) as mock_from_config:
+        with patch.object(dd.DataDesignerConfigBuilder, "from_config", return_value=real_builder) as mock_from_config:
             stage = DataDesignerStage(data_designer_config_file=str(config_path))
             stage.setup()
         mock_from_config.assert_called_once_with(str(config_path))
@@ -143,9 +137,7 @@ class TestBaseDataDesignerStage:
     def test_process(self) -> None:
         """process uses real config_builder and DataFrameSeedSource; only preview return is stubbed."""
         real_builder = _minimal_config_builder()
-        with patch.object(
-            real_builder, "with_seed_dataset", wraps=real_builder.with_seed_dataset
-        ) as spy_with_seed:
+        with patch.object(real_builder, "with_seed_dataset", wraps=real_builder.with_seed_dataset) as spy_with_seed:
             stage = DataDesignerStage(config_builder=real_builder, verbose=False)
             stage.setup()
 
@@ -242,9 +234,7 @@ class TestBaseDataDesignerStage:
         stage.setup()
 
         input_df = pd.DataFrame([{"a": 1}, {"a": 2}])
-        output_df = pd.DataFrame(
-            [{"a": 1, "b": 10}, {"a": 2, "b": 20}, {"a": 3, "b": 30}]
-        )
+        output_df = pd.DataFrame([{"a": 1, "b": 10}, {"a": 2, "b": 20}, {"a": 3, "b": 30}])
         stage.data_designer.preview = MagicMock(
             return_value=PreviewResults(config_builder=real_builder, dataset=output_df)
         )
@@ -269,9 +259,7 @@ class TestBaseDataDesignerStage:
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
         # Permanent handler: respond to any number of /v1/chat/completions requests.
-        httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
-            mock_completion
-        )
+        httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(mock_completion)
 
         base_url = httpserver.url_for("/v1")
         mock_provider = dd.ModelProvider(
@@ -283,9 +271,7 @@ class TestBaseDataDesignerStage:
         config_builder = dd.DataDesignerConfigBuilder(
             model_configs=[dd.ModelConfig(alias="mock_model", model="test", provider="mock_llm")]
         )
-        config_builder.add_column(
-            dd.LLMTextColumnConfig(name="out", prompt="Say one word", model_alias="mock_model")
-        )
+        config_builder.add_column(dd.LLMTextColumnConfig(name="out", prompt="Say one word", model_alias="mock_model"))
 
         # Tutorial-style: config_builder references provider "mock_llm"; pass model_providers
         # so the stage uses our fake endpoint instead of default providers (no patch needed).
@@ -321,14 +307,10 @@ class TestDataDesignerStagePipelineIntegration:
         mock_completion = {
             "id": "mock-id",
             "object": "chat.completion",
-            "choices": [
-                {"index": 0, "message": {"role": "assistant", "content": "e2e"}, "finish_reason": "stop"}
-            ],
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "e2e"}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
-        httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
-            mock_completion
-        )
+        httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(mock_completion)
 
         base_url = httpserver.url_for("/v1")
         mock_provider = dd.ModelProvider(
@@ -340,9 +322,7 @@ class TestDataDesignerStagePipelineIntegration:
         config_builder = dd.DataDesignerConfigBuilder(
             model_configs=[dd.ModelConfig(alias="mock_model", model="test", provider="mock_llm")]
         )
-        config_builder.add_column(
-            dd.LLMTextColumnConfig(name="out", prompt="One word", model_alias="mock_model")
-        )
+        config_builder.add_column(dd.LLMTextColumnConfig(name="out", prompt="One word", model_alias="mock_model"))
 
         # Same as test_process_with_mock_llm_endpoint: pass model_providers so the stage
         # uses the fake httpserver (tutorial-style config, no patch).
@@ -374,9 +354,7 @@ class TestDataDesignerStagePipelineIntegration:
         assert out.dataset_name == "integration"
         assert out.data is not None
         expected_rows = len(initial_tasks[0].data)
-        assert len(out.data) == expected_rows, (
-            f"Output row count {len(out.data)} should match input {expected_rows}"
-        )
+        assert len(out.data) == expected_rows, f"Output row count {len(out.data)} should match input {expected_rows}"
         expected_columns = {"x", "out"}
         assert expected_columns.issubset(out.data.columns), (
             f"Output should have columns {expected_columns}, got {list(out.data.columns)}"
@@ -423,9 +401,7 @@ class TestDataDesignerStagePipelineIntegration:
             ],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
-        httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
-            mock_completion
-        )
+        httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(mock_completion)
         base_url = httpserver.url_for("/v1")
         mock_provider = dd.ModelProvider(
             name="mock_llm",
@@ -436,9 +412,7 @@ class TestDataDesignerStagePipelineIntegration:
         config_builder = dd.DataDesignerConfigBuilder(
             model_configs=[dd.ModelConfig(alias="mock_model", model="test", provider="mock_llm")]
         )
-        config_builder.add_column(
-            dd.LLMTextColumnConfig(name="out", prompt="One word", model_alias="mock_model")
-        )
+        config_builder.add_column(dd.LLMTextColumnConfig(name="out", prompt="One word", model_alias="mock_model"))
 
         # 3. Three-stage pipeline: JsonlReader → NDD → JsonlWriter
         pipeline = Pipeline(
@@ -459,9 +433,7 @@ class TestDataDesignerStagePipelineIntegration:
 
         # 4. Output is M tasks (FileGroupTask from writer), one per input file
         assert result_tasks is not None
-        assert len(result_tasks) == m_files, (
-            f"Expected {m_files} output tasks (one per file), got {len(result_tasks)}"
-        )
+        assert len(result_tasks) == m_files, f"Expected {m_files} output tasks (one per file), got {len(result_tasks)}"
         assert all(isinstance(t, FileGroupTask) for t in result_tasks)
 
         # 5. Verify output files: M files, each with N rows and column "out"

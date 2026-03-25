@@ -27,7 +27,7 @@ A pipeline that:
 - **NeMo Curator**: Installed with text extras
 
 ```bash
-export NVIDIA_API_KEY="nvapi-..."
+export NVIDIA_API_KEY="<your-nvapi-key-here>"
 ```
 
 ## Quick Start
@@ -147,8 +147,7 @@ pipeline.add_stage(
 If your prompt includes language prefixes, you can filter to keep only specific languages:
 
 ```python
-from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
-from nemo_curator.stages.text.modules.score_filter import ScoreFilter
+from nemo_curator.stages.text.filters import DocumentFilter, ScoreFilter
 
 
 class BeginsWithLanguageFilter(DocumentFilter):
