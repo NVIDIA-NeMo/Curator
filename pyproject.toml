@@ -247,6 +247,7 @@ override-dependencies = [
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "transformers<=4.55.2", # Else Cosmos Embed imports fail
+    "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
 ]
 
 

@@ -22,8 +22,8 @@ import pytest
 import ray
 from loguru import logger
 
-from nemo_curator.backends.experimental.ray_data.executor import RayDataExecutor
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.ray_data.executor import RayDataExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.stages.base import ProcessingStage, Resources
 from nemo_curator.tasks import DocumentBatch, EmptyTask
