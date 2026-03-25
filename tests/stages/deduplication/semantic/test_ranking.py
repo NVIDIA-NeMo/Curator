@@ -123,7 +123,7 @@ class TestRankingStrategy:
 
         strategy = RankingStrategy(metadata_cols=["missing_col"], ascending=True)
 
-        with pytest.raises(ValueError, match="Required columns.*not found"):
+        with pytest.raises(ValueError, match=r"Required columns.*not found"):
             strategy.rank_cluster(test_data)
 
     def test_invalid_strategy_error(self) -> None:
@@ -137,7 +137,7 @@ class TestRankingStrategy:
 
     def test_mismatched_ascending_length(self) -> None:
         """Test error when ascending list length doesn't match metadata_cols."""
-        with pytest.raises(ValueError, match="Length of ascending.*must match"):
+        with pytest.raises(ValueError, match=r"Length of ascending.*must match"):
             RankingStrategy(
                 metadata_cols=["col1", "col2"],
                 ascending=[True],  # Only one bool for two columns

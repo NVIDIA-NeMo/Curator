@@ -15,9 +15,13 @@
 import json
 import pickle
 from pathlib import Path
+from typing import Any
+
+import pandas as pd
+import pyarrow.parquet as pq
 
 from nemo_curator.backends.experimental.ray_actor_pool.executor import RayActorPoolExecutor
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
 
@@ -92,6 +96,67 @@ def write_benchmark_results(results: dict, output_path: str | Path) -> None:
         metrics_path.write_text(json.dumps(metrics_data, default=convert_paths_to_strings, indent=2))
     if "tasks" in results:
         (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
+
+
+def collect_parquet_output_metrics(output_path: Path) -> dict[str, Any]:
+    output_files_with_size = get_all_file_paths_and_size_under(
+        str(output_path),
+        recurse_subdirectories=True,
+        keep_extensions=[".parquet"],
+    )
+    parquet_files = [path for path, _ in output_files_with_size]
+    num_files = len(parquet_files)
+    total_size_bytes = int(sum(size for _, size in output_files_with_size))
+    num_rows = 0
+    modality_counts: dict[str, int] = {}
+    materialize_error_count = 0
+    for path in parquet_files:
+        pf = pq.ParquetFile(path)
+        num_rows += pf.metadata.num_rows
+        schema_names = set(pf.schema_arrow.names)
+        cols = [c for c in ("modality", "materialize_error") if c in schema_names]
+        if not cols:
+            continue
+        table = pq.read_table(path, columns=cols)
+        if "modality" in table.column_names:
+            counts = table.column("modality").value_counts()
+            for row in counts.to_pylist():
+                key = str(row["values"]) if row["values"] is not None else "None"
+                modality_counts[key] = modality_counts.get(key, 0) + int(row["counts"])
+        if "materialize_error" in table.column_names:
+            col = table.column("materialize_error")
+            materialize_error_count += col.length() - col.null_count
+    return {
+        "num_output_files": num_files,
+        "output_total_bytes": total_size_bytes,
+        "output_total_mb": total_size_bytes / (1024 * 1024),
+        "num_rows": num_rows,
+        "modality_counts": modality_counts,
+        "materialize_error_count": materialize_error_count,
+    }
+
+
+def validate_parquet_ordering(parquet_path: str | Path) -> dict[str, Any]:
+    """Read a single parquet file and validate interleaved position ordering.
+
+    Returns a dict with 'valid' (bool) and 'errors' (list of issue descriptions).
+    """
+
+    df = pd.read_parquet(parquet_path, columns=["sample_id", "position", "modality"])
+    errors: list[str] = []
+    for sample_id, group in df.groupby("sample_id", sort=False):
+        meta = group[group["modality"] == "metadata"]
+        content = group[group["modality"] != "metadata"]
+        for _, row in meta.iterrows():
+            if row["position"] != -1:
+                errors.append(f"sample={sample_id}: metadata row has position={row['position']}, expected -1")
+        if content.empty:
+            continue
+        positions = content["position"].tolist()
+        expected = list(range(len(positions)))
+        if sorted(positions) != expected:
+            errors.append(f"sample={sample_id}: content positions {sorted(positions)} != expected {expected}")
+    return {"valid": len(errors) == 0, "errors": errors}
 
 
 def convert_paths_to_strings(obj: object) -> object:

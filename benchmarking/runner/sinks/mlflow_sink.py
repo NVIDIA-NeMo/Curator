@@ -58,7 +58,7 @@ class MlflowSink(Sink):
     def finalize(self) -> None:
         try:
             self._push(self.results)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             tb = traceback.format_exc()
             logger.error(f"MlflowSink: Error posting to Mlflow: {e}\n{tb}")
 

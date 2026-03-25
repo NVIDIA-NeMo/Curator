@@ -49,17 +49,16 @@ from nemo_curator.stages.text.download.arxiv.iterator import ArxivIterator
 from nemo_curator.stages.text.download.base import URLGenerator
 from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
-from nemo_curator.stages.text.filters import (
-    FastTextLangId,
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.fasttext import FastTextLangId
+from nemo_curator.stages.text.filters.heuristic import (
     PunctuationFilter,
-    RepeatedLinesFilter,
-    RepeatingTopNGramsFilter,
     UrlsFilter,
     WordCountFilter,
 )
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatedLinesFilter, RepeatingTopNGramsFilter
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 from nemo_curator.stages.text.modules.add_id import AddId
-from nemo_curator.stages.text.modules.score_filter import ScoreFilter
 from nemo_curator.tasks import DocumentBatch, _EmptyTask
 from nemo_curator.tasks.utils import TaskPerfUtils
 
@@ -335,7 +334,9 @@ def run_benchmark(args: argparse.Namespace) -> dict:
 
     # Calculate metrics from stage performance data
     num_tar_files = len(results) if results else 0
-    num_input_documents = TaskPerfUtils.get_aggregated_stage_stat(results, "extract_", "num_items_processed")
+    # add_id is the first stage processing DocumentBatches, so its num_items_processed
+    # reflects the total number of documents extracted (rows), not tar file count.
+    num_input_documents = TaskPerfUtils.get_aggregated_stage_stat(results, "add_id", "num_items_processed")
     writer_stage_name = f"{args.output_format}_writer"
     num_output_documents = TaskPerfUtils.get_aggregated_stage_stat(results, writer_stage_name, "num_items_processed")
     throughput_tar_files_per_sec = num_tar_files / elapsed if elapsed > 0 else 0
@@ -481,7 +482,7 @@ def main() -> int:
         },
         "tasks": [],
     }
-    success_code = 0
+    success_code = 1
     try:
         results = run_benchmark(args)
         success_code = 0 if results["metrics"]["is_success"] else 1

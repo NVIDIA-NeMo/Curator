@@ -30,8 +30,8 @@ The `ScoreFilter` is at the center of filtering in NeMo Curator. It applies a fi
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import WordCountFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter
 
 # Create pipeline
 pipeline = Pipeline(name="quality_filtering")
@@ -78,10 +78,10 @@ For more specific use cases, NeMo Curator provides two specialized modules:
   - Takes a scoring function that evaluates text and returns a score
   - Adds the score to a specified metadata field
   - Useful for analysis or multi-stage filtering pipelines
-  
+
 ```python
 # Example: Score documents without filtering
-from nemo_curator.stages.text.modules import Score
+from nemo_curator.stages.text.filters import Score
 
 scoring_step = Score(
     WordCountFilter().score_document,  # Use just the scoring part
@@ -95,10 +95,10 @@ scored_dataset = scoring_step.process(dataset)
   - Takes a filter function that evaluates metadata and returns True/False
   - Only uses existing metadata fields (doesn't compute new scores)
   - Efficient for filtering on pre-computed metrics
-  
+
 ```python
 # Example: Filter using pre-computed scores
-from nemo_curator.stages.text.modules import Filter
+from nemo_curator.stages.text.filters import Filter
 
 filter_step = Filter(
     lambda score: score >= 100,  # Keep documents with score >= 100
@@ -111,7 +111,7 @@ You can combine these modules in pipelines:
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.modules import Score, Filter
+from nemo_curator.stages.text.filters import Score, Filter
 # Assume `word_counter` and `symbol_counter` are callables that return numeric scores
 pipeline = Pipeline(name="multi_stage_filtering")
 pipeline.add_stage(Score(word_counter, score_field="word_count"))
@@ -171,8 +171,8 @@ NeMo Curator provides programmatic interfaces for document filtering through the
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import WordCountFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter
 
 # Create and configure pipeline
 pipeline = Pipeline(name="document_filtering")

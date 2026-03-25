@@ -75,10 +75,9 @@ Refer to the stage base and resources definitions in Curator for full details.
 `Resources` support both fractional and whole‑GPU semantics:
 
 - `gpu_memory_gb`: Request a fraction of a single GPU by memory; Curator rounds to a fractional GPU share and enforces that `gpu_memory_gb` stays within one device.
-- `entire_gpu`: Request an entire GPU regardless of memory (also implies access to hardware decoders and encoders on that device).
-- `gpus`: Request more than one GPU for a stage that is multi‑GPU aware.
+- `gpus`: Request one or more GPUs for a stage that is GPU aware.
 
-Choose one of `gpu_memory_gb` (single‑GPU fractional) or `gpus` (multi‑GPU). Combining both is not allowed.
+Choose one of `gpu_memory_gb` (single‑GPU fractional) or `gpus` (whole or multi‑GPU). Combining both is not allowed.
 
 ## Tasks
 
