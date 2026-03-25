@@ -137,8 +137,9 @@ def main(args: argparse.Namespace) -> None:
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
 
-    # Create executor
-    executor = XennaExecutor()
+    # Create executor.
+    # return_last_stage_outputs=False: outputs are written to disk; no need to collect them on the driver.
+    executor = XennaExecutor(config={"return_last_stage_outputs": False})
 
     # Execute pipeline
     pipeline.run(executor)

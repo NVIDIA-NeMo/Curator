@@ -43,6 +43,9 @@ class XennaExecutor(BaseExecutor):
                 - execution_mode: 'streaming' or 'batch' (default: 'streaming')
                 - cpu_allocation_percentage: CPU allocation ratio (default: 0.95)
                 - autoscale_interval_s: Auto-scaling interval (default: 180)
+                - return_last_stage_outputs: Collect and return last stage outputs to the driver (default: True).
+                  Set to False for write-and-forget pipelines to avoid output reference count validation errors
+                  when some tasks fail mid-pipeline (e.g. due to OOM or disk spilling).
             ignore_head_node (bool, optional): Whether to ignore the head node (default: False)
                 Not supported by XennaExecutor. Raises an error if set to True.
         """
@@ -57,6 +60,7 @@ class XennaExecutor(BaseExecutor):
             "execution_mode": "streaming",
             "cpu_allocation_percentage": 0.95,
             "autoscale_interval_s": 180,
+            "return_last_stage_outputs": True,
         }
 
     def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
@@ -122,7 +126,7 @@ class XennaExecutor(BaseExecutor):
             execution_mode=exec_mode,
             logging_interval_s=self._get_pipeline_config("logging_interval"),
             log_worker_allocation_layout=True,
-            return_last_stage_outputs=True,
+            return_last_stage_outputs=self._get_pipeline_config("return_last_stage_outputs"),
             ignore_failures=self._get_pipeline_config("ignore_failures"),
             cpu_allocation_percentage=self._get_pipeline_config("cpu_allocation_percentage"),
             mode_specific=streaming_config,
