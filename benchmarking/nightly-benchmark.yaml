@@ -1076,6 +1076,7 @@ entries:
       --query-dataset-path={dataset:cc_index_query_dataset,parquet}
       --cc-index-path={dataset:cc_index_partitions,parquet}
       --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
     timeout_s: 1200
     sink_data:
       - name: slack

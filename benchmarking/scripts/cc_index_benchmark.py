@@ -24,7 +24,8 @@ Example usage::
         --benchmark-results-path=/tmp/results \\
         --query-dataset-path=/data/cc_index_benchmark/dataset/openwebmath/data \\
         --cc-index-path=/data/cc_index_benchmark/cc_index \\
-        --output-path=/tmp/output
+        --output-path=/tmp/output \\
+        --executor=xenna
 """
 
 import argparse
@@ -35,7 +36,7 @@ from pathlib import Path
 
 import ray
 from loguru import logger
-from utils import write_benchmark_results
+from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
@@ -135,9 +136,10 @@ def run_benchmark(args: argparse.Namespace) -> dict:
         logger.info("Starting CC Index lookup pipeline...")
 
         # Step 5: Run pipeline
+        executor = setup_executor(args.executor)
         pipeline_start = time.perf_counter()
         try:
-            results = pipeline.run()
+            results = pipeline.run(executor)
             success = True
         except Exception:
             logger.exception("CC Index lookup pipeline failed")
@@ -236,6 +238,7 @@ def main() -> int:
         default=None,
         help="Crawl IDs to include (default: auto-detect all)",
     )
+    p.add_argument("--executor", type=str, default="xenna", choices=["xenna"])
 
     args = p.parse_args()
 
