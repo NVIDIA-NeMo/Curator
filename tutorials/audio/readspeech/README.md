@@ -55,7 +55,7 @@ raw_data_dir/
 
 ```
 CreateInitialManifestReadSpeechStage
-  Downloads and scans read_speech directory, parses filenames, creates AudioBatch
+  Downloads and scans read_speech directory, parses filenames, creates AudioTask
       |
       v
 AudioDataFilterStage
