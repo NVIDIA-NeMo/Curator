@@ -92,6 +92,8 @@ class RayActorPoolExecutor(BaseExecutor):
         if not stages:
             return []
 
+        self._mark_pipeline_checkpoint(stages)
+
         session_id = uuid.uuid4().bytes
 
         try:
@@ -156,7 +158,7 @@ class RayActorPoolExecutor(BaseExecutor):
             raise
         else:
             # Return final results directly - no need for ray.get()
-            final_results = current_tasks if current_tasks else []
+            final_results = current_tasks or []
             logger.info(f"\nPipeline completed. Final results: {len(final_results)} tasks")
 
             return final_results

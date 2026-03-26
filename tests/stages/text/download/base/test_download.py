@@ -30,7 +30,7 @@ class MockDocumentDownloader(DocumentDownloader):
 
     def _get_output_filename(self, url: str) -> str:
         """Simple filename generation for testing."""
-        return url.split("/")[-1].replace(":", "-")
+        return url.rsplit("/", maxsplit=1)[-1].replace(":", "-")
 
     def _download_to_path(self, url: str, path: str) -> tuple[bool, str | None]:
         """Mock download implementation - will be patched in tests."""
@@ -242,7 +242,7 @@ class TestDocumentDownloadStage:
         def side_effect(url: str) -> str | None:
             if "file2" in url:
                 return None  # Simulate failure
-            return str(tmp_path / url.split("/")[-1])
+            return str(tmp_path / url.rsplit("/", maxsplit=1)[-1])
 
         mock_download.side_effect = side_effect
 

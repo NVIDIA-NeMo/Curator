@@ -20,6 +20,7 @@ from loguru import logger
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.resumable import ResumableInputStage
 from nemo_curator.tasks import FileGroupTask, _EmptyTask
 from nemo_curator.utils.file_utils import (
     _split_files_as_per_blocksize,
@@ -30,7 +31,7 @@ from nemo_curator.utils.file_utils import (
 
 
 @dataclass
-class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
+class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask], ResumableInputStage):
     """Stage that partitions input file paths into FileGroupTasks.
 
     This stage runs as a dedicated processing stage (not on the driver)
@@ -61,6 +62,8 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     storage_options: dict[str, Any] | None = None
     limit: int | None = None
     name: str = "file_partitioning"
+    resume: bool = False
+    checkpoint_dir: str | None = None
 
     def __post_init__(self):
         """Initialize default values."""
@@ -117,9 +120,17 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             logger.info("No partitions specified, defaulting to one file per partition")
             partitions = self._partition_by_count(files, 1)
 
+        # Resumability: load completed task ids and skip them on resume
+        completed_ids: set[str] = set()
+        if self.resume and self.checkpoint_dir:
+            completed_ids = self.load_completed_task_ids()
+            if completed_ids:
+                logger.info(f"Resume: {len(completed_ids)} partitions already complete, will skip")
+
         # Create FileGroupTask for each partition
         tasks = []
         dataset_name = self._get_dataset_name(files)
+        skipped = 0
 
         for i, file_group in enumerate(partitions):
             if self.limit is not None and len(tasks) >= self.limit:
@@ -127,19 +138,26 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 # https://github.com/NVIDIA-NeMo/Curator/issues/948
                 logger.info(f"Reached limit of {self.limit} file groups")
                 break
+            task_id = f"file_group_{i}"
+            if task_id in completed_ids:
+                skipped += 1
+                continue
             file_task = FileGroupTask(
-                task_id=f"file_group_{i}",
+                task_id=task_id,
                 dataset_name=dataset_name,
                 data=file_group,
                 _metadata={
                     "partition_index": i,
                     "total_partitions": len(partitions),
                     "source_files": file_group,  # Add source files for deterministic naming during write stage
+                    "original_task_id": task_id,  # Preserved through reader transforms (e.g. "_processed" suffix)
                 },
                 reader_config={},  # Empty - will be populated by reader stage
             )
             tasks.append(file_task)
 
+        if skipped:
+            logger.info(f"Resume: skipped {skipped}, emitting {len(tasks)} partitions for processing")
         logger.info(f"Created {len(tasks)} file groups from {len(files)} files")
         return tasks
 

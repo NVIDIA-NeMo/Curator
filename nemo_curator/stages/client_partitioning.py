@@ -19,6 +19,7 @@ from typing import Any
 
 import fsspec
 from fsspec.core import url_to_fs
+from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
@@ -67,14 +68,26 @@ class ClientPartitioningStage(FilePartitioningStage):
         else:
             partitions = [[p] for p in rel_paths]
 
+        # Resumability: load completed task ids and skip them on resume
+        completed_ids: set[str] = set()
+        if self.resume and self.checkpoint_dir:
+            completed_ids = self.load_completed_task_ids()
+            if completed_ids:
+                logger.info(f"Resume: {len(completed_ids)} partitions already complete, will skip")
+
         # Create FileGroupTasks for each partition
         tasks = []
         total = len(partitions)
         dataset_name = self._get_dataset_name(self.file_paths)
+        skipped = 0
         for i, group in enumerate(partitions):
+            task_id = f"file_group_{i}"
+            if task_id in completed_ids:
+                skipped += 1
+                continue
             tasks.append(
                 FileGroupTask(
-                    task_id=f"file_group_{i}",
+                    task_id=task_id,
                     dataset_name=dataset_name,
                     data=group,
                     _metadata={
@@ -82,10 +95,14 @@ class ClientPartitioningStage(FilePartitioningStage):
                         "total_partitions": total,
                         "storage_options": self.storage_options,
                         "source_files": group,  # always a list for deterministic downstream naming
+                        "original_task_id": task_id,  # preserved through reader transforms (e.g. "_processed" suffix)
                     },
                     reader_config={},
                 )
             )
+
+        if skipped:
+            logger.info(f"Resume: skipped {skipped}, emitting {len(tasks)} partitions for processing")
 
         return tasks
 

@@ -31,6 +31,6 @@ class QuotationRemover(DocumentModifier):
 
     def modify_document(self, text: str) -> str:
         if len(text.strip()) > 2 and text[0] == '"' and text[-1] == '"':  # noqa: SIM102, PLR2004
-            if "\n" not in text.strip() or text.split("\n")[0][-1] != '"':
+            if "\n" not in text.strip() or text.split("\n", maxsplit=1)[0][-1] != '"':
                 text = text[1:-1]
         return text

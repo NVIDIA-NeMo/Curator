@@ -106,5 +106,5 @@ class WikipediaDownloadExtractStage(DocumentDownloadExtractStage):
 
     def get_description(self) -> str:
         """Get a description of this composite stage."""
-        date_str = self.dump_date if self.dump_date else "latest"
+        date_str = self.dump_date or "latest"
         return f"Wikipedia {self.language} pipeline for dump {date_str}"

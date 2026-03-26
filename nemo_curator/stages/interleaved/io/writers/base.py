@@ -25,6 +25,7 @@ from loguru import logger
 import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.utils import materialize_task_binary_content
+from nemo_curator.stages.resumable import ResumableStage
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import check_output_mode
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], ABC):
+class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], ResumableStage, ABC):
     """Base class for interleaved writers.
 
     Handles filesystem setup, deterministic file naming, optional binary
@@ -49,6 +50,8 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
     name: str = "base_interleaved_writer"
     mode: Literal["ignore", "overwrite", "append", "error"] = "ignore"
     append_mode_implemented: bool = False
+    resume: bool = False
+    checkpoint_dir: str | None = None
 
     def __post_init__(self) -> None:
         self.storage_options = (self.write_kwargs or {}).get("storage_options", {})
@@ -106,10 +109,15 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
         file_path_with_protocol = self.fs.unstrip_protocol(file_path) if is_remote_url(self.path) else file_path
 
         self.write_data(task, file_path_with_protocol)
-        return FileGroupTask(
+        output_task = FileGroupTask(
             task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=[file_path_with_protocol],
             _metadata={**task._metadata, "format": self.file_extension},
             _stage_perf=task._stage_perf,
         )
+
+        if self.resume and self.checkpoint_dir:
+            self.record_completion(task, output_task)
+
+        return output_task
