@@ -43,11 +43,10 @@ import torchaudio
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioBatch
-
-from nemo_curator.stages.audio.common import load_audio_file
+from nemo_curator.tasks import AudioTask
 
 _UTMOS_REPO = "tarepan/SpeechMOS:v1.2.0"
 _UTMOS_ENTRYPOINT = "utmos22_strong"
@@ -90,16 +89,13 @@ def _load_waveform_tensor(item: dict[str, Any], task_id: str) -> tuple[torch.Ten
 
 
 @dataclass
-class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
+class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
     """
     UTMOS quality assessment filter stage.
 
     Filters audio segments based on the UTMOS predicted MOS score.
     The model (utmos22_strong) is loaded via torch.hub from tarepan/SpeechMOS.
     Audio is resampled to 16 kHz for inference.
-
-    UTMOS predicts a single MOS score (1-5 scale):
-    - MOS: Mean Opinion Score for overall speech quality
 
     Args:
         mos_threshold: Minimum MOS score to pass (None to disable)
@@ -124,13 +120,12 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         self._resamplers: dict[int, torchaudio.transforms.Resample] = {}
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["utmos_mos"]
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
-        """Download the UTMOS model repo via torch.hub (once per node)."""
         try:
             torch.hub.load(
                 _UTMOS_REPO, _UTMOS_ENTRYPOINT,
@@ -185,15 +180,16 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         self._model = predictor
         logger.info(f"UTMOS model loaded on {device}")
 
-    def _process_single_item(self, item: dict[str, Any], task_id: str) -> dict[str, Any] | None:
-        audio_result = _load_waveform_tensor(item, task_id)
+    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
+        """Process a single AudioTask and filter by UTMOS MOS score."""
+        audio_result = _load_waveform_tensor(task.data, task.task_id)
         if audio_result is None:
-            return None
+            return []
         waveform, sr = audio_result
 
         self._ensure_model()
         if self._model is None:
-            return None
+            return []
 
         try:
             device = next(self._model.parameters()).device
@@ -209,44 +205,14 @@ class UTMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
 
             mos = float(score.item() if torch.is_tensor(score) else score)
         except Exception as e:  # noqa: BLE001
-            logger.exception(f"[{task_id}] UTMOS prediction error: {e}")
-            return None
+            logger.exception(f"[{task.task_id}] UTMOS prediction error: {e}")
+            return []
 
-        logger.debug(f"[{task_id}] UTMOS MOS={mos:.3f}")
+        logger.debug(f"[{task.task_id}] UTMOS MOS={mos:.3f}")
 
         if self.mos_threshold is not None and mos < self.mos_threshold:
-            logger.info(f"[{task_id}] UTMOS FAILED: MOS {mos:.3f} < {self.mos_threshold}")
-            return None
+            logger.info(f"[{task.task_id}] UTMOS FAILED: MOS {mos:.3f} < {self.mos_threshold}")
+            return []
 
-        item["utmos_mos"] = mos
-        return item
-
-    def process(self, task: AudioBatch) -> AudioBatch | None:
-        self._ensure_model()
-        if self._model is None:
-            logger.error("UTMOS model not available")
-            return AudioBatch(
-                data=[],
-                task_id=task.task_id,
-                dataset_name=task.dataset_name,
-                _metadata=task._metadata,
-                _stage_perf=list(task._stage_perf),
-            )
-
-        results = []
-        for item in task.data:
-            out = self._process_single_item(item, task.task_id)
-            if out is not None:
-                results.append(out)
-
-        total = len(task.data)
-        threshold_str = f"MOS>={self.mos_threshold}" if self.mos_threshold is not None else "none"
-        logger.info(f"[UTMOSFilter] {task.task_id}: {len(results)}/{total} passed (thresholds: {threshold_str})")
-
-        return AudioBatch(
-            data=results,
-            task_id=task.task_id,
-            dataset_name=task.dataset_name,
-            _metadata=task._metadata,
-            _stage_perf=list(task._stage_perf),
-        )
+        task.data["utmos_mos"] = mos
+        return task

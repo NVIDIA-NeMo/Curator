@@ -19,16 +19,19 @@ from unittest.mock import MagicMock, patch
 import torch
 
 from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
-def _make_item(duration_s: float = 1.0, sample_rate: int = 16000) -> dict:
+def _make_task(duration_s: float = 1.0, sample_rate: int = 16000) -> AudioTask:
     num_samples = int(duration_s * sample_rate)
-    return {"waveform": torch.randn(1, num_samples), "sample_rate": sample_rate}
+    return AudioTask(
+        data={"waveform": torch.randn(1, num_samples), "sample_rate": sample_rate},
+        task_id="test",
+        dataset_name="test",
+    )
 
 
 def _mock_model(score: float) -> MagicMock:
-    """Create a mock UTMOS model that returns a fixed score."""
     model = MagicMock()
     model.return_value = torch.tensor([score])
     model.parameters = lambda: iter([torch.tensor([0.0])])
@@ -36,102 +39,65 @@ def _mock_model(score: float) -> MagicMock:
 
 
 class TestUTMOSFilterStage:
-    """Tests for UTMOSFilterStage."""
 
     @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
     def test_process_passes_above_threshold(self, mock_ensure) -> None:
         stage = UTMOSFilterStage(mos_threshold=3.0)
         stage._model = _mock_model(4.5)
 
-        batch = AudioBatch(data=[_make_item()], task_id="test", dataset_name="test")
-        result = stage.process(batch)
+        result = stage.process(_make_task())
 
-        assert isinstance(result, AudioBatch)
-        assert len(result.data) == 1
-        assert abs(result.data[0]["utmos_mos"] - 4.5) < 1e-3
+        assert isinstance(result, AudioTask)
+        assert abs(result.data["utmos_mos"] - 4.5) < 1e-3
 
     @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
     def test_process_filters_below_threshold(self, mock_ensure) -> None:
         stage = UTMOSFilterStage(mos_threshold=4.0)
         stage._model = _mock_model(2.5)
 
-        batch = AudioBatch(data=[_make_item()], task_id="test", dataset_name="test")
-        result = stage.process(batch)
+        result = stage.process(_make_task())
 
-        assert len(result.data) == 0
-
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
-    def test_process_multiple_items(self, mock_ensure) -> None:
-        stage = UTMOSFilterStage(mos_threshold=3.0)
-        model = MagicMock()
-        model.side_effect = [torch.tensor([4.0]), torch.tensor([2.0]), torch.tensor([3.5])]
-        model.parameters = lambda: iter([torch.tensor([0.0])])
-        stage._model = model
-
-        batch = AudioBatch(
-            data=[_make_item(), _make_item(), _make_item()],
-            task_id="test",
-            dataset_name="test",
-        )
-        result = stage.process(batch)
-
-        assert len(result.data) == 2
+        assert result == []
 
     @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
     def test_none_threshold_passes_all(self, mock_ensure) -> None:
         stage = UTMOSFilterStage(mos_threshold=None)
         stage._model = _mock_model(1.0)
 
-        batch = AudioBatch(data=[_make_item()], task_id="test", dataset_name="test")
-        result = stage.process(batch)
+        result = stage.process(_make_task())
 
-        assert len(result.data) == 1
-        assert abs(result.data[0]["utmos_mos"] - 1.0) < 1e-3
-
-    def test_empty_batch(self) -> None:
-        stage = UTMOSFilterStage(mos_threshold=3.0)
-        stage._model = MagicMock()
-
-        with patch.object(stage, "_ensure_model"):
-            batch = AudioBatch(data=[], task_id="test", dataset_name="test")
-            result = stage.process(batch)
-
-        assert isinstance(result, AudioBatch)
-        assert len(result.data) == 0
+        assert isinstance(result, AudioTask)
+        assert abs(result.data["utmos_mos"] - 1.0) < 1e-3
 
     @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
-    def test_prediction_error_skips_item(self, mock_ensure) -> None:
+    def test_prediction_error_skips(self, mock_ensure) -> None:
         stage = UTMOSFilterStage(mos_threshold=3.0)
         model = MagicMock(side_effect=RuntimeError("CUDA error"))
         model.parameters = lambda: iter([torch.tensor([0.0])])
         stage._model = model
 
-        batch = AudioBatch(data=[_make_item()], task_id="test", dataset_name="test")
-        result = stage.process(batch)
+        result = stage.process(_make_task())
 
-        assert isinstance(result, AudioBatch)
-        assert len(result.data) == 0
+        assert result == []
 
     @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
     def test_no_waveform_no_filepath_skipped(self, mock_ensure) -> None:
         stage = UTMOSFilterStage(mos_threshold=3.0)
         stage._model = _mock_model(4.0)
 
-        batch = AudioBatch(data=[{"some_key": "value"}], task_id="test", dataset_name="test")
-        result = stage.process(batch)
+        task = AudioTask(data={"some_key": "value"}, task_id="test", dataset_name="test")
+        result = stage.process(task)
 
-        assert len(result.data) == 0
+        assert result == []
 
     def test_model_not_loaded(self) -> None:
         stage = UTMOSFilterStage(mos_threshold=3.0)
         stage._model = None
 
         with patch.object(stage, "_ensure_model"):
-            batch = AudioBatch(data=[_make_item()], task_id="test", dataset_name="test")
-            result = stage.process(batch)
+            result = stage.process(_make_task())
 
-        assert isinstance(result, AudioBatch)
-        assert len(result.data) == 0
+        assert result == []
 
     def test_teardown_clears_model(self) -> None:
         stage = UTMOSFilterStage()

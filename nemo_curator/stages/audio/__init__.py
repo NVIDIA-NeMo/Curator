@@ -23,7 +23,6 @@ and audio quality filtering (UTMOS).
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
-    LegacySpeechStage,
     PreserveByValueStage,
 )
 from nemo_curator.stages.audio.filtering import (
@@ -34,7 +33,6 @@ __all__ = [
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
     "GetAudioDurationStage",
-    "LegacySpeechStage",
     "PreserveByValueStage",
     "UTMOSFilterStage",
 ]
