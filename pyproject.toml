@@ -250,7 +250,6 @@ constraint-dependencies = [
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
-    "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
 ]
 override-dependencies = [
     "apex; sys_platform == 'never'",
@@ -263,6 +262,7 @@ override-dependencies = [
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
+    "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
 
 
