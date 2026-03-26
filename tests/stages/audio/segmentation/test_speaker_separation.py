@@ -18,31 +18,26 @@ import torch
 from pydub import AudioSegment
 
 from nemo_curator.stages.audio.segmentation.speaker_separation import SpeakerSeparationStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 def _make_audio_segment(duration_ms: int = 5000, sample_rate: int = 48000) -> AudioSegment:
     return AudioSegment.silent(duration=duration_ms, frame_rate=sample_rate)
 
 
-def _make_item(duration_sec: float = 10.0, sample_rate: int = 48000) -> dict:
+def _make_task(duration_sec: float = 10.0, sample_rate: int = 48000) -> AudioTask:
     num_samples = int(duration_sec * sample_rate)
-    return {"waveform": torch.randn(1, num_samples), "sample_rate": sample_rate}
-
-
-def _make_batch(duration_sec: float = 10.0, sample_rate: int = 48000) -> AudioBatch:
-    return AudioBatch(
-        data=[_make_item(duration_sec, sample_rate)],
+    return AudioTask(
+        data={"waveform": torch.randn(1, num_samples), "sample_rate": sample_rate},
         task_id="test",
         dataset_name="test",
     )
 
 
 class TestSpeakerSeparationStage:
-    """Tests for SpeakerSeparationStage."""
 
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_process_returns_per_speaker_batches(self, mock_init) -> None:
+    def test_process_returns_per_speaker_tasks(self, mock_init) -> None:
         stage = SpeakerSeparationStage(min_duration=0.5)
 
         separator = MagicMock()
@@ -53,17 +48,16 @@ class TestSpeakerSeparationStage:
         separator.get_speaker_audio_data.return_value = speaker_data
         stage._separator = separator
 
-        result = stage.process(_make_batch())
+        result = stage.process(_make_task())
 
         assert isinstance(result, list)
         assert len(result) == 2
         for r in result:
-            assert isinstance(r, AudioBatch)
-            item = r.data[0]
-            assert "speaker_id" in item
-            assert "num_speakers" in item
-            assert item["num_speakers"] == 2
-            assert "duration_sec" in item
+            assert isinstance(r, AudioTask)
+            assert "speaker_id" in r.data
+            assert "num_speakers" in r.data
+            assert r.data["num_speakers"] == 2
+            assert "duration_sec" in r.data
 
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
     def test_process_output_keys(self, mock_init) -> None:
@@ -75,10 +69,10 @@ class TestSpeakerSeparationStage:
         }
         stage._separator = separator
 
-        result = stage.process(_make_batch())
+        result = stage.process(_make_task())
 
         assert len(result) == 1
-        item = result[0].data[0]
+        item = result[0].data
         assert item["speaker_id"] == "spk_0"
         assert item["num_speakers"] == 1
         assert item["duration_sec"] == 5.0
@@ -96,10 +90,10 @@ class TestSpeakerSeparationStage:
         }
         stage._separator = separator
 
-        result = stage.process(_make_batch())
+        result = stage.process(_make_task())
 
         assert len(result) == 1
-        assert result[0].data[0]["speaker_id"] == "speaker_0"
+        assert result[0].data["speaker_id"] == "speaker_0"
 
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
     def test_no_speakers_returns_empty(self, mock_init) -> None:
@@ -109,7 +103,7 @@ class TestSpeakerSeparationStage:
         separator.get_speaker_audio_data.return_value = {}
         stage._separator = separator
 
-        result = stage.process(_make_batch())
+        result = stage.process(_make_task())
 
         assert isinstance(result, list)
         assert len(result) == 0
@@ -119,12 +113,12 @@ class TestSpeakerSeparationStage:
         stage = SpeakerSeparationStage()
         stage._separator = MagicMock()
 
-        batch = AudioBatch(
-            data=[{"some_key": "value"}],
+        task = AudioTask(
+            data={"some_key": "value"},
             task_id="test",
             dataset_name="test",
         )
-        result = stage.process(batch)
+        result = stage.process(task)
 
         assert isinstance(result, list)
         assert len(result) == 0
@@ -134,13 +128,14 @@ class TestSpeakerSeparationStage:
         stage._separator = None
 
         with patch.object(stage, "_initialize_separator"):
-            result = stage.process(_make_batch())
+            try:
+                result = stage.process(_make_task())
+            except RuntimeError:
+                result = "raised"
 
-        assert isinstance(result, list)
-        assert len(result) == 0
+        assert result == "raised"
 
     def test_pickling(self) -> None:
-        """SpeakerSeparationStage should be picklable (for Ray workers)."""
         import pickle
 
         stage = SpeakerSeparationStage(min_duration=1.0, exclude_overlaps=False)
@@ -151,45 +146,14 @@ class TestSpeakerSeparationStage:
         assert restored._separator is None
 
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_separator_exception_skips_item(self, mock_init) -> None:
-        """If separator raises on an item, that item is skipped (no crash)."""
+    def test_separator_exception_skips_task(self, mock_init) -> None:
         stage = SpeakerSeparationStage(min_duration=0.5)
 
         separator = MagicMock()
         separator.get_speaker_audio_data.side_effect = RuntimeError("Simulated crash")
         stage._separator = separator
 
-        result = stage.process(_make_batch())
+        result = stage.process(_make_task())
 
         assert isinstance(result, list)
         assert len(result) == 0
-
-    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_mixed_batch_error_skips_bad_item(self, mock_init) -> None:
-        """Batch with 2 items: first raises, second succeeds. Only second produces output."""
-        stage = SpeakerSeparationStage(min_duration=0.5)
-
-        call_count = 0
-
-        def side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise ValueError("Corrupted audio")
-            return {"speaker_0": (_make_audio_segment(3000), 3.0)}
-
-        separator = MagicMock()
-        separator.get_speaker_audio_data.side_effect = side_effect
-        stage._separator = separator
-
-        batch = AudioBatch(
-            data=[_make_item(), _make_item()],
-            task_id="test-mixed",
-            dataset_name="test",
-        )
-        result = stage.process(batch)
-
-        assert isinstance(result, list)
-        assert len(result) == 1, f"Expected 1 result (bad item skipped), got {len(result)}"
-        assert result[0].data[0]["speaker_id"] == "speaker_0"
-

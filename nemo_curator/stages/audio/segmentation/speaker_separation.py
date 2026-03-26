@@ -16,7 +16,7 @@
 Speaker separation stage using NeMo SortFormer diarization model.
 
 Performs speaker diarization and separates audio by speaker,
-creating separate AudioBatch outputs for each speaker.
+creating separate AudioTask outputs for each speaker.
 
 Example:
     from nemo_curator.pipeline import Pipeline
@@ -39,12 +39,11 @@ from loguru import logger
 from pydub import AudioSegment
 
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.stages.audio.common import resolve_waveform_from_item
 from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import SpeakerSeparator
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioBatch
-
-from nemo_curator.stages.audio.common import resolve_waveform_from_item
+from nemo_curator.tasks import AudioTask
 
 
 def _pydub_to_waveform_sr(seg: AudioSegment) -> tuple[torch.Tensor, int]:
@@ -57,11 +56,11 @@ def _pydub_to_waveform_sr(seg: AudioSegment) -> tuple[torch.Tensor, int]:
 
 
 @dataclass
-class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
+class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Speaker separation stage using NeMo SortFormer diarization model.
 
-    Separates audio by speaker and creates separate AudioBatch outputs
+    Separates audio by speaker and creates separate AudioTask outputs
     for each speaker's segments. Downloads the NeMo model from
     HuggingFace Hub (nvidia/diar_sortformer_4spk-v1).
 
@@ -71,12 +70,10 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
         min_duration: Minimum segment duration in seconds
         gap_threshold: Gap threshold for merging speaker segments
         buffer_time: Buffer time around speaker segments
+
     Note:
         GPU assignment is handled by the executor via _resources.
         Use .with_(resources=Resources(gpus=X)) to configure GPU allocation.
-
-    Example:
-        stage = SpeakerSeparationStage(exclude_overlaps=True, min_duration=0.8)
     """
 
     model_path: str = "nvidia/diar_sortformer_4spk-v1"
@@ -90,22 +87,19 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=1.0))
 
     def __post_init__(self):
-        """Initialize after dataclass fields are set."""
         super().__init__()
         self._separator = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        """Define outputs produced by this stage."""
         return [], ["waveform", "sample_rate", "speaker_id", "num_speakers", "duration_sec"]
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def setup_on_node(self, _node_info: Any = None, _worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
-        """Download the NeMo diarization model from HuggingFace (once per node)."""
         try:
             from nemo.collections.asr.models import SortformerEncLabelModel
             SortformerEncLabelModel.from_pretrained(self.model_path)
@@ -113,18 +107,15 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
             logger.warning("Model pre-download in setup_on_node failed; will retry in setup().")
 
     def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
-        """Load NeMo diarization model on worker initialization."""
         self._initialize_separator()
 
     def teardown(self) -> None:
-        """Clean up resources."""
         if self._separator is not None:
             del self._separator
             self._separator = None
             torch.cuda.empty_cache()
 
     def _initialize_separator(self) -> None:
-        """Initialize the NeMo speaker separator with HuggingFace model."""
         if self._separator is None:
             try:
                 if self._resources.gpus > 0 and not torch.cuda.is_available():
@@ -156,83 +147,80 @@ class SpeakerSeparationStage(ProcessingStage[AudioBatch, AudioBatch]):
                 logger.error(f"Failed to load speaker separator: {e}")
                 raise
 
-    def process(self, task: AudioBatch) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> list[AudioTask]:
         """
         Separate audio by speaker.
 
-        Args:
-            task: AudioBatch with audio data
-
         Returns:
-            List of AudioBatch objects, one per speaker
+            List of AudioTask objects, one per speaker.
         """
         self._initialize_separator()
 
         if self._separator is None:
             raise RuntimeError("Speaker separator failed to initialize. Cannot process audio.")
 
-        results = []
+        item = dict(task.data)
+        waveform = None
+        results: list[AudioTask] = []
 
-        for item_idx, item in enumerate(task.data):
-            item = dict(item)
-            waveform = None
-            try:
-                audio_result = resolve_waveform_from_item(item, task.task_id)
-                if audio_result is None:
+        try:
+            audio_result = resolve_waveform_from_item(item, task.task_id)
+            if audio_result is None:
+                return []
+            waveform, sample_rate = audio_result
+
+            speaker_audio_data = self._separator.get_speaker_audio_data(
+                waveform,
+                sample_rate=sample_rate,
+                gap_threshold=self.gap_threshold,
+                exclude_overlaps=self.exclude_overlaps,
+                min_duration=self.min_duration,
+                buffer_time=self.buffer_time
+            )
+
+            num_speakers = len(speaker_audio_data)
+
+            if num_speakers == 0:
+                logger.warning("No speakers detected")
+                return []
+
+            logger.info(f"Detected {num_speakers} speakers")
+
+            for speaker_id, (speaker_audio_pydub, duration) in speaker_audio_data.items():
+                if duration < self.min_duration:
+                    logger.debug(f"Skipping {speaker_id}: duration {duration:.2f}s < {self.min_duration}s")
                     continue
-                waveform, sample_rate = audio_result
-
-                speaker_audio_data = self._separator.get_speaker_audio_data(
-                    waveform,
-                    sample_rate=sample_rate,
-                    gap_threshold=self.gap_threshold,
-                    exclude_overlaps=self.exclude_overlaps,
-                    min_duration=self.min_duration,
-                    buffer_time=self.buffer_time
+                spk_waveform, spk_sr = _pydub_to_waveform_sr(speaker_audio_pydub)
+                speaker_data = {
+                    **{k: v for k, v in item.items() if k not in ("audio", "waveform")},
+                    "waveform": spk_waveform,
+                    "sample_rate": spk_sr,
+                    "speaker_id": speaker_id,
+                    "num_speakers": num_speakers,
+                    "duration_sec": duration,
+                }
+                spk_task = AudioTask(
+                    data=speaker_data,
+                    task_id=f"{task.task_id}_{speaker_id}",
+                    dataset_name=task.dataset_name,
                 )
+                if task._metadata:
+                    spk_task._metadata = dict(task._metadata)
+                results.append(spk_task)
 
-                num_speakers = len(speaker_audio_data)
-
-                if num_speakers == 0:
-                    logger.warning("No speakers detected")
-                    continue
-
-                logger.info(f"Detected {num_speakers} speakers")
-
-                for speaker_id, (speaker_audio_pydub, duration) in speaker_audio_data.items():
-                    if duration < self.min_duration:
-                        logger.debug(f"Skipping {speaker_id}: duration {duration:.2f}s < {self.min_duration}s")
-                        continue
-                    spk_waveform, spk_sr = _pydub_to_waveform_sr(speaker_audio_pydub)
-                    speaker_data = {
-                        **{k: v for k, v in item.items() if k not in ("audio", "waveform")},
-                        "waveform": spk_waveform,
-                        "sample_rate": spk_sr,
-                        "speaker_id": speaker_id,
-                        "num_speakers": num_speakers,
-                        "duration_sec": duration,
-                    }
-                    results.append(AudioBatch(
-                        data=[speaker_data],
-                        task_id=f"{task.task_id}_{speaker_id}",
-                        dataset_name=task.dataset_name,
-                        _metadata=dict(task._metadata) if task._metadata else {},
-                        _stage_perf=list(task._stage_perf),
-                    ))
-
-            except torch.cuda.OutOfMemoryError:
-                torch.cuda.empty_cache()
-                raise RuntimeError(
-                    f"CUDA out of memory processing item {item_idx}. "
-                    "Consider splitting long audio files into shorter segments, "
-                    "using a GPU with more memory, or setting resources=Resources(gpus=0) for CPU mode."
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"Skipping item {item_idx}: {e}")
-            finally:
-                if waveform is not None:
-                    del waveform
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            raise RuntimeError(
+                "CUDA out of memory processing audio. "
+                "Consider splitting long audio files into shorter segments, "
+                "using a GPU with more memory, or setting resources=Resources(gpus=0) for CPU mode."
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Skipping task {task.task_id}: {e}")
+        finally:
+            if waveform is not None:
+                del waveform
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
         return results
