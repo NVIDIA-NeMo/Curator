@@ -118,6 +118,7 @@ class AudioDataFilterStage(CompositeStage):
             if enable_vad:
                 stages.append(SegmentConcatenationStage(
                     silence_duration_sec=concat.get("silence_duration_sec", 0.5),
+                    batch_size=concat.get("batch_size", 10000),
                     name="SegmentConcat",
                 ))
 
@@ -160,7 +161,6 @@ class AudioDataFilterStage(CompositeStage):
         """Append VAD + quality filter stages to *stages* list."""
         if enable_vad:
             stages.append(VADSegmentationStage(
-                mode=vad.get("mode", "batch"),
                 min_duration_sec=vad.get("min_duration_sec", 2.0),
                 max_duration_sec=vad.get("max_duration_sec", 60.0),
                 threshold=vad.get("threshold", 0.5),

@@ -107,7 +107,7 @@ def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
 def _validate(cfg: dict[str, Any]) -> None:
     """Validate cross-field constraints after merge."""
     vad = cfg.get("vad", {})
-    if vad.get("enable", False):
+    if vad.get("enable", True):
         mn = vad.get("min_duration_sec", 0)
         mx = vad.get("max_duration_sec", float("inf"))
         if mn >= mx:
@@ -127,14 +127,14 @@ def _validate(cfg: dict[str, Any]) -> None:
 def get_enabled_stages(cfg: dict[str, Any]) -> list[str]:
     """Return a list of enabled stage names from a loaded config."""
     stages: list[str] = []
-    if cfg.get("vad", {}).get("enable", False):
+    if cfg.get("vad", {}).get("enable", True):
         stages.append("vad")
-    if cfg.get("band_filter", {}).get("enable", False):
+    if cfg.get("band_filter", {}).get("enable", True):
         stages.append("band_filter")
-    if cfg.get("utmos", {}).get("enable", False):
+    if cfg.get("utmos", {}).get("enable", True):
         stages.append("utmos")
-    if cfg.get("sigmos", {}).get("enable", False):
+    if cfg.get("sigmos", {}).get("enable", True):
         stages.append("sigmos")
-    if cfg.get("speaker_separation", {}).get("enable", False):
+    if cfg.get("speaker_separation", {}).get("enable", True):
         stages.append("speaker_separation")
     return stages
