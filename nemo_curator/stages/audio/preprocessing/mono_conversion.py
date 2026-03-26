@@ -21,7 +21,7 @@ Typically the first stage in an audio processing pipeline.
 Example:
     from nemo_curator.pipeline import Pipeline
     from nemo_curator.stages.audio.preprocessing import MonoConversionStage
-    
+
     pipeline = Pipeline(name="audio_pipeline")
     pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
 """
@@ -34,104 +34,79 @@ from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 from ..common import load_audio_file
 
 
 @dataclass
-class MonoConversionStage(ProcessingStage[AudioBatch, AudioBatch]):
+class MonoConversionStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Audio mono conversion and sample rate verification stage.
-    
+
     Converts multi-channel audio to mono by averaging channels.
     Optionally verifies that audio matches expected sample rate.
-    
+
     Args:
         output_sample_rate: Expected sample rate in Hz (default: 48000)
         audio_filepath_key: Key in data dict for audio file path
         strict_sample_rate: If True, reject audio with wrong sample rate
-    
-    Example:
-        stage = MonoConversionStage(output_sample_rate=48000)
-        stage = MonoConversionStage(strict_sample_rate=False)
     """
-    
+
     output_sample_rate: int = 48000
     audio_filepath_key: str = "audio_filepath"
     strict_sample_rate: bool = True
-    
+
     name: str = "MonoConversion"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
-    
+
     def __post_init__(self):
-        """Initialize after dataclass fields are set."""
         super().__init__()
-    
+
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        """Define outputs produced by this stage."""
         return [], ["waveform", "sample_rate", "is_mono", "duration", "num_samples"]
-    
-    def process(self, task: AudioBatch) -> AudioBatch | None:
+
+    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         """
         Convert audio to mono and verify sample rate.
-        
-        Args:
-            task: AudioBatch with audio_filepath in data
-            
-        Returns:
-            AudioBatch with waveform data, or None if doesn't meet requirements
+
+        Mutates task.data in-place with waveform data.
+        Returns task if successful, None if doesn't meet requirements.
         """
-        results = []
-        
-        for item in task.data:
-            audio_filepath = item.get(self.audio_filepath_key)
-            
-            if not audio_filepath or not os.path.exists(audio_filepath):
-                logger.error(f"Audio file not found: {audio_filepath}")
-                continue
-            
-            try:
-                waveform, sample_rate = load_audio_file(audio_filepath, mono=False)
-                num_channels = waveform.shape[0]
-                
-                if self.strict_sample_rate and sample_rate != self.output_sample_rate:
-                    logger.warning(
-                        f"Sample rate {sample_rate}Hz != expected {self.output_sample_rate}Hz: {audio_filepath}"
-                    )
-                    continue
-                
-                sr = sample_rate
-                
-                if num_channels > 1:
-                    mono_waveform = torch.mean(waveform, dim=0, keepdim=True)
-                    logger.debug(f"Converted {num_channels} channels to mono")
-                else:
-                    mono_waveform = waveform
-                
-                result_item = {
-                    **item,
-                    "waveform": mono_waveform,
-                    "sample_rate": sr,
-                    "is_mono": True,
-                    "duration": mono_waveform.shape[1] / sr,
-                    "num_samples": mono_waveform.shape[1],
-                }
-                
-                results.append(result_item)
-                
-            except (OSError, RuntimeError) as e:
-                logger.error(f"Error processing {audio_filepath}: {e}")
-                continue
-        
-        return AudioBatch(
-            data=results,
-            task_id=task.task_id,
-            dataset_name=task.dataset_name,
-            _metadata=task._metadata,
-            _stage_perf=list(task._stage_perf),
-        )
+        audio_filepath = task.data.get(self.audio_filepath_key)
+
+        if not audio_filepath or not os.path.exists(audio_filepath):
+            logger.error(f"Audio file not found: {audio_filepath}")
+            return []
+
+        try:
+            waveform, sample_rate = load_audio_file(audio_filepath, mono=False)
+            num_channels = waveform.shape[0]
+
+            if self.strict_sample_rate and sample_rate != self.output_sample_rate:
+                logger.warning(
+                    f"Sample rate {sample_rate}Hz != expected {self.output_sample_rate}Hz: {audio_filepath}"
+                )
+                return []
+
+            if num_channels > 1:
+                mono_waveform = torch.mean(waveform, dim=0, keepdim=True)
+                logger.debug(f"Converted {num_channels} channels to mono")
+            else:
+                mono_waveform = waveform
+
+            task.data["waveform"] = mono_waveform
+            task.data["sample_rate"] = sample_rate
+            task.data["is_mono"] = True
+            task.data["duration"] = mono_waveform.shape[1] / sample_rate
+            task.data["num_samples"] = mono_waveform.shape[1]
+
+            return task
+
+        except (OSError, RuntimeError) as e:
+            logger.error(f"Error processing {audio_filepath}: {e}")
+            return []

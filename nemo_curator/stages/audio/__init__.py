@@ -23,7 +23,6 @@ and audio preprocessing (mono conversion, segment concatenation, timestamp mappi
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
-    LegacySpeechStage,
     PreserveByValueStage,
 )
 from nemo_curator.stages.audio.postprocessing import (
@@ -38,7 +37,6 @@ __all__ = [
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
     "GetAudioDurationStage",
-    "LegacySpeechStage",
     "MonoConversionStage",
     "PreserveByValueStage",
     "SegmentConcatenationStage",

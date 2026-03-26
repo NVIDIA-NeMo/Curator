@@ -29,7 +29,7 @@ from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 def _translate_to_original(
@@ -63,21 +63,16 @@ def _translate_to_original(
 
 
 @dataclass
-class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
+class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Map segment positions back to original file timestamps.
 
     Reads ``task._metadata["segment_mappings"]`` (written by
-    SegmentConcatenationStage) and translates each item's
+    SegmentConcatenationStage) and translates the task's
     ``start_ms`` / ``end_ms`` to ``original_start_ms`` /
     ``original_end_ms`` in the source file.
 
-    If a segment in concatenated space overlaps more than one
-    concat mapping it is rejected entirely to avoid producing
-    ambiguous fragments that don't map cleanly to a single
-    position in the original file.
-
-    Strips ``waveform`` from output items so the final output is
+    Strips ``waveform`` from output so the final output is
     metadata-only (timestamps, quality scores, speaker info).
     """
 
@@ -86,14 +81,6 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
-    # Keys removed from final output items during passthrough copy.
-    # - waveform, audio: raw audio data (large tensors, not needed in metadata output)
-    # - audio_filepath: replaced by original_file with resolved timestamps
-    # - start_ms, end_ms: positions in concatenated/speaker waveform space,
-    #       replaced by original_start_ms / original_end_ms in original file space
-    # - segment_num: internal index from VAD, not meaningful in final output
-    # - original_file: re-added explicitly from the mapped result, stripped here
-    #       to avoid stale values from earlier stages overwriting the mapped value
     _STRIP_KEYS = frozenset({
         "waveform", "audio", "audio_filepath",
         "start_ms", "end_ms", "segment_num",
@@ -104,66 +91,50 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
         super().__init__()
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["original_file", "original_start_ms", "original_end_ms",
                      "duration_ms", "duration_sec"]
 
-    def process(self, task: AudioBatch) -> AudioBatch | None:
+    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         mappings = (task._metadata or {}).get("segment_mappings")
+        item = task.data
 
-        results: list[dict[str, Any]] = []
-        rejected = 0
+        if mappings:
+            concat_start = item.get("start_ms", 0)
+            concat_end = item.get("end_ms", 0)
+            if concat_end <= concat_start:
+                logger.warning(
+                    f"[TimestampMapper] Skipping task with invalid range: "
+                    f"start_ms={concat_start}, end_ms={concat_end}"
+                )
+                return []
+            original_ranges = _translate_to_original(mappings, concat_start, concat_end)
 
-        for item in task.data:
-            if mappings:
-                concat_start = item.get("start_ms", 0)
-                concat_end = item.get("end_ms", 0)
-                if concat_end <= concat_start:
-                    logger.warning(
-                        f"[TimestampMapper] Skipping item with invalid range: "
-                        f"start_ms={concat_start}, end_ms={concat_end}"
-                    )
-                    continue
-                original_ranges = _translate_to_original(mappings, concat_start, concat_end)
+            if len(original_ranges) > 1:
+                logger.debug(
+                    f"[TimestampMapper] Rejecting segment "
+                    f"[{concat_start}-{concat_end}ms] that spans "
+                    f"{len(original_ranges)} concat mappings"
+                )
+                return []
 
-                if len(original_ranges) > 1:
-                    rejected += 1
-                    logger.debug(
-                        f"[TimestampMapper] Rejecting segment "
-                        f"[{concat_start}-{concat_end}ms] that spans "
-                        f"{len(original_ranges)} concat mappings"
-                    )
-                    continue
-
-                if len(original_ranges) == 1:
-                    result = self._build_output_item(item, original_ranges[0])
-                    results.append(result)
+            if len(original_ranges) == 1:
+                result = self._build_output_item(item, original_ranges[0])
             else:
-                result = self._build_output_item_no_mapping(item)
-                results.append(result)
+                return []
+        else:
+            result = self._build_output_item_no_mapping(item)
 
-        if rejected:
-            logger.info(
-                f"[TimestampMapper] {task.task_id}: rejected {rejected} "
-                f"cross-boundary segment(s)"
-            )
-        logger.info(f"[TimestampMapper] {task.task_id}: {len(results)} output segments")
-
-        return AudioBatch(
-            data=results,
-            task_id=task.task_id,
-            dataset_name=task.dataset_name,
-            _metadata=task._metadata,
-            _stage_perf=list(task._stage_perf),
-        )
+        task.data.clear()
+        task.data.update(result)
+        return task
 
     def _copy_passthrough(self, item: dict[str, Any], result: dict[str, Any]) -> None:
-        """Copy passthrough keys from input item to output result."""
         if self.passthrough_keys is not None:
             for key in self.passthrough_keys:
-                if key in item and item[key] is not None:
+                if key in item and item[key] is not None and key not in result:
                     result[key] = item[key]
         else:
             for key, val in item.items():
@@ -171,7 +142,6 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
                     result[key] = val
 
     def _build_output_item(self, item: dict[str, Any], orig: dict[str, Any]) -> dict[str, Any]:
-        """Build final output item from mapped original range."""
         result: dict[str, Any] = {
             "original_file": orig["original_file"],
             "original_start_ms": orig["original_start_ms"],
@@ -183,7 +153,6 @@ class TimestampMapperStage(ProcessingStage[AudioBatch, AudioBatch]):
         return result
 
     def _build_output_item_no_mapping(self, item: dict[str, Any]) -> dict[str, Any]:
-        """Build output item when no segment mappings exist (no concatenation was done)."""
         start_ms = item.get("start_ms", 0)
         end_ms = item.get("end_ms", 0)
         duration_ms = end_ms - start_ms
