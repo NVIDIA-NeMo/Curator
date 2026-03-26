@@ -1,64 +1,154 @@
 name: Set default fields on new project items
 
 on:
-  projects_v2_item:
-    types: [created]
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+    inputs:
+      lookback_hours:
+        description: 'Hours to look back (default: 3)'
+        required: false
+        default: '3'
 
 jobs:
   set-defaults:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PAT }}
+      PROJECT_ID: "PVT_kwDODLylHc4A8S01"
+      # Field IDs
+      CONTAINER_VERSION_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgwVmS4"
+      SWQA_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJjL4"
+      DOCUMENTATION_STAGE_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJjRA"
+      VDR_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zhAFQUA"
+      # Default option IDs
+      CONTAINER_BACKLOG_OPTION_ID: "9cc7169c"
+      SWQA_DEFAULT_OPTION_ID: "ec62cb4d"
+      DOCS_NOT_STARTED_OPTION_ID: "36e5dca1"
+      VDR_DEFAULT_OPTION_ID: "894a1a7c"
     steps:
-      - name: Set default field values
+      - name: Find recently added items with unset fields and set defaults
         env:
-          GH_TOKEN: ${{ secrets.PAT }}
-          PROJECT_ID: "PVT_kwDODLylHc4A8S01"
-          ITEM_ID: ${{ github.event.projects_v2_item.node_id }}
-          # Field IDs
-          CONTAINER_VERSION_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgwVmS4"
-          SWQA_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJjL4"
-          DOCUMENTATION_STAGE_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJjRA"
-          VDR_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zhAFQUA"
-          # Default option IDs
-          CONTAINER_BACKLOG_OPTION_ID: "9cc7169c"
-          SWQA_DEFAULT_OPTION_ID: "ec62cb4d"
-          DOCS_NOT_STARTED_OPTION_ID: "36e5dca1"
-          VDR_DEFAULT_OPTION_ID: "894a1a7c"
+          LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '3' }}
         run: |
-          gh api graphql -f query='
-            mutation($projectId: ID!, $itemId: ID!,
-                     $containerFieldId: ID!, $containerValue: String!,
-                     $swqaFieldId: ID!, $swqaValue: String!,
-                     $docsFieldId: ID!, $docsValue: String!,
-                     $vdrFieldId: ID!, $vdrValue: String!) {
-              containerVersion: updateProjectV2ItemFieldValue(input: {
-                projectId: $projectId, itemId: $itemId,
-                fieldId: $containerFieldId,
-                value: { singleSelectOptionId: $containerValue }
-              }) { projectV2Item { id } }
-              swqa: updateProjectV2ItemFieldValue(input: {
-                projectId: $projectId, itemId: $itemId,
-                fieldId: $swqaFieldId,
-                value: { singleSelectOptionId: $swqaValue }
-              }) { projectV2Item { id } }
-              documentationStage: updateProjectV2ItemFieldValue(input: {
-                projectId: $projectId, itemId: $itemId,
-                fieldId: $docsFieldId,
-                value: { singleSelectOptionId: $docsValue }
-              }) { projectV2Item { id } }
-              vdr: updateProjectV2ItemFieldValue(input: {
-                projectId: $projectId, itemId: $itemId,
-                fieldId: $vdrFieldId,
-                value: { singleSelectOptionId: $vdrValue }
-              }) { projectV2Item { id } }
-            }
-          ' \
-            -f projectId="$PROJECT_ID" \
-            -f itemId="$ITEM_ID" \
-            -f containerFieldId="$CONTAINER_VERSION_FIELD_ID" \
-            -f containerValue="$CONTAINER_BACKLOG_OPTION_ID" \
-            -f swqaFieldId="$SWQA_FIELD_ID" \
-            -f swqaValue="$SWQA_DEFAULT_OPTION_ID" \
-            -f docsFieldId="$DOCUMENTATION_STAGE_FIELD_ID" \
-            -f docsValue="$DOCS_NOT_STARTED_OPTION_ID" \
-            -f vdrFieldId="$VDR_FIELD_ID" \
-            -f vdrValue="$VDR_DEFAULT_OPTION_ID"
+          set_field() {
+            local item_id="$1" field_id="$2" option_id="$3"
+            gh api graphql -f query="
+              mutation {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: \"$PROJECT_ID\", itemId: \"$item_id\",
+                  fieldId: \"$field_id\",
+                  value: { singleSelectOptionId: \"$option_id\" }
+                }) { projectV2Item { id } }
+              }
+            "
+          }
+
+          # Only process items added in the lookback window (default 3 hours covers 2-hour cron with buffer)
+          HOURS="${LOOKBACK_HOURS:-3}"
+          CUTOFF=$(date -u -d "$HOURS hours ago" '+%Y-%m-%dT%H:%M:%SZ')
+          echo "Processing items created after $CUTOFF"
+
+          # Fetch all project items with their field values, paginating through results
+          CURSOR=""
+          ALL_ITEMS="[]"
+
+          while true; do
+            if [ -z "$CURSOR" ]; then
+              AFTER_ARG=""
+            else
+              AFTER_ARG=", after: \"$CURSOR\""
+            fi
+
+            RESULT=$(gh api graphql -f query="
+              query {
+                node(id: \"$PROJECT_ID\") {
+                  ... on ProjectV2 {
+                    items(first: 100${AFTER_ARG}) {
+                      pageInfo { hasNextPage endCursor }
+                      nodes {
+                        id
+                        createdAt
+                        containerVersion: fieldValueByName(name: \"Container Version\") {
+                          ... on ProjectV2ItemFieldSingleSelectValue { optionId }
+                        }
+                        swqa: fieldValueByName(name: \"SWQA\") {
+                          ... on ProjectV2ItemFieldSingleSelectValue { optionId }
+                        }
+                        docs: fieldValueByName(name: \"Documentation Stage\") {
+                          ... on ProjectV2ItemFieldSingleSelectValue { optionId }
+                        }
+                        vdr: fieldValueByName(name: \"VDR\") {
+                          ... on ProjectV2ItemFieldSingleSelectValue { optionId }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ")
+
+            NODES=$(echo "$RESULT" | jq '.data.node.items.nodes')
+            ALL_ITEMS=$(echo "$ALL_ITEMS $NODES" | jq -s '.[0] + .[1]')
+
+            HAS_NEXT=$(echo "$RESULT" | jq -r '.data.node.items.pageInfo.hasNextPage')
+            if [ "$HAS_NEXT" != "true" ]; then
+              break
+            fi
+            CURSOR=$(echo "$RESULT" | jq -r '.data.node.items.pageInfo.endCursor')
+          done
+
+          TOTAL=$(echo "$ALL_ITEMS" | jq 'length')
+          echo "Fetched $TOTAL total project items"
+
+          # Filter to only recently created items
+          RECENT_ITEMS=$(echo "$ALL_ITEMS" | jq -c --arg cutoff "$CUTOFF" '[.[] | select(.createdAt > $cutoff)]')
+          RECENT_COUNT=$(echo "$RECENT_ITEMS" | jq 'length')
+          echo "Found $RECENT_COUNT items created after $CUTOFF"
+
+          if [ "$RECENT_COUNT" -eq 0 ]; then
+            echo "Nothing to update"
+            exit 0
+          fi
+
+          # Process each recent item — only set fields that are currently null
+          UPDATED=0
+          while read -r ITEM; do
+            ITEM_ID=$(echo "$ITEM" | jq -r '.id')
+            CV=$(echo "$ITEM" | jq '.containerVersion')
+            SWQA_VAL=$(echo "$ITEM" | jq '.swqa')
+            DOCS=$(echo "$ITEM" | jq '.docs')
+            VDR_VAL=$(echo "$ITEM" | jq '.vdr')
+
+            # Skip items where all fields are already set
+            if [ "$CV" != "null" ] && [ "$SWQA_VAL" != "null" ] && [ "$DOCS" != "null" ] && [ "$VDR_VAL" != "null" ]; then
+              continue
+            fi
+
+            echo "Item $ITEM_ID — cv=$CV swqa=$SWQA_VAL docs=$DOCS vdr=$VDR_VAL"
+
+            # Set each null field individually to avoid overwriting existing values
+            if [ "$CV" = "null" ]; then
+              echo "  Setting Container Version to Backlog"
+              set_field "$ITEM_ID" "$CONTAINER_VERSION_FIELD_ID" "$CONTAINER_BACKLOG_OPTION_ID"
+            fi
+
+            if [ "$SWQA_VAL" = "null" ]; then
+              echo "  Setting SWQA default"
+              set_field "$ITEM_ID" "$SWQA_FIELD_ID" "$SWQA_DEFAULT_OPTION_ID"
+            fi
+
+            if [ "$DOCS" = "null" ]; then
+              echo "  Setting Documentation Stage to Not Started"
+              set_field "$ITEM_ID" "$DOCUMENTATION_STAGE_FIELD_ID" "$DOCS_NOT_STARTED_OPTION_ID"
+            fi
+
+            if [ "$VDR_VAL" = "null" ]; then
+              echo "  Setting VDR default"
+              set_field "$ITEM_ID" "$VDR_FIELD_ID" "$VDR_DEFAULT_OPTION_ID"
+            fi
+
+            UPDATED=$((UPDATED + 1))
+          done < <(echo "$RECENT_ITEMS" | jq -c '.[]')
+
+          echo "Done. Updated $UPDATED items with missing defaults."

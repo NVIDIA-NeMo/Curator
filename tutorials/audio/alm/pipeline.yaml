@@ -67,11 +67,14 @@ manifest_path: ???
 # Output directory for results
 output_dir: ./alm_output
 
+# Execution backend: "xenna" (default) or "ray_data"
+backend: xenna
+
 # Stage chain definition
 stages:
   # Stage 0: ALM Manifest Reader (CompositeStage)
   # Decomposes into FilePartitioningStage + ALMManifestReaderStage
-  # Reads JSONL line-by-line (no Pandas), produces one AudioBatch per entry
+  # Reads JSONL line-by-line (no Pandas), produces one AudioTask per entry
   - _target_: nemo_curator.stages.audio.alm.ALMManifestReader
     manifest_path: ${manifest_path}
     files_per_partition: 1
