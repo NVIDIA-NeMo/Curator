@@ -16,17 +16,17 @@ import glob
 import os
 import subprocess
 from dataclasses import dataclass
+from typing import Any
 
 from loguru import logger
 
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.datasets.file_utils import download_file
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch, _EmptyTask
+from nemo_curator.tasks import AudioTask, _EmptyTask
 
-# Sample rate constant (DNS Challenge read_speech is 48kHz)
 SAMPLE_RATE_48KHZ = 48000
 
-# DNS Challenge 5 - Read Speech archive URL (4.88 GB download, 14,279 WAV files at 48kHz, 19.3 hours)
 DNS_READSPEECH_URL = (
     "https://dnschallengepublic.blob.core.windows.net/dns5archive/"
     "V5_training_dataset/Track1_Headset/read_speech.tgz.partaa"
@@ -34,7 +34,7 @@ DNS_READSPEECH_URL = (
 
 
 @dataclass
-class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatch]):
+class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioTask]):
     """
     Stage to create initial manifest for the DNS Challenge Read Speech dataset.
 
@@ -45,21 +45,9 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
     When ``auto_download=True``, the archive is downloaded and extracted automatically.
 
     Args:
-        raw_data_dir (str): Directory where data will be downloaded/extracted to.
-        max_samples (int): Maximum number of samples to include. Default is 5000.
-            Set to -1 to process all 14,279 files.
-        auto_download (bool): If True, automatically download and extract dataset.
-            If False, expects data to already exist. Default is True.
-
-    Returns:
-        AudioBatch objects with:
-            {
-                "audio_filepath": <absolute path to WAV file>,
-                "text": "",
-                "sample_rate": 48000,
-                "book_id": <extracted book ID>,
-                "reader_id": <extracted reader ID>,
-            }
+        raw_data_dir: Directory where data will be downloaded/extracted to.
+        max_samples: Maximum number of samples to include (-1 for all).
+        auto_download: If True, automatically download and extract dataset.
     """
 
     raw_data_dir: str
@@ -70,13 +58,20 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
     name: str = "CreateInitialManifestReadSpeech"
     batch_size: int = 1
 
-    def download_and_extract(self) -> str:
-        """
-        Download and extract DNS Challenge Read Speech dataset (~4.88 GB).
+    def __post_init__(self):
+        super().__init__()
 
-        Returns:
-            Path to the extracted read_speech directory containing WAV files
-        """
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.filepath_key, self.text_key]
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+
+    def download_and_extract(self) -> str:
+        """Download and extract DNS Challenge Read Speech dataset (~4.88 GB)."""
         os.makedirs(self.raw_data_dir, exist_ok=True)
 
         existing_dir = self._find_extracted_wavs(self.raw_data_dir)
@@ -128,24 +123,13 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         return extracted_dir
 
     def _find_extracted_wavs(self, search_dir: str) -> str | None:
-        """
-        Recursively search for directory containing WAV files.
-
-        Args:
-            search_dir: Directory to search in
-
-        Returns:
-            Path to directory containing WAV files, or None if not found
-        """
         if not os.path.exists(search_dir):
             return None
 
-        # Check current directory
         wav_files = glob.glob(os.path.join(search_dir, "*.wav"))
         if wav_files:
             return search_dir
 
-        # Known extraction paths from DNS archive
         known_subdirs = [
             "read_speech",
             "mnt/dnsv5/clean/read_speech",
@@ -159,7 +143,6 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
                 if wav_files:
                     return check_path
 
-        # Recursive search as fallback
         for root, _dirs, files in os.walk(search_dir):
             wav_files = [f for f in files if f.endswith(".wav")]
             if wav_files:
@@ -168,7 +151,6 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         return None
 
     def _count_wavs_recursive(self, directory: str) -> int:
-        """Count WAV files recursively in a directory."""
         if not os.path.exists(directory):
             return 0
         count = 0
@@ -177,7 +159,6 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         return count
 
     def _collect_wavs_recursive(self, directory: str) -> list[str]:
-        """Collect all WAV file paths recursively from a directory."""
         wav_files = []
         if not os.path.exists(directory):
             return wav_files
@@ -188,11 +169,6 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         return sorted(wav_files)
 
     def _extract_archive(self, archive_path: str, extract_path: str) -> None:
-        """
-        Extract a tar.gz archive using tar command.
-
-        Handles split/partial archives using --ignore-zeros flag.
-        """
         logger.info(f"Extracting {os.path.basename(archive_path)}...")
 
         if not os.path.exists(archive_path):
@@ -202,12 +178,9 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         file_size_gb = file_size / (1024**3)
         logger.info(f"  Archive size: {file_size_gb:.2f} GB")
 
-        # Try extraction methods in order
         extraction_methods = [
-            # Method 1: tar with gzip and ignore-zeros
             ["tar", "-xzf", archive_path, "-C", extract_path,
              "--ignore-zeros", "--warning=no-alone-zero-block"],
-            # Method 2: plain tar (no gzip)
             ["tar", "-xf", archive_path, "-C", extract_path, "--ignore-zeros"],
         ]
 
@@ -215,33 +188,23 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
             logger.info(f"  Trying extraction method {i+1}...")
             result = subprocess.run(cmd, capture_output=True, text=True)
 
-            # Check if any WAV files were extracted
             extracted_dir = self._find_extracted_wavs(extract_path)
             if extracted_dir:
                 wav_count = self._count_wavs_recursive(extracted_dir)
                 if wav_count > 0:
-                    logger.info(f"  ✓ Extraction successful: {wav_count} WAV files")
+                    logger.info(f"  Extraction successful: {wav_count} WAV files")
                     return
 
-            if result.returncode not in [0, 2]:  # 2 is just warnings
+            if result.returncode not in [0, 2]:
                 logger.warning(f"  Method {i+1} returned code {result.returncode}")
                 if result.stderr:
                     logger.debug(f"  stderr: {result.stderr[:200]}")
 
-        # All methods failed
         logger.error("All extraction methods failed")
         logger.error(f"Archive size: {file_size_gb:.2f} GB")
         raise RuntimeError(f"Extraction failed: {archive_path}")
 
     def parse_filename(self, filename: str) -> dict:
-        """
-        Parse the DNS read_speech filename to extract metadata.
-
-        Format: book_XXXXX_chp_XXXX_reader_XXXXX_X_seg_X_segX.wav
-
-        Returns:
-            Dictionary with extracted metadata (book_id, chapter, reader_id, etc.)
-        """
         metadata = {
             "book_id": "",
             "chapter": "",
@@ -273,15 +236,6 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         return metadata
 
     def collect_audio_files(self, search_dir: str) -> list[dict]:
-        """
-        Collect audio files from the extracted directory.
-
-        Args:
-            search_dir: Directory containing WAV files
-
-        Returns:
-            List of entry dictionaries with audio_filepath and metadata
-        """
         entries = []
 
         if not os.path.exists(search_dir):
@@ -307,9 +261,6 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         return entries
 
     def select_samples(self, entries: list[dict]) -> list[dict]:
-        """
-        Select samples based on max_samples configuration.
-        """
         if self.max_samples <= 0:
             logger.info(f"Selected all {len(entries)} samples")
             return entries
@@ -323,42 +274,7 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
 
         return entries[:actual_count]
 
-    def create_batches(self, entries: list[dict]) -> list[AudioBatch]:
-        """
-        Create AudioBatch objects from entries.
-        """
-        speech_tasks = []
-        batch_entries = []
-
-        for i, entry in enumerate(entries):
-            batch_entries.append(entry)
-
-            if len(batch_entries) == self.batch_size:
-                speech_task = AudioBatch(
-                    task_id=f"readspeech_batch_{i // self.batch_size}",
-                    dataset_name="DNS-ReadSpeech",
-                    filepath_key=self.filepath_key,
-                    data=batch_entries if self.batch_size > 1 else batch_entries[0],
-                )
-                speech_tasks.append(speech_task)
-                batch_entries = []
-
-        # Handle remaining entries
-        if batch_entries:
-            speech_task = AudioBatch(
-                task_id=f"readspeech_batch_{len(entries) // self.batch_size}",
-                dataset_name="DNS-ReadSpeech",
-                filepath_key=self.filepath_key,
-                data=batch_entries if len(batch_entries) > 1 else batch_entries[0],
-            )
-            speech_tasks.append(speech_task)
-
-        return speech_tasks
-
     def verify_dataset_structure(self, entries: list[dict]) -> None:
-        """
-        Verify that the dataset has the expected structure.
-        """
         total = len(entries)
 
         if total == 0:
@@ -370,7 +286,6 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         logger.info("=" * 60)
         logger.info(f"Total samples: {total}")
 
-        # Count unique readers and books
         unique_readers = set()
         unique_books = set()
         for entry in entries:
@@ -382,7 +297,6 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         logger.info(f"Unique readers: {len(unique_readers)}")
         logger.info(f"Unique books: {len(unique_books)}")
 
-        # Verify file existence
         samples_to_check = min(5, total)
         missing_files = []
         for entry in entries[:samples_to_check]:
@@ -393,48 +307,43 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioBatc
         if missing_files:
             logger.warning(f"Missing files detected: {missing_files[:3]}...")
         else:
-            logger.info(f"File existence verified for {samples_to_check} samples ✓")
+            logger.info(f"File existence verified for {samples_to_check} samples")
 
         if entries:
             logger.info(f"Sample entry: {entries[0]}")
 
         logger.info("=" * 60)
 
-    def process(self, _: _EmptyTask) -> list[AudioBatch]:
+    def process(self, _: _EmptyTask) -> list[AudioTask]:
         """
-        Main processing method.
-
-        Processing Steps:
-        1. Downloads and extracts the read_speech archive (~4.88 GB)
-        2. Collects all WAV files and creates AudioBatch tasks
-
-        Returns:
-            List of AudioBatch tasks
+        Main processing method. Returns list[AudioTask] with one AudioTask per file.
         """
         if self.auto_download:
             logger.info("Auto-download enabled. Downloading dataset...")
             search_dir = self.download_and_extract()
         else:
-            # Find existing data
             search_dir = self._find_extracted_wavs(self.raw_data_dir)
             if not search_dir:
                 search_dir = self.raw_data_dir
                 logger.warning(f"No WAV files found, searching in: {search_dir}")
 
-        # Collect audio files
         entries = self.collect_audio_files(search_dir)
-
-        # Verify structure
         self.verify_dataset_structure(entries)
 
         if not entries:
             logger.error("No audio files found in the dataset")
             return []
 
-        # Select samples
         selected_entries = self.select_samples(entries)
-
         logger.info(f"Creating manifest with {len(selected_entries)} total samples")
 
-        # Create batches
-        return self.create_batches(selected_entries)
+        audio_tasks = []
+        for i, entry in enumerate(selected_entries):
+            audio_tasks.append(AudioTask(
+                data=entry,
+                task_id=f"readspeech_{i}",
+                dataset_name="DNS-ReadSpeech",
+                filepath_key=self.filepath_key,
+            ))
+
+        return audio_tasks

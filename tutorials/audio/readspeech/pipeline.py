@@ -52,7 +52,7 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
     The pipeline combines:
     1. CreateInitialManifestReadSpeechStage - Scans directory and creates initial manifest
     2. AudioDataFilterStage - Applies quality filters with timestamp tracking
-    3. AudioToDocumentStage - Converts AudioBatch to DocumentBatch
+    3. AudioToDocumentStage - Converts AudioTask to DocumentBatch
     4. JsonlWriter - Writes filtered manifest to disk
     """
     pipeline = Pipeline(
