@@ -157,3 +157,6 @@ data/
 .DS_Store
 AGENTS.md
 alm_output/
+
+# PDF parsing data (symlinked to external storage)
+pdf_parsing/

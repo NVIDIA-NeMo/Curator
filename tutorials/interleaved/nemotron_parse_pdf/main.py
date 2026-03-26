@@ -77,6 +77,7 @@ import time
 from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.nemotron_parse import NemotronParsePDFReader
@@ -124,6 +125,11 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
         help="XennaExecutor execution mode",
     )
 
+    # Manifest field names
+    parser.add_argument("--file-name-field", default="file_name", help="JSONL field for single PDF filename")
+    parser.add_argument("--file-names-field", default="cc_pdf_file_names", help="JSONL field for list of PDF filenames")
+    parser.add_argument("--url-field", default="url", help="JSONL field for source URL")
+
     # Resume
     parser.add_argument("--resume", action="store_true", help="Skip already-processed PDFs")
 
@@ -158,6 +164,9 @@ def create_nemotron_parse_pdf_pipeline(args: argparse.Namespace) -> Pipeline:
             min_crop_px=args.min_crop_size,
             completed_ids=completed_ids,
             dataset_name=args.dataset_name,
+            file_name_field=args.file_name_field,
+            file_names_field=args.file_names_field,
+            url_field=args.url_field,
         )
     )
     pipeline.add_stage(
@@ -176,24 +185,30 @@ def main() -> None:
     args.output_dir = os.path.abspath(args.output_dir)
     os.makedirs(args.output_dir, exist_ok=True)
 
-    pipeline = create_nemotron_parse_pdf_pipeline(args)
-    logger.info(f"\n{pipeline.describe()}")
+    ray_client = RayClient()
+    ray_client.start()
 
-    executor = XennaExecutor(
-        config={
-            "execution_mode": args.execution_mode,
-            "ignore_failures": True,
-        }
-    )
+    try:
+        pipeline = create_nemotron_parse_pdf_pipeline(args)
+        logger.info(f"\n{pipeline.describe()}")
 
-    t0 = time.perf_counter()
-    results = pipeline.run(executor=executor)
-    wall_time = time.perf_counter() - t0
+        executor = XennaExecutor(
+            config={
+                "execution_mode": args.execution_mode,
+                "ignore_failures": True,
+            }
+        )
 
-    logger.info(f"Pipeline finished in {wall_time:.1f}s, {len(results)} output tasks")
-    for task in results:
-        for perf in task._stage_perf:
-            logger.info(f"  Stage '{perf.stage_name}': process={perf.process_time:.2f}s")
+        t0 = time.perf_counter()
+        results = pipeline.run(executor=executor)
+        wall_time = time.perf_counter() - t0
+
+        logger.info(f"Pipeline finished in {wall_time:.1f}s, {len(results)} output tasks")
+        for task in results:
+            for perf in task._stage_perf:
+                logger.info(f"  Stage '{perf.stage_name}': process={perf.process_time:.2f}s")
+    finally:
+        ray_client.stop()
 
 
 if __name__ == "__main__":

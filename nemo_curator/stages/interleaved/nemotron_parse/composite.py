@@ -70,6 +70,12 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
         Set of sample IDs to skip (resume support).
     dataset_name
         Name assigned to output tasks.
+    file_name_field
+        JSONL field containing a single PDF filename.
+    file_names_field
+        JSONL field containing a list of PDF filenames (CC-MAIN style).
+    url_field
+        JSONL field containing the source URL.
     """
 
     manifest_path: str
@@ -86,6 +92,9 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
     min_crop_px: int = 10
     completed_ids: set[str] = field(default_factory=set)
     dataset_name: str = "pdf_dataset"
+    file_name_field: str = "file_name"
+    file_names_field: str = "cc_pdf_file_names"
+    url_field: str = "url"
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -95,6 +104,9 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
             max_pdfs=self.max_pdfs,
             completed_ids=self.completed_ids,
             dataset_name=self.dataset_name,
+            file_name_field=self.file_name_field,
+            file_names_field=self.file_names_field,
+            url_field=self.url_field,
         )
         self._preprocessor = PDFPreprocessStage(
             zip_base_dir=self.zip_base_dir,
