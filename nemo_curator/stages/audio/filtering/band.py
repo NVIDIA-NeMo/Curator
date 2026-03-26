@@ -36,17 +36,15 @@ from typing import Any, ClassVar, Literal
 import torch
 from loguru import logger
 
+from nemo_curator.stages.audio.common import resolve_model_path, resolve_waveform_from_item
 from nemo_curator.stages.audio.filtering.band_filter_module.predict import BandPredictor
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioBatch
-from nemo_curator.utils.performance_utils import StagePerfStats
-
-from nemo_curator.stages.audio.common import resolve_model_path, resolve_waveform_from_item
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
+class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Band filter stage for bandwidth classification.
 
@@ -79,7 +77,6 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
     _VALID_BAND_VALUES: ClassVar[set[str]] = {"full_band", "narrow_band"}
 
     def __post_init__(self):
-        """Initialize after dataclass fields are set."""
         super().__init__()
         self._predictor = None
 
@@ -88,18 +85,15 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        """Define outputs produced by this stage."""
         return [], ["band_prediction"]
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
-        """Load band predictor on worker initialization."""
         self._initialize_predictor()
 
     def teardown(self) -> None:
-        """Clean up resources."""
         if self._predictor is not None:
             del self._predictor
             self._predictor = None
@@ -107,7 +101,6 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 torch.cuda.empty_cache()
 
     def _initialize_predictor(self) -> None:
-        """Initialize the band predictor."""
         if self._predictor is None:
             try:
                 model_path = resolve_model_path(self.model_path, __file__, "band_filter_module")
@@ -120,69 +113,37 @@ class BandFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
                 logger.error(f"Failed to initialize Band predictor: {e}")
                 raise
 
-    def process(self, task: AudioBatch) -> AudioBatch | None:
+    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         """
         Filter audio based on bandwidth classification.
 
-        Processes each item sequentially, classifies as full_band/narrow_band,
-        then filters by band_value.
-
-        Args:
-            task: AudioBatch with waveform data (or audio_filepath for load).
-
         Returns:
-            AudioBatch with only items that pass the band filter.
+            AudioTask if passes the band filter, [] if filtered out.
         """
         self._initialize_predictor()
 
         if self._predictor is None:
             logger.error("Band predictor not available")
-            return AudioBatch(
-                data=[],
-                task_id=task.task_id,
-                dataset_name=task.dataset_name,
-                _metadata=task._metadata,
-                _stage_perf=list(task._stage_perf),
-            )
+            return []
 
-        for item in task.data:
-            audio = resolve_waveform_from_item(item, task.task_id)
-            if audio is None:
-                continue
-            waveform, sample_rate = audio
-            try:
-                pred = self._predictor.predict_audio(waveform, sample_rate)
-                if (
-                    isinstance(pred, str)
-                    and not pred.startswith("Error")
-                    and pred in ("full_band", "narrow_band")
-                ):
-                    item["band_prediction"] = pred
-            except Exception as e:
-                logger.exception(f"[BandFilter] Prediction error: {e}")
+        audio = resolve_waveform_from_item(task.data, task.task_id)
+        if audio is None:
+            return []
+        waveform, sample_rate = audio
 
-        filtered_items = [
-            item
-            for item in task.data
-            if item.get("band_prediction") == self.band_value
-        ]
+        try:
+            pred = self._predictor.predict_audio(waveform, sample_rate)
+            if (
+                isinstance(pred, str)
+                and not pred.startswith("Error")
+                and pred in ("full_band", "narrow_band")
+            ):
+                task.data["band_prediction"] = pred
+        except Exception as e:
+            logger.exception(f"[BandFilter] Prediction error: {e}")
+            return []
 
-        total_items = len(task.data)
-        passed_count = len(filtered_items)
+        if task.data.get("band_prediction") != self.band_value:
+            return []
 
-        result = AudioBatch(
-            data=filtered_items,
-            task_id=task.task_id,
-            dataset_name=task.dataset_name,
-            _metadata=task._metadata,
-            _stage_perf=list(task._stage_perf),
-        )
-        result.add_stage_perf(StagePerfStats(
-            stage_name=self.name,
-            num_items_processed=total_items,
-            custom_metrics={
-                "items_passed": float(passed_count),
-                "items_failed": float(total_items - passed_count),
-            },
-        ))
-        return result
+        return task
