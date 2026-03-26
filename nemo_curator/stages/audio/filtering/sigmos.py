@@ -43,12 +43,11 @@ import numpy as np
 import torch
 from loguru import logger
 
+from nemo_curator.stages.audio.common import resolve_model_path
 from nemo_curator.stages.audio.filtering.sigmos_filter_module.sigmos_pipeline import predict_audio_mos
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioBatch
-
-from nemo_curator.stages.audio.common import resolve_model_path
+from nemo_curator.tasks import AudioTask
 
 
 def _get_audio_numpy_sr(item: dict[str, Any], task_id: str) -> tuple[np.ndarray, int] | None:
@@ -89,22 +88,13 @@ def _get_audio_numpy_sr(item: dict[str, Any], task_id: str) -> tuple[np.ndarray,
 
 
 @dataclass
-class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
+class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
     """
     SIGMOS quality assessment filter stage.
 
     Filters audio segments based on SIGMOS quality metrics.
     Input: items with waveform + sample_rate (tensor/array) or audio_filepath (WAV).
     Uses in-memory predict_audio_mos only; no temp files.
-
-    SIGMOS predicts (1-5 scale):
-    - NOISE: Background noise level (higher = less noisy)
-    - OVRL: Overall quality
-    - SIG: Signal quality
-    - COL: Coloration
-    - DISC: Discontinuity
-    - LOUD: Loudness
-    - REVERB: Reverberation (higher = less reverb)
 
     Args:
         model_path: Path to SIGMOS ONNX model
@@ -139,7 +129,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         self._predict_audio_mos = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [
@@ -207,21 +197,22 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
             fail_reasons.append(f"REVERB {reverb:.3f} < {self.reverb_threshold}")
         return passed, fail_reasons
 
-    def _process_single_item(self, item: dict[str, Any], task_id: str) -> dict[str, Any] | None:
-        audio_result = _get_audio_numpy_sr(item, task_id)
+    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
+        """Process a single AudioTask and filter by SIGMOS quality metrics."""
+        audio_result = _get_audio_numpy_sr(task.data, task.task_id)
         if audio_result is None:
-            return None
+            return []
         audio_np, sample_rate = audio_result
 
         self._ensure_predict()
         if self._predict_audio_mos is None:
-            return None
+            return []
 
         try:
             score_data = self._predict_audio_mos(audio_np, sample_rate, model_path=self._resolve_model_path())
         except Exception as e:  # noqa: BLE001
-            logger.exception(f"[{task_id}] SIGMOS prediction error: {e}")
-            return None
+            logger.exception(f"[{task.task_id}] SIGMOS prediction error: {e}")
+            return []
 
         s = self._scores_from_prediction(score_data)
         passed, fail_reasons = self._check_thresholds(
@@ -229,63 +220,18 @@ class SIGMOSFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
         )
 
         logger.debug(
-            f"[{task_id}] SIGMOS NOISE={s['noise']:.3f}, OVRL={s['ovrl']:.3f}, SIG={s['sig']:.3f}, "
+            f"[{task.task_id}] SIGMOS NOISE={s['noise']:.3f}, OVRL={s['ovrl']:.3f}, SIG={s['sig']:.3f}, "
             f"COL={s['col']:.3f}, DISC={s['disc']:.3f}, LOUD={s['loud']:.3f}, REVERB={s['reverb']:.3f}"
         )
         if not passed:
-            logger.info(f"[{task_id}] SIGMOS FAILED: {', '.join(fail_reasons)}")
-            return None
+            logger.info(f"[{task.task_id}] SIGMOS FAILED: {', '.join(fail_reasons)}")
+            return []
 
-        item["sigmos_noise"] = s["noise"]
-        item["sigmos_ovrl"] = s["ovrl"]
-        item["sigmos_sig"] = s["sig"]
-        item["sigmos_col"] = s["col"]
-        item["sigmos_disc"] = s["disc"]
-        item["sigmos_loud"] = s["loud"]
-        item["sigmos_reverb"] = s["reverb"]
-        return item
-
-    def process(self, task: AudioBatch) -> AudioBatch | None:
-        self._ensure_predict()
-        if self._predict_audio_mos is None:
-            logger.error("SIGMOS prediction not available")
-            return AudioBatch(
-                data=[],
-                task_id=task.task_id,
-                dataset_name=task.dataset_name,
-                _metadata=task._metadata,
-                _stage_perf=list(task._stage_perf),
-            )
-
-        results = []
-        for item in task.data:
-            out = self._process_single_item(item, task.task_id)
-            if out is not None:
-                results.append(out)
-
-        total = len(task.data)
-        threshold_parts = []
-        if self.noise_threshold is not None:
-            threshold_parts.append(f"NOISE>={self.noise_threshold}")
-        if self.ovrl_threshold is not None:
-            threshold_parts.append(f"OVRL>={self.ovrl_threshold}")
-        if self.sig_threshold is not None:
-            threshold_parts.append(f"SIG>={self.sig_threshold}")
-        if self.col_threshold is not None:
-            threshold_parts.append(f"COL>={self.col_threshold}")
-        if self.disc_threshold is not None:
-            threshold_parts.append(f"DISC>={self.disc_threshold}")
-        if self.loud_threshold is not None:
-            threshold_parts.append(f"LOUD>={self.loud_threshold}")
-        if self.reverb_threshold is not None:
-            threshold_parts.append(f"REVERB>={self.reverb_threshold}")
-        threshold_str = ", ".join(threshold_parts) if threshold_parts else "none"
-        logger.info(f"[SIGMOSFilter] {task.task_id}: {len(results)}/{total} passed (thresholds: {threshold_str})")
-
-        return AudioBatch(
-            data=results,
-            task_id=task.task_id,
-            dataset_name=task.dataset_name,
-            _metadata=task._metadata,
-            _stage_perf=list(task._stage_perf),
-        )
+        task.data["sigmos_noise"] = s["noise"]
+        task.data["sigmos_ovrl"] = s["ovrl"]
+        task.data["sigmos_sig"] = s["sig"]
+        task.data["sigmos_col"] = s["col"]
+        task.data["sigmos_disc"] = s["disc"]
+        task.data["sigmos_loud"] = s["loud"]
+        task.data["sigmos_reverb"] = s["reverb"]
+        return task

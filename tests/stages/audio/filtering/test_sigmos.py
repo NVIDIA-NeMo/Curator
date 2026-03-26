@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 import torch
 
 from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 _GOOD_SCORES = {
     "MOS_NOISE": 4.5,
@@ -40,13 +40,16 @@ _BAD_SCORES = {
 }
 
 
-def _make_item(duration_s: float = 1.0, sample_rate: int = 48000) -> dict:
+def _make_task(duration_s: float = 1.0, sample_rate: int = 48000) -> AudioTask:
     num_samples = int(duration_s * sample_rate)
-    return {"waveform": torch.randn(1, num_samples), "sample_rate": sample_rate}
+    return AudioTask(
+        data={"waveform": torch.randn(1, num_samples), "sample_rate": sample_rate},
+        task_id="test",
+        dataset_name="test",
+    )
 
 
 class TestSIGMOSFilterStage:
-    """Tests for SIGMOSFilterStage."""
 
     @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
     def test_process_passes_good_scores(self, mock_ensure) -> None:
@@ -57,17 +60,11 @@ class TestSIGMOSFilterStage:
 
         stage._predict_audio_mos = fake_predict
 
-        batch = AudioBatch(
-            data=[_make_item()],
-            task_id="test",
-            dataset_name="test",
-        )
-        result = stage.process(batch)
+        result = stage.process(_make_task())
 
-        assert isinstance(result, AudioBatch)
-        assert len(result.data) == 1
-        assert result.data[0]["sigmos_noise"] == 4.5
-        assert result.data[0]["sigmos_ovrl"] == 4.0
+        assert isinstance(result, AudioTask)
+        assert result.data["sigmos_noise"] == 4.5
+        assert result.data["sigmos_ovrl"] == 4.0
 
     @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
     def test_process_rejects_bad_scores(self, mock_ensure) -> None:
@@ -78,14 +75,9 @@ class TestSIGMOSFilterStage:
 
         stage._predict_audio_mos = fake_predict
 
-        batch = AudioBatch(
-            data=[_make_item()],
-            task_id="test",
-            dataset_name="test",
-        )
-        result = stage.process(batch)
+        result = stage.process(_make_task())
 
-        assert len(result.data) == 0
+        assert result == []
 
     @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
     def test_none_thresholds_disable_checks(self, mock_ensure) -> None:
@@ -101,18 +93,12 @@ class TestSIGMOSFilterStage:
 
         stage._predict_audio_mos = fake_predict
 
-        batch = AudioBatch(
-            data=[_make_item()],
-            task_id="test",
-            dataset_name="test",
-        )
-        result = stage.process(batch)
+        result = stage.process(_make_task())
 
-        assert len(result.data) == 1
+        assert isinstance(result, AudioTask)
 
     @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
     def test_partial_threshold_fail(self, mock_ensure) -> None:
-        """Item fails if any active threshold is not met."""
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=None)
 
         def fake_predict(audio_data, sample_rate, model_path=None):
@@ -125,10 +111,9 @@ class TestSIGMOSFilterStage:
 
         stage._predict_audio_mos = fake_predict
 
-        batch = AudioBatch(data=[_make_item()], task_id="test", dataset_name="test")
-        result = stage.process(batch)
+        result = stage.process(_make_task())
 
-        assert len(result.data) == 0
+        assert result == []
 
     @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
     def test_sigmos_output_keys(self, mock_ensure) -> None:
@@ -139,42 +124,28 @@ class TestSIGMOSFilterStage:
 
         stage._predict_audio_mos = fake_predict
 
-        batch = AudioBatch(data=[_make_item()], task_id="test", dataset_name="test")
-        result = stage.process(batch)
+        result = stage.process(_make_task())
 
-        item = result.data[0]
+        assert isinstance(result, AudioTask)
         for key in ["sigmos_noise", "sigmos_ovrl", "sigmos_sig", "sigmos_col",
                      "sigmos_disc", "sigmos_loud", "sigmos_reverb"]:
-            assert key in item
-
-    @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
-    def test_empty_batch(self, mock_ensure) -> None:
-        stage = SIGMOSFilterStage()
-        stage._predict_audio_mos = MagicMock()
-
-        batch = AudioBatch(data=[], task_id="test", dataset_name="test")
-        result = stage.process(batch)
-
-        assert isinstance(result, AudioBatch)
-        assert len(result.data) == 0
+            assert key in result.data
 
     @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
     def test_no_audio_no_filepath_skipped(self, mock_ensure) -> None:
         stage = SIGMOSFilterStage()
         stage._predict_audio_mos = MagicMock()
 
-        batch = AudioBatch(data=[{"some_key": "value"}], task_id="test", dataset_name="test")
-        result = stage.process(batch)
+        task = AudioTask(data={"some_key": "value"}, task_id="test", dataset_name="test")
+        result = stage.process(task)
 
-        assert len(result.data) == 0
+        assert result == []
 
     def test_predictor_not_available(self) -> None:
         stage = SIGMOSFilterStage()
         stage._predict_audio_mos = None
 
         with patch.object(stage, "_ensure_predict"):
-            batch = AudioBatch(data=[_make_item()], task_id="test", dataset_name="test")
-            result = stage.process(batch)
+            result = stage.process(_make_task())
 
-        assert isinstance(result, AudioBatch)
-        assert len(result.data) == 0
+        assert result == []
