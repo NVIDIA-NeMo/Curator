@@ -17,11 +17,10 @@ from unittest.mock import MagicMock, patch
 import torch
 
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 class TestVADSegmentationStage:
-    """Tests for VADSegmentationStage."""
 
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
@@ -36,26 +35,25 @@ class TestVADSegmentationStage:
         ]
 
         waveform = torch.randn(1, sr * 10)
-        batch = AudioBatch(
-            data=[{"waveform": waveform, "sample_rate": sr}],
+        task = AudioTask(
+            data={"waveform": waveform, "sample_rate": sr},
             task_id="test",
             dataset_name="test",
         )
 
         stage = VADSegmentationStage(min_duration_sec=1.0, max_duration_sec=30.0)
         stage.setup()
-        result = stage.process(batch)
+        result = stage.process(task)
 
         assert isinstance(result, list)
         assert len(result) == 2
         for seg in result:
-            assert isinstance(seg, AudioBatch)
-            item = seg.data[0]
-            assert "waveform" in item
-            assert "start_ms" in item
-            assert "end_ms" in item
-            assert "segment_num" in item
-            assert "duration_sec" in item
+            assert isinstance(seg, AudioTask)
+            assert "waveform" in seg.data
+            assert "start_ms" in seg.data
+            assert "end_ms" in seg.data
+            assert "segment_num" in seg.data
+            assert "duration_sec" in seg.data
 
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
@@ -66,21 +64,20 @@ class TestVADSegmentationStage:
         mock_get_ts.return_value = [{"start": 0, "end": sr * 5}]
 
         waveform = torch.randn(1, sr * 10)
-        batch = AudioBatch(
-            data=[{"waveform": waveform, "sample_rate": sr}],
+        task = AudioTask(
+            data={"waveform": waveform, "sample_rate": sr},
             task_id="test",
             dataset_name="test",
         )
 
         stage = VADSegmentationStage(min_duration_sec=1.0)
         stage.setup()
-        result = stage.process(batch)
+        result = stage.process(task)
 
-        item = result[0].data[0]
-        assert item["start_ms"] == 0
-        assert item["segment_num"] == 0
-        assert item["duration_sec"] > 0
-        assert item["sample_rate"] == sr
+        assert result[0].data["start_ms"] == 0
+        assert result[0].data["segment_num"] == 0
+        assert result[0].data["duration_sec"] > 0
+        assert result[0].data["sample_rate"] == sr
 
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
@@ -89,15 +86,15 @@ class TestVADSegmentationStage:
         mock_get_ts.return_value = []
 
         waveform = torch.randn(1, 48000 * 5)
-        batch = AudioBatch(
-            data=[{"waveform": waveform, "sample_rate": 48000}],
+        task = AudioTask(
+            data={"waveform": waveform, "sample_rate": 48000},
             task_id="test",
             dataset_name="test",
         )
 
         stage = VADSegmentationStage()
         stage.setup()
-        result = stage.process(batch)
+        result = stage.process(task)
 
         assert isinstance(result, list)
         assert len(result) == 0
@@ -115,40 +112,39 @@ class TestVADSegmentationStage:
         ]
 
         waveform = torch.randn(1, sr * 10)
-        batch = AudioBatch(
-            data=[{"waveform": waveform, "sample_rate": sr}],
+        task = AudioTask(
+            data={"waveform": waveform, "sample_rate": sr},
             task_id="test",
             dataset_name="test",
         )
 
         stage = VADSegmentationStage(min_duration_sec=0.5)
         stage.setup()
-        result = stage.process(batch)
+        result = stage.process(task)
 
         assert len(result) == 3
         for i, seg in enumerate(result):
-            assert seg.data[0]["segment_num"] == i
+            assert seg.data["segment_num"] == i
 
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
     def test_missing_waveform_and_filepath_skipped(self, mock_load_vad, mock_get_ts) -> None:
         mock_load_vad.return_value = MagicMock()
 
-        batch = AudioBatch(
-            data=[{"some_key": "value"}],
+        task = AudioTask(
+            data={"some_key": "value"},
             task_id="test",
             dataset_name="test",
         )
 
         stage = VADSegmentationStage()
         stage.setup()
-        result = stage.process(batch)
+        result = stage.process(task)
 
         assert isinstance(result, list)
         assert len(result) == 0
 
     def test_pickling(self) -> None:
-        """VADSegmentationStage should be picklable (for Ray workers)."""
         import pickle
 
         stage = VADSegmentationStage(min_duration_sec=2.0, threshold=0.6)

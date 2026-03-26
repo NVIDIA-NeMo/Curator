@@ -23,7 +23,6 @@ and VAD segmentation.
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
-    LegacySpeechStage,
     PreserveByValueStage,
 )
 from nemo_curator.stages.audio.segmentation import (
@@ -34,7 +33,6 @@ __all__ = [
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
     "GetAudioDurationStage",
-    "LegacySpeechStage",
     "PreserveByValueStage",
     "VADSegmentationStage",
 ]
