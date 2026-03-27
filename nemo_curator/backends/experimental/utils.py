@@ -110,6 +110,8 @@ def execute_setup_on_node(stages: list[ProcessingStage], ignore_head_node: bool 
     head_node_id = get_head_node_id()
     ray_tasks = []
     for node in ray.nodes():
+        if not node.get("Alive", False):
+            continue
         node_id = node["NodeID"]
         node_info = NodeInfo(node_id=node_id)
         worker_metadata = WorkerMetadata(worker_id="", allocation=None)
@@ -124,7 +126,7 @@ def execute_setup_on_node(stages: list[ProcessingStage], ignore_head_node: bool 
                 _setup_stage_on_node.options(
                     num_cpus=stage.resources.cpus if stage.resources is not None else 1,
                     num_gpus=stage.resources.gpus if stage.resources is not None else 0,
-                    scheduling_strategy=NodeAffinitySchedulingStrategy(node_id=node_id, soft=False),
+                    scheduling_strategy=NodeAffinitySchedulingStrategy(node_id=node_id, soft=True),
                 ).remote(stage, node_info, worker_metadata)
             )
     ray.get(ray_tasks)

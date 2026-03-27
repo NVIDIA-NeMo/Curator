@@ -31,7 +31,7 @@ from nemo_curator.utils.file_utils import check_disallowed_kwargs
 
 from .pairwise_io import ClusterWiseFilePartitioningStage
 from .ranking import RankingStrategy
-from .utils import break_parquet_partition_into_groups, get_array_from_df
+from .utils import get_array_from_df
 
 
 def pairwise_cosine_similarity_batched(
@@ -69,6 +69,79 @@ def pairwise_cosine_similarity_batched(
     else:
         # convert to numpy arrays
         return max_similarity.numpy(), max_indices.numpy()
+
+
+def pairwise_cosine_similarity_cpu_staged(
+    cluster_reps_np: np.ndarray,
+    col_batch_size: int = 1024,
+    row_batch_size: int = 2048,
+    reorder_indices: np.ndarray | list[int] | None = None,
+) -> tuple["cp.ndarray", "cp.ndarray"]:
+    """Pairwise cosine similarity that streams from CPU numpy arrays.
+
+    When the full embedding matrix exceeds GPU memory, this function
+    streams row and column batches through GPU.  Peak GPU usage is
+    bounded to ``(row_batch_size + col_batch_size) * D * 4`` bytes
+    (roughly 2-3 GB for 263K-dim embeddings with default batch sizes),
+    regardless of the total cluster size.
+
+    When *reorder_indices* is provided, rows are accessed in that order
+    without creating a reordered copy of the full array.  This halves
+    peak host-RAM usage for large clusters.
+
+    Semantics are identical to ``pairwise_cosine_similarity_batched``:
+    for each item *j* the function finds item *i* (with i < j) that
+    has the highest cosine similarity, returning that score and index.
+    """
+    N = len(reorder_indices) if reorder_indices is not None else cluster_reps_np.shape[0]
+
+    if reorder_indices is not None and not isinstance(reorder_indices, np.ndarray):
+        reorder_indices = np.asarray(reorder_indices)
+
+    def _get_rows(start: int, end: int) -> np.ndarray:
+        if reorder_indices is not None:
+            return np.ascontiguousarray(cluster_reps_np[reorder_indices[start:end]])
+        return np.ascontiguousarray(cluster_reps_np[start:end])
+
+    max_similarity = torch.zeros(N, dtype=torch.float32, device="cuda")
+    max_indices = torch.zeros(N, dtype=torch.int64, device="cuda")
+
+    for c_start in range(0, N, col_batch_size):
+        c_end = min(c_start + col_batch_size, N)
+        col_batch = torch.as_tensor(_get_rows(c_start, c_end), device="cuda")
+
+        col_max_vals = torch.zeros(c_end - c_start, dtype=torch.float32, device="cuda")
+        col_max_idxs = torch.zeros(c_end - c_start, dtype=torch.int64, device="cuda")
+
+        for r_start in range(0, N, row_batch_size):
+            r_end = min(r_start + row_batch_size, N)
+
+            if r_start >= c_end:
+                break
+
+            row_batch = torch.as_tensor(_get_rows(r_start, r_end), device="cuda")
+
+            partial_sim = torch.mm(row_batch, col_batch.T)
+            del row_batch
+
+            diag_offset = r_start - c_start + 1
+            partial_sim = torch.triu(partial_sim, diagonal=diag_offset)
+
+            batch_max_vals, batch_max_local = torch.max(partial_sim, dim=0)
+            del partial_sim
+
+            batch_max_global = batch_max_local + r_start
+            better = batch_max_vals > col_max_vals
+            col_max_vals = torch.where(better, batch_max_vals, col_max_vals)
+            col_max_idxs = torch.where(better, batch_max_global, col_max_idxs)
+            del batch_max_vals, batch_max_local, batch_max_global, better
+
+        max_similarity[c_start:c_end] = col_max_vals
+        max_indices[c_start:c_end] = col_max_idxs
+        del col_batch, col_max_vals, col_max_idxs
+        torch.cuda.empty_cache()
+
+    return cp.asarray(max_similarity), cp.asarray(max_indices)
 
 
 class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationIO):
@@ -115,8 +188,38 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         self.name = "PairwiseCosineSimilarityStage"
         self.resources = Resources(cpus=1.0, gpus=1.0)
 
+    def _read_chunk_resilient(
+        self,
+        files: list[str],
+        columns: list[str],
+    ) -> "list[cudf.DataFrame]":
+        """Read files via pyarrow (CPU) then convert to cudf one at a time.
+
+        cudf.read_parquet uses kvikio GPU-direct I/O which can SIGSEGV
+        on corrupted parquet files, killing the actor with no chance of
+        Python-level recovery.  Reading through pyarrow keeps all I/O on
+        the CPU where corrupted files produce catchable exceptions.
+
+        Returns one cudf DataFrame per good file so the caller can free
+        GPU memory between files instead of transferring the whole chunk
+        at once.
+        """
+        import pyarrow.parquet as pq
+
+        good_dfs: list[cudf.DataFrame] = []
+        for f in files:
+            try:
+                table = pq.read_table(f, columns=columns)
+                good_dfs.append(cudf.DataFrame.from_arrow(table))
+                del table
+            except Exception:
+                logger.error(f"Skipping corrupted file: {f}")
+        return good_dfs
+
     def process(self, task: FileGroupTask) -> FileGroupTask:
         """Process a PairwiseFileGroupTask to compute pairwise similarities."""
+        import gc
+
         if task._metadata.get("filetype") != "parquet":
             msg = f"PairwiseCosineSimilarityStage only supports parquet files, got {task._metadata.get('filetype')}"
             raise ValueError(msg)
@@ -127,35 +230,46 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
             msg = "centroid_id not found in task metadata"
             raise ValueError(msg)
 
+        # Reclaim GPU memory cached by PyTorch / CuPy from previous clusters
+        # processed by this actor.  Without this, the caching allocators hold
+        # onto freed blocks and the next cluster sees far less free memory.
+        gc.collect()
+        torch.cuda.empty_cache()
+        cp.get_default_memory_pool().free_all_blocks()
+
         t1 = time.perf_counter()
-
-        # Read all file groups and concatenate
-        dfs = []
-        num_rows = 0
-
-        # Break input files into groups to avoid 2bn row limit
-        file_groups = break_parquet_partition_into_groups(
-            task.data, embedding_dim=self.embedding_dim, storage_options=self.input_storage_options
-        )
 
         # Determine which columns to read based on ranking strategy
         additional_cols = self.ranking_strategy.metadata_cols if self.ranking_strategy.strategy == "sort" else []
-
-        # We do the list(dict.fromkeys(...)) to remove duplicates from the list of columns to read, in case additional_cols contains self.id_field
         metadata_cols = list(dict.fromkeys([self.id_field, *additional_cols]))
-        for file_group in file_groups:
-            # Read required columns including metadata columns for ranking
-            df = self.read_parquet(
-                file_group,
-                columns=[*metadata_cols, self.embedding_field],
-                assign_id=False,
-                storage_options=self.input_storage_options,
-                **self.read_kwargs,
-            )
-            dfs.append(df)
-            num_rows += len(df)
 
-        if not dfs:
+        # Read files in small chunks to avoid cudf.read_parquet OOM.
+        # With 263K-dim embeddings a single read of thousands of rows
+        # can require 10+ GiB of temporary GPU memory.  We extract
+        # embeddings to CPU immediately after each chunk so peak GPU
+        # usage stays bounded to one chunk at a time.
+        _MAX_FILES_PER_READ = 10
+        all_cluster_files = task.data
+
+        metadata_dfs: list["cudf.DataFrame"] = []
+        cpu_embedding_arrays: list[np.ndarray] = []
+
+        for chunk_start in range(0, len(all_cluster_files), _MAX_FILES_PER_READ):
+            chunk_files = all_cluster_files[chunk_start : chunk_start + _MAX_FILES_PER_READ]
+            chunk_dfs = self._read_chunk_resilient(
+                chunk_files,
+                columns=[*metadata_cols, self.embedding_field],
+            )
+            for df in chunk_dfs:
+                if len(df) == 0:
+                    continue
+                metadata_dfs.append(df[metadata_cols])
+                emb_cp = get_array_from_df(df, self.embedding_field).copy()
+                cpu_embedding_arrays.append(cp.asnumpy(emb_cp))
+                del df, emb_cp
+                cp.get_default_memory_pool().free_all_blocks()
+
+        if not metadata_dfs:
             logger.warning(f"No data found for cluster {cluster_id}")
             return FileGroupTask(
                 task_id=task.task_id,
@@ -165,14 +279,14 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                 data=[],
             )
 
-        num_rows = sum(len(df) for df in dfs)
+        num_rows = sum(len(df) for df in metadata_dfs)
 
         # Handle single item clusters
         if num_rows == 1:
             result_df = cudf.DataFrame(
                 {
-                    "id": dfs[0][self.id_field],
-                    "max_id": dfs[0][self.id_field],
+                    "id": metadata_dfs[0][self.id_field],
+                    "max_id": metadata_dfs[0][self.id_field],
                     "cosine_sim_score": cudf.Series([0], dtype="float32"),
                 }
             )
@@ -190,32 +304,46 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                 data=[os.path.join(self.output_path, f"cluster_{cluster_id}.parquet")],
             )
 
-        # Cannot concatenate dataframes with embeddings due to cudf 2bn row limit
-        # Instead, concatenate metadata columns and handle embeddings separately
-        metadata_dfs, embedding_arrays = [], []
-        for df in dfs:
-            metadata_dfs.append(df[metadata_cols])
-            embedding_arrays.append(get_array_from_df(df, self.embedding_field))
-
         metadata_cluster_df = cudf.concat(metadata_dfs, ignore_index=True).reset_index(drop=True)
+        del metadata_dfs
 
         # Add original index to track reordering
         metadata_cluster_df["_original_idx"] = metadata_cluster_df.index
 
         ranked_metadata_df = self.ranking_strategy.rank_cluster(metadata_cluster_df)
-        # Get reorder indices from the ranked dataframe (TODO: we get it to CPU, but maybe we can do it on GPU todo)
         reorder_indices = ranked_metadata_df["_original_idx"].to_arrow().to_pylist()
-        # Remove the helper column
         ranked_metadata_df = ranked_metadata_df.drop(columns=["_original_idx"])
+        del metadata_cluster_df
 
-        # Convert numpy arrays to torch tensors before concatenating
-        concatenated_embeddings = torch.cat([torch.as_tensor(arr, device="cuda") for arr in embedding_arrays], dim=0)
-        cluster_embeddings = concatenated_embeddings[reorder_indices]
+        # In-place concatenation: pre-allocate and copy each sub-array,
+        # freeing it immediately so peak host RAM is ~1× the final array
+        # instead of ~2× from np.concatenate.
+        chunk_lengths = [a.shape[0] for a in cpu_embedding_arrays]
+        total_rows = sum(chunk_lengths)
+        emb_dim = cpu_embedding_arrays[0].shape[1]
+        concatenated_np = np.empty((total_rows, emb_dim), dtype=np.float32)
+        offset = 0
+        for i in range(len(cpu_embedding_arrays)):
+            n = chunk_lengths[i]
+            concatenated_np[offset : offset + n] = cpu_embedding_arrays[i]
+            cpu_embedding_arrays[i] = None
+            offset += n
+        del cpu_embedding_arrays
 
         ids = ranked_metadata_df[self.id_field]
 
-        # Compute pairwise similarities
-        max_similarity, max_indices = pairwise_cosine_similarity_batched(cluster_embeddings, self.pairwise_batch_size)
+        # Pass reorder_indices directly — the similarity function applies
+        # them on the fly per batch, avoiding a second ~24 GB copy.
+        reorder_np = np.asarray(reorder_indices)
+        del reorder_indices
+        max_similarity, max_indices = pairwise_cosine_similarity_cpu_staged(
+            concatenated_np,
+            col_batch_size=self.pairwise_batch_size,
+            reorder_indices=reorder_np,
+        )
+        del concatenated_np, reorder_np
+        torch.cuda.empty_cache()
+        cp.get_default_memory_pool().free_all_blocks()
 
         # Convert indices back to IDs
         max_indices_id = ids.iloc[max_indices].reset_index(drop=True)
