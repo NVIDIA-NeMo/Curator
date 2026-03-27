@@ -48,7 +48,11 @@ def calculate_concurrency_for_actors_for_stage(
     if stage.resources.gpus > 0:
         max_gpu_actors = available_gpus // stage.resources.gpus
 
-    max_actors = max(1, int(min(max_cpu_actors, max_gpu_actors)))
+    max_actors = int(min(max_cpu_actors, max_gpu_actors))
+
+    # Early failure for insufficient resources
+    if max_actors <= 0:
+        return (1, 0)
 
     # Eager allocation for full-GPU workloads
     if stage.resources.gpus >= 1:
