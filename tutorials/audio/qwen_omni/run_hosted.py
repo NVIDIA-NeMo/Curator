@@ -35,7 +35,10 @@ import ray
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.models.client import OpenAIClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.onmi_llm_request import OmniLLMRequestStage, PrepareMessagesStage
+from nemo_curator.stages.audio.onmi_llm_request import (
+    OmniLLMRequestStage,
+    PrepareMessagesStage,
+)
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 
