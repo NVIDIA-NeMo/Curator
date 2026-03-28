@@ -334,6 +334,7 @@ fixable = ["ALL"]
 ]
 "tutorials/**" = [
     "INP001", # no __init__.py is required
+    "I001", # import sorting — tutorials are standalone scripts
     "PLE2515", # ignore \u200b complaint
 ]
 
