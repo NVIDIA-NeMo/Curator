@@ -60,7 +60,7 @@ pipeline, and shuts down.
 | `VLLM_DTYPE` | `bfloat16` | Data type |
 | `VLLM_MAX_MODEL_LEN` | `65536` | Max model length |
 | `NUM_GPU` | `1` | Tensor parallel size |
-| `HEALTH_TIMEOUT` | `600` | Health check timeout (seconds) |
+| `HEALTH_TIMEOUT` | `1200` | Health check timeout (seconds) |
 
 ### GPU requirements
 

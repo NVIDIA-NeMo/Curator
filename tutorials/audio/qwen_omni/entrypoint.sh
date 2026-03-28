@@ -11,7 +11,7 @@
 #   VLLM_DTYPE           - Data type (default: bfloat16)
 #   VLLM_MAX_MODEL_LEN   - Max model length (default: 65536)
 #   NUM_GPU              - Tensor parallel size (default: 1)
-#   HEALTH_TIMEOUT       - Health check timeout in seconds (default: 600)
+#   HEALTH_TIMEOUT       - Health check timeout in seconds (default: 1200)
 
 set -euo pipefail
 
@@ -20,7 +20,7 @@ VLLM_PORT="${VLLM_PORT:-8200}"
 VLLM_DTYPE="${VLLM_DTYPE:-bfloat16}"
 VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-65536}"
 NUM_GPU="${NUM_GPU:-1}"
-HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-600}"
+HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-1200}"
 
 # ------------------------------------------------------------------
 # Cleanup: kill vLLM on any exit (normal, error, or signal)
