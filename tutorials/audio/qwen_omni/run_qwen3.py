@@ -17,7 +17,7 @@ import argparse
 
 import ray
 
-from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.models.client import OpenAIClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.onmi_llm_request import OmniLLMRequestStage, PrepareMessagesStage
@@ -47,7 +47,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vllm-python", type=str, default="python", help="Python executable for vLLM subprocess")
     parser.add_argument("--dtype", type=str, default="bfloat16", help="vLLM dtype (with --start-server)")
     parser.add_argument("--max-model-len", type=int, default=65536, help="vLLM max model length (with --start-server)")
-    parser.add_argument("--tensor-parallel-size", type=int, default=1, help="vLLM tensor parallel size (with --start-server)")
+    parser.add_argument(
+        "--tensor-parallel-size", type=int, default=1, help="vLLM tensor parallel size (with --start-server)"
+    )
     return parser.parse_args()
 
 
@@ -63,10 +65,14 @@ def main() -> None:
             port=args.port,
             python_executable=args.vllm_python,
             extra_args=[
-                "--dtype", args.dtype,
-                "--max-model-len", str(args.max_model_len),
-                "--allowed-local-media-path", "/",
-                "-tp", str(args.tensor_parallel_size),
+                "--dtype",
+                args.dtype,
+                "--max-model-len",
+                str(args.max_model_len),
+                "--allowed-local-media-path",
+                "/",
+                "-tp",
+                str(args.tensor_parallel_size),
             ],
         )
         server.start()
