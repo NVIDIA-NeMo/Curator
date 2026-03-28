@@ -14,6 +14,8 @@
 
 from typing import Literal
 
+import re
+
 from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
 from nemo_curator.stages.text.utils.constants import (
     bullet_list,
@@ -113,13 +115,14 @@ class UrlsFilter(DocumentFilter):
     If more than 20% of the document is comprised of URLs, then discard.
     """
 
-    def __init__(self, max_url_to_text_ratio: float = 0.2):
+    def __init__(self, max_url_to_text_ratio: float = 0.2, url_regex: str | None = None):
         super().__init__()
         self._cutoff = max_url_to_text_ratio
         self._name = "urls_ratio"
+        self._url_regex = re.compile(url_regex) if url_regex else regex_url
 
     def score_document(self, text: str) -> float:
-        all_urls = regex_url.findall(text)
+        all_urls = self._url_regex.findall(text)
         url_chars = sum([len(url) for url in all_urls])
         nchar = len(text)
         # Remove if the document is empty
@@ -433,11 +436,12 @@ class PornographicUrlsFilter(DocumentFilter):
     Check if any of the URLs within the document point to pornography.
     """
 
-    def __init__(self):
+    def __init__(self, url_regex: str | None = None):
         super().__init__()
+        self._url_regex = re.compile(url_regex) if url_regex else regex_url
 
     def score_document(self, text: str) -> int:
-        all_urls = regex_url.findall(text)
+        all_urls = self._url_regex.findall(text)
         for url in all_urls:
             if "porn" in url:
                 return 1
