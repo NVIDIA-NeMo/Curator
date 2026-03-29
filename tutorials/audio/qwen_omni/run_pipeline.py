@@ -23,6 +23,7 @@ from nemo_curator.stages.audio.request.onmi_llm_request import OmniLLMRequestSta
 from nemo_curator.stages.audio.request.prepare_omni_request import PrepareOmniRequestStage
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
+from nemo_curator.stages.audio.request.prepare_omni_lhotse import PrepareOmniLhotseStage
 
 
 # Use a local in-process Ray runtime so we don't try to connect to an existing cluster (e.g. GCS at 127.0.1.1:6379).
@@ -42,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8200, help="vLLM API port")
     parser.add_argument("--model-name", type=str, default="Qwen/Qwen3-Omni-30B-A3B-Instruct", help="Model name")
     parser.add_argument("--user_prompt", type=str, default="Transcribe audio.", help="User prompt")
+    parser.add_argument("--lhotse_mode", type=str, default="", help="Lhotse mode, nemo_tarred or lhotse_shar")
     parser.add_argument("--system_prompt", type=str, default="You are a helpful assistant.", help="System prompt")
     parser.add_argument("--api-key", type=str, default="dummy-key", help="API key")
     parser.add_argument("--max-tokens", type=int, default=256, help="Max tokens")
@@ -99,13 +101,35 @@ def main() -> None:
         }
 
         pipeline = Pipeline(name="qwen3_omni")
-        pipeline.add_stage(JsonlReader(file_paths=args.input_manifest))
+        if not args.lhotse_mode:
+            pipeline.add_stage(JsonlReader(file_paths=args.input_manifest))
+            pipeline.add_stage(
+                PrepareOmniRequestStage(
+                    format="data_url",
+                    input_tar=args.input_tar,
+                    input_index=args.input_index,
+                    user_prompt=args.user_prompt,
+                    system_prompt=args.system_prompt,
+                )
+            )
+        else:
+            pipeline.add_stage(
+                PrepareOmniLhotseStage(
+                    lhotse_mode=args.lhotse_mode,
+                    input_manifest=args.input_manifest,
+                    input_tar=args.input_tar,
+                    user_prompt=args.user_prompt,
+                    user_prompt_key=None,
+                    system_prompt=args.system_prompt,
+                )
+            )
         pipeline.add_stage(
-            PrepareOmniRequestStage(
-                format="data_url",
+            PrepareOmniLhotseStage(
+                lhotse_mode="nemo_tarred",
+                input_manifest=args.input_manifest,
                 input_tar=args.input_tar,
-                input_index=args.input_index,
                 user_prompt=args.user_prompt,
+                user_prompt_key="",
                 system_prompt=args.system_prompt,
             )
         )
