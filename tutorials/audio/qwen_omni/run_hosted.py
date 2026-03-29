@@ -35,10 +35,8 @@ import ray
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.models.client import OpenAIClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.onmi_llm_request import (
-    OmniLLMRequestStage,
-    PrepareMessagesStage,
-)
+from nemo_curator.stages.audio.request.onmi_llm_request import OmniLLMRequestStage
+from nemo_curator.stages.audio.request.prepare_omni_request import PrepareOmniRequestStage
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 
@@ -97,7 +95,7 @@ def main() -> None:
     pipeline = Pipeline(name="hosted_audio")
     pipeline.add_stage(JsonlReader(file_paths=args.input_manifest))
     pipeline.add_stage(
-        PrepareMessagesStage(
+        PrepareOmniRequestStage(
             format="input_data",
             input_tar=args.input_tar,
             input_index=args.input_index,
