@@ -99,10 +99,10 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
     """
 
     name: str = "PrepareOmniLhotseStage"
-    lhotse_mode: Literal["nemo_tarred", "lhotse_shar"] = "nemo_tarred"
     input_manifest: str = ""
     input_tar: str = ""
     shar_in_dir: str = ""
+    lhotse_mode: Literal["nemo_tarred", "lhotse_shar"] = "nemo_tarred"
     format: Literal["data_url", "input_data"] = "data_url"
     system_prompt: str | None = None
     user_prompt_key: str | None = None
@@ -132,10 +132,17 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
                 )
             )
         if self.lhotse_mode == "lhotse_shar":
-            if not self.shar_in_dir.strip():
-                msg = "lhotse_shar requires non-empty shar_in_dir."
-                raise ValueError(msg)
-            return CutSet.from_shar(in_dir=self.shar_in_dir.strip())
+            if not self.input_manifest.strip() or not self.input_tar.strip():
+                if not self.shar_in_dir.strip():
+                    msg = "lhotse_shar requires non-empty input_manifest and input_tar or shar_in_dir."
+                    raise ValueError(msg)
+                else:
+                    return CutSet.from_shar(in_dir=self.shar_in_dir.strip())
+            else:
+                return CutSet.from_shar(
+                    fields={"cuts": [self.input_manifest.strip()], "recording": [self.input_tar.strip()]}
+                )
+
         msg = f"Unknown lhotse_mode: {self.lhotse_mode!r}"
         raise ValueError(msg)
 

@@ -119,20 +119,10 @@ def main() -> None:
                     input_manifest=args.input_manifest,
                     input_tar=args.input_tar,
                     user_prompt=args.user_prompt,
-                    user_prompt_key=None,
+                    user_prompt_key="",
                     system_prompt=args.system_prompt,
                 )
             )
-        pipeline.add_stage(
-            PrepareOmniLhotseStage(
-                lhotse_mode="nemo_tarred",
-                input_manifest=args.input_manifest,
-                input_tar=args.input_tar,
-                user_prompt=args.user_prompt,
-                user_prompt_key="",
-                system_prompt=args.system_prompt,
-            )
-        )
         pipeline.add_stage(
             OmniLLMRequestStage(
                 client=llm_client,
