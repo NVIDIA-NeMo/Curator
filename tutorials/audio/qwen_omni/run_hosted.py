@@ -87,7 +87,7 @@ def main() -> None:
 
     pipeline = Pipeline(name="hosted_audio")
     pipeline.add_stage(JsonlReader(file_paths=args.input_path))
-    pipeline.add_stage(PrepareMessagesStage(audio_format="input_audio"))
+    pipeline.add_stage(PrepareMessagesStage(format="input_data"))
     pipeline.add_stage(
         OmniLLMRequestStage(
             client=llm_client,

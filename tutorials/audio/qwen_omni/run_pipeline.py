@@ -33,6 +33,7 @@ from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Qwen3-Omni pipeline with JSONL input/output.")
     parser.add_argument("--input_path", type=str, required=True, help="Input JSONL path")
+    parser.add_argument("--input_tar", type=str, default="", help="Input tar file range")
     parser.add_argument("--output_path", type=str, default="output/qwen3_omni/", help="Output directory")
     parser.add_argument("--host", type=str, default="localhost", help="vLLM API host")
     parser.add_argument("--port", type=int, default=8200, help="vLLM API port")
@@ -94,7 +95,7 @@ def main() -> None:
 
         pipeline = Pipeline(name="qwen3_omni")
         pipeline.add_stage(JsonlReader(file_paths=args.input_path))
-        pipeline.add_stage(PrepareMessagesStage())
+        pipeline.add_stage(PrepareMessagesStage(format="data_url", input_tar=args.input_tar))
         pipeline.add_stage(
             OmniLLMRequestStage(
                 client=llm_client,

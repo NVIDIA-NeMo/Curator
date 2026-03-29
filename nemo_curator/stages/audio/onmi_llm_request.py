@@ -31,7 +31,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch
 
 
-def _is_valid_url(value: str | None) -> bool:
+def _is_valid_value(value: str | None) -> bool:
     """Return False if value is missing, NaN, or empty string."""
     if value is None:
         return False
@@ -46,94 +46,6 @@ def _is_local_path(value: str) -> bool:
         return False
     s = value.strip()
     return not s.startswith(("http://", "https://"))
-
-
-def _local_file_to_data_url(path: str) -> str:
-    """Read a local file, encode to base64, return a data URL."""
-    path_obj = Path(path).expanduser().resolve()
-    if not path_obj.is_file():
-        msg = "Local path is not a file: " + path
-        raise FileNotFoundError(msg)
-    mime_type, _ = mimetypes.guess_type(str(path_obj))
-    if mime_type is None:
-        mime_type = "application/octet-stream"
-    raw = path_obj.read_bytes()
-    b64 = base64.standard_b64encode(raw).decode("ascii")
-    return f"data:{mime_type};base64,{b64}"
-
-
-def _local_file_to_input_audio(path: str) -> dict:
-    """Read a local audio file, return an ``input_audio`` content part.
-
-    The ``input_audio`` format is used by OpenAI-compatible hosted APIs
-    (e.g. NVIDIA inference API with Gemini) as opposed to ``audio_url``
-    which is used by vLLM.
-    """
-    path_obj = Path(path).expanduser().resolve()
-    if not path_obj.is_file():
-        msg = "Local path is not a file: " + path
-        raise FileNotFoundError(msg)
-    raw = path_obj.read_bytes()
-    b64 = base64.standard_b64encode(raw).decode("ascii")
-    # Derive format from extension (wav, mp3, flac, etc.)
-    ext = path_obj.suffix.lstrip(".").lower()
-    if not ext:
-        ext = "wav"
-    return {"type": "input_audio", "input_audio": {"data": b64, "format": ext}}
-
-
-def _url_or_data_url(value: str) -> str:
-    """Return value as-is if remote URL; if local path, read file and return data URL."""
-    if not _is_local_path(value):
-        return value
-    return _local_file_to_data_url(value)
-
-
-def _row_to_messages(row: dict, audio_format: str = "audio_url") -> list[dict]:
-    """Build LLM messages from a row with optional system_text, text, image_url, audio_url.
-
-    Args:
-        row: A dictionary with optional keys: system_text, text, image_url, audio_url.
-        audio_format: How to encode audio content parts.
-            ``"audio_url"`` — vLLM / Qwen3-Omni format (default).
-            ``"input_audio"`` — OpenAI-compatible hosted API format
-            (e.g. NVIDIA inference API with Gemini).
-    """
-    messages: list[dict] = []
-    if row.get("system_text"):
-        messages.append({"role": "system", "content": row["system_text"]})
-
-    content_parts: list[dict] = []
-    if "image_url" in row and _is_valid_url(row.get("image_url")):
-        url = _url_or_data_url(row["image_url"])
-        content_parts.append({"type": "image_url", "image_url": {"url": url}})
-    if "audio_url" in row and _is_valid_url(row.get("audio_url")):
-        audio_value = row["audio_url"]
-        if audio_format == "input_audio":
-            if _is_local_path(audio_value):
-                content_parts.append(_local_file_to_input_audio(audio_value))
-            else:
-                # Remote URL — encode as data URL in audio_url format as fallback,
-                # since input_audio requires inline base64 data.
-                logger.warning(
-                    f"Remote audio URL with input_audio format is not supported; "
-                    f"falling back to audio_url for: {audio_value}"
-                )
-                content_parts.append({"type": "audio_url", "audio_url": {"url": audio_value}})
-        else:
-            url = _url_or_data_url(audio_value)
-            content_parts.append({"type": "audio_url", "audio_url": {"url": url}})
-
-    text_val = row.get("text") if "text" in row else None
-    if text_val is not None and not (isinstance(text_val, float) and pd.isna(text_val)) and str(text_val).strip():
-        content_parts.append({"type": "text", "text": text_val})
-
-    if content_parts:
-        messages.append({"role": "user", "content": content_parts})
-    elif not messages:
-        messages.append({"role": "user", "content": ""})
-
-    return messages
 
 
 @dataclass
@@ -153,20 +65,130 @@ class PrepareMessagesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     and return a DocumentBatch with the LLM messages.
 
     Args:
-        audio_format: How to encode audio content parts.
+        format: How to encode audio content parts.
             ``"audio_url"`` (default) — vLLM / Qwen3-Omni format.
             ``"input_audio"`` — OpenAI-compatible hosted API format
             (e.g. NVIDIA inference API with Gemini).
     """
 
     name: str = "MakeMessagesStage"
-    audio_format: str = "audio_url"
+    format: str = "data_url"
+    audio_filepath_key: str = "audio_filepath"
+    image_filepath_key: str = "image_url"
+    input_tar: str = ""
+
+    def _local_file_to_data_url(self, path: str) -> tuple[str, str]:
+        """Read a local file, encode to base64, return a data URL."""
+        input_tar = self.input_tar.strip()
+        if input_tar:
+            path = Path(input_tar).joinpath(path).as_posix()
+            msg = "Reading from input tar is not implemented yet"
+            raise NotImplementedError(msg)
+
+        path_obj = Path(path).expanduser().resolve()
+        if not path_obj.is_file():
+            msg = "Local path is not a file: " + path
+            raise FileNotFoundError(msg)
+        mime_type, _ = mimetypes.guess_type(str(path_obj))
+        if mime_type is None:
+            mime_type = "application/octet-stream"
+        raw = path_obj.read_bytes()
+        b64 = base64.standard_b64encode(raw).decode("ascii")
+        return b64, mime_type
+
+    def _local_file_to_input_audio(self, path: str) -> tuple[str, str]:
+        """Read a local audio file, return an ``input_audio`` content part.
+
+        The ``input_audio`` format is used by OpenAI-compatible hosted APIs
+        (e.g. NVIDIA inference API with Gemini) as opposed to ``audio_url``
+        which is used by vLLM.
+        """
+        path_obj = Path(path).expanduser().resolve()
+        if not path_obj.is_file():
+            msg = "Local path is not a file: " + path
+            raise FileNotFoundError(msg)
+        raw = path_obj.read_bytes()
+        b64 = base64.standard_b64encode(raw).decode("ascii")
+        # Derive format from extension (wav, mp3, flac, etc.)
+        ext = path_obj.suffix.lstrip(".").lower()
+        if not ext:
+            ext = "wav"
+        return b64, ext
+
+    def _url_or_data_url(self, value: str, content_format: str) -> dict:
+        """Return value as-is if remote URL; if local path, read file and return data URL.
+        Args:
+            value: The value to encode.
+            content_format: How to encode audio content parts.
+                    ``"audio_url"`` — vLLM / Qwen3-Omni format (default).
+                    ``"input_audio"`` — OpenAI-compatible hosted API format
+                    (e.g. NVIDIA inference API with Gemini).
+
+        """
+        if not _is_local_path(value):
+            return {"type": content_format, content_format: {"url": value}}
+
+        if content_format == "input_audio":
+            b64, ext = self._local_file_to_input_audio(value)
+            return {"type": content_format, content_format: {"data": b64, "format": ext}}
+        elif content_format == "audio_url":
+            b64, mime_type = self._local_file_to_data_url(value)
+            return {"type": content_format, content_format: {"url": f"data:{mime_type};base64,{b64}"}}
+        elif content_format == "input_image":
+            b64, ext = self._local_file_to_input_audio(value)  # TODO: check this
+            return {"type": content_format, content_format: {"data": b64, "format": ext}}
+        elif content_format == "image_url":
+            b64, mime_type = self._local_file_to_data_url(value)
+            return {"type": content_format, content_format: {"url": f"data:{mime_type};base64,{b64}"}}
+        else:
+            msg = f"Invalid format: {content_format}. Supported formats: input_audio, audio_url, image_url."
+            raise ValueError(msg)
+
+    def _user_content_format_for_media(self, *, image: bool) -> str:
+        """Map stage ``format`` to API content part type for image or audio."""
+        if self.format == "data_url":
+            return "image_url" if image else "audio_url"
+        if self.format == "input_data":
+            return "input_image" if image else "input_audio"
+        msg = f"Invalid format: {self.format}. Supported formats: input_data, data_url."
+        raise ValueError(msg)
+
+    def _row_to_messages(self, row: dict) -> list[dict]:
+        """Build LLM messages from a row with optional system_text, text, image_url, audio_url.
+
+        Args:
+            row: A dictionary with optional keys: system_text, text, image_url, audio_url.
+        """
+        messages: list[dict] = []
+        if row.get("system_text"):
+            messages.append({"role": "system", "content": row["system_text"]})
+
+        content_parts: list[dict] = []
+        if self.image_filepath_key in row and _is_valid_value(row.get(self.image_filepath_key)):
+            content_fmt = self._user_content_format_for_media(image=True)
+            msg = self._url_or_data_url(row[self.image_filepath_key], content_format=content_fmt)
+            content_parts.append(msg)
+
+        if self.audio_filepath_key in row and _is_valid_value(row.get(self.audio_filepath_key)):
+            content_fmt = self._user_content_format_for_media(image=False)
+            msg = self._url_or_data_url(row[self.audio_filepath_key], content_format=content_fmt)
+            content_parts.append(msg)
+
+        text_val = row.get("text") if "text" in row else None
+        if text_val is not None and not (isinstance(text_val, float) and pd.isna(text_val)) and str(text_val).strip():
+            content_parts.append({"type": "text", "text": text_val})
+
+        if content_parts:
+            messages.append({"role": "user", "content": content_parts})
+        elif not messages:
+            messages.append({"role": "user", "content": ""})
+
+        return messages
 
     def process(self, input_batch: DocumentBatch) -> DocumentBatch:
         """Build LLM messages from each row and add a 'messages' column."""
-        af = self.audio_format
         df = input_batch.to_pandas().copy()
-        df["messages"] = df.apply(lambda row: _row_to_messages(row.to_dict(), audio_format=af), axis=1)
+        df["messages"] = df.apply(lambda row: self._row_to_messages(row.to_dict()), axis=1)
         return DocumentBatch(
             data=df,
             dataset_name=input_batch.dataset_name,
