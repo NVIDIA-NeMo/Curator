@@ -19,7 +19,7 @@ from __future__ import annotations
 import base64
 import io
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
@@ -27,8 +27,11 @@ import pandas as pd
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, _EmptyTask
 
+if TYPE_CHECKING:
+    from lhotse import Cut
+
 try:
-    from lhotse import Cut, CutSet
+    from lhotse import CutSet
 except ModuleNotFoundError as exc:
     msg = "Install lhotse (e.g. pip install lhotse) to use PrepareOmniLhotseStage."
     raise RuntimeError(msg) from exc
