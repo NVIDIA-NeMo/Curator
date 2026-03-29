@@ -48,6 +48,42 @@ def _is_local_path(value: str) -> bool:
     return not s.startswith(("http://", "https://"))
 
 
+def _parse_dali_webdataset_index(index_path: Path) -> dict[str, tuple[int, int]]:
+    """Parse a DALI ``wds2idx.py`` v1.2 index into ``member_name -> (data_offset, size)``.
+
+    Each non-header line lists components as
+    ``ext offset size name`` (repeated per component in the sample), matching
+    `NVIDIA DALI tools/wds2idx.py <https://github.com/NVIDIA/DALI/blob/main/tools/wds2idx.py>`_.
+    """
+    raw = index_path.read_text(encoding="utf-8", errors="replace")
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    if not lines:
+        msg = "DALI index file is empty: " + str(index_path)
+        raise ValueError(msg)
+    header_parts = lines[0].split()
+    min_header_parts = 2
+    if len(header_parts) < min_header_parts or not header_parts[0].startswith("v"):
+        msg = "Invalid DALI webdataset index header: " + lines[0]
+        raise ValueError(msg)
+    out: dict[str, tuple[int, int]] = {}
+    for line in lines[1:]:
+        parts = line.split()
+        n = len(parts)
+        if n % 4 != 0:
+            msg = (
+                "Unparseable DALI index line (expected a multiple of 4 tokens "
+                "ext/offset/size/name per component): " + line[:200]
+            )
+            raise ValueError(msg)
+        for i in range(0, n, 4):
+            _ext, off_s, sz_s, name = parts[i], parts[i + 1], parts[i + 2], parts[i + 3]
+            out[name] = (int(off_s), int(sz_s))
+    if not out:
+        msg = "DALI index contains no member entries: " + str(index_path)
+        raise ValueError(msg)
+    return out
+
+
 @dataclass
 class PrepareMessagesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """
@@ -69,6 +105,12 @@ class PrepareMessagesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             ``"audio_url"`` (default) — vLLM / Qwen3-Omni format.
             ``"input_audio"`` — OpenAI-compatible hosted API format
             (e.g. NVIDIA inference API with Gemini).
+        input_tar: Path to a WebDataset tar shard. When set together with
+            ``input_index``, ``audio_filepath_key`` / ``image_filepath_key`` values
+            are interpreted as **member names** inside the tar (as listed by
+            ``tar tf``), matching names stored in the DALI index from ``wds2idx.py``.
+        input_index: Path to the DALI v1.2 index file for ``input_tar``
+            (see ``tools/wds2idx.py`` in the DALI repo).
     """
 
     name: str = "MakeMessagesStage"
@@ -76,14 +118,67 @@ class PrepareMessagesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     audio_filepath_key: str = "audio_filepath"
     image_filepath_key: str = "image_url"
     input_tar: str = ""
+    input_index: str = ""
+    user_prompt: str = "text"
+    system_prompt: str = "system_text"
+
+    _tar_member_index: dict[str, tuple[int, int]] | None = field(default=None, init=False, repr=False)
+
+    def _tar_index_configured(self) -> bool:
+        tar_set = bool(self.input_tar.strip())
+        index_set = bool(self.input_index.strip())
+        if tar_set ^ index_set:
+            msg = "input_tar and input_index must both be set, or both empty."
+            raise ValueError(msg)
+        return tar_set and index_set
+
+    def _tar_member_index_map(self) -> dict[str, tuple[int, int]]:
+        if self._tar_member_index is None:
+            idx_path = Path(self.input_index.strip()).expanduser().resolve()
+            self._tar_member_index = _parse_dali_webdataset_index(idx_path)
+        return self._tar_member_index
+
+    def _resolve_tar_member_name(self, key: str) -> str:
+        """Map a row value to the tar member name recorded in the DALI index."""
+        key = key.strip()
+        m = self._tar_member_index_map()
+        if key in m:
+            return key
+        basename = Path(key).name
+        matches = [n for n in m if n == key or n.endswith("/" + key) or Path(n).name == basename]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            msg = f"Ambiguous tar member key {key!r}; matches include {matches[:8]!r}"
+            raise ValueError(msg)
+        msg = f"Member not found in DALI index for key {key!r}"
+        raise FileNotFoundError(msg)
+
+    def _read_bytes_from_tar(self, member_key: str) -> tuple[bytes, str]:
+        """Read raw file bytes from ``input_tar`` using the DALI index; return (data, path_for_mime)."""
+        tar_path = Path(self.input_tar.strip()).expanduser().resolve()
+        if not tar_path.is_file():
+            msg = "input_tar is not a file: " + str(tar_path)
+            raise FileNotFoundError(msg)
+        name = self._resolve_tar_member_name(member_key)
+        offset, size = self._tar_member_index_map()[name]
+        with tar_path.open("rb") as f:
+            f.seek(offset)
+            raw = f.read(size)
+        if len(raw) != size:
+            msg = f"Short read from tar for {name!r}: got {len(raw)} bytes, expected {size}"
+            raise OSError(msg)
+        return raw, name
 
     def _local_file_to_data_url(self, path: str) -> tuple[str, str]:
         """Read a local file, encode to base64, return a data URL."""
-        input_tar = self.input_tar.strip()
-        if input_tar:
-            path = Path(input_tar).joinpath(path).as_posix()
-            msg = "Reading from input tar is not implemented yet"
-            raise NotImplementedError(msg)
+        if self._tar_index_configured():
+            raw, resolved_name = self._read_bytes_from_tar(path)
+            mime_type, _ = mimetypes.guess_type(resolved_name)
+            if mime_type is None:
+                mime_type = "application/octet-stream"
+            b64 = base64.standard_b64encode(raw).decode("ascii")
+            return b64, mime_type
 
         path_obj = Path(path).expanduser().resolve()
         if not path_obj.is_file():
@@ -103,6 +198,14 @@ class PrepareMessagesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         (e.g. NVIDIA inference API with Gemini) as opposed to ``audio_url``
         which is used by vLLM.
         """
+        if self._tar_index_configured():
+            raw, resolved_name = self._read_bytes_from_tar(path)
+            ext = Path(resolved_name).suffix.lstrip(".").lower()
+            if not ext:
+                ext = "wav"
+            b64 = base64.standard_b64encode(raw).decode("ascii")
+            return b64, ext
+
         path_obj = Path(path).expanduser().resolve()
         if not path_obj.is_file():
             msg = "Local path is not a file: " + path
@@ -160,8 +263,8 @@ class PrepareMessagesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             row: A dictionary with optional keys: system_text, text, image_url, audio_url.
         """
         messages: list[dict] = []
-        if row.get("system_text"):
-            messages.append({"role": "system", "content": row["system_text"]})
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
 
         content_parts: list[dict] = []
         if self.image_filepath_key in row and _is_valid_value(row.get(self.image_filepath_key)):
@@ -174,7 +277,7 @@ class PrepareMessagesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             msg = self._url_or_data_url(row[self.audio_filepath_key], content_format=content_fmt)
             content_parts.append(msg)
 
-        text_val = row.get("text") if "text" in row else None
+        text_val = self.user_prompt
         if text_val is not None and not (isinstance(text_val, float) and pd.isna(text_val)) and str(text_val).strip():
             content_parts.append({"type": "text", "text": text_val})
 
