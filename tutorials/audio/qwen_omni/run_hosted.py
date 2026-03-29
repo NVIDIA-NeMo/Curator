@@ -21,7 +21,7 @@ the ``input_audio`` format over HTTP — no local GPU required.
 Usage::
 
     export API_KEY="$NVIDIA_API_KEY"
-    python run_hosted.py --input_path /path/to/input.jsonl
+    python run_hosted.py --input_manifest /path/to/input.jsonl
 
 The input JSONL should have rows with ``audio_url`` pointing to local
 audio files, and optionally ``text`` and ``system_text`` fields.
@@ -45,8 +45,17 @@ from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run audio pipeline via NVIDIA inference API.")
-    parser.add_argument("--input_path", type=str, required=True, help="Input JSONL path")
+    parser.add_argument(
+        "--input_manifest",
+        type=str,
+        required=True,
+        help="Input JSONL path. Can be a single file or a directory containing multiple files.",
+    )
+    parser.add_argument("--input_tar", type=str, default="", help="Input tar file range")
+    parser.add_argument("--input_index", type=str, default="", help="Input dali index for reading from tar file")
     parser.add_argument("--output_path", type=str, default="output/hosted_audio/", help="Output directory")
+    parser.add_argument("--user_prompt", type=str, default="Transcribe audio.", help="User prompt")
+    parser.add_argument("--system_prompt", type=str, default="You are a helpful assistant.", help="System prompt")
     parser.add_argument(
         "--base-url",
         type=str,
@@ -86,8 +95,16 @@ def main() -> None:
     }
 
     pipeline = Pipeline(name="hosted_audio")
-    pipeline.add_stage(JsonlReader(file_paths=args.input_path))
-    pipeline.add_stage(PrepareMessagesStage(format="input_data"))
+    pipeline.add_stage(JsonlReader(file_paths=args.input_manifest))
+    pipeline.add_stage(
+        PrepareMessagesStage(
+            format="input_data",
+            input_tar=args.input_tar,
+            input_index=args.input_index,
+            user_prompt=args.user_prompt,
+            system_prompt=args.system_prompt,
+        )
+    )
     pipeline.add_stage(
         OmniLLMRequestStage(
             client=llm_client,

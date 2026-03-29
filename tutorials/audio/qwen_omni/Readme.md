@@ -34,7 +34,7 @@ docker run --gpus all --ipc=host --shm-size=8g \
   -v /path/to/data:/data \
   -e NUM_GPU=2 \
   nvcr.io/nvidian/curator-qwen3-omni:latest \
-  --input_path /data/input.jsonl --output_path /data/output/
+  --input_manifest /data/input.jsonl --output_path /data/output/
 ```
 
 ### Run (1 GPU, AWQ 4-bit quantized)
@@ -45,7 +45,7 @@ docker run --gpus all --ipc=host --shm-size=8g \
   -e VLLM_MODEL=cyankiwi/Qwen3-Omni-30B-A3B-Instruct-AWQ-4bit \
   -e VLLM_MAX_MODEL_LEN=4096 \
   nvcr.io/nvidian/curator-qwen3-omni:latest \
-  --input_path /data/input.jsonl --output_path /data/output/
+  --input_manifest /data/input.jsonl --output_path /data/output/
 ```
 
 The entrypoint automatically starts vLLM, waits for it to be healthy, runs the
@@ -80,7 +80,7 @@ docker run --gpus all --ipc=host --shm-size=8g \
   -v /path/to/data:/data \
   -e NUM_GPU=2 \
   curator-qwen3-omni \
-  --input_path /data/input.jsonl --output_path /data/output/
+  --input_manifest /data/input.jsonl --output_path /data/output/
 ```
 
 
@@ -110,7 +110,7 @@ cd Curator
 pip install -e .
 pip install -r tutorials/audio/qwen_omni/requirements.txt
 python tutorials/audio/qwen_omni/run_pipeline.py \
-  --input_path /path/to/input.jsonl --host localhost --port 8201
+  --input_manifest /path/to/input.jsonl --host localhost --port 8201
 ```
 
 
@@ -124,7 +124,7 @@ python tutorials/audio/qwen_omni/run_pipeline.py \
   --start-server \
   --vllm-python /usr/bin/python3 \
   --tensor-parallel-size 2 \
-  --input_path /path/to/input.jsonl
+  --input_manifest /path/to/input.jsonl
 ```
 
 This starts vLLM using the specified Python executable, runs the pipeline,
@@ -139,7 +139,7 @@ running vLLM locally. Audio is sent as base64-encoded `input_audio` format.
 ```bash
 export API_KEY="$NVIDIA_API_KEY"
 python tutorials/audio/qwen_omni/run_hosted.py \
-  --input_path /path/to/input.jsonl \
+  --input_manifest /path/to/input.jsonl \
   --model-name gcp/google/gemini-2.5-pro
 ```
 

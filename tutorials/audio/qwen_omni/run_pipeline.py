@@ -32,7 +32,7 @@ from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 # Omit this block if you have started a cluster with `ray start --head` and want to use it.
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Qwen3-Omni pipeline with JSONL input/output.")
-    parser.add_argument("--input_path", type=str, required=True, help="Input JSONL path")
+    parser.add_argument("--input_manifest", type=str, required=True, help="Input JSONL path")
     parser.add_argument("--input_tar", type=str, default="", help="Input tar file range")
     parser.add_argument("--input_index", type=str, default="", help="Input dali index for reading from tar file")
     parser.add_argument("--output_path", type=str, default="output/qwen3_omni/", help="Output directory")
@@ -97,7 +97,7 @@ def main() -> None:
         }
 
         pipeline = Pipeline(name="qwen3_omni")
-        pipeline.add_stage(JsonlReader(file_paths=args.input_path))
+        pipeline.add_stage(JsonlReader(file_paths=args.input_manifest))
         pipeline.add_stage(
             PrepareMessagesStage(
                 format="data_url",
