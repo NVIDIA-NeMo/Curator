@@ -19,6 +19,7 @@ This module contains a simple stage for generating synthetic data. It takes in E
 import asyncio
 import base64
 import mimetypes
+import tarfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -105,12 +106,14 @@ class PrepareMessagesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             ``"audio_url"`` (default) — vLLM / Qwen3-Omni format.
             ``"input_audio"`` — OpenAI-compatible hosted API format
             (e.g. NVIDIA inference API with Gemini).
-        input_tar: Path to a WebDataset tar shard. When set together with
-            ``input_index``, ``audio_filepath_key`` / ``image_filepath_key`` values
-            are interpreted as **member names** inside the tar (as listed by
-            ``tar tf``), matching names stored in the DALI index from ``wds2idx.py``.
-        input_index: Path to the DALI v1.2 index file for ``input_tar``
-            (see ``tools/wds2idx.py`` in the DALI repo).
+        input_tar: Path to a tar archive. When set, ``audio_filepath_key`` /
+            ``image_filepath_key`` values are **member names** inside the tar
+            (as in ``tar tf``). With ``input_index``, bytes are read via the DALI
+            index (fast random access). With an empty ``input_index``, members are
+            resolved and read with the standard library ``tarfile`` module.
+        input_index: Optional path to a DALI v1.2 index for ``input_tar``
+            (``tools/wds2idx.py`` in the DALI repo). If empty, ``input_tar`` alone
+            is enough. If set, ``input_tar`` must also be set.
     """
 
     name: str = "MakeMessagesStage"
@@ -123,14 +126,18 @@ class PrepareMessagesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     system_prompt: str = "system_text"
 
     _tar_member_index: dict[str, tuple[int, int]] | None = field(default=None, init=False, repr=False)
+    _tar_member_names_cache: list[str] | None = field(default=None, init=False, repr=False)
 
-    def _tar_index_configured(self) -> bool:
-        tar_set = bool(self.input_tar.strip())
-        index_set = bool(self.input_index.strip())
-        if tar_set ^ index_set:
-            msg = "input_tar and input_index must both be set, or both empty."
+    def _uses_input_tar(self) -> bool:
+        return bool(self.input_tar.strip())
+
+    def _uses_dali_index(self) -> bool:
+        return bool(self.input_tar.strip()) and bool(self.input_index.strip())
+
+    def _ensure_index_has_tar(self) -> None:
+        if self.input_index.strip() and not self.input_tar.strip():
+            msg = "input_index requires input_tar to be set."
             raise ValueError(msg)
-        return tar_set and index_set
 
     def _tar_member_index_map(self) -> dict[str, tuple[int, int]]:
         if self._tar_member_index is None:
@@ -138,41 +145,84 @@ class PrepareMessagesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             self._tar_member_index = _parse_dali_webdataset_index(idx_path)
         return self._tar_member_index
 
+    def _tar_member_names_list(self) -> list[str]:
+        if self._tar_member_names_cache is None:
+            tar_path = Path(self.input_tar.strip()).expanduser().resolve()
+            if not tar_path.is_file():
+                msg = "input_tar is not a file: " + str(tar_path)
+                raise FileNotFoundError(msg)
+            with tarfile.open(tar_path, "r:*") as tf:
+                self._tar_member_names_cache = [m.name for m in tf.getmembers() if m.isfile()]
+        return self._tar_member_names_cache
+
     def _resolve_tar_member_name(self, key: str) -> str:
-        """Map a row value to the tar member name recorded in the DALI index."""
+        """Map a row value to a tar member name (DALI index or ``tarfile`` listing)."""
         key = key.strip()
-        m = self._tar_member_index_map()
-        if key in m:
+        if self._uses_dali_index():
+            m = self._tar_member_index_map()
+            if key in m:
+                return key
+            basename = Path(key).name
+            matches = [n for n in m if n == key or n.endswith("/" + key) or Path(n).name == basename]
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                msg = f"Ambiguous tar member key {key!r}; matches include {matches[:8]!r}"
+                raise ValueError(msg)
+            msg = f"Member not found in DALI index for key {key!r}"
+            raise FileNotFoundError(msg)
+
+        names = self._tar_member_names_list()
+        if key in names:
             return key
         basename = Path(key).name
-        matches = [n for n in m if n == key or n.endswith("/" + key) or Path(n).name == basename]
+        matches = [n for n in names if n == key or n.endswith("/" + key) or Path(n).name == basename]
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
             msg = f"Ambiguous tar member key {key!r}; matches include {matches[:8]!r}"
             raise ValueError(msg)
-        msg = f"Member not found in DALI index for key {key!r}"
+        msg = f"Member not found in tar for key {key!r}"
         raise FileNotFoundError(msg)
 
     def _read_bytes_from_tar(self, member_key: str) -> tuple[bytes, str]:
-        """Read raw file bytes from ``input_tar`` using the DALI index; return (data, path_for_mime)."""
+        """Read raw file bytes from ``input_tar``; optional DALI index for seek+read."""
+        self._ensure_index_has_tar()
         tar_path = Path(self.input_tar.strip()).expanduser().resolve()
         if not tar_path.is_file():
             msg = "input_tar is not a file: " + str(tar_path)
             raise FileNotFoundError(msg)
         name = self._resolve_tar_member_name(member_key)
-        offset, size = self._tar_member_index_map()[name]
-        with tar_path.open("rb") as f:
-            f.seek(offset)
-            raw = f.read(size)
-        if len(raw) != size:
-            msg = f"Short read from tar for {name!r}: got {len(raw)} bytes, expected {size}"
-            raise OSError(msg)
+
+        if self._uses_dali_index():
+            offset, size = self._tar_member_index_map()[name]
+            with tar_path.open("rb") as f:
+                f.seek(offset)
+                raw = f.read(size)
+            if len(raw) != size:
+                msg = f"Short read from tar for {name!r}: got {len(raw)} bytes, expected {size}"
+                raise OSError(msg)
+            return raw, name
+
+        with tarfile.open(tar_path, "r:*") as tf:
+            try:
+                info = tf.getmember(name)
+            except KeyError as exc:
+                msg = f"Member not found in tar: {name!r}"
+                raise FileNotFoundError(msg) from exc
+            if not info.isfile():
+                msg = f"Tar entry is not a regular file: {name!r}"
+                raise OSError(msg)
+            stream = tf.extractfile(info)
+            if stream is None:
+                msg = f"Cannot read tar member payload: {name!r}"
+                raise OSError(msg)
+            raw = stream.read()
         return raw, name
 
     def _local_file_to_data_url(self, path: str) -> tuple[str, str]:
         """Read a local file, encode to base64, return a data URL."""
-        if self._tar_index_configured():
+        if self._uses_input_tar():
             raw, resolved_name = self._read_bytes_from_tar(path)
             mime_type, _ = mimetypes.guess_type(resolved_name)
             if mime_type is None:
@@ -198,7 +248,7 @@ class PrepareMessagesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         (e.g. NVIDIA inference API with Gemini) as opposed to ``audio_url``
         which is used by vLLM.
         """
-        if self._tar_index_configured():
+        if self._uses_input_tar():
             raw, resolved_name = self._read_bytes_from_tar(path)
             ext = Path(resolved_name).suffix.lstrip(".").lower()
             if not ext:
