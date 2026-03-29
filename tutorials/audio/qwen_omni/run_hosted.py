@@ -39,6 +39,7 @@ from nemo_curator.stages.audio.request.onmi_llm_request import OmniLLMRequestSta
 from nemo_curator.stages.audio.request.prepare_omni_request import PrepareOmniRequestStage
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
+from nemo_curator.stages.audio.request.prepare_omni_lhotse import PrepareOmniLhotseStage
 
 
 def parse_args() -> argparse.Namespace:
@@ -93,16 +94,28 @@ def main() -> None:
     }
 
     pipeline = Pipeline(name="hosted_audio")
-    pipeline.add_stage(JsonlReader(file_paths=args.input_manifest))
-    pipeline.add_stage(
-        PrepareOmniRequestStage(
-            format="input_data",
-            input_tar=args.input_tar,
-            input_index=args.input_index,
-            user_prompt=args.user_prompt,
-            system_prompt=args.system_prompt,
+    if not args.lhotse_mode:
+        pipeline.add_stage(JsonlReader(file_paths=args.input_manifest))
+        pipeline.add_stage(
+            PrepareOmniRequestStage(
+                format="input_data",
+                input_tar=args.input_tar,
+                input_index=args.input_index,
+                user_prompt=args.user_prompt,
+                system_prompt=args.system_prompt,
+            )
         )
-    )
+    else:
+        pipeline.add_stage(
+            PrepareOmniLhotseStage(
+                lhotse_mode=args.lhotse_mode,
+                input_manifest=args.input_manifest,
+                input_tar=args.input_tar,
+                user_prompt=args.user_prompt,
+                user_prompt_key="",
+                system_prompt=args.system_prompt,
+            )
+        )
     pipeline.add_stage(
         OmniLLMRequestStage(
             client=llm_client,
