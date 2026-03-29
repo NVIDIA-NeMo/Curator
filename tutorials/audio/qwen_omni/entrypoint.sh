@@ -3,7 +3,7 @@
 #
 # Starts vLLM server (using system Python) in the background, waits for
 # it to become healthy, then runs the Curator pipeline (using the venv
-# Python).  All additional arguments are forwarded to run_qwen3.py.
+# Python).  All additional arguments are forwarded to run_pipeline.py.
 #
 # Environment variables (with defaults):
 #   VLLM_MODEL           - Model ID (default: Qwen/Qwen3-Omni-30B-A3B-Instruct)
@@ -76,7 +76,7 @@ fi
 # 3. Run Curator pipeline using the venv Python
 # ------------------------------------------------------------------
 echo "[entrypoint] Running Curator pipeline..."
-/opt/curator_venv/bin/python /opt/Curator/tutorials/audio/qwen_omni/run_qwen3.py \
+/opt/curator_venv/bin/python /opt/Curator/tutorials/audio/qwen_omni/run_pipeline.py \
     --host localhost \
     --port "$VLLM_PORT" \
     --model-name "$VLLM_MODEL" \

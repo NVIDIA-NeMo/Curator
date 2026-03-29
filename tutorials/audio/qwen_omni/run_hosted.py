@@ -14,7 +14,7 @@
 
 """Run audio processing pipeline against the NVIDIA inference API.
 
-Unlike ``run_qwen3.py`` (which needs a local vLLM server), this script
+Unlike ``run_pipeline.py`` (which needs a local vLLM server), this script
 uses hosted models (e.g. Gemini via NVIDIA inference API) that accept
 the ``input_audio`` format over HTTP — no local GPU required.
 

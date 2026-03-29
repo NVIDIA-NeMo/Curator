@@ -109,7 +109,7 @@ git clone https://github.com/NVIDIA-NeMo/Curator.git
 cd Curator
 pip install -e .
 pip install -r tutorials/audio/qwen_omni/requirements.txt
-python tutorials/audio/qwen_omni/run_qwen3.py \
+python tutorials/audio/qwen_omni/run_pipeline.py \
   --input_path /path/to/input.jsonl --host localhost --port 8201
 ```
 
@@ -120,7 +120,7 @@ If you have both vLLM and Curator installed (possibly in different Python
 environments), use the `--start-server` flag to launch vLLM as a subprocess:
 
 ```bash
-python tutorials/audio/qwen_omni/run_qwen3.py \
+python tutorials/audio/qwen_omni/run_pipeline.py \
   --start-server \
   --vllm-python /usr/bin/python3 \
   --tensor-parallel-size 2 \
