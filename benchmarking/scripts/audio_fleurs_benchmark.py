@@ -54,60 +54,60 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     scratch_output_path = Path(scratch_output_path)
     results_dir = benchmark_results_path / "results"
 
-    if results_dir.exists():
-        msg = f"Result directory {results_dir} already exists."
-        raise ValueError(msg)
-
-    logger.info("Starting audio fleurs benchmark")
-    logger.info(f"Executor: {executor}")
-    logger.info(f"Model: {model_name}")
-    logger.info(f"Language: {lang}")
-    logger.info(f"Split: {split}")
-    logger.info(f"WER threshold: {wer_threshold}")
-    logger.info(f"GPUs: {gpus}")
-
-    executor_obj = setup_executor(executor)
-    pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
-
-    pipeline.add_stage(
-        CreateInitialManifestFleursStage(
-            lang=lang,
-            split=split,
-            raw_data_dir=scratch_output_path / "armenian/fleurs",
-        ).with_(batch_size=4)
-    )
-    pipeline.add_stage(InferenceAsrNemoStage(model_name=model_name).with_(resources=Resources(gpus=gpus)))
-    pipeline.add_stage(
-        GetPairwiseWerStage(
-            text_key="text",
-            pred_text_key="pred_text",
-            wer_key="wer",
-        )
-    )
-    pipeline.add_stage(
-        GetAudioDurationStage(
-            audio_filepath_key="audio_filepath",
-            duration_key="duration",
-        )
-    )
-    pipeline.add_stage(
-        PreserveByValueStage(
-            input_value_key="wer",
-            target_value=wer_threshold,
-            operator="le",
-        )
-    )
-    pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
-    pipeline.add_stage(
-        JsonlWriter(
-            path=results_dir,
-            write_kwargs={"force_ascii": False},
-        )
-    )
-
     run_start_time = time.perf_counter()
 
     try:
+        if results_dir.exists():
+            msg = f"Result directory {results_dir} already exists."
+            raise ValueError(msg)  # noqa: TRY301
+
+        logger.info("Starting audio fleurs benchmark")
+        logger.info(f"Executor: {executor}")
+        logger.info(f"Model: {model_name}")
+        logger.info(f"Language: {lang}")
+        logger.info(f"Split: {split}")
+        logger.info(f"WER threshold: {wer_threshold}")
+        logger.info(f"GPUs: {gpus}")
+
+        executor_obj = setup_executor(executor)
+        pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
+
+        pipeline.add_stage(
+            CreateInitialManifestFleursStage(
+                lang=lang,
+                split=split,
+                raw_data_dir=scratch_output_path / "armenian/fleurs",
+            ).with_(batch_size=4)
+        )
+        pipeline.add_stage(InferenceAsrNemoStage(model_name=model_name).with_(resources=Resources(gpus=gpus)))
+        pipeline.add_stage(
+            GetPairwiseWerStage(
+                text_key="text",
+                pred_text_key="pred_text",
+                wer_key="wer",
+            )
+        )
+        pipeline.add_stage(
+            GetAudioDurationStage(
+                audio_filepath_key="audio_filepath",
+                duration_key="duration",
+            )
+        )
+        pipeline.add_stage(
+            PreserveByValueStage(
+                input_value_key="wer",
+                target_value=wer_threshold,
+                operator="le",
+            )
+        )
+        pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
+        pipeline.add_stage(
+            JsonlWriter(
+                path=results_dir,
+                write_kwargs={"force_ascii": False},
+            )
+        )
+
         logger.info("Running audio fleurs pipeline...")
         logger.info(f"Pipeline description:\n{pipeline.describe()}")
 

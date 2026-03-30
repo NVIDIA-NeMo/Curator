@@ -636,6 +636,9 @@ entries:
       enable_object_spilling: false
     sink_data:
       - name: slack
+        # time_taken_s intentionally omitted: FLEURS includes dataset download
+        # whose wall-clock varies with network conditions, making it unreliable
+        # as a Slack regression metric. Only throughput/count are reported.
         additional_metrics:
           - throughput_tasks_per_sec
           - num_tasks_processed
@@ -663,6 +666,9 @@ entries:
       enable_object_spilling: false
     sink_data:
       - name: slack
+        # time_taken_s intentionally omitted: FLEURS includes dataset download
+        # whose wall-clock varies with network conditions, making it unreliable
+        # as a Slack regression metric. Only throughput/count are reported.
         additional_metrics:
           - throughput_tasks_per_sec
           - num_tasks_processed
