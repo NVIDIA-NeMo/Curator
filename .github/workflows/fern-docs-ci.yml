@@ -42,8 +42,6 @@ jobs:
       - name: Install Fern CLI
         run: npm install -g fern-api
 
-      - name: Generate library reference MDX (product-docs)
+      - name: Validate Fern configuration
         working-directory: ./fern
-        run: fern docs md generate
-        env:
-          FERN_TOKEN: ${{ secrets.FERN_TOKEN }}
+        run: fern check
