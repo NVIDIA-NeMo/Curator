@@ -100,22 +100,12 @@ deduplication_cuda12 = [
 audio_cpu = [
     "transformers",
     "accelerate",
-    "ijson",
     "pyannote-audio>=4.0.0",
-    "ffmpeg-python",
     "whisperx==3.8.2",
     "cuda-python>=12.3",
-    "matplotlib",
-    "nemo-text-processing",
-    "pyarabic",
-    "opencc",
     "soundfile>=0.12.0",
-    "librosa",
-    "jiwer",
     "torchaudio",
     "nemo_toolkit[asr]==2.4.0",
-    "nemo_toolkit[nlp]==2.4.0",
-    "transformer-engine[pytorch]==2.4.0",
 ]
 
 audio_cuda12 = [
