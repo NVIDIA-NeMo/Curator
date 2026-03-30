@@ -156,3 +156,4 @@ data/
 # macOS Files
 .DS_Store
 AGENTS.md
+alm_output/

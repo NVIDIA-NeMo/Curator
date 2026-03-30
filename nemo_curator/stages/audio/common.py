@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,80 +12,65 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from abc import abstractmethod
 from dataclasses import dataclass
 from operator import eq, ge, gt, le, lt, ne
+from typing import Any
 
-import soundfile
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch, Task
-
-
-class LegacySpeechStage(ProcessingStage[Task, Task]):
-    """
-    LegacySpeechStage for SDP processors inherited from BaseParallelProcessor
-
-    """
-
-    def process(self, task: AudioBatch) -> list[Task]:
-        result = []
-        for entry in task.data:
-            entries = self.process_dataset_entry(entry)
-            for r in entries:
-                if r is not task and not r._stage_perf:
-                    r._stage_perf = list(task._stage_perf)
-            result.extend(entries)
-        return result
-
-    @abstractmethod
-    def process_dataset_entry(self, data_entry: AudioBatch) -> list[AudioBatch]:
-        return [data_entry]
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class GetAudioDurationStage(LegacySpeechStage):
-    """
-    Stage that computes the duration of the file in ``audio_filepath_key`` (using soundfile)
-    and saves the duration in ``duration_key``. If there is an error computing the duration,
-    the value at ``duration_key`` will be updated with the value -1.0.
+class GetAudioDurationStage(ProcessingStage[AudioTask, AudioTask]):
+    """Compute audio duration from the file at *audio_filepath_key* and
+    store the result under *duration_key*.
 
     Args:
-        audio_filepath_key (str): Key to get path to wav file.
-        duration_key (str): Key to put to audio duration.
-    Returns:
-        All the same fields as in the input manifest plus duration_key
+        audio_filepath_key: Key to get path to wav file.
+        duration_key: Key to put audio duration.
     """
 
-    name = "GetAudioDurationStage"
-    audio_filepath_key: str
-    duration_key: str
+    name: str = "GetAudioDurationStage"
+    audio_filepath_key: str = "audio_filepath"
+    duration_key: str = "duration"
 
-    def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
-        audio_filepath = data_entry[self.audio_filepath_key]
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+        import soundfile
+
+        self._soundfile = soundfile
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.audio_filepath_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.duration_key]
+
+    def process(self, task: AudioTask) -> AudioTask:
+        audio_filepath = task.data[self.audio_filepath_key]
         try:
-            data, samplerate = soundfile.read(audio_filepath)
-            data_entry[self.duration_key] = data.shape[0] / samplerate
-        except soundfile.SoundFileError as e:
+            raw, samplerate = self._soundfile.read(audio_filepath)
+            task.data[self.duration_key] = raw.shape[0] / samplerate
+        except self._soundfile.SoundFileError as e:
             logger.warning(str(e) + " file: " + audio_filepath)
-            data_entry[self.duration_key] = -1.0
-        return [AudioBatch(data=data_entry)]
+            task.data[self.duration_key] = -1.0
+        return task
 
 
-class PreserveByValueStage(LegacySpeechStage):
-    """
-    Processor for preserving dataset entries based on a specified condition involving a target value and an input field.
+class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
+    """Filter entries by comparing *input_value_key* against *target_value*.
+
+    Returns ``None`` from ``process()`` to drop entries that fail the
+    comparison, matching the text-modality filter convention.
 
     Args:
-        input_value_key (str): The field in the dataset entries to be evaluated.
-        target_value (Union[int, str]): The value to compare with the input field.
-        operator (str): (Optional) The operator to apply for comparison. Options: "lt" (less than), "le" (less than or equal to), "eq" (equal to), "ne" (not equal to), "ge" (greater than or equal to), "gt" (greater than). Defaults to "eq".
-        **kwargs: Additional keyword arguments to be passed to the base class `BaseParallelProcessor`.
-
+        input_value_key: The field in the dataset entries to evaluate.
+        target_value: The value to compare with.
+        operator: Comparison operator (lt, le, eq, ne, ge, gt).
     """
 
-    name = "PreserveByValueStage"
+    name: str = "PreserveByValueStage"
 
     def __init__(
         self,
@@ -95,26 +80,28 @@ class PreserveByValueStage(LegacySpeechStage):
     ):
         self.input_value_key = input_value_key
         self.target_value = target_value
-        if operator == "lt":
-            self.operator = lt
-        elif operator == "le":
-            self.operator = le
-        elif operator == "eq":
-            self.operator = eq
-        elif operator == "ne":
-            self.operator = ne
-        elif operator == "ge":
-            self.operator = ge
-        elif operator == "gt":
-            self.operator = gt
-        else:
-            msg = 'Operator must be one from the list: "lt" (less than), "le" (less than or equal to), "eq" (equal to), "ne" (not equal to), "ge" (greater than or equal to), "gt" (greater than)'
+        ops = {"lt": lt, "le": le, "eq": eq, "ne": ne, "ge": ge, "gt": gt}
+        if operator not in ops:
+            msg = f"Operator must be one of: {', '.join(ops)}"
             raise ValueError(msg)
+        self.operator = ops[operator]
 
-    def process_dataset_entry(self, data_entry: AudioBatch) -> list[AudioBatch]:
-        input_value = data_entry[self.input_value_key]
-        target = self.target_value
-        if self.operator(input_value, target):
-            return [AudioBatch(data=data_entry)]
-        else:
-            return []
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.input_value_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.input_value_key]
+
+    def process(self, task: AudioTask) -> AudioTask | None:
+        msg = "PreserveByValueStage only supports process_batch"
+        raise NotImplementedError(msg)
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        results = []
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task!s} failed validation for stage {self}"
+                raise ValueError(msg)
+            if self.operator(task.data[self.input_value_key], self.target_value):
+                results.append(task)
+        return results

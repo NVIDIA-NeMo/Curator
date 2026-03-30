@@ -158,7 +158,11 @@ def test_parse_source_ref_with_frame_index() -> None:
 )
 def test_build_source_ref_frame_index(frame_index: int | None, key_present: bool) -> None:
     ref_str = InterleavedBatch.build_source_ref(
-        path="/a.tar", member="m.jpg", byte_offset=10, byte_size=20, frame_index=frame_index,
+        path="/a.tar",
+        member="m.jpg",
+        byte_offset=10,
+        byte_size=20,
+        frame_index=frame_index,
     )
     parsed = json.loads(ref_str)
     assert ("frame_index" in parsed) is key_present

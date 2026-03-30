@@ -180,7 +180,9 @@ def test_reader_image_tokens_with_frame_index(tmp_path: Path) -> None:
     _write_tar_sample(tar_path, payload, json_name="sample.json", image_name="doc.pdf.tiff", image_bytes=b"TIFF_DATA")
     task = _task_for_tar(tar_path, "sub_image_test")
     reader = WebdatasetReaderStage(
-        source_id_field="pdf_name", sample_id_field="pdf_name", image_extensions=(".tiff",),
+        source_id_field="pdf_name",
+        sample_id_field="pdf_name",
+        image_extensions=(".tiff",),
     )
     df = _as_df(reader.process(task))
 
@@ -608,7 +610,9 @@ def test_reader_empty_tar(tmp_path: Path) -> None:
         img_info.size = 3
         tf.addfile(img_info, BytesIO(b"abc"))
     task = FileGroupTask(
-        task_id="empty", dataset_name="d", data=[str(tar_path)],
+        task_id="empty",
+        dataset_name="d",
+        data=[str(tar_path)],
         _metadata={"source_files": [str(tar_path)]},
     )
     reader = WebdatasetReaderStage(source_id_field="pdf_name")
@@ -627,7 +631,8 @@ def test_reader_multi_tar(tmp_path: Path) -> None:
             {f"{sample_id}.json": json.dumps(payload).encode(), f"{sample_id}.jpg": b"img"},
         )
     task = FileGroupTask(
-        task_id="multi", dataset_name="d",
+        task_id="multi",
+        dataset_name="d",
         data=[str(tmp_path / "shard1.tar"), str(tmp_path / "shard2.tar")],
         _metadata={"source_files": ["shard1.tar", "shard2.tar"]},
     )
@@ -650,7 +655,8 @@ def test_reader_max_batch_bytes_splits(tmp_path: Path) -> None:
             {f"{sample_id}.json": json.dumps(payload).encode()},
         )
     task = FileGroupTask(
-        task_id="split", dataset_name="d",
+        task_id="split",
+        dataset_name="d",
         data=[str(tmp_path / "doc1.tar"), str(tmp_path / "doc2.tar")],
         _metadata={"source_files": ["doc1.tar", "doc2.tar"]},
     )
@@ -698,7 +704,10 @@ def test_reader_non_list_images_field(tmp_path: Path) -> None:
     ],
 )
 def test_resolve_image_content_key(
-    image_token: object, default_member: str | None, member_names: set[str], expected: str | None,
+    image_token: object,
+    default_member: str | None,
+    member_names: set[str],
+    expected: str | None,
 ) -> None:
     result = WebdatasetReaderStage._resolve_image_content_key(image_token, default_member, member_names)
     assert result == expected
