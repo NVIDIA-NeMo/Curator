@@ -198,21 +198,38 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
         return passed, fail_reasons
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
-        """Process a single AudioTask and filter by SIGMOS quality metrics."""
+        """Process a single AudioTask and filter by SIGMOS quality metrics.
+
+        When ``task.data`` contains a ``"segments"`` key (nested mode from VAD),
+        each segment is evaluated individually and only survivors are kept.
+        """
+        if "segments" in task.data:
+            survivors = []
+            for seg in task.data["segments"]:
+                temp = AudioTask(data=seg, task_id=task.task_id)
+                result = self._process_single(temp)
+                if result is not None:
+                    survivors.append(temp.data)
+            task.data["segments"] = survivors
+            return task if survivors else []
+        return self._process_single(task) or []
+
+    def _process_single(self, task: AudioTask) -> AudioTask | None:
+        """Run SIGMOS scoring on a single (non-nested) task."""
         audio_result = _get_audio_numpy_sr(task.data, task.task_id)
         if audio_result is None:
-            return []
+            return None
         audio_np, sample_rate = audio_result
 
         self._ensure_predict()
         if self._predict_audio_mos is None:
-            return []
+            return None
 
         try:
             score_data = self._predict_audio_mos(audio_np, sample_rate, model_path=self._resolve_model_path())
         except Exception as e:  # noqa: BLE001
             logger.exception(f"[{task.task_id}] SIGMOS prediction error: {e}")
-            return []
+            return None
 
         s = self._scores_from_prediction(score_data)
         passed, fail_reasons = self._check_thresholds(
@@ -225,7 +242,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
         )
         if not passed:
             logger.info(f"[{task.task_id}] SIGMOS FAILED: {', '.join(fail_reasons)}")
-            return []
+            return None
 
         task.data["sigmos_noise"] = s["noise"]
         task.data["sigmos_ovrl"] = s["ovrl"]

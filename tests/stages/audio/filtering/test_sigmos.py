@@ -149,3 +149,60 @@ class TestSIGMOSFilterStage:
             result = stage.process(_make_task())
 
         assert result == []
+
+    @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
+    def test_process_nested_segments_filters(self, mock_ensure) -> None:
+        """Nested segments: only segments passing thresholds survive."""
+        stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
+        call_count = {"n": 0}
+
+        def fake_predict(audio_data, sample_rate, model_path=None):
+            call_count["n"] += 1
+            if call_count["n"] % 2 == 1:
+                return _GOOD_SCORES
+            return _BAD_SCORES
+
+        stage._predict_audio_mos = fake_predict
+
+        sr = 48000
+        segments = [
+            {"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i}
+            for i in range(4)
+        ]
+        task = AudioTask(
+            data={"segments": segments, "original_file": "test.wav"},
+            task_id="test",
+            dataset_name="test",
+        )
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        assert len(result.data["segments"]) == 2
+        for seg in result.data["segments"]:
+            assert "sigmos_noise" in seg
+
+    @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
+    def test_process_nested_all_filtered_returns_empty(self, mock_ensure) -> None:
+        """Nested segments: when all fail thresholds, return []."""
+        stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
+
+        def fake_predict(audio_data, sample_rate, model_path=None):
+            return _BAD_SCORES
+
+        stage._predict_audio_mos = fake_predict
+
+        sr = 48000
+        segments = [
+            {"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i}
+            for i in range(3)
+        ]
+        task = AudioTask(
+            data={"segments": segments},
+            task_id="test",
+            dataset_name="test",
+        )
+
+        result = stage.process(task)
+
+        assert result == []
