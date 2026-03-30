@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -62,7 +62,8 @@ class MockModelStage(ModelStage):
         return {self.label_field: processed}
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+        if self.max_seq_length is None:
+            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
         result = df_cpu.copy()
         result[self.label_field] = None
 
@@ -176,6 +177,36 @@ class TestModelStage:
         # Check that the original order is restored (based on seq_order)
         expected_texts = ["sample text 2", "sample text 4", "sample text 1", "sample text 3"]
         assert result["text"].tolist() == expected_texts
+
+    def test_process_with_max_seq_length_right_padding(self):
+        stage = MockModelStage(
+            model_identifier="test/model", max_seq_length=2, padding_side="right", has_seq_order=False
+        )
+        stage.setup()
+
+        df = self.create_sample_dataframe(4, include_seq_order=False)
+        batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=df)
+
+        result = stage.process(batch).to_pandas()
+
+        # Check that the tokenized inputs were truncated on the right side
+        assert result[INPUT_ID_FIELD].tolist() == [[1, 2], [4, 5], [6, 7], [10, 11]]
+        assert result[ATTENTION_MASK_FIELD].tolist() == [[1, 1], [1, 1], [1, 1], [1, 1]]
+
+    def test_process_with_max_seq_length_left_padding(self):
+        stage = MockModelStage(
+            model_identifier="test/model", max_seq_length=2, padding_side="left", has_seq_order=False
+        )
+        stage.setup()
+
+        df = self.create_sample_dataframe(4, include_seq_order=False)
+        batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=df)
+
+        result = stage.process(batch).to_pandas()
+
+        # Check that the tokenized inputs were truncated on the left side
+        assert result[INPUT_ID_FIELD].tolist() == [[3, 0], [0, 0], [8, 9], [0, 0]]
+        assert result[ATTENTION_MASK_FIELD].tolist() == [[1, 0], [0, 0], [1, 1], [0, 0]]
 
     def test_process_without_seq_order(self):
         stage = MockModelStage(model_identifier="test/model", has_seq_order=False, model_inference_batch_size=10)
