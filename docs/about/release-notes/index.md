@@ -111,7 +111,7 @@ New API for tracking and analyzing pipeline execution:
 ### Text Curation
 
 - **ID Field Standardization**: Unified ID naming conventions across all deduplication workflows
-- **Performance Optimizations**: Fused document iterate and extract stages into `DocumentIterateExtractStage` for reduced memory overhead and faster pipelines
+- **Performance Optimizations**: Fused document iterate and extract stages for reduced overhead
 - **Better Memory Management**: Improved handling of large-scale semantic deduplication
 - **Small Cluster Warnings**: Automatic warnings when n_clusters is too small for effective deduplication
 - **FilePartitioning Improvements**: One worker per partition for better parallelization
