@@ -93,6 +93,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
     speech_pad_ms: int = 300
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
+    nested: bool = False
 
     name: str = "VADSegmentation"
     batch_size: int = 1
@@ -112,6 +113,8 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], ["waveform", "sample_rate", "start_ms", "end_ms", "segment_num", "duration_sec"]
 
     def ray_stage_spec(self) -> dict[str, Any]:
+        if self.nested:
+            return {}
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
@@ -188,9 +191,15 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         })
         return segment_data
 
-    def process(self, task: AudioTask) -> list[AudioTask]:
+    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         """
-        Process a single AudioTask and return a list of AudioTasks, one per speech segment.
+        Process a single AudioTask.
+
+        When ``nested=False`` (default), returns ``list[AudioTask]`` with one
+        task per speech segment (fan-out).
+
+        When ``nested=True``, returns a single ``AudioTask`` with all segment
+        dicts stored in ``task.data["segments"]`` (no fan-out).
         """
         self._initialize_model()
 
@@ -230,6 +239,14 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
             file_name = os.path.basename(original_file) if original_file != "unknown" else task.task_id
             total_duration = sum((s["end"] - s["start"]) for s in segments)
             logger.info(f"[VADSegmentation] {file_name}: {len(segments)} segments extracted ({total_duration:.1f}s total speech)")
+
+            if self.nested:
+                task.data["segments"] = [
+                    self._build_segment_item(item, waveform, sample_rate, seg, i)
+                    for i, seg in enumerate(segments)
+                ]
+                del task.data[self.waveform_key]
+                return task
 
             output_tasks: list[AudioTask] = []
             for i, segment in enumerate(segments):

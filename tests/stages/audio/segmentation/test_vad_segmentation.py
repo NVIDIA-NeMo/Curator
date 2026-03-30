@@ -144,6 +144,74 @@ class TestVADSegmentationStage:
         assert isinstance(result, list)
         assert len(result) == 0
 
+    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
+    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
+    def test_nested_mode_returns_single_task(self, mock_load_vad, mock_get_ts) -> None:
+        mock_load_vad.return_value = MagicMock()
+
+        sr = 48000
+        mock_get_ts.return_value = [
+            {"start": 0, "end": sr * 3},
+            {"start": sr * 5, "end": sr * 8},
+        ]
+
+        waveform = torch.randn(1, sr * 10)
+        task = AudioTask(
+            data={"waveform": waveform, "sample_rate": sr},
+            task_id="test",
+            dataset_name="test",
+        )
+
+        stage = VADSegmentationStage(min_duration_sec=1.0, nested=True)
+        stage.setup()
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        assert "segments" in result.data
+        assert len(result.data["segments"]) == 2
+        for seg in result.data["segments"]:
+            assert "waveform" in seg
+            assert "start_ms" in seg
+            assert "end_ms" in seg
+            assert "segment_num" in seg
+            assert "duration_sec" in seg
+            assert "original_file" in seg
+
+    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
+    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
+    def test_nested_mode_no_speech_returns_empty(self, mock_load_vad, mock_get_ts) -> None:
+        mock_load_vad.return_value = MagicMock()
+        mock_get_ts.return_value = []
+
+        waveform = torch.randn(1, 48000 * 5)
+        task = AudioTask(
+            data={"waveform": waveform, "sample_rate": 48000},
+            task_id="test",
+            dataset_name="test",
+        )
+
+        stage = VADSegmentationStage(nested=True)
+        stage.setup()
+        result = stage.process(task)
+
+        assert isinstance(result, list)
+        assert len(result) == 0
+
+    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
+    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
+    def test_nested_mode_ray_stage_spec_no_fanout(self, mock_load_vad, mock_get_ts) -> None:
+        stage = VADSegmentationStage(nested=True)
+        spec = stage.ray_stage_spec()
+        assert spec == {}
+
+    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
+    @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
+    def test_non_nested_mode_ray_stage_spec_has_fanout(self, mock_load_vad, mock_get_ts) -> None:
+        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+        stage = VADSegmentationStage(nested=False)
+        spec = stage.ray_stage_spec()
+        assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
+
     def test_pickling(self) -> None:
         import pickle
 
