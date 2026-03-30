@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 @pytest.fixture
@@ -52,6 +52,6 @@ def entry_with_windows(sample_entry: dict) -> dict:
         min_speakers=2,
         max_speakers=5,
     )
-    batch = AudioBatch(data=[sample_entry])
-    result = builder.process(batch)
-    return result[0].data[0]
+    task = AudioTask(data=sample_entry)
+    result = builder.process(task)
+    return result.data

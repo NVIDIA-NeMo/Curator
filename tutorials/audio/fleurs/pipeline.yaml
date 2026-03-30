@@ -41,6 +41,7 @@ processors_to_run: all
 raw_data_dir: ???
 data_split: dev
 output_dir: ${raw_data_dir}/result
+backend: xenna
 
 processors:
   # Getting data for Armenian dev set
