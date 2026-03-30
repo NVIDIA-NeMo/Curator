@@ -14,18 +14,17 @@ This guide covers the core concepts for acquiring and processing text data from 
 
 ## Overview
 
-Data acquisition in NeMo Curator follows a four-stage architecture:
+Data acquisition in NeMo Curator follows a three-stage architecture:
 
 1. **Generate URLs**: Discover and generate download URLs from minimal input
 2. **Download**: Retrieve raw data files from remote sources
-3. **Iterate**: Extract individual records from downloaded containers
-4. **Extract**: Convert raw content to clean, structured text
+3. **Iterate** and **Extract**: Extract individual records from downloaded containers and convert raw content to clean, structured text
 
 This process transforms diverse remote data sources into a standardized `DocumentBatch` that can be used throughout the text curation pipeline.
 
 ## Core Components
 
-The data acquisition framework consists of four abstract base classes that define the acquisition workflow:
+The data acquisition framework consists of abstract base classes that define the acquisition workflow:
 
 ### URLGenerator
 
@@ -75,7 +74,7 @@ class CustomDownloader(DocumentDownloader):
 
 ### DocumentIterator
 
-Extracts individual records from downloaded containers. You should only override `iterate` and `output_columns` where `iterate` must have logic to load the local file path and return bunch of documents. The `list[dict]` is finally considered to a Pandas DataFrame which is passed to Extractor.
+Extracts individual records from downloaded containers. You should only override `iterate` and `output_columns` where `iterate` must have logic to load the local file path and return bunch of documents. Records are passed directly to the extractor (if provided) inline during iteration.
 
 **Example Implementation**:
 
@@ -100,7 +99,7 @@ class CustomIterator(DocumentIterator):
 
 ### DocumentExtractor (Optional)
 
-DocumentExtractor works on a Pandas DataFrame and is optional.
+DocumentExtractor transforms individual records and is optional. When provided to `DocumentIterateExtractStage`, it processes each record inline during iteration rather than as a separate stage.
 
 **Example Implementation**:
 

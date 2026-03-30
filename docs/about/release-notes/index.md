@@ -22,6 +22,14 @@ Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and i
 - **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
 - **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
 
+### Fused Document Iterate and Extract Stages
+
+The data acquisition pipeline now uses a three-stage architecture instead of four, fusing the iterate and extract steps into a single `DocumentIterateExtractStage`:
+
+- **Fused `DocumentIterateExtractStage`**: Combines `DocumentIterateStage` and `DocumentExtractStage` into a single stage that iterates and extracts in one pass.
+- **Improved Memory Efficiency**: Processes records inline instead of materializing intermediate DataFrames, reducing peak memory usage.
+- **Better Performance**: Benchmarks show faster runtimes across both the Ray Data and Xenna executors.
+
 ## What's New in 26.02
 
 ### Benchmarking Infrastructure
@@ -103,7 +111,7 @@ New API for tracking and analyzing pipeline execution:
 ### Text Curation
 
 - **ID Field Standardization**: Unified ID naming conventions across all deduplication workflows
-- **Performance Optimizations**: Fused document iterate and extract stages for reduced overhead
+- **Performance Optimizations**: Fused document iterate and extract stages into `DocumentIterateExtractStage` for reduced memory overhead and faster pipelines
 - **Better Memory Management**: Improved handling of large-scale semantic deduplication
 - **Small Cluster Warnings**: Automatic warnings when n_clusters is too small for effective deduplication
 - **FilePartitioning Improvements**: One worker per partition for better parallelization
@@ -156,6 +164,8 @@ New API for tracking and analyzing pipeline execution:
 ### 26.04
 
 - **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
+- **`DocumentExtractStage` Removed**: The standalone `DocumentExtractStage` class has been removed. Use `DocumentIterateExtractStage` with an optional `extractor` parameter instead.
+- **`DocumentIterateStage` Renamed**: Replaced by `DocumentIterateExtractStage`. Update imports from `nemo_curator.stages.text.download.base.iterator`.
 
 ### 26.02
 
