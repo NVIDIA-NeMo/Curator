@@ -19,6 +19,7 @@ and logs results to configured sinks.
 """
 
 import argparse
+import time
 import traceback
 from pathlib import Path
 from typing import Any
@@ -53,8 +54,6 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     scratch_output_path = Path(scratch_output_path)
     results_dir = benchmark_results_path / "results"
 
-    # Ensure the results dir does not exist so that it will be created.
-    # This ensures no preexisting files are present which would otherwise be treated as additional results.
     if results_dir.exists():
         msg = f"Result directory {results_dir} already exists."
         raise ValueError(msg)
@@ -70,8 +69,6 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     executor_obj = setup_executor(executor)
     pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
 
-    # Add stages
-    # Add the composite stage that combines reading and downloading
     pipeline.add_stage(
         CreateInitialManifestFleursStage(
             lang=lang,
@@ -108,15 +105,48 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         )
     )
 
-    results = pipeline.run(executor_obj)
+    run_start_time = time.perf_counter()
 
-    logger.success("Benchmark completed successfully")
+    try:
+        logger.info("Running audio fleurs pipeline...")
+        logger.info(f"Pipeline description:\n{pipeline.describe()}")
+
+        output_tasks = pipeline.run(executor_obj)
+        run_time_taken = time.perf_counter() - run_start_time
+
+        num_tasks_processed = len(output_tasks) if output_tasks else 0
+
+        logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
+        logger.success(f"Processed {num_tasks_processed} tasks")
+        success = True
+
+    except Exception as e:
+        error_traceback = traceback.format_exc()
+        logger.error(f"Benchmark failed: {e}")
+        logger.debug(f"Full traceback:\n{error_traceback}")
+        output_tasks = []
+        run_time_taken = time.perf_counter() - run_start_time
+        num_tasks_processed = 0
+        success = False
 
     return {
-        "metrics": {
-            "is_success": True,
+        "params": {
+            "executor": executor,
+            "model_name": model_name,
+            "lang": lang,
+            "split": split,
+            "wer_threshold": wer_threshold,
+            "gpus": gpus,
+            "benchmark_results_path": str(benchmark_results_path),
+            "scratch_output_path": str(scratch_output_path),
         },
-        "tasks": results,
+        "metrics": {
+            "is_success": success,
+            "time_taken_s": run_time_taken,
+            "num_tasks_processed": num_tasks_processed,
+            "throughput_tasks_per_sec": num_tasks_processed / run_time_taken if run_time_taken > 0 else 0,
+        },
+        "tasks": output_tasks,
     }
 
 
@@ -136,10 +166,7 @@ def main() -> int:
     logger.info("=== Audio Fleurs Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
-    success_code = 1  # assume failure until benchmark succeeds
-
-    # This dictionary will contain benchmark metadata and results, written to files for the benchmark framework to read.
-    result_dict = {
+    results = {
         "params": vars(args),
         "metrics": {
             "is_success": False,
@@ -147,15 +174,11 @@ def main() -> int:
         "tasks": [],
     }
     try:
-        result_dict.update(run_audio_fleurs_benchmark(**vars(args)))
-        success_code = 0 if result_dict["metrics"]["is_success"] else 1
-    except Exception as e:
-        error_traceback = traceback.format_exc()
-        logger.error(f"Benchmark failed: {e}")
-        logger.debug(f"Full traceback:\n{error_traceback}")
+        results.update(run_audio_fleurs_benchmark(**vars(args)))
     finally:
-        write_benchmark_results(result_dict, args.benchmark_results_path)
-    return success_code
+        write_benchmark_results(results, args.benchmark_results_path)
+
+    return 0 if results["metrics"]["is_success"] else 1
 
 
 if __name__ == "__main__":
