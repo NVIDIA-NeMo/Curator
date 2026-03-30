@@ -23,13 +23,11 @@ class Resources:
     Attributes:
         cpus: Number of CPU cores (default: 1.0).
         gpu_memory_gb: GPU memory in GB for single-GPU stages (default: 0.0).
-        entire_gpu: Allocate entire GPU regardless of memory (default: False).
-        gpus: Number of GPUs for multi-GPU stages (default: 0.0).
+        gpus: Number of full GPUs (1 or more) for GPU stages (default: 0.0).
     """
 
     cpus: float = 1.0
     gpu_memory_gb: float = 0.0
-    entire_gpu: bool = False
     gpus: float = 0.0
 ```
 
@@ -42,7 +40,7 @@ Check if any GPU resources are requested.
 ```python
 @property
 def requires_gpu(self) -> bool:
-    """Returns True if any GPU resources are requested (gpus, gpu_memory_gb, or entire_gpu)."""
+    """Returns True if any GPU resources are requested (gpus or gpu_memory_gb)."""
 ```
 
 ## Usage Examples
@@ -83,21 +81,13 @@ resources = Resources(
 )
 ```
 
-### Entire GPU Allocation
-
-Use `entire_gpu: True` to allocate a full GPU regardless of memory:
-
-```python
-resources = Resources(cpus=4.0, entire_gpu=True)
-```
-
 ## Important Constraints
 
 <Warning>
 You **cannot specify both** `gpus` and `gpu_memory_gb`. Choose one:
 
 - Use `gpu_memory_gb` for single-GPU stages (< 1 GPU)
-- Use `gpus` for multi-GPU stages (>= 1 GPU)
+- Use `gpus` for stages that need one or more full GPUs
 </Warning>
 
 ```python
