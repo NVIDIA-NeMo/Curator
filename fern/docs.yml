@@ -41,6 +41,15 @@ redirects:
   # Unversioned paths and any slug not listed above (e.g. new version before redirects are updated)
   - source: "/nemo/curator/:path*/index.html"
     destination: "/nemo/curator/:path*"
+  # Sphinx-style page URLs (foo.html); :path*.html must follow all :path*/index.html rules above
+  - source: "/nemo/curator/25.09/:path*.html"
+    destination: "/nemo/curator/v25.09/:path*"
+  - source: "/nemo/curator/26.02/:path*.html"
+    destination: "/nemo/curator/v26.02/:path*"
+  - source: "/nemo/curator/26.04/:path*.html"
+    destination: "/nemo/curator/v26.04/:path*"
+  - source: "/nemo/curator/:path*.html"
+    destination: "/nemo/curator/:path*"
   # Audio concepts: legacy nested nav URLs → flat slugs (aligned with Sphinx filenames)
   - source: "/nemo/curator/about/concepts/audio/curation/pipeline"
     destination: "/nemo/curator/about/concepts/audio/curation-pipeline"
