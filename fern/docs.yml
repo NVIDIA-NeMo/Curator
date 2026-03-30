@@ -126,3 +126,4 @@ libraries:
 experimental:
   mdx-components:
     - ./components
+  basepath-aware: true
