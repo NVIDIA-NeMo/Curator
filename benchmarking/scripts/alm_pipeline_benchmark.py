@@ -103,7 +103,7 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
 
         output_entries = []
         for task in output_tasks or []:
-            output_entries.extend(task.data)
+            output_entries.append(task.data)
 
         num_output_entries = len(output_entries)
         num_input_entries = num_output_entries

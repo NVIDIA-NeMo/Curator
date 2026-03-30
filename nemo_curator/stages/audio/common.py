@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,119 +12,76 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Common audio stages: base classes, manifest I/O, and simple filters."""
-
 import json
-from abc import abstractmethod
 from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
 from typing import Any
 
+import soundfile
 from fsspec.core import url_to_fs
 from loguru import logger
 
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import AudioBatch, FileGroupTask, Task, _EmptyTask
-
-
-class LegacySpeechStage(ProcessingStage[Task, Task]):
-    """
-    LegacySpeechStage for SDP processors inherited from BaseParallelProcessor
-
-    """
-
-    def validate_input(self, task: AudioBatch) -> bool:
-        """Validate that required data attributes exist as keys in the AudioBatch data dicts."""
-        required_top_level_attrs, required_data_attrs = self.inputs()
-
-        missing_top_level = [a for a in required_top_level_attrs if not hasattr(task, a)]
-
-        missing_data = []
-        if required_data_attrs and task.data:
-            first_entry = task.data[0] if isinstance(task.data, list) else task.data
-            if isinstance(first_entry, dict):
-                missing_data = [a for a in required_data_attrs if a not in first_entry]
-            else:
-                missing_data = [a for a in required_data_attrs if not hasattr(first_entry, a)]
-
-        if missing_top_level or missing_data:
-            logger.error(f"Task {task.task_id} missing required attributes: {missing_top_level} {missing_data}")
-
-        return not missing_top_level and not missing_data
-
-    def process(self, task: AudioBatch) -> list[Task]:
-        result = []
-        for entry in task.data:
-            entries = self.process_dataset_entry(entry)
-            for r in entries:
-                if r is not task and not r._stage_perf:
-                    r._stage_perf = list(task._stage_perf)
-                if r is not task and not r._metadata:
-                    r._metadata = task._metadata.copy()
-            result.extend(entries)
-        return result
-
-    @abstractmethod
-    def process_dataset_entry(self, data_entry: AudioBatch) -> list[AudioBatch]:
-        return [data_entry]
+from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 
 
 def get_audio_duration(audio_filepath: str) -> float:
     """Get the duration of the audio file in seconds."""
-    import soundfile
-
     try:
-        info = soundfile.info(audio_filepath)
-        return info.frames / info.samplerate
+        raw, samplerate = soundfile.read(audio_filepath)
+        return raw.shape[0] / samplerate
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to get duration for audio file {audio_filepath}: {e}")
         return -1.0
 
 
 @dataclass
-class GetAudioDurationStage(LegacySpeechStage):
-    """
-    Stage that computes the duration of the file in ``audio_filepath_key`` (using soundfile)
-    and saves the duration in ``duration_key``. If there is an error computing the duration,
-    the value at ``duration_key`` will be updated with the value -1.0.
+class GetAudioDurationStage(ProcessingStage[AudioTask, AudioTask]):
+    """Compute audio duration from the file at *audio_filepath_key* and
+    store the result under *duration_key*.
 
     Args:
-        audio_filepath_key (str): Key to get path to wav file.
-        duration_key (str): Key to put to audio duration.
-    Returns:
-        All the same fields as in the input manifest plus duration_key
+        audio_filepath_key: Key to get path to wav file.
+        duration_key: Key to put audio duration.
     """
 
-    name = "GetAudioDurationStage"
-    audio_filepath_key: str
-    duration_key: str
+    name: str = "GetAudioDurationStage"
+    audio_filepath_key: str = "audio_filepath"
+    duration_key: str = "duration"
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         import soundfile
 
         self._soundfile = soundfile
 
-    def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
-        audio_filepath = data_entry[self.audio_filepath_key]
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.audio_filepath_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.duration_key]
+
+    def process(self, task: AudioTask) -> AudioTask:
+        audio_filepath = task.data[self.audio_filepath_key]
         duration = get_audio_duration(audio_filepath)
-        data_entry[self.duration_key] = duration
-        return [AudioBatch(data=[data_entry])]
+        task.data[self.duration_key] = duration
+        return task
 
 
-class PreserveByValueStage(LegacySpeechStage):
-    """
-    Processor for preserving dataset entries based on a specified condition involving a target value and an input field.
+class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
+    """Filter entries by comparing *input_value_key* against *target_value*.
+
+    Returns ``None`` from ``process()`` to drop entries that fail the
+    comparison, matching the text-modality filter convention.
 
     Args:
-        input_value_key (str): The field in the dataset entries to be evaluated.
-        target_value (Union[int, str]): The value to compare with the input field.
-        operator (str): (Optional) The operator to apply for comparison. Options: "lt" (less than), "le" (less than or equal to), "eq" (equal to), "ne" (not equal to), "ge" (greater than or equal to), "gt" (greater than). Defaults to "eq".
-        **kwargs: Additional keyword arguments to be passed to the base class `BaseParallelProcessor`.
-
+        input_value_key: The field in the dataset entries to evaluate.
+        target_value: The value to compare with.
+        operator: Comparison operator (lt, le, eq, ne, ge, gt).
     """
 
-    name = "PreserveByValueStage"
+    name: str = "PreserveByValueStage"
 
     def __init__(
         self,
@@ -134,84 +91,76 @@ class PreserveByValueStage(LegacySpeechStage):
     ):
         self.input_value_key = input_value_key
         self.target_value = target_value
-        if operator == "lt":
-            self.operator = lt
-        elif operator == "le":
-            self.operator = le
-        elif operator == "eq":
-            self.operator = eq
-        elif operator == "ne":
-            self.operator = ne
-        elif operator == "ge":
-            self.operator = ge
-        elif operator == "gt":
-            self.operator = gt
-        else:
-            msg = 'Operator must be one from the list: "lt" (less than), "le" (less than or equal to), "eq" (equal to), "ne" (not equal to), "ge" (greater than or equal to), "gt" (greater than)'
+        ops = {"lt": lt, "le": le, "eq": eq, "ne": ne, "ge": ge, "gt": gt}
+        if operator not in ops:
+            msg = f"Operator must be one of: {', '.join(ops)}"
             raise ValueError(msg)
+        self.operator = ops[operator]
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
-        input_value = data_entry[self.input_value_key]
-        target = self.target_value
-        if self.operator(input_value, target):
-            return [AudioBatch(data=[data_entry])]
-        return []
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.input_value_key]
 
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.input_value_key]
 
-# ---------------------------------------------------------------------------
-# Manifest I/O — generic stages shared by tagging, ALM, and other pipelines
-# ---------------------------------------------------------------------------
+    def process(self, task: AudioTask) -> AudioTask | None:
+        msg = "PreserveByValueStage only supports process_batch"
+        raise NotImplementedError(msg)
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        results = []
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task!s} failed validation for stage {self}"
+                raise ValueError(msg)
+            if self.operator(task.data[self.input_value_key], self.target_value):
+                results.append(task)
+        return results
 
 
 @dataclass
-class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioBatch]):
-    """Read JSONL manifest files from a FileGroupTask and emit one AudioBatch per entry.
+class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
+    """Read JSONL manifest files from a FileGroupTask and emit one AudioTask per line.
 
     Uses line-by-line streaming via fsspec (no Pandas) to keep memory at ~1x file size.
     Supports local and cloud paths (S3, GCS).
     """
 
-    name: str = "ManifestReaderStage"
+    name: str = "manifest_reader_stage"
 
-    def process(self, task: FileGroupTask) -> list[AudioBatch]:
+    def process(self, task: FileGroupTask) -> list[AudioTask]:
         paths = task.data
-        entries: list[dict[str, Any]] = []
+        results: list[AudioTask] = []
         for manifest in paths:
-            manifest_entries: list[dict[str, Any]] = []
+            count = 0
             fs, resolved = url_to_fs(manifest)
             with fs.open(resolved, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
-                        manifest_entries.append(json.loads(line.strip()))
-            entries.extend(manifest_entries)
-            logger.info(f"ManifestReaderStage: loaded {len(manifest_entries)} entries from {manifest}")
-
-        return [
-            AudioBatch(
-                data=[entry],
-                _metadata=task._metadata,
-                _stage_perf=list(task._stage_perf),
-            )
-            for entry in entries
-        ]
+                        results.append(
+                            AudioTask(
+                                task_id=task.task_id,
+                                dataset_name=task.dataset_name,
+                                data=json.loads(line.strip()),
+                                _metadata=task._metadata,
+                                _stage_perf=list(task._stage_perf),
+                            )
+                        )
+                        count += 1
+            logger.info(f"ManifestReaderStage: loaded {count} entries from {manifest}")
+        return results
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {"is_fanout_stage": True}
 
-    def num_workers(self) -> int | None:
-        return 1
-
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers": 1}
-
 
 @dataclass
-class ManifestReader(CompositeStage[_EmptyTask, AudioBatch]):
-    """Composite stage for reading JSONL manifests.
+class ManifestReader(CompositeStage[_EmptyTask, AudioTask]):
+    """Composite stage for reading ALM JSONL manifests.
 
     Decomposes into:
     1. FilePartitioningStage — discovers and partitions manifest files
-    2. ManifestReaderStage — reads each partition line-by-line (no Pandas)
+    2. ALMManifestReaderStage — reads each partition line-by-line (no Pandas)
 
     Args:
         manifest_path: Path or list of paths to JSONL manifests (local or cloud).
@@ -221,15 +170,18 @@ class ManifestReader(CompositeStage[_EmptyTask, AudioBatch]):
         storage_options: Storage options for cloud paths (S3, GCS credentials, endpoints).
     """
 
-    manifest_path: str | list[str]
+    name: str = "manifest_reader"
+    manifest_path: str | list[str] = ""
     files_per_partition: int | None = 1
     blocksize: int | str | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
     storage_options: dict[str, Any] | None = None
-    name: str = "ManifestReader"
 
     def __post_init__(self) -> None:
         super().__init__()
+        if not self.manifest_path:
+            msg = "manifest_path is required for ManifestReader"
+            raise ValueError(msg)
 
     def decompose(self) -> list[ProcessingStage]:
         return [
@@ -253,21 +205,30 @@ class ManifestReader(CompositeStage[_EmptyTask, AudioBatch]):
 
 
 @dataclass
-class ManifestWriterStage(ProcessingStage[AudioBatch, AudioBatch]):
-    """Append AudioBatch entries to a JSONL manifest file.
+class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
+    """Append a single AudioTask to a JSONL manifest file.
 
-    Each processed AudioBatch has its data entries appended to the output
-    file. The file is truncated on ``setup()`` so repeated pipeline runs
-    produce a clean output. Supports local and cloud paths via fsspec.
+    The output file is truncated once per node in ``setup_on_node()``
+    so repeated pipeline runs produce a clean output.
+    Supports local and cloud paths via fsspec.
 
     Args:
         output_path: Destination JSONL path (local or cloud).
     """
 
-    output_path: str
-    name: str = "ManifestWriter"
+    name: str = "manifest_writer"
+    output_path: str = ""
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+    def __post_init__(self) -> None:
+        if not self.output_path:
+            msg = "output_path is required for ManifestWriterStage"
+            raise ValueError(msg)
+
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
         fs, path = url_to_fs(self.output_path)
         parent_dir = "/".join(path.split("/")[:-1])
         if parent_dir:
@@ -276,12 +237,11 @@ class ManifestWriterStage(ProcessingStage[AudioBatch, AudioBatch]):
             pass
         logger.info(f"ManifestWriterStage: writing to {self.output_path}")
 
-    def process(self, task: AudioBatch) -> AudioBatch:
+    def process(self, task: AudioTask) -> AudioTask:
         fs, path = url_to_fs(self.output_path)
         with fs.open(path, "a", encoding="utf-8") as f:
-            for entry in task.data:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        return AudioBatch(
+            f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
+        return AudioTask(
             task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=task.data,

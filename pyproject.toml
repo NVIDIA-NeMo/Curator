@@ -72,6 +72,7 @@ dependencies = [
 cuda12 = [
     "gpustat",
     "nvidia-ml-py",
+    "pynvml>=13.0.1",
 ]
 vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
@@ -227,13 +228,19 @@ linting = ["pre-commit", "ruff==0.14.10"]
 test = [
     "coverage",
     "debugpy",
+    "GitPython",
+    "oauth2client",
+    "pydrive2",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
     "pytest-httpserver",
     "pytest-loguru",
+    "pyyaml",
+    "rich",
     "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
     "s3fs", # added for testing cloud fs
+    "slack_sdk",
 ]
 
 [tool.uv]
@@ -268,12 +275,10 @@ override-dependencies = [
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "tiktoken>=0.8.0", # Override nemo-toolkit[nlp]'s tiktoken==0.7.0 pin; data-designer needs >=0.8.0
-    # Satisfy nemo_toolkit[asr]==2.4.0 (transformers>=4.51.0,<=4.52.0) when using audio extras; upper bound keeps Cosmos Embed compatible
-    "transformers>=4.51.0,<=4.52.0",
-    # Relax whisperx==3.8.2's torch~=2.8.0 / torchaudio~=2.8.0 pins so audio_tagging
-    # coexists with vllm (torch 2.9.x) in the [all] extra. Actual version determined by cu128 index.
     "torch>=2.8.0",
     "torchaudio>=2.8.0",
+    "transformers>=4.51.0,<=4.55.2", # Else Cosmos Embed imports fail
+    "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
 ]
 
 
