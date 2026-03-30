@@ -117,18 +117,34 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
         """
         Filter audio based on bandwidth classification.
 
+        When ``task.data`` contains a ``"segments"`` key (nested mode from VAD),
+        each segment is evaluated individually and only survivors are kept.
+
         Returns:
             AudioTask if passes the band filter, [] if filtered out.
         """
+        if "segments" in task.data:
+            survivors = []
+            for seg in task.data["segments"]:
+                temp = AudioTask(data=seg, task_id=task.task_id)
+                result = self._process_single(temp)
+                if result is not None:
+                    survivors.append(temp.data)
+            task.data["segments"] = survivors
+            return task if survivors else []
+        return self._process_single(task) or []
+
+    def _process_single(self, task: AudioTask) -> AudioTask | None:
+        """Run band classification on a single (non-nested) task."""
         self._initialize_predictor()
 
         if self._predictor is None:
             logger.error("Band predictor not available")
-            return []
+            return None
 
         audio = resolve_waveform_from_item(task.data, task.task_id)
         if audio is None:
-            return []
+            return None
         waveform, sample_rate = audio
 
         try:
@@ -141,9 +157,9 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data["band_prediction"] = pred
         except Exception as e:
             logger.exception(f"[BandFilter] Prediction error: {e}")
-            return []
+            return None
 
         if task.data.get("band_prediction") != self.band_value:
-            return []
+            return None
 
         return task

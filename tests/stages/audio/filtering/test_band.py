@@ -96,3 +96,56 @@ class TestBandFilterStage:
             result = stage.process(_make_task())
 
         assert result == []
+
+    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
+    def test_process_nested_segments_filters(self, mock_init) -> None:
+        """Nested segments: only segments passing the band filter survive."""
+        stage = BandFilterStage(band_value="full_band")
+        predictor = MagicMock()
+        call_count = {"n": 0}
+
+        def predict_side_effect(waveform, sample_rate):
+            call_count["n"] += 1
+            return "full_band" if call_count["n"] % 2 == 1 else "narrow_band"
+
+        predictor.predict_audio = predict_side_effect
+        stage._predictor = predictor
+
+        sr = 48000
+        segments = [
+            {"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i}
+            for i in range(4)
+        ]
+        task = AudioTask(
+            data={"segments": segments, "original_file": "test.wav"},
+            task_id="test",
+            dataset_name="test",
+        )
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        assert len(result.data["segments"]) == 2
+
+    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
+    def test_process_nested_all_filtered_returns_empty(self, mock_init) -> None:
+        """Nested segments: when all segments are filtered, return []."""
+        stage = BandFilterStage(band_value="full_band")
+        predictor = MagicMock()
+        predictor.predict_audio.return_value = "narrow_band"
+        stage._predictor = predictor
+
+        sr = 48000
+        segments = [
+            {"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i}
+            for i in range(3)
+        ]
+        task = AudioTask(
+            data={"segments": segments},
+            task_id="test",
+            dataset_name="test",
+        )
+
+        result = stage.process(task)
+
+        assert result == []
