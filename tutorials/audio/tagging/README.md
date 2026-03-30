@@ -4,13 +4,13 @@ This tutorial demonstrates how to process raw, unlabelled audio into labelled tr
 
 ## Overview
 
-The audio tagging pipeline is a **modality-agnostic** processing framework that takes raw audio files and produces segmented, annotated manifests. Stages 0-9 form a generic core that applies to any downstream modality -- resampling, speaker diarization, ASR forced alignment, text normalization, and quality metrics. The final **PrepareModuleSegmentsStage** (stage 10) is the only modality-specific stage: it reshapes the labelled segments into training-ready data for a target module such as **TTS** or **ASR**.
+The audio tagging pipeline is a **modality-agnostic** processing framework that takes raw audio files and produces segmented, annotated manifests. Stages 0-8 form a generic core that applies to any downstream modality -- resampling, speaker diarization, ASR forced alignment, and quality metrics. The final **PrepareModuleSegmentsStage** (stage 9) is the only modality-specific stage: it reshapes the labelled segments into training-ready data for a target module such as **TTS** or **ASR**.
 
 ### Generic Core + Modality-Specific Output
 
 ```
                           ┌─────────────────────────────────────────────┐
-                          │       Generic Tagging Core (stages 0–9)     │
+                          │       Generic Tagging Core (stages 0–8)     │
                           │  Applicable to ASR, TTS, ALM, or any        │
                           │  audio modality requiring labelled data     │
                           └─────────────────────────────────────────────┘
@@ -29,7 +29,7 @@ The audio tagging pipeline is a **modality-agnostic** processing framework that 
                                                                           └──────────────────┘
                                                                                     │
                           ┌─────────────────────────────────────────────┐           │
-                          │  Modality-Specific Stage (stage 10)         │           │
+                          │  Modality-Specific Stage (stage 9)          │           │
                           │  PrepareModuleSegmentsStage                 │◀──────────┘
                           │                                             │
                           │  module=tts  ──▶  TTS training segments     │
@@ -76,11 +76,10 @@ Two ready-made configurations are provided:
 | 4 | **NeMoASRAlignerStage** | Forced alignment via NeMo FastConformer | Yes |
 | 5 | **JoinSplitAudioMetadataStage** | Rejoin split audio metadata | No |
 | 6 | **MergeAlignmentDiarizationStage** | Merge alignment with diarization segments | No |
-| 7 | **InverseTextNormalizationStage** | Inverse text normalization (numbers, dates, etc.) | No |
-| 8 | **BandwidthEstimationStage** | Estimate audio bandwidth per segment | No |
-| 9 | **TorchSquimQualityMetricsStage** | Audio quality metrics (PESQ, STOI, SI-SDR) | Yes |
-| 10 | **PrepareModuleSegmentsStage** | Prepare final segments for TTS or ASR | No |
-| 11 | **ManifestWriterStage** | Write output JSONL manifest | No |
+| 7 | **BandwidthEstimationStage** | Estimate audio bandwidth per segment | No |
+| 8 | **TorchSquimQualityMetricsStage** | Audio quality metrics (PESQ, STOI, SI-SDR) | Yes |
+| 9 | **PrepareModuleSegmentsStage** | Prepare final segments for TTS or ASR | No |
+| 10 | **ManifestWriterStage** | Write output JSONL manifest | No |
 
 ## Installation
 
@@ -209,7 +208,6 @@ python tutorials/audio/tagging/main.py \
 | `final_manifest` | Path for output JSONL manifest | **Required** |
 | `hf_token` | HuggingFace token for PyAnnote access | `""` |
 | `device` | Compute device (`cuda` or `cpu`) | `cuda` |
-| `language_short` | 2-letter language code for ITN | `en` |
 | `sample_rate` | Target sample rate in Hz | `16000` |
 | `max_segment_length` | Maximum segment duration in seconds | `40` |
 | `workspace_dir` | Directory for intermediate files | `/tmp/tagging_workspace` |
@@ -228,19 +226,19 @@ stages.2.diarization_model=pyannote/speaker-diarization-3.1
 stages.4.batch_size=16
 
 # Change segment preparation for TTS
-stages.10.min_duration=3
-stages.10.max_duration=15
-stages.10.terminal_punct_marks=".!?"
+stages.9.min_duration=3
+stages.9.max_duration=15
+stages.9.terminal_punct_marks=".!?"
 ```
 
 ### TTS vs ASR Differences
 
-The only stage that differs between modalities is **PrepareModuleSegmentsStage** (stage 10):
+The only stage that differs between modalities is **PrepareModuleSegmentsStage** (stage 9):
 
 | Parameter | TTS | ASR | Effect |
 |-----------|-----|-----|--------|
-| `stages.10.module` | `tts` | `asr` | Modality-specific segment shaping |
-| `stages.10.full_utterance_ratio` | `1.0` | `0.8` | Fraction of segments that must end with terminal punctuation (`.!?`) |
+| `stages.9.module` | `tts` | `asr` | Modality-specific segment shaping |
+| `stages.9.full_utterance_ratio` | `1.0` | `0.8` | Fraction of segments that must end with terminal punctuation (`.!?`) |
 
 See [PrepareModuleSegmentsStage and `full_utterance_ratio`](#preparemoduleSegmentsstage-and-full_utterance_ratio) above for a detailed explanation of this parameter.
 
@@ -267,17 +265,19 @@ pytest tests/stages/audio/tagging/ -v
 ```
 tests/stages/audio/tagging/
 ├── conftest.py
-├── test_base_asr_processor.py
-├── test_datasets.py
-├── test_itn.py
 ├── test_merge_alignment_diarization.py
 ├── test_metrics.py
 ├── test_prepare_module_segments.py
-├── test_pyannote.py
+├── test_resample_audio.py
 ├── test_split.py
-├── test_text.py
 ├── test_utils.py
-└── test_vad.py
+├── inference/
+│   ├── test_base_asr_processor.py
+│   └── test_nemo_asr_align.py
+├── metrics/
+│   └── test_metrics.py
+└── e2e/
+    └── test_tts_e2e.py
 ```
 
 ## Troubleshooting

@@ -29,9 +29,7 @@
 #   7. BandwidthEstimation     - Estimate audio bandwidth
 #   8. SquimMetrics            - TorchSQUIM quality metrics
 #   9. PrepareModuleSegments   - Prepare ASR-ready segments
-#  10. NeMoASRAligner (2nd)    - Second-pass ASR transcription
-#  11. ComputeWER              - Compute WER between two ASR transcripts
-#  12. ManifestWriter          - Write output JSONL manifest
+#  10. ManifestWriter          - Write output JSONL manifest
 #
 # Usage (from Curator repo root):
 #   python tutorials/audio/tagging/main.py \
@@ -89,8 +87,6 @@ hf_token: ""
 sample_rate: 16000
 max_segment_length: 40
 batch_size: 4
-text_key1: text
-text_key2: text_2
 resources:
   cpus: 2
 
@@ -138,7 +134,7 @@ stages:
 
   - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
     name: "MergeAlignmentDiar"
-    text_key: ${text_key1}
+    text_key: "text"
     words_key: "words"
     resources: ${resources}
 
@@ -159,29 +155,6 @@ stages:
     terminal_punct_marks: ".!?。？！。"
     full_utterance_ratio: 0.8
     punctuation_split_only: false
-    resources: ${resources}
-
-  # Second pass ASR
-  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
-    name: "ASRAlignment2"
-    model_name: nvidia/stt_en_conformer_ctc_large
-    is_fastconformer: False
-    decoder_type: ctc
-    batch_size: 64
-    split_batch_size: 100
-    device: ${device}
-    text_key: ${text_key2}
-    infer_segment_only: True
-    compute_timestamps: False
-    resources: ${resources}
-
-  - _target_: nemo_curator.stages.audio.tagging.ComputeWERStage
-    name: "ComputeWER"
-    language: ${language_short}
-    hypothesis_text_key: ${text_key1}
-    reference_text_key: ${text_key2}
-    pnc_chars: ".?,"
-    compute_pnc_wer: False
     resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage

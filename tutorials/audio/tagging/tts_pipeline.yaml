@@ -26,11 +26,10 @@
 #   4. NeMoASRAligner          - Forced alignment via NeMo FastConformer
 #   5. JoinSplitAudioMetadata  - Rejoin split metadata
 #   6. MergeAlignmentDiar      - Merge ASR alignment with diarization
-#   7. InverseTextNorm         - Inverse text normalization
-#   8. BandwidthEstimation     - Estimate audio bandwidth
-#   9. SquimMetrics            - TorchSQUIM quality metrics
-#  10. PrepareModuleSegments   - Prepare TTS-ready segments
-#  11. ManifestWriter          - Write output JSONL manifest
+#   7. BandwidthEstimation     - Estimate audio bandwidth
+#   8. SquimMetrics            - TorchSQUIM quality metrics
+#   9. PrepareModuleSegments   - Prepare TTS-ready segments
+#  10. ManifestWriter          - Write output JSONL manifest
 #
 # Usage (from Curator repo root):
 #   python tutorials/audio/tagging/main.py \
@@ -133,12 +132,6 @@ stages:
     name: "MergeAlignmentDiar"
     text_key: "text"
     words_key: "words"
-    resources: ${resources}
-
-  - _target_: nemo_curator.stages.audio.tagging.text.itn.InverseTextNormalizationStage
-    name: "InverseTextNorm"
-    language: ${language_short}
-    text_key: "text"
     resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage

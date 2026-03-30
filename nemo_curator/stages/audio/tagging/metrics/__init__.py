@@ -16,10 +16,8 @@
 
 from nemo_curator.stages.audio.tagging.metrics.bandwidth import BandwidthEstimationStage
 from nemo_curator.stages.audio.tagging.metrics.squim import TorchSquimQualityMetricsStage
-from nemo_curator.stages.audio.tagging.metrics.wer import ComputeWERStage
 
 __all__ = [
     "BandwidthEstimationStage",
-    "ComputeWERStage",
     "TorchSquimQualityMetricsStage",
 ]

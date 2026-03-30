@@ -44,12 +44,6 @@ _LAZY_IMPORTS = {
     # --- Metrics (tagging/metrics/) ---
     "TorchSquimQualityMetricsStage": "nemo_curator.stages.audio.tagging.metrics.squim",
     "BandwidthEstimationStage": "nemo_curator.stages.audio.tagging.metrics.bandwidth",
-    "ComputeWERStage": "nemo_curator.stages.audio.tagging.metrics.wer",
-    # --- Text processing (tagging/text/) ---
-    "InverseTextNormalizationStage": "nemo_curator.stages.audio.tagging.text.itn",
-    "ArabicRemoveDiacriticsStage": "nemo_curator.stages.audio.tagging.text.arabic_remove_diacritics",
-    "PNCwithBERTStage": "nemo_curator.stages.audio.tagging.text.pnc",
-    "ChineseConversionStage": "nemo_curator.stages.audio.tagging.text.chinese_conversion",
 }
 
 _cache: dict[str, Any] = {}
