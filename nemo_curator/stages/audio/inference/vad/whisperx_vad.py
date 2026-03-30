@@ -125,7 +125,15 @@ class WhisperXVADStage(LegacySpeechStage):
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Setup stage on node."""
-        self.setup()
+        if self.device == "cuda" and not torch.cuda.is_available():
+            logger.warning("CUDA not available, using CPU for VAD")
+            self.device = "cpu"
+        if self._vad_model is None:
+            self._vad_model = WhisperXVADModel(
+                device=self.device,
+                vad_onset=self.vad_onset,
+                vad_offset=self.vad_offset,
+            )
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         if self._model_initialized:
@@ -140,7 +148,7 @@ class WhisperXVADStage(LegacySpeechStage):
                 vad_onset=self.vad_onset,
                 vad_offset=self.vad_offset,
             )
-
+        self._vad_model.to(self.device)
         self._model_initialized = True
         logger.info(f"[{self.name}] Initialized WhisperX VAD on {self.device}")
 

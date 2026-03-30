@@ -69,17 +69,21 @@ class PNCwithBERTStage(LegacySpeechStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
+    def load_model(self) -> None:
+        if self.model_path:
+            self._pnc_model = PunctuationCapitalizationModel.restore_from(self.model_path)
+        else:
+            self._pnc_model = PunctuationCapitalizationModel.from_pretrained(self.model_name)
+
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Setup stage on node."""
-        self.setup()
+        if self._pnc_model is None:
+            self.load_model()
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Setup stage."""
         if self._pnc_model is None:
-            if self.model_path:
-                self._pnc_model = PunctuationCapitalizationModel.restore_from(self.model_path)
-            else:
-                self._pnc_model = PunctuationCapitalizationModel.from_pretrained(self.model_name)
+            self.load_model()
 
         if self.device == "cuda" and not torch.cuda.is_available():
             logger.warning("CUDA not available, using CPU for PNC")

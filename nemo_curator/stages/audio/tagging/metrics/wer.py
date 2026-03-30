@@ -85,7 +85,7 @@ class ComputeWERStage(LegacySpeechStage):
             remainder_start = 0
             t = self.num_words_threshold
 
-            for i in range(int(len(words) / t) - 1):
+            for i in range(int(len(words) / t)):
                 chunk_start = i * t
                 chunk_end = chunk_start + t
                 if any(c.isdigit() for c in words[chunk_end]):
@@ -156,6 +156,9 @@ class ComputeWERStage(LegacySpeechStage):
 
     def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
         """Compute WER, CER, edge CER, and optionally PNC WER/CER per segment."""
+        if self._normalizer is None:
+            self.setup()
+
         if "segments" not in data_entry:
             return [AudioBatch(data=[data_entry])]
 

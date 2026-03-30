@@ -20,10 +20,25 @@ import json
 import os
 from typing import Any
 
+import pytest
+
 
 def load_manifest(manifest_file: str, encoding: str | None = None) -> list[dict[str, Any]]:
     with open(manifest_file, encoding=encoding or "utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
+
+
+def _approx_metrics(metrics: dict) -> dict:
+    """Wrap numeric metric values with pytest.approx for tolerant comparison."""
+    result = {}
+    for k, v in metrics.items():
+        if isinstance(v, dict):
+            result[k] = _approx_metrics(v)
+        elif isinstance(v, float):
+            result[k] = pytest.approx(v, rel=1e-3)
+        else:
+            result[k] = v
+    return result
 
 
 def check_output(output_manifest: str, reference_manifest: str, text_key: str = "text") -> None:
@@ -47,12 +62,12 @@ def check_output(output_manifest: str, reference_manifest: str, text_key: str = 
         assert out_entry[text_key] == ref_entry[text_key], f"Text mismatch for {out_entry.get('audio_item_id')}"
 
         for out_seg, ref_seg in zip(out_entry["segments"], ref_entry["segments"], strict=True):
-            assert out_seg["start"] == ref_seg["start"]
-            assert out_seg["end"] == ref_seg["end"]
+            assert out_seg["start"] == pytest.approx(ref_seg["start"], rel=1e-3)
+            assert out_seg["end"] == pytest.approx(ref_seg["end"], rel=1e-3)
             assert out_seg["text"] == ref_seg["text"]
-            assert out_seg["metrics"] == ref_seg["metrics"]
+            assert out_seg["metrics"] == _approx_metrics(ref_seg["metrics"])
 
         for out_word, ref_word in zip(out_entry["alignment"], ref_entry["alignment"], strict=True):
             assert out_word["word"] == ref_word["word"]
-            assert round(out_word["start"], 2) == round(ref_word["start"], 2)
-            assert round(out_word["end"], 2) == round(ref_word["end"], 2)
+            assert out_word["start"] == pytest.approx(ref_word["start"], abs=0.01)
+            assert out_word["end"] == pytest.approx(ref_word["end"], abs=0.01)

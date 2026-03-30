@@ -25,6 +25,7 @@ tutorials/audio/tagging/main.py.
 import os
 from pathlib import Path
 
+import pytest
 from omegaconf import OmegaConf
 
 from nemo_curator.backends.xenna import XennaExecutor
@@ -34,6 +35,7 @@ from .conftest import CONFIGS_DIR, REFERENCE_DIR
 from .utils import check_output
 
 
+@pytest.mark.skipif(not os.getenv("HF_SECRET_KEY"), reason="HF_SECRET_KEY required for PyAnnote models")
 def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     """TTS tagging pipeline e2e: Resample + Diarize + Split + ASR Align + Join + Merge + ITN + BW + SQUIM + Segments."""
     config_path = CONFIGS_DIR / "tts_pipeline.yaml"

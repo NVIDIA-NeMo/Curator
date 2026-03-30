@@ -65,7 +65,8 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Setup stage on node."""
-        self.setup()
+        if self.model is None:
+            self.model = SQUIM_OBJECTIVE.get_model()
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
         """Load model. Called once per worker before processing."""
@@ -77,10 +78,10 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
             logger.warning("CUDA not available, using CPU")
 
         if self.model is None:
-            if self.device == "cuda":
-                self.model = SQUIM_OBJECTIVE.get_model().cuda()
-            else:
-                self.model = SQUIM_OBJECTIVE.get_model()
+            self.model = SQUIM_OBJECTIVE.get_model()
+
+        if self.device == "cuda":
+            self.model = self.model.cuda()
 
         self._model_initialized = True
         logger.info(f"[{self.name}] Initialized SQUIM model on {self.device}")

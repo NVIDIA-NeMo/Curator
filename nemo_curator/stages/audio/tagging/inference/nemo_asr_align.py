@@ -222,12 +222,19 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
             msg = f"decoder_type must be 'ctc' or 'rnnt', got {self.decoder_type}"
             raise ValueError(msg)
 
+    def load_model(self) -> None:
+        if self.model_path:
+            self._asr_model = nemo_asr.models.ASRModel.restore_from(restore_path=self.model_path)
+        else:
+            self._asr_model = nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name)
+
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
-        """Setup stage on node."""
-        self.setup()
+        """Download model weights (called once per node)."""
+        if self._asr_model is None:
+            self.load_model()
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
-        """Initialize NeMo ASR model. Called once before processing."""
+        """Load model to device and configure decoding (called per replica)."""
         if self._model_initialized:
             return
 
@@ -236,10 +243,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
             self.device = "cpu"
 
         if self._asr_model is None:
-            if self.model_path:
-                self._asr_model = nemo_asr.models.ASRModel.restore_from(restore_path=self.model_path)
-            else:
-                self._asr_model = nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name)
+            self.load_model()
 
         self._asr_model.to(self.device)
         self._asr_model.eval()
@@ -331,7 +335,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         else:
             return self.process_full_audio(data_entries)
 
-    def process_full_audio(self, data_entries: AudioBatch) -> list[AudioBatch]:  # noqa: C901, PLR0912
+    def process_full_audio(self, data_entries: AudioBatch) -> list[AudioBatch]:  # noqa: C901, PLR0912, PLR0915
         """Process entries as full audio (or meta-entries with split_filepaths)."""
         entries = data_entries.data
         skip_indices = []
@@ -354,7 +358,10 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
             path_to_entry_and_split = []
             for entry_idx in chunk_meta_idx:
                 meta_entry = entries[entry_idx]
-                split_filepaths = meta_entry["split_filepaths"]
+                split_filepaths = meta_entry.get("split_filepaths")
+                if not split_filepaths:
+                    logger.warning(f"[{self.name}] Entry at index {entry_idx} has no split_filepaths, skipping.")
+                    continue
                 for split_idx, path in enumerate(split_filepaths):
                     all_paths.append(path)
                     path_to_entry_and_split.append((entry_idx, split_idx))
@@ -388,14 +395,18 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
                     break
                 entry_idx, split_idx = path_to_entry_and_split[path_idx]
                 meta_entry = entries[entry_idx]
-                split_metadata = meta_entry["split_metadata"]
                 if hyp is not None:
                     alignments, text = self.get_alignments_text(hyp)
+                else:
+                    alignments, text = [], ""
+
+                split_metadata = meta_entry.get("split_metadata")
+                if split_metadata and split_idx < len(split_metadata):
                     split_metadata[split_idx][self.text_key] = text
                     split_metadata[split_idx]["alignment"] = alignments
                 else:
-                    split_metadata[split_idx][self.text_key] = ""
-                    split_metadata[split_idx]["alignment"] = []
+                    meta_entry[self.text_key] = text
+                    meta_entry["alignment"] = alignments
 
         return [
             AudioBatch(

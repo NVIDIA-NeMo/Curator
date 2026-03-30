@@ -110,7 +110,7 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
     # Internal state (not serialized, initialized in setup() to allow deepcopy)
     _pipeline: Any = field(default=None, repr=False)
     _vad_model: Any = field(default=None, repr=False)  # WhisperXVADModel
-    _rng: random.Random = field(default=None, repr=False)
+    _rng: random.Random | None = field(default=None, repr=False)
     _model_initialized: bool = field(default=False, repr=False)
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -126,26 +126,30 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
             raise ValueError(msg)
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
-        """Setup stage on node."""
-        self.setup()
+        """Download model weights (called once per node)."""
+        if self._pipeline is None:
+            self._pipeline = PyAnnotePipeline.from_pretrained(self.model_name, token=self.hf_token)
+        if self._vad_model is None:
+            self._vad_model = WhisperXVADModel(
+                device="cpu",
+                vad_onset=0.5,
+                vad_offset=0.363,
+            )
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
-        """Initialize PyAnnote pipeline and VAD model. Called once before processing."""
+        """Load models to device (called per replica before processing)."""
         if self._model_initialized:
             return
 
-        # Check CUDA availability
         if not torch.cuda.is_available() and self.device == "cuda":
             logger.warning("CUDA not available, using CPU")
             self.device = "cpu"
 
-        # Initialize PyAnnote pipeline
         if self._pipeline is None:
             self._pipeline = PyAnnotePipeline.from_pretrained(self.model_name, token=self.hf_token)
         self._pipeline.segmentation_batch_size = self.segmentation_batch_size
         self._pipeline.embedding_batch_size = self.embedding_batch_size
 
-        # Initialize VAD model
         if self._vad_model is None:
             self._vad_model = WhisperXVADModel(
                 device=self.device,

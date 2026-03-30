@@ -20,19 +20,18 @@
 #
 # Pipeline stages:
 #   0. ManifestReader          - Read input JSONL manifest
-#   1. CreateInitialManifestYT - Resample audio to 16 kHz mono WAV
+#   1. ResampleAudio           - Resample audio to 16 kHz mono WAV
 #   2. PyAnnoteDiarization     - Speaker diarization + overlap detection
 #   3. SplitLongAudio          - Split segments exceeding max length
 #   4. NeMoASRAligner          - Forced alignment via NeMo FastConformer
 #   5. JoinSplitAudioMetadata  - Rejoin split metadata
 #   6. MergeAlignmentDiar      - Merge ASR alignment with diarization
-#   7. InverseTextNorm         - Inverse text normalization
-#   8. BandwidthEstimation     - Estimate audio bandwidth
-#   9. SquimMetrics            - TorchSQUIM quality metrics
-#  10. PrepareModuleSegments   - Prepare ASR-ready segments
-#  11. NeMoASRAligner          - Forced alignment via NeMo FastConformer
-#  12. ComputeWER              - Compute WER between two ASR transcripts
-#  13. ManifestWriter          - Write output JSONL manifest
+#   7. BandwidthEstimation     - Estimate audio bandwidth
+#   8. SquimMetrics            - TorchSQUIM quality metrics
+#   9. PrepareModuleSegments   - Prepare ASR-ready segments
+#  10. NeMoASRAligner (2nd)    - Second-pass ASR transcription
+#  11. ComputeWER              - Compute WER between two ASR transcripts
+#  12. ManifestWriter          - Write output JSONL manifest
 #
 # Usage (from Curator repo root):
 #   python tutorials/audio/tagging/main.py \
@@ -161,7 +160,7 @@ stages:
     full_utterance_ratio: 0.8
     punctuation_split_only: false
     resources: ${resources}
-  
+
   # Second pass ASR
   - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
     name: "ASRAlignment2"

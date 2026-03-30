@@ -15,11 +15,10 @@
 """Audio tagging pipeline benchmarking script.
 
 Runs the full audio tagging pipeline end-to-end:
-  CreateInitialManifestFleurs -> Resample -> Diarize -> Split -> ASR Align ->
-  Join -> Merge -> ITN -> Bandwidth -> SQUIM -> PrepareModuleSegments -> Write
+  ManifestReader -> Resample -> Diarize -> Split -> ASR Align ->
+  Join -> Merge -> Bandwidth -> SQUIM -> PrepareModuleSegments -> Write
 
-Uses FLEURS as the data source (like audio_fleurs_benchmark.py) and exercises
-every stage of the tagging pipeline for regression tracking.
+Exercises every stage of the tagging pipeline for regression tracking.
 """
 
 import argparse

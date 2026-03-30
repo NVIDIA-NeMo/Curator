@@ -78,11 +78,12 @@ class ResampleAudioStage(LegacySpeechStage):
             msg = "Absolute audio filepath is required"
             raise ValueError(msg)
 
-        _, audio_filepath = url_to_fs(data_entry["audio_filepath"])
+        original_audio_filepath = data_entry["audio_filepath"]
+        _, local_audio_path = url_to_fs(original_audio_filepath)
         if "audio_item_id" not in data_entry:
-            data_entry["audio_item_id"] = os.path.splitext(os.path.basename(audio_filepath))[0]
+            data_entry["audio_item_id"] = os.path.splitext(os.path.basename(local_audio_path))[0]
 
-        input_audio_path = audio_filepath
+        input_audio_path = local_audio_path
         output_audio_path = os.path.join(
             self.resampled_audio_dir,
             data_entry["audio_item_id"] + "." + self.target_format,
@@ -127,8 +128,8 @@ class ResampleAudioStage(LegacySpeechStage):
                 msg = f"Error converting {input_audio_path}: {e}"
                 raise RuntimeError(msg) from e
 
-        # Update metadata
-        data_entry["audio_filepath"] = input_audio_path
+        # Update metadata — preserve original URL for cloud paths
+        data_entry["audio_filepath"] = original_audio_filepath
         data_entry["resampled_audio_filepath"] = output_audio_path
         data_entry["duration"] = get_audio_duration(output_audio_path)
 

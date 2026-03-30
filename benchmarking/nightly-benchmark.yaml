@@ -883,19 +883,18 @@ entries:
     script: audio_tagging_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --scratch-output-path={session_entry_dir}/scratch
+      --input-manifest={session_entry_dir}/input.jsonl
       --module=tts
-      --lang=hy_am
-      --split=dev
-      --language-short=en
+      --hf-token=${HF_SECRET_KEY}
       --device=cuda
-      --gpus=1
       --max-segment-length=40
       --asr-batch-size=32
       --min-duration=5
       --max-duration=20
       --max-pause=2
       --full-utterance-ratio=1.0
+      --executor=xenna
+      --cpus=10
     timeout_s: 3600
     sink_data:
       - name: slack
