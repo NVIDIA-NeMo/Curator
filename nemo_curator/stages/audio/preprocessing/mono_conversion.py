@@ -36,7 +36,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-from ..common import load_audio_file
+from nemo_curator.stages.audio.common import load_audio_file
 
 
 @dataclass

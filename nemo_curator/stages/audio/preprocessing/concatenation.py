@@ -44,7 +44,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-from ..common import ensure_waveform_2d
+from nemo_curator.stages.audio.common import ensure_waveform_2d
 
 
 @dataclass
@@ -104,9 +104,32 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["waveform", "sample_rate", "num_segments", "total_duration_sec", "original_file"]
 
-    def process(self, task: AudioTask) -> AudioTask:
-        msg = "SegmentConcatenationStage only supports process_batch"
-        raise NotImplementedError(msg)
+    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
+        """Concatenate segments stored in ``task.data["segments"]`` (nested mode).
+
+        Falls back to raising ``NotImplementedError`` when the task does not
+        carry a ``"segments"`` key — callers should use ``process_batch``
+        for the legacy fan-out path.
+        """
+        segments = task.data.get("segments")
+        if segments is None:
+            msg = "SegmentConcatenationStage.process() requires task.data['segments'] (nested mode)"
+            raise NotImplementedError(msg)
+
+        if not segments:
+            return []
+
+        seg_tasks = [
+            AudioTask(data=seg, task_id=task.task_id, dataset_name=task.dataset_name)
+            for seg in segments
+        ]
+        seg_tasks.sort(key=self._sort_key)
+
+        original_file = segments[0].get("original_file", "unknown")
+        combined = self._concatenate_group(original_file, seg_tasks)
+        if combined is None:
+            return []
+        return combined
 
     @staticmethod
     def _sort_key(task: AudioTask) -> tuple[int, int, int]:
@@ -171,16 +194,12 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
             if waveform is None:
                 continue
             if sr is None:
-                logger.error(
-                    f"[SegmentConcat] Skipping segment {item.get('segment_num', '?')}: "
-                    "'sample_rate' key is missing."
-                )
+                seg_id = item.get("segment_num", "?")
+                logger.error(f"[SegmentConcat] Skipping segment {seg_id}: sample_rate key is missing.")
                 continue
             if sr <= 0:
-                logger.warning(
-                    f"[SegmentConcat] Skipping segment {item.get('segment_num', '?')}: "
-                    f"invalid sample_rate={sr}"
-                )
+                seg_id = item.get("segment_num", "?")
+                logger.warning(f"[SegmentConcat] Skipping segment {seg_id}: invalid sample_rate={sr}")
                 continue
 
             waveform = ensure_waveform_2d(waveform)
