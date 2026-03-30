@@ -15,13 +15,12 @@
 """
 Audio segment concatenation stage.
 
-Concatenates multiple AudioTask segments into one combined waveform per
-original source file. Tasks arriving in process_batch are grouped by
-their ``original_file`` key, sorted by ``segment_num`` within each group
-(gaps from filtered-out segments are fine -- order is preserved), and
-concatenated into one AudioTask per source file.
+Concatenates VAD segments stored in ``task.data["segments"]`` (nested mode)
+into one combined waveform per source file.  Segments are sorted by
+``segment_num`` (gaps from filtered-out segments are fine — order is
+preserved) and concatenated with configurable silence between them.
 
-Stores segment-to-original mappings in task._metadata so downstream
+Stores segment-to-original mappings in ``task._metadata`` so downstream
 stages (TimestampMapperStage) can resolve final positions back to
 the original file.
 
@@ -33,7 +32,6 @@ Example:
     stage = SegmentConcatenationStage(silence_duration_sec=0.5)
 """
 
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -71,28 +69,24 @@ class SegmentMapping:
 @dataclass
 class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
     """
-    Concatenate AudioTask segments into a single combined waveform per source file.
+    Concatenate nested VAD segments into a single combined waveform.
 
-    Uses process_batch to receive list[AudioTask] (segments potentially from
-    multiple files, with possible gaps from filtered-out segments). Groups
-    by ``original_file``, sorts by ``segment_num`` within each group, and
-    produces one output AudioTask per source file.
-
-    Segment-to-original mappings are stored in task._metadata["segment_mappings"]
-    for downstream timestamp resolution.
+    Expects each incoming ``AudioTask`` to carry a
+    ``task.data["segments"]`` list (one file = one task, produced by
+    ``VADSegmentationStage(nested=True)``).  Segments are sorted by
+    ``segment_num``, concatenated with silence gaps, and the result
+    is a single ``AudioTask`` with the combined waveform and
+    segment-to-original mappings in ``task._metadata["segment_mappings"]``.
 
     Args:
-        silence_duration_sec: Duration of silence between segments (seconds)
-        batch_size: Must be >= the max number of segments any single file
-            can produce (VAD on a 1-hour file at 2s segments ~ 1800).
-            All segments from one file must arrive in the same
-            process_batch call for correct concatenation.
+        silence_duration_sec: Duration of silence inserted between
+            consecutive segments (seconds).
     """
 
     silence_duration_sec: float = 0.5
 
     name: str = "SegmentConcatenation"
-    batch_size: int = 10000
+    batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self):
@@ -105,81 +99,39 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], ["waveform", "sample_rate", "num_segments", "total_duration_sec", "original_file"]
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
-        """Concatenate segments stored in ``task.data["segments"]`` (nested mode).
-
-        Falls back to raising ``NotImplementedError`` when the task does not
-        carry a ``"segments"`` key — callers should use ``process_batch``
-        for the legacy fan-out path.
-        """
+        """Concatenate segments from ``task.data["segments"]``."""
         segments = task.data.get("segments")
         if segments is None:
-            msg = "SegmentConcatenationStage.process() requires task.data['segments'] (nested mode)"
-            raise NotImplementedError(msg)
+            msg = "SegmentConcatenationStage requires task.data['segments'] (nested VAD mode)"
+            raise ValueError(msg)
 
         if not segments:
             return []
 
-        seg_tasks = [
-            AudioTask(data=seg, task_id=task.task_id, dataset_name=task.dataset_name)
-            for seg in segments
-        ]
-        seg_tasks.sort(key=self._sort_key)
+        segments_sorted = sorted(segments, key=self._seg_sort_key)
+        original_file = segments_sorted[0].get("original_file", "unknown")
 
-        original_file = segments[0].get("original_file", "unknown")
-        combined = self._concatenate_group(original_file, seg_tasks)
+        combined = self._concatenate(original_file, segments_sorted, task.task_id, task.dataset_name)
         if combined is None:
             return []
         return combined
 
     @staticmethod
-    def _sort_key(task: AudioTask) -> tuple[int, int, int]:
-        """Sort key: (segment_num, start_ms, 0). Uses multiple fallbacks."""
-        d = task.data
-        seg = d.get("segment_num")
-        start = d.get("start_ms")
-        if seg is not None:
-            return (int(seg), int(start) if start is not None else 0, 0)
+    def _seg_sort_key(seg: dict[str, Any]) -> tuple[int, int, int]:
+        """Sort key for segment dicts: (segment_num, start_ms, 0)."""
+        seg_num = seg.get("segment_num")
+        start = seg.get("start_ms")
+        if seg_num is not None:
+            return (int(seg_num), int(start) if start is not None else 0, 0)
         if start is not None:
             return (0, int(start), 0)
         return (0, 0, 0)
 
-    @staticmethod
-    def _group_key(task: AudioTask) -> str:
-        """Resolve group key from task data, falling back through known keys."""
-        d = task.data
-        return d.get("original_file") or d.get("audio_filepath") or task.task_id or "unknown"
-
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        """
-        Group tasks by original source file, sort by segment order, concatenate.
-
-        Handles edge cases:
-        - Single task: passes through without concatenation overhead.
-        - No segment_num: falls back to start_ms for ordering, then insertion order.
-        - No original_file: falls back to audio_filepath, then task_id.
-        - Filtered-out segments: gaps are fine, remaining segments keep their order.
-
-        Returns one AudioTask per source file group.
-        """
-        if not tasks:
-            return []
-
-        groups: dict[str, list[AudioTask]] = defaultdict(list)
-        for task in tasks:
-            groups[self._group_key(task)].append(task)
-
-        results: list[AudioTask] = []
-        for original_file, group_tasks in groups.items():
-            group_tasks.sort(key=self._sort_key)
-
-            combined_task = self._concatenate_group(original_file, group_tasks)
-            if combined_task is not None:
-                results.append(combined_task)
-
-        return results
-
-    def _concatenate_group(self, original_file: str, tasks: list[AudioTask]) -> AudioTask | None:
-        """Concatenate a group of tasks from the same original file."""
+    def _concatenate(
+        self, original_file: str, segments: list[dict[str, Any]],
+        task_id: str, dataset_name: str,
+    ) -> AudioTask | None:
+        """Concatenate a list of segment dicts from the same source file."""
         parts: list[torch.Tensor] = []
         mappings: list[dict[str, Any]] = []
         current_pos_ms = 0
@@ -187,18 +139,17 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
         num_channels: int | None = None
         silence_duration_ms = int(self.silence_duration_sec * 1000)
 
-        for task in tasks:
-            item = task.data
-            waveform = item.get("waveform")
-            sr = item.get("sample_rate")
+        for seg in segments:
+            waveform = seg.get("waveform")
+            sr = seg.get("sample_rate")
             if waveform is None:
                 continue
             if sr is None:
-                seg_id = item.get("segment_num", "?")
+                seg_id = seg.get("segment_num", "?")
                 logger.error(f"[SegmentConcat] Skipping segment {seg_id}: sample_rate key is missing.")
                 continue
             if sr <= 0:
-                seg_id = item.get("segment_num", "?")
+                seg_id = seg.get("segment_num", "?")
                 logger.warning(f"[SegmentConcat] Skipping segment {seg_id}: invalid sample_rate={sr}")
                 continue
 
@@ -224,12 +175,12 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
             num_samples = waveform.shape[-1]
             segment_duration_ms = int(1000 * num_samples / sample_rate)
 
-            orig_start = item.get("start_ms", 0)
-            orig_end = item.get("end_ms", 0)
+            orig_start = seg.get("start_ms", 0)
+            orig_end = seg.get("end_ms", 0)
             if orig_end <= orig_start:
                 orig_end = orig_start + segment_duration_ms
 
-            seg_num = item.get("segment_num", len(mappings))
+            seg_num = seg.get("segment_num", len(mappings))
             mapping = SegmentMapping(
                 original_file=original_file,
                 original_start_ms=orig_start,
@@ -268,8 +219,8 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
 
         result_task = AudioTask(
             data=output_data,
-            task_id=tasks[0].task_id,
-            dataset_name=tasks[0].dataset_name,
+            task_id=task_id,
+            dataset_name=dataset_name,
         )
         result_task._metadata = {"segment_mappings": mappings}
 
