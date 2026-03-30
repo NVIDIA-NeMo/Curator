@@ -96,10 +96,28 @@ deduplication_cuda12 = [
     "rapidsmpf-cu12==25.10.*",
 ]
 
+
 audio_cpu = [
-    "nemo_toolkit[asr]==2.4.0",
+    "transformers",
+    "accelerate",
+    "ijson",
+    "pyannote-audio>=4.0.0",
+    "ffmpeg-python",
+    "whisperx==3.8.2",
+    "cuda-python>=12.3",
+    "matplotlib",
+    "nemo-text-processing",
+    "pyarabic",
+    "opencc",
     "soundfile>=0.12.0",
+    "librosa",
+    "jiwer",
+    "torchaudio",
+    "nemo_toolkit[asr]==2.4.0",
+    "nemo_toolkit[nlp]==2.4.0",
+    "transformer-engine[pytorch]==2.4.0",
 ]
+
 audio_cuda12 = [
     "nemo_curator[audio_cpu]",
     "nemo_curator[cuda12]",
@@ -230,7 +248,7 @@ package = true
 managed = true
 default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
-no-build-isolation-package = ["flash-attn"]
+no-build-isolation-package = ["flash-attn", "transformer-engine", "transformer-engine-torch"]
 constraint-dependencies = [
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
     "cryptography>=46.0.5", # Address CVE GHSA-r6ph-v2qm-q3c2
@@ -243,6 +261,8 @@ constraint-dependencies = [
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
     "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
+    "onnxruntime<=1.21.1; python_version < '3.11'", # 1.22+ dropped Python 3.10 wheels
+    "torchcodec>=0.9,<0.10", # torchcodec 0.10 requires torch 2.10; pin to 0.9.x for torch 2.9.x
 ]
 override-dependencies = [
     "apex; sys_platform == 'never'",
@@ -250,10 +270,14 @@ override-dependencies = [
     "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
+    "nvidia-resiliency-ext; sys_platform == 'never'", # No manylinux_2_35 wheel available; not needed for audio tagging
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
-    "transformers<=4.55.2", # Else Cosmos Embed imports fail
+    "tiktoken>=0.8.0", # Override nemo-toolkit[nlp]'s tiktoken==0.7.0 pin; data-designer needs >=0.8.0
+    "torch>=2.8.0",
+    "torchaudio>=2.8.0",
+    "transformers>=4.51.0,<=4.55.2", # Else Cosmos Embed imports fail
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
 ]
 
