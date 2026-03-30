@@ -19,12 +19,25 @@ redirects:
     destination: "/nemo/curator/home/welcome"
   - source: "/nemo/curator/latest/:path*/index.html"
     destination: "/nemo/curator/latest/:path*"
-  - source: "/nemo/curator/v26.04/:path*/index.html"
+  - source: "/nemo/curator/26.04/:path*/index.html"
     destination: "/nemo/curator/v26.04/:path*"
-  - source: "/nemo/curator/v26.02/:path*/index.html"
+  - source: "/nemo/curator/26.02/:path*/index.html"
     destination: "/nemo/curator/v26.02/:path*"
-  - source: "/nemo/curator/v25.09/:path*/index.html"
+  - source: "/nemo/curator/25.09/:path*/index.html"
     destination: "/nemo/curator/v25.09/:path*"
+  # Legacy: calendar-train paths (YY.MM) without v- → Fern `versions:` slugs (vYY.MM)
+  - source: "/nemo/curator/25.09"
+    destination: "/nemo/curator/v25.09"
+  - source: "/nemo/curator/25.09/:path*"
+    destination: "/nemo/curator/v25.09/:path*"
+  - source: "/nemo/curator/26.02"
+    destination: "/nemo/curator/v26.02"
+  - source: "/nemo/curator/26.02/:path*"
+    destination: "/nemo/curator/v26.02/:path*"
+  - source: "/nemo/curator/26.04"
+    destination: "/nemo/curator/v26.04"
+  - source: "/nemo/curator/26.04/:path*"
+    destination: "/nemo/curator/v26.04/:path*"
   # Unversioned paths and any slug not listed above (e.g. new version before redirects are updated)
   - source: "/nemo/curator/:path*/index.html"
     destination: "/nemo/curator/:path*"
@@ -100,7 +113,7 @@ logo:
   dark: ./assets/NVIDIA_dark.svg
   light: ./assets/NVIDIA_light.svg
   height: 20
-  href: /home/welcome
+  href: /nemo/curator/home/welcome
   right-text: NeMo Curator
 
 favicon: ./assets/NVIDIA_symbol.svg
