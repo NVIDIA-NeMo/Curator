@@ -115,6 +115,39 @@ Per-stage performance profiling for the two audio pipelines in NeMo Curator: **F
 | FLEURS | Data download (91%) | ASR inference (6%) | Pre-download for benchmarks; tune batch size |
 | ALM | repeat_entries (44%) | file_partitioning (33%) | Benchmark artifact; investigate Xenna overhead |
 
+## DGX A100 Baseline (Official Benchmark Machine)
+
+### Machine Specs
+
+- GPU: 8× NVIDIA A100-SXM4-80GB
+- CPU: 64 cores
+- OS: Ubuntu, Linux 5.15
+
+### FLEURS Pipeline (GPU)
+
+**Configuration:** `nvidia/stt_hy_fastconformer_hybrid_large_pc`, `hy_am`, `train` split, WER threshold 5.5, 1 GPU.
+
+| Metric | Xenna | Ray Data |
+|--------|-------|----------|
+| Wall clock | 100.79s | 123.53s |
+| Tasks processed | 404 | 404 |
+| Throughput (tasks/sec) | 4.01 | 3.27 |
+
+### Comparison with Local Machine
+
+The DGX numbers are **not directly comparable** to the local results above because the configurations differ:
+
+| Parameter | Local | DGX |
+|-----------|-------|-----|
+| Model | `parakeet-tdt-0.6b-v2` (0.6B) | `stt_hy_fastconformer_hybrid_large_pc` (larger) |
+| Language | `en_us` | `hy_am` |
+| Split | `dev` (394 tasks) | `train` (404 tasks) |
+| GPU | RTX 3080 Ti 12GB | A100-SXM4-80GB |
+
+The DGX shows lower throughput primarily because the nightly config uses a larger model with higher per-batch inference cost. The executor ranking also flips: Xenna is faster on DGX (4.01 vs 3.27 t/s) while Ray Data was faster locally (8.61 vs 6.49 t/s), consistent with Xenna's streaming executor better utilizing the GPU under heavier model loads.
+
+Both runs include dataset download time in wall-clock, which varies with network conditions and is not indicative of pure inference throughput.
+
 ## Nightly Benchmark Requirements
 
 Based on these baselines, the following regression thresholds are set in `nightly-benchmark.yaml` (observed - 5% buffer):
