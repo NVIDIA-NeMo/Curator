@@ -16,7 +16,7 @@ modality: "universal"
 
 Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and improved GPU management:
 
-- **Simplified `Resources` API**: Removed `nvdecs`, `nvencs`, and `entire_gpu` fields. GPU allocation now uses `gpu_memory_gb` (fractional single-GPU) or `gpus` (multi-GPU) exclusively.
+- **Simplified `Resources` API**: Removed `nvdecs`, `nvencs`, and `entire_gpu` fields. GPU allocation now uses `gpu_memory_gb` (fractional single-GPU) or `gpus` (one or more full GPUs) exclusively.
 - **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
 - **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
 

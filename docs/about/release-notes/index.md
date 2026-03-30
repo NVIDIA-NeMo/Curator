@@ -18,7 +18,7 @@ modality: "universal"
 
 Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and improved GPU management:
 
-- **Simplified `Resources` API**: Removed `nvdecs`, `nvencs`, and `entire_gpu` fields. GPU allocation now uses `gpu_memory_gb` (fractional single-GPU) or `gpus` (multi-GPU) exclusively.
+- **Simplified `Resources` API**: Removed `nvdecs`, `nvencs`, and `entire_gpu` fields. GPU allocation now uses `gpu_memory_gb` (fractional single-GPU) or `gpus` (one or more full GPUs) exclusively.
 - **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
 - **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
 
@@ -116,8 +116,13 @@ New API for tracking and analyzing pipeline execution:
 
 ## Dependency Updates
 
+### 26.04
+
 - **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
 - **Ray**: Updated to 2.54
+
+### 26.02
+
 - **Transformers**: Pinned to 4.55.2 for stability and compatibility
 - **vLLM**: Updated to 0.14.1 with video pipeline compatibility fixes
 - **FFmpeg**: Upgraded to 8.0.1 for enhanced multimedia processing
@@ -148,7 +153,12 @@ New API for tracking and analyzing pipeline execution:
 
 ## Breaking Changes
 
+### 26.04
+
 - **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
+
+### 26.02
+
 - **InternVideo2 Removed**: Video pipelines must use alternative embedding models (Cosmos-Embed1)
 - **ID Field Standardization**: Custom deduplication workflows may need updates to use standardized ID field names
 

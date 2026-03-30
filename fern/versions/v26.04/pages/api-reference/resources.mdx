@@ -23,7 +23,7 @@ class Resources:
     Attributes:
         cpus: Number of CPU cores (default: 1.0).
         gpu_memory_gb: GPU memory in GB for single-GPU stages (default: 0.0).
-        gpus: Number of GPUs for multi-GPU stages (default: 0.0).
+        gpus: Number of full GPUs (1 or more) for GPU stages (default: 0.0).
     """
 
     cpus: float = 1.0
@@ -87,7 +87,7 @@ resources = Resources(
 You **cannot specify both** `gpus` and `gpu_memory_gb`. Choose one:
 
 - Use `gpu_memory_gb` for single-GPU stages (< 1 GPU)
-- Use `gpus` for multi-GPU stages (>= 1 GPU)
+- Use `gpus` for stages that need one or more full GPUs
 </Warning>
 
 ```python
