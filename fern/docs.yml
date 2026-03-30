@@ -21,6 +21,8 @@ redirects:
     destination: "/home/welcome"
   - source: "/latest/:path*/index.html"
     destination: "/latest/:path*"
+  - source: "/v26.04/:path*/index.html"
+    destination: "/v26.04/:path*"
   - source: "/v26.02/:path*/index.html"
     destination: "/v26.02/:path*"
   - source: "/v25.09/:path*/index.html"
