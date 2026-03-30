@@ -22,12 +22,12 @@ from nemo_text_processing.inverse_text_normalization.inverse_normalize import (
     InverseNormalizer,
 )
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class InverseTextNormalizationStage(LegacySpeechStage):
+class InverseTextNormalizationStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that performs inverse text normalization on text data.
 
@@ -66,10 +66,11 @@ class InverseTextNormalizationStage(LegacySpeechStage):
         self._normalizer_initialized = True
         logger.info(f"[{self.name}] Initialized for language: {self.language}")
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
         """Process entry for inverse text normalization."""
         if not self._normalizer_initialized:
             self.setup()
+        data_entry = task.data
         segments = data_entry.get("segments", [])
         for segment in segments:
             if self.text_key in segment:
@@ -79,4 +80,4 @@ class InverseTextNormalizationStage(LegacySpeechStage):
                     text_itn = " ".join(self._normalizer.normalize_list(sentences))
                     segment[f"{self.text_key}_ITN"] = text_itn
 
-        return [AudioBatch(data=[data_entry])]
+        return task

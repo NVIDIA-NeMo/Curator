@@ -246,7 +246,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             dataset_name=task.dataset_name,
             data=task.data,
             _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
+            _stage_perf=list(task._stage_perf),
         )
 
     def num_workers(self) -> int | None:

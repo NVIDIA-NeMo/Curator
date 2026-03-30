@@ -26,13 +26,13 @@ from loguru import logger
 from torchaudio.pipelines import SQUIM_OBJECTIVE
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio.common import LegacySpeechStage
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class TorchSquimQualityMetricsStage(LegacySpeechStage):
+class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that calculates Squim quality metrics for audio files.
 
@@ -86,18 +86,19 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
         self._model_initialized = True
         logger.info(f"[{self.name}] Initialized SQUIM model on {self.device}")
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
         """Calculate Squim quality metrics for audio entry."""
         if not self._model_initialized:
             self.setup()
 
+        data_entry = task.data
         audio_path = data_entry.get(self.audio_filepath_key)
         if not audio_path:
             logger.error(
                 f"[{self.name}] Missing '{self.audio_filepath_key}' for entry: "
                 f"{data_entry.get('audio_item_id', 'unknown')}"
             )
-            return [AudioBatch(data=[data_entry])]
+            return task
         info = sf.info(audio_path)
         sr = info.samplerate
 
@@ -105,7 +106,7 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
             audio, _ = librosa.load(path=audio_path, sr=sr)
         except Exception as ex:  # noqa: BLE001
             logger.error(f"Failed to load audio path: {audio_path}, exception={ex}")
-            return [AudioBatch(data=[data_entry])]
+            return task
 
         segments = data_entry.get("segments", [])
 
@@ -147,8 +148,4 @@ class TorchSquimQualityMetricsStage(LegacySpeechStage):
                 logger.error(
                     f"Failed to compute Squim metrics: {e}, frame_offset={start}, num_frames={num_frames}, file={audio_path}"
                 )
-        return [
-            AudioBatch(
-                data=[data_entry],
-            )
-        ]
+        return task

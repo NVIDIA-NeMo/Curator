@@ -15,16 +15,15 @@
 """Arabic diacritics removal stage."""
 
 from dataclasses import dataclass
-from typing import Any
 
 from pyarabic import araby
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class ArabicRemoveDiacriticsStage(LegacySpeechStage):
+class ArabicRemoveDiacriticsStage(ProcessingStage[AudioTask, AudioTask]):
     """Remove diacritics from Arabic text and alignment words.
 
     Only modifies entries that are final segments (no pending ``split_filepaths``)
@@ -53,7 +52,8 @@ class ArabicRemoveDiacriticsStage(LegacySpeechStage):
                 word["word"] = araby.strip_diacritics(word["word"])
         return text, alignment
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
+        data_entry = task.data
         if "split_metadata" in data_entry:
             for entry in data_entry["split_metadata"]:
                 entry[self.text_key], entry["alignment"] = self.strip_diacritics(
@@ -64,4 +64,4 @@ class ArabicRemoveDiacriticsStage(LegacySpeechStage):
                 data_entry[self.text_key], data_entry["alignment"]
             )
 
-        return [AudioBatch(data=[data_entry])]
+        return task

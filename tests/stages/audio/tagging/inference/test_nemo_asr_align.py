@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 class TestNeMoASRAlignerStage:
@@ -30,9 +30,9 @@ class TestNeMoASRAlignerStage:
         )
         stage.setup()
 
-        batch = AudioBatch(
-            data=[
-                {
+        tasks = [
+            AudioTask(
+                data={
                     "audio_filepath": str(wav_filepath),
                     "split_filepaths": [str(wav_filepath)],
                     "split_metadata": [
@@ -43,12 +43,12 @@ class TestNeMoASRAlignerStage:
                         }
                     ],
                 }
-            ]
-        )
-        results = stage.process(batch)
+            )
+        ]
+        results = stage.process_batch(tasks)
 
         assert len(results) == 1
-        entry = results[0].data[0]
+        entry = results[0].data
         split = entry["split_metadata"][0]
         assert "text" in split
         assert "alignment" in split

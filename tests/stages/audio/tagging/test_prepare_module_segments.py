@@ -19,7 +19,7 @@ from unittest.mock import patch
 from nemo_curator.stages.audio.tagging.prepare_module_segments import (
     PrepareModuleSegmentsStage,
 )
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 class TestPrepareModuleSegmentsStageIsValidSegment:
@@ -157,7 +157,7 @@ def _prepare_module_segments_sdp_style_input() -> dict[str, Any]:
 
 
 def test_prepare_module_segments_stage_sdp_style_input(
-    audio_batch: Callable[..., AudioBatch],
+    audio_task: Callable[..., AudioTask],
 ) -> None:
     """PrepareModuleSegmentsStage with SDP-style input (speaker1, no-speaker, speaker1) yields 2 TTS segments.
 
@@ -177,19 +177,16 @@ def test_prepare_module_segments_stage_sdp_style_input(
         punctuation_split_only=False,
     )
     data_entry = _prepare_module_segments_sdp_style_input()
-    batch = audio_batch(**data_entry)
-    batches = stage.process_dataset_entry(batch.data[0])
+    task = audio_task(**data_entry)
+    result = stage.process(task)
 
-    assert len(batches) == 1
-    out = batches[0].data[0]
+    out = result.data
     assert "segments" in out
     assert len(out["segments"]) == 2
-    # First segment from first speaker1 segment
     assert out["segments"][0]["text"] == "can you see the"
     assert out["segments"][0]["speaker"] == "speaker1"
     assert "metrics" in out["segments"][0]
     assert "pesq_squim" in out["segments"][0]["metrics"]
-    # Second segment from second speaker1 segment
     assert out["segments"][1]["text"] == "just shared it again"
     assert out["segments"][1]["speaker"] == "speaker1"
     assert "metrics" in out["segments"][1]
@@ -213,8 +210,8 @@ class TestPerEntryRandomSeed:
         entry_b = {"audio_filepath": "file_b.wav", "segments": []}
 
         with patch.object(stage._rng, "seed", side_effect=capture_seed):
-            stage.process_dataset_entry(entry_a)
-            stage.process_dataset_entry(entry_b)
+            stage.process(AudioTask(data=entry_a))
+            stage.process(AudioTask(data=entry_b))
 
         assert len(seeds_used) == 2
         assert seeds_used[0] != seeds_used[1], "Different entries must get different random seeds"
@@ -233,8 +230,8 @@ class TestPerEntryRandomSeed:
         entry = {"audio_filepath": "file_a.wav", "segments": []}
 
         with patch.object(stage._rng, "seed", side_effect=capture_seed):
-            stage.process_dataset_entry(entry)
-            stage.process_dataset_entry(entry)
+            stage.process(AudioTask(data=entry))
+            stage.process(AudioTask(data=entry))
 
         assert len(seeds_used) == 2
         assert seeds_used[0] == seeds_used[1], "Same entry must always get the same seed"

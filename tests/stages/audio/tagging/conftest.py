@@ -16,14 +16,14 @@
 
 import pytest
 
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 @pytest.fixture
-def audio_batch():
-    """Factory for AudioBatch instances. Each batch has .data as a list of one dict."""
+def audio_task():
+    """Factory for AudioTask instances. Each task wraps a single dict."""
 
-    def _make(**kwargs) -> AudioBatch:
-        return AudioBatch(data=[kwargs])
+    def _make(**kwargs) -> AudioTask:
+        return AudioTask(data=kwargs)
 
     return _make

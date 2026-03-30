@@ -20,18 +20,16 @@ Audio Splitting and Joining Stages.
 import math
 import os
 from dataclasses import dataclass
-from typing import Any
 
 import torchaudio
 from loguru import logger
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class SplitLongAudioStage(LegacySpeechStage):
+class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that splits long audio files into smaller segments.
 
@@ -84,8 +82,9 @@ class SplitLongAudioStage(LegacySpeechStage):
 
         return splits
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
         """Process entry to split long audio files."""
+        data_entry = task.data
         duration = data_entry["duration"]
 
         # If audio is short enough, no splitting needed
@@ -100,7 +99,7 @@ class SplitLongAudioStage(LegacySpeechStage):
             ]
             data_entry["split_offsets"] = [0.0]
             data_entry["split_timestamps"] = [0.0]
-            return [AudioBatch(data=[data_entry])]
+            return task
 
         # Get split points
         splits = self.get_split_points(data_entry)
@@ -175,11 +174,11 @@ class SplitLongAudioStage(LegacySpeechStage):
         data_entry["split_filepaths"] = split_filepaths
         data_entry["split_offsets"] = actual_splits
         data_entry["split_timestamps"] = splits
-        return [AudioBatch(data=[data_entry])]
+        return task
 
 
 @dataclass
-class JoinSplitAudioMetadataStage(LegacySpeechStage):
+class JoinSplitAudioMetadataStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage for joining metadata of previously split audio files.
 
@@ -197,34 +196,36 @@ class JoinSplitAudioMetadataStage(LegacySpeechStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["text", "alignment"]
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
         """
         Process entries and join split audio metadata.
 
         This stage collects all entries and processes meta-entries to join
         split audio files back together.
         """
+        data_entry = task.data
         # Check if this is a meta-entry with split information
         if "split_filepaths" in data_entry:
             if data_entry["split_filepaths"] is None:
                 # No splitting occurred, pass through
                 del data_entry["split_filepaths"]
-                return [AudioBatch(data=[data_entry])]
+                return task
             else:
                 # This is a meta-entry, process joining
-                return self._join_split_metadata(data_entry)
+                self._join_split_metadata(data_entry)
+                return task
 
         # Regular entry without split info
-        return [AudioBatch(data=[data_entry])]
+        return task
 
-    def _join_split_metadata(self, meta_entry: dict) -> list[AudioBatch]:
+    def _join_split_metadata(self, meta_entry: dict) -> None:
         """Join metadata from split audio files."""
         split_metadata = meta_entry.get("split_metadata", [])
         split_offsets = meta_entry.get("split_offsets", [])
 
         if not split_metadata:
             del meta_entry["split_filepaths"]
-            return [AudioBatch(data=[meta_entry])]
+            return
 
         transcripts = []
         alignments = []
@@ -252,11 +253,9 @@ class JoinSplitAudioMetadataStage(LegacySpeechStage):
         for key in ["split_filepaths", "split_metadata"]:
             meta_entry.pop(key, None)
 
-        return [AudioBatch(data=[meta_entry])]
-
 
 @dataclass
-class SplitASRAlignJoinStage(CompositeStage[AudioBatch, AudioBatch]):
+class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
     """Composite stage: Split long audio -> ASR align -> Join results.
 
     Decomposes into three sequential stages that always run together:

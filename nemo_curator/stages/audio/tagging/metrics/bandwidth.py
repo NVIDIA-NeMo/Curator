@@ -15,18 +15,17 @@
 """Bandwidth estimation stage."""
 
 from dataclasses import dataclass
-from typing import Any
 
 import librosa
 import numpy as np
 from loguru import logger
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class BandwidthEstimationStage(LegacySpeechStage):
+class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that estimates audio bandwidth by analyzing power spectra.
 
@@ -79,20 +78,21 @@ class BandwidthEstimationStage(LegacySpeechStage):
 
         return bandwidth
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
         """Estimate bandwidth for audio entry."""
+        data_entry = task.data
         audio_path = data_entry.get(self.audio_filepath_key)
         if not audio_path:
             logger.error(
                 f"[{self.name}] Missing '{self.audio_filepath_key}' for entry: "
                 f"{data_entry.get('audio_item_id', 'unknown')}"
             )
-            return [AudioBatch(data=[data_entry])]
+            return task
         try:
             audio, sample_rate = librosa.load(path=audio_path, sr=None)
         except Exception as ex:  # noqa: BLE001
             logger.error(f"Failed to load audio path: {audio_path}, exception={ex}")
-            return [AudioBatch(data=[data_entry])]
+            return task
         segments = data_entry.get("segments", [])
 
         for segment in segments:
@@ -108,4 +108,4 @@ class BandwidthEstimationStage(LegacySpeechStage):
             if "metrics" not in segment:
                 segment["metrics"] = {}
             segment["metrics"]["bandwidth"] = int(bandwidth)
-        return [AudioBatch(data=[data_entry])]
+        return task

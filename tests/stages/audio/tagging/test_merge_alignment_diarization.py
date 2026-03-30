@@ -18,7 +18,7 @@ from collections.abc import Callable
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import (
     MergeAlignmentDiarizationStage,
 )
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 class TestMergeAlignmentDiarizationAlignWordsToSegments:
@@ -78,41 +78,36 @@ class TestMergeAlignmentDiarizationAlignWordsToSegments:
 
 
 class TestMergeAlignmentDiarizationStage:
-    """Tests for MergeAlignmentDiarizationStage process_dataset_entry."""
+    """Tests for MergeAlignmentDiarizationStage process."""
 
-    def test_process_dataset_entry_merges_alignment_into_segments(
-        self, audio_batch: Callable[..., AudioBatch]
-    ) -> None:
-        """process_dataset_entry adds text and words to segments from alignment."""
+    def test_process_merges_alignment_into_segments(self, audio_task: Callable[..., AudioTask]) -> None:
+        """process adds text and words to segments from alignment."""
         stage = MergeAlignmentDiarizationStage(text_key="text", words_key="words")
-        batch = audio_batch(
+        task = audio_task(
             alignment=[
                 {"word": "hello", "start": 0.0, "end": 0.5},
                 {"word": "world", "start": 0.5, "end": 1.0},
             ],
             segments=[{"speaker": "s1", "start": 0.0, "end": 1.0}],
         )
-        batches = stage.process_dataset_entry(batch.data[0])
-        assert len(batches) == 1
-        out = batches[0].data[0]
+        result = stage.process(task)
+        out = result.data
         assert out["segments"][0]["text"] == "hello world"
         assert len(out["segments"][0]["words"]) == 2
 
-    def test_process_dataset_entry_no_alignment_passthrough(self, audio_batch: Callable[..., AudioBatch]) -> None:
+    def test_process_no_alignment_passthrough(self, audio_task: Callable[..., AudioTask]) -> None:
         """Entry without alignment is returned unchanged."""
         stage = MergeAlignmentDiarizationStage()
-        batch = audio_batch(segments=[{"speaker": "s1", "start": 0.0, "end": 1.0}])
-        batches = stage.process_dataset_entry(batch.data[0])
-        assert len(batches) == 1
-        assert batches[0].data[0]["segments"] == batch.data[0]["segments"]
+        task = audio_task(segments=[{"speaker": "s1", "start": 0.0, "end": 1.0}])
+        result = stage.process(task)
+        assert result.data["segments"] == task.data["segments"]
 
-    def test_process_dataset_entry_no_segments_passthrough(self, audio_batch: Callable[..., AudioBatch]) -> None:
+    def test_process_no_segments_passthrough(self, audio_task: Callable[..., AudioTask]) -> None:
         """Entry with alignment but no segments is returned unchanged."""
         stage = MergeAlignmentDiarizationStage()
-        batch = audio_batch(
+        task = audio_task(
             alignment=[{"word": "x", "start": 0.0, "end": 0.5}],
             segments=[],
         )
-        batches = stage.process_dataset_entry(batch.data[0])
-        assert len(batches) == 1
-        assert batches[0].data[0]["segments"] == []
+        result = stage.process(task)
+        assert result.data["segments"] == []

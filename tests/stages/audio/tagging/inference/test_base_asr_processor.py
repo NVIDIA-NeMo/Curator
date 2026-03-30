@@ -16,7 +16,7 @@
 from typing import Any
 
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import BaseASRProcessorStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 class ConcreteASRProcessor(BaseASRProcessorStage):
@@ -25,8 +25,8 @@ class ConcreteASRProcessor(BaseASRProcessorStage):
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ANN401
         pass
 
-    def process(self, batch: AudioBatch) -> AudioBatch:
-        return batch
+    def process(self, task: AudioTask) -> AudioTask:
+        return task
 
 
 class TestBaseASRProcessorStagePrepareSegmentBatch:

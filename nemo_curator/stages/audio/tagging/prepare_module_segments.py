@@ -24,15 +24,15 @@ from typing import Any
 
 from loguru import logger
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 from .merge_alignment_diarization import MergeAlignmentDiarizationStage
 from .utils import add_non_speaker_segments
 
 
 @dataclass
-class PrepareModuleSegmentsStage(LegacySpeechStage):
+class PrepareModuleSegmentsStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that prepares segments for TTS or ASR by merging and splitting based on
     duration, punctuation, and bandwidth.
@@ -398,24 +398,23 @@ class PrepareModuleSegmentsStage(LegacySpeechStage):
 
         self.add_new_segments_to_metadata(metadata, new_segments)
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
         """Process one entry: build words from segments, then prepare TTS or ASR segments."""
+        data_entry = task.data
         entry_id = data_entry.get("audio_filepath", data_entry.get("audio_item_id", ""))
         seed = int(hashlib.md5(entry_id.encode()).hexdigest()[:8], 16)  # noqa: S324
         self._rng.seed(seed)
         try:
             if "segments" not in data_entry:
                 logger.info(f"[{self.name}] No segments in metadata for: {data_entry.get('audio_filepath', '')}")
-                return [AudioBatch(data=[data_entry])]
+                return task
 
             words = self.get_words_list_from_all_segments(data_entry)
             if self.module == "asr":
                 self.prepare_asr_segments(words, data_entry)
             elif self.module == "tts":
                 self.prepare_tts_segments(words, data_entry)
-
-            return [AudioBatch(data=[data_entry])]
-
         except Exception as e:  # noqa: BLE001
             logger.error(f"[{self.name}] Error processing entry: {e}")
-            return [AudioBatch(data=[data_entry])]
+
+        return task

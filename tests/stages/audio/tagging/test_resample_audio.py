@@ -17,22 +17,22 @@ from collections.abc import Callable
 from pathlib import Path
 
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 class TestResampleAudioStage:
     """Tests for ResampleAudioStage."""
 
-    def test_process_dataset_entry(self, audio_batch: Callable[..., AudioBatch], audio_filepath: Path) -> None:
+    def test_process(self, audio_task: Callable[..., AudioTask], audio_filepath: Path) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             stage = ResampleAudioStage(resampled_audio_dir=tmpdir)
             stage.setup()
-            batch = audio_batch(
+            task = audio_task(
                 audio_filepath=str(audio_filepath),
                 audio_item_id="id_1",
             )
-            result = stage.process_dataset_entry(batch.data[0])
-            out = result[0].data[0]
+            result = stage.process(task)
+            out = result.data
             assert out.get("audio_filepath") == str(audio_filepath)
             assert out.get("resampled_audio_filepath") == f"{tmpdir}/id_1.wav"
             assert out.get("duration") == 87.1335

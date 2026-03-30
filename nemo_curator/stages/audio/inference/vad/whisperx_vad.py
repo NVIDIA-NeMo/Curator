@@ -16,7 +16,7 @@
 WhisperX VAD for NeMo Curator.
 
 Provides WhisperXVADModel (shared VAD logic for pyannote and standalone VAD)
-and WhisperXVADStage (LegacySpeechStage for VAD-only pipeline use).
+and WhisperXVADStage (ProcessingStage for VAD-only pipeline use).
 """
 
 import os
@@ -31,8 +31,9 @@ from whisperx.audio import SAMPLE_RATE
 from whisperx.vads.pyannote import Pyannote, load_vad_model
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio.common import LegacySpeechStage, get_audio_duration
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.audio.common import get_audio_duration
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 class WhisperXVADModel:
@@ -95,7 +96,7 @@ class WhisperXVADModel:
 
 
 @dataclass
-class WhisperXVADStage(LegacySpeechStage):
+class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that performs Voice Activity Detection (VAD) using WhisperX's VAD model.
 
@@ -112,7 +113,6 @@ class WhisperXVADStage(LegacySpeechStage):
     audio_filepath_key: str = "resampled_audio_filepath"
 
     name: str = "WhisperXVAD"
-    output_dir: str = None
 
     _vad_model: Any = field(default=None, repr=False)
     _model_initialized: bool = field(default=False, repr=False)
@@ -152,18 +152,19 @@ class WhisperXVADStage(LegacySpeechStage):
         self._model_initialized = True
         logger.info(f"[{self.name}] Initialized WhisperX VAD on {self.device}")
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
         if not self._model_initialized:
             self.setup()
 
+        data_entry = task.data
         file_path = data_entry[self.audio_filepath_key]
         duration = data_entry.get("duration", get_audio_duration(file_path))
         if duration < self.min_length:
             logger.warning(f"Skipping {file_path} because it is less than {self.min_length} seconds")
-            return [AudioBatch(data=[data_entry])]
+            return task
 
         data, sr = sf.read(file_path, dtype="float32")
         audio = np.expand_dims(data, axis=0) if data.ndim == 1 else data.T
         vad_segments = self._vad_model.get_vad_segments(audio, self.max_length, sample_rate=sr)
         data_entry[self.segments_key] = vad_segments
-        return [AudioBatch(data=[data_entry])]
+        return task

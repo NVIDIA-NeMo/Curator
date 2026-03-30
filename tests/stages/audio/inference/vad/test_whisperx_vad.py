@@ -16,10 +16,11 @@
 from pathlib import Path
 
 from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADStage
+from nemo_curator.tasks import AudioTask
 
 
 class TestWhisperXVADStage:
-    def test_process_dataset_entry(self, wav_filepath: Path) -> None:
+    def test_process(self, wav_filepath: Path) -> None:
         stage = WhisperXVADStage(
             min_length=0.5,
             max_length=40.0,
@@ -32,9 +33,9 @@ class TestWhisperXVADStage:
             "resampled_audio_filepath": str(wav_filepath),
             "duration": 87.1335,
         }
-        batches = stage.process_dataset_entry(entry)
-        assert len(batches) == 1
-        out = batches[0].data[0]
+        task = AudioTask(data=entry)
+        result = stage.process(task)
+        out = result.data
         assert "vad_segments" in out
         assert isinstance(out["vad_segments"], list)
         assert len(out["vad_segments"]) == 2

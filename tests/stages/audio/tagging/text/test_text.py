@@ -19,7 +19,7 @@ from nemo_curator.stages.audio.tagging.text import (
     ChineseConversionStage,
     PNCwithBERTStage,
 )
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 class TestArabicRemoveDiacriticsStage:
@@ -32,8 +32,8 @@ class TestArabicRemoveDiacriticsStage:
                 {"word": "اللَّهِ", "start": 0.5, "end": 1.0},
             ],
         }
-        batches = stage.process_dataset_entry(entry)
-        out = batches[0].data[0]
+        result = stage.process(AudioTask(data=entry))
+        out = result.data
         assert out["text"] == "بسم الله"
         assert out["alignment"][0]["word"] == "بسم"
         assert out["alignment"][1]["word"] == "الله"
@@ -53,8 +53,8 @@ class TestArabicRemoveDiacriticsStage:
                 },
             ],
         }
-        batches = stage.process_dataset_entry(entry)
-        out = batches[0].data[0]
+        result = stage.process(AudioTask(data=entry))
+        out = result.data
         assert out["split_metadata"][0]["text"] == "بسم"
         assert out["split_metadata"][0]["alignment"][0]["word"] == "بسم"
         assert out["split_metadata"][1]["text"] == "الله"
@@ -62,10 +62,10 @@ class TestArabicRemoveDiacriticsStage:
 
 
 class TestPNCwithBERTStage:
-    def test_processes_segments(self, audio_batch: Callable[..., AudioBatch]) -> None:
+    def test_processes_segments(self, audio_task: Callable[..., AudioTask]) -> None:
         stage = PNCwithBERTStage(text_key="text", update_alignment=True, device="cpu")
         stage.setup()
-        batch = audio_batch(
+        task = audio_task(
             segments=[
                 {
                     "text": "hello world",
@@ -78,8 +78,8 @@ class TestPNCwithBERTStage:
                 },
             ],
         )
-        batches = stage.process_dataset_entry(batch.data[0])
-        out = batches[0].data[0]
+        result = stage.process(task)
+        out = result.data
         assert out["segments"][0]["text"]
         assert out["segments"][0]["text"] == "Hello world."
         assert out["segments"][0]["alignment"][0]["word"] == "Hello"
@@ -88,34 +88,34 @@ class TestPNCwithBERTStage:
         stage = PNCwithBERTStage(text_key="text", device="cpu")
         stage.setup()
         entry = {"text": "hello world"}
-        batches = stage.process_dataset_entry(entry)
-        out = batches[0].data[0]
+        result = stage.process(AudioTask(data=entry))
+        out = result.data
         assert out["text"]
         assert out["text"] == "Hello world."
 
 
 class TestChineseConversionStage:
-    def test_converts_traditional_to_simplified(self, audio_batch: Callable[..., AudioBatch]) -> None:
+    def test_converts_traditional_to_simplified(self, audio_task: Callable[..., AudioTask]) -> None:
         stage = ChineseConversionStage(text_key="text", convert_type="t2s")
         stage.setup()
-        batch = audio_batch(
+        task = audio_task(
             segments=[
                 {"text": "漢字", "start": 0.0, "end": 1.0},
             ],
         )
-        batches = stage.process_dataset_entry(batch.data[0])
-        out = batches[0].data[0]
+        result = stage.process(task)
+        out = result.data
         assert out["segments"][0]["text_simplified"] == "汉字"
         assert out["segments"][0]["text"] == "漢字"
 
-    def test_segment_without_text_key_is_skipped(self, audio_batch: Callable[..., AudioBatch]) -> None:
+    def test_segment_without_text_key_is_skipped(self, audio_task: Callable[..., AudioTask]) -> None:
         stage = ChineseConversionStage(text_key="text")
         stage.setup()
-        batch = audio_batch(
+        task = audio_task(
             segments=[
                 {"start": 0.0, "end": 1.0},
             ],
         )
-        batches = stage.process_dataset_entry(batch.data[0])
-        out = batches[0].data[0]
+        result = stage.process(task)
+        out = result.data
         assert "text_simplified" not in out["segments"][0]

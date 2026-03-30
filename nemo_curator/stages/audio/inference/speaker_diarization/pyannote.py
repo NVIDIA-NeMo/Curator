@@ -33,10 +33,11 @@ from pyannote.audio.pipelines.utils.hook import ProgressHook
 from pyannote.core import Segment
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio.common import LegacySpeechStage, get_audio_duration
+from nemo_curator.stages.audio.common import get_audio_duration
 from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADModel
 from nemo_curator.stages.audio.tagging.utils import add_non_speaker_segments
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 def has_overlap(turn: Segment, overlaps: list) -> bool:
@@ -70,7 +71,7 @@ def has_overlap(turn: Segment, overlaps: list) -> bool:
 
 
 @dataclass
-class PyAnnoteDiarizationStage(LegacySpeechStage):
+class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that performs speaker diarization and overlap detection using PyAnnote.
 
@@ -212,8 +213,9 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
         else:
             segments.append({"speaker": speaker_id, "start": start, "end": end})
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
         """Process a single entry for diarization and overlap detection."""
+        data_entry = task.data
         file_path = data_entry.get(self.audio_filepath_key)
         if not file_path:
             msg = f"[{self.name}] Missing key '{self.audio_filepath_key}' in entry: {data_entry.get('audio_item_id', 'unknown')}"
@@ -285,4 +287,4 @@ class PyAnnoteDiarizationStage(LegacySpeechStage):
         # Update entry
         data_entry["segments"] = segments
         data_entry["overlap_segments"] = overlap_segments
-        return [AudioBatch(data=[data_entry])]
+        return task

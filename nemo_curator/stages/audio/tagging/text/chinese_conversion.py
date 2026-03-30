@@ -20,12 +20,12 @@ from typing import Any
 from loguru import logger
 from opencc import OpenCC
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class ChineseConversionStage(LegacySpeechStage):
+class ChineseConversionStage(ProcessingStage[AudioTask, AudioTask]):
     """Convert Traditional Chinese text to Simplified Chinese (or other OpenCC conversions).
 
     Iterates over the ``segments`` list of each entry and writes the converted
@@ -57,7 +57,8 @@ class ChineseConversionStage(LegacySpeechStage):
         self._converter = OpenCC(self.convert_type)
         logger.info(f"[{self.name}] Using conversion type: {self.convert_type}")
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
+        data_entry = task.data
         output_key = f"{self.text_key}_simplified"
         for segment in data_entry.get("segments", []):
             if self.text_key in segment:
@@ -67,4 +68,4 @@ class ChineseConversionStage(LegacySpeechStage):
                     logger.warning(f"[{self.name}] Chinese conversion failed, keeping original")
                     segment[output_key] = segment[self.text_key]
 
-        return [AudioBatch(data=[data_entry])]
+        return task

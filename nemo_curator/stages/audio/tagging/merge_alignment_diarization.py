@@ -17,14 +17,13 @@ Merge Alignment and Diarization Stage.
 """
 
 from dataclasses import dataclass
-from typing import Any
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class MergeAlignmentDiarizationStage(LegacySpeechStage):
+class MergeAlignmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that merges alignment and diarization information.
 
@@ -173,12 +172,13 @@ class MergeAlignmentDiarizationStage(LegacySpeechStage):
                 segment[text_key] = " ".join([x.get("word", "") for x in words_in_segment])
                 segment[words_key] = words_in_segment
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
         """Process entry to merge alignment and diarization."""
+        data_entry = task.data
         alignment = data_entry.get("alignment", [])
         segments = data_entry.get("segments", [])
 
         if alignment and segments:
             self.align_words_to_segments(alignment, segments, self.text_key, self.words_key)
 
-        return [AudioBatch(data=[data_entry])]
+        return task

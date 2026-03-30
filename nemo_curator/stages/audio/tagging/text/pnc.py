@@ -22,12 +22,12 @@ from loguru import logger
 from nemo.collections.nlp.models import PunctuationCapitalizationModel
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class PNCwithBERTStage(LegacySpeechStage):
+class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
     """Punctuation and capitalisation using a BERT-based NeMo model.
 
     Supports two operating modes controlled by ``is_audio_entry``:
@@ -109,7 +109,8 @@ class PNCwithBERTStage(LegacySpeechStage):
                     word["word"] = pnc_words[pnc_idx]
                     pnc_idx += 1
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
+        data_entry = task.data
         if self.segments_key in data_entry:
             all_text: list[str] = []
             text_indices: list[int] = []
@@ -134,4 +135,4 @@ class PNCwithBERTStage(LegacySpeechStage):
             data_entry[self.text_key] = text_pnc[0]
             self.update_segment_alignment(data_entry, text_pnc[0])
 
-        return [AudioBatch(data=[data_entry])]
+        return task

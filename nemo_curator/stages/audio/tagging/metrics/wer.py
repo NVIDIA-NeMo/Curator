@@ -21,12 +21,12 @@ from typing import Any
 from nemo.collections.asr.metrics.wer import word_error_rate_detail
 from nemo_text_processing.text_normalization import Normalizer
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class ComputeWERStage(LegacySpeechStage):
+class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that computes Word Error Rate (WER), CER, edge CER, and optionally PNC WER/CER.
 
@@ -154,13 +154,14 @@ class ComputeWERStage(LegacySpeechStage):
         num_words = len(text.split())
         return round(num_words / duration, 2) if duration > 0 else 0.0
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
         """Compute WER, CER, edge CER, and optionally PNC WER/CER per segment."""
         if self._normalizer is None:
             self.setup()
 
+        data_entry = task.data
         if "segments" not in data_entry:
-            return [AudioBatch(data=[data_entry])]
+            return task
 
         for segment in data_entry["segments"]:
             duration = segment["end"] - segment["start"]
@@ -269,4 +270,4 @@ class ComputeWERStage(LegacySpeechStage):
 
             segment["metrics"] = metrics
 
-        return [AudioBatch(data=[data_entry])]
+        return task

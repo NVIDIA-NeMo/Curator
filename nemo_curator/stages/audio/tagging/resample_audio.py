@@ -28,12 +28,13 @@ from typing import Any
 
 from fsspec.core import url_to_fs
 
-from nemo_curator.stages.audio.common import LegacySpeechStage, get_audio_duration
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.audio.common import get_audio_duration
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class ResampleAudioStage(LegacySpeechStage):
+class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage for resampling audio files in a TTS/ALM dataset.
 
@@ -63,16 +64,17 @@ class ResampleAudioStage(LegacySpeechStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["audio_filepath", "audio_item_id", "resampled_audio_filepath", "duration"]
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
+    def process(self, task: AudioTask) -> AudioTask:
         """
-        Process a single dataset entry by resampling the audio file.
+        Process a single task by resampling the audio file.
 
         Args:
-            data_entry: Dictionary with audio_filepath and audio_item_id(optional)
+            task: AudioTask with data dict containing audio_filepath and audio_item_id(optional)
 
         Returns:
-            List containing AudioBatch with updated metadata
+            AudioTask with updated metadata
         """
+        data_entry = task.data
 
         if "audio_filepath" not in data_entry:
             msg = "Absolute audio filepath is required"
@@ -133,4 +135,4 @@ class ResampleAudioStage(LegacySpeechStage):
         data_entry["resampled_audio_filepath"] = output_audio_path
         data_entry["duration"] = get_audio_duration(output_audio_path)
 
-        return [AudioBatch(data=[data_entry])]
+        return task

@@ -19,7 +19,7 @@ from nemo_curator.stages.audio.tagging.split import (
     JoinSplitAudioMetadataStage,
     SplitLongAudioStage,
 )
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 class TestSplitLongAudioStageGetSplitPoints:
@@ -62,45 +62,41 @@ class TestSplitLongAudioStageGetSplitPoints:
 
 
 class TestSplitLongAudioStageProcessDatasetEntry:
-    """Tests for SplitLongAudioStage.process_dataset_entry (no actual audio I/O)."""
+    """Tests for SplitLongAudioStage.process (no actual audio I/O)."""
 
-    def test_short_audio_passthrough(self, audio_batch: Callable[..., AudioBatch]) -> None:
+    def test_short_audio_passthrough(self, audio_task: Callable[..., AudioTask]) -> None:
         """When duration < suggested_max_len, entry returned with split_filepaths wrapping the filepath."""
         stage = SplitLongAudioStage(suggested_max_len=3600.0)
-        batch = audio_batch(
+        task = audio_task(
             duration=100.0,
             audio_item_id="test_1",
             resampled_audio_filepath="test_1_resampled.wav",
         )
-        batches = stage.process_dataset_entry(batch.data[0])
-        assert len(batches) == 1
-        out = batches[0].data[0]
+        result = stage.process(task)
+        out = result.data
         assert out["split_filepaths"] == ["test_1_resampled.wav"]
 
 
 class TestJoinSplitAudioMetadataStage:
     """Tests for JoinSplitAudioMetadataStage."""
 
-    def test_no_split_passthrough(self, audio_batch: Callable[..., AudioBatch]) -> None:
+    def test_no_split_passthrough(self, audio_task: Callable[..., AudioTask]) -> None:
         """Entry with split_filepaths=None (no split occurred) returns entry without key."""
         stage = JoinSplitAudioMetadataStage()
-        batch = audio_batch(
+        task = audio_task(
             audio_item_id="x",
             split_filepaths=None,
             text="hello",
         )
-        batches = stage.process_dataset_entry(batch.data[0])
-        assert len(batches) == 1
-        out = batches[0].data[0]
+        result = stage.process(task)
+        out = result.data
         assert "split_filepaths" not in out
         assert out["text"] == "hello"
 
-    def test_join_split_metadata_concatenates_text_and_alignments(
-        self, audio_batch: Callable[..., AudioBatch]
-    ) -> None:
+    def test_join_split_metadata_concatenates_text_and_alignments(self, audio_task: Callable[..., AudioTask]) -> None:
         """Meta-entry with split_metadata joins text and adjusts alignment timestamps."""
         stage = JoinSplitAudioMetadataStage()
-        batch = audio_batch(
+        task = audio_task(
             audio_item_id="parent",
             split_filepaths=["/path/a.wav", "/path/b.wav"],
             split_metadata=[
@@ -121,9 +117,8 @@ class TestJoinSplitAudioMetadataStage:
             ],
             split_offsets=[0.0, 5.0],
         )
-        batches = stage.process_dataset_entry(batch.data[0])
-        assert len(batches) == 1
-        out = batches[0].data[0]
+        result = stage.process(task)
+        out = result.data
         assert out["text"] == "first part second part"
         assert "split_filepaths" not in out
         assert "split_metadata" not in out

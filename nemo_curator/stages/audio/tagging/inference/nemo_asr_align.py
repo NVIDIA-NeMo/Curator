@@ -35,11 +35,11 @@ from nemo.collections.asr.parts.submodules.rnnt_decoding import RNNTDecodingConf
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class BaseASRProcessorStage(ProcessingStage[AudioBatch, AudioBatch]):
+class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
     """Base class for ASR stages with shared config and segment preparation.
 
     Provides common fields and _prepare_segment_batch_with_metadata for
@@ -57,25 +57,6 @@ class BaseASRProcessorStage(ProcessingStage[AudioBatch, AudioBatch]):
         compute_timestamps: Whether to compute word-level timestamps.
         segments_key: Key for segments list in manifest.
     """
-
-    def validate_input(self, task: AudioBatch) -> bool:
-        """Validate that required data attributes exist as keys in the AudioBatch data dicts."""
-        required_top_level_attrs, required_data_attrs = self.inputs()
-
-        missing_top_level = [a for a in required_top_level_attrs if not hasattr(task, a)]
-
-        missing_data = []
-        if required_data_attrs and task.data:
-            first_entry = task.data[0] if isinstance(task.data, list) else task.data
-            if isinstance(first_entry, dict):
-                missing_data = [a for a in required_data_attrs if a not in first_entry]
-            else:
-                missing_data = [a for a in required_data_attrs if not hasattr(first_entry, a)]
-
-        if missing_top_level or missing_data:
-            logger.error(f"Task {task.task_id} missing required attributes: {missing_top_level} {missing_data}")
-
-        return not missing_top_level and not missing_data
 
     # Length constraints
     min_len: float = 1.0
@@ -328,16 +309,22 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
         return alignments, text
 
-    def process(self, data_entries: AudioBatch) -> list[AudioBatch]:
-        """Process a AudioBatch for ASR alignment."""
-        if self.infer_segment_only:
-            return self.process_segments(data_entries)
-        else:
-            return self.process_full_audio(data_entries)
+    def process(self, task: AudioTask) -> AudioTask:
+        msg = "NeMoASRAlignerStage only supports process_batch"
+        raise NotImplementedError(msg)
 
-    def process_full_audio(self, data_entries: AudioBatch) -> list[AudioBatch]:  # noqa: C901, PLR0912, PLR0915
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        """Process a batch of AudioTasks for ASR alignment."""
+        if len(tasks) == 0:
+            return []
+        if self.infer_segment_only:
+            return self.process_segments(tasks)
+        else:
+            return self.process_full_audio(tasks)
+
+    def process_full_audio(self, tasks: list[AudioTask]) -> list[AudioTask]:  # noqa: C901, PLR0912, PLR0915
         """Process entries as full audio (or meta-entries with split_filepaths)."""
-        entries = data_entries.data
+        entries = [task.data for task in tasks]
         skip_indices = []
         meta_indices = []
         for i, data in enumerate(entries):
@@ -408,19 +395,13 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
                     meta_entry[self.text_key] = text
                     meta_entry["alignment"] = alignments
 
-        return [
-            AudioBatch(
-                data=entries,
-                _stage_perf=data_entries._stage_perf,
-                _metadata=data_entries._metadata,
-            )
-        ]
+        return tasks
 
-    def process_segments(self, data_entries: AudioBatch) -> list[AudioBatch]:
+    def process_segments(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Process entries in segment-only mode (infer per segment)."""
-        entries = data_entries.data
+        entries = [task.data for task in tasks]
         if not entries:
-            return [AudioBatch(data=[])]
+            return []
 
         for chunk_start in range(0, len(entries), self.batch_size):
             metadata_batch = entries[chunk_start : chunk_start + self.batch_size]
@@ -458,10 +439,4 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
                         word["end"] = round(word["end"] + seg_start, 3)
                     segment[self.words_key] = alignments
 
-        return [
-            AudioBatch(
-                data=entries,
-                _stage_perf=data_entries._stage_perf,
-                _metadata=data_entries._metadata,
-            )
-        ]
+        return tasks

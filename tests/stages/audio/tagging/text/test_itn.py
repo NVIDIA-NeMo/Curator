@@ -15,25 +15,24 @@
 from collections.abc import Callable
 
 from nemo_curator.stages.audio.tagging.text.itn import InverseTextNormalizationStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 class TestInverseTextNormalizationStage:
     """Tests for InverseTextNormalizationStage."""
 
-    def test_process_dataset_entry(self, audio_batch: Callable[..., AudioBatch]) -> None:
+    def test_process(self, audio_task: Callable[..., AudioTask]) -> None:
         stage = InverseTextNormalizationStage(language="en", text_key="text")
         stage.setup()
-        batch = audio_batch(
+        task = audio_task(
             segments=[
                 {"text": "hello", "start": 0.0, "end": 0.5},
                 {"text": "the answer is forty two", "start": 0.5, "end": 1.0},
             ],
         )
-        batches = stage.process_dataset_entry(batch.data[0])
+        result = stage.process(task)
         assert stage._normalizer_initialized
-        assert len(batches) == 1
-        out = batches[0].data[0]
+        out = result.data
         assert len(out["segments"]) == 2
         assert out["segments"][0]["text_ITN"] == "hello"
         assert out["segments"][1]["text_ITN"] == "the answer is 42"

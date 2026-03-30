@@ -17,27 +17,27 @@ from pathlib import Path
 
 from nemo_curator.stages.audio.tagging.metrics.bandwidth import BandwidthEstimationStage
 from nemo_curator.stages.audio.tagging.metrics.wer import ComputeWERStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 class TestBandwidthEstimationStage:
     """Tests for BandwidthEstimationStage."""
 
-    def test_process_dataset_entry(self, audio_batch: Callable[..., AudioBatch], audio_filepath: Path) -> None:
+    def test_process(self, audio_task: Callable[..., AudioTask], audio_filepath: Path) -> None:
         stage = BandwidthEstimationStage()
         stage.setup()
-        batch = audio_batch(
+        task = audio_task(
             audio_filepath=str(audio_filepath),
             segments=[{"speaker": "s1", "start": 0.0, "end": 1.0, "text": "hello world"}],
         )
-        batches = stage.process_dataset_entry(batch.data[0])
-        assert len(batches) == 1
-        assert batches[0].data[0]["audio_filepath"] == str(audio_filepath)
-        assert batches[0].data[0]["segments"][0]["metrics"]["bandwidth"] == 7125
+        result = stage.process(task)
+        out = result.data
+        assert out["audio_filepath"] == str(audio_filepath)
+        assert out["segments"][0]["metrics"]["bandwidth"] == 7125
 
 
 class TestComputeWERStage:
-    """Tests for ComputeWERStage helpers and process_dataset_entry."""
+    """Tests for ComputeWERStage helpers and process."""
 
     def test_get_char_rate(self) -> None:
         """get_char_rate returns chars per second."""
@@ -72,19 +72,18 @@ class TestComputeWERStage:
         out = stage.strip_spaces_before_punctuations("hello , world .")
         assert " ," not in out
 
-    def test_process_dataset_entry_no_segments_passthrough(self, audio_batch: Callable[..., AudioBatch]) -> None:
+    def test_process_no_segments_passthrough(self, audio_task: Callable[..., AudioTask]) -> None:
         """Entry without segments is returned unchanged."""
         stage = ComputeWERStage(language="en")
         stage.setup()
-        batch = audio_batch(audio_item_id="x")
-        batches = stage.process_dataset_entry(batch.data[0])
-        assert len(batches) == 1
-        assert batches[0].data[0]["audio_item_id"] == "x"
+        task = audio_task(audio_item_id="x")
+        result = stage.process(task)
+        assert result.data["audio_item_id"] == "x"
 
-    def test_process_dataset_entry_computes_wer_cer_for_segments(self, audio_batch: Callable[..., AudioBatch]) -> None:
+    def test_process_computes_wer_cer_for_segments(self, audio_task: Callable[..., AudioTask]) -> None:
         """Segments with hypothesis and reference get WER/CER metrics."""
         stage = ComputeWERStage(language="en")
-        batch = audio_batch(
+        task = audio_task(
             segments=[
                 {
                     "start": 0.0,
@@ -102,9 +101,8 @@ class TestComputeWERStage:
         )
         stage = ComputeWERStage(language="en", hypothesis_text_key="text", reference_text_key="reference")
         stage.setup()
-        batches = stage.process_dataset_entry(batch.data[0])
-        assert len(batches) == 1
-        out = batches[0].data[0]
+        result = stage.process(task)
+        out = result.data
         assert len(out["segments"]) == 2
         expected_wer = [0.0, 0.5]
         for idx, seg in enumerate(out["segments"]):
