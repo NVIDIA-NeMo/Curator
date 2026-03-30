@@ -104,3 +104,56 @@ class TestUTMOSFilterStage:
         stage._model = MagicMock()
         stage.teardown()
         assert stage._model is None
+
+    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
+    def test_process_nested_segments_filters(self, mock_ensure) -> None:
+        """Nested segments: only segments above threshold survive."""
+        stage = UTMOSFilterStage(mos_threshold=3.0)
+        call_count = {"n": 0}
+
+        def model_side_effect(waveform, sr=16000):
+            call_count["n"] += 1
+            return torch.tensor([4.0 if call_count["n"] % 2 == 1 else 2.0])
+
+        model = MagicMock(side_effect=model_side_effect)
+        model.parameters = lambda: iter([torch.tensor([0.0])])
+        stage._model = model
+
+        sr = 16000
+        segments = [
+            {"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i}
+            for i in range(4)
+        ]
+        task = AudioTask(
+            data={"segments": segments, "original_file": "test.wav"},
+            task_id="test",
+            dataset_name="test",
+        )
+
+        result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        assert len(result.data["segments"]) == 2
+        for seg in result.data["segments"]:
+            assert "utmos_mos" in seg
+
+    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
+    def test_process_nested_all_filtered_returns_empty(self, mock_ensure) -> None:
+        """Nested segments: when all fail threshold, return []."""
+        stage = UTMOSFilterStage(mos_threshold=4.0)
+        stage._model = _mock_model(2.0)
+
+        sr = 16000
+        segments = [
+            {"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i}
+            for i in range(3)
+        ]
+        task = AudioTask(
+            data={"segments": segments},
+            task_id="test",
+            dataset_name="test",
+        )
+
+        result = stage.process(task)
+
+        assert result == []

@@ -181,15 +181,32 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
         logger.info(f"UTMOS model loaded on {device}")
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
-        """Process a single AudioTask and filter by UTMOS MOS score."""
+        """Process a single AudioTask and filter by UTMOS MOS score.
+
+        When ``task.data`` contains a ``"segments"`` key (nested mode from VAD),
+        each segment is evaluated individually and only survivors are kept.
+        """
+        if "segments" in task.data:
+            survivors = []
+            for seg in task.data["segments"]:
+                temp = AudioTask(data=seg, task_id=task.task_id)
+                result = self._process_single(temp)
+                if result is not None:
+                    survivors.append(temp.data)
+            task.data["segments"] = survivors
+            return task if survivors else []
+        return self._process_single(task) or []
+
+    def _process_single(self, task: AudioTask) -> AudioTask | None:
+        """Run UTMOS scoring on a single (non-nested) task."""
         audio_result = _load_waveform_tensor(task.data, task.task_id)
         if audio_result is None:
-            return []
+            return None
         waveform, sr = audio_result
 
         self._ensure_model()
         if self._model is None:
-            return []
+            return None
 
         try:
             device = next(self._model.parameters()).device
@@ -206,13 +223,13 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
             mos = float(score.item() if torch.is_tensor(score) else score)
         except Exception as e:  # noqa: BLE001
             logger.exception(f"[{task.task_id}] UTMOS prediction error: {e}")
-            return []
+            return None
 
         logger.debug(f"[{task.task_id}] UTMOS MOS={mos:.3f}")
 
         if self.mos_threshold is not None and mos < self.mos_threshold:
             logger.info(f"[{task.task_id}] UTMOS FAILED: MOS {mos:.3f} < {self.mos_threshold}")
-            return []
+            return None
 
         task.data["utmos_mos"] = mos
         return task
