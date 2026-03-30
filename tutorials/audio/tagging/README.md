@@ -4,66 +4,21 @@ This tutorial demonstrates how to process raw, unlabelled audio into labelled tr
 
 ## Overview
 
-The audio tagging pipeline is a **modality-agnostic** processing framework that takes raw audio files and produces segmented, annotated manifests. Stages 0-8 form a generic core that applies to any downstream modality -- resampling, speaker diarization, ASR forced alignment, and quality metrics. The final **PrepareModuleSegmentsStage** (stage 9) is the only modality-specific stage: it reshapes the labelled segments into training-ready data for a target module such as **TTS** or **ASR**.
+The audio tagging pipeline is a processing framework that takes raw audio files and produces segmented, annotated manifests. It covers resampling, speaker diarization, ASR forced alignment, and merge stages.
 
-### Generic Core + Modality-Specific Output
+### Pipeline Flow
 
 ```
-                          ┌─────────────────────────────────────────────┐
-                          │       Generic Tagging Core (stages 0–8)     │
-                          │  Applicable to ASR, TTS, ALM, or any        │
-                          │  audio modality requiring labelled data     │
-                          └─────────────────────────────────────────────┘
-
 ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-│  Raw Audio   │──▶│  Resample    │──▶│  Diarize     │──▶│  ASR Align   │──▶│  Merge &     │
-│  Manifest    │   │  (16kHz WAV) │   │  (PyAnnote)  │   │  (NeMo)      │   │  Normalize   │
+│  Raw Audio   │──▶│  Resample    │──▶│  Diarize     │──▶│  ASR Align   │──▶│  Merge       │
+│  Manifest    │   │  (16kHz WAV) │   │  (PyAnnote)  │   │  (NeMo)      │   │              │
 └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘
                                                                                     │
                                                                                     ▼
                                                                           ┌──────────────────┐
-                                                                          │  Quality Metrics │
-                                                                          │  (Bandwidth,     │
-                                                                          │   PESQ, STOI,    │
-                                                                          │   SI-SDR)        │
+                                                                          │  Output Manifest │
                                                                           └──────────────────┘
-                                                                                    │
-                          ┌─────────────────────────────────────────────┐           │
-                          │  Modality-Specific Stage (stage 9)          │           │
-                          │  PrepareModuleSegmentsStage                 │◀──────────┘
-                          │                                             │
-                          │  module=tts  ──▶  TTS training segments     │
-                          │  module=asr  ──▶  ASR training segments     │
-                          └─────────────────────────────────────────────┘
-                                                    │
-                                                    ▼
-                                          ┌──────────────────┐
-                                          │  Output Manifest │
-                                          └──────────────────┘
 ```
-
-### PrepareModuleSegmentsStage and `full_utterance_ratio`
-
-The **PrepareModuleSegmentsStage** converts the generic labelled segments into
-training-ready data for the chosen modality via the `module` parameter (`tts` or `asr`).
-
-A key parameter is **`full_utterance_ratio`**, which controls what fraction of
-the output segments must be **complete sentences** -- i.e., segments whose text
-ends with a terminal punctuation mark (`.`, `!`, `?`, etc. as defined by
-`terminal_punct_marks`).
-
-| Value | Meaning | Use Case |
-|-------|---------|----------|
-| `1.0` | **100%** of segments must end with terminal punctuation | **TTS** -- synthesisers need grammatically complete utterances for natural prosody |
-| `0.8` | **80%** must end with terminal punctuation; 20% may be partial | **ASR** -- partial utterances add diversity and help the model handle real-world speech |
-| `0.0` | No constraint on sentence completeness | Exploratory / other modalities |
-
-Two ready-made configurations are provided:
-
-| Config | Modality | `module` | `full_utterance_ratio` |
-|--------|----------|----------|------------------------|
-| `tts_pipeline.yaml` | Text-to-Speech | `tts` | `1.0` |
-| `asr_pipeline.yaml` | Speech Recognition | `asr` | `0.8` |
 
 ### Pipeline Stages
 
@@ -76,10 +31,7 @@ Two ready-made configurations are provided:
 | 4 | **NeMoASRAlignerStage** | Forced alignment via NeMo FastConformer | Yes |
 | 5 | **JoinSplitAudioMetadataStage** | Rejoin split audio metadata | No |
 | 6 | **MergeAlignmentDiarizationStage** | Merge alignment with diarization segments | No |
-| 7 | **BandwidthEstimationStage** | Estimate audio bandwidth per segment | No |
-| 8 | **TorchSquimQualityMetricsStage** | Audio quality metrics (PESQ, STOI, SI-SDR) | Yes |
-| 9 | **PrepareModuleSegmentsStage** | Prepare final segments for TTS or ASR | No |
-| 10 | **ManifestWriterStage** | Write output JSONL manifest | No |
+| 7 | **ManifestWriterStage** | Write output JSONL manifest | No |
 
 ## Installation
 
@@ -224,23 +176,7 @@ stages.2.diarization_model=pyannote/speaker-diarization-3.1
 
 # Adjust ASR batch size
 stages.4.batch_size=16
-
-# Change segment preparation for TTS
-stages.9.min_duration=3
-stages.9.max_duration=15
-stages.9.terminal_punct_marks=".!?"
 ```
-
-### TTS vs ASR Differences
-
-The only stage that differs between modalities is **PrepareModuleSegmentsStage** (stage 9):
-
-| Parameter | TTS | ASR | Effect |
-|-----------|-----|-----|--------|
-| `stages.9.module` | `tts` | `asr` | Modality-specific segment shaping |
-| `stages.9.full_utterance_ratio` | `1.0` | `0.8` | Fraction of segments that must end with terminal punctuation (`.!?`) |
-
-See [PrepareModuleSegmentsStage and `full_utterance_ratio`](#preparemoduleSegmentsstage-and-full_utterance_ratio) above for a detailed explanation of this parameter.
 
 ## File Structure
 
@@ -266,18 +202,12 @@ pytest tests/stages/audio/tagging/ -v
 tests/stages/audio/tagging/
 ├── conftest.py
 ├── test_merge_alignment_diarization.py
-├── test_metrics.py
-├── test_prepare_module_segments.py
 ├── test_resample_audio.py
 ├── test_split.py
 ├── test_utils.py
-├── inference/
-│   ├── test_base_asr_processor.py
-│   └── test_nemo_asr_align.py
-├── metrics/
-│   └── test_metrics.py
-└── e2e/
-    └── test_tts_e2e.py
+└── inference/
+    ├── test_base_asr_processor.py
+    └── test_nemo_asr_align.py
 ```
 
 ## Troubleshooting

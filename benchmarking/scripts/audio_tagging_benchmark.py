@@ -14,11 +14,11 @@
 
 """Audio tagging pipeline benchmarking script.
 
-Runs the full audio tagging pipeline end-to-end:
+Runs the core audio tagging pipeline end-to-end:
   ManifestReader -> Resample -> Diarize -> Split -> ASR Align ->
-  Join -> Merge -> Bandwidth -> SQUIM -> PrepareModuleSegments -> Write
+  Join -> Merge -> Write
 
-Exercises every stage of the tagging pipeline for regression tracking.
+Exercises the core stages of the tagging pipeline for regression tracking.
 """
 
 import argparse
@@ -34,9 +34,6 @@ from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
 from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
-from nemo_curator.stages.audio.tagging.metrics.bandwidth import BandwidthEstimationStage
-from nemo_curator.stages.audio.tagging.metrics.squim import TorchSquimQualityMetricsStage
-from nemo_curator.stages.audio.tagging.prepare_module_segments import PrepareModuleSegmentsStage
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
 from nemo_curator.stages.audio.tagging.split import JoinSplitAudioMetadataStage, SplitLongAudioStage
 from nemo_curator.stages.resources import Resources
@@ -46,15 +43,10 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     benchmark_results_path: str,
     input_manifest: str,
     repeat_factor: int,
-    module: str,
     hf_token: str,
     device: str,
     max_segment_length: float,
     asr_batch_size: int,
-    min_duration: float,
-    max_duration: float,
-    max_pause: float,
-    full_utterance_ratio: float,
     executor: str,
     cpus: int,
     **kwargs,  # noqa: ARG001
@@ -67,20 +59,15 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     final_manifest = str(results_dir / "tagging_output.jsonl")
 
     logger.info("Starting audio tagging pipeline benchmark")
-    logger.info(f"Module: {module}")
     logger.info(f"Device: {device}, CPUs: {cpus}")
     logger.info(f"Max segment length: {max_segment_length}s")
-    logger.info(
-        f"Segment params: duration={min_duration}-{max_duration}s, "
-        f"max_pause={max_pause}s, full_utterance_ratio={full_utterance_ratio}"
-    )
 
     exc = setup_executor(executor, config={"execution_mode": "batch"})
     run_start_time = time.perf_counter()
 
     pipeline = Pipeline(
         name="audio_tagging_benchmark",
-        description=f"Audio tagging e2e benchmark ({module}): FLEURS -> full tagging pipeline",
+        description="Audio tagging core benchmark: FLEURS -> core tagging pipeline",
     )
 
     pipeline.add_stage(ManifestReader(manifest_path=input_manifest))
@@ -142,32 +129,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         ).with_(resources=Resources(cpus=cpus))
     )
 
-    # Bandwidth estimation
-    pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=cpus)))
-
-    # Audio quality metrics (TorchSQUIM)
-    pipeline.add_stage(
-        TorchSquimQualityMetricsStage(
-            name="SquimMetrics",
-            device=device,
-        ).with_(resources=Resources(cpus=cpus))
-    )
-
-    # Prepare segments for target module (TTS or ASR)
-    pipeline.add_stage(
-        PrepareModuleSegmentsStage(
-            name="PrepareModuleSegments",
-            module=module,
-            min_duration=min_duration,
-            max_duration=max_duration,
-            max_pause=max_pause,
-            terminal_punct_marks=".!?",
-            full_utterance_ratio=full_utterance_ratio,
-            punctuation_split_only=False,
-        ).with_(resources=Resources(cpus=cpus))
-    )
-
-    # Stage 11: Write output manifest
+    # Write output manifest
     pipeline.add_stage(ManifestWriterStage(output_path=final_manifest).with_(resources=Resources(cpus=cpus)))
 
     results = pipeline.run(exc)
@@ -194,26 +156,12 @@ def main() -> int:
     parser.add_argument("--input-manifest", required=True, help="Path to input manifest")
     parser.add_argument("--repeat-factor", type=int, default=1, help="Repeat factor for the input manifest entries")
     parser.add_argument("--benchmark-results-path", required=True, help="Path to write benchmark results")
-    parser.add_argument(
-        "--module", default="tts", choices=["tts", "asr"], help="Target module for PrepareModuleSegments"
-    )
     parser.add_argument("--hf-token", default="", help="HuggingFace token for PyAnnote")
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"], help="Compute device for GPU stages")
     parser.add_argument(
         "--max-segment-length", type=float, default=40.0, help="Maximum segment duration (seconds) to infer ASR"
     )
     parser.add_argument("--asr-batch-size", type=int, default=32, help="Batch size for ASR alignment")
-    parser.add_argument("--min-duration", type=float, default=5.0, help="Minimum output segment duration (seconds)")
-    parser.add_argument("--max-duration", type=float, default=20.0, help="Maximum output segment duration (seconds)")
-    parser.add_argument(
-        "--max-pause", type=float, default=2.0, help="Maximum pause between words in a segment (seconds)"
-    )
-    parser.add_argument(
-        "--full-utterance-ratio",
-        type=float,
-        default=1.0,
-        help="Fraction of segments requiring terminal punctuation (0.0-1.0)",
-    )
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data", "ray_actors"], help="Executor")
     parser.add_argument("--cpus", type=int, default=10, help="Number of CPUs to use for the pipeline")
 

@@ -26,10 +26,7 @@
 #   4. NeMoASRAligner          - Forced alignment via NeMo FastConformer
 #   5. JoinSplitAudioMetadata  - Rejoin split metadata
 #   6. MergeAlignmentDiar      - Merge ASR alignment with diarization
-#   7. BandwidthEstimation     - Estimate audio bandwidth
-#   8. SquimMetrics            - TorchSQUIM quality metrics
-#   9. PrepareModuleSegments   - Prepare ASR-ready segments
-#  10. ManifestWriter          - Write output JSONL manifest
+#   7. ManifestWriter          - Write output JSONL manifest
 #
 # Usage (from Curator repo root):
 #   python tutorials/audio/tagging/main.py \
@@ -136,25 +133,6 @@ stages:
     name: "MergeAlignmentDiar"
     text_key: "text"
     words_key: "words"
-    resources: ${resources}
-
-  - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
-    name: "BandwidthEstimation"
-    resources: ${resources}
-
-  - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
-    name: "SquimMetrics"
-    device: ${device}
-
-  - _target_: nemo_curator.stages.audio.tagging.PrepareModuleSegmentsStage
-    name: "PrepareModuleSegments"
-    module: asr
-    min_duration: 5
-    max_duration: 20
-    max_pause: 2
-    terminal_punct_marks: ".!?。？！。"
-    full_utterance_ratio: 0.8
-    punctuation_split_only: false
     resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage

@@ -14,8 +14,8 @@
 
 """Audio tagging stages -- processors for labeling unlabelled audio data.
 
-Covers VAD, diarization, ASR alignment, text normalization, quality metrics,
-and segment preparation.  Applicable across modalities (ASR, TTS, etc.).
+Covers diarization, ASR alignment, and merge stages.
+Applicable across modalities (ASR, TTS, etc.).
 
 Uses lazy imports to avoid loading heavy dependencies (NeMo, PyAnnote, etc.)
 until they are actually needed.
@@ -35,15 +35,11 @@ _LAZY_IMPORTS = {
     "JoinSplitAudioMetadataStage": "nemo_curator.stages.audio.tagging.split",
     "SplitASRAlignJoinStage": "nemo_curator.stages.audio.tagging.split",
     "MergeAlignmentDiarizationStage": "nemo_curator.stages.audio.tagging.merge_alignment_diarization",
-    "PrepareModuleSegmentsStage": "nemo_curator.stages.audio.tagging.prepare_module_segments",
     # --- Inference (tagging/inference/) ---
     "BaseASRProcessorStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
     "NeMoASRAlignerStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
     "PyAnnoteDiarizationStage": "nemo_curator.stages.audio.inference.speaker_diarization.pyannote",
     "WhisperXVADStage": "nemo_curator.stages.audio.inference.vad.whisperx_vad",
-    # --- Metrics (tagging/metrics/) ---
-    "TorchSquimQualityMetricsStage": "nemo_curator.stages.audio.tagging.metrics.squim",
-    "BandwidthEstimationStage": "nemo_curator.stages.audio.tagging.metrics.bandwidth",
 }
 
 _cache: dict[str, Any] = {}

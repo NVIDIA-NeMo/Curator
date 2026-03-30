@@ -923,15 +923,10 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-manifest={session_entry_dir}/input.jsonl
-      --module=tts
       --hf-token=${HF_SECRET_KEY}
       --device=cuda
       --max-segment-length=40
       --asr-batch-size=32
-      --min-duration=5
-      --max-duration=20
-      --max-pause=2
-      --full-utterance-ratio=1.0
       --executor=xenna
       --cpus=10
     timeout_s: 3600

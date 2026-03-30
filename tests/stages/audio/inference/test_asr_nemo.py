@@ -16,8 +16,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 
+from nemo_curator.stages.audio.inference.asr.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
