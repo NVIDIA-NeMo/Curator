@@ -12,6 +12,8 @@ Per-stage performance profiling for the two audio pipelines in NeMo Curator: **F
 
 **Configuration:** `nvidia/stt_hy_fastconformer_hybrid_large_pc`, `hy_am`, `train` split, WER threshold 5.5, 1 GPU.
 
+**Data scale:** 3,053 input audio files (WAV 16kHz), 10.37 hours total, 2.3 GB raw. Average utterance: 12.23s (min 1.26s, max 37.92s, median 11.82s). After WER filtering: 404 output tasks.
+
 | Metric | Xenna | Ray Data |
 |--------|-------|----------|
 | Wall clock | 100.79s | 123.53s |
@@ -35,6 +37,8 @@ Per-stage performance profiling for the two audio pipelines in NeMo Curator: **F
 ## ALM Pipeline (CPU)
 
 **Configuration:** `sample_input.jsonl` (5 entries), repeat-factor=2000 (10,000 effective entries), 120s windows, 50% overlap.
+
+**Data scale:** 5 base entries totalling 3,162.5s (0.88 hours), 199 segments. After 2000× repeat: 10,000 entries (1,757 effective hours). Pipeline produces 362,000 builder windows and 50,000 filtered windows (6,071,000s total filtered duration).
 
 | Metric | Xenna | Ray Data |
 |--------|-------|----------|
