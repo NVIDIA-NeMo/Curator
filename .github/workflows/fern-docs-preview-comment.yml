@@ -52,8 +52,13 @@ jobs:
           echo "pr_number=$(cat .preview-metadata/pr_number)" >> "$GITHUB_OUTPUT"
           echo "head_ref=$(cat .preview-metadata/head_ref)" >> "$GITHUB_OUTPUT"
 
-      - name: Setup Fern CLI
-        uses: fern-api/setup-fern-cli@d07601425e9c9ede8745d71ca75c4c462d98755d # v1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Fern CLI
+        run: npm install -g fern-api
 
       - name: Generate library reference MDX (autodocs)
         env:
@@ -108,23 +113,36 @@ jobs:
             echo "page_links=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create comment content
+      - name: Post or update PR comment
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.metadata.outputs.pr_number }}
           PREVIEW_URL: ${{ steps.generate-docs.outputs.preview_url }}
           PAGE_LINKS: ${{ steps.page-links.outputs.page_links }}
         run: |
-          echo ":herb: **Preview your docs:** <${PREVIEW_URL}>" > comment.md
-
+          # Build comment body
+          BODY=":herb: **Preview your docs:** <${PREVIEW_URL}>"
           if [ -n "${PAGE_LINKS}" ]; then
-            echo "" >> comment.md
-            echo "Here are the markdown pages you've updated:" >> comment.md
-            printf '%s\n' "${PAGE_LINKS}" >> comment.md
+            BODY="${BODY}
+
+          Here are the markdown pages you've updated:
+          ${PAGE_LINKS}"
           fi
 
-      - name: Post PR comment
-        uses: thollander/actions-comment-pull-request@1d3973dc4b8e1399c0620d3f2b1aa5e795465308 # v2.4.3
-        with:
-          filePath: comment.md
-          comment_tag: preview-docs
-          mode: upsert
-          pr_number: ${{ steps.metadata.outputs.pr_number }}
+          # Hidden marker for upsert
+          MARKER="<!-- preview-docs -->"
+          BODY="${BODY}
+
+          ${MARKER}"
+
+          # Find existing comment with marker
+          COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" | head -1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              -X PATCH -f body="$BODY"
+          else
+            gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              -f body="$BODY"
+          fi
