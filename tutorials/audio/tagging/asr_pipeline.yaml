@@ -114,7 +114,6 @@ stages:
   - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
     name: "SplitLongAudio"
     suggested_max_len: ${max_segment_length}
-    min_pause_len: 1.0
     min_len: 1.0
     resources: ${resources}
 

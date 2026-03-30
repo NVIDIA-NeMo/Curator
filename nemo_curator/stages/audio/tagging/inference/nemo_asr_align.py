@@ -79,7 +79,6 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Stage metadata (subclasses can override)
     name: str = "BaseASRProcessor"
-    output_dir: str = None
 
     def _prepare_segment_batch_with_metadata(
         self,
@@ -193,8 +192,8 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
     # Stage metadata
     name: str = "NeMoASRAligner"
-    _asr_model: Any = None
-    _override_cfg: Any = None
+    _asr_model: Any = field(default=None, repr=False)
+    _override_cfg: Any = field(default=None, repr=False)
     _model_initialized: bool = field(default=False, repr=False)
 
     def __post_init__(self) -> None:

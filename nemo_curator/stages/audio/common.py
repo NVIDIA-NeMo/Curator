@@ -28,13 +28,17 @@ from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 
 
 def get_audio_duration(audio_filepath: str) -> float:
-    """Get the duration of the audio file in seconds."""
+    """Get the duration of the audio file in seconds.
+
+    Uses soundfile.info() to read only the file header, avoiding loading
+    the entire audio into memory.
+    """
     try:
-        raw, samplerate = soundfile.read(audio_filepath)
-        return raw.shape[0] / samplerate
+        info = soundfile.info(audio_filepath)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to get duration for audio file {audio_filepath}: {e}")
         return -1.0
+    return info.duration
 
 
 @dataclass
@@ -208,8 +212,16 @@ class ManifestReader(CompositeStage[_EmptyTask, AudioTask]):
 class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
     """Append a single AudioTask to a JSONL manifest file.
 
-    The output file is truncated once per node in ``setup_on_node()``
-    so repeated pipeline runs produce a clean output.
+    The output file is truncated once in ``setup()`` (called on the driver)
+    so repeated pipeline runs produce a clean output.  ``setup_on_node()``
+    only creates the parent directory -- it never truncates, so multi-node
+    deployments do not erase each other's data.
+
+    .. note::
+       Because all nodes append to the same path, callers in multi-node
+       setups should either use a shared filesystem or provide a
+       node-unique ``output_path``.
+
     Supports local and cloud paths via fsspec.
 
     Args:
@@ -224,11 +236,8 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "output_path is required for ManifestWriterStage"
             raise ValueError(msg)
 
-    def setup_on_node(
-        self,
-        _node_info: NodeInfo | None = None,
-        _worker_metadata: WorkerMetadata | None = None,
-    ) -> None:
+    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+        """Truncate the output file once on the driver before processing starts."""
         fs, path = url_to_fs(self.output_path)
         parent_dir = "/".join(path.split("/")[:-1])
         if parent_dir:
@@ -236,6 +245,17 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         with fs.open(path, "w", encoding="utf-8"):
             pass
         logger.info(f"ManifestWriterStage: writing to {self.output_path}")
+
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        """Ensure parent directory exists on each node (no truncation)."""
+        fs, path = url_to_fs(self.output_path)
+        parent_dir = "/".join(path.split("/")[:-1])
+        if parent_dir:
+            fs.makedirs(parent_dir, exist_ok=True)
 
     def process(self, task: AudioTask) -> AudioTask:
         fs, path = url_to_fs(self.output_path)

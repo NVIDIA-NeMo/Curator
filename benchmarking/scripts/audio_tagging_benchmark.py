@@ -101,7 +101,6 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         SplitLongAudioStage(
             name="SplitLongAudio",
             suggested_max_len=max_segment_length,
-            min_pause_len=1.0,
             min_len=1.0,
         ).with_(resources=Resources(cpus=cpus))
     )

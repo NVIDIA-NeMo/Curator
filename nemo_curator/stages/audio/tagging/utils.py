@@ -32,7 +32,7 @@ def add_non_speaker_segments(
     """
     non_speaker_segments = []
     last_end_time = 0
-    for seg in segments:
+    for seg in sorted(segments, key=lambda s: s["start"]):
         start = seg["start"]
         end = seg["end"]
         if start > last_end_time:

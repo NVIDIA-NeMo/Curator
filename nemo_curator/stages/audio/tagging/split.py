@@ -38,13 +38,11 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         suggested_max_len: Target maximum length for audio segments in seconds
-        min_pause_len: Minimum length of a pause to consider for splitting
         min_len: Minimum length for any split segment
     """
 
     # Split parameters
     suggested_max_len: float = 3600.0
-    min_pause_len: float = 1.0
     min_len: float = 1.0
 
     # Stage metadata
@@ -265,7 +263,6 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
 
     Args:
         suggested_max_len: Target max length for audio segments (seconds).
-        min_pause_len: Minimum pause length to consider as a split point.
         min_len: Minimum length for any split segment (also used by ASR).
         max_len: Maximum length of audio segments for ASR processing (seconds).
         model_name: Pretrained NeMo ASR model name.
@@ -289,7 +286,6 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
 
     # Split parameters
     suggested_max_len: float = 3600.0
-    min_pause_len: float = 1.0
     min_len: float = 1.0
 
     # ASR model configuration
@@ -334,7 +330,6 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
         return [
             SplitLongAudioStage(
                 suggested_max_len=self.suggested_max_len,
-                min_pause_len=self.min_pause_len,
                 min_len=self.min_len,
             ),
             NeMoASRAlignerStage(
