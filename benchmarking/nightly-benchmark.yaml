@@ -769,3 +769,55 @@ entries:
       num_cpus: 64
       num_gpus: 0
       enable_object_spilling: false
+
+  - name: interleaved_filter_xenna
+    enabled: false
+    script: interleaved_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=xenna
+      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --clip-model-dir={dataset:mscoco_model_weights,files}
+      --files-per-partition=2
+      --mode=overwrite
+      --no-materialize-on-write
+      --output-max-batch-bytes=2000000
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_rows_per_sec
+          - num_rows
+          - num_output_files
+          - materialize_error_count
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+
+  - name: interleaved_filter_xenna_materialize
+    enabled: false
+    script: interleaved_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=xenna
+      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --clip-model-dir={dataset:mscoco_model_weights,files}
+      --files-per-partition=2
+      --mode=overwrite
+      --materialize-on-write
+      --output-max-batch-bytes=2000000
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_rows_per_sec
+          - num_rows
+          - num_output_files
+          - materialize_error_count
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
