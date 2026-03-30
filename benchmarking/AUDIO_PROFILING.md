@@ -133,9 +133,22 @@ Per-stage performance profiling for the two audio pipelines in NeMo Curator: **F
 | Tasks processed | 404 | 404 |
 | Throughput (tasks/sec) | 4.01 | 3.27 |
 
+### ALM Pipeline (CPU)
+
+**Configuration:** `sample_input.jsonl` (5 entries), repeat-factor=2000 (10,000 effective entries), 120s windows, 50% overlap.
+
+| Metric | Xenna | Ray Data |
+|--------|-------|----------|
+| Wall clock | 38.07s | 26.39s |
+| Entries processed | 10,000 | 10,000 |
+| Builder windows | 362,000 | 362,000 |
+| Filtered windows | 50,000 | 50,000 |
+| Throughput (entries/sec) | 262.70 | 378.91 |
+| Throughput (windows/sec) | 9,509.63 | 13,716.57 |
+
 ### Comparison with Local Machine
 
-The DGX numbers are **not directly comparable** to the local results above because the configurations differ:
+**FLEURS:** The DGX and local FLEURS results are **not directly comparable** because the configurations differ:
 
 | Parameter | Local | DGX |
 |-----------|-------|-----|
@@ -144,9 +157,17 @@ The DGX numbers are **not directly comparable** to the local results above becau
 | Split | `dev` (394 tasks) | `train` (404 tasks) |
 | GPU | RTX 3080 Ti 12GB | A100-SXM4-80GB |
 
-The DGX shows lower throughput primarily because the nightly config uses a larger model with higher per-batch inference cost. The executor ranking also flips: Xenna is faster on DGX (4.01 vs 3.27 t/s) while Ray Data was faster locally (8.61 vs 6.49 t/s), consistent with Xenna's streaming executor better utilizing the GPU under heavier model loads.
+The DGX shows lower FLEURS throughput primarily because the nightly config uses a larger model with higher per-batch inference cost. The executor ranking also flips: Xenna is faster on DGX (4.01 vs 3.27 t/s) while Ray Data was faster locally (8.61 vs 6.49 t/s), consistent with Xenna's streaming executor better utilizing the GPU under heavier model loads. Both runs include dataset download time in wall-clock, which varies with network conditions.
 
-Both runs include dataset download time in wall-clock, which varies with network conditions and is not indicative of pure inference throughput.
+**ALM:** The DGX ALM results use the same configuration as local and are directly comparable:
+
+| Metric | Local Xenna | DGX Xenna | Local Ray Data | DGX Ray Data |
+|--------|------------|-----------|---------------|-------------|
+| Wall clock | 92.63s | 38.07s | 37.10s | 26.39s |
+| Throughput (entries/sec) | 107.96 | 262.70 | 269.55 | 378.91 |
+| Throughput (windows/sec) | 3,908.10 | 9,509.63 | 9,757.86 | 13,716.57 |
+
+The DGX is **2.4× faster on Xenna** and **1.4× faster on Ray Data** for ALM, directly reflecting the higher core count (64 vs 16 threads). Xenna benefits more from the additional cores since its streaming executor parallelizes stages more aggressively.
 
 ## Nightly Benchmark Requirements
 
