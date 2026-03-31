@@ -104,7 +104,7 @@ New API for tracking and analyzing pipeline execution:
 
 ### Image Curation
 
-- **Optimized Batch Sizes**: Reduced default batch sizes for better CPU memory usage (batch_size=50, num_threads=4)
+- **Optimized Batch Sizes**: Reduced default batch sizes for better CPU memory usage (`batch_size=50`, `num_threads=4`)
 - **Memory Guidance**: Added troubleshooting documentation for out-of-memory errors
 - **Tutorial Improvements**: Updated examples optimized for typical GPU configurations
 
@@ -113,7 +113,7 @@ New API for tracking and analyzing pipeline execution:
 - **ID Field Standardization**: Unified ID naming conventions across all deduplication workflows
 - **Performance Optimizations**: Fused document iterate and extract stages for reduced overhead
 - **Better Memory Management**: Improved handling of large-scale semantic deduplication
-- **Small Cluster Warnings**: Automatic warnings when n_clusters is too small for effective deduplication
+- **Small Cluster Warnings**: Automatic warnings when `n_clusters` is too small for effective deduplication
 - **FilePartitioning Improvements**: One worker per partition for better parallelization
 
 ### Deduplication Enhancements
@@ -141,12 +141,12 @@ New API for tracking and analyzing pipeline execution:
 
 ## Bug Fixes
 
-- Fixed fasttext predict call compatibility with numpy>2
+- Fixed FastText predict call compatibility with `numpy>2`
 - Fixed broken NeMo Framework documentation links
 - Fixed MegatronTokenizerWriter to download only necessary tokenizer files
 - Fixed ID generator blocking issues for large-scale processing
 - Fixed vLLM API compatibility with video captioning pipeline
-- Fixed Gliner tutorial examples and SDG workflow bugs
+- Fixed GLiNER tutorial examples and SDG workflow bugs
 - Improved semantic deduplication unit test reliability
 
 ## Infrastructure & Developer Experience
@@ -166,11 +166,12 @@ New API for tracking and analyzing pipeline execution:
 - **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
 - **`DocumentExtractStage` Removed**: The standalone `DocumentExtractStage` class has been removed. Use `DocumentIterateExtractStage` with an optional `extractor` parameter instead.
 - **`DocumentIterateStage` Renamed**: Replaced by `DocumentIterateExtractStage`. Update imports from `nemo_curator.stages.text.download.base.iterator`.
+- **Three-Stage Pipeline**: The data acquisition pipeline is now a three-step pattern (URL generation → download → iterate-extract) instead of four steps.
 
 ### 26.02
 
-- **InternVideo2 Removed**: Video pipelines must use alternative embedding models (Cosmos-Embed1)
-- **ID Field Standardization**: Custom deduplication workflows may need updates to use standardized ID field names
+- **InternVideo2 Removed**: Video pipelines must use alternative embedding models (Cosmos-Embed1).
+- **ID Field Standardization**: Custom deduplication workflows may need updates to use standardized ID field names.
 
 ## Documentation Improvements
 
