@@ -73,6 +73,28 @@ Added tqdm progress bars to `RayActorPoolExecutor` for real-time visibility into
 - **cryptography**: Bumped from >=46.0.5 to >=46.0.6 to address CVE GHSA-m959-cc7f-wv43 (PR #1682)
 - **uv**: Added minimum required version (>=0.7.0) to prevent lockfile revision drift
 
+## Enhancements
+
+### Exact Deduplication Workflow Tuning Parameters (PR #1561)
+
+Exposed additional configuration parameters in `ExactDeduplicationWorkflow` for fine-grained control over large-scale cluster runs:
+
+- **`total_nparts`**: Set the total number of output partitions explicitly instead of relying on the automatic default (one-third of input task count).
+- **`rmm_pool_size`**: Configure the RMM GPU memory pool size in bytes. Supports `"auto"` (90% of free GPU memory), a specific byte value, or `None` (50% of free GPU memory with dynamic expansion).
+- **`spill_memory_limit`**: Set the device memory threshold for spilling to host in bytes. Supports `"auto"` (80% of the RMM pool size), a specific byte value, or `None` (spilling disabled).
+
+These parameters are useful when the defaults are not optimal for your hardware or dataset size:
+
+```python
+workflow = ExactDeduplicationWorkflow(
+    input_path="input_data/",
+    output_path="./results",
+    total_nparts=512,
+    rmm_pool_size=72 * 1024 * 1024 * 1024,  # 72 GiB
+    spill_memory_limit="auto",
+)
+```
+
 ## Bug Fixes
 
 ### CUDA Fork Error with vLLM and RayDataExecutor (PR #1606)
