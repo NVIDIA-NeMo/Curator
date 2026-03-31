@@ -104,6 +104,8 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     device: str = "cuda"
 
     audio_filepath_key: str = "resampled_audio_filepath"
+    segments_key: str = "segments"
+    overlap_segments_key: str = "overlap_segments"
 
     # Stage metadata
     name: str = "PyAnnoteDiarization"
@@ -118,7 +120,7 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, "segments", "overlap_segments"]
+        return [], [self.audio_filepath_key, self.segments_key, self.overlap_segments_key]
 
     def __post_init__(self):
         """Validate config."""
@@ -285,6 +287,6 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         add_non_speaker_segments(segments, audio_duration, self.max_length)
 
         # Update entry
-        data_entry["segments"] = segments
-        data_entry["overlap_segments"] = overlap_segments
+        data_entry[self.segments_key] = segments
+        data_entry[self.overlap_segments_key] = overlap_segments
         return task

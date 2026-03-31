@@ -27,7 +27,7 @@ class MergeAlignmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that merges alignment and diarization information.
 
-    Takes a manifest containing both alignment and diarization information
+    Takes a jsonl data containing both alignment and diarization information
     and merges the alignment info into the diarization segments.
 
     Args:

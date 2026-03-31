@@ -1,0 +1,71 @@
+# TTS Audio Tagging Pipeline - E2E Test Configuration
+#
+# Mirrors tutorials/audio/tagging/tts_pipeline.yaml with test-friendly defaults.
+# Stages use _target_ for Hydra instantiation via create_pipeline_from_yaml.
+
+input_manifest: ???
+final_manifest: ???
+workspace_dir: /tmp/tagging_test_workspace
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+language_short: en
+device: cpu
+hf_token: ""
+sample_rate: 16000
+max_segment_length: 40
+resources:
+  cpus: 10
+
+stages:
+  # 0. Read input manifest
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+    files_per_partition: 1
+
+  # 1. Resample audio to 16 kHz mono WAV
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: "ResampleAudio"
+    resampled_audio_dir: ${resampled_audio_dir}
+    input_format: "wav"
+    target_sample_rate: ${sample_rate}
+    target_format: "wav"
+    target_nchannels: 1
+    resources: ${resources}
+
+  # 2. Speaker diarization (PyAnnote)
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
+    name: "PyAnnoteDiarization"
+    hf_token: ${hf_token}
+    max_length: ${max_segment_length}
+    device: ${device}
+    resources: ${resources}
+
+  # 3. Split long audio segments
+  - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
+    name: "SplitLongAudio"
+    suggested_max_len: ${max_segment_length}
+    min_len: 1.0
+    resources: ${resources}
+
+  # 4. ASR forced alignment (NeMo)
+  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+    name: "ASRAlignment"
+    is_fastconformer: true
+    decoder_type: ctc
+    batch_size: 32
+    device: ${device}
+
+  # 5. Join split audio metadata
+  - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
+    name: "JoinSplitMetadata"
+    resources: ${resources}
+
+  # 6. Merge alignment with diarization segments
+  - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
+    name: "MergeAlignmentDiar"
+    text_key: "text"
+    words_key: "words"
+    resources: ${resources}
+
+  # 7. Write output manifest
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${final_manifest}

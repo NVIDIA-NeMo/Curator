@@ -51,11 +51,6 @@ class GetAudioDurationStage(ProcessingStage[AudioTask, AudioTask]):
     audio_filepath_key: str = "audio_filepath"
     duration_key: str = "duration"
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
-        import soundfile
-
-        self._soundfile = soundfile
-
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key]
 

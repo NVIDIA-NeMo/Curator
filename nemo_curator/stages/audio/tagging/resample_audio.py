@@ -51,6 +51,12 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     target_format: str = "wav"
     target_nchannels: int = 1
 
+    # Key names
+    audio_filepath_key: str = "audio_filepath"
+    resampled_audio_filepath_key: str = "resampled_audio_filepath"
+    duration_key: str = "duration"
+    audio_item_id_key: str = "audio_item_id"
+
     # Stage metadata
     name: str = "ResampleAudio"
 
@@ -59,10 +65,15 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         fs.makedirs(path, exist_ok=True)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["audio_filepath"]
+        return [], [self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["audio_filepath", "audio_item_id", "resampled_audio_filepath", "duration"]
+        return [], [
+            self.audio_filepath_key,
+            self.audio_item_id_key,
+            self.resampled_audio_filepath_key,
+            self.duration_key,
+        ]
 
     def process(self, task: AudioTask) -> AudioTask:
         """
@@ -76,19 +87,19 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         """
         data_entry = task.data
 
-        if "audio_filepath" not in data_entry:
+        if self.audio_filepath_key not in data_entry:
             msg = "Absolute audio filepath is required"
             raise ValueError(msg)
 
-        original_audio_filepath = data_entry["audio_filepath"]
+        original_audio_filepath = data_entry[self.audio_filepath_key]
         _, local_audio_path = url_to_fs(original_audio_filepath)
-        if "audio_item_id" not in data_entry:
-            data_entry["audio_item_id"] = os.path.splitext(os.path.basename(local_audio_path))[0]
+        if self.audio_item_id_key not in data_entry:
+            data_entry[self.audio_item_id_key] = os.path.splitext(os.path.basename(local_audio_path))[0]
 
         input_audio_path = local_audio_path
         output_audio_path = os.path.join(
             self.resampled_audio_dir,
-            data_entry["audio_item_id"] + "." + self.target_format,
+            data_entry[self.audio_item_id_key] + "." + self.target_format,
         )
 
         # Convert audio file if not already done
@@ -131,8 +142,8 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
                 raise RuntimeError(msg) from e
 
         # Update metadata — preserve original URL for cloud paths
-        data_entry["audio_filepath"] = original_audio_filepath
-        data_entry["resampled_audio_filepath"] = output_audio_path
-        data_entry["duration"] = get_audio_duration(output_audio_path)
+        data_entry[self.audio_filepath_key] = original_audio_filepath
+        data_entry[self.resampled_audio_filepath_key] = output_audio_path
+        data_entry[self.duration_key] = get_audio_duration(output_audio_path)
 
         return task

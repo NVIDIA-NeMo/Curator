@@ -48,7 +48,7 @@ class WhisperXVADModel:
         device: str = "cuda",
         vad_onset: float = 0.5,
         vad_offset: float = 0.363,
-        use_auth_token: Any = None,  # noqa: ANN401
+        use_auth_token: str | None = None,
     ):
         if device == "cuda" and not torch.cuda.is_available():
             logger.warning("CUDA is not available, falling back to CPU for VAD model")

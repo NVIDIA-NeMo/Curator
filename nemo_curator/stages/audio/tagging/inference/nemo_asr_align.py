@@ -182,11 +182,14 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
     # Processing mode
     infer_segment_only: bool = False
 
+    # input keys
+    segments_key: str = "segments"
+
     # Output keys
     text_key: str = "text"
     words_key: str = "words"
     disable_word_confidence: bool = False
-    segments_key: str = "segments"
+
     # Device
     device: str = "cuda"
 
@@ -258,10 +261,10 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         logger.info(f"[{self.name}] Initialized ASR model on {self.device}")
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["duration", "segments", "split_filepaths", "split_metadata"]
+        return ["data"], ["duration", self.segments_key, "split_filepaths", "split_metadata"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["duration", "segments", "split_filepaths", "split_metadata"]
+        return ["data"], ["duration", self.segments_key, "split_filepaths", "split_metadata"]
 
     def get_alignments_text(self, hypotheses: Any) -> tuple[list, str]:  # noqa: ANN401
         """Extract word alignments and text from model hypotheses."""
@@ -338,61 +341,61 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
             entries[i][self.text_key] = ""
             entries[i]["alignment"] = []
 
-        for chunk_start in range(0, len(meta_indices), self.batch_size):
-            chunk_meta_idx = meta_indices[chunk_start : chunk_start + self.batch_size]
-            all_paths = []
-            path_to_entry_and_split = []
-            for entry_idx in chunk_meta_idx:
-                meta_entry = entries[entry_idx]
-                split_filepaths = meta_entry.get("split_filepaths")
-                if not split_filepaths:
-                    logger.warning(f"[{self.name}] Entry at index {entry_idx} has no split_filepaths, skipping.")
-                    continue
-                for split_idx, path in enumerate(split_filepaths):
-                    all_paths.append(path)
-                    path_to_entry_and_split.append((entry_idx, split_idx))
-
-            if not all_paths:
+        # collect all split paths of all entries in the batch
+        all_paths = []
+        path_to_entry_and_split = []
+        for chunk_meta_idx in range(len(meta_indices)):
+            entry_idx = meta_indices[chunk_meta_idx]
+            meta_entry = entries[entry_idx]
+            split_filepaths = meta_entry.get("split_filepaths")
+            if not split_filepaths:
+                logger.warning(f"[{self.name}] Entry at index {entry_idx} has no split_filepaths, skipping.")
                 continue
+            for split_idx, path in enumerate(split_filepaths):
+                all_paths.append(path)
+                path_to_entry_and_split.append((entry_idx, split_idx))
 
-            try:
-                with torch.no_grad():
-                    hypotheses_list = self._asr_model.transcribe(all_paths, override_config=self._override_cfg)
-                if isinstance(hypotheses_list, tuple) and len(hypotheses_list) == 2:  # noqa: PLR2004
-                    hypotheses_list = hypotheses_list[0]
-            except Exception as e:  # noqa: BLE001
-                logger.error(
-                    f"[{self.name}] Exception for meta-entries batch: {e!s} for paths: {all_paths}, transcribing one by one"
-                )
-                hypotheses_list = []
-                for path in all_paths:
-                    try:
-                        with torch.no_grad():
-                            hyp = self._asr_model.transcribe([path], override_config=self._override_cfg)
-                        if isinstance(hyp, tuple) and len(hyp) == 2:  # noqa: PLR2004
-                            hyp = hyp[0]
-                        hypotheses_list.append(hyp[0] if hyp else None)
-                    except Exception as e2:  # noqa: BLE001, PERF203
-                        logger.error(f"[{self.name}] Exception for {path}: {e2}")
-                        hypotheses_list.append(None)
+        if not all_paths:
+            return tasks
 
-            for path_idx, hyp in enumerate(hypotheses_list):
-                if path_idx >= len(path_to_entry_and_split):
-                    break
-                entry_idx, split_idx = path_to_entry_and_split[path_idx]
-                meta_entry = entries[entry_idx]
-                if hyp is not None:
-                    alignments, text = self.get_alignments_text(hyp)
-                else:
-                    alignments, text = [], ""
+        try:
+            with torch.no_grad():
+                hypotheses_list = self._asr_model.transcribe(all_paths, override_config=self._override_cfg)
+            if isinstance(hypotheses_list, tuple) and len(hypotheses_list) == 2:  # noqa: PLR2004
+                hypotheses_list = hypotheses_list[0]
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                f"[{self.name}] Exception for meta-entries batch: {e!s} for paths: {all_paths}, transcribing one by one"
+            )
+            hypotheses_list = []
+            for path in all_paths:
+                try:
+                    with torch.no_grad():
+                        hyp = self._asr_model.transcribe([path], override_config=self._override_cfg)
+                    if isinstance(hyp, tuple) and len(hyp) == 2:  # noqa: PLR2004
+                        hyp = hyp[0]
+                    hypotheses_list.append(hyp[0] if hyp else None)
+                except Exception as e2:  # noqa: BLE001, PERF203
+                    logger.error(f"[{self.name}] Exception for {path}: {e2}")
+                    hypotheses_list.append(None)
 
-                split_metadata = meta_entry.get("split_metadata")
-                if split_metadata and split_idx < len(split_metadata):
-                    split_metadata[split_idx][self.text_key] = text
-                    split_metadata[split_idx]["alignment"] = alignments
-                else:
-                    meta_entry[self.text_key] = text
-                    meta_entry["alignment"] = alignments
+        for path_idx, hyp in enumerate(hypotheses_list):
+            if path_idx >= len(path_to_entry_and_split):
+                break
+            entry_idx, split_idx = path_to_entry_and_split[path_idx]
+            meta_entry = entries[entry_idx]
+            if hyp is not None:
+                alignments, text = self.get_alignments_text(hyp)
+            else:
+                alignments, text = [], ""
+
+            split_metadata = meta_entry.get("split_metadata")
+            if split_metadata and split_idx < len(split_metadata):
+                split_metadata[split_idx][self.text_key] = text
+                split_metadata[split_idx]["alignment"] = alignments
+            else:
+                meta_entry[self.text_key] = text
+                meta_entry["alignment"] = alignments
 
         return tasks
 
@@ -402,40 +405,38 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         if not entries:
             return []
 
-        for chunk_start in range(0, len(entries), self.batch_size):
-            metadata_batch = entries[chunk_start : chunk_start + self.batch_size]
-            segment_metadata_list = self._prepare_segment_batch_with_metadata(
-                metadata_batch,
-                cut_audio_segments=True,
-                segments_key=self.segments_key,
-            )
-            all_segments = [seg["audio_segment"] for seg in segment_metadata_list]
+        segment_metadata_list = self._prepare_segment_batch_with_metadata(
+            entries,
+            cut_audio_segments=True,
+            segments_key=self.segments_key,
+        )
+        all_segments = [seg["audio_segment"] for seg in segment_metadata_list]
 
-            if len(all_segments) == 0:
-                continue
+        if len(all_segments) == 0:
+            return tasks
 
-            try:
-                with torch.no_grad():
-                    hypotheses_list = self._asr_model.transcribe(all_segments, override_config=self._override_cfg)
-            except Exception as e:
-                files_list = [x.get("resampled_audio_filepath", x.get("audio_filepath")) for x in metadata_batch]
-                msg = f"[{self.name}] Exception for audio list: {files_list}, error: {e}"
-                raise ValueError(msg) from e
+        try:
+            with torch.no_grad():
+                hypotheses_list = self._asr_model.transcribe(all_segments, override_config=self._override_cfg)
+        except Exception as e:
+            files_list = [x.get("resampled_audio_filepath", x.get("audio_filepath")) for x in entries]
+            msg = f"[{self.name}] Exception for audio list: {files_list}, error: {e}"
+            raise ValueError(msg) from e
 
-            if isinstance(hypotheses_list, tuple) and len(hypotheses_list) == 2:  # noqa: PLR2004
-                hypotheses_list = hypotheses_list[0]
+        if isinstance(hypotheses_list, tuple) and len(hypotheses_list) == 2:  # noqa: PLR2004
+            hypotheses_list = hypotheses_list[0]
 
-            for segment_metadata, hypotheses in zip(segment_metadata_list, hypotheses_list, strict=True):
-                alignments, text = self.get_alignments_text(hypotheses)
-                metadata_idx = segment_metadata["metadata_idx"]
-                segment_idx = segment_metadata["segment_idx"]
-                segment = metadata_batch[metadata_idx][self.segments_key][segment_idx]
-                segment[self.text_key] = text
-                if self.compute_timestamps:
-                    seg_start = segment.get("start", 0)
-                    for word in alignments:
-                        word["start"] = round(word["start"] + seg_start, 3)
-                        word["end"] = round(word["end"] + seg_start, 3)
-                    segment[self.words_key] = alignments
+        for segment_metadata, hypotheses in zip(segment_metadata_list, hypotheses_list, strict=True):
+            alignments, text = self.get_alignments_text(hypotheses)
+            metadata_idx = segment_metadata["metadata_idx"]
+            segment_idx = segment_metadata["segment_idx"]
+            segment = entries[metadata_idx][self.segments_key][segment_idx]
+            segment[self.text_key] = text
+            if self.compute_timestamps:
+                seg_start = segment.get("start", 0)
+                for word in alignments:
+                    word["start"] = round(word["start"] + seg_start, 3)
+                    word["end"] = round(word["end"] + seg_start, 3)
+                segment[self.words_key] = alignments
 
         return tasks

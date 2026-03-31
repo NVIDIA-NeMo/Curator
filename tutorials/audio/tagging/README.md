@@ -9,15 +9,15 @@ The audio tagging pipeline is a processing framework that takes raw audio files 
 ### Pipeline Flow
 
 ```
-┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-│  Raw Audio   │──▶│  Resample    │──▶│  Diarize     │──▶│  ASR Align   │──▶│  Merge       │
-│  Manifest    │   │  (16kHz WAV) │   │  (PyAnnote)  │   │  (NeMo)      │   │              │
-└──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘
-                                                                                    │
-                                                                                    ▼
-                                                                          ┌──────────────────┐
-                                                                          │  Output Manifest │
-                                                                          └──────────────────┘
+┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
+│ Raw Audio  │─▶│ Resample   │─▶│ Diarize    │─▶│ Split Long │─▶│ ASR Align  │
+│ Manifest   │  │ (16kHz WAV)│  │ (PyAnnote) │  │ Audio      │  │ (NeMo)     │
+└────────────┘  └────────────┘  └────────────┘  └────────────┘  └────────────┘
+                                                                      │
+                ┌────────────┐  ┌────────────┐  ┌────────────┐        │
+                │ Output     │◀─│ Merge      │◀─│ Join Split │◀───────┘
+                │ Manifest   │  │            │  │            │
+                └────────────┘  └────────────┘  └────────────┘
 ```
 
 ### Pipeline Stages
@@ -63,17 +63,6 @@ python tutorials/audio/tagging/main.py \
   --config-name tts_pipeline \
   input_manifest=/data/input.jsonl \
   final_manifest=/data/tts_output.jsonl \
-  hf_token=<your_hf_token>
-```
-
-### ASR Pipeline
-
-```bash
-python tutorials/audio/tagging/main.py \
-  --config-path . \
-  --config-name asr_pipeline \
-  input_manifest=/data/input.jsonl \
-  final_manifest=/data/asr_output.jsonl \
   hf_token=<your_hf_token>
 ```
 
@@ -129,12 +118,14 @@ The output manifest is a JSONL file where each line contains the fully processed
 
 ### Output Fields
 
-| Field | Description |
-|-------|-------------|
-| `resampled_audio_filepath` | Path to the resampled 16 kHz mono WAV |
-| `duration` | Total audio duration in seconds |
-| `segments` | List of labelled speaker segments with text, word timestamps, and quality metrics |
-| `overlap_segments` | Speaker turns with detected overlap (excluded from `segments`) |
+| Field                     | Description                                                                          |
+|---------------------------|--------------------------------------------------------------------------------------|
+| `resampled_audio_filepath`| Path to the resampled 16 kHz mono WAV                                                |
+| `duration`                | Total audio duration in seconds                                                      |
+| `segments`                | List of labelled speaker segments with text, word timestamps                         |
+| `overlap_segments`        | Speaker turns with detected overlap (excluded from `segments`)                       |
+| `text`                    | Full transcript text for the audio entry                                             |
+| `alignment`               | List of word-level alignment objects (with fields: `word`, `start`, `end`)           |
 
 ## Configuration
 
@@ -184,7 +175,6 @@ stages.4.batch_size=16
 tutorials/audio/tagging/
 ├── main.py              # Pipeline runner (YAML-driven)
 ├── tts_pipeline.yaml    # TTS pipeline configuration
-├── asr_pipeline.yaml    # ASR pipeline configuration
 └── README.md            # This file
 ```
 
@@ -208,6 +198,43 @@ tests/stages/audio/tagging/
 └── inference/
     ├── test_base_asr_processor.py
     └── test_nemo_asr_align.py
+
+### End-to-End Pipeline Test
+
+An automated end-to-end (E2E) test validates the full TTS audio tagging pipeline. This test mirrors the tutorial configuration and ensures all pipeline stages work together as expected.
+
+To run the E2E test:
+
+```bash
+pytest tests/stages/audio/tagging/e2e/test_tts_e2e.py -v
+```
+
+**What the E2E test does:**
+- Runs the entire YAML-driven pipeline found in `tutorials/audio/tagging/tts_pipeline.yaml`
+- Uses test audio fixtures and a sample manifest for reproducibility
+- Asserts output matches a reference (expected) manifest, including proper alignment and diarization
+
+**Relevant files:**
+```
+tests/stages/audio/tagging/e2e/
+├── test_tts_e2e.py         # End-to-end TTS tagging pipeline test
+├── conftest.py             # Test fixtures (manifests, input data)
+├── utils.py                # Output validation helpers
+└── configs/
+    └── tts_pipeline.yaml   # Test configuration for the pipeline
+```
+
+> **Note:** A valid HuggingFace token (`HF_SECRET_KEY`) is required for diarization tests.
+Export the variable before running the test:
+>
+> ```bash
+> export HF_SECRET_KEY=your_hf_token
+> ```
+
+See the test file for detailed comments on the pipeline steps and configuration overrides.
+
+
+
 ```
 
 ## Troubleshooting

@@ -20,7 +20,7 @@
 #
 # Pipeline stages:
 #   0. ManifestReader          - Read input JSONL manifest
-#   1. CreateInitialManifestYT - Resample audio to 16 kHz mono WAV
+#   1. ResampleAudio            - Resample audio to 16 kHz mono WAV
 #   2. PyAnnoteDiarization     - Speaker diarization + overlap detection
 #   3. SplitLongAudio          - Split segments exceeding max length
 #   4. NeMoASRAligner          - Forced alignment via NeMo FastConformer
