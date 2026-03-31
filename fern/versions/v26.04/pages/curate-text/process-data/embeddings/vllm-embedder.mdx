@@ -1,0 +1,138 @@
+---
+description: "Generate text embeddings using vLLM for high-throughput GPU-accelerated inference with large embedding models"
+categories: ["how-to-guides"]
+tags: ["embeddings", "vllm", "gpu-accelerated", "large-models"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
+---
+
+# vLLM Embedder
+
+Generate text embeddings using vLLM's optimized inference engine. The `VLLMEmbeddingModelStage` provides high-throughput embedding generation, particularly for large embedding models where vLLM's batching and GPU memory management provide significant performance advantages over Sentence Transformers.
+
+<Note>
+**Installation**: The vLLM embedder requires the `vllm` optional dependency. Install it with:
+
+```bash
+pip install nemo_curator[vllm]
+```
+
+vLLM is only available on x86_64 Linux systems.
+</Note>
+
+## How It Works
+
+`VLLMEmbeddingModelStage` is a single-stage embedder that handles both tokenization and embedding generation within one stage. Unlike `EmbeddingCreatorStage` (which splits tokenization and model inference into separate stages), the vLLM embedder delegates all GPU operations to vLLM's inference engine.
+
+Key features:
+
+- **Optional pretokenization**: When `pretokenize=True`, the stage tokenizes text on CPU before passing tokens to vLLM, reducing GPU idle time and improving throughput
+- **vLLM-managed batching**: Leverages vLLM's built-in request scheduling for optimal GPU utilization
+- **Model download caching**: Automatically downloads and caches models from HuggingFace Hub
+- **Character truncation**: Optional `max_chars` parameter to limit input length before tokenization
+
+## Quick Start
+
+```python
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import ParquetReader
+from nemo_curator.stages.text.io.writer import ParquetWriter
+
+pipeline = Pipeline(
+    name="vllm_embeddings",
+    stages=[
+        ParquetReader(file_paths="input_data/", files_per_partition=1, fields=["text"]),
+        VLLMEmbeddingModelStage(
+            model_identifier="google/gemma-embedding-model",
+            text_field="text",
+            embedding_field="embeddings",
+            pretokenize=True,
+        ),
+        ParquetWriter(path="output/", fields=["text", "embeddings"]),
+    ],
+)
+
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+## Configuration
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_identifier` | `str` | Required | HuggingFace model name or path for the embedding model |
+| `vllm_init_kwargs` | `dict` | `None` | Additional keyword arguments passed to `vllm.LLM()` for engine configuration |
+| `text_field` | `str` | `"text"` | Name of the input text column in the data |
+| `pretokenize` | `bool` | `False` | Tokenize text on CPU before passing to vLLM. Recommended for best throughput |
+| `embedding_field` | `str` | `"embeddings"` | Name of the output embedding column |
+| `max_chars` | `int` | `None` | Maximum characters per document (truncates before tokenization) |
+| `cache_dir` | `str` | `None` | Directory for caching downloaded model files |
+| `hf_token` | `str` | `None` | HuggingFace token for accessing gated models |
+| `verbose` | `bool` | `False` | Enable verbose logging and progress bars |
+
+### vLLM Engine Options
+
+Pass additional vLLM configuration through `vllm_init_kwargs`:
+
+```python
+VLLMEmbeddingModelStage(
+    model_identifier="large-embedding-model",
+    pretokenize=True,
+    vllm_init_kwargs={
+        "enforce_eager": True,       # Disable CUDA graph for debugging
+        "tensor_parallel_size": 2,   # Distribute across 2 GPUs
+        "gpu_memory_utilization": 0.9,
+        "max_model_len": 512,
+    },
+)
+```
+
+Default vLLM settings applied by the stage (can be overridden):
+
+- `enforce_eager=False` — Uses CUDA graphs for faster inference
+- `runner="pooling"` — Configures vLLM for embedding (pooling) tasks
+- `model_impl="vllm"` — Uses vLLM's native model implementation
+- `disable_log_stats=True` — Suppresses stats logging when `verbose=False`
+
+### Pretokenization
+
+When `pretokenize=True`, the stage:
+
+1. Loads a HuggingFace `AutoTokenizer` for the specified model
+2. Tokenizes the input text batch on CPU with truncation to `max_model_len`
+3. Passes token IDs directly to vLLM using `TokensPrompt`
+
+This mode is recommended for production workloads. Benchmarks show it provides the best per-task throughput across both small and large embedding models by reducing GPU idle time during tokenization.
+
+```python
+# Pretokenize mode (recommended)
+VLLMEmbeddingModelStage(
+    model_identifier="google/gemma-embedding-model",
+    pretokenize=True,  # Tokenize on CPU, embed on GPU
+)
+
+# Direct text mode (simpler, slightly less throughput)
+VLLMEmbeddingModelStage(
+    model_identifier="google/gemma-embedding-model",
+    pretokenize=False,  # vLLM handles tokenization internally
+)
+```
+
+## Resources
+
+The `VLLMEmbeddingModelStage` requests 1 CPU and 1 GPU per worker by default. For multi-GPU models, configure `tensor_parallel_size` in `vllm_init_kwargs`.
+
+## When to Use vLLM vs. Sentence Transformers
+
+| Scenario | Recommendation |
+| --- | --- |
+| Large embedding models (>500M params) | vLLM — better GPU utilization and memory management |
+| Small embedding models (<100M params) | Sentence Transformers — lower overhead, faster startup |
+| High-throughput production pipelines | vLLM with `pretokenize=True` — best amortized throughput |
+| Quick prototyping | `EmbeddingCreatorStage` — simpler setup, no extra dependency |

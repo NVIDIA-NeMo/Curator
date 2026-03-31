@@ -12,6 +12,17 @@ modality: "universal"
 
 ## What's New in 26.04
 
+### vLLM and Sentence Transformers Embedding Support (PR #1346)
+
+Added two new embedding backends for text curation, giving users flexibility to choose the best engine for their model size and throughput needs:
+
+- **`VLLMEmbeddingModelStage`**: A new standalone embedding stage powered by [vLLM](https://docs.vllm.ai/) for high-throughput GPU-accelerated inference. Supports optional pretokenization (`pretokenize=True`) for best per-task throughput. Ideal for large embedding models where vLLM's batching and memory management outperform Sentence Transformers.
+- **`SentenceTransformerEmbeddingModelStage`**: A new embedding stage using the `sentence-transformers` library directly, providing native support for models from the Sentence Transformers ecosystem.
+- **`EmbeddingCreatorStage` enhancements**: Added `use_sentence_transformer` flag (defaults to `True`) to select between Sentence Transformers and HuggingFace `AutoModel` backends. Added `cache_dir` parameter for controlling model download location.
+- **New `vllm` optional dependency**: Install with `pip install nemo_curator[vllm]` (x86_64 Linux only). The `sentence-transformers` package is now included in the `text_cpu` extra.
+
+For usage details, see [Text Embeddings](/curate-text/process-data/embeddings) and [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder).
+
 ### Cosmos-Xenna 0.2.0 (PR #1571)
 
 Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and improved GPU management:
@@ -24,6 +35,8 @@ Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and i
 
 - **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
 - **Ray**: Updated to 2.54
+- **sentence-transformers**: Added to the `text_cpu` optional dependency group
+- **vllm**: New `vllm` optional dependency group (`pip install nemo_curator[vllm]`, x86_64 Linux only)
 
 ## Breaking Changes
 

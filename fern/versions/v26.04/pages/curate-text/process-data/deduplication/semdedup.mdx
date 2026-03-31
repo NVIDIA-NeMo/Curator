@@ -180,12 +180,55 @@ workflow = TextSemanticDeduplicationWorkflow(
 )
 ```
 
+**vLLM Embedder** (recommended for large models):
+
+For large embedding models, you can generate embeddings separately using `VLLMEmbeddingModelStage` before running the deduplication workflow. This provides better GPU utilization and throughput for models with 500M+ parameters. See [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder) for details.
+
+```python
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
+from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import ParquetReader
+from nemo_curator.stages.text.io.writer import ParquetWriter
+
+executor = XennaExecutor()
+
+# Step 1: Generate embeddings with vLLM
+embedding_pipeline = Pipeline(
+    name="vllm_embedding_pipeline",
+    stages=[
+        ParquetReader(file_paths=input_path, files_per_partition=1, fields=["text"], _generate_ids=True),
+        VLLMEmbeddingModelStage(
+            model_identifier="large-embedding-model",
+            text_field="text",
+            embedding_field="embeddings",
+            pretokenize=True,
+        ),
+        ParquetWriter(path=embedding_output_path, fields=["_curator_dedup_id", "embeddings"]),
+    ],
+)
+embedding_pipeline.run(executor)
+
+# Step 2: Run deduplication on pre-computed embeddings
+semantic_workflow = SemanticDeduplicationWorkflow(
+    input_path=embedding_output_path,
+    output_path=output_path,
+    n_clusters=100,
+    eps=0.07,
+    id_field="_curator_dedup_id",
+    embedding_field="embeddings",
+)
+semantic_workflow.run()
+```
+
 **When choosing a model**:
 
 - Ensure compatibility with your data type
 - Adjust `embedding_model_inference_batch_size` for memory requirements
 - Choose models appropriate for your language or domain
 - Avoid generic decoder-only LLMs (e.g., OPT/GPT) for embeddings; prefer models trained for sentence embeddings (e.g., E5/BGE/SBERT)
+- For large models (>500M params), consider using [VLLMEmbeddingModelStage](/curate-text/process-data/embeddings/vllm-embedder) for better throughput
 </Accordion>
 
 <Accordion title="Advanced Configuration">
