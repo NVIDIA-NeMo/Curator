@@ -42,8 +42,7 @@ from nemo_curator.pipeline import Pipeline
 def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
     """Create pipeline from Hydra config."""
     pipeline = Pipeline(
-        name="readspeech_yaml_pipeline",
-        description="DNS Challenge Read Speech pipeline created from YAML config"
+        name="readspeech_yaml_pipeline", description="DNS Challenge Read Speech pipeline created from YAML config"
     )
 
     for processor_cfg in cfg.processors:

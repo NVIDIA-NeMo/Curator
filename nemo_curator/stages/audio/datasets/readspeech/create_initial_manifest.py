@@ -26,6 +26,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, _EmptyTask
 
 SAMPLE_RATE_48KHZ = 48000
+_MIN_FILENAME_PARTS = 6
 
 DNS_READSPEECH_URL = (
     "https://dnschallengepublic.blob.core.windows.net/dns5archive/"
@@ -172,21 +173,21 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioTask
         logger.info(f"Extracting {os.path.basename(archive_path)}...")
 
         if not os.path.exists(archive_path):
-            raise RuntimeError(f"Archive not found: {archive_path}")
+            msg = f"Archive not found: {archive_path}"
+            raise RuntimeError(msg)
 
         file_size = os.path.getsize(archive_path)
         file_size_gb = file_size / (1024**3)
         logger.info(f"  Archive size: {file_size_gb:.2f} GB")
 
         extraction_methods = [
-            ["tar", "-xzf", archive_path, "-C", extract_path,
-             "--ignore-zeros", "--warning=no-alone-zero-block"],
+            ["tar", "-xzf", archive_path, "-C", extract_path, "--ignore-zeros", "--warning=no-alone-zero-block"],
             ["tar", "-xf", archive_path, "-C", extract_path, "--ignore-zeros"],
         ]
 
         for i, cmd in enumerate(extraction_methods):
-            logger.info(f"  Trying extraction method {i+1}...")
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            logger.info(f"  Trying extraction method {i + 1}...")
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: S603
 
             extracted_dir = self._find_extracted_wavs(extract_path)
             if extracted_dir:
@@ -196,13 +197,14 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioTask
                     return
 
             if result.returncode not in [0, 2]:
-                logger.warning(f"  Method {i+1} returned code {result.returncode}")
+                logger.warning(f"  Method {i + 1} returned code {result.returncode}")
                 if result.stderr:
                     logger.debug(f"  stderr: {result.stderr[:200]}")
 
         logger.error("All extraction methods failed")
         logger.error(f"Archive size: {file_size_gb:.2f} GB")
-        raise RuntimeError(f"Extraction failed: {archive_path}")
+        msg = f"Extraction failed: {archive_path}"
+        raise RuntimeError(msg)
 
     def parse_filename(self, filename: str) -> dict:
         metadata = {
@@ -215,7 +217,7 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioTask
         parts = basename.split("_")
 
         try:
-            if len(parts) >= 6:
+            if len(parts) >= _MIN_FILENAME_PARTS:
                 if "book" in parts:
                     book_idx = parts.index("book")
                     if book_idx + 1 < len(parts):
@@ -339,11 +341,13 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioTask
 
         audio_tasks = []
         for i, entry in enumerate(selected_entries):
-            audio_tasks.append(AudioTask(
-                data=entry,
-                task_id=f"readspeech_{i}",
-                dataset_name="DNS-ReadSpeech",
-                filepath_key=self.filepath_key,
-            ))
+            audio_tasks.append(
+                AudioTask(
+                    data=entry,
+                    task_id=f"readspeech_{i}",
+                    dataset_name="DNS-ReadSpeech",
+                    filepath_key=self.filepath_key,
+                )
+            )
 
         return audio_tasks

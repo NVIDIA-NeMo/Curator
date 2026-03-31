@@ -57,7 +57,7 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
     """
     pipeline = Pipeline(
         name="readspeech_audio_filter",
-        description="DNS Challenge Read Speech dataset curation with AudioDataFilterStage"
+        description="DNS Challenge Read Speech dataset curation with AudioDataFilterStage",
     )
 
     pipeline.add_stage(
@@ -69,55 +69,65 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
         )
     )
 
-    pipeline.add_stage(AudioDataFilterStage(config={
-        "mono_conversion": {
-            "output_sample_rate": args.sample_rate,
-        },
-        "vad": {
-            "enable": args.enable_vad,
-            "min_duration_sec": args.vad_min_duration,
-            "max_duration_sec": args.vad_max_duration,
-            "threshold": args.vad_threshold,
-            "min_interval_ms": args.vad_min_interval_ms,
-            "speech_pad_ms": args.vad_speech_pad_ms,
-        },
-        "band_filter": {
-            "enable": args.enable_band_filter,
-            "band_value": args.band_value,
-        },
-        "utmos": {
-            "enable": args.enable_utmos,
-            "mos_threshold": args.utmos_mos_threshold,
-        },
-        "sigmos": {
-            "enable": args.enable_sigmos,
-            "noise_threshold": args.sigmos_noise_threshold,
-            "ovrl_threshold": args.sigmos_ovrl_threshold,
-        },
-        "speaker_separation": {
-            "enable": args.enable_speaker_separation,
-            "exclude_overlaps": args.speaker_exclude_overlaps,
-            "min_duration": args.speaker_min_duration,
-        },
-        "timestamp_mapper": {
-            "passthrough_keys": [
-                "band_prediction", "utmos_mos",
-                "sigmos_noise", "sigmos_ovrl",
-                "speaker_id", "num_speakers",
-            ],
-        },
-    }))
+    pipeline.add_stage(
+        AudioDataFilterStage(
+            config={
+                "mono_conversion": {
+                    "output_sample_rate": args.sample_rate,
+                },
+                "vad": {
+                    "enable": args.enable_vad,
+                    "min_duration_sec": args.vad_min_duration,
+                    "max_duration_sec": args.vad_max_duration,
+                    "threshold": args.vad_threshold,
+                    "min_interval_ms": args.vad_min_interval_ms,
+                    "speech_pad_ms": args.vad_speech_pad_ms,
+                },
+                "band_filter": {
+                    "enable": args.enable_band_filter,
+                    "band_value": args.band_value,
+                },
+                "utmos": {
+                    "enable": args.enable_utmos,
+                    "mos_threshold": args.utmos_mos_threshold,
+                },
+                "sigmos": {
+                    "enable": args.enable_sigmos,
+                    "noise_threshold": args.sigmos_noise_threshold,
+                    "ovrl_threshold": args.sigmos_ovrl_threshold,
+                },
+                "speaker_separation": {
+                    "enable": args.enable_speaker_separation,
+                    "exclude_overlaps": args.speaker_exclude_overlaps,
+                    "min_duration": args.speaker_min_duration,
+                },
+                "timestamp_mapper": {
+                    "passthrough_keys": [
+                        "band_prediction",
+                        "utmos_mos",
+                        "sigmos_noise",
+                        "sigmos_ovrl",
+                        "speaker_id",
+                        "num_speakers",
+                    ],
+                },
+            }
+        )
+    )
 
     pipeline.add_stage(AudioToDocumentStage())
-    pipeline.add_stage(JsonlWriter(
-        path=args.output_dir,
-        write_kwargs={"force_ascii": False},
-    ))
+    pipeline.add_stage(
+        JsonlWriter(
+            path=args.output_dir,
+            write_kwargs={"force_ascii": False},
+        )
+    )
 
     return pipeline
 
 
-def main():
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for the pipeline CLI."""
     parser = argparse.ArgumentParser(
         description="DNS Challenge Read Speech Audio Data Filtration Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -139,81 +149,68 @@ Examples:
   # Process all samples
   python pipeline.py --raw_data_dir /path/to/read_speech \\
       --max-samples -1 --enable-utmos
-        """
+        """,
     )
 
-    # Required arguments
-    parser.add_argument("--raw_data_dir", required=True,
-                        help="Directory containing read_speech WAV files")
-    parser.add_argument("--output_dir", default=None,
-                        help="Output directory for results (default: raw_data_dir/result)")
-
-    # Dataset selection
-    parser.add_argument("--max-samples", type=int, default=5000,
-                        help="Maximum samples to process (default: 5000, -1 for all)")
-
-    # Download settings
-    parser.add_argument("--auto-download", action="store_true", default=True,
-                        help="Automatically download dataset (~4.88 GB) (default: True)")
-    parser.add_argument("--no-auto-download", dest="auto_download", action="store_false",
-                        help="Disable automatic download (expects data already exists)")
-
-    # Resource settings
+    parser.add_argument("--raw_data_dir", required=True, help="Directory containing read_speech WAV files")
+    parser.add_argument(
+        "--output_dir", default=None, help="Output directory for results (default: raw_data_dir/result)"
+    )
+    parser.add_argument(
+        "--max-samples", type=int, default=5000, help="Maximum samples to process (default: 5000, -1 for all)"
+    )
+    parser.add_argument(
+        "--auto-download",
+        action="store_true",
+        default=True,
+        help="Automatically download dataset (~4.88 GB) (default: True)",
+    )
+    parser.add_argument(
+        "--no-auto-download",
+        dest="auto_download",
+        action="store_false",
+        help="Disable automatic download (expects data already exists)",
+    )
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
-
-    # General settings
     parser.add_argument("--sample_rate", type=int, default=48000, help="Target sample rate")
     parser.add_argument("--clean", action="store_true", help="Clean output directory")
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
-
-    # VAD settings
     parser.add_argument("--enable-vad", action="store_true", help="Enable VAD segmentation")
     parser.add_argument("--vad-min-duration", type=float, default=2.0, help="Min VAD segment (sec)")
     parser.add_argument("--vad-max-duration", type=float, default=60.0, help="Max VAD segment (sec)")
     parser.add_argument("--vad-threshold", type=float, default=0.5, help="VAD threshold (0-1)")
     parser.add_argument("--vad-min-interval-ms", type=int, default=500, help="Min silence to split (ms)")
     parser.add_argument("--vad-speech-pad-ms", type=int, default=300, help="Padding before/after speech (ms)")
-
-    # Band filter settings
     parser.add_argument("--enable-band-filter", action="store_true", help="Enable band filter")
     parser.add_argument("--band-value", choices=["full_band", "narrow_band"], default="full_band")
-
-    # UTMOS settings
     parser.add_argument("--enable-utmos", action="store_true", help="Enable UTMOS filter")
     parser.add_argument("--utmos-mos-threshold", type=float, default=3.4, help="Min UTMOS MOS (1-5)")
-
-    # SIGMOS settings
     parser.add_argument("--enable-sigmos", action="store_true", help="Enable SIGMOS filter")
     parser.add_argument("--sigmos-noise-threshold", type=float, default=4.0, help="Min SIGMOS noise")
     parser.add_argument("--sigmos-ovrl-threshold", type=float, default=3.5, help="Min SIGMOS overall")
-
-    # Speaker separation settings
     parser.add_argument("--enable-speaker-separation", action="store_true", help="Enable speaker sep")
-    parser.add_argument("--speaker-exclude-overlaps", action="store_true", default=True,
-                        help="Exclude overlapping speech (default: True)")
-    parser.add_argument("--no-speaker-exclude-overlaps", dest="speaker_exclude_overlaps", action="store_false",
-                        help="Allow overlapping speaker segments")
+    parser.add_argument(
+        "--speaker-exclude-overlaps",
+        action="store_true",
+        default=True,
+        help="Exclude overlapping speech (default: True)",
+    )
+    parser.add_argument(
+        "--no-speaker-exclude-overlaps",
+        dest="speaker_exclude_overlaps",
+        action="store_false",
+        help="Allow overlapping speaker segments",
+    )
     parser.add_argument("--speaker-min-duration", type=float, default=0.8, help="Min speaker segment")
+    return parser
 
-    args = parser.parse_args()
 
-    if args.output_dir is None:
-        args.output_dir = os.path.join(args.raw_data_dir, "result")
-
-    # Configure logging
-    logger.remove()
-    logger.add(sys.stderr, level="DEBUG" if args.verbose else "INFO")
-
-    if args.clean and os.path.exists(args.output_dir):
-        shutil.rmtree(args.output_dir)
-
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    # Log configuration
+def _log_config(args: argparse.Namespace) -> None:
+    """Log pipeline configuration."""
     logger.info("=" * 70)
     logger.info("DNS Challenge Read Speech Audio Data Filtration Pipeline")
     logger.info("=" * 70)
-    logger.info(f"Dataset: DNS Challenge Read Speech (Track 1 Headset)")
+    logger.info("Dataset: DNS Challenge Read Speech (Track 1 Headset)")
     logger.info(f"Raw Data Dir: {args.raw_data_dir}")
     logger.info(f"Output Dir:   {args.output_dir}")
     logger.info(f"Max Samples:  {args.max_samples}")
@@ -233,6 +230,22 @@ Examples:
     logger.info(f"Enabled Filters: {enabled or ['none']}")
     logger.info("=" * 70)
 
+
+def main() -> None:
+    args = _build_parser().parse_args()
+
+    if args.output_dir is None:
+        args.output_dir = os.path.join(args.raw_data_dir, "result")
+
+    logger.remove()
+    logger.add(sys.stderr, level="DEBUG" if args.verbose else "INFO")
+
+    if args.clean and os.path.exists(args.output_dir):
+        shutil.rmtree(args.output_dir)
+
+    os.makedirs(args.output_dir, exist_ok=True)
+    _log_config(args)
+
     pipeline = create_readspeech_pipeline(args)
     logger.info(pipeline.describe())
 
@@ -244,7 +257,7 @@ Examples:
 
         logger.info(f"Results written to {args.output_dir}/*.jsonl")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.exception(f"Pipeline failed: {e}")
         sys.exit(1)
 

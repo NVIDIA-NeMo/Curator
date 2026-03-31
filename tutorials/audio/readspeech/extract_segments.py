@@ -41,9 +41,11 @@ import argparse
 import glob
 import json
 import os
+import sys
 from collections import defaultdict
 from pathlib import Path
 
+import numpy as np
 import soundfile as sf
 from loguru import logger
 
@@ -61,9 +63,9 @@ PYDUB_FORMATS = {"mp3", "m4a"}
 def load_manifest(manifest_path: str) -> list:
     """Load a single manifest.jsonl file and return list of segment entries."""
     segments = []
-    with open(manifest_path, 'r') as f:
-        for line_num, line in enumerate(f, 1):
-            line = line.strip()
+    with open(manifest_path) as f:
+        for line_num, raw_line in enumerate(f, 1):
+            line = raw_line.strip()
             if not line:
                 continue
             try:
@@ -112,14 +114,99 @@ def load_manifests(input_path: str, output_dir: str) -> list:
         os.makedirs(output_dir, exist_ok=True)
         combined_path = os.path.join(output_dir, "manifest.jsonl")
         with open(combined_path, "w") as f:
-            for seg in all_segments:
-                f.write(json.dumps(seg) + "\n")
+            f.writelines(json.dumps(seg) + "\n" for seg in all_segments)
         logger.info(f"Saved combined manifest to {combined_path}")
 
     return all_segments
 
 
-def extract_segments(input_path: str, output_dir: str, output_format: str = DEFAULT_OUTPUT_FORMAT):
+def _write_segment(
+    output_path: str, segment_audio: np.ndarray, sample_rate: int, audio_data: np.ndarray, output_format: str
+) -> None:
+    """Write a single audio segment to disk."""
+    if output_format in SOUNDFILE_FORMATS:
+        sf.write(output_path, segment_audio, sample_rate, subtype=SOUNDFILE_FORMATS[output_format])
+    else:
+        from pydub import AudioSegment
+
+        pcm16 = (segment_audio * 32767).astype(np.int16)
+        audio_seg = AudioSegment(
+            data=pcm16.tobytes(),
+            sample_width=2,
+            frame_rate=sample_rate,
+            channels=1 if audio_data.ndim == 1 else audio_data.shape[1],
+        )
+        audio_seg.export(output_path, format=output_format)
+
+
+def _process_file_segments(
+    original_file: str,
+    file_segments: list,
+    output_dir: str,
+    output_format: str,
+    speaker_counts: dict,
+) -> tuple[int, float]:
+    """Process all segments for a single original file. Returns (extracted_count, duration_sec)."""
+    original_name = Path(original_file).stem
+    logger.info(f"\nProcessing: {original_name}")
+    logger.info(f"  Original file: {original_file}")
+    logger.info(f"  Segments to extract: {len(file_segments)}")
+
+    try:
+        audio_data, sample_rate = sf.read(original_file, dtype="float32")
+        total_samples = len(audio_data) if audio_data.ndim == 1 else audio_data.shape[0]
+        logger.info(f"  Original duration: {total_samples / sample_rate:.2f}s")
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"  Failed to load audio: {e}")
+        return 0, 0.0
+
+    has_speakers = any("speaker_id" in seg for seg in file_segments)
+    if has_speakers:
+        file_segments.sort(key=lambda x: (x.get("speaker_id", ""), x.get("original_start_ms", 0)))
+    else:
+        file_segments.sort(key=lambda x: x.get("original_start_ms", 0))
+
+    segment_counts = defaultdict(int)
+    extracted = 0
+    duration_total = 0.0
+
+    for seg in file_segments:
+        start_ms = seg.get("original_start_ms", 0)
+        end_ms = seg.get("original_end_ms", 0)
+        speaker_id = seg.get("speaker_id")
+        duration_sec = seg.get("duration_sec", (end_ms - start_ms) / 1000)
+
+        count_key = speaker_id if speaker_id else "__all__"
+        segment_num = segment_counts[count_key]
+        segment_counts[count_key] += 1
+
+        if speaker_id:
+            speaker_num = speaker_id.replace("speaker_", "") if "speaker_" in speaker_id else speaker_id
+            output_filename = f"{original_name}_speaker_{speaker_num}_segment_{segment_num:03d}.{output_format}"
+        else:
+            output_filename = f"{original_name}_segment_{segment_num:03d}.{output_format}"
+        output_path = os.path.join(output_dir, output_filename)
+
+        try:
+            start_sample = int(start_ms * sample_rate / 1000)
+            end_sample = int(end_ms * sample_rate / 1000)
+            segment_audio = (
+                audio_data[start_sample:end_sample] if audio_data.ndim == 1 else audio_data[start_sample:end_sample, :]
+            )
+            _write_segment(output_path, segment_audio, sample_rate, audio_data, output_format)
+            extracted += 1
+            duration_total += duration_sec
+            if speaker_id:
+                speaker_counts[speaker_id] += 1
+            logger.debug(f"  Extracted: {output_filename} ({duration_sec:.2f}s)")
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"  Failed to extract segment {segment_num}: {e}")
+
+    logger.info(f"  Extracted {sum(segment_counts.values())} segments from this file")
+    return extracted, duration_total
+
+
+def extract_segments(input_path: str, output_dir: str, output_format: str = DEFAULT_OUTPUT_FORMAT) -> None:
     """
     Extract segments from original audio files based on manifest.
 
@@ -139,7 +226,6 @@ def extract_segments(input_path: str, output_dir: str, output_format: str = DEFA
         logger.error("No segments found in manifest")
         return
 
-    # Group segments by original file
     segments_by_file = defaultdict(list)
     for seg in segments:
         original_file = seg.get("original_file")
@@ -148,98 +234,24 @@ def extract_segments(input_path: str, output_dir: str, output_format: str = DEFA
 
     logger.info(f"Segments span {len(segments_by_file)} original file(s)")
 
-    # Track statistics
     total_extracted = 0
-    total_duration_sec = 0
-    speaker_counts = defaultdict(int)
+    total_duration_sec = 0.0
+    speaker_counts: dict[str, int] = defaultdict(int)
 
-    # Process each original file
     for original_file, file_segments in segments_by_file.items():
         if not os.path.exists(original_file):
             logger.error(f"Original file not found: {original_file}")
             continue
+        extracted, duration = _process_file_segments(
+            original_file,
+            file_segments,
+            output_dir,
+            output_format,
+            speaker_counts,
+        )
+        total_extracted += extracted
+        total_duration_sec += duration
 
-        # Get original filename without extension
-        original_name = Path(original_file).stem
-
-        logger.info(f"\nProcessing: {original_name}")
-        logger.info(f"  Original file: {original_file}")
-        logger.info(f"  Segments to extract: {len(file_segments)}")
-
-        # Load original audio
-        try:
-            audio_data, sample_rate = sf.read(original_file, dtype="float32")
-            total_samples = len(audio_data) if audio_data.ndim == 1 else audio_data.shape[0]
-            logger.info(f"  Original duration: {total_samples / sample_rate:.2f}s")
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"  Failed to load audio: {e}")
-            continue
-
-        # Sort segments by speaker (if present) then start time
-        has_speakers = any("speaker_id" in seg for seg in file_segments)
-        if has_speakers:
-            file_segments.sort(key=lambda x: (x.get("speaker_id", ""), x.get("original_start_ms", 0)))
-        else:
-            file_segments.sort(key=lambda x: x.get("original_start_ms", 0))
-
-        # Track segment numbers (per speaker if speakers exist, otherwise global)
-        segment_counts = defaultdict(int)
-
-        # Extract each segment
-        for seg in file_segments:
-            start_ms = seg.get("original_start_ms", 0)
-            end_ms = seg.get("original_end_ms", 0)
-            speaker_id = seg.get("speaker_id")
-            duration_sec = seg.get("duration_sec", (end_ms - start_ms) / 1000)
-
-            count_key = speaker_id if speaker_id else '__all__'
-            segment_num = segment_counts[count_key]
-            segment_counts[count_key] += 1
-
-            if speaker_id:
-                speaker_num = speaker_id.replace("speaker_", "") if "speaker_" in speaker_id else speaker_id
-                output_filename = f"{original_name}_speaker_{speaker_num}_segment_{segment_num:03d}.{output_format}"
-            else:
-                output_filename = f"{original_name}_segment_{segment_num:03d}.{output_format}"
-            output_path = os.path.join(output_dir, output_filename)
-
-            # Extract segment
-            try:
-                start_sample = int(start_ms * sample_rate / 1000)
-                end_sample = int(end_ms * sample_rate / 1000)
-                if audio_data.ndim == 1:
-                    segment_audio = audio_data[start_sample:end_sample]
-                else:
-                    segment_audio = audio_data[start_sample:end_sample, :]
-
-                if output_format in SOUNDFILE_FORMATS:
-                    sf.write(output_path, segment_audio, sample_rate,
-                             subtype=SOUNDFILE_FORMATS[output_format])
-                else:
-                    from pydub import AudioSegment
-                    import numpy as np
-                    pcm16 = (segment_audio * 32767).astype(np.int16)
-                    seg = AudioSegment(
-                        data=pcm16.tobytes(),
-                        sample_width=2,
-                        frame_rate=sample_rate,
-                        channels=1 if audio_data.ndim == 1 else audio_data.shape[1],
-                    )
-                    seg.export(output_path, format=output_format)
-
-                total_extracted += 1
-                total_duration_sec += duration_sec
-                if speaker_id:
-                    speaker_counts[speaker_id] += 1
-
-                logger.debug(f"  Extracted: {output_filename} ({duration_sec:.2f}s)")
-
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"  Failed to extract segment {segment_num}: {e}")
-
-        logger.info(f"  Extracted {sum(segment_counts.values())} segments from this file")
-
-    # Save extraction summary
     summary = {
         "manifest_path": input_path,
         "output_dir": output_dir,
@@ -253,46 +265,34 @@ def extract_segments(input_path: str, output_dir: str, output_format: str = DEFA
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
 
-    # Print summary
-    logger.info(f"\n{'='*60}")
+    logger.info(f"\n{'=' * 60}")
     logger.info("EXTRACTION COMPLETE")
-    logger.info(f"{'='*60}")
+    logger.info(f"{'=' * 60}")
     logger.info(f"Total segments extracted: {total_extracted}")
-    logger.info(f"Total duration: {total_duration_sec:.2f}s ({total_duration_sec/60:.1f} min)")
+    logger.info(f"Total duration: {total_duration_sec:.2f}s ({total_duration_sec / 60:.1f} min)")
     logger.info(f"Output directory: {output_dir}")
     if speaker_counts:
-        logger.info(f"\nSegments by speaker:")
+        logger.info("\nSegments by speaker:")
         for speaker, count in sorted(speaker_counts.items()):
             logger.info(f"  {speaker}: {count} segments")
     logger.info(f"\nSummary saved to: {summary_path}")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Extract audio segments from original files based on manifest"
-    )
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Extract audio segments from original files based on manifest")
     parser.add_argument(
-        "--manifest", "-m",
-        required=True,
-        help="Path to manifest.jsonl file or directory containing .jsonl files"
+        "--manifest", "-m", required=True, help="Path to manifest.jsonl file or directory containing .jsonl files"
     )
+    parser.add_argument("--output-dir", "-o", required=True, help="Output directory for extracted segments")
     parser.add_argument(
-        "--output-dir", "-o",
-        required=True,
-        help="Output directory for extracted segments"
-    )
-    parser.add_argument(
-        "--output-format", "-f",
+        "--output-format",
+        "-f",
         type=str,
         default=DEFAULT_OUTPUT_FORMAT,
         choices=["wav", "flac", "ogg", "mp3", "m4a"],
-        help="Output audio format (default: wav). mp3/m4a require pydub + ffmpeg."
+        help="Output audio format (default: wav). mp3/m4a require pydub + ffmpeg.",
     )
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose logging"
-    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
 
     args = parser.parse_args()
 
@@ -306,14 +306,10 @@ def main():
         return 1
 
     logger.info(f"Output format: {args.output_format}")
-    extract_segments(
-        input_path=args.manifest,
-        output_dir=args.output_dir,
-        output_format=args.output_format
-    )
+    extract_segments(input_path=args.manifest, output_dir=args.output_dir, output_format=args.output_format)
 
     return 0
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())
