@@ -511,7 +511,12 @@ class SlackSink(Sink):
                     "channel": self._parent_message.get_channel_id(),
                     "entries": dict(self._parent_message.entries),
                 }
-                # Note that this is the only time the state file is created. If the benchmark session is re-run using the same session name (resulting in the same state file path), the file will already exist and all benchmarking info will be added to the previous slack parent message. This is by design. New benchmark runs are assumed to have new session names and therefore new/unique state file paths.
+                # NOTE: This is the only time the state file is created.
+                # If the benchmark session is re-run using the same session name
+                # (resulting in the same state file path), the file will already exist and
+                # all benchmarking info will be added to the previous Slack parent message.
+                # This is by design. New benchmark runs are assumed to use new session names,
+                # and therefore will generate new/unique state file paths.
                 payload = json.dumps(initial_state).encode()
                 os.write(fd, payload)
             else:
