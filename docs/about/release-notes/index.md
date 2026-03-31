@@ -133,6 +133,12 @@ New API for tracking and analyzing pipeline execution:
 
 ## Bug Fixes
 
+### 26.04
+
+- Fixed audio pipeline stage names not being propagated in `StagePerfStats`, making benchmark results unable to identify per-stage timing (PR #1470)
+
+### 26.02
+
 - Fixed fasttext predict call compatibility with numpy>2
 - Fixed broken NeMo Framework documentation links
 - Fixed MegatronTokenizerWriter to download only necessary tokenizer files
