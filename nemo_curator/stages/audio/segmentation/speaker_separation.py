@@ -38,6 +38,7 @@ import torch
 from loguru import logger
 from pydub import AudioSegment
 
+from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.common import resolve_waveform_from_item
 from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import SpeakerSeparator
@@ -99,14 +100,15 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
-    def setup_on_node(self, _node_info: Any = None, _worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+    def setup_on_node(self, _node_info: Any = None, _worker_metadata: Any = None) -> None:  # noqa: ANN401
         try:
             from nemo.collections.asr.models import SortformerEncLabelModel
+
             SortformerEncLabelModel.from_pretrained(self.model_path)
         except Exception:  # noqa: BLE001
             logger.warning("Model pre-download in setup_on_node failed; will retry in setup().")
 
-    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         self._initialize_separator()
 
     def teardown(self) -> None:
@@ -115,14 +117,19 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
             self._separator = None
             torch.cuda.empty_cache()
 
+    @staticmethod
+    def _check_gpu_availability(gpus: float) -> None:
+        if gpus > 0 and not torch.cuda.is_available():
+            msg = (
+                "Resources request GPU (gpus > 0) but CUDA is not available. "
+                "Either set resources=Resources(gpus=0) for CPU-only or install CUDA."
+            )
+            raise RuntimeError(msg)
+
     def _initialize_separator(self) -> None:
         if self._separator is None:
+            self._check_gpu_availability(self._resources.gpus)
             try:
-                if self._resources.gpus > 0 and not torch.cuda.is_available():
-                    raise RuntimeError(
-                        "Resources request GPU (gpus > 0) but CUDA is not available. "
-                        "Either set resources=Resources(gpus=0) for CPU-only or install CUDA."
-                    )
                 use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
 
                 separator_config = {
@@ -143,9 +150,41 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
             except ImportError as e:
                 logger.error(f"Failed to import speaker separation module: {e}")
                 raise
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.error(f"Failed to load speaker separator: {e}")
                 raise
+
+    def _build_speaker_tasks(
+        self,
+        speaker_audio_data: dict,
+        item: dict,
+        task: AudioTask,
+    ) -> list[AudioTask]:
+        """Build AudioTask list from speaker audio data."""
+        results: list[AudioTask] = []
+        num_speakers = len(speaker_audio_data)
+        for speaker_id, (speaker_audio_pydub, duration) in speaker_audio_data.items():
+            if duration < self.min_duration:
+                logger.debug(f"Skipping {speaker_id}: duration {duration:.2f}s < {self.min_duration}s")
+                continue
+            spk_waveform, spk_sr = _pydub_to_waveform_sr(speaker_audio_pydub)
+            speaker_data = {
+                **{k: v for k, v in item.items() if k not in ("audio", "waveform")},
+                "waveform": spk_waveform,
+                "sample_rate": spk_sr,
+                "speaker_id": speaker_id,
+                "num_speakers": num_speakers,
+                "duration_sec": duration,
+            }
+            spk_task = AudioTask(
+                data=speaker_data,
+                task_id=f"{task.task_id}_{speaker_id}",
+                dataset_name=task.dataset_name,
+            )
+            if task._metadata:
+                spk_task._metadata = dict(task._metadata)
+            results.append(spk_task)
+        return results
 
     def process(self, task: AudioTask) -> list[AudioTask]:
         """
@@ -157,7 +196,8 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
         self._initialize_separator()
 
         if self._separator is None:
-            raise RuntimeError("Speaker separator failed to initialize. Cannot process audio.")
+            msg = "Speaker separator failed to initialize. Cannot process audio."
+            raise RuntimeError(msg)
 
         item = dict(task.data)
         waveform = None
@@ -175,46 +215,24 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
                 gap_threshold=self.gap_threshold,
                 exclude_overlaps=self.exclude_overlaps,
                 min_duration=self.min_duration,
-                buffer_time=self.buffer_time
+                buffer_time=self.buffer_time,
             )
 
-            num_speakers = len(speaker_audio_data)
-
-            if num_speakers == 0:
+            if len(speaker_audio_data) == 0:
                 logger.warning("No speakers detected")
                 return []
 
-            logger.info(f"Detected {num_speakers} speakers")
+            logger.info(f"Detected {len(speaker_audio_data)} speakers")
+            results = self._build_speaker_tasks(speaker_audio_data, item, task)
 
-            for speaker_id, (speaker_audio_pydub, duration) in speaker_audio_data.items():
-                if duration < self.min_duration:
-                    logger.debug(f"Skipping {speaker_id}: duration {duration:.2f}s < {self.min_duration}s")
-                    continue
-                spk_waveform, spk_sr = _pydub_to_waveform_sr(speaker_audio_pydub)
-                speaker_data = {
-                    **{k: v for k, v in item.items() if k not in ("audio", "waveform")},
-                    "waveform": spk_waveform,
-                    "sample_rate": spk_sr,
-                    "speaker_id": speaker_id,
-                    "num_speakers": num_speakers,
-                    "duration_sec": duration,
-                }
-                spk_task = AudioTask(
-                    data=speaker_data,
-                    task_id=f"{task.task_id}_{speaker_id}",
-                    dataset_name=task.dataset_name,
-                )
-                if task._metadata:
-                    spk_task._metadata = dict(task._metadata)
-                results.append(spk_task)
-
-        except torch.cuda.OutOfMemoryError:
+        except torch.cuda.OutOfMemoryError as e:
             torch.cuda.empty_cache()
-            raise RuntimeError(
+            msg = (
                 "CUDA out of memory processing audio. "
                 "Consider splitting long audio files into shorter segments, "
                 "using a GPU with more memory, or setting resources=Resources(gpus=0) for CPU mode."
             )
+            raise RuntimeError(msg) from e
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Skipping task {task.task_id}: {e}")
         finally:

@@ -35,9 +35,8 @@ def _make_task(duration_sec: float = 10.0, sample_rate: int = 48000) -> AudioTas
 
 
 class TestSpeakerSeparationStage:
-
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_process_returns_per_speaker_tasks(self, mock_init) -> None:
+    def test_process_returns_per_speaker_tasks(self, mock_init: MagicMock) -> None:
         stage = SpeakerSeparationStage(min_duration=0.5)
 
         separator = MagicMock()
@@ -60,7 +59,7 @@ class TestSpeakerSeparationStage:
             assert "duration_sec" in r.data
 
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_process_output_keys(self, mock_init) -> None:
+    def test_process_output_keys(self, mock_init: MagicMock) -> None:
         stage = SpeakerSeparationStage(min_duration=0.5)
 
         separator = MagicMock()
@@ -80,7 +79,7 @@ class TestSpeakerSeparationStage:
         assert "sample_rate" in item
 
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_min_duration_filters_short_speakers(self, mock_init) -> None:
+    def test_min_duration_filters_short_speakers(self, mock_init: MagicMock) -> None:
         stage = SpeakerSeparationStage(min_duration=2.0)
 
         separator = MagicMock()
@@ -96,7 +95,7 @@ class TestSpeakerSeparationStage:
         assert result[0].data["speaker_id"] == "speaker_0"
 
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_no_speakers_returns_empty(self, mock_init) -> None:
+    def test_no_speakers_returns_empty(self, mock_init: MagicMock) -> None:
         stage = SpeakerSeparationStage()
 
         separator = MagicMock()
@@ -109,7 +108,7 @@ class TestSpeakerSeparationStage:
         assert len(result) == 0
 
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_no_audio_no_filepath_skipped(self, mock_init) -> None:
+    def test_no_audio_no_filepath_skipped(self, mock_init: MagicMock) -> None:
         stage = SpeakerSeparationStage()
         stage._separator = MagicMock()
 
@@ -140,13 +139,13 @@ class TestSpeakerSeparationStage:
 
         stage = SpeakerSeparationStage(min_duration=1.0, exclude_overlaps=False)
         pickled = pickle.dumps(stage)
-        restored = pickle.loads(pickled)
+        restored = pickle.loads(pickled)  # noqa: S301
         assert restored.min_duration == 1.0
         assert restored.exclude_overlaps is False
         assert restored._separator is None
 
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_separator_exception_skips_task(self, mock_init) -> None:
+    def test_separator_exception_skips_task(self, mock_init: MagicMock) -> None:
         stage = SpeakerSeparationStage(min_duration=0.5)
 
         separator = MagicMock()
