@@ -121,7 +121,7 @@ New API for tracking and analyzing pipeline execution:
 - Fixed MegatronTokenizerWriter to download only necessary tokenizer files
 - Fixed ID generator blocking issues for large-scale processing
 - Fixed vLLM API compatibility with video captioning pipeline
-- Fixed Gliner tutorial examples and SDG workflow bugs
+- Fixed GLiNER tutorial examples and SDG workflow bugs
 - Improved semantic deduplication unit test reliability
 
 ## Infrastructure & Developer Experience
