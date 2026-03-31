@@ -28,17 +28,13 @@ from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 
 
 def get_audio_duration(audio_filepath: str) -> float:
-    """Get the duration of the audio file in seconds.
-
-    Uses soundfile.info() to read only the file header, avoiding loading
-    the entire audio into memory.
-    """
+    """Get the duration of the audio file in seconds."""
     try:
-        info = soundfile.info(audio_filepath)
+        raw, samplerate = soundfile.read(audio_filepath)
+        return raw.shape[0] / samplerate
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to get duration for audio file {audio_filepath}: {e}")
         return -1.0
-    return info.duration
 
 
 @dataclass

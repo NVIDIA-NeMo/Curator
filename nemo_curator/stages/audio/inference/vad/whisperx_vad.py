@@ -61,10 +61,15 @@ class WhisperXVADModel:
             "vad_offset": vad_offset,
         }
 
-        if "TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD" not in os.environ:
-            os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "true"
-
-        self._model = load_vad_model(torch.device(device), token=use_auth_token, **default_vad_options)
+        prev = os.environ.get("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD")
+        os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "true"
+        try:
+            self._model = load_vad_model(torch.device(device), token=use_auth_token, **default_vad_options)
+        finally:
+            if prev is None:
+                os.environ.pop("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", None)
+            else:
+                os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = prev
 
     def to(self, device: str) -> None:
         """Move the model to the given device."""
@@ -161,6 +166,7 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
         duration = data_entry.get("duration", get_audio_duration(file_path))
         if duration < self.min_length:
             logger.warning(f"Skipping {file_path} because it is less than {self.min_length} seconds")
+            data_entry[self.segments_key] = []
             return task
 
         data, sr = sf.read(file_path, dtype="float32")
