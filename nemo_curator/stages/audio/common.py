@@ -171,12 +171,13 @@ def resolve_waveform_from_item(
                 sample_rate = info.samplerate
                 item["sample_rate"] = sample_rate
             except (OSError, RuntimeError, soundfile.SoundFileError) as e:
-                logger.error(f"[{task_id}] Waveform present but sample_rate missing "
-                             f"and could not read from '{audio_filepath}': {e}")
+                logger.error(
+                    f"[{task_id}] Waveform present but sample_rate missing "
+                    f"and could not read from '{audio_filepath}': {e}"
+                )
                 return None
         else:
-            logger.error(f"[{task_id}] Waveform present but 'sample_rate' missing "
-                         "and no audio_filepath available.")
+            logger.error(f"[{task_id}] Waveform present but 'sample_rate' missing and no audio_filepath available.")
             return None
 
     waveform = ensure_waveform_2d(waveform)

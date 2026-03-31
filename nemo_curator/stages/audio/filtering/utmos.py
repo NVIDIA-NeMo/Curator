@@ -125,16 +125,21 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["utmos_mos"]
 
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         try:
             torch.hub.load(
-                _UTMOS_REPO, _UTMOS_ENTRYPOINT,
-                trust_repo=True, force_reload=False, skip_validation=True,
+                _UTMOS_REPO,
+                _UTMOS_ENTRYPOINT,
+                trust_repo=True,
+                force_reload=False,
+                skip_validation=True,
             )
         except Exception:  # noqa: BLE001
             logger.warning("UTMOS repo pre-download in setup_on_node failed.")
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         self._ensure_model()
 
     def teardown(self) -> None:
@@ -149,21 +154,25 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
         if self._model_failed:
             return
 
-        device = torch.device(
-            f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu"
-        )
+        device = torch.device(f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu")
 
         try:
             predictor = torch.hub.load(
-                _UTMOS_REPO, _UTMOS_ENTRYPOINT,
-                trust_repo=True, force_reload=False, skip_validation=True,
+                _UTMOS_REPO,
+                _UTMOS_ENTRYPOINT,
+                trust_repo=True,
+                force_reload=False,
+                skip_validation=True,
             )
         except Exception:  # noqa: BLE001
             logger.warning("UTMOS download failed, loading from cache...")
             try:
                 predictor = torch.hub.load(
-                    _UTMOS_REPO, _UTMOS_ENTRYPOINT,
-                    trust_repo=True, source="local", skip_validation=True,
+                    _UTMOS_REPO,
+                    _UTMOS_ENTRYPOINT,
+                    trust_repo=True,
+                    source="local",
+                    skip_validation=True,
                 )
             except Exception as e:  # noqa: BLE001
                 logger.error(f"UTMOS model unavailable (download and cache both failed): {e}")
