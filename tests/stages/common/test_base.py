@@ -203,18 +203,15 @@ class TestProcessingStageWith:
         assert stage.resources == original_resources
         assert stage.batch_size == original_batch_size
 
-        # Sort results by worker_id since thread completion order is non-deterministic
-        sorted_results = sorted(thread_results, key=lambda r: r["worker_id"])
-        sorted_stages = [r["modified_stage"] for r in sorted_results]
-
+        # Verify specific values for each worker
         for i in range(num_threads):
             expected_name = f"Worker{i}Stage"
             expected_resources = Resources(cpus=float(i + 1))
             expected_batch_size = i + 10
 
-            assert sorted_stages[i].name == expected_name
-            assert sorted_stages[i].resources == expected_resources
-            assert sorted_stages[i].batch_size == expected_batch_size
+            assert modified_names[i] == expected_name
+            assert modified_resources[i] == expected_resources
+            assert modified_batch_sizes[i] == expected_batch_size
 
     def test_class_variable_vs_instance_variable_isolation(self):
         """Test that instances created with with_ are isolated from class-level changes."""
