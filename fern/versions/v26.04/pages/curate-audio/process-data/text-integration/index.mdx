@@ -143,7 +143,7 @@ pipeline.run(executor)
 
 ## Custom Integration
 
-While `AudioToDocumentStage` converts audio data to `DocumentBatch` format, NeMo Curator's built-in text processing stages (filters, classifiers, etc.) are designed for text documents, not audio transcriptions. For audio-specific text processing, implement custom stages that operate on the converted `DocumentBatch` data.
+While `AudioToDocumentStage` converts audio data to `DocumentBatch` format, NeMo Curator's built-in text processing stages (filters, classifiers, and so on) are designed for text documents, not audio transcriptions. For audio-specific text processing, implement custom stages that operate on the converted `DocumentBatch` data.
 
 ### Example: Custom Text Processing
 
@@ -160,7 +160,7 @@ def filter_transcriptions(document_batch: DocumentBatch) -> DocumentBatch:
     df = document_batch.data
 
     # Example: Filter by transcription length
-    df = df[df['pred_text'].str.len() &gt;10]  # Keep transcriptions &gt;10 chars
+    df = df[df['pred_text'].str.len() &gt; 10]  # Keep transcriptions &gt;10 chars
 
     # Example: Filter by WER if available
     if 'wer' in df.columns:

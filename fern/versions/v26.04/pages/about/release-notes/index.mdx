@@ -26,7 +26,7 @@ Redesigned the audio task model and stage hierarchy for consistency with other m
 
 - **`AudioBatch` → `AudioTask`**: Single-dict task model (`Task[dict]`) replacing the list-of-dicts batch model. One manifest entry per task, matching `VideoTask` and `FileGroupTask` conventions.
 - **Direct `ProcessingStage` subclassing**: Removed the `AudioTaskStage` intermediate class. All audio stages now subclass `ProcessingStage[AudioTask, AudioTask]` directly.
-- **Configurable backend selection**: FLEURS and ALM tutorial runners support backend selection via Hydra config (`backend=ray_data` or `backend=xenna`).
+- **Configurable backend selection**: FLEURS and ALM tutorial runners support backend selection using Hydra config (`backend=ray_data` or `backend=xenna`).
 - **`cache_dir` parameter**: `InferenceAsrNemoStage` accepts an optional `cache_dir` for NeMo model checkpoint storage.
 - **Fan-out stage fix**: `CreateInitialManifestFleursStage` now declares `ray_stage_spec()` for correct Ray Data repartitioning.
 
