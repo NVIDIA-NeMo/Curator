@@ -67,7 +67,8 @@ class _SIGMOSPipeline:
         try:
             return self.model.run(audio=audio_data, sr=sample_rate)
         except Exception as e:
-            raise RuntimeError(f"Failed to predict MOS for audio: {e}") from e
+            msg = f"Failed to predict MOS for audio: {e}"
+            raise RuntimeError(msg) from e
 
 
 def predict_audio_mos(

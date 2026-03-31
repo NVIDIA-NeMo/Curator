@@ -53,7 +53,7 @@ def ensure_cudnn_loaded() -> bool:
         return True
 
     try:
-        import nvidia.cudnn  # noqa: WPS433
+        import nvidia.cudnn
     except ImportError:
         logger.debug(
             "nvidia-cudnn-cu12 is not installed; "
@@ -61,7 +61,7 @@ def ensure_cudnn_loaded() -> bool:
         )
         return False
 
-    cudnn_lib_dir = os.path.join(list(nvidia.cudnn.__path__)[0], "lib")
+    cudnn_lib_dir = os.path.join(next(iter(nvidia.cudnn.__path__)), "lib")
     if not os.path.isdir(cudnn_lib_dir):
         logger.warning("nvidia.cudnn package found but lib directory missing: {}", cudnn_lib_dir)
         return False
@@ -90,7 +90,7 @@ def ensure_cudnn_loaded() -> bool:
         try:
             ctypes.cdll.LoadLibrary(lib_path)
             logger.debug("Pre-loaded %s", lib_path)
-        except OSError:
+        except OSError:  # noqa: PERF203
             logger.warning("Failed to load %s", lib_path, exc_info=True)
 
     _cudnn_loaded = True
@@ -121,9 +121,7 @@ def get_gpu_count() -> int:
         msg = "No CUDA GPUs detected. At least one GPU is required for vLLM inference."
         raise RuntimeError(msg)
     tp_size = 2 ** int(math.log2(count)) if count >= 2 else 1  # noqa: PLR2004
-    logger.info(
-        f"Detected {count} GPU(s), using tensor_parallel_size={tp_size}"
-    )
+    logger.info(f"Detected {count} GPU(s), using tensor_parallel_size={tp_size}")
     return tp_size
 
 

@@ -43,6 +43,7 @@ import numpy as np
 import torch
 from loguru import logger
 
+from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.audio.common import resolve_model_path
 from nemo_curator.stages.audio.filtering.sigmos_filter_module.sigmos_pipeline import predict_audio_mos
 from nemo_curator.stages.base import ProcessingStage
@@ -75,6 +76,7 @@ def _get_audio_numpy_sr(item: dict[str, Any], task_id: str) -> tuple[np.ndarray,
     if path and os.path.isfile(path):
         try:
             import librosa
+
             audio, sr = librosa.load(path, sr=None, mono=True)
             if audio.dtype != np.float32:
                 audio = audio.astype(np.float32)
@@ -133,12 +135,18 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [
-            "sigmos_noise", "sigmos_ovrl", "sigmos_sig", "sigmos_col",
-            "sigmos_disc", "sigmos_loud", "sigmos_reverb",
+            "sigmos_noise",
+            "sigmos_ovrl",
+            "sigmos_sig",
+            "sigmos_col",
+            "sigmos_disc",
+            "sigmos_loud",
+            "sigmos_reverb",
         ]
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
+
         ensure_cudnn_loaded()
         self._ensure_predict()
 
@@ -166,35 +174,31 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
                 "reverb": float(score_data.get("MOS_REVERB", 0)),
             }
         return {
-            "noise": 0.0, "sig": 0.0, "col": 0.0, "disc": 0.0, "loud": 0.0, "reverb": 0.0,
+            "noise": 0.0,
+            "sig": 0.0,
+            "col": 0.0,
+            "disc": 0.0,
+            "loud": 0.0,
+            "reverb": 0.0,
             "ovrl": float(score_data),
         }
 
-    def _check_thresholds(self, noise: float, ovrl: float, sig: float, col: float,
-                          disc: float, loud: float, reverb: float) -> tuple[bool, list[str]]:
+    def _check_thresholds(self, scores: dict[str, float]) -> tuple[bool, list[str]]:
+        checks = [
+            ("noise", self.noise_threshold, "NOISE"),
+            ("ovrl", self.ovrl_threshold, "OVRL"),
+            ("sig", self.sig_threshold, "SIG"),
+            ("col", self.col_threshold, "COL"),
+            ("disc", self.disc_threshold, "DISC"),
+            ("loud", self.loud_threshold, "LOUD"),
+            ("reverb", self.reverb_threshold, "REVERB"),
+        ]
         passed = True
         fail_reasons = []
-        if self.noise_threshold is not None and noise < self.noise_threshold:
-            passed = False
-            fail_reasons.append(f"NOISE {noise:.3f} < {self.noise_threshold}")
-        if self.ovrl_threshold is not None and ovrl < self.ovrl_threshold:
-            passed = False
-            fail_reasons.append(f"OVRL {ovrl:.3f} < {self.ovrl_threshold}")
-        if self.sig_threshold is not None and sig < self.sig_threshold:
-            passed = False
-            fail_reasons.append(f"SIG {sig:.3f} < {self.sig_threshold}")
-        if self.col_threshold is not None and col < self.col_threshold:
-            passed = False
-            fail_reasons.append(f"COL {col:.3f} < {self.col_threshold}")
-        if self.disc_threshold is not None and disc < self.disc_threshold:
-            passed = False
-            fail_reasons.append(f"DISC {disc:.3f} < {self.disc_threshold}")
-        if self.loud_threshold is not None and loud < self.loud_threshold:
-            passed = False
-            fail_reasons.append(f"LOUD {loud:.3f} < {self.loud_threshold}")
-        if self.reverb_threshold is not None and reverb < self.reverb_threshold:
-            passed = False
-            fail_reasons.append(f"REVERB {reverb:.3f} < {self.reverb_threshold}")
+        for key, threshold, label in checks:
+            if threshold is not None and scores[key] < threshold:
+                passed = False
+                fail_reasons.append(f"{label} {scores[key]:.3f} < {threshold}")
         return passed, fail_reasons
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
@@ -232,9 +236,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
             return None
 
         s = self._scores_from_prediction(score_data)
-        passed, fail_reasons = self._check_thresholds(
-            s["noise"], s["ovrl"], s["sig"], s["col"], s["disc"], s["loud"], s["reverb"]
-        )
+        passed, fail_reasons = self._check_thresholds(s)
 
         logger.debug(
             f"[{task.task_id}] SIGMOS NOISE={s['noise']:.3f}, OVRL={s['ovrl']:.3f}, SIG={s['sig']:.3f}, "
