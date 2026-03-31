@@ -82,6 +82,7 @@ Configure exact deduplication using these key parameters:
 | `id_field` | str \| None | None | Existing ID field name (if assign_id=False) |
 | `input_filetype` | str | "parquet" | Input file format ("parquet" or "jsonl") |
 | `input_blocksize` | str \| int | "2GiB" | Size of input blocks for processing |
+| `identification_batchsize` | int | 1 | Number of input blocks to concatenate and insert into the shuffler per call. Higher values increase GPU throughput at the cost of memory. For example, `input_blocksize="256MiB"` with `identification_batchsize=4` processes ~1 GB per call. |
 | `perform_removal` | bool | False | Reserved; must remain `False`. Exact removal is performed with `TextDuplicatesRemovalWorkflow`. |
 
 ## Removing Duplicates
@@ -160,7 +161,7 @@ The workflow produces these output files:
 
 **Best practices**:
 
-- Use `input_blocksize="2GiB"` for optimal performance
+- Use smaller `input_blocksize` values (`256MiB` to `512MiB`) with a larger `identification_batchsize` to target 2-6 GB of overall batches as memory allows. For example, `input_blocksize="256MiB"` with `identification_batchsize=8` processes ~2 GB per insertion call. This improves both shuffle throughput and removal performance compared to the `2GiB` default.
 - Clear output directory between runs
 - Use `assign_id=True` for consistent ID tracking
 </Accordion>
