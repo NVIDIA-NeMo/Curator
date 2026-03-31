@@ -12,16 +12,156 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter import (
     InterleavedImageToTextRatioFilterStage,
+    _text_word_count,
 )
 
 from .conftest import interleaved_task
 
 
+def test_text_word_count_none_is_zero() -> None:
+    assert _text_word_count(None) == 0
+
+
+def test_text_word_count_nan_float_is_zero() -> None:
+    assert _text_word_count(float("nan")) == 0
+
+
+def test_text_word_count_splits_on_whitespace() -> None:
+    assert _text_word_count("  one   two three  ") == 3
+
+
+def test_image_to_text_ratio_empty_task_unchanged() -> None:
+    task = interleaved_task([])
+    stage = InterleavedImageToTextRatioFilterStage()
+    out = stage.process(task)
+    assert out.num_items == 0
+
+
+def test_image_to_text_ratio_image_only_uses_denominator_one() -> None:
+    rows = [
+        {
+            "sample_id": "solo",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "solo",
+            "position": 1,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+    stage = InterleavedImageToTextRatioFilterStage(min_ratio=1.5, max_ratio=2.5)
+    out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 2
+
+
+def test_image_to_text_ratio_boundary_inclusive_min_and_max() -> None:
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": "one two three four",
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 1,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+    stage = InterleavedImageToTextRatioFilterStage(min_ratio=0.25, max_ratio=0.25)
+    out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 2
+    assert out.num_items == 1
+
+
+def test_image_to_text_ratio_metadata_only_sample_dropped_as_orphan() -> None:
+    rows = [
+        {
+            "sample_id": "meta_only",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+    stage = InterleavedImageToTextRatioFilterStage()
+    out = stage.process(task)
+    assert out.num_items == 0
+
+
+def test_image_to_text_ratio_text_rows_contribute_word_count_across_rows() -> None:
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": "one two",
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 1,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": "three four",
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 2,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+    stage = InterleavedImageToTextRatioFilterStage(min_ratio=0.15, max_ratio=0.25)
+    out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 3
+    assert out.num_items == 1
+
+
 def test_image_to_text_ratio_no_sample_id_passthrough() -> None:
-    # InterleavedBatch requires sample_id; test content_keep_mask with df missing sample_id.
+    # InterleavedBatch requires sample_id; test content_keep_mask with frame missing sample_id.
     rows = [
         {
             "sample_id": "x",
@@ -45,9 +185,9 @@ def test_image_to_text_ratio_no_sample_id_passthrough() -> None:
         },
     ]
     task = interleaved_task(rows)
-    df = task.to_pandas().drop(columns=["sample_id"])
+    task_frame = task.to_pandas().drop(columns=["sample_id"])
     stage = InterleavedImageToTextRatioFilterStage(min_ratio=0.0, max_ratio=1.0)
-    keep = stage.content_keep_mask(task, df)
+    keep = stage.content_keep_mask(task, task_frame)
     assert keep.all()
 
 
@@ -77,8 +217,8 @@ def test_image_to_text_ratio_ratio_in_range_kept() -> None:
     task = interleaved_task(rows)
     stage = InterleavedImageToTextRatioFilterStage(min_ratio=0.2, max_ratio=1.0)
     out = stage.process(task)
-    df = out.to_pandas()
-    assert len(df) == 2
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 2
 
 
 def test_image_to_text_ratio_ratio_below_min_dropped() -> None:
@@ -107,8 +247,8 @@ def test_image_to_text_ratio_ratio_below_min_dropped() -> None:
     task = interleaved_task(rows)
     stage = InterleavedImageToTextRatioFilterStage(min_ratio=1.0, max_ratio=2.0)
     out = stage.process(task)
-    df = out.to_pandas()
-    assert len(df) == 0
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 0
 
 
 def test_image_to_text_ratio_ratio_above_max_dropped() -> None:
@@ -147,8 +287,8 @@ def test_image_to_text_ratio_ratio_above_max_dropped() -> None:
     task = interleaved_task(rows)
     stage = InterleavedImageToTextRatioFilterStage(min_ratio=0.0, max_ratio=1.0)
     out = stage.process(task)
-    df = out.to_pandas()
-    assert len(df) == 0
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 0
 
 
 def test_image_to_text_ratio_multiple_samples_one_dropped() -> None:
@@ -197,6 +337,6 @@ def test_image_to_text_ratio_multiple_samples_one_dropped() -> None:
     task = interleaved_task(rows)
     stage = InterleavedImageToTextRatioFilterStage(min_ratio=0.4, max_ratio=0.6)
     out = stage.process(task)
-    df = out.to_pandas()
-    assert len(df) == 2
-    assert set(df["sample_id"].tolist()) == {"keep"}
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 2
+    assert set(out_frame["sample_id"].tolist()) == {"keep"}

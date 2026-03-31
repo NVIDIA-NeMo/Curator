@@ -67,8 +67,8 @@ def test_blur_filter_text_only_passthrough() -> None:
     task = interleaved_task(rows)
     stage = InterleavedBlurFilterStage(score_threshold=100.0)
     out = stage.process(task)
-    df = out.to_pandas()
-    assert len(df) == 2
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 2
 
 
 def test_blur_filter_image_with_binary_content_sharp_kept() -> None:
@@ -88,8 +88,8 @@ def test_blur_filter_image_with_binary_content_sharp_kept() -> None:
     task = interleaved_task(rows)
     stage = InterleavedBlurFilterStage(score_threshold=0.0)
     out = stage.process(task)
-    df = out.to_pandas()
-    assert len(df) == 1
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 1
 
 
 def test_blur_filter_image_with_binary_content_blurry_dropped() -> None:
@@ -109,5 +109,129 @@ def test_blur_filter_image_with_binary_content_blurry_dropped() -> None:
     task = interleaved_task(rows)
     stage = InterleavedBlurFilterStage(score_threshold=1e6)
     out = stage.process(task)
-    df = out.to_pandas()
-    assert len(df) == 0
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 0
+
+
+def test_blur_filter_empty_task_unchanged() -> None:
+    task = interleaved_task([])
+    stage = InterleavedBlurFilterStage(score_threshold=100.0)
+    out = stage.process(task)
+    assert out.num_items == 0
+
+
+def test_blur_filter_metadata_row_preserved_with_text() -> None:
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": "hello",
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+    stage = InterleavedBlurFilterStage(score_threshold=100.0)
+    out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 2
+    assert (out_frame["modality"] == "metadata").sum() == 1
+
+
+def test_blur_filter_mixed_images_one_dropped_one_kept() -> None:
+    sharp_jpeg = make_jpeg_bytes(sharp=True)
+    blur_jpeg = make_jpeg_bytes(sharp=False)
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": sharp_jpeg,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 1,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": blur_jpeg,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+    stage = InterleavedBlurFilterStage(score_threshold=100.0)
+    out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 1
+    assert out_frame.iloc[0]["modality"] == "image"
+    assert out_frame.iloc[0]["position"] == 0
+
+
+def test_blur_filter_invalid_modality_dropped_when_drop_invalid_rows() -> None:
+    jpeg = make_jpeg_bytes(sharp=True)
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "audio",
+            "content_type": "audio/wav",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+        {
+            "sample_id": "s1",
+            "position": 1,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": jpeg,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+    stage = InterleavedBlurFilterStage(score_threshold=0.0, drop_invalid_rows=True)
+    out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 1
+    assert out_frame.iloc[0]["modality"] == "image"
+
+
+def test_blur_filter_invalid_modality_kept_when_not_drop_invalid_rows() -> None:
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "audio",
+            "content_type": "audio/wav",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+    stage = InterleavedBlurFilterStage(score_threshold=100.0, drop_invalid_rows=False)
+    out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 1
