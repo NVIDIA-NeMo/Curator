@@ -103,9 +103,26 @@ class CLIPImageEmbeddings(ModelInterface):
 
         embed = self.clip.get_image_features(pixel_values=inputs)
 
-        # Newer transformers versions return BaseModelOutputWithPooling instead of a tensor
+        # transformers ≥5 returns BaseModelOutputWithPooling from
+        # get_image_features, where pooler_output holds the projected
+        # 768-dim features.  The old fallback (embed[0]) mistakenly
+        # grabbed last_hidden_state (257×1024 = 263,168 elements),
+        # producing embeddings ~342× larger than intended.
         if not isinstance(embed, torch.Tensor):
-            embed = embed.image_embeds if hasattr(embed, "image_embeds") else embed[0]
+            if hasattr(embed, "pooler_output") and embed.pooler_output is not None:
+                embed = embed.pooler_output
+            elif hasattr(embed, "image_embeds"):
+                embed = embed.image_embeds
+            else:
+                embed = embed[0]
+
+        # Guard against accidentally getting full hidden states (3-D)
+        if embed.dim() == 3:
+            logger.warning(
+                f"Expected 2-D embedding, got shape {tuple(embed.shape)}; "
+                "taking CLS token (index 0) — check model output."
+            )
+            embed = embed[:, 0]
 
         # Normalize embeddings
         return embed / torch.linalg.vector_norm(embed, dim=-1, keepdim=True)  # type: ignore[no-any-return]

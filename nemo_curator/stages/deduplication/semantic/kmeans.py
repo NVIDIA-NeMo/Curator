@@ -117,7 +117,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         self.output_storage_options = self.write_kwargs.pop("storage_options", None)
 
         self.name = "KMeansStage"
-        self.resources = Resources(cpus=1.0, gpus=1.0)
+        self.resources = Resources(cpus=1.0, gpus=1.0, host_memory_gb=20.0)
 
     def num_workers(self) -> int | None:
         return self._max_workers
@@ -131,6 +131,27 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
     # construction, and the GPU may already be partly occupied by NCCL/cuML
     # contexts or lingering memory from the preceding pipeline stage.
     _MAX_FILES_PER_READ = 25
+
+    # Maximum rows to keep per actor for the KMeans _fit phase.
+    # With 263k-dim float32 embeddings each row is ~1 MB, so 10 000 rows
+    # ≈ 10.5 GB — leaves ~13 GB on a 24 GB GPU for cuML working memory
+    # and NCCL communication buffers during the RAFT collective.
+    _MAX_FIT_ROWS_PER_ACTOR = 10_000
+
+    _FILE_READ_TIMEOUT_S = 120
+
+    @staticmethod
+    def _read_single_file_with_timeout(
+        path: str, columns: list[str], timeout: int
+    ) -> "pyarrow.Table":
+        """Read a single parquet file with a timeout to avoid NFS hangs."""
+        import concurrent.futures
+
+        import pyarrow.parquet as pq
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(pq.read_table, path, columns=columns)
+            return future.result(timeout=timeout)
 
     def _read_chunk_resilient(
         self,
@@ -146,59 +167,65 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         to small metadata during the read loop — the bulk embedding data
         stays in host RAM until the caller explicitly moves it to GPU.
 
+        Each file read is subject to ``_FILE_READ_TIMEOUT_S`` to prevent
+        a single hanging NFS read from stalling the entire actor.
+
         Returns a list of ``(cudf_metadata_df, numpy_embedding)`` tuples
         when *embedding_col* is set, or a list of full cudf DataFrames
         otherwise.
         """
         import cudf
-        import pyarrow.parquet as pq
 
         results: list = []
         for f in files:
             try:
-                table = pq.read_table(f, columns=columns)
-            except Exception:
-                logger.error(f"Skipping corrupted file: {f}")
-                continue
-
-            if embedding_col is not None:
-                emb_col = table.column(embedding_col)
-                flat = emb_col.combine_chunks().values.to_numpy(
-                    zero_copy_only=False
+                table = self._read_single_file_with_timeout(
+                    f, columns, self._FILE_READ_TIMEOUT_S
                 )
-                n_rows = len(table)
-                emb_np = flat.reshape(n_rows, -1).astype(np.float32)
-                meta_table = table.drop(embedding_col)
-                meta_df = cudf.DataFrame.from_arrow(meta_table)
-                del table, emb_col, flat, meta_table
-                results.append((meta_df, emb_np))
-            else:
-                results.append(cudf.DataFrame.from_arrow(table))
-                del table
+
+                if embedding_col is not None:
+                    emb_col = table.column(embedding_col)
+                    flat = emb_col.combine_chunks().values.to_numpy(
+                        zero_copy_only=False
+                    )
+                    n_rows = len(table)
+                    if flat.size == 0 or n_rows == 0:
+                        raise ValueError(f"Empty embedding column ({flat.size} elements, {n_rows} rows)")
+                    emb_np = flat.reshape(n_rows, -1).astype(np.float32)
+                    meta_table = table.drop(embedding_col)
+                    meta_df = cudf.DataFrame.from_arrow(meta_table)
+                    del table, emb_col, flat, meta_table
+                    results.append((meta_df, emb_np))
+                else:
+                    results.append(cudf.DataFrame.from_arrow(table))
+                    del table
+            except Exception:
+                logger.error(f"Skipping corrupted/hung file: {f}")
+                continue
 
         return results
 
     def process_batch(self, tasks: list[FileGroupTask]) -> list[_EmptyTask]:
         """Process a batch of FileGroupTasks using distributed RAFT KMeans.
 
-        In RAFT mode, each actor processes its assigned tasks, but the KMeans model
-        is trained cooperatively across all actors using RAFT communication.
+        Uses a two-phase approach so memory stays bounded regardless of
+        dataset size:
 
-        This method:
-        1. Reads data from this actor's assigned tasks in memory-safe chunks
-        2. Fits distributed KMeans model (coordinates with other actors via RAFT)
-        3. Assigns cluster centroids back to each chunk
-        4. Writes the results for each chunk
+        Phase 1 — Fit: read a random *subsample* of files capped at
+        ``_MAX_FIT_ROWS_PER_ACTOR`` rows, transfer to GPU, and call
+        ``_fit`` collectively across all RAFT actors.
+
+        Phase 2 — Predict + Write: stream through *all* files in small
+        chunks.  For each chunk: read on CPU, normalize, transfer to GPU,
+        predict cluster labels, compute distances, write results, free.
+        Peak memory is bounded to one chunk at a time.
         """
+        import gc
+        import random as stdlib_random
 
         if not tasks:
             return []
 
-        # Aggressively reclaim GPU memory that may linger from the
-        # previous pipeline stage (e.g. CLIP embedding actors that
-        # ran on the same GPU).  PyTorch's CUDA caching allocator
-        # and CuPy's RMM pool both hold onto freed blocks.
-        import gc
         gc.collect()
         try:
             import torch.cuda
@@ -214,10 +241,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             f"{total_mem / 1e9:.2f} GB total"
         )
 
-        # Collect all files from all tasks
         all_files = [file for task in tasks for file in task.data]
 
-        # Break files into subgroups to avoid cudf row limits
         if self.filetype == "parquet":
             groups = break_parquet_partition_into_groups(all_files, embedding_dim=self.embedding_dim)
         elif self.filetype == "jsonl":
@@ -226,32 +251,101 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             msg = f"Unsupported filetype: {self.filetype}. Only jsonl and parquet are supported."
             raise ValueError(msg)
 
-        # Further split groups to limit peak GPU memory per cudf.read_parquet call.
-        # libcudf can require 10-100x the raw data size for Parquet decompression
-        # and list-column expansion, easily exhausting a 24 GB GPU.
         chunked_groups: list[list[str]] = []
         for group in groups:
             for i in range(0, len(group), self._MAX_FILES_PER_READ):
                 chunked_groups.append(group[i : i + self._MAX_FILES_PER_READ])
 
         logger.info(
-            f"Reading {len(all_files)} files in {len(chunked_groups)} chunks "
+            f"Total {len(all_files)} files in {len(chunked_groups)} chunks "
             f"(max {self._MAX_FILES_PER_READ} files per read)"
         )
 
-        # Read each chunk via pyarrow on CPU.  Embeddings are extracted as
-        # numpy arrays that stay in host RAM; only tiny metadata DataFrames
-        # go to GPU.  This keeps GPU memory nearly empty during the read
-        # loop — critical when 200+ files accumulate ~13 GB of embeddings.
-        t0 = time.perf_counter()
-        all_dfs: list["cudf.DataFrame"] = []
-        cpu_embeddings: list[np.ndarray] = []
+        columns = [self.id_field, self.embedding_field, *self.metadata_fields]
 
-        for chunk_idx, chunk in enumerate(chunked_groups):
+        # ── Phase 1: Subsample → Fit ──────────────────────────────
+        shuffled_indices = list(range(len(chunked_groups)))
+        stdlib_random.Random(self.random_state).shuffle(shuffled_indices)
+
+        t0 = time.perf_counter()
+        fit_embeddings: list[np.ndarray] = []
+        fit_rows = 0
+
+        for idx in shuffled_indices:
+            if fit_rows >= self._MAX_FIT_ROWS_PER_ACTOR:
+                break
             chunk_results = self._read_chunk_resilient(
-                chunk,
-                columns=[self.id_field, self.embedding_field, *self.metadata_fields],
-                embedding_col=self.embedding_field,
+                chunked_groups[idx], columns=columns, embedding_col=self.embedding_field,
+            )
+            for _meta_df, emb_np in chunk_results:
+                if len(emb_np) == 0:
+                    continue
+                norms = np.linalg.norm(emb_np, axis=1, keepdims=True)
+                np.maximum(norms, 1e-8, out=norms)
+                emb_np /= norms
+                del norms, _meta_df
+                fit_embeddings.append(emb_np)
+                fit_rows += emb_np.shape[0]
+
+        if not fit_embeddings:
+            msg = "No embedding rows loaded for KMeans fit"
+            raise ValueError(msg)
+
+        # Strictly trim to _MAX_FIT_ROWS_PER_ACTOR because the last
+        # chunk can overshoot the target.
+        if fit_rows > self._MAX_FIT_ROWS_PER_ACTOR:
+            trimmed: list[np.ndarray] = []
+            kept = 0
+            for arr in fit_embeddings:
+                if kept >= self._MAX_FIT_ROWS_PER_ACTOR:
+                    break
+                need = self._MAX_FIT_ROWS_PER_ACTOR - kept
+                if arr.shape[0] > need:
+                    arr = arr[:need]
+                trimmed.append(arr)
+                kept += arr.shape[0]
+            fit_embeddings = trimmed
+            fit_rows = kept
+            del trimmed
+
+        emb_dim = fit_embeddings[0].shape[1]
+        fit_np = np.empty((fit_rows, emb_dim), dtype=np.float32)
+        offset = 0
+        for i, arr in enumerate(fit_embeddings):
+            n = arr.shape[0]
+            fit_np[offset : offset + n] = arr
+            fit_embeddings[i] = None
+            offset += n
+        del fit_embeddings
+        gc.collect()
+
+        fit_gpu = cp.asarray(fit_np)
+        del fit_np
+        gc.collect()
+
+        t1 = time.perf_counter()
+        logger.info(
+            f"Fit sample: {fit_rows} rows "
+            f"(~{fit_rows * emb_dim * 4 / 1e9:.2f} GB) "
+            f"read in {t1 - t0:.1f}s"
+        )
+
+        self.kmeans._fit(fit_gpu, sample_weight=None, convert_dtype=False, multigpu=True)
+        t2 = time.perf_counter()
+        logger.info(f"KMeans fit time: {t2 - t1:.2f}s")
+
+        del fit_gpu
+        cp.get_default_memory_pool().free_all_blocks()
+        gc.collect()
+
+        # ── Phase 2: Stream predict + write ───────────────────────
+        results = []
+        chunk_idx = 0
+        total_chunks = len(chunked_groups)
+        last_log_time = time.perf_counter()
+        for chunk in chunked_groups:
+            chunk_results = self._read_chunk_resilient(
+                chunk, columns=columns, embedding_col=self.embedding_field,
             )
             for meta_df, emb_np in chunk_results:
                 if len(meta_df) == 0:
@@ -262,94 +356,62 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
                 emb_np /= norms
                 del norms
 
-                all_dfs.append(meta_df)
-                cpu_embeddings.append(emb_np)
+                emb_gpu = cp.asarray(emb_np)
+                del emb_np
 
-        t1 = time.perf_counter()
-        logger.debug(f"Read time: {(t1 - t0):.2f} seconds")
+                labels = self.kmeans.predict(emb_gpu, convert_dtype=False).astype(cp.int32)
+                meta_df["centroid"] = labels
+                del labels
 
-        # Concatenate CPU numpy arrays, then transfer to GPU in one shot.
-        # During reading, embeddings stayed in host RAM so the GPU only
-        # held tiny metadata DFs.  Now we move the full matrix to GPU
-        # for KMeans.
-        chunk_lengths = [a.shape[0] for a in cpu_embeddings]
-        total_rows = sum(chunk_lengths)
-        emb_dim = cpu_embeddings[0].shape[1]
-
-        logger.info(
-            f"Transferring {len(cpu_embeddings)} chunks "
-            f"({total_rows} rows × {emb_dim} dims, "
-            f"~{total_rows * emb_dim * 4 / 1e9:.2f} GB) CPU→GPU for KMeans"
-        )
-
-        concatenated_np = np.empty(
-            (total_rows, emb_dim), dtype=np.float32,
-        )
-        offset = 0
-        for i in range(len(cpu_embeddings)):
-            n = chunk_lengths[i]
-            concatenated_np[offset : offset + n] = cpu_embeddings[i]
-            cpu_embeddings[i] = None
-            offset += n
-        del cpu_embeddings
-
-        concatenated_embeddings = cp.asarray(concatenated_np)
-        del concatenated_np
-
-        # Rebuild per-chunk references as zero-copy views into the
-        # concatenated array — needed by the write loop below.
-        embeddings_views: list[cp.ndarray] = []
-        offset = 0
-        for n in chunk_lengths:
-            embeddings_views.append(concatenated_embeddings[offset : offset + n])
-            offset += n
-
-        # Fit the model cooperatively across actors, then predict on local data
-        self.kmeans._fit(concatenated_embeddings, sample_weight=None, convert_dtype=False, multigpu=True)
-        labels = self.kmeans.predict(concatenated_embeddings, convert_dtype=False).astype(cp.int32)
-
-        t2 = time.perf_counter()
-        logger.info(f"KMeans fit+predict time: {(t2 - t1):.2f} seconds")
-
-        results = []
-        num_rows_seen = 0
-        for i, df in enumerate(all_dfs):
-            end_idx = num_rows_seen + len(df)
-            df["centroid"] = labels[num_rows_seen:end_idx]
-
-            df = self._assign_distances(  # noqa: PLW2901
-                df, self.embedding_field, self.kmeans.cluster_centers_,
-                embeddings_array=embeddings_views[i],
-            )
-            num_rows_seen = end_idx
-
-            df[self.embedding_field] = create_list_series_from_1d_or_2d_ar(
-                embeddings_views[i], index=df.index
-            )
-
-            output_filename = f"{tasks[0]._uuid}_{i}"
-            self.write_parquet(
-                df,
-                self.output_path,
-                partition_file_name=f"{output_filename}.parquet",
-                partition_cols=["centroid"],
-                index=False,
-                storage_options=self.output_storage_options,
-                **self.write_kwargs,
-            )
-
-            results.append(
-                _EmptyTask(
-                    task_id=output_filename,
-                    dataset_name=f"kmeans_group_{i}",
-                    _metadata=None,
-                    _stage_perf=[],
-                    data=None,
+                meta_df = self._assign_distances(  # noqa: PLW2901
+                    meta_df, self.embedding_field, self.kmeans.cluster_centers_,
+                    embeddings_array=emb_gpu,
                 )
-            )
+
+                meta_df[self.embedding_field] = create_list_series_from_1d_or_2d_ar(
+                    emb_gpu, index=meta_df.index
+                )
+                del emb_gpu
+
+                output_filename = f"{tasks[0]._uuid}_{chunk_idx}"
+                self.write_parquet(
+                    meta_df,
+                    self.output_path,
+                    partition_file_name=f"{output_filename}.parquet",
+                    partition_cols=["centroid"],
+                    index=False,
+                    storage_options=self.output_storage_options,
+                    **self.write_kwargs,
+                )
+                del meta_df
+
+                results.append(
+                    _EmptyTask(
+                        task_id=output_filename,
+                        dataset_name=f"kmeans_group_{chunk_idx}",
+                        _metadata=None,
+                        _stage_perf=[],
+                        data=None,
+                    )
+                )
+                chunk_idx += 1
+
+                now = time.perf_counter()
+                if now - last_log_time >= 120:
+                    elapsed = now - t2
+                    logger.info(
+                        f"Predict+write progress: {chunk_idx}/{total_chunks} chunks "
+                        f"({elapsed:.0f}s elapsed)"
+                    )
+                    last_log_time = now
+
+            cp.get_default_memory_pool().free_all_blocks()
 
         t3 = time.perf_counter()
-        logger.info(f"Write time: {(t3 - t2):.2f} seconds")
+        logger.info(
+            f"Predict+write time: {t3 - t2:.2f}s, "
+            f"wrote {chunk_idx} chunks"
+        )
 
         return results
 

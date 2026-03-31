@@ -83,7 +83,7 @@ class SemanticDeduplicationWorkflow:
         distance_metric: Literal["cosine", "l2"] = "cosine",
         which_to_keep: Literal["hard", "easy", "random"] = "hard",
         ranking_strategy: RankingStrategy | None = None,
-        pairwise_batch_size: int = 1024,
+        pairwise_batch_size: int = 4096,
         # Duplicate identification parameters (optional)
         eps: float | None = None,
         _duplicates_num_row_groups_hint: int | None = None,

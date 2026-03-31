@@ -31,6 +31,50 @@ if TYPE_CHECKING:
 _LARGE_INT = 2**31 - 1
 
 
+def _compute_memory_limited_actors(
+    stage: "ProcessingStage",
+    available_gpus: float,
+    ignore_head_node: bool,
+) -> int:
+    """Compute the max number of actors that fit within cluster host memory.
+
+    Queries Ray's per-node resource info so the result is accurate even when
+    the driver runs on a different instance type.  Uses 70% of each node's
+    reported memory to leave headroom for the raylet, OS, and other overhead.
+    """
+    from nemo_curator.backends.experimental.utils import get_head_node_id
+
+    head_node_id = get_head_node_id() if ignore_head_node else None
+    per_node_resources = ray.state.total_resources_per_node()
+
+    total_actors = 0
+    for node_id, resources in per_node_resources.items():
+        if ignore_head_node and node_id == head_node_id:
+            continue
+        node_mem_bytes = resources.get("memory", 0)
+        if node_mem_bytes <= 0:
+            continue
+        node_mem_gb = node_mem_bytes / (1024**3)
+        usable_gb = node_mem_gb * 0.70
+
+        actors_mem = int(usable_gb // stage.resources.host_memory_gb)
+        node_gpus = resources.get("GPU", 0)
+        actors_gpu = int(node_gpus // stage.resources.gpus) if stage.resources.gpus > 0 else actors_mem
+        actors_this_node = min(actors_mem, actors_gpu)
+        total_actors += actors_this_node
+        logger.info(
+            f"    Node {node_id[:12]}: {node_mem_gb:.1f} GB RAM, "
+            f"{node_gpus} GPUs → {actors_mem} actors (mem), "
+            f"{actors_gpu} actors (gpu) → {actors_this_node} actors"
+        )
+
+    logger.info(
+        f"    Memory constraint: {stage.resources.host_memory_gb:.1f} GB/actor → "
+        f"{total_actors} total actors across cluster"
+    )
+    return max(total_actors, 1)
+
+
 def calculate_optimal_actors_for_stage(
     stage: "ProcessingStage",
     num_tasks: int,
@@ -51,8 +95,19 @@ def calculate_optimal_actors_for_stage(
     # Calculate max actors based on GPU constraints
     max_actors_gpu = int(available_gpus // stage.resources.gpus) if stage.resources.gpus > 0 else _LARGE_INT
 
+    # Calculate max actors based on host memory constraints.
+    # Ray's memory resource scheduling is unreliable when the raylet
+    # itself consumes a large fraction of node RAM, so we compute
+    # the limit ourselves: total_node_memory * 0.90 / per_actor_memory
+    # (×num_nodes) to leave headroom for the OS and raylet.
+    max_actors_mem = _LARGE_INT
+    if stage.resources.host_memory_gb > 0:
+        max_actors_mem = _compute_memory_limited_actors(
+            stage, available_gpus, ignore_head_node
+        )
+
     # Take the minimum constraint
-    max_actors_resources = min(max_actors_cpu, max_actors_gpu)
+    max_actors_resources = min(max_actors_cpu, max_actors_gpu, max_actors_mem)
 
     # Ensure we don't create more actors than configured maximum
     max_actors_resources = min(max_actors_resources, stage.num_workers() or _LARGE_INT)

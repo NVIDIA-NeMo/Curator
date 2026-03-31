@@ -31,7 +31,6 @@ from nemo_curator.utils.file_utils import check_disallowed_kwargs
 
 from .pairwise_io import ClusterWiseFilePartitioningStage
 from .ranking import RankingStrategy
-from .utils import get_array_from_df
 
 
 def pairwise_cosine_similarity_batched(
@@ -73,8 +72,8 @@ def pairwise_cosine_similarity_batched(
 
 def pairwise_cosine_similarity_cpu_staged(
     cluster_reps_np: np.ndarray,
-    col_batch_size: int = 1024,
-    row_batch_size: int = 2048,
+    col_batch_size: int = 4096,
+    row_batch_size: int = 4096,
     reorder_indices: np.ndarray | list[int] | None = None,
 ) -> tuple["cp.ndarray", "cp.ndarray"]:
     """Pairwise cosine similarity that streams from CPU numpy arrays.
@@ -82,12 +81,14 @@ def pairwise_cosine_similarity_cpu_staged(
     When the full embedding matrix exceeds GPU memory, this function
     streams row and column batches through GPU.  Peak GPU usage is
     bounded to ``(row_batch_size + col_batch_size) * D * 4`` bytes
-    (roughly 2-3 GB for 263K-dim embeddings with default batch sizes),
+    (roughly 8-9 GB for 263K-dim embeddings with default batch sizes),
     regardless of the total cluster size.
 
-    When *reorder_indices* is provided, rows are accessed in that order
-    without creating a reordered copy of the full array.  This halves
-    peak host-RAM usage for large clusters.
+    For best performance, pre-reorder the embedding array and pass
+    *reorder_indices=None* so that memmap access is sequential.
+    When *reorder_indices* is provided, rows are accessed in that
+    (potentially random) order, which is much slower on memmap-backed
+    arrays that exceed the OS page cache.
 
     Semantics are identical to ``pairwise_cosine_similarity_batched``:
     for each item *j* the function finds item *i* (with i < j) that
@@ -105,6 +106,11 @@ def pairwise_cosine_similarity_cpu_staged(
 
     max_similarity = torch.zeros(N, dtype=torch.float32, device="cuda")
     max_indices = torch.zeros(N, dtype=torch.int64, device="cuda")
+
+    total_col_batches = (N + col_batch_size - 1) // col_batch_size
+    _col_idx = 0
+    _t0 = time.perf_counter()
+    _last_log = _t0
 
     for c_start in range(0, N, col_batch_size):
         c_end = min(c_start + col_batch_size, N)
@@ -141,6 +147,15 @@ def pairwise_cosine_similarity_cpu_staged(
         del col_batch, col_max_vals, col_max_idxs
         torch.cuda.empty_cache()
 
+        _col_idx += 1
+        _now = time.perf_counter()
+        if _now - _last_log >= 120:
+            logger.info(
+                f"Pairwise similarity: {_col_idx}/{total_col_batches} col batches "
+                f"({_now - _t0:.0f}s elapsed)"
+            )
+            _last_log = _now
+
     return cp.asarray(max_similarity), cp.asarray(max_indices)
 
 
@@ -153,7 +168,7 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         embedding_field: str,
         output_path: str,
         ranking_strategy: RankingStrategy,
-        pairwise_batch_size: int = 1024,
+        pairwise_batch_size: int = 4096,
         verbose: bool = False,
         embedding_dim: int | None = None,
         read_kwargs: dict[str, Any] | None = None,
@@ -186,35 +201,70 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         self.input_storage_options = self.read_kwargs.pop("storage_options", None) if self.read_kwargs else None
         self.output_storage_options = self.write_kwargs.pop("storage_options", None) if self.write_kwargs else None
         self.name = "PairwiseCosineSimilarityStage"
-        self.resources = Resources(cpus=1.0, gpus=1.0)
+        self.resources = Resources(cpus=1.0, gpus=1.0, host_memory_gb=20.0)
+
+    _FILE_READ_TIMEOUT_S = 120
+
+    @staticmethod
+    def _read_single_file_with_timeout(
+        path: str, columns: list[str], timeout: int
+    ) -> "pyarrow.Table":
+        """Read a single parquet file with a timeout to avoid NFS hangs."""
+        import concurrent.futures
+
+        import pyarrow.parquet as pq
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(pq.read_table, path, columns=columns)
+            return future.result(timeout=timeout)
 
     def _read_chunk_resilient(
         self,
         files: list[str],
         columns: list[str],
-    ) -> "list[cudf.DataFrame]":
-        """Read files via pyarrow (CPU) then convert to cudf one at a time.
+        embedding_col: str | None = None,
+    ) -> "list[tuple[cudf.DataFrame, np.ndarray]] | list[cudf.DataFrame]":
+        """Read files via pyarrow (CPU) to avoid kvikio SIGSEGV on corrupt data.
 
-        cudf.read_parquet uses kvikio GPU-direct I/O which can SIGSEGV
-        on corrupted parquet files, killing the actor with no chance of
-        Python-level recovery.  Reading through pyarrow keeps all I/O on
-        the CPU where corrupted files produce catchable exceptions.
+        When *embedding_col* is given, embeddings are extracted as numpy
+        arrays **on CPU** and only the remaining metadata columns are
+        placed on GPU as cudf DataFrames.  This avoids the expensive
+        disk→CPU→GPU→CPU round-trip and keeps host RAM bounded.
 
-        Returns one cudf DataFrame per good file so the caller can free
-        GPU memory between files instead of transferring the whole chunk
-        at once.
+        Each file read is subject to ``_FILE_READ_TIMEOUT_S`` to prevent
+        a single hanging NFS read from stalling the entire actor.
+
+        Returns ``(cudf_metadata_df, numpy_embedding)`` tuples when
+        *embedding_col* is set, or full cudf DataFrames otherwise.
         """
-        import pyarrow.parquet as pq
-
-        good_dfs: list[cudf.DataFrame] = []
+        results: list = []
         for f in files:
             try:
-                table = pq.read_table(f, columns=columns)
-                good_dfs.append(cudf.DataFrame.from_arrow(table))
-                del table
+                table = self._read_single_file_with_timeout(
+                    f, columns, self._FILE_READ_TIMEOUT_S
+                )
+
+                if embedding_col is not None:
+                    emb_col = table.column(embedding_col)
+                    flat = emb_col.combine_chunks().values.to_numpy(
+                        zero_copy_only=False
+                    )
+                    n_rows = len(table)
+                    if flat.size == 0 or n_rows == 0:
+                        raise ValueError(f"Empty embedding column ({flat.size} elements, {n_rows} rows)")
+                    emb_np = flat.reshape(n_rows, -1).astype(np.float32)
+                    meta_table = table.drop(embedding_col)
+                    meta_df = cudf.DataFrame.from_arrow(meta_table)
+                    del table, emb_col, flat, meta_table
+                    results.append((meta_df, emb_np))
+                else:
+                    results.append(cudf.DataFrame.from_arrow(table))
+                    del table
             except Exception:
-                logger.error(f"Skipping corrupted file: {f}")
-        return good_dfs
+                logger.error(f"Skipping corrupted/hung file: {f}")
+                continue
+
+        return results
 
     def process(self, task: FileGroupTask) -> FileGroupTask:
         """Process a PairwiseFileGroupTask to compute pairwise similarities."""
@@ -243,107 +293,151 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         additional_cols = self.ranking_strategy.metadata_cols if self.ranking_strategy.strategy == "sort" else []
         metadata_cols = list(dict.fromkeys([self.id_field, *additional_cols]))
 
-        # Read files in small chunks to avoid cudf.read_parquet OOM.
-        # With 263K-dim embeddings a single read of thousands of rows
-        # can require 10+ GiB of temporary GPU memory.  We extract
-        # embeddings to CPU immediately after each chunk so peak GPU
-        # usage stays bounded to one chunk at a time.
-        _MAX_FILES_PER_READ = 10
+        # Stream embeddings to a temporary file on local disk so peak
+        # CPU RAM is bounded to one read-chunk instead of the entire
+        # cluster's embeddings (hundreds of GB for large clusters).
+        # The file is then memory-mapped for the pairwise computation;
+        # the OS page cache loads only the pages actively accessed.
+        import shutil
+        import tempfile
+
+        _MAX_FILES_PER_READ = 50
         all_cluster_files = task.data
 
         metadata_dfs: list["cudf.DataFrame"] = []
-        cpu_embedding_arrays: list[np.ndarray] = []
+        emb_dim: int | None = None
+        total_rows = 0
 
-        for chunk_start in range(0, len(all_cluster_files), _MAX_FILES_PER_READ):
-            chunk_files = all_cluster_files[chunk_start : chunk_start + _MAX_FILES_PER_READ]
-            chunk_dfs = self._read_chunk_resilient(
-                chunk_files,
-                columns=[*metadata_cols, self.embedding_field],
+        tmp_dir = tempfile.mkdtemp(prefix="pairwise_")
+        tmp_path = os.path.join(tmp_dir, "embeddings.dat")
+
+        try:
+            total_files = len(all_cluster_files)
+            files_read = 0
+            last_log_time = time.perf_counter()
+
+            with open(tmp_path, "wb") as emb_file:
+                for chunk_start in range(0, len(all_cluster_files), _MAX_FILES_PER_READ):
+                    chunk_files = all_cluster_files[chunk_start : chunk_start + _MAX_FILES_PER_READ]
+                    chunk_results = self._read_chunk_resilient(
+                        chunk_files,
+                        columns=[*metadata_cols, self.embedding_field],
+                        embedding_col=self.embedding_field,
+                    )
+                    for meta_df, emb_np in chunk_results:
+                        if len(meta_df) == 0:
+                            continue
+                        if emb_dim is None:
+                            emb_dim = emb_np.shape[1]
+                        metadata_dfs.append(meta_df)
+                        emb_np.tofile(emb_file)
+                        total_rows += emb_np.shape[0]
+                        del meta_df, emb_np
+
+                    files_read += len(chunk_files)
+                    now = time.perf_counter()
+                    if now - last_log_time >= 120:
+                        logger.info(
+                            f"Cluster {cluster_id}: read {files_read}/{total_files} files, "
+                            f"{total_rows} rows so far"
+                        )
+                        last_log_time = now
+
+            if not metadata_dfs:
+                logger.warning(f"No data found for cluster {cluster_id}")
+                return FileGroupTask(
+                    task_id=task.task_id,
+                    dataset_name=task.dataset_name,
+                    _metadata=task._metadata,
+                    _stage_perf=task._stage_perf,
+                    data=[],
+                )
+
+            num_rows = total_rows
+
+            if num_rows == 1:
+                result_df = cudf.DataFrame(
+                    {
+                        "id": metadata_dfs[0][self.id_field],
+                        "max_id": metadata_dfs[0][self.id_field],
+                        "cosine_sim_score": cudf.Series([0], dtype="float32"),
+                    }
+                )
+                self.write_parquet(
+                    result_df, output_path, storage_options=self.output_storage_options, index=False, **self.write_kwargs
+                )
+                return FileGroupTask(
+                    task_id=task.task_id,
+                    dataset_name=task.dataset_name,
+                    _metadata={
+                        **task._metadata,
+                        "centroid_id": cluster_id,
+                    },
+                    _stage_perf=task._stage_perf,
+                    data=[os.path.join(self.output_path, f"cluster_{cluster_id}.parquet")],
+                )
+
+            metadata_cluster_df = cudf.concat(metadata_dfs, ignore_index=True).reset_index(drop=True)
+            del metadata_dfs
+
+            metadata_cluster_df["_original_idx"] = metadata_cluster_df.index
+
+            ranked_metadata_df = self.ranking_strategy.rank_cluster(metadata_cluster_df)
+            reorder_indices = ranked_metadata_df["_original_idx"].to_arrow().to_pylist()
+            ranked_metadata_df = ranked_metadata_df.drop(columns=["_original_idx"])
+            del metadata_cluster_df
+
+            ids = ranked_metadata_df[self.id_field]
+
+            embeddings_mmap = np.memmap(tmp_path, dtype=np.float32, mode="r", shape=(total_rows, emb_dim))
+
+            reorder_np = np.asarray(reorder_indices)
+            del reorder_indices
+
+            # Pre-reorder the memmap so the pairwise computation reads
+            # rows sequentially instead of randomly.  Sequential access
+            # dramatically improves page-cache utilisation for large
+            # clusters whose embedding data exceeds available RAM.
+            _REORDER_CHUNK = 2048
+            reordered_path = os.path.join(tmp_dir, "embeddings_reordered.dat")
+            pairwise_emb = embeddings_mmap
+            pairwise_reorder = reorder_np
+            try:
+                reordered_mmap = np.memmap(
+                    reordered_path, dtype=np.float32, mode="w+",
+                    shape=(total_rows, emb_dim),
+                )
+                t_reorder = time.perf_counter()
+                for _ro_start in range(0, total_rows, _REORDER_CHUNK):
+                    _ro_end = min(_ro_start + _REORDER_CHUNK, total_rows)
+                    reordered_mmap[_ro_start:_ro_end] = embeddings_mmap[
+                        reorder_np[_ro_start:_ro_end]
+                    ]
+                reordered_mmap.flush()
+                del embeddings_mmap
+                os.remove(tmp_path)
+                pairwise_emb = reordered_mmap
+                pairwise_reorder = None
+                logger.info(
+                    f"Cluster {cluster_id}: reordered {total_rows} rows "
+                    f"in {time.perf_counter() - t_reorder:.1f}s for sequential access"
+                )
+            except OSError:
+                logger.warning(
+                    f"Cluster {cluster_id}: not enough disk to pre-reorder; "
+                    "falling back to random-access memmap"
+                )
+
+            max_similarity, max_indices = pairwise_cosine_similarity_cpu_staged(
+                pairwise_emb,
+                col_batch_size=self.pairwise_batch_size,
+                reorder_indices=pairwise_reorder,
             )
-            for df in chunk_dfs:
-                if len(df) == 0:
-                    continue
-                metadata_dfs.append(df[metadata_cols])
-                emb_cp = get_array_from_df(df, self.embedding_field).copy()
-                cpu_embedding_arrays.append(cp.asnumpy(emb_cp))
-                del df, emb_cp
-                cp.get_default_memory_pool().free_all_blocks()
-
-        if not metadata_dfs:
-            logger.warning(f"No data found for cluster {cluster_id}")
-            return FileGroupTask(
-                task_id=task.task_id,
-                dataset_name=task.dataset_name,
-                _metadata=task._metadata,
-                _stage_perf=task._stage_perf,
-                data=[],
-            )
-
-        num_rows = sum(len(df) for df in metadata_dfs)
-
-        # Handle single item clusters
-        if num_rows == 1:
-            result_df = cudf.DataFrame(
-                {
-                    "id": metadata_dfs[0][self.id_field],
-                    "max_id": metadata_dfs[0][self.id_field],
-                    "cosine_sim_score": cudf.Series([0], dtype="float32"),
-                }
-            )
-            self.write_parquet(
-                result_df, output_path, storage_options=self.output_storage_options, index=False, **self.write_kwargs
-            )
-            return FileGroupTask(
-                task_id=task.task_id,
-                dataset_name=task.dataset_name,
-                _metadata={
-                    **task._metadata,
-                    "centroid_id": cluster_id,
-                },
-                _stage_perf=task._stage_perf,
-                data=[os.path.join(self.output_path, f"cluster_{cluster_id}.parquet")],
-            )
-
-        metadata_cluster_df = cudf.concat(metadata_dfs, ignore_index=True).reset_index(drop=True)
-        del metadata_dfs
-
-        # Add original index to track reordering
-        metadata_cluster_df["_original_idx"] = metadata_cluster_df.index
-
-        ranked_metadata_df = self.ranking_strategy.rank_cluster(metadata_cluster_df)
-        reorder_indices = ranked_metadata_df["_original_idx"].to_arrow().to_pylist()
-        ranked_metadata_df = ranked_metadata_df.drop(columns=["_original_idx"])
-        del metadata_cluster_df
-
-        # In-place concatenation: pre-allocate and copy each sub-array,
-        # freeing it immediately so peak host RAM is ~1× the final array
-        # instead of ~2× from np.concatenate.
-        chunk_lengths = [a.shape[0] for a in cpu_embedding_arrays]
-        total_rows = sum(chunk_lengths)
-        emb_dim = cpu_embedding_arrays[0].shape[1]
-        concatenated_np = np.empty((total_rows, emb_dim), dtype=np.float32)
-        offset = 0
-        for i in range(len(cpu_embedding_arrays)):
-            n = chunk_lengths[i]
-            concatenated_np[offset : offset + n] = cpu_embedding_arrays[i]
-            cpu_embedding_arrays[i] = None
-            offset += n
-        del cpu_embedding_arrays
-
-        ids = ranked_metadata_df[self.id_field]
-
-        # Pass reorder_indices directly — the similarity function applies
-        # them on the fly per batch, avoiding a second ~24 GB copy.
-        reorder_np = np.asarray(reorder_indices)
-        del reorder_indices
-        max_similarity, max_indices = pairwise_cosine_similarity_cpu_staged(
-            concatenated_np,
-            col_batch_size=self.pairwise_batch_size,
-            reorder_indices=reorder_np,
-        )
-        del concatenated_np, reorder_np
-        torch.cuda.empty_cache()
-        cp.get_default_memory_pool().free_all_blocks()
+            del pairwise_emb, reorder_np
+            torch.cuda.empty_cache()
+            cp.get_default_memory_pool().free_all_blocks()
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
         # Convert indices back to IDs
         max_indices_id = ids.iloc[max_indices].reset_index(drop=True)
@@ -395,7 +489,7 @@ class PairwiseStage(CompositeStage[_EmptyTask, FileGroupTask]):
 
     # Optional parameters
     embedding_dim: int | None = None
-    pairwise_batch_size: int = 1024
+    pairwise_batch_size: int = 4096
     verbose: bool = False
     read_kwargs: dict[str, Any] | None = None
     write_kwargs: dict[str, Any] | None = None
