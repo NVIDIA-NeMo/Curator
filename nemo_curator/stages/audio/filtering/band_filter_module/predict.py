@@ -26,8 +26,7 @@ from .features import AudioFeatureExtractor
 class BandPredictor:
     """Class to predict band label (full_band/narrow_band) for audio waveforms."""
 
-    def __init__(self, model_path: str,
-                 feature_cache_size: int = 100):
+    def __init__(self, model_path: str, feature_cache_size: int = 100):
         """
         Initialize the band predictor.
 
@@ -42,7 +41,7 @@ class BandPredictor:
 
         self._load_model()
 
-    def _load_model(self):
+    def _load_model(self) -> None:
         """Load the model from disk."""
         try:
             start_time = time.time()
@@ -52,12 +51,10 @@ class BandPredictor:
 
                 if hasattr(self.model, "estimators_"):
                     for estimator in self.model.estimators_:
-                        if hasattr(estimator, "tree_"):
-                            if not hasattr(estimator, "monotonic_cst"):
-                                estimator.monotonic_cst = None
-                elif hasattr(self.model, "tree_"):
-                    if not hasattr(self.model, "monotonic_cst"):
-                        self.model.monotonic_cst = None
+                        if hasattr(estimator, "tree_") and not hasattr(estimator, "monotonic_cst"):
+                            estimator.monotonic_cst = None
+                elif hasattr(self.model, "tree_") and not hasattr(self.model, "monotonic_cst"):
+                    self.model.monotonic_cst = None
 
             logger.info(f"Band prediction model loaded in {time.time() - start_time:.2f} seconds")
         except (OSError, RuntimeError, ValueError) as e:
@@ -100,13 +97,13 @@ class BandPredictor:
 
             self.feature_cache[cache_key] = feature_vector
 
-            return feature_vector
-
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error processing audio for features: {e}")
             sample_dict = AudioFeatureExtractor.get_empty_feature_dict()
             sample_vector, _ = AudioFeatureExtractor.features_dict_to_vector(sample_dict)
             return np.zeros_like(sample_vector)
+        else:
+            return feature_vector
 
     def predict_audio(self, waveform: torch.Tensor, sample_rate: int) -> str:
         """
@@ -128,8 +125,7 @@ class BandPredictor:
         try:
             features = self.extract_features_from_audio(waveform, sample_rate)
             prediction = self.model.predict(features.reshape(1, -1))[0]
-            return "full_band" if prediction == 1 else "narrow_band"
-
         except Exception as e:  # noqa: BLE001
             return f"Error during prediction: {e}"
-
+        else:
+            return "full_band" if prediction == 1 else "narrow_band"

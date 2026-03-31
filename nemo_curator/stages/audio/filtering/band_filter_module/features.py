@@ -12,16 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import ClassVar
+
 import librosa
 import numpy as np
 import pyloudnorm as pyln
 from loguru import logger
 
+_MIN_LOUDNESS_THRESHOLD = -100.0
+_HIGH_FREQ_CUTOFF = 10000
+
 
 class AudioFeatureExtractor:
     """Audio feature extractor for band energy classification."""
 
-    BAND_DEFINITIONS = {
+    BAND_DEFINITIONS: ClassVar[dict[str, tuple[int, int]]] = {
         "low1": (0, 1000),
         "low2": (1000, 2000),
         "low3": (2000, 3000),
@@ -82,14 +87,14 @@ class AudioFeatureExtractor:
             meter = pyln.Meter(sr)
             original_loudness = meter.integrated_loudness(y)
 
-            if original_loudness > -100.0:
+            if original_loudness > _MIN_LOUDNESS_THRESHOLD:
                 normalized_audio = pyln.normalize.loudness(y, original_loudness, -25.0)
             else:
                 normalized_audio = y
 
             n_fft = 4096
-            D = np.abs(librosa.stft(normalized_audio, n_fft=n_fft))
-            power = D ** 2
+            stft_magnitude = np.abs(librosa.stft(normalized_audio, n_fft=n_fft))
+            power = stft_magnitude**2
             freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
 
             max_power = np.max(power)
@@ -101,8 +106,8 @@ class AudioFeatureExtractor:
                     mean_power = np.mean(power[mask, :])
                     band_energy[f"band_energy_{band}"] = float(librosa.power_to_db(mean_power, ref=global_max_power))
 
-                    if f_min >= 10000:
-                        attenuation_factor = (f_min - 10000) / 14000 * 12
+                    if f_min >= _HIGH_FREQ_CUTOFF:
+                        attenuation_factor = (f_min - _HIGH_FREQ_CUTOFF) / 14000 * 12
                         band_energy[f"band_energy_{band}"] -= attenuation_factor
                 else:
                     band_energy[f"band_energy_{band}"] = -120.0
@@ -140,7 +145,7 @@ class AudioFeatureExtractor:
         return np.array(feature_vector), feature_names
 
     @staticmethod
-    def extract_band_features_from_waveform(waveform, sr: int) -> dict[str, float]:
+    def extract_band_features_from_waveform(waveform: np.ndarray, sr: int) -> dict[str, float]:
         """
         Extract band energy features from a waveform tensor/array.
 
@@ -172,8 +177,8 @@ class AudioFeatureExtractor:
                     logger.warning(f"NaN value found for feature {key}, replacing with 0")
                     all_features[key] = 0.0
 
-            return all_features
-
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error processing waveform: {e}")
             return AudioFeatureExtractor.get_empty_feature_dict()
+        else:
+            return all_features

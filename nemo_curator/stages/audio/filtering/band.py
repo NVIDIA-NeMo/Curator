@@ -31,11 +31,12 @@ Example:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal
+from typing import ClassVar, Literal
 
 import torch
 from loguru import logger
 
+from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.audio.common import resolve_model_path, resolve_waveform_from_item
 from nemo_curator.stages.audio.filtering.band_filter_module.predict import BandPredictor
 from nemo_curator.stages.base import ProcessingStage
@@ -90,7 +91,7 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["band_prediction"]
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         self._initialize_predictor()
 
     def teardown(self) -> None:
@@ -149,13 +150,9 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
         try:
             pred = self._predictor.predict_audio(waveform, sample_rate)
-            if (
-                isinstance(pred, str)
-                and not pred.startswith("Error")
-                and pred in ("full_band", "narrow_band")
-            ):
+            if isinstance(pred, str) and not pred.startswith("Error") and pred in ("full_band", "narrow_band"):
                 task.data["band_prediction"] = pred
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.exception(f"[BandFilter] Prediction error: {e}")
             return None
 

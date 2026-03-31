@@ -20,7 +20,7 @@ from nemo_curator.stages.audio.filtering.band import BandFilterStage
 from nemo_curator.tasks import AudioTask
 
 
-def _make_task(waveform=None, sample_rate=48000):
+def _make_task(waveform: torch.Tensor | None = None, sample_rate: int = 48000) -> AudioTask:
     if waveform is None:
         waveform = torch.randn(1, sample_rate)
     return AudioTask(
@@ -31,9 +31,8 @@ def _make_task(waveform=None, sample_rate=48000):
 
 
 class TestBandFilterStage:
-
     @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_process_full_band_passes(self, mock_init) -> None:
+    def test_process_full_band_passes(self, mock_init: MagicMock) -> None:
         stage = BandFilterStage(band_value="full_band")
         predictor = MagicMock()
         predictor.predict_audio.return_value = "full_band"
@@ -45,7 +44,7 @@ class TestBandFilterStage:
         assert result.data["band_prediction"] == "full_band"
 
     @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_process_narrow_band_filtered_out(self, mock_init) -> None:
+    def test_process_narrow_band_filtered_out(self, mock_init: MagicMock) -> None:
         stage = BandFilterStage(band_value="full_band")
         predictor = MagicMock()
         predictor.predict_audio.return_value = "narrow_band"
@@ -56,7 +55,7 @@ class TestBandFilterStage:
         assert result == []
 
     @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_process_narrow_band_passes_when_configured(self, mock_init) -> None:
+    def test_process_narrow_band_passes_when_configured(self, mock_init: MagicMock) -> None:
         stage = BandFilterStage(band_value="narrow_band")
         predictor = MagicMock()
         predictor.predict_audio.return_value = "narrow_band"
@@ -68,7 +67,7 @@ class TestBandFilterStage:
         assert result.data["band_prediction"] == "narrow_band"
 
     @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_process_error_prediction_skipped(self, mock_init) -> None:
+    def test_process_error_prediction_skipped(self, mock_init: MagicMock) -> None:
         stage = BandFilterStage(band_value="full_band")
         predictor = MagicMock()
         predictor.predict_audio.return_value = "Error: model failed"
@@ -79,7 +78,7 @@ class TestBandFilterStage:
         assert result == []
 
     @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_no_waveform_no_filepath_skipped(self, mock_init) -> None:
+    def test_no_waveform_no_filepath_skipped(self, mock_init: MagicMock) -> None:
         stage = BandFilterStage(band_value="full_band")
         stage._predictor = MagicMock()
 
@@ -98,13 +97,13 @@ class TestBandFilterStage:
         assert result == []
 
     @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_process_nested_segments_filters(self, mock_init) -> None:
+    def test_process_nested_segments_filters(self, mock_init: MagicMock) -> None:
         """Nested segments: only segments passing the band filter survive."""
         stage = BandFilterStage(band_value="full_band")
         predictor = MagicMock()
         call_count = {"n": 0}
 
-        def predict_side_effect(waveform, sample_rate):
+        def predict_side_effect(_waveform: object, _sample_rate: int) -> str:
             call_count["n"] += 1
             return "full_band" if call_count["n"] % 2 == 1 else "narrow_band"
 
@@ -112,10 +111,7 @@ class TestBandFilterStage:
         stage._predictor = predictor
 
         sr = 48000
-        segments = [
-            {"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i}
-            for i in range(4)
-        ]
+        segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(4)]
         task = AudioTask(
             data={"segments": segments, "original_file": "test.wav"},
             task_id="test",
@@ -128,7 +124,7 @@ class TestBandFilterStage:
         assert len(result.data["segments"]) == 2
 
     @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_process_nested_all_filtered_returns_empty(self, mock_init) -> None:
+    def test_process_nested_all_filtered_returns_empty(self, mock_init: MagicMock) -> None:
         """Nested segments: when all segments are filtered, return []."""
         stage = BandFilterStage(band_value="full_band")
         predictor = MagicMock()
@@ -136,10 +132,7 @@ class TestBandFilterStage:
         stage._predictor = predictor
 
         sr = 48000
-        segments = [
-            {"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i}
-            for i in range(3)
-        ]
+        segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]
         task = AudioTask(
             data={"segments": segments},
             task_id="test",
