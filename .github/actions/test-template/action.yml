@@ -85,7 +85,7 @@ runs:
         apt-get install -y uuid-runtime
 
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v6
       with:
         path: NeMo-Curator
         submodules: recursive
@@ -197,7 +197,7 @@ runs:
         docker exec -t nemo_container_${{ github.run_id }} coverage report -i
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       if: ${{ steps.check.outputs.coverage_report != 'none' }}
       with:
         name: ${{ steps.check.outputs.coverage_report }}
