@@ -50,7 +50,7 @@ jobs:
       TARGET_BRANCH: ${{ inputs.target-branch || github.event.inputs.target-branch }}
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.PAT }}
           ref: ${{ env.TARGET_BRANCH }}
@@ -70,7 +70,7 @@ jobs:
         run: uv lock --upgrade
 
       - name: Upload lock file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: lock-file-${{ needs.pre-flight.outputs.bump-branch }}
           path: uv.lock
@@ -83,7 +83,7 @@ jobs:
       TARGET_BRANCH: ${{ inputs.target-branch || github.event.inputs.target-branch }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.PAT }}
           ref: ${{ env.TARGET_BRANCH }}
@@ -94,7 +94,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Download lock file
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: lock-file-${{ env.SOURCE_BRANCH }}
 
