@@ -489,31 +489,40 @@ class SlackSink(Sink):
         self._state_path = self._get_state_path()
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
 
+        fd: int | None = None
         try:
-            fd = os.open(str(self._state_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            self._is_winner = True
-        except FileExistsError:
-            self._is_winner = False
-
-        if self._is_winner:
-            self._parent_message = self._create_session_summary_message(env_dict)
-            self._post_message(self._parent_message)
-            initial_state = {
-                "ts": self._parent_message.get_timestamp(),
-                "channel": self._parent_message.get_channel_id(),
-                "entries": dict(self._parent_message.entries),
-            }
-            payload = json.dumps(initial_state).encode()
             try:
+                # Open the state file for writing with the following flags:
+                # - os.O_CREAT: create the file if it does not exist
+                # - os.O_EXCL: fail if the file already exists (ensures "winner" for the current process)
+                # - os.O_WRONLY: open for write-only access
+                # This lets us atomically determine which process was first to create the session state file,
+                # coordinating parallel benchmarking runs.
+                fd = os.open(str(self._state_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                self._is_winner = True
+            except FileExistsError:
+                self._is_winner = False
+
+            if self._is_winner:
+                self._parent_message = self._create_session_summary_message(env_dict)
+                self._post_message(self._parent_message)
+                initial_state = {
+                    "ts": self._parent_message.get_timestamp(),
+                    "channel": self._parent_message.get_channel_id(),
+                    "entries": dict(self._parent_message.entries),
+                }
+                # Note that this is the only time the state file is created. If the benchmark session is re-run using the same session name (resulting in the same state file path), the file will already exist and all benchmarking info will be added to the previous slack parent message. This is by design. New benchmark runs are assumed to have new session names and therefore new/unique state file paths.
+                payload = json.dumps(initial_state).encode()
                 os.write(fd, payload)
-            finally:
+            else:
+                state = self._wait_for_session_state(self._state_path)
+                self._parent_message = SlackParentMessage(session_name=session_name, env_dict=env_dict)
+                self._parent_message.set_response({"ts": state["ts"], "channel": state["channel"], "ok": True})
+                for entry_name, entry_status in state["entries"].items():
+                    self._parent_message.entries[entry_name] = entry_status
+        finally:
+            if fd is not None:
                 os.close(fd)
-        else:
-            state = self._wait_for_session_state(self._state_path)
-            self._parent_message = SlackParentMessage(session_name=session_name, env_dict=env_dict)
-            self._parent_message.set_response({"ts": state["ts"], "channel": state["channel"], "ok": True})
-            for entry_name, entry_status in state["entries"].items():
-                self._parent_message.entries[entry_name] = entry_status
 
     def register_benchmark_entry_starting(self, result_dict: dict[str, Any], benchmark_entry: Entry) -> None:  # noqa: ARG002
         # Register that a benchmark entry is starting.
@@ -614,12 +623,14 @@ class SlackSink(Sink):
             state = json.load(f)
             state["entries"][entry_name] = status
             for name, st in state["entries"].items():
-                self._parent_message.entries[name] = st
-            self._parent_message._has_updates = True
-            self._update_message(self._parent_message)
-            f.seek(0)
-            json.dump(state, f)
-            f.truncate()
+                self._parent_message.update_entry(name, st)
+            try:
+                self._update_message(self._parent_message)
+            finally:
+                # Always persist state after attempting Slack update (even if _update_message raises SlackApiError).
+                f.seek(0)
+                json.dump(state, f)
+                f.truncate()
         finally:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
             f.close()
