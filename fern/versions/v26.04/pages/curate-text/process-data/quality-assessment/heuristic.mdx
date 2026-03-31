@@ -495,7 +495,7 @@ After calling `pipeline.run()`, the returned task objects contain per-stage perf
 
 ```python
 # Run the pipeline and inspect filter metrics
-output_tasks = pipeline.run(executor)
+output_tasks = pipeline.run()
 
 for task in output_tasks:
     # _stage_perf[0] is file partitioning, _stage_perf[1] is the reader
@@ -503,7 +503,10 @@ for task in output_tasks:
     # The last stage is the writer — its count reflects documents that survived all filters
     num_output = task._stage_perf[-1].num_items_processed
 
-    print(f"Task {task.task_id}: {num_input} input → {num_output} kept ({num_output / num_input:.1%})")
+    if num_input > 0:
+        print(f"Task {task.task_id}: {num_input} input → {num_output} kept ({num_output / num_input:.1%})")
+    else:
+        print(f"Task {task.task_id}: 0 input → 0 kept")
 ```
 
 These same metrics power the nightly benchmarks, which track `num_documents_processed`, `num_kept_documents`, and `throughput_docs_per_sec` for every ScoreFilter run.
