@@ -29,7 +29,13 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import InterleavedBatch
 
 DEFAULT_MODEL_PATH = "nvidia/NVIDIA-Nemotron-Parse-v1.2"
-DEFAULT_TASK_PROMPT = "</s><s><predict_bbox><predict_classes><output_markdown><predict_no_text_in_pic>"
+PROMPT_BASE = "</s><s><predict_bbox><predict_classes><output_markdown>"
+
+
+def build_task_prompt(*, text_in_pic: bool = False) -> str:
+    """Build the Nemotron-Parse task prompt with the appropriate text-in-pic token."""
+    suffix = "<predict_text_in_pic>" if text_in_pic else "<predict_no_text_in_pic>"
+    return f"{PROMPT_BASE}{suffix}"
 
 
 @dataclass
@@ -50,8 +56,12 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
     ----------
     model_path
         HuggingFace model ID or local path (e.g. ``nvidia/NVIDIA-Nemotron-Parse-v1.2``).
+    text_in_pic
+        Whether to predict text inside pictures. When ``True``, uses the
+        ``<predict_text_in_pic>`` prompt token; when ``False`` (default), uses
+        ``<predict_no_text_in_pic>``. Only applies to Nemotron-Parse v1.2+.
     task_prompt
-        Prompt string sent to the model for each page image.
+        Override the full prompt string. When set, ``text_in_pic`` is ignored.
     backend
         Inference backend: ``"vllm"`` or ``"hf"``.
     inference_batch_size
@@ -61,12 +71,18 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
     """
 
     model_path: str = DEFAULT_MODEL_PATH
-    task_prompt: str = DEFAULT_TASK_PROMPT
+    text_in_pic: bool = False
+    task_prompt: str | None = None
     backend: str = "vllm"
     inference_batch_size: int = 4
     max_num_seqs: int = 64
+    enforce_eager: bool = False
     name: str = "nemotron_parse_inference"
     resources: Resources = field(default_factory=lambda: Resources(cpus=4.0, gpus=1.0))
+
+    def __post_init__(self) -> None:
+        if self.task_prompt is None:
+            self.task_prompt = build_task_prompt(text_in_pic=self.text_in_pic)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -76,7 +92,15 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
 
     # -- setup / teardown --
 
+    def setup_on_node(self, node_info: dict | None = None, worker_metadata: dict | None = None) -> None:  # noqa: ARG002
+        """Initialize model once per node (serially) to avoid torch.compile race conditions."""
+        self._initialize_model()
+
     def setup(self, worker_metadata: dict | None = None) -> None:  # noqa: ARG002
+        if not (hasattr(self, "_llm") or hasattr(self, "_model")):
+            self._initialize_model()
+
+    def _initialize_model(self) -> None:
         if self.backend == "vllm":
             self._setup_vllm()
         else:
@@ -103,18 +127,44 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         self._proc_size: tuple[int, int] = tuple(self._processor.image_processor.final_size)
         logger.info(f"[HF] Model loaded, proc_size={self._proc_size}")
 
+    @staticmethod
+    def _pick_free_port() -> int:
+        import socket
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("", 0))
+            return s.getsockname()[1]
+
     def _setup_vllm(self) -> None:
+        import os
+        import time
+
         from vllm import LLM, SamplingParams
 
         resolved_path = self._resolve_local_model_path()
-        logger.info(f"[vLLM] Loading {resolved_path} with max_num_seqs={self.max_num_seqs}")
-        self._llm = LLM(
-            model=resolved_path,
-            max_num_seqs=self.max_num_seqs,
-            limit_mm_per_prompt={"image": 1},
-            dtype="bfloat16",
-            trust_remote_code=True,
-        )
+
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            free_port = self._pick_free_port()
+            os.environ["MASTER_PORT"] = str(free_port)
+            try:
+                self._llm = LLM(
+                    model=resolved_path,
+                    max_num_seqs=self.max_num_seqs,
+                    limit_mm_per_prompt={"image": 1},
+                    dtype="bfloat16",
+                    trust_remote_code=True,
+                    enforce_eager=self.enforce_eager,
+                )
+                break
+            except RuntimeError as e:
+                if "EADDRINUSE" in str(e) or "address already in use" in str(e):
+                    logger.warning(f"[vLLM] Port {free_port} collision on attempt {attempt}, retrying...")
+                    time.sleep(2)
+                    if attempt == max_attempts:
+                        raise
+                else:
+                    raise
         self._sampling_params = SamplingParams(
             temperature=0,
             top_k=1,
@@ -127,7 +177,6 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         processor = AutoProcessor.from_pretrained(resolved_path, trust_remote_code=True)
         self._proc_size = tuple(processor.image_processor.final_size)
         del processor
-        logger.info(f"[vLLM] Model loaded, proc_size={self._proc_size}")
 
     def _resolve_local_model_path(self) -> str:
         """Resolve the HF model to a local snapshot path to avoid repeated API calls."""
@@ -158,12 +207,34 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         outputs = self._model.generate(**inputs, generation_config=self._gen_config)
         return self._processor.batch_decode(outputs, skip_special_tokens=True)
 
+    def _reset_vllm(self) -> None:
+        """Teardown and reinit vLLM engine (mirrors Cosmos Curate's _reset pattern)."""
+        logger.warning("[vLLM] Resetting engine after inference failure")
+        try:
+            del self._llm
+            del self._sampling_params
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+        self._setup_vllm()
+
     def _infer_vllm(self, images: list[Image.Image]) -> list[str]:
         if not images:
             return []
         prompts = [{"prompt": self.task_prompt, "multi_modal_data": {"image": img}} for img in images]
-        outputs = self._llm.generate(prompts, self._sampling_params)
-        return [output.outputs[0].text for output in outputs]
+
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                outputs = self._llm.generate(prompts, self._sampling_params)
+                return [output.outputs[0].text for output in outputs]
+            except Exception as e:
+                logger.warning(f"[vLLM] Inference failed (attempt {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    self._reset_vllm()
+                else:
+                    raise
+        return []
 
     def _infer_hf(self, images: list[Image.Image]) -> list[str]:
         all_outputs: list[str] = []
@@ -191,9 +262,25 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
 
     def process(self, task: InterleavedBatch) -> InterleavedBatch | None:
         task_df = task.to_pandas()
-        images = [Image.open(io.BytesIO(b)) for b in task_df["binary_content"]]
+        images = []
+        for idx, b in enumerate(task_df["binary_content"]):
+            try:
+                images.append(Image.open(io.BytesIO(b)))
+            except Exception as e:
+                logger.warning(f"Skipping page {idx} in {task.task_id}: {e}")
+                images.append(None)
 
-        all_outputs = self._infer_vllm(images) if self.backend == "vllm" else self._infer_hf(images)
+        valid_mask = [img is not None for img in images]
+        valid_images = [img for img in images if img is not None]
+        if not valid_images:
+            return None
+
+        valid_outputs = self._infer_vllm(valid_images) if self.backend == "vllm" else self._infer_hf(valid_images)
+
+        all_outputs = []
+        valid_iter = iter(valid_outputs)
+        for is_valid in valid_mask:
+            all_outputs.append(next(valid_iter) if is_valid else "")
 
         task_df["text_content"] = all_outputs
 

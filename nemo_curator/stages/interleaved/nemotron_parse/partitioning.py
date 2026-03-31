@@ -55,8 +55,6 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         Number of PDFs to pack into each FileGroupTask.
     max_pdfs
         If set, limit the total number of PDFs to process.
-    completed_ids
-        Set of sample IDs to skip (for resume support).
     dataset_name
         Name assigned to output tasks.
     file_name_field
@@ -70,7 +68,6 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     manifest_path: str
     pdfs_per_task: int = 10
     max_pdfs: int | None = None
-    completed_ids: set[str] = field(default_factory=set)
     dataset_name: str = "pdf_dataset"
     file_name_field: str = "file_name"
     file_names_field: str = "cc_pdf_file_names"
@@ -87,10 +84,9 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers_per_node": 1}
 
-    def _parse_manifest(self) -> tuple[list[str], int]:
-        """Read manifest and return (entries, skipped_count)."""
+    def _parse_manifest(self) -> list[str]:
+        """Read manifest and return list of JSON-serialized entries."""
         entries: list[str] = []
-        skipped = 0
 
         with open(self.manifest_path) as f:
             for line in f:
@@ -98,9 +94,14 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 url = record.get(self.url_field, "")
 
                 if self.file_names_field in record:
+                    # CC-MAIN style: multiple filenames per line, no per-file extra fields
                     file_names = record[self.file_names_field]
+                    extra: dict = {}
                 elif self.file_name_field in record:
+                    # Single file per line — preserve extra fields (e.g. jsonl_file, byte_offset)
                     file_names = [record[self.file_name_field]]
+                    extra = {k: v for k, v in record.items()
+                             if k not in (self.file_name_field, self.url_field, self.file_names_field)}
                 else:
                     logger.warning(f"Skipping manifest line: no '{self.file_name_field}' or '{self.file_names_field}'")
                     continue
@@ -108,25 +109,16 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 for fname in dict.fromkeys(file_names):
                     if not fname:
                         continue
-                    sample_id = os.path.splitext(fname)[0]
-                    if sample_id in self.completed_ids:
-                        skipped += 1
-                        continue
-                    entries.append(json.dumps({"file_name": fname, "url": url}))
+                    entries.append(json.dumps({"file_name": fname, "url": url, **extra}))
 
                 if self.max_pdfs and len(entries) >= self.max_pdfs:
                     entries = entries[: self.max_pdfs]
                     break
 
-        return entries, skipped
+        return entries
 
     def process(self, _: _EmptyTask) -> list[FileGroupTask]:
-        if self.completed_ids:
-            logger.info(f"Resume: skipping {len(self.completed_ids)} already-processed sample IDs")
-
-        entries, skipped = self._parse_manifest()
-        if skipped:
-            logger.info(f"Skipped {skipped} already-processed PDFs")
+        entries = self._parse_manifest()
 
         tasks: list[FileGroupTask] = []
         for i in range(0, len(entries), self.pdfs_per_task):

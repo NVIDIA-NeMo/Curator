@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.interleaved.nemotron_parse.inference import (
@@ -45,9 +45,11 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
     manifest_path
         Path to JSONL manifest listing PDFs.
     zip_base_dir
-        Root of CC-MAIN zip archive hierarchy (mutually exclusive with ``pdf_dir``).
+        Root of CC-MAIN zip archive hierarchy.
     pdf_dir
-        Directory containing PDF files (mutually exclusive with ``zip_base_dir``).
+        Directory containing PDF files.
+    jsonl_base_dir
+        Root directory for JSONL-based PDF datasets (e.g. GitHub PDFs).
     model_path
         HuggingFace model ID or local path.
     backend
@@ -64,10 +66,10 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
         Pages per GPU forward pass (HF only).
     max_num_seqs
         Maximum concurrent sequences (vLLM only).
+    text_in_pic
+        Whether to predict text inside pictures (v1.2+ prompt control).
     min_crop_px
         Minimum pixel dimension for image crops.
-    completed_ids
-        Set of sample IDs to skip (resume support).
     dataset_name
         Name assigned to output tasks.
     file_name_field
@@ -81,6 +83,7 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
     manifest_path: str
     zip_base_dir: str | None = None
     pdf_dir: str | None = None
+    jsonl_base_dir: str | None = None
     model_path: str = DEFAULT_MODEL_PATH
     backend: str = "vllm"
     pdfs_per_task: int = 10
@@ -89,8 +92,9 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
     max_pages: int = 50
     inference_batch_size: int = 4
     max_num_seqs: int = 64
+    text_in_pic: bool = False
+    enforce_eager: bool = False
     min_crop_px: int = 10
-    completed_ids: set[str] = field(default_factory=set)
     dataset_name: str = "pdf_dataset"
     file_name_field: str = "file_name"
     file_names_field: str = "cc_pdf_file_names"
@@ -102,7 +106,6 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
             manifest_path=self.manifest_path,
             pdfs_per_task=self.pdfs_per_task,
             max_pdfs=self.max_pdfs,
-            completed_ids=self.completed_ids,
             dataset_name=self.dataset_name,
             file_name_field=self.file_name_field,
             file_names_field=self.file_names_field,
@@ -111,14 +114,17 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
         self._preprocessor = PDFPreprocessStage(
             zip_base_dir=self.zip_base_dir,
             pdf_dir=self.pdf_dir,
+            jsonl_base_dir=self.jsonl_base_dir,
             dpi=self.dpi,
             max_pages=self.max_pages,
         )
         self._inference = NemotronParseInferenceStage(
             model_path=self.model_path,
+            text_in_pic=self.text_in_pic,
             backend=self.backend,
             inference_batch_size=self.inference_batch_size,
             max_num_seqs=self.max_num_seqs,
+            enforce_eager=self.enforce_eager,
         )
         self._postprocessor = NemotronParsePostprocessStage(
             min_crop_px=self.min_crop_px,

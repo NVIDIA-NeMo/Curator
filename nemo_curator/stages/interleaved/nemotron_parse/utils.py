@@ -34,44 +34,97 @@ DEFAULT_MIN_CROP_PX = 10
 DEFAULT_MAX_PAGES = 50
 
 
-def render_pdf_pages(pdf_bytes: bytes, dpi: int = 300, max_pages: int = DEFAULT_MAX_PAGES) -> list[Image.Image]:
+def _render_scale_to_fit(page: "Any", base_scale: float, max_wh: tuple[int, int] | None) -> float:
+    """Return the render scale capped so the output fits within max_wh pixels.
+
+    Mirrors NeMo-Retriever's ``_compute_render_scale_to_fit``: uses the
+    standard fit-to-box formula min(target_w/page_w, target_h/page_h) and
+    clamps to a minimum of 1e-3 to avoid degenerate renders.  When max_wh is
+    None the base_scale is returned unchanged.
+    """
+    if max_wh is None:
+        return base_scale
+    target_w, target_h = max_wh
+    if target_w <= 0 or target_h <= 0:
+        return base_scale
+    page_w, page_h = float(page.get_width()), float(page.get_height())
+    if page_w <= 0.0 or page_h <= 0.0:
+        return base_scale
+    fit_scale = max(min(target_w / page_w, target_h / page_h), 1e-3)
+    return min(base_scale, fit_scale)
+
+
+def render_pdf_pages(
+    pdf_bytes: bytes,
+    dpi: int = 300,
+    max_pages: int = DEFAULT_MAX_PAGES,
+    max_size: tuple[int, int] | None = (1664, 2048),
+) -> list[Image.Image]:
     """Render PDF pages to PIL images using pypdfium2.
 
-    Uses the same rendering approach as NeMo-Retriever's pdfium utilities,
-    converting each page to a bitmap at the requested DPI and then to a
-    PIL Image.
+    Follows the same pattern as NeMo-Retriever to avoid two pdfium pitfalls:
+    1. Explicitly close each page/bitmap after use so the weakref finalizer
+       never fires (avoids SIGABRT in _close_impl during GC).
+    2. Use ``bitmap.to_numpy().copy()`` + OpenCV for BGR→RGB conversion
+       instead of pdfium's ``rev_byteorder`` flag, which triggers a
+       non-thread-safe code path in CFX_AggDeviceDriver::GetDIBits().
+
+    The render scale is capped per page via ``_render_scale_to_fit`` so that
+    no rendered image exceeds ``max_size`` pixels (default: 1664×2048 =
+    Nemotron-Parse processor size).  This bounds the bitmap size regardless of
+    how large the PDF page dimensions are, eliminating decompression-bomb
+    errors downstream and keeping render time predictable.
     """
+    import cv2
     import pypdfium2 as pdfium
 
     images: list[Image.Image] = []
+    doc = None
     try:
         doc = pdfium.PdfDocument(pdf_bytes)
-        scale = dpi / 72.0
+        base_scale = dpi / 72.0
         for page_num in range(min(len(doc), max_pages)):
-            page = doc[page_num]
-            bitmap = page.render(scale=scale)
-            arr = bitmap.to_numpy().copy()
+            page = None
+            bitmap = None
+            try:
+                page = doc[page_num]
+                scale = _render_scale_to_fit(page, base_scale, max_size)
+                bitmap = page.render(scale=scale)
+                arr = bitmap.to_numpy().copy()
 
-            # Handle BGR/BGRA modes that pdfium may produce
-            mode = bitmap.mode
-            if mode in {"BGRA", "BGRX"}:
-                import cv2
-
-                cv2.cvtColor(arr, cv2.COLOR_BGRA2RGBA, dst=arr)
-                images.append(Image.fromarray(arr, "RGBA").convert("RGB"))
-            elif mode == "BGR":
-                import cv2
-
-                cv2.cvtColor(arr, cv2.COLOR_BGR2RGB, dst=arr)
-                images.append(Image.fromarray(arr, "RGB"))
-            else:
-                img = Image.fromarray(arr)
-                if img.mode != "RGB":
-                    img = img.convert("RGB")
+                mode = bitmap.mode
+                if mode in {"BGRA", "BGRX"}:
+                    cv2.cvtColor(arr, cv2.COLOR_BGRA2RGBA, dst=arr)
+                    img = Image.fromarray(arr, "RGBA").convert("RGB")
+                elif mode == "BGR":
+                    cv2.cvtColor(arr, cv2.COLOR_BGR2RGB, dst=arr)
+                    img = Image.fromarray(arr, "RGB")
+                else:
+                    img = Image.fromarray(arr)
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")
                 images.append(img)
-        doc.close()
-    except (OSError, ValueError, RuntimeError):
+            except Exception:
+                pass
+            finally:
+                if bitmap is not None:
+                    try:
+                        bitmap.close()
+                    except Exception:
+                        pass
+                if page is not None:
+                    try:
+                        page.close()
+                    except Exception:
+                        pass
+    except Exception:
         pass
+    finally:
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception:
+                pass
     return images
 
 
@@ -402,26 +455,65 @@ def extract_pdf_from_zip(file_name: str, zip_base_dir: str) -> bytes | None:
         return None
 
 
-def load_completed_sample_ids(output_dir: str, id_column: str = "sample_id") -> set[str]:
-    """Scan existing parquet files for already-processed IDs (for resume support).
+def extract_pdf_from_jsonl(
+    jsonl_file: str,
+    line_idx: int | None = None,
+    byte_offset: int | None = None,
+) -> bytes | None:
+    """Extract a base64-encoded PDF from a JSONL file.
 
-    Args:
-        output_dir: Directory containing output parquet files.
-        id_column: Column name to extract completed IDs from.
+    Used for GitHub-style PDF datasets where each line contains a JSON object
+    with a ``content`` field holding a base64-encoded PDF.
+
+    Prefer ``byte_offset`` (O(1) seek) over ``line_idx`` (O(N) linear scan).
+    When both are absent, returns None.
     """
-    import glob
+    import base64
 
-    import pyarrow.parquet as pq
-    from loguru import logger
+    try:
+        if byte_offset is not None:
+            with open(jsonl_file, "rb") as f:
+                f.seek(byte_offset)
+                line = f.readline()
+                record = json.loads(line)
+                return base64.b64decode(record["content"])
+        if line_idx is not None:
+            with open(jsonl_file) as f:
+                for i, line in enumerate(f):
+                    if i == line_idx:
+                        record = json.loads(line)
+                        return base64.b64decode(record["content"])
+    except Exception:
+        return None
+    return None
 
-    output_dir = os.path.abspath(output_dir)
-    completed: set[str] = set()
-    for path in glob.glob(os.path.join(output_dir, "*.parquet")):
-        try:
-            table = pq.read_table(path, columns=[id_column])
-            completed.update(table[id_column].to_pylist())
-        except (OSError, pa.ArrowInvalid, KeyError) as e:  # noqa: PERF203
-            logger.warning(f"Could not read {path} for resume: {e}")
 
-    logger.info(f"Resume scan: found {len(completed)} completed IDs in {output_dir}")
-    return completed
+def extract_pdfs_from_jsonl_batch(
+    jsonl_file: str,
+    offsets: list[int],
+) -> dict[int, bytes | None]:
+    """Extract multiple PDFs from a JSONL file in a single file open.
+
+    Opens the file once and seeks to each byte offset in sorted order.
+    Returns a dict mapping byte_offset -> pdf_bytes (None on error).
+    """
+    import base64
+
+    results: dict[int, bytes | None] = {}
+    try:
+        with open(jsonl_file, "rb") as f:
+            for offset in sorted(offsets):
+                try:
+                    f.seek(offset)
+                    line = f.readline()
+                    record = json.loads(line)
+                    results[offset] = base64.b64decode(record["content"])
+                except Exception:
+                    results[offset] = None
+    except OSError:
+        for offset in offsets:
+            results[offset] = None
+    return results
+
+
+
