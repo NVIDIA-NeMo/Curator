@@ -116,7 +116,7 @@ New API for tracking and analyzing pipeline execution:
 
 ## Bug Fixes
 
-- Fixed fasttext predict call compatibility with numpy>2
+- Fixed FastText predict call compatibility with `numpy>2`
 - Fixed broken NeMo Framework documentation links
 - Fixed MegatronTokenizerWriter to download only necessary tokenizer files
 - Fixed ID generator blocking issues for large-scale processing
