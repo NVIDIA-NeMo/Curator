@@ -274,10 +274,7 @@ def main() -> None:
     args.output_dir = os.path.abspath(args.output_dir)
     os.makedirs(args.output_dir, exist_ok=True)
 
-    if os.environ.get("SLURM_JOB_ID"):
-        ray_client = SlurmRayClient()
-    else:
-        ray_client = RayClient()
+    ray_client = SlurmRayClient() if os.environ.get("SLURM_JOB_ID") else RayClient()
     ray_client.start()
 
     try:

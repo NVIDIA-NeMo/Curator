@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 from dataclasses import dataclass, field
 
@@ -210,12 +211,10 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
     def _reset_vllm(self) -> None:
         """Teardown and reinit vLLM engine (mirrors Cosmos Curate's _reset pattern)."""
         logger.warning("[vLLM] Resetting engine after inference failure")
-        try:
+        with contextlib.suppress(Exception):
             del self._llm
             del self._sampling_params
             torch.cuda.empty_cache()
-        except Exception:
-            pass
         self._setup_vllm()
 
     def _infer_vllm(self, images: list[Image.Image]) -> list[str]:
@@ -228,7 +227,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
             try:
                 outputs = self._llm.generate(prompts, self._sampling_params)
                 return [output.outputs[0].text for output in outputs]
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203
                 logger.warning(f"[vLLM] Inference failed (attempt {attempt}/{max_retries}): {e}")
                 if attempt < max_retries:
                     self._reset_vllm()
@@ -266,7 +265,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         for idx, b in enumerate(task_df["binary_content"]):
             try:
                 images.append(Image.open(io.BytesIO(b)))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001, PERF203
                 logger.warning(f"Skipping page {idx} in {task.task_id}: {e}")
                 images.append(None)
 

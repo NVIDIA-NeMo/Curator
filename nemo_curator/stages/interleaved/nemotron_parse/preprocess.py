@@ -165,7 +165,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
             try:
                 pages = render_pdf_pages(pdf_bytes, dpi=dpi, max_pages=max_pages)
                 result_q.put(pages)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 result_q.put([])
 
         proc = ctx.Process(target=_worker)

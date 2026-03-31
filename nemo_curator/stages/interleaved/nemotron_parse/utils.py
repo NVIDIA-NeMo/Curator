@@ -20,6 +20,7 @@ element reordering used by the preprocess / postprocess stages.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
@@ -27,14 +28,13 @@ import re
 import zipfile
 from typing import Any
 
-import pyarrow as pa
 from PIL import Image
 
 DEFAULT_MIN_CROP_PX = 10
 DEFAULT_MAX_PAGES = 50
 
 
-def _render_scale_to_fit(page: "Any", base_scale: float, max_wh: tuple[int, int] | None) -> float:
+def _render_scale_to_fit(page: Any, base_scale: float, max_wh: tuple[int, int] | None) -> float:  # noqa: ANN401
     """Return the render scale capped so the output fits within max_wh pixels.
 
     Mirrors NeMo-Retriever's ``_compute_render_scale_to_fit``: uses the
@@ -54,6 +54,45 @@ def _render_scale_to_fit(page: "Any", base_scale: float, max_wh: tuple[int, int]
     return min(base_scale, fit_scale)
 
 
+def _bitmap_to_rgb(bitmap: Any) -> Image.Image:  # noqa: ANN401
+    """Convert a pypdfium2 bitmap to an RGB PIL image using OpenCV."""
+    import cv2
+
+    arr = bitmap.to_numpy().copy()
+    mode = bitmap.mode
+    if mode in {"BGRA", "BGRX"}:
+        cv2.cvtColor(arr, cv2.COLOR_BGRA2RGBA, dst=arr)
+        img = Image.fromarray(arr, "RGBA").convert("RGB")
+    elif mode == "BGR":
+        cv2.cvtColor(arr, cv2.COLOR_BGR2RGB, dst=arr)
+        img = Image.fromarray(arr, "RGB")
+    else:
+        img = Image.fromarray(arr)
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+    return img
+
+
+def _render_page(doc: Any, page_num: int, base_scale: float, max_size: tuple[int, int] | None) -> Image.Image | None:  # noqa: ANN401
+    """Render a single PDF page; returns None on any error."""
+    page = None
+    bitmap = None
+    try:
+        page = doc[page_num]
+        scale = _render_scale_to_fit(page, base_scale, max_size)
+        bitmap = page.render(scale=scale)
+        return _bitmap_to_rgb(bitmap)
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        with contextlib.suppress(Exception):
+            if bitmap is not None:
+                bitmap.close()
+        with contextlib.suppress(Exception):
+            if page is not None:
+                page.close()
+
+
 def render_pdf_pages(
     pdf_bytes: bytes,
     dpi: int = 300,
@@ -65,66 +104,30 @@ def render_pdf_pages(
     Follows the same pattern as NeMo-Retriever to avoid two pdfium pitfalls:
     1. Explicitly close each page/bitmap after use so the weakref finalizer
        never fires (avoids SIGABRT in _close_impl during GC).
-    2. Use ``bitmap.to_numpy().copy()`` + OpenCV for BGR→RGB conversion
+    2. Use ``bitmap.to_numpy().copy()`` + OpenCV for BGR->RGB conversion
        instead of pdfium's ``rev_byteorder`` flag, which triggers a
        non-thread-safe code path in CFX_AggDeviceDriver::GetDIBits().
 
     The render scale is capped per page via ``_render_scale_to_fit`` so that
-    no rendered image exceeds ``max_size`` pixels (default: 1664×2048 =
+    no rendered image exceeds ``max_size`` pixels (default: 1664x2048 =
     Nemotron-Parse processor size).  This bounds the bitmap size regardless of
     how large the PDF page dimensions are, eliminating decompression-bomb
     errors downstream and keeping render time predictable.
     """
-    import cv2
     import pypdfium2 as pdfium
 
     images: list[Image.Image] = []
     doc = None
-    try:
+    with contextlib.suppress(Exception):
         doc = pdfium.PdfDocument(pdf_bytes)
         base_scale = dpi / 72.0
         for page_num in range(min(len(doc), max_pages)):
-            page = None
-            bitmap = None
-            try:
-                page = doc[page_num]
-                scale = _render_scale_to_fit(page, base_scale, max_size)
-                bitmap = page.render(scale=scale)
-                arr = bitmap.to_numpy().copy()
-
-                mode = bitmap.mode
-                if mode in {"BGRA", "BGRX"}:
-                    cv2.cvtColor(arr, cv2.COLOR_BGRA2RGBA, dst=arr)
-                    img = Image.fromarray(arr, "RGBA").convert("RGB")
-                elif mode == "BGR":
-                    cv2.cvtColor(arr, cv2.COLOR_BGR2RGB, dst=arr)
-                    img = Image.fromarray(arr, "RGB")
-                else:
-                    img = Image.fromarray(arr)
-                    if img.mode != "RGB":
-                        img = img.convert("RGB")
+            img = _render_page(doc, page_num, base_scale, max_size)
+            if img is not None:
                 images.append(img)
-            except Exception:
-                pass
-            finally:
-                if bitmap is not None:
-                    try:
-                        bitmap.close()
-                    except Exception:
-                        pass
-                if page is not None:
-                    try:
-                        page.close()
-                    except Exception:
-                        pass
-    except Exception:
-        pass
-    finally:
+    with contextlib.suppress(Exception):
         if doc is not None:
-            try:
-                doc.close()
-            except Exception:
-                pass
+            doc.close()
     return images
 
 
@@ -483,7 +486,7 @@ def extract_pdf_from_jsonl(
                     if i == line_idx:
                         record = json.loads(line)
                         return base64.b64decode(record["content"])
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
     return None
 
@@ -503,17 +506,15 @@ def extract_pdfs_from_jsonl_batch(
     try:
         with open(jsonl_file, "rb") as f:
             for offset in sorted(offsets):
-                try:
+                result: bytes | None = None
+                with contextlib.suppress(Exception):
                     f.seek(offset)
                     line = f.readline()
                     record = json.loads(line)
-                    results[offset] = base64.b64decode(record["content"])
-                except Exception:
-                    results[offset] = None
+                    result = base64.b64decode(record["content"])
+                results[offset] = result
     except OSError:
         for offset in offsets:
             results[offset] = None
     return results
-
-
 
