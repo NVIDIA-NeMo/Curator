@@ -12,24 +12,6 @@ modality: "universal"
 
 # NeMo Curator Release Notes: {{ current_release }}
 
-## What's New in 26.04
-
-### Cosmos-Xenna 0.2.0
-
-Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and improved GPU management:
-
-- **Simplified `Resources` API**: Removed `nvdecs`, `nvencs`, and `entire_gpu` fields. GPU allocation now uses `gpu_memory_gb` (fractional single-GPU) or `gpus` (one or more full GPUs) exclusively.
-- **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
-- **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
-
-### Fused Document Iterate and Extract Stages
-
-The data acquisition pipeline now uses a three-stage architecture instead of four, fusing the iterate and extract steps into a single `DocumentIterateExtractStage`:
-
-- **Fused `DocumentIterateExtractStage`**: Combines `DocumentIterateStage` and `DocumentExtractStage` into a single stage that iterates and extracts in one pass.
-- **Improved Memory Efficiency**: Processes records inline instead of materializing intermediate DataFrames, reducing peak memory usage.
-- **Better Performance**: Benchmarks show faster runtimes across both the Ray Data and Xenna executors.
-
 ## What's New in 26.02
 
 ### Benchmarking Infrastructure
@@ -104,7 +86,7 @@ New API for tracking and analyzing pipeline execution:
 
 ### Image Curation
 
-- **Optimized Batch Sizes**: Reduced default batch sizes for better CPU memory usage (`batch_size=50`, `num_threads=4`)
+- **Optimized Batch Sizes**: Reduced default batch sizes for better CPU memory usage (batch_size=50, num_threads=4)
 - **Memory Guidance**: Added troubleshooting documentation for out-of-memory errors
 - **Tutorial Improvements**: Updated examples optimized for typical GPU configurations
 
@@ -113,7 +95,7 @@ New API for tracking and analyzing pipeline execution:
 - **ID Field Standardization**: Unified ID naming conventions across all deduplication workflows
 - **Performance Optimizations**: Fused document iterate and extract stages for reduced overhead
 - **Better Memory Management**: Improved handling of large-scale semantic deduplication
-- **Small Cluster Warnings**: Automatic warnings when `n_clusters` is too small for effective deduplication
+- **Small Cluster Warnings**: Automatic warnings when n_clusters is too small for effective deduplication
 - **FilePartitioning Improvements**: One worker per partition for better parallelization
 
 ### Deduplication Enhancements
@@ -123,13 +105,6 @@ New API for tracking and analyzing pipeline execution:
 - **Empty Batch Handling**: Better error handling for filters processing empty data batches
 
 ## Dependency Updates
-
-### 26.04
-
-- **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
-- **Ray**: Updated to 2.54
-
-### 26.02
 
 - **Transformers**: Pinned to 4.55.2 for stability and compatibility
 - **vLLM**: Updated to 0.14.1 with video pipeline compatibility fixes
@@ -141,12 +116,12 @@ New API for tracking and analyzing pipeline execution:
 
 ## Bug Fixes
 
-- Fixed FastText predict call compatibility with `numpy>2`
+- Fixed fasttext predict call compatibility with numpy>2
 - Fixed broken NeMo Framework documentation links
 - Fixed MegatronTokenizerWriter to download only necessary tokenizer files
 - Fixed ID generator blocking issues for large-scale processing
 - Fixed vLLM API compatibility with video captioning pipeline
-- Fixed GLiNER tutorial examples and SDG workflow bugs
+- Fixed Gliner tutorial examples and SDG workflow bugs
 - Improved semantic deduplication unit test reliability
 
 ## Infrastructure & Developer Experience
@@ -161,17 +136,8 @@ New API for tracking and analyzing pipeline execution:
 
 ## Breaking Changes
 
-### 26.04
-
-- **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
-- **`DocumentExtractStage` Removed**: The standalone `DocumentExtractStage` class has been removed. Use `DocumentIterateExtractStage` with an optional `extractor` parameter instead.
-- **`DocumentIterateStage` Renamed**: Replaced by `DocumentIterateExtractStage`. Update imports from `nemo_curator.stages.text.download.base.iterator`.
-- **Three-Stage Pipeline**: The data acquisition pipeline is now a three-step pattern (URL generation → download → iterate-extract) instead of four steps.
-
-### 26.02
-
-- **InternVideo2 Removed**: Video pipelines must use alternative embedding models (Cosmos-Embed1).
-- **ID Field Standardization**: Custom deduplication workflows may need updates to use standardized ID field names.
+- **InternVideo2 Removed**: Video pipelines must use alternative embedding models (Cosmos-Embed1)
+- **ID Field Standardization**: Custom deduplication workflows may need updates to use standardized ID field names
 
 ## Documentation Improvements
 
