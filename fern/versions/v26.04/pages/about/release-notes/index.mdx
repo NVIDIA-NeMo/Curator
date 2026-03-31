@@ -20,11 +20,23 @@ Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and i
 - **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
 - **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
 
+### Audio Task Redesign (PR #1608)
+
+Redesigned the audio task model and stage hierarchy for consistency with other modalities:
+
+- **`AudioBatch` → `AudioTask`**: Single-dict task model (`Task[dict]`) replacing the list-of-dicts batch model. One manifest entry per task, matching `VideoTask` and `FileGroupTask` conventions.
+- **Direct `ProcessingStage` subclassing**: Removed the `AudioTaskStage` intermediate class. All audio stages now subclass `ProcessingStage[AudioTask, AudioTask]` directly.
+- **Configurable backend selection**: FLEURS and ALM tutorial runners support backend selection via Hydra config (`backend=ray_data` or `backend=xenna`).
+- **`cache_dir` parameter**: `InferenceAsrNemoStage` accepts an optional `cache_dir` for NeMo model checkpoint storage.
+- **Fan-out stage fix**: `CreateInitialManifestFleursStage` now declares `ray_stage_spec()` for correct Ray Data repartitioning.
+
 ## Dependency Updates
 
 - **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
 - **Ray**: Updated to 2.54
+- **pynvml**: Added to the `cuda12` optional dependency group for Xenna GPU detection
 
 ## Breaking Changes
 
 - **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
+- **`AudioBatch` removed**: Replaced by `AudioTask`. Update imports from `from nemo_curator.tasks import AudioBatch` to `from nemo_curator.tasks import AudioTask`. Data is now a single `dict` instead of `dict | list[dict]`.

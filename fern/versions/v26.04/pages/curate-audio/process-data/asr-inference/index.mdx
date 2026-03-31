@@ -14,13 +14,13 @@ Perform automatic speech recognition (ASR) on audio files using NeMo Framework m
 
 ## How it Works
 
-The `InferenceAsrNemoStage` processes `AudioBatch` objects by:
+The `InferenceAsrNemoStage` processes `AudioTask` objects by:
 
 1. **Input Validation**: Verifies required attributes and data structure
 2. **Model Loading**: Downloads and initializes NeMo ASR models on GPU or CPU
 3. **Batch Processing**: Groups audio files for efficient inference
 4. **Transcription**: Generates text predictions for each audio file
-5. **Output Creation**: Returns `AudioBatch` with original data plus predicted transcriptions
+5. **Output Creation**: Returns `AudioTask` with original data plus predicted transcriptions
 
 ## Basic Usage
 
@@ -104,17 +104,17 @@ asr_stage = asr_stage.with_(
 <Note>
 `batch_size` controls the number of tasks the executor groups per call. The ASR stage does not define `process_batch()`; the executor batches tasks.
 
-Within a single `AudioBatch`, `process()` transcribes the file paths together.
+Within a single `AudioTask`, `process()` transcribes the file paths together.
 </Note>
 
 ## Input Requirements
 
-### AudioBatch Format
+### AudioTask Format
 
-Data loading stages create input `AudioBatch` objects that must contain:
+Data loading stages create input `AudioTask` objects that must contain:
 
 ```python
-# AudioBatch's data object structure (created automatically by loading stages)
+# AudioTask's data object structure (created automatically by loading stages)
 # Each item in the batch contains:
 {
     "audio_filepath": "/path/to/audio1.wav",
@@ -136,7 +136,7 @@ Data loading stages create input `AudioBatch` objects that must contain:
 The ASR stage adds predicted transcriptions to each audio sample:
 
 ```python
-# Output AudioBatch's data object structure
+# Output AudioTask's data object structure
 {
     "audio_filepath": "/path/to/audio1.wav",
     "pred_text": "this is the predicted transcription",
@@ -164,7 +164,7 @@ Processing behavior:
 - **Input structure validation**: The stage uses `validate_input()` to check required attributes/columns and raises `ValueError` if they are missing.
 - **Model loading failures**: `setup()` raises `RuntimeError` if model download or initialization fails.
 - **No automatic retries or auto-tuning**: The stage does not perform automatic batch size reduction or network retries.
-- **Missing files**: `AudioBatch.validate()` can log file-existence warnings when code creates tasks; the stage does not auto-skip files.
+- **Missing files**: `AudioTask.validate()` can log file-existence warnings when code creates tasks; the stage does not auto-skip files.
 
 ## Performance Optimization
 

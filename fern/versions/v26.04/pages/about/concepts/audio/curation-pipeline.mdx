@@ -28,7 +28,7 @@ graph TD
 
 **Data Ingestion and Validation**:
 
-- `AudioBatch` file existence checks using `validate()` and `validate_item()`
+- `AudioTask` file existence checks using `validate()` and `validate_item()`
 - Manifest format validation and metadata consistency
 - Recommended JSONL manifest format
 
@@ -57,7 +57,7 @@ graph TD
 ## Common Workflows
 
 **ASR-First Workflow** (Most Common):
-1. Load audio files into `AudioBatch` format
+1. Load audio files into `AudioTask` format
 2. Apply ASR inference to generate transcriptions
 3. Calculate quality metrics (WER, duration, speech rate)
 4. Apply threshold-based filtering

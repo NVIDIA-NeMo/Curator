@@ -18,7 +18,7 @@ Audio-text integration in NeMo Curator operates on several levels:
 
 ### Data Structure Integration
 
-**Format Conversion**: `AudioBatch` to `DocumentBatch`
+**Format Conversion**: `AudioTask` to `DocumentBatch`
 
 - All fields remain intact without remapping (`text` and `pred_text` remain unchanged)
 - Audio metadata remains available as extra fields for downstream processing
@@ -165,7 +165,7 @@ flowchart TD
 
 ### Conversion Mechanisms
 
-**AudioBatch to DocumentBatch**:
+**AudioTask to DocumentBatch**:
 
 NeMo Curator provides the `AudioToDocumentStage` for converting audio processing results to text processing format:
 
@@ -175,7 +175,7 @@ from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 # Create the conversion stage
 converter = AudioToDocumentStage()
 
-# Example input AudioBatch data
+# Example input AudioTask data
 audio_data = {
     "audio_filepath": "/audio.wav",
     "text": "ground truth", 
@@ -186,14 +186,14 @@ audio_data = {
 
 # The stage returns a list containing one DocumentBatch
 # with the same fields preserved as pandas DataFrame
-document_batches = converter.process(audio_batch)
+document_batches = converter.process(audio_task)
 document_batch = document_batches[0]  # Extract the single DocumentBatch
 
 # All fields are preserved in the DocumentBatch:
 # - audio_filepath, text, pred_text, wer, duration
 ```
 
-**Note**: A built-in `DocumentBatch` to `AudioBatch` conversion stage is not provided. Create a custom stage if you need reverse conversion.
+**Note**: A built-in `DocumentBatch` to `AudioTask` conversion stage is not provided. Create a custom stage if you need reverse conversion.
 
 For practical usage examples and step-by-step implementation, refer to [Text integration](/curate-audio/process-data/text-integration).
 
@@ -243,7 +243,7 @@ NeMo Curator provides these audio quality assessment capabilities:
 
 ### Memory Considerations
 
-**AudioBatch Memory Usage**:
+**AudioTask Memory Usage**:
 
 - Metadata storage scales linearly with batch size
 - Audio files loaded on-demand, not cached in memory
@@ -251,7 +251,7 @@ NeMo Curator provides these audio quality assessment capabilities:
 
 **Conversion Overhead**:
 
-- AudioBatch → DocumentBatch conversion is lightweight
+- AudioTask → DocumentBatch conversion is lightweight
 - Metadata copying has minimal performance impact
 - Batch size affects conversion performance
 
