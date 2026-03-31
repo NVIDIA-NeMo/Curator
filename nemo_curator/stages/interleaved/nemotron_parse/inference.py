@@ -187,9 +187,13 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
 
     def teardown(self) -> None:
         if self.backend == "vllm":
-            del self._llm, self._sampling_params
+            for attr in ("_llm", "_sampling_params"):
+                with contextlib.suppress(AttributeError):
+                    delattr(self, attr)
         else:
-            del self._model, self._tokenizer, self._processor, self._gen_config
+            for attr in ("_model", "_tokenizer", "_processor", "_gen_config"):
+                with contextlib.suppress(AttributeError):
+                    delattr(self, attr)
         torch.cuda.empty_cache()
 
     # -- inference --

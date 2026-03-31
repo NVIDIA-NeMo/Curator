@@ -170,15 +170,23 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
         proc = ctx.Process(target=_worker)
         proc.start()
-        proc.join(timeout=self._RENDER_TIMEOUT_S)
-
+        # Drain the queue BEFORE joining. If we join first, the child can
+        # deadlock: after result_q.put(pages) the internal feeder thread must
+        # flush all serialized data through the OS pipe; with 50 pages at
+        # 300 DPI the pipe fills up and the feeder stalls until the parent
+        # reads. Since the parent is blocked in join(), neither side makes
+        # progress and the 60 s timeout fires on a perfectly valid render.
+        try:
+            pages = result_q.get(timeout=self._RENDER_TIMEOUT_S)
+        except Exception:  # noqa: BLE001
+            pages = []
+        proc.join(timeout=2)
         if proc.is_alive():
             proc.kill()
             proc.join()
             logger.warning(f"Render timed out ({self._RENDER_TIMEOUT_S}s) for {file_name}, skipping")
             return []
-
-        return result_q.get() if not result_q.empty() else []
+        return pages
 
     def process(self, task: FileGroupTask) -> InterleavedBatch | None:
         rows: list[dict[str, Any]] = []

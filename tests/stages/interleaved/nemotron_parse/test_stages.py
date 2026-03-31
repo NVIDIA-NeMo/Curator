@@ -68,21 +68,6 @@ class TestPDFPartitioningStage:
         assert len(entries) == 2
         assert entries[0]["file_name"] == "001.pdf"
 
-    def test_resume_skips_completed(self, tmp_path: Path):
-        manifest = tmp_path / "manifest.jsonl"
-        manifest.write_text(json.dumps({"file_name": "a.pdf"}) + "\n" + json.dumps({"file_name": "b.pdf"}) + "\n")
-
-        stage = PDFPartitioningStage(
-            manifest_path=str(manifest),
-            pdfs_per_task=10,
-            completed_ids={"a"},
-        )
-        tasks = stage.process(_empty_task())
-        assert len(tasks) == 1
-        entries = [json.loads(e) for e in tasks[0].data]
-        assert len(entries) == 1
-        assert entries[0]["file_name"] == "b.pdf"
-
     def test_max_pdfs_limit(self, tmp_path: Path):
         manifest = tmp_path / "manifest.jsonl"
         lines = [json.dumps({"file_name": f"{i}.pdf"}) for i in range(20)]

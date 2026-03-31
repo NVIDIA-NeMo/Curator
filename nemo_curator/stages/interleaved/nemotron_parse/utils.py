@@ -450,7 +450,10 @@ def extract_pdf_from_zip(file_name: str, zip_base_dir: str) -> bytes | None:
 
     Returns None if extraction fails.
     """
-    zip_path, member = resolve_cc_pdf_zip_path(file_name, zip_base_dir)
+    try:
+        zip_path, member = resolve_cc_pdf_zip_path(file_name, zip_base_dir)
+    except ValueError:
+        return None
     try:
         with zipfile.ZipFile(zip_path, "r") as zf:
             return zf.read(member)

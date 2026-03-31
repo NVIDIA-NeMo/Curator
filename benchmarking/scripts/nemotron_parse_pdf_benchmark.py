@@ -121,7 +121,6 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             "max_pages": args.max_pages,
             "inference_batch_size": args.inference_batch_size,
             "max_num_seqs": args.max_num_seqs,
-            "resume": args.resume,
         },
         "metrics": {
             "is_success": success,

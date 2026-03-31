@@ -71,7 +71,7 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
         pages = task.to_pandas()
         proc_size = tuple(task._metadata.get("proc_size", self.proc_size))
         model_path = task._metadata.get("model_path", "")
-        reorder = "v1.1" in model_path or "v1.2" not in model_path
+        reorder = "v1.1" in model_path
 
         all_rows: list[dict[str, Any]] = []
         for sample_id, sample_group in pages.groupby("sample_id", sort=False):

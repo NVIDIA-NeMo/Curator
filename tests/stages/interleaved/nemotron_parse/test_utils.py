@@ -20,11 +20,9 @@ import io
 import zipfile
 from typing import TYPE_CHECKING
 
-import pyarrow as pa
-
 if TYPE_CHECKING:
     from pathlib import Path
-import pyarrow.parquet as pq
+
 from PIL import Image
 
 from nemo_curator.stages.interleaved.nemotron_parse.utils import (
@@ -34,7 +32,6 @@ from nemo_curator.stages.interleaved.nemotron_parse.utils import (
     extract_pdf_from_zip,
     image_to_bytes,
     interleave_floaters,
-    load_completed_sample_ids,
     parse_nemotron_output,
     resolve_cc_pdf_zip_path,
 )
@@ -192,19 +189,3 @@ class TestCCPDFZipHelpers:
         assert result is None
 
 
-class TestLoadCompletedSampleIds:
-    def test_loads_from_parquet(self, tmp_path: Path):
-        table = pa.table({"sample_id": ["s1", "s2", "s3"]})
-        pq.write_table(table, tmp_path / "output.parquet")
-
-        ids = load_completed_sample_ids(str(tmp_path))
-        assert ids == {"s1", "s2", "s3"}
-
-    def test_empty_dir(self, tmp_path: Path):
-        ids = load_completed_sample_ids(str(tmp_path))
-        assert ids == set()
-
-    def test_ignores_bad_files(self, tmp_path: Path):
-        (tmp_path / "bad.parquet").write_text("not a parquet file")
-        ids = load_completed_sample_ids(str(tmp_path))
-        assert ids == set()
