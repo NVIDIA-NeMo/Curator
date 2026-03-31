@@ -32,11 +32,10 @@ from dataclasses import dataclass, field
 import torch
 from loguru import logger
 
+from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
-
-from nemo_curator.stages.audio.common import load_audio_file
 
 
 @dataclass
@@ -105,8 +104,8 @@ class MonoConversionStage(ProcessingStage[AudioTask, AudioTask]):
             task.data["duration"] = mono_waveform.shape[1] / sample_rate
             task.data["num_samples"] = mono_waveform.shape[1]
 
-            return task
-
         except (OSError, RuntimeError) as e:
             logger.error(f"Error processing {audio_filepath}: {e}")
             return []
+        else:
+            return task

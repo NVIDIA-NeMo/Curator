@@ -22,7 +22,6 @@ from nemo_curator.stages.audio.postprocessing.timestamp_mapper import (
 )
 from nemo_curator.tasks import AudioTask
 
-
 SAMPLE_MAPPINGS = [
     {
         "original_file": "/data/audio.wav",
@@ -51,7 +50,7 @@ SAMPLE_MAPPINGS = [
 ]
 
 
-def _make_task(item, mappings=None, task_id="test"):
+def _make_task(item: dict, mappings: list | None = None, task_id: str = "test") -> AudioTask:
     metadata = {}
     if mappings is not None:
         metadata["segment_mappings"] = mappings
@@ -65,7 +64,6 @@ def _make_task(item, mappings=None, task_id="test"):
 
 
 class TestTranslateToOriginal:
-
     def test_segment_within_single_mapping(self):
         results = _translate_to_original(SAMPLE_MAPPINGS, 500, 2500)
         assert len(results) == 1
@@ -108,7 +106,6 @@ class TestTranslateToOriginal:
 
 
 class TestTimestampMapperWithMappings:
-
     def test_single_segment_maps_correctly(self):
         stage = TimestampMapperStage()
         task = _make_task(
@@ -177,7 +174,6 @@ class TestTimestampMapperWithMappings:
 
 
 class TestTimestampMapperNoMappings:
-
     def test_no_mapping_uses_start_end_directly(self):
         stage = TimestampMapperStage()
         task = _make_task(
@@ -226,14 +222,17 @@ class TestTimestampMapperNoMappings:
 
 
 class TestPassthroughKeys:
-
     def test_default_passes_all_non_stripped_keys(self):
         stage = TimestampMapperStage()
         task = _make_task(
             {
-                "start_ms": 0, "end_ms": 3000,
-                "speaker_id": "speaker_0", "utmos_mos": 4.2,
-                "band_prediction": "full_band", "sample_rate": 48000, "is_mono": True,
+                "start_ms": 0,
+                "end_ms": 3000,
+                "speaker_id": "speaker_0",
+                "utmos_mos": 4.2,
+                "band_prediction": "full_band",
+                "sample_rate": 48000,
+                "is_mono": True,
             },
             mappings=SAMPLE_MAPPINGS,
         )
@@ -250,9 +249,13 @@ class TestPassthroughKeys:
         stage = TimestampMapperStage(passthrough_keys=["speaker_id", "utmos_mos"])
         task = _make_task(
             {
-                "start_ms": 0, "end_ms": 3000,
-                "speaker_id": "speaker_0", "utmos_mos": 4.2,
-                "band_prediction": "full_band", "sample_rate": 48000, "is_mono": True,
+                "start_ms": 0,
+                "end_ms": 3000,
+                "speaker_id": "speaker_0",
+                "utmos_mos": 4.2,
+                "band_prediction": "full_band",
+                "sample_rate": 48000,
+                "is_mono": True,
             },
             mappings=SAMPLE_MAPPINGS,
         )
@@ -278,7 +281,6 @@ class TestPassthroughKeys:
 
 
 class TestTimestampMapperParams:
-
     def test_default_passthrough_keys(self):
         stage = TimestampMapperStage()
         assert stage.passthrough_keys is None
@@ -289,7 +291,6 @@ class TestTimestampMapperParams:
 
 
 class TestEdgeCases:
-
     def test_none_values_not_passed_through(self):
         stage = TimestampMapperStage()
         task = _make_task(

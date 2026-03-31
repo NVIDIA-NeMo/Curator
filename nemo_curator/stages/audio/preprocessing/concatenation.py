@@ -38,16 +38,16 @@ from typing import Any
 import torch
 from loguru import logger
 
+from nemo_curator.stages.audio.common import ensure_waveform_2d
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
-
-from nemo_curator.stages.audio.common import ensure_waveform_2d
 
 
 @dataclass
 class SegmentMapping:
     """Mapping from concatenated position to original file position."""
+
     original_file: str
     original_start_ms: int
     original_end_ms: int
@@ -127,9 +127,28 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
             return (0, int(start), 0)
         return (0, 0, 0)
 
+    @staticmethod
+    def _validate_segment(seg: dict[str, Any]) -> tuple[torch.Tensor, int] | None:
+        """Validate and return (waveform, sample_rate) or None if invalid."""
+        waveform = seg.get("waveform")
+        sr = seg.get("sample_rate")
+        if waveform is None:
+            return None
+        seg_id = seg.get("segment_num", "?")
+        if sr is None:
+            logger.error(f"[SegmentConcat] Skipping segment {seg_id}: sample_rate key is missing.")
+            return None
+        if sr <= 0:
+            logger.warning(f"[SegmentConcat] Skipping segment {seg_id}: invalid sample_rate={sr}")
+            return None
+        return ensure_waveform_2d(waveform), sr
+
     def _concatenate(
-        self, original_file: str, segments: list[dict[str, Any]],
-        task_id: str, dataset_name: str,
+        self,
+        original_file: str,
+        segments: list[dict[str, Any]],
+        task_id: str,
+        dataset_name: str,
     ) -> AudioTask | None:
         """Concatenate a list of segment dicts from the same source file."""
         parts: list[torch.Tensor] = []
@@ -140,20 +159,11 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
         silence_duration_ms = int(self.silence_duration_sec * 1000)
 
         for seg in segments:
-            waveform = seg.get("waveform")
-            sr = seg.get("sample_rate")
-            if waveform is None:
+            validated = self._validate_segment(seg)
+            if validated is None:
                 continue
-            if sr is None:
-                seg_id = seg.get("segment_num", "?")
-                logger.error(f"[SegmentConcat] Skipping segment {seg_id}: sample_rate key is missing.")
-                continue
-            if sr <= 0:
-                seg_id = seg.get("segment_num", "?")
-                logger.warning(f"[SegmentConcat] Skipping segment {seg_id}: invalid sample_rate={sr}")
-                continue
+            waveform, sr = validated
 
-            waveform = ensure_waveform_2d(waveform)
             if parts and sr != sample_rate:
                 logger.warning(
                     f"[SegmentConcat] Sample rate mismatch: "
@@ -212,10 +222,7 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
             "total_duration_sec": total_duration_sec,
         }
 
-        logger.info(
-            f"[SegmentConcat] {original_file}: "
-            f"{len(mappings)} segments -> {total_duration_sec:.2f}s combined"
-        )
+        logger.info(f"[SegmentConcat] {original_file}: {len(mappings)} segments -> {total_duration_sec:.2f}s combined")
 
         result_task = AudioTask(
             data=output_data,

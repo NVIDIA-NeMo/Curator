@@ -25,18 +25,16 @@ MOCK_EXISTS = "nemo_curator.stages.audio.preprocessing.mono_conversion.os.path.e
 
 
 class TestMonoConversionStage:
-
     def test_process_stereo_to_mono(self, tmp_path: Path) -> None:
         wav = tmp_path / "stereo.wav"
         wav.touch()
 
         stereo = torch.randn(2, 48000)
 
-        with patch(MOCK_TARGET, return_value=(stereo, 48000)):
-            with patch(MOCK_EXISTS, return_value=True):
-                stage = MonoConversionStage(output_sample_rate=48000)
-                task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
-                result = stage.process(task)
+        with patch(MOCK_TARGET, return_value=(stereo, 48000)), patch(MOCK_EXISTS, return_value=True):
+            stage = MonoConversionStage(output_sample_rate=48000)
+            task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
+            result = stage.process(task)
 
         assert isinstance(result, AudioTask)
         assert result.data["is_mono"] is True
@@ -51,11 +49,10 @@ class TestMonoConversionStage:
 
         mono = torch.randn(1, 16000)
 
-        with patch(MOCK_TARGET, return_value=(mono, 48000)):
-            with patch(MOCK_EXISTS, return_value=True):
-                stage = MonoConversionStage(output_sample_rate=48000)
-                task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
-                result = stage.process(task)
+        with patch(MOCK_TARGET, return_value=(mono, 48000)), patch(MOCK_EXISTS, return_value=True):
+            stage = MonoConversionStage(output_sample_rate=48000)
+            task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
+            result = stage.process(task)
 
         assert isinstance(result, AudioTask)
         assert result.data["waveform"].shape[0] == 1
@@ -67,11 +64,10 @@ class TestMonoConversionStage:
 
         audio = torch.randn(1, 22050)
 
-        with patch(MOCK_TARGET, return_value=(audio, 22050)):
-            with patch(MOCK_EXISTS, return_value=True):
-                stage = MonoConversionStage(output_sample_rate=48000, strict_sample_rate=True)
-                task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
-                result = stage.process(task)
+        with patch(MOCK_TARGET, return_value=(audio, 22050)), patch(MOCK_EXISTS, return_value=True):
+            stage = MonoConversionStage(output_sample_rate=48000, strict_sample_rate=True)
+            task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
+            result = stage.process(task)
 
         assert result == []
 
@@ -81,11 +77,10 @@ class TestMonoConversionStage:
 
         audio = torch.randn(1, 22050)
 
-        with patch(MOCK_TARGET, return_value=(audio, 22050)):
-            with patch(MOCK_EXISTS, return_value=True):
-                stage = MonoConversionStage(output_sample_rate=48000, strict_sample_rate=False)
-                task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
-                result = stage.process(task)
+        with patch(MOCK_TARGET, return_value=(audio, 22050)), patch(MOCK_EXISTS, return_value=True):
+            stage = MonoConversionStage(output_sample_rate=48000, strict_sample_rate=False)
+            task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
+            result = stage.process(task)
 
         assert isinstance(result, AudioTask)
         assert result.data["sample_rate"] == 22050
@@ -106,10 +101,9 @@ class TestMonoConversionStage:
         wav = tmp_path / "corrupt.wav"
         wav.touch()
 
-        with patch(MOCK_TARGET, side_effect=RuntimeError("bad file")):
-            with patch(MOCK_EXISTS, return_value=True):
-                stage = MonoConversionStage()
-                task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
-                result = stage.process(task)
+        with patch(MOCK_TARGET, side_effect=RuntimeError("bad file")), patch(MOCK_EXISTS, return_value=True):
+            stage = MonoConversionStage()
+            task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
+            result = stage.process(task)
 
         assert result == []

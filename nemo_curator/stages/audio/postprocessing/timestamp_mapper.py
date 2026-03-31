@@ -48,16 +48,16 @@ def _translate_to_original(
                 continue
             start_offset = overlap_start - m["concat_start_ms"]
             end_offset = overlap_end - m["concat_start_ms"]
-            results.append({
-                "original_file": m["original_file"],
-                "original_start_ms": m["original_start_ms"] + start_offset,
-                "original_end_ms": m["original_start_ms"] + end_offset,
-                "duration_ms": duration,
-            })
-        except KeyError as e:
-            logger.warning(
-                f"[TimestampMapper] Skipping malformed mapping (missing key {e}): {m}"
+            results.append(
+                {
+                    "original_file": m["original_file"],
+                    "original_start_ms": m["original_start_ms"] + start_offset,
+                    "original_end_ms": m["original_start_ms"] + end_offset,
+                    "duration_ms": duration,
+                }
             )
+        except KeyError as e:
+            logger.warning(f"[TimestampMapper] Skipping malformed mapping (missing key {e}): {m}")
             continue
     return results
 
@@ -81,11 +81,17 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
-    _STRIP_KEYS = frozenset({
-        "waveform", "audio", "audio_filepath",
-        "start_ms", "end_ms", "segment_num",
-        "original_file",
-    })
+    _STRIP_KEYS = frozenset(
+        {
+            "waveform",
+            "audio",
+            "audio_filepath",
+            "start_ms",
+            "end_ms",
+            "segment_num",
+            "original_file",
+        }
+    )
 
     def __post_init__(self):
         super().__init__()
@@ -94,8 +100,7 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["original_file", "original_start_ms", "original_end_ms",
-                     "duration_ms", "duration_sec"]
+        return [], ["original_file", "original_start_ms", "original_end_ms", "duration_ms", "duration_sec"]
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         mappings = (task._metadata or {}).get("segment_mappings")
@@ -106,8 +111,7 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
             concat_end = item.get("end_ms", 0)
             if concat_end <= concat_start:
                 logger.warning(
-                    f"[TimestampMapper] Skipping task with invalid range: "
-                    f"start_ms={concat_start}, end_ms={concat_end}"
+                    f"[TimestampMapper] Skipping task with invalid range: start_ms={concat_start}, end_ms={concat_end}"
                 )
                 return []
             original_ranges = _translate_to_original(mappings, concat_start, concat_end)

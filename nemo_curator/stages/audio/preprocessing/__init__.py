@@ -22,12 +22,12 @@ These stages prepare audio for further processing:
 Example:
     from nemo_curator.pipeline import Pipeline
     from nemo_curator.stages.audio.preprocessing import MonoConversionStage
-    
+
     pipeline = Pipeline(name="preprocessing_pipeline")
     pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
 """
 
-from .mono_conversion import MonoConversionStage
 from .concatenation import SegmentConcatenationStage
+from .mono_conversion import MonoConversionStage
 
 __all__ = ["MonoConversionStage", "SegmentConcatenationStage"]
