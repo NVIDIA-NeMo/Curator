@@ -49,7 +49,6 @@ class Resources:
     nvencs: int = 0
     entire_gpu: bool = False
     gpus: float = 0.0
-    host_memory_gb: float = 0.0
 
     def __post_init__(self):
         """Calculate GPU count based on memory requirements."""

@@ -148,25 +148,17 @@ class RayActorPoolExecutor(BaseExecutor):
             logger.info("Shutting down Ray to clean up all resources...")
             ray.shutdown()
 
-    @staticmethod
-    def _actor_options(stage: "ProcessingStage", name: str) -> dict:
-        """Build ``ray.remote().options(...)`` kwargs from stage resources."""
-        opts: dict = {
-            "num_cpus": stage.resources.cpus,
-            "num_gpus": stage.resources.gpus,
-            "name": name,
-        }
-        if stage.resources.host_memory_gb > 0:
-            opts["memory"] = int(stage.resources.host_memory_gb * (1024**3))
-        return opts
-
     def _create_actor_pool(self, stage: "ProcessingStage", num_actors: int) -> ActorPool:
         """Create an ActorPool for a specific stage."""
         actors = []
         for i in range(num_actors):
             actor = (
                 create_named_ray_actor_pool_stage_adapter(stage, RayActorPoolStageAdapter)
-                .options(**self._actor_options(stage, f"{stage.name}-{i}"))
+                .options(
+                    num_cpus=stage.resources.cpus,
+                    num_gpus=stage.resources.gpus,
+                    name=f"{stage.name}-{i}",
+                )
                 .remote(stage)
             )
             actors.append(actor)
@@ -182,7 +174,11 @@ class RayActorPoolExecutor(BaseExecutor):
         for actor_idx in range(num_actors):
             actor = (
                 create_named_ray_actor_pool_stage_adapter(stage, RayActorPoolRAFTAdapter)
-                .options(**self._actor_options(stage, f"{stage.name}Actor-{actor_idx}"))
+                .options(
+                    num_cpus=stage.resources.cpus,
+                    num_gpus=stage.resources.gpus,
+                    name=f"{stage.name}Actor-{actor_idx}",
+                )
                 .remote(
                     stage=stage,
                     index=actor_idx,
