@@ -86,7 +86,7 @@ New API for tracking and analyzing pipeline execution:
 
 ### Image Curation
 
-- **Optimized Batch Sizes**: Reduced default batch sizes for better CPU memory usage (batch_size=50, num_threads=4)
+- **Optimized Batch Sizes**: Reduced default batch sizes for better CPU memory usage (`batch_size=50`, `num_threads=4`)
 - **Memory Guidance**: Added troubleshooting documentation for out-of-memory errors
 - **Tutorial Improvements**: Updated examples optimized for typical GPU configurations
 
