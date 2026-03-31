@@ -63,30 +63,7 @@ pipeline.run(executor)
 
 ### VLLMEmbeddingModelStage (For Large Models)
 
-```python
-from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.io.reader import ParquetReader
-from nemo_curator.stages.text.io.writer import ParquetWriter
-
-pipeline = Pipeline(
-    name="vllm_embeddings",
-    stages=[
-        ParquetReader(file_paths="input_data/", files_per_partition=1, fields=["text"]),
-        VLLMEmbeddingModelStage(
-            model_identifier="google/gemma-embedding-model",
-            text_field="text",
-            embedding_field="embeddings",
-            pretokenize=True,  # Recommended for best throughput
-        ),
-        ParquetWriter(path="output/", fields=["text", "embeddings"]),
-    ],
-)
-
-executor = XennaExecutor()
-pipeline.run(executor)
-```
+For large embedding models (>500M parameters), use `VLLMEmbeddingModelStage` for better GPU utilization and throughput. See the [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder) guide for setup, configuration, and code examples.
 
 ---
 

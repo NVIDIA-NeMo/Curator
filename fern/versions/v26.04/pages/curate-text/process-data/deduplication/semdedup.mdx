@@ -184,33 +184,12 @@ workflow = TextSemanticDeduplicationWorkflow(
 
 For large embedding models, you can generate embeddings separately using `VLLMEmbeddingModelStage` before running the deduplication workflow. This provides better GPU utilization and throughput for models with 500M+ parameters. See [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder) for details.
 
+Generate embeddings with `VLLMEmbeddingModelStage` using the [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder) pipeline, then pass the output to `SemanticDeduplicationWorkflow`:
+
 ```python
-from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
 from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.io.reader import ParquetReader
-from nemo_curator.stages.text.io.writer import ParquetWriter
 
-executor = XennaExecutor()
-
-# Step 1: Generate embeddings with vLLM
-embedding_pipeline = Pipeline(
-    name="vllm_embedding_pipeline",
-    stages=[
-        ParquetReader(file_paths=input_path, files_per_partition=1, fields=["text"], _generate_ids=True),
-        VLLMEmbeddingModelStage(
-            model_identifier="large-embedding-model",
-            text_field="text",
-            embedding_field="embeddings",
-            pretokenize=True,
-        ),
-        ParquetWriter(path=embedding_output_path, fields=["_curator_dedup_id", "embeddings"]),
-    ],
-)
-embedding_pipeline.run(executor)
-
-# Step 2: Run deduplication on pre-computed embeddings
+# After generating embeddings to embedding_output_path using VLLMEmbeddingModelStage
 semantic_workflow = SemanticDeduplicationWorkflow(
     input_path=embedding_output_path,
     output_path=output_path,
