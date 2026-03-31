@@ -20,6 +20,16 @@ Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and i
 - **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
 - **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
 
+### ScoreFilter Benchmark Metrics (PR #1385)
+
+ScoreFilter benchmarks now track document-level metrics, making it easier to understand how filtering stages affect your dataset:
+
+- **`num_documents_processed`**: Total number of documents read into the pipeline.
+- **`num_kept_documents`**: Number of documents that passed all filter stages.
+- **`throughput_docs_per_sec`**: Processing throughput in documents per second.
+
+These metrics are collected per stage through `StagePerfStats.num_items_processed` and aggregated across pipeline tasks. Both heuristic and model-based (Xenna) score filter benchmarks report these metrics automatically.
+
 ## Dependency Updates
 
 - **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
