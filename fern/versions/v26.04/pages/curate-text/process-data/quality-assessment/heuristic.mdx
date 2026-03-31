@@ -489,9 +489,9 @@ reader = JsonlReader(
 
 ## Pipeline Metrics
 
-When you run a filtering pipeline, each stage tracks how many documents it processes. You can use these metrics to understand how each filter affects your dataset and to tune thresholds.
+When you run a filtering pipeline, each stage tracks the number of documents it processes. You can use these metrics to understand how each filter affects your dataset and to tune thresholds.
 
-After calling `pipeline.run()`, the returned task objects contain per-stage performance statistics via `_stage_perf`. Each entry is a `StagePerfStats` object with a `num_items_processed` field that records how many documents passed through that stage.
+After calling `pipeline.run()`, the returned task objects contain per-stage performance statistics through `_stage_perf`. Each entry is a `StagePerfStats` object with a `num_items_processed` field that records how many documents passed through that stage.
 
 ```python
 # Run the pipeline and inspect filter metrics
