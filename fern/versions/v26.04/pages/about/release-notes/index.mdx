@@ -29,7 +29,7 @@ Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and i
 
 ### Audio Stage Name Propagation (PR #1470)
 
-Fixed a bug where audio pipeline stage names were not propagated in `StagePerfStats`, making benchmark output unable to identify per-stage timing. All audio stages (`GetAudioDurationStage`, `PreserveByValueStage`, `AudioToDocumentStage`, `GetPairwiseWerStage`) now correctly report their names, and stage performance history is preserved when stages create new task objects.
+Fixed audio pipeline stage names not propagating in `StagePerfStats`, making benchmark output unable to identify per-stage timing. All audio stages (`GetAudioDurationStage`, `PreserveByValueStage`, `AudioToDocumentStage`, `GetPairwiseWerStage`) now correctly report their names, and stage performance history persists when stages create new task objects.
 
 ## Breaking Changes
 
