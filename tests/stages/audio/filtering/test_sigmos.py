@@ -54,7 +54,7 @@ class TestSIGMOSFilterStage:
     def test_process_passes_good_scores(self, mock_ensure: MagicMock) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
 
-        def fake_predict(_audio_data: object, _sample_rate: int, _model_path: str | None = None) -> dict:
+        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
             return _GOOD_SCORES
 
         stage._predict_audio_mos = fake_predict
@@ -69,7 +69,7 @@ class TestSIGMOSFilterStage:
     def test_process_rejects_bad_scores(self, mock_ensure: MagicMock) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
 
-        def fake_predict(_audio_data: object, _sample_rate: int, _model_path: str | None = None) -> dict:
+        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
             return _BAD_SCORES
 
         stage._predict_audio_mos = fake_predict
@@ -90,7 +90,7 @@ class TestSIGMOSFilterStage:
             reverb_threshold=None,
         )
 
-        def fake_predict(_audio_data: object, _sample_rate: int, _model_path: str | None = None) -> dict:
+        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
             return _BAD_SCORES
 
         stage._predict_audio_mos = fake_predict
@@ -103,7 +103,7 @@ class TestSIGMOSFilterStage:
     def test_partial_threshold_fail(self, mock_ensure: MagicMock) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=None)
 
-        def fake_predict(_audio_data: object, _sample_rate: int, _model_path: str | None = None) -> dict:
+        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
             return {
                 "MOS_NOISE": 3.0,
                 "MOS_OVRL": 5.0,
@@ -124,7 +124,7 @@ class TestSIGMOSFilterStage:
     def test_sigmos_output_keys(self, mock_ensure: MagicMock) -> None:
         stage = SIGMOSFilterStage(noise_threshold=1.0, ovrl_threshold=1.0)
 
-        def fake_predict(_audio_data: object, _sample_rate: int, _model_path: str | None = None) -> dict:
+        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
             return _GOOD_SCORES
 
         stage._predict_audio_mos = fake_predict
@@ -168,7 +168,7 @@ class TestSIGMOSFilterStage:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
         call_count = {"n": 0}
 
-        def fake_predict(_audio_data: object, _sample_rate: int, _model_path: str | None = None) -> dict:
+        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
             call_count["n"] += 1
             if call_count["n"] % 2 == 1:
                 return _GOOD_SCORES
@@ -196,7 +196,7 @@ class TestSIGMOSFilterStage:
         """Nested segments: when all fail thresholds, return []."""
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
 
-        def fake_predict(_audio_data: object, _sample_rate: int, _model_path: str | None = None) -> dict:
+        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
             return _BAD_SCORES
 
         stage._predict_audio_mos = fake_predict
