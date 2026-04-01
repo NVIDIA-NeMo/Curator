@@ -79,7 +79,7 @@ from nemo_curator.core.client import RayClient, SlurmRayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
-from nemo_curator.stages.interleaved.nemotron_parse import NemotronParsePDFReader
+from nemo_curator.stages.interleaved.pdf.nemotron_parse import NemotronParsePDFReader
 from nemo_curator.tasks import FileGroupTask
 
 

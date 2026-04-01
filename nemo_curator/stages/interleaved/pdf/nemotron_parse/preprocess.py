@@ -27,7 +27,7 @@ import pyarrow as pa
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.interleaved.nemotron_parse.utils import (
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
     extract_pdf_from_jsonl,
     extract_pdf_from_zip,
     extract_pdfs_from_jsonl_batch,
@@ -184,8 +184,10 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         if proc.is_alive():
             proc.kill()
             proc.join()
-            logger.warning(f"Render timed out ({self._RENDER_TIMEOUT_S}s) for {file_name}, skipping")
-            return []
+            if not pages:
+                logger.warning(f"Render timed out ({self._RENDER_TIMEOUT_S}s) for {file_name}, skipping")
+                return []
+            logger.debug(f"Forcibly cleaned up render process for {file_name} (result was obtained)")
         return pages
 
     def process(self, task: FileGroupTask) -> InterleavedBatch | None:

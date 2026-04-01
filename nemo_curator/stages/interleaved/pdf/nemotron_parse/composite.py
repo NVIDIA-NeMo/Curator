@@ -19,13 +19,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.stages.interleaved.nemotron_parse.inference import (
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
     DEFAULT_MODEL_PATH,
     NemotronParseInferenceStage,
 )
-from nemo_curator.stages.interleaved.nemotron_parse.partitioning import PDFPartitioningStage
-from nemo_curator.stages.interleaved.nemotron_parse.postprocess import NemotronParsePostprocessStage
-from nemo_curator.stages.interleaved.nemotron_parse.preprocess import PDFPreprocessStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
 from nemo_curator.tasks import InterleavedBatch, _EmptyTask
 
 
@@ -80,7 +80,7 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
         JSONL field containing the source URL.
     """
 
-    manifest_path: str
+    manifest_path: str | None = None
     zip_base_dir: str | None = None
     pdf_dir: str | None = None
     jsonl_base_dir: str | None = None
@@ -102,6 +102,8 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
 
     def __post_init__(self) -> None:
         super().__init__()
+        if self.manifest_path is None:
+            raise ValueError("manifest_path is required")
         self._partitioner = PDFPartitioningStage(
             manifest_path=self.manifest_path,
             pdfs_per_task=self.pdfs_per_task,

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 from PIL import Image
 
-from nemo_curator.stages.interleaved.nemotron_parse.utils import (
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
     build_canvas,
     build_interleaved_rows,
     crop_to_bbox,

@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.interleaved.nemotron_parse.composite import NemotronParsePDFReader
-from nemo_curator.stages.interleaved.nemotron_parse.inference import NemotronParseInferenceStage
-from nemo_curator.stages.interleaved.nemotron_parse.partitioning import PDFPartitioningStage
-from nemo_curator.stages.interleaved.nemotron_parse.postprocess import NemotronParsePostprocessStage
-from nemo_curator.stages.interleaved.nemotron_parse.preprocess import PDFPreprocessStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.composite import NemotronParsePDFReader
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
 
 __all__ = [
     "NemotronParseInferenceStage",
