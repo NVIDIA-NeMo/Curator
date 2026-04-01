@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,35 +15,79 @@
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
-def test_preserve_by_value_eq_operator() -> None:
+def test_preserve_by_value_validate_input_valid() -> None:
+    stage = PreserveByValueStage(input_value_key="wer", target_value=50, operator="le")
+    assert stage.validate_input(AudioTask(data={"wer": 30})) is True
+
+
+def test_preserve_by_value_validate_input_missing_column() -> None:
+    stage = PreserveByValueStage(input_value_key="wer", target_value=50, operator="le")
+    assert stage.validate_input(AudioTask(data={"text": "hello"})) is False
+
+
+def test_get_audio_duration_validate_input_valid() -> None:
+    stage = GetAudioDurationStage()
+    assert stage.validate_input(AudioTask(data={"audio_filepath": "/a.wav"})) is True
+
+
+def test_get_audio_duration_validate_input_missing_column() -> None:
+    stage = GetAudioDurationStage()
+    assert stage.validate_input(AudioTask(data={"text": "hello"})) is False
+
+
+def test_get_audio_duration_process_batch_raises_on_missing_column() -> None:
+    stage = GetAudioDurationStage()
+    stage.setup()
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([AudioTask(data={"text": "hello"})])
+
+
+def test_preserve_by_value_process_raises_not_implemented() -> None:
     stage = PreserveByValueStage(input_value_key="v", target_value=3, operator="eq")
-    batch = AudioBatch(data=[{"v": 1}, {"v": 3}, {"v": 5}])
-    out = stage.process(batch)
-    assert len(out) == 1
-    assert isinstance(out[0], AudioBatch)
-    assert out[0].data[0]["v"] == 3
+    with pytest.raises(NotImplementedError, match="only supports process_batch"):
+        stage.process(AudioTask(data={"v": 3}))
 
 
-def test_preserve_by_value_comparators() -> None:
-    # lt
+def test_preserve_by_value_process_batch_raises_on_missing_column() -> None:
+    stage = PreserveByValueStage(input_value_key="wer", target_value=50, operator="le")
+    with pytest.raises(ValueError, match="failed validation"):
+        stage.process_batch([AudioTask(data={"text": "hello"})])
+
+
+def test_preserve_by_value_eq_keeps_match() -> None:
+    stage = PreserveByValueStage(input_value_key="v", target_value=3, operator="eq")
+    result = stage.process_batch([AudioTask(data={"v": 3})])
+    assert len(result) == 1
+    assert isinstance(result[0], AudioTask)
+    assert result[0].data["v"] == 3
+
+
+def test_preserve_by_value_eq_filters_non_match() -> None:
+    stage = PreserveByValueStage(input_value_key="v", target_value=3, operator="eq")
+    result = stage.process_batch([AudioTask(data={"v": 1})])
+    assert len(result) == 0
+
+
+def test_preserve_by_value_lt() -> None:
     stage = PreserveByValueStage(input_value_key="v", target_value=5, operator="lt")
-    out = stage.process(AudioBatch(data=[{"v": 2}, {"v": 7}]))
-    assert len(out) == 1
-    assert out[0].data[0]["v"] == 2
+    assert len(stage.process_batch([AudioTask(data={"v": 2})])) == 1
+    assert len(stage.process_batch([AudioTask(data={"v": 7})])) == 0
 
-    # ge
+
+def test_preserve_by_value_ge() -> None:
     stage = PreserveByValueStage(input_value_key="v", target_value=10, operator="ge")
-    out = stage.process(AudioBatch(data=[{"v": 9}, {"v": 10}, {"v": 11}]))
-    kept = [o.data[0]["v"] for o in out]
-    assert kept == [10, 11]
+    assert len(stage.process_batch([AudioTask(data={"v": 9})])) == 0
+    assert len(stage.process_batch([AudioTask(data={"v": 10})])) == 1
+    assert len(stage.process_batch([AudioTask(data={"v": 11})])) == 1
 
 
 def test_get_audio_duration_success(tmp_path: Path) -> None:
-    # Mock soundfile.read to return object with shape[0] like numpy array
     class FakeArray:
         def __init__(self, length: int):
             self.shape = (length,)
@@ -53,10 +97,10 @@ def test_get_audio_duration_success(tmp_path: Path) -> None:
     with mock.patch("soundfile.read", return_value=(fake_samples, fake_sr)):
         stage = GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration")
         stage.setup()
-        entry = {"audio_filepath": (tmp_path / "fake.wav").as_posix()}
-        out = stage.process(AudioBatch(data=[entry]))
-        assert len(out) == 1
-        assert out[0].data[0]["duration"] == 2.0
+        entry = AudioTask(data={"audio_filepath": (tmp_path / "fake.wav").as_posix()})
+        result = stage.process(entry)
+        assert isinstance(result, AudioTask)
+        assert result.data["duration"] == 2.0
 
 
 def test_get_audio_duration_error_sets_minus_one(tmp_path: Path) -> None:
@@ -69,6 +113,6 @@ def test_get_audio_duration_error_sets_minus_one(tmp_path: Path) -> None:
     ):
         stage = GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration")
         stage.setup()
-        entry = {"audio_filepath": (tmp_path / "missing.wav").as_posix()}
-        out = stage.process(AudioBatch(data=[entry]))
-        assert out[0].data[0]["duration"] == -1.0
+        entry = AudioTask(data={"audio_filepath": (tmp_path / "missing.wav").as_posix()})
+        result = stage.process(entry)
+        assert result.data["duration"] == -1.0

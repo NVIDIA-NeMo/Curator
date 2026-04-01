@@ -68,6 +68,7 @@ RUN bash install_ffmpeg.sh && \
 FROM nemo_curator_dep AS nemo_curator
 
 ARG CURATOR_EXTRA=all
+ARG CURATOR_GROUPS="--all-groups"
 WORKDIR /opt/Curator
 
 # Selective file copying before dependency installation for better layer caching
@@ -75,7 +76,7 @@ COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
 # Install Curator
-RUN uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} --all-groups --no-cache && \
+RUN uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache && \
     find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} +
 
 COPY . /opt/Curator
