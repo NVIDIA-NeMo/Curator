@@ -192,6 +192,10 @@ Fixed out-of-memory errors during long-running jusText extraction jobs caused by
 
 Fixed a `RuntimeError: Cannot re-initialize CUDA in forked subprocess` error that occurred when running vLLM stages with `RayDataExecutor`. The vLLM auto-detection for `spawn` versus `fork` multiprocessing only triggers inside Ray actors, not Ray tasks. The `RayDataExecutor.execute_setup_on_node` method dispatches `setup_on_node` as a remote task, so vLLM previously defaulted to `fork` and caused a CUDA reinitialization error. Fixed by setting `VLLM_WORKER_MULTIPROC_METHOD=spawn` in the remote task.
 
+### Video vLLM Setup Race Condition (PR #1590)
+
+Fixed a race condition in video captioning stages (`CaptionGenerationStage` and `CaptionEnhancementStage`) where multiple workers simultaneously initializing vLLM caused a `FileNotFoundError` from the shared `torch.compile` cache directory. vLLM initialization now runs inside `setup_on_node` so the cache directory is created once per node, matching the pattern that text vLLM stages already use.
+
 ### Audio Stage Name Propagation (PR #1470)
 
 Fixed audio pipeline stage names not propagating in `StagePerfStats`, making benchmark output unable to identify per-stage timing. All audio stages (`GetAudioDurationStage`, `PreserveByValueStage`, `AudioToDocumentStage`, `GetPairwiseWerStage`) now correctly report their names, and stage performance history persists when stages create new task objects.
