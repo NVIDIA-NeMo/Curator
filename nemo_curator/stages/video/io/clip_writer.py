@@ -352,11 +352,11 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
                 "start_frame": window.start_frame,
                 "end_frame": window.end_frame,
             }
-            for model in self.caption_models or []:
+            for model in self.caption_models:
                 if model in window.caption:
                     curr_window[f"{model}_caption"] = window.caption[model]
                     has_caption = True
-            for model in self.enhanced_caption_models or []:
+            for model in self.enhanced_caption_models:
                 if model in window.enhanced_caption:
                     curr_window[f"{model}_enhanced_caption"] = window.enhanced_caption[model]
             data["windows"].append(curr_window)
@@ -415,12 +415,12 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
             for window in clip.windows:
                 window_key = f"{window.start_frame}_{window.end_frame}"
                 # Try each caption model in order, using the first one available.
-                for model in self.caption_models or []:
+                for model in self.caption_models:
                     if model in window.caption:
                         data["all_windows"][clip_uuid][window_key] = window.caption[model]
                         break
                 # Try each enhanced caption model in order, using the first one found.
-                for model in self.enhanced_caption_models or []:
+                for model in self.enhanced_caption_models:
                     if model in window.enhanced_caption:
                         data["all_windows_enhanced_caption"][clip_uuid][window_key] = window.enhanced_caption[model]
                         break

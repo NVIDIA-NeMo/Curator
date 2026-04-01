@@ -79,7 +79,7 @@ class CosmosEmbed1(ModelInterface):
         """
         logger.info("Setting up Cosmos-Embed1 model")
         if not Path(self._weights_dir).exists():
-            exception = rf"Weights directory {self._weights_dir} not found\!"
+            exception = f"Weights directory {self._weights_dir} not found!"
             raise FileNotFoundError(exception)
         if not self._utils_only:
             self._model = AutoModel.from_pretrained(
