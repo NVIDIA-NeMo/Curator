@@ -42,10 +42,9 @@ def _basename_and_ext(path: str) -> tuple[str, str]:
     return root, ext
 
 
-def _join_out_path(output_path: str, filename: str, storage_options: dict[str, Any] | None) -> str:
+def _join_out_path(output_path: str, filename: str, storage_options: dict[str, Any] = {}) -> str:
     """Join output directory and filename using the target filesystem (local or remote)."""
-    so = _storage_options(storage_options)
-    fs, root = url_to_fs(str(output_path), **so)
+    fs, root = url_to_fs(str(output_path), **storage_options)
     joined = fs.sep.join([root.rstrip(fs.sep), filename])
     return fs.unstrip_protocol(joined) if is_remote_url(str(output_path)) else joined
 
@@ -64,20 +63,10 @@ def _split_table(table: pa.Table, target_size: int) -> list[pa.Table]:
     return results
 
 
-def _write_table_to_file(  # noqa: PLR0913
-    table: pa.Table,
-    output_path: str,
-    output_prefix: str,
-    ext: str,
-    file_idx: int,
-    storage_options: dict[str, Any] | None,
-) -> int:
-    output_file = _join_out_path(output_path, f"{output_prefix}_{file_idx}{ext}", storage_options)
-    so = _storage_options(storage_options)
-    with fsspec.open(output_file, "wb", **so) as out_f:
+def _write_table_to_file(table: pa.Table, output_file: str, storage_options: dict[str, Any] = {}) -> None:
+    with fsspec.open(output_file, "wb", **storage_options) as out_f:
         pq.write_table(table, out_f)
-    logger.debug(f"Saved {output_file} (~{table.nbytes / (1024 * 1024):.2f} MB)")
-    return file_idx + 1
+    logger.debug("Saved {} (~{:.2f} MB)", output_file, table.nbytes / (1024 * 1024))
 
 
 @ray.remote
@@ -89,12 +78,12 @@ def split_parquet_file_by_size(
         ext = ".parquet"
     outfile_prefix = root
 
-    logger.info(f"""Splitting parquet file...
-
-Input file: {input_file}
-Output directory: {output_path}
-Target size: {target_size_mb} MB
-""")
+    logger.info(
+        "Splitting parquet file...\n\nInput file: {}\nOutput directory: {}\nTarget size: {} MB\n",
+        input_file,
+        output_path,
+        target_size_mb,
+    )
 
     so = _storage_options(storage_options)
     with fsspec.open(str(input_file), "rb", **so) as in_f:
@@ -117,14 +106,9 @@ Target size: {target_size_mb} MB
                     # Large row group case. Split into smaller chunks to get below target size.
                     chunks = _split_table(row_group, target_size=target_size_bytes)
                     for chunk in chunks:
-                        file_idx = _write_table_to_file(
-                            chunk,
-                            output_path=output_path,
-                            output_prefix=outfile_prefix,
-                            ext=ext,
-                            file_idx=file_idx,
-                            storage_options=storage_options,
-                        )
+                        out_file = _join_out_path(output_path, f"{outfile_prefix}_{file_idx}{ext}", so)
+                        _write_table_to_file(chunk, out_file, so)
+                        file_idx += 1
                     row_group_idx += 1
                 elif row_group.nbytes + current_size > target_size_bytes:
                     # Adding the current row group will push over the desired target size, so
@@ -137,34 +121,17 @@ Target size: {target_size_mb} MB
                     row_group_idx += 1
 
             if row_groups_to_write:
-                sub_table = pa.concat_tables(row_groups_to_write)
-                file_idx = _write_table_to_file(
-                    sub_table,
-                    output_path=output_path,
-                    output_prefix=outfile_prefix,
-                    ext=ext,
-                    file_idx=file_idx,
-                    storage_options=storage_options,
-                )
+                sub_table = row_groups_to_write[0] if len(row_groups_to_write) == 1 else pa.concat_tables(row_groups_to_write)
+                out_file = _join_out_path(output_path, f"{outfile_prefix}_{file_idx}{ext}", so)
+                _write_table_to_file(sub_table, out_file, so)
+                file_idx += 1
 
 
-def _flush_jsonl_chunk(  # noqa: PLR0913
-    lines: list[bytes],
-    output_path: str,
-    outfile_prefix: str,
-    ext: str,
-    file_idx: int,
-    storage_options: dict[str, Any] | None,
-) -> tuple[list[bytes], int]:
-    if not lines:
-        return lines, file_idx
-    output_file = _join_out_path(output_path, f"{outfile_prefix}_{file_idx}{ext}", storage_options)
-    so = _storage_options(storage_options)
-    with fsspec.open(output_file, "wb", **so) as out_f:
+def _flush_jsonl_chunk(lines: list[bytes], output_file: str, storage_options: dict[str, Any] = {}) -> None:
+    with fsspec.open(output_file, "wb", **storage_options) as out_f:
         out_f.writelines(lines)
     nbytes = sum(len(line) for line in lines)
-    logger.debug(f"Saved {output_file} (~{nbytes / (1024 * 1024):.2f} MB)")
-    return [], file_idx + 1
+    logger.debug("Saved {} (~{:.2f} MB)", output_file, nbytes / (1024 * 1024))
 
 
 @ray.remote
@@ -178,12 +145,12 @@ def split_jsonl_file_by_size(
         ext = ".jsonl"
     outfile_prefix = root
 
-    logger.info(f"""Splitting jsonl file...
-
-Input file: {input_file}
-Output directory: {output_path}
-Target size: {target_size_mb} MB
-""")
+    logger.info(
+        "Splitting jsonl file...\n\nInput file: {}\nOutput directory: {}\nTarget size: {} MB\n",
+        input_file,
+        output_path,
+        target_size_mb,
+    )
 
     target_size_bytes = target_size_mb * 1024 * 1024
     file_idx = 0
@@ -195,30 +162,36 @@ Target size: {target_size_mb} MB
         for line in in_f:
             line_len = len(line)
             if line_len > target_size_bytes:
-                chunk_lines, file_idx = _flush_jsonl_chunk(
-                    chunk_lines, output_path, outfile_prefix, ext, file_idx, storage_options
-                )
-                output_file = _join_out_path(output_path, f"{outfile_prefix}_{file_idx}{ext}", storage_options)
-                with fsspec.open(output_file, "wb", **so) as out_f:
-                    out_f.write(line)
+                if chunk_lines:
+                    out_file = _join_out_path(output_path, f"{outfile_prefix}_{file_idx}{ext}", so)
+                    _flush_jsonl_chunk(chunk_lines, out_file, so)
+                    chunk_lines = []
+                    chunk_bytes = 0
+                    file_idx += 1
+                output_file = _join_out_path(output_path, f"{outfile_prefix}_{file_idx}{ext}", so)
+                _flush_jsonl_chunk([line], output_file, so)
                 logger.warning(
-                    f"Single line ({line_len} bytes) exceeds target ({target_size_bytes} bytes); "
-                    f"wrote as its own shard: {output_file}"
+                    "Single line ({} bytes) exceeds target ({} bytes); wrote as its own shard: {}",
+                    line_len,
+                    target_size_bytes,
+                    output_file,
                 )
                 file_idx += 1
-                chunk_bytes = 0
                 continue
 
             if chunk_bytes + line_len > target_size_bytes and chunk_lines:
-                chunk_lines, file_idx = _flush_jsonl_chunk(
-                    chunk_lines, output_path, outfile_prefix, ext, file_idx, storage_options
-                )
+                out_file = _join_out_path(output_path, f"{outfile_prefix}_{file_idx}{ext}", so)
+                _flush_jsonl_chunk(chunk_lines, out_file, so)
+                chunk_lines = []
                 chunk_bytes = 0
+                file_idx += 1
 
             chunk_lines.append(line)
             chunk_bytes += line_len
 
-    _flush_jsonl_chunk(chunk_lines, output_path, outfile_prefix, ext, file_idx, storage_options)
+    if chunk_lines:
+        out_file = _join_out_path(output_path, f"{outfile_prefix}_{file_idx}{ext}", so)
+        _flush_jsonl_chunk(chunk_lines, out_file, so)
 
 
 def parse_args(args: argparse.ArgumentParser | None = None) -> argparse.Namespace:
@@ -245,39 +218,25 @@ def main(args: argparse.ArgumentParser | None = None) -> None:
 
     files = get_all_file_paths_under(args.input_path, keep_extensions=args.file_type, storage_options=storage_options)
     if not files:
-        logger.error(f"No file(s) found at '{args.input_path}'")
+        logger.error("No file(s) found at '{}'", args.input_path)
         return
 
     out_fs, out_root = url_to_fs(str(args.output_path), **_storage_options(storage_options))
     out_fs.makedirs(out_root, exist_ok=True)
+    _handlers = {"parquet": split_parquet_file_by_size, "jsonl": split_jsonl_file_by_size}
+
     with RayClient():
-        if args.file_type == "parquet":
-            ray.get(
-                [
-                    split_parquet_file_by_size.remote(
-                        input_file=f,
-                        output_path=args.output_path,
-                        target_size_mb=args.target_size_mb,
-                        storage_options=storage_options,
-                    )
-                    for f in files
-                ]
-            )
-        elif args.file_type == "jsonl":
-            ray.get(
-                [
-                    split_jsonl_file_by_size.remote(
-                        input_file=f,
-                        output_path=args.output_path,
-                        target_size_mb=args.target_size_mb,
-                        storage_options=storage_options,
-                    )
-                    for f in files
-                ]
-            )
-        else:
-            logger.error(f"Invalid file type: {args.file_type}")
-            return
+         ray.get(
+             [
+                _handlers[args.file_type].remote(
+                    input_file=f,
+                    output_path=args.output_path,
+                    target_size_mb=args.target_size_mb,
+                    storage_options=storage_options,
+                )
+                 for f in files
+             ]
+         )
 
 
 if __name__ == "__main__":
