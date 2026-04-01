@@ -15,13 +15,17 @@
 #   sbatch tutorials/slurm/submit.sh
 #
 # Override resources without editing this file:
-#   sbatch --nodes=4 --cpus-per-task=32 tutorials/slurm/submit.sh
+#   sbatch --nodes=1 --gpus-per-node=2 tutorials/slurm/submit.sh
+#   sbatch --nodes=1 --gpus-per-node=8 tutorials/slurm/submit.sh
+#   sbatch --nodes=2 --gpus-per-node=2 tutorials/slurm/submit.sh
+#   sbatch --nodes=2 --gpus-per-node=8 tutorials/slurm/submit.sh
 # =============================================================================
 
 #SBATCH --job-name=curator-slurm-demo
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
+#SBATCH --gpus-per-node=2
 #SBATCH --time=00:10:00
 #SBATCH --output=logs/slurm_demo_%j.log
 #SBATCH --error=logs/slurm_demo_%j.log
@@ -34,15 +38,21 @@ set -euo pipefail
 CURATOR_DIR="${CURATOR_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 VENV="${CURATOR_DIR}/.venv"
 
-# Use /tmp per-job to avoid cross-job Ray state collisions
+# Use per-job /tmp to avoid cross-job Ray state collisions
 export RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}"
+
+# If /tmp is node-local on your cluster, set this to a shared Lustre/NFS path
+# so all nodes can read the port-broadcast file written by the head:
+# export RAY_PORT_BROADCAST_DIR="/shared/ray_ports"
 
 echo "=================================================="
 echo "  NeMo Curator — SLURM Demo"
 echo "=================================================="
-echo "  Job ID   : ${SLURM_JOB_ID}"
-echo "  Nodes    : ${SLURM_JOB_NODELIST} (${SLURM_JOB_NUM_NODES} nodes)"
-echo "  Dir      : ${CURATOR_DIR}"
+echo "  Job ID    : ${SLURM_JOB_ID}"
+echo "  Nodes     : ${SLURM_JOB_NODELIST} (${SLURM_JOB_NUM_NODES} nodes)"
+echo "  GPUs/node : ${SLURM_GPUS_ON_NODE:-none}"
+echo "  CPUs/node : ${SLURM_CPUS_ON_NODE:-N/A}"
+echo "  Dir       : ${CURATOR_DIR}"
 echo "=================================================="
 
 mkdir -p logs
@@ -52,9 +62,11 @@ srun \
     bash -c "
 source '${VENV}/bin/activate'
 echo \"[\$(hostname)] SLURM_NODEID=\${SLURM_NODEID} python=\$(which python)\"
+nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null \
+    | sed \"s/^/  [\$(hostname)] GPU /\" || echo \"  [\$(hostname)] no GPUs\"
 python '${CURATOR_DIR}/tutorials/slurm/pipeline.py' \
     --slurm \
-    --num-tasks 40
+    --num-tasks 80
 "
 
 echo "=================================================="

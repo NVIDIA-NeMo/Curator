@@ -143,10 +143,11 @@ class WordCountStage(ProcessingStage[SampleTask, SampleTask]):
 
 
 class NodeTagStage(ProcessingStage[SampleTask, SampleTask]):
-    """Tag each task with the hostname that processed it.
+    """Tag each task with the hostname and GPU info of the worker that processed it.
 
     On a multi-node SLURM run the ``processed_by`` column will show
     different hostnames, confirming tasks are spread across nodes.
+    ``gpu_info`` reports the GPUs visible to the Ray worker process.
     """
 
     name: str = "NodeTagStage"
@@ -155,11 +156,30 @@ class NodeTagStage(ProcessingStage[SampleTask, SampleTask]):
         return ["data"], ["sentence", "word_count"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["sentence", "word_count", "processed_by"]
+        return ["data"], ["sentence", "word_count", "processed_by", "gpu_info"]
 
     def process(self, task: SampleTask) -> SampleTask:
         task.data["processed_by"] = socket.gethostname()
+        task.data["gpu_info"] = _gpu_summary()
         return task
+
+
+def _gpu_summary() -> str:
+    """Return a short string describing GPUs visible to the current process."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],  # noqa: S607
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except FileNotFoundError:
+        return "no GPUs (nvidia-smi not found)"
+    except Exception:  # noqa: BLE001
+        return "gpu_info unavailable"
+    if result.returncode == 0 and result.stdout.strip():
+        gpus = [line.strip() for line in result.stdout.strip().splitlines()]
+        return f"{len(gpus)} GPU(s): " + "; ".join(gpus)
+    return "no GPUs (nvidia-smi failed)"
 
 
 # ---------------------------------------------------------------------------
@@ -208,21 +228,24 @@ def main() -> None:
 
     logger.info(f"Completed {len(results)} tasks")
 
-    # Show which nodes processed tasks
-    all_nodes = set()
+    # Show which nodes + GPUs processed tasks
+    node_gpu: dict[str, str] = {}
     for task in results:
-        all_nodes.update(task.data["processed_by"].unique())
+        for _, row in task.data[["processed_by", "gpu_info"]].drop_duplicates().iterrows():
+            node_gpu[row["processed_by"]] = row["gpu_info"]
 
-    logger.info(f"Tasks processed by {len(all_nodes)} distinct node(s): {sorted(all_nodes)}")
+    logger.info(f"Tasks processed by {len(node_gpu)} distinct node(s):")
+    for node, gpu in sorted(node_gpu.items()):
+        logger.info(f"  {node}: {gpu}")
 
     # Print a sample result
     sample = results[0].data
     logger.info(f"\nSample output (task '{results[0].task_id}'):\n{sample.to_string(index=False)}")
 
     slurm_nodes = int(os.environ.get("SLURM_JOB_NUM_NODES", "1"))
-    if slurm_nodes > 1 and len(all_nodes) < 2:  # noqa: PLR2004
+    if slurm_nodes > 1 and len(node_gpu) < 2:  # noqa: PLR2004
         logger.warning(
-            f"Job allocated {slurm_nodes} nodes but only {len(all_nodes)} node(s) processed tasks. "
+            f"Job allocated {slurm_nodes} nodes but only {len(node_gpu)} node(s) processed tasks. "
             "Check that --num-tasks is large enough to distribute across all workers."
         )
 
