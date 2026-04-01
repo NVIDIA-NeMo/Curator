@@ -45,7 +45,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
     Each entry in the input ``FileGroupTask.data`` is a JSON string with at
     minimum a ``file_name`` key and optionally a ``url`` key.
 
-    PDF bytes are obtained in one of two ways:
+    PDF bytes are obtained in one of three ways:
 
     - **Zip archive mode** (``zip_base_dir`` is set): PDFs are extracted from
       CC-MAIN-style zip archives using :func:`extract_pdf_from_zip`.
