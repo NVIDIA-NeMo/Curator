@@ -43,6 +43,14 @@ import numpy as np
 import torch
 from loguru import logger
 
+try:
+    from nemo_curator.stages.audio.filtering.sigmos_filter_module.sigmos_pipeline import predict_audio_mos
+
+    _SIGMOS_AVAILABLE = True
+except ImportError:
+    predict_audio_mos = None
+    _SIGMOS_AVAILABLE = False
+
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.audio.common import resolve_model_path
 from nemo_curator.stages.base import ProcessingStage
@@ -155,8 +163,9 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _ensure_predict(self) -> None:
         if self._predict_audio_mos is None:
-            from nemo_curator.stages.audio.filtering.sigmos_filter_module.sigmos_pipeline import predict_audio_mos
-
+            if not _SIGMOS_AVAILABLE:
+                msg = "onnxruntime is required for SIGMOS. Install it with: pip install onnxruntime"
+                raise ImportError(msg)
             self._predict_audio_mos = predict_audio_mos
             logger.info("SIGMOS predict_audio_mos loaded successfully")
 
