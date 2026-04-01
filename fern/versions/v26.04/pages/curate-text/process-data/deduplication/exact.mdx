@@ -85,7 +85,7 @@ Configure exact deduplication using these key parameters:
 | `perform_removal` | bool | False | Reserved; must remain `False`. Exact removal is performed with `TextDuplicatesRemovalWorkflow`. |
 | `total_nparts` | int \| None | None | Total number of output partitions. If `None`, defaults to one-third of the number of input tasks. |
 | `rmm_pool_size` | int \| "auto" \| None | "auto" | RMM GPU memory pool size in bytes. `"auto"` uses 90% of free GPU memory; `None` uses 50% with dynamic expansion. |
-| `spill_memory_limit` | int \| "auto" \| None | "auto" | Device memory spill-to-host limit in bytes. `"auto"` sets the limit to 80% of the RMM pool size; `None` disables spilling. |
+| `spill_memory_limit` | int \| "auto" \| None | "auto" | Device memory spill-to-host limit in bytes. `"auto"` sets the limit to 80% of the RMM pool size; `None` disables spilling. When `rmm_pool_size` is `None`, `"auto"` also resolves to no spilling. |
 
 ## Removing Duplicates
 
