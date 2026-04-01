@@ -4854,6 +4854,7 @@ all = [
     { name = "rapidsmpf-cu12" },
     { name = "ray", extra = ["llm", "serve"] },
     { name = "resiliparse" },
+    { name = "s3fs" },
     { name = "s5cmd" },
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
@@ -4923,6 +4924,10 @@ inference-server = [
     { name = "pynvml" },
     { name = "ray", extra = ["llm", "serve"] },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+]
+interleaved-cpu = [
+    { name = "pillow" },
+    { name = "s3fs" },
 ]
 math-cpu = [
     { name = "beautifulsoup4" },
@@ -5128,6 +5133,7 @@ requires-dist = [
     { name = "nemo-curator", extras = ["image-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["inference-server"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["inference-server"], marker = "extra == 'sdg-cuda12'" },
+    { name = "nemo-curator", extras = ["interleaved-cpu"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["math-cpu"], marker = "extra == 'math-cuda12'" },
     { name = "nemo-curator", extras = ["math-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["sdg-cpu"], marker = "extra == 'sdg-cuda12'" },
@@ -5150,6 +5156,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.1.0" },
     { name = "peft", marker = "extra == 'text-cpu'" },
     { name = "pillow", marker = "extra == 'image-cpu'" },
+    { name = "pillow", marker = "extra == 'interleaved-cpu'" },
     { name = "pyarrow" },
     { name = "pycld2", marker = "extra == 'text-cpu'" },
     { name = "pycuda", marker = "extra == 'video-cuda12'" },
@@ -5162,6 +5169,7 @@ requires-dist = [
     { name = "ray", extras = ["data", "default"], specifier = ">=2.54" },
     { name = "ray", extras = ["llm", "serve"], marker = "extra == 'inference-server'", specifier = ">=2.54" },
     { name = "resiliparse", marker = "extra == 'text-cpu'" },
+    { name = "s3fs", marker = "extra == 'interleaved-cpu'", specifier = ">=2024.12.0" },
     { name = "s5cmd", marker = "extra == 'text-cpu'" },
     { name = "scikit-learn", marker = "extra == 'deduplication-cuda12'", specifier = "<1.8.0" },
     { name = "sentence-transformers", marker = "extra == 'text-cpu'" },
@@ -5183,7 +5191,7 @@ requires-dist = [
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'vllm'", specifier = ">=0.14.1" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
 ]
-provides-extras = ["cuda12", "vllm", "inference-server", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "math-cpu", "math-cuda12", "sdg-cpu", "sdg-cuda12", "all"]
+provides-extras = ["cuda12", "vllm", "inference-server", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "math-cpu", "math-cuda12", "interleaved-cpu", "sdg-cpu", "sdg-cuda12", "all"]
 
 [package.metadata.requires-dev]
 build = [
@@ -5209,7 +5217,7 @@ test = [
     { name = "pytest-loguru" },
     { name = "pyyaml" },
     { name = "rich" },
-    { name = "s3fs" },
+    { name = "s3fs", specifier = ">=2024.12.0" },
     { name = "scikit-learn", specifier = "<1.8.0" },
     { name = "slack-sdk" },
 ]
