@@ -24,6 +24,13 @@ Built-in LLM serving alongside curation pipelines using Ray Serve and vLLM:
 
 Learn more in the [Inference Server](/curate-text/synthetic/inference-server) documentation.
 
+### RayDataExecutor Promoted from Experimental (PR #1619)
+
+Moved `RayDataExecutor` out of the experimental namespace to `nemo_curator.backends.ray_data`. The executor is no longer marked as experimental, and the startup warning has been removed. Import path changes:
+
+- **Before**: `from nemo_curator.backends.experimental.ray_data import RayDataExecutor`
+- **After**: `from nemo_curator.backends.ray_data import RayDataExecutor`
+
 ### Shared Tokenizer Support for Multiple Classifiers (PR #1528)
 
 Text classifiers that share the same base tokenizer can now reuse tokens across a pipeline, avoiding redundant tokenization. New parameters `keep_tokens` and `use_existing_tokens` on all distributed classifiers control this behavior. DeBERTa-based classifiers (DomainClassifier, MultilingualDomainClassifier, QualityClassifier, ContentTypeClassifier, FineWeb variants, PromptTaskComplexityClassifier) and LlamaGuard-based classifiers (AegisClassifier, InstructionDataGuardClassifier) each form a compatible tokenizer group.
@@ -184,6 +191,7 @@ Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage`
 
 - **`TextSemanticDeduplicationWorkflow` embedding backend**: The default embedding backend changed from SentenceTransformers to vLLM. The default model changed from `sentence-transformers/all-MiniLM-L6-v2` to `google/embeddinggemma-300m`. The parameters `embedding_model_inference_batch_size`, `embedding_pooling`, `embedding_padding_side`, and `embedding_max_seq_length` have been removed. Use `embedding_vllm_init_kwargs` to pass configuration to the vLLM backend instead.
 - **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
+- **`RayDataExecutor` import path**: Moved from `nemo_curator.backends.experimental.ray_data` to `nemo_curator.backends.ray_data`. Update imports accordingly.
 - **`DocumentExtractStage` Removed**: The standalone `DocumentExtractStage` class has been removed. Use `DocumentIterateExtractStage` with an optional `extractor` parameter instead. The `DocumentExtractor` abstract base class is unchanged.
 - **`DocumentIterateStage` Renamed**: `DocumentIterateStage` has been replaced by `DocumentIterateExtractStage`. Update imports from `nemo_curator.stages.text.download.base.iterator`.
 - **Three-Stage Pipeline**: The data acquisition pipeline is now a three-step pattern (URL generation → download → iterate-extract) instead of four steps.
