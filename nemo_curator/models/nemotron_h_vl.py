@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -124,8 +123,6 @@ class NemotronHVL(ModelInterface):
         if not VLLM_AVAILABLE:
             msg = "vllm is required for NemotronHVL but is not installed. Please install vllm: pip install vllm"
             raise ImportError(msg)
-
-        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
         # Determine quantization and dtype based on variant
         # See: https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-FP8
