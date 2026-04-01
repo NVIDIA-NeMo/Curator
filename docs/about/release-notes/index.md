@@ -137,7 +137,7 @@ New API for tracking and analyzing pipeline execution:
 ## Breaking Changes
 
 - **InternVideo2 Removed**: Video pipelines must use alternative embedding models (Cosmos-Embed1).
-- **ID Field Standardization**: Custom deduplication workflows may need updates to use standardized ID field names
+- **ID Field Standardization**: Custom deduplication workflows may need updates to use standardized ID field names.
 
 ## Documentation Improvements
 
