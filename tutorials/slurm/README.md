@@ -7,7 +7,7 @@ This tutorial shows how to scale a NeMo Curator pipeline from a single laptop to
 | File | Purpose |
 |------|---------|
 | `pipeline.py` | A simple CPU-only pipeline (word-count + node-tag) that runs locally or on SLURM |
-| `submit.sh` | `sbatch` script for bare-metal / virtualenv clusters |
+| `submit.sh` | `sbatch` script for bare-metal clusters with a shared virtualenv |
 | `submit_container.sh` | `sbatch` script using the official NGC container (Pyxis/enroot) |
 
 ---
@@ -71,17 +71,97 @@ python tutorials/slurm/pipeline.py
 
 ---
 
-## SLURM run — bare metal (virtualenv)
+## SLURM run — NGC container (Pyxis/enroot)
+
+The recommended approach on clusters that support it. The official NeMo Curator image from NGC provides a stable Python environment; the local virtualenv (on your shared filesystem) is activated inside the container to pick up any unreleased code from your checkout.
+
+### Prerequisites
+
+Check that your cluster has the Pyxis SLURM plugin:
+
+```bash
+srun --help | grep container-image
+# Should print: --container-image=...
+```
+
+If this flag is missing, ask your cluster admin or see the [bare-metal section](#slurm-run--bare-metal-shared-virtualenv) below.
+
+### 1. Build the virtualenv on a shared filesystem
+
+```bash
+# From the NeMo Curator root on a login node (or wherever the shared FS is mounted)
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+### 2. Submit the job
+
+```bash
+# Default: 2 nodes, 2 GPUs each, nvcr.io/nvidia/nemo-curator:26.02
+sbatch tutorials/slurm/submit_container.sh
+
+# Override container image
+export CONTAINER_IMAGE="nvcr.io/nvidia/nemo-curator:25.06"
+sbatch tutorials/slurm/submit_container.sh
+
+# Override mounts (default: /lustre:/lustre)
+export CONTAINER_MOUNTS="/scratch:/scratch,/data:/data"
+sbatch tutorials/slurm/submit_container.sh
+```
+
+Override resources without editing the script:
+
+```bash
+sbatch --nodes=1 --gpus-per-node=8 tutorials/slurm/submit_container.sh
+sbatch --nodes=4 --cpus-per-task=32 --time=00:30:00 tutorials/slurm/submit_container.sh
+```
+
+### 3. Check the output
+
+```bash
+tail -f logs/slurm_demo_container_<JOB_ID>.log
+```
+
+On a 2-node run you should see both hostnames in the processed-by summary:
+
+```
+Tasks processed by 2 distinct node(s):
+  node-001: 2 GPU(s): NVIDIA A100-SXM4-80GB, 81251 MiB; NVIDIA A100-SXM4-80GB, 81251 MiB
+  node-002: 2 GPU(s): NVIDIA A100-SXM4-80GB, 81251 MiB; NVIDIA A100-SXM4-80GB, 81251 MiB
+```
+
+### Singularity / Apptainer
+
+If your cluster uses Singularity or Apptainer instead of Pyxis:
+
+```bash
+# Pull the image once (on the login node)
+singularity pull nemo-curator.sif docker://nvcr.io/nvidia/nemo-curator:26.02
+
+# In your sbatch script, replace the srun flags with:
+srun singularity exec \
+    --nv \
+    --bind /lustre:/lustre \
+    nemo-curator.sif \
+    bash -c "source /path/to/Curator/.venv/bin/activate && python pipeline.py --slurm"
+```
+
+---
+
+## SLURM run — bare metal (shared virtualenv)
+
+Use this if your cluster does not have a container runtime.
 
 ### 1. Install on shared filesystem
 
-Install NeMo Curator in a virtualenv on a **shared filesystem** (Lustre, NFS, GPFS) so every node sees the same Python environment:
+Build a virtualenv on a **shared filesystem** (Lustre, NFS, GPFS) so every node sees the same Python environment:
 
 ```bash
-# On the login node
-python -m venv /shared/envs/curator
-source /shared/envs/curator/bin/activate
-pip install nemo-curator
+# On the login node, from the NeMo Curator root
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
 ### 2. Submit the job
@@ -93,7 +173,6 @@ sbatch tutorials/slurm/submit.sh
 Override resources without editing the script:
 
 ```bash
-# 4 nodes, 32 CPUs each, 30 min limit
 sbatch --nodes=4 --cpus-per-task=32 --time=00:30:00 tutorials/slurm/submit.sh
 ```
 
@@ -101,71 +180,6 @@ sbatch --nodes=4 --cpus-per-task=32 --time=00:30:00 tutorials/slurm/submit.sh
 
 ```bash
 tail -f logs/slurm_demo_<JOB_ID>.log
-```
-
-On a 2-node run you should see both hostnames in the processed-by summary:
-
-```
-Tasks processed by 2 distinct node(s): ['node-001', 'node-002']
-```
-
----
-
-## SLURM run — NGC container (Pyxis/enroot)
-
-The container approach avoids managing a shared virtualenv. The official NeMo Curator image from NGC includes all dependencies pre-installed.
-
-### Prerequisites
-
-Check that your cluster has the Pyxis SLURM plugin:
-
-```bash
-srun --help | grep container-image
-# Should print: --container-image=...
-```
-
-If this flag is missing, ask your cluster admin or see the [Singularity section](#singularity--apptainer) below.
-
-### Submit with container
-
-```bash
-# Set the container image (default: nvcr.io/nvidia/nemo-curator:latest)
-export CONTAINER_IMAGE="nvcr.io/nvidia/nemo-curator:25.06"
-
-# Mount your shared filesystem so the container can see your code/data
-export CONTAINER_MOUNTS="/lustre:/lustre"
-
-sbatch tutorials/slurm/submit_container.sh
-```
-
-The container is pulled and cached automatically by Pyxis on first use. Subsequent jobs use the cached image.
-
-### What the container run looks like
-
-```bash
-srun \
-    --container-image="nvcr.io/nvidia/nemo-curator:25.06" \
-    --container-mounts="/lustre:/lustre" \
-    --container-workdir="/lustre/my-project/Curator" \
-    python tutorials/slurm/pipeline.py --slurm
-```
-
-The `--container-workdir` sets the working directory inside the container. `--container-mounts` makes your shared filesystem visible at the same path inside the container so no path changes are needed.
-
-### Singularity / Apptainer
-
-If your cluster uses Singularity or Apptainer instead of Pyxis:
-
-```bash
-# Pull the image once (on the login node)
-singularity pull nemo-curator.sif docker://nvcr.io/nvidia/nemo-curator:25.06
-
-# In your sbatch script, replace the srun flags with:
-srun singularity exec \
-    --nv \
-    --bind /lustre:/lustre \
-    nemo-curator.sif \
-    python tutorials/slurm/pipeline.py --slurm
 ```
 
 ---
@@ -257,15 +271,19 @@ SlurmRayClient(ray_port=6379)
 Ensure `--num-tasks` is larger than the number of workers × 2, otherwise all tasks may be completed before workers connect. The script will warn you:
 
 ```
-Tasks processed by 2 nodes but only 1 node processed tasks.
-Check that --num-tasks is large enough.
+Job allocated 2 nodes but only 1 node(s) processed tasks.
+Check that --num-tasks is large enough to distribute across all workers.
 ```
 
 **Container image not found**
 
 ```bash
 # Pull manually and verify
-docker pull nvcr.io/nvidia/nemo-curator:25.06
+docker pull nvcr.io/nvidia/nemo-curator:26.02
 # or with enroot:
-enroot import docker://nvcr.io/nvidia/nemo-curator:25.06
+enroot import docker://nvcr.io/nvidia/nemo-curator:26.02
 ```
+
+**`ImportError: cannot import name 'SlurmRayClient'`**
+
+The container image has an older NeMo Curator without `SlurmRayClient`. Activating the local virtualenv (`source .venv/bin/activate`) inside the container overrides the container's installed version with your local checkout. Make sure the virtualenv was built from a source tree that includes `SlurmRayClient`.

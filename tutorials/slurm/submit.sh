@@ -1,15 +1,19 @@
 #!/bin/bash
 # =============================================================================
-# NeMo Curator — SLURM submit script (bare-metal / venv)
+# NeMo Curator — SLURM submit script (bare-metal, shared virtualenv)
 #
 # Runs the slurm demo pipeline across multiple nodes using SlurmRayClient.
-# Each node runs one srun task; node 0 acts as the Ray head, nodes 1-N are
-# Ray workers. Only the head runs the pipeline — workers exit when the head
-# calls ray_client.stop().
+# Uses a virtualenv installed on a shared filesystem (Lustre/NFS) so every
+# node sees the same Python environment without a container runtime.
 #
 # Prerequisites:
-#   - NeMo Curator installed in a shared virtualenv (see README.md)
+#   - NeMo Curator source checked out on a shared filesystem
+#   - A virtualenv built from that source:
+#       python -m venv .venv && pip install -e .
 #   - Shared filesystem accessible from all nodes (e.g. Lustre, NFS)
+#
+# If your cluster has Pyxis/enroot, prefer submit_container.sh instead —
+# it avoids managing a shared Python installation.
 #
 # Usage:
 #   sbatch tutorials/slurm/submit.sh
@@ -35,15 +39,13 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Paths — adjust to your environment
 # ---------------------------------------------------------------------------
-CURATOR_DIR="${CURATOR_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-VENV="${CURATOR_DIR}/.venv"
+CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
-# Use per-job /tmp to avoid cross-job Ray state collisions
+# Use per-job /tmp to avoid cross-job Ray state collisions.
+# On clusters where /tmp is node-local, set RAY_PORT_BROADCAST_DIR to a
+# shared filesystem path so all nodes can discover the head's GCS port:
+#   export RAY_PORT_BROADCAST_DIR="/shared/ray_ports"
 export RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}"
-
-# If /tmp is node-local on your cluster, set this to a shared Lustre/NFS path
-# so all nodes can read the port-broadcast file written by the head:
-# export RAY_PORT_BROADCAST_DIR="/shared/ray_ports"
 
 echo "=================================================="
 echo "  NeMo Curator — SLURM Demo"
@@ -60,10 +62,15 @@ mkdir -p logs
 srun \
     --ntasks-per-node=1 \
     bash -c "
-source '${VENV}/bin/activate'
-echo \"[\$(hostname)] SLURM_NODEID=\${SLURM_NODEID} python=\$(which python)\"
+export RAY_TMPDIR=/tmp/ray_\${SLURM_JOB_ID}
+
+# Activate the shared virtualenv — must be on Lustre/NFS visible to all nodes.
+source '${CURATOR_DIR}/.venv/bin/activate'
+
+echo \"[\$(hostname)] SLURM_NODEID=\${SLURM_NODEID} python=\$(python --version 2>&1)\"
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null \
     | sed \"s/^/  [\$(hostname)] GPU /\" || echo \"  [\$(hostname)] no GPUs\"
+
 python '${CURATOR_DIR}/tutorials/slurm/pipeline.py' \
     --slurm \
     --num-tasks 80

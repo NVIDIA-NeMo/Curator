@@ -2,16 +2,17 @@
 # =============================================================================
 # NeMo Curator — SLURM submit script (NGC container via Pyxis/enroot)
 #
-# Same pipeline as submit.sh but runs inside the official NeMo Curator
-# container image using the Pyxis SLURM plugin (--container-image flag).
+# Runs the slurm demo pipeline inside the official NeMo Curator container
+# using the Pyxis SLURM plugin, with the local Curator virtualenv activated
+# so that the latest (unreleased) code is used.
 #
-# Pyxis/enroot is available on most NVIDIA DGX SuperPOD and OCI clusters.
-# If your cluster uses a different container runtime (Singularity, Apptainer),
-# see the README for the equivalent flags.
+# This mirrors the pattern used for the Nemotron-Parse PDF pipeline.
 #
 # Prerequisites:
 #   - Pyxis plugin installed on the cluster (check: srun --help | grep container)
-#   - Shared filesystem mounted at the same path inside the container
+#   - NeMo Curator source checked out on a shared filesystem (Lustre / NFS)
+#   - A virtualenv built from that source: python -m venv .venv && pip install -e .
+#   - The shared filesystem mounted at the same path inside the container
 #
 # Usage:
 #   sbatch tutorials/slurm/submit_container.sh
@@ -37,20 +38,20 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Paths — adjust to your environment
 # ---------------------------------------------------------------------------
-CURATOR_DIR="${CURATOR_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 # Official NeMo Curator container from NGC.
 # Browse available tags: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator
-CONTAINER_IMAGE="${CONTAINER_IMAGE:-nvcr.io/nvidia/nemo-curator:latest}"
+CONTAINER_IMAGE="${CONTAINER_IMAGE:-nvcr.io/nvidia/nemo-curator:26.02}"
 
-# Mount the shared filesystem that contains your code/data.
+# Mount the shared filesystem that contains your code and data.
 # Format: <host_path>:<container_path>[,<host_path2>:<container_path2>]
 CONTAINER_MOUNTS="${CONTAINER_MOUNTS:-/lustre:/lustre}"
 
-export RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}"
-
-# If /tmp is node-local on your cluster, set this to a shared Lustre/NFS path:
-# export RAY_PORT_BROADCAST_DIR="/shared/ray_ports"
+# Use per-job /tmp to avoid cross-job Ray state collisions.
+# On clusters where /tmp is node-local, set RAY_PORT_BROADCAST_DIR to a
+# shared filesystem path so all nodes can discover the head's GCS port:
+#   export RAY_PORT_BROADCAST_DIR="/shared/ray_ports"
 
 echo "=================================================="
 echo "  NeMo Curator — SLURM Demo (container)"
@@ -71,9 +72,16 @@ srun \
     --container-mounts="${CONTAINER_MOUNTS}" \
     --container-workdir="${CURATOR_DIR}" \
     bash -c "
-echo \"[\$(hostname)] SLURM_NODEID=\${SLURM_NODEID} python=\$(which python)\"
+export RAY_TMPDIR=/tmp/ray_\${SLURM_JOB_ID}
+
+# Activate the local virtualenv so the latest Curator code (from this
+# checkout) is used instead of the version bundled in the container image.
+source '${CURATOR_DIR}/.venv/bin/activate'
+
+echo \"[\$(hostname)] SLURM_NODEID=\${SLURM_NODEID} python=\$(python --version 2>&1)\"
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null \
     | sed \"s/^/  [\$(hostname)] GPU /\" || echo \"  [\$(hostname)] no GPUs\"
+
 python '${CURATOR_DIR}/tutorials/slurm/pipeline.py' \
     --slurm \
     --num-tasks 80
