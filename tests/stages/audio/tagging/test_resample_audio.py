@@ -35,4 +35,4 @@ class TestResampleAudioStage:
             out = result.data
             assert out.get("audio_filepath") == str(audio_filepath)
             assert out.get("resampled_audio_filepath") == f"{tmpdir}/id_1.wav"
-            assert out.get("duration") == 87.1335
+            assert out.get("duration") == 60.0

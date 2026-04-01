@@ -211,19 +211,19 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         else:
             self._asr_model = nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name)
 
-    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+    def setup_on_node(self, _node_info: NodeInfo, _worker_metadata: WorkerMetadata) -> None:
         """Download model weights (called once per node)."""
         if self._asr_model is None:
             self.load_model()
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
         """Load model to device and configure decoding (called per replica)."""
         if self._model_initialized:
             return
 
         if not torch.cuda.is_available() and self.device == "cuda":
-            logger.warning("CUDA not available, using CPU")
-            self.device = "cpu"
+            msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
+            raise RuntimeError(msg)
 
         if self._asr_model is None:
             self.load_model()
@@ -344,8 +344,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         # collect all split paths of all entries in the batch
         all_paths = []
         path_to_entry_and_split = []
-        for chunk_meta_idx in range(len(meta_indices)):
-            entry_idx = meta_indices[chunk_meta_idx]
+        for entry_idx in meta_indices:
             meta_entry = entries[entry_idx]
             split_filepaths = meta_entry.get("split_filepaths")
             if not split_filepaths:

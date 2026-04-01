@@ -934,7 +934,6 @@ entries:
       - name: slack
         ping_on_failure:
           - U06J49AK7BQ  # Sushmitha Deva
-
     ray:
       num_cpus: 16
       num_gpus: 1

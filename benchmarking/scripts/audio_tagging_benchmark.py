@@ -62,7 +62,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     logger.info(f"Device: {device}, CPUs: {cpus}")
     logger.info(f"Max segment length: {max_segment_length}s")
 
-    exc = setup_executor(executor, config={"execution_mode": "batch"})
+    exc = setup_executor(executor, config={"execution_mode": "streaming"})
     run_start_time = time.perf_counter()
 
     pipeline = Pipeline(

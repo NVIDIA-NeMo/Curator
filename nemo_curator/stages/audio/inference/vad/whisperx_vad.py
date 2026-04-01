@@ -51,8 +51,8 @@ class WhisperXVADModel:
         use_auth_token: str | None = None,
     ):
         if device == "cuda" and not torch.cuda.is_available():
-            logger.warning("CUDA is not available, falling back to CPU for VAD model")
-            device = "cpu"
+            msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
+            raise RuntimeError(msg)
         self._device = device
         self._vad_onset = vad_onset
         self._vad_offset = vad_offset
@@ -128,11 +128,11 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, self.segments_key]
 
-    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+    def setup_on_node(self, _node_info: NodeInfo, _worker_metadata: WorkerMetadata) -> None:
         """Setup stage on node."""
         if self.device == "cuda" and not torch.cuda.is_available():
-            logger.warning("CUDA not available, using CPU for VAD")
-            self.device = "cpu"
+            msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
+            raise RuntimeError(msg)
         if self._vad_model is None:
             self._vad_model = WhisperXVADModel(
                 device=self.device,
@@ -140,12 +140,12 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
                 vad_offset=self.vad_offset,
             )
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
         if self._model_initialized:
             return
         if self.device == "cuda" and not torch.cuda.is_available():
-            logger.warning("CUDA not available, using CPU for VAD")
-            self.device = "cpu"
+            msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
+            raise RuntimeError(msg)
 
         if self._vad_model is None:
             self._vad_model = WhisperXVADModel(
@@ -158,9 +158,6 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
         logger.info(f"[{self.name}] Initialized WhisperX VAD on {self.device}")
 
     def process(self, task: AudioTask) -> AudioTask:
-        if not self._model_initialized:
-            self.setup()
-
         data_entry = task.data
         file_path = data_entry[self.audio_filepath_key]
         duration = data_entry.get("duration", get_audio_duration(file_path))

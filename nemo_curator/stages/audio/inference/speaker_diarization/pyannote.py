@@ -128,7 +128,7 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "hf_token is required for PyAnnote models"
             raise ValueError(msg)
 
-    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+    def setup_on_node(self, _node_info: NodeInfo, _worker_metadata: WorkerMetadata) -> None:
         """Download model weights (called once per node)."""
         if self._pipeline is None:
             self._pipeline = PyAnnotePipeline.from_pretrained(self.model_name, token=self.hf_token)
@@ -139,14 +139,14 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
                 vad_offset=0.363,
             )
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
         """Load models to device (called per replica before processing)."""
         if self._model_initialized:
             return
 
         if not torch.cuda.is_available() and self.device == "cuda":
-            logger.warning("CUDA not available, using CPU")
-            self.device = "cpu"
+            msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
+            raise RuntimeError(msg)
 
         if self._pipeline is None:
             self._pipeline = PyAnnotePipeline.from_pretrained(self.model_name, token=self.hf_token)

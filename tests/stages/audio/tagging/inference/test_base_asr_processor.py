@@ -22,7 +22,7 @@ from nemo_curator.tasks import AudioTask
 class ConcreteASRProcessor(BaseASRProcessorStage):
     """Concrete subclass for testing base behavior."""
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ANN401
+    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
         pass
 
     def process(self, task: AudioTask) -> AudioTask:

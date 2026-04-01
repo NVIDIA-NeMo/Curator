@@ -14,16 +14,37 @@
 
 """Shared fixtures for all audio stage tests (tagging + inference)."""
 
+import subprocess
+
 import pytest
 
 from tests import FIXTURES_DIR
 
+OPUS_FIXTURE = FIXTURES_DIR / "audio/tagging/audios/audio_1.opus"
 
-@pytest.fixture
-def wav_filepath():
-    return FIXTURES_DIR / "audio/tagging/audios/audio_1.wav"
+
+@pytest.fixture(scope="session")
+def wav_filepath(tmp_path_factory: pytest.TempPathFactory):
+    """Convert the opus fixture to 16 kHz mono WAV once per test session."""
+    wav = tmp_path_factory.mktemp("audio") / "audio_1.wav"
+    cmd = [
+        "ffmpeg",
+        "-v",
+        "error",
+        "-i",
+        str(OPUS_FIXTURE),
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        "-acodec",
+        "pcm_s16le",
+        str(wav),
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)  # noqa: S603
+    return wav
 
 
 @pytest.fixture
 def audio_filepath():
-    return FIXTURES_DIR / "audio/tagging/audios/audio_1.opus"
+    return OPUS_FIXTURE

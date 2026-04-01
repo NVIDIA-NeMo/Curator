@@ -134,7 +134,7 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                     if line.strip():
                         results.append(
                             AudioTask(
-                                task_id=task.task_id,
+                                task_id=f"{task.task_id}_{count}",
                                 dataset_name=task.dataset_name,
                                 data=json.loads(line.strip()),
                                 _metadata=task._metadata,
@@ -227,7 +227,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "output_path is required for ManifestWriterStage"
             raise ValueError(msg)
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
         """Truncate the output file once on the driver before processing starts."""
         fs, path = url_to_fs(self.output_path)
         parent_dir = "/".join(path.split("/")[:-1])

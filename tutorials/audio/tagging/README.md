@@ -42,12 +42,6 @@ uv sync --extra audio_cuda12
 source .venv/bin/activate
 ```
 
-If you don't have `uv`, fall back to pip:
-
-```bash
-pip install -e ".[audio_cuda12]"
-```
-
 ### Prerequisites
 
 - **GPU**: Required for diarization (PyAnnote), ASR alignment (NeMo), and quality metrics (TorchSQUIM)

@@ -24,6 +24,7 @@ from dataclasses import dataclass
 import torchaudio
 from loguru import logger
 
+from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -323,10 +324,6 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
         super().__init__()
 
     def decompose(self) -> list[ProcessingStage]:
-        from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import (
-            NeMoASRAlignerStage,
-        )
-
         return [
             SplitLongAudioStage(
                 suggested_max_len=self.suggested_max_len,

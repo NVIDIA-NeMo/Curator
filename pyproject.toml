@@ -251,7 +251,6 @@ constraint-dependencies = [
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
     "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
-    "onnxruntime<=1.21.1; python_version < '3.11'", # 1.22+ dropped Python 3.10 wheels
     "torchcodec>=0.9,<0.10", # torchcodec 0.10 requires torch 2.10; pin to 0.9.x for torch 2.9.x
 ]
 override-dependencies = [
@@ -265,8 +264,8 @@ override-dependencies = [
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "tiktoken>=0.8.0", # Override nemo-toolkit[nlp]'s tiktoken==0.7.0 pin; data-designer needs >=0.8.0
-    "torch>=2.8.0",
-    "torchaudio>=2.8.0",
+    "torch>=2.8.0,<=2.9.1",
+    "torchaudio>=2.8.0,<=2.9.1",
     "transformers>=4.51.0,<=4.55.2", # Else Cosmos Embed imports fail
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
 ]

@@ -60,7 +60,7 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     # Stage metadata
     name: str = "ResampleAudio"
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
         fs, path = url_to_fs(self.resampled_audio_dir)
         fs.makedirs(path, exist_ok=True)
 
@@ -122,6 +122,8 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
             else:
                 cmd = [
                     "ffmpeg",
+                    "-v",
+                    "error",
                     "-i",
                     input_audio_path,
                     "-ar",
@@ -131,8 +133,6 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
                     "-acodec",
                     "pcm_s16le",
                     output_audio_path,
-                    "-v",
-                    "error",
                 ]
 
             try:

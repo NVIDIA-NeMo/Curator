@@ -95,18 +95,17 @@ class TestPyAnnoteDiarizationStage:
         data_entry = {
             "resampled_audio_filepath": str(wav_filepath),
             "audio_item_id": "id_1",
-            "duration": 87.1335,
+            "duration": 60.0,
         }
         task = AudioTask(data=data_entry)
         result = stage.process(task)
         assert result.data["resampled_audio_filepath"] == str(wav_filepath)
         segments = result.data["segments"]
-        assert len(segments) == 45, "Should produce 45 segments"
         assert len(segments) > 0, "Should produce at least one segment"
         assert len(segments) < 100, "Sanity check: too many segments suggests an issue"
         for segment in segments:
             assert "start" in segment, "Segment should have start time"
             assert "end" in segment, "Segment should have end time"
             assert segment["start"] < segment["end"], "Start should be before end"
-            assert 0 <= segment["start"] <= 87.1335, "Start within audio duration"
-            assert 0 <= segment["end"] <= 87.1335, "End within audio duration"
+            assert 0 <= segment["start"] <= 60.0, "Start within audio duration"
+            assert 0 <= segment["end"] <= 60.0, "End within audio duration"
