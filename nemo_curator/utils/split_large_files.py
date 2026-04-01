@@ -42,7 +42,7 @@ def _basename_and_ext(path: str) -> tuple[str, str]:
     return root, ext
 
 
-def _join_out_path(output_path: str, filename: str, storage_options: dict[str, Any] = {}) -> str:
+def _join_out_path(output_path: str, filename: str, storage_options: dict[str, Any]) -> str:
     """Join output directory and filename using the target filesystem (local or remote)."""
     fs, root = url_to_fs(str(output_path), **storage_options)
     joined = fs.sep.join([root.rstrip(fs.sep), filename])
@@ -63,7 +63,7 @@ def _split_table(table: pa.Table, target_size: int) -> list[pa.Table]:
     return results
 
 
-def _write_table_to_file(table: pa.Table, output_file: str, storage_options: dict[str, Any] = {}) -> None:
+def _write_table_to_file(table: pa.Table, output_file: str, storage_options: dict[str, Any]) -> None:
     with fsspec.open(output_file, "wb", **storage_options) as out_f:
         pq.write_table(table, out_f)
     logger.debug("Saved {} (~{:.2f} MB)", output_file, table.nbytes / (1024 * 1024))
@@ -127,7 +127,7 @@ def split_parquet_file_by_size(
                 file_idx += 1
 
 
-def _flush_jsonl_chunk(lines: list[bytes], output_file: str, storage_options: dict[str, Any] = {}) -> None:
+def _flush_jsonl_chunk(lines: list[bytes], output_file: str, storage_options: dict[str, Any]) -> None:
     with fsspec.open(output_file, "wb", **storage_options) as out_f:
         out_f.writelines(lines)
     nbytes = sum(len(line) for line in lines)
