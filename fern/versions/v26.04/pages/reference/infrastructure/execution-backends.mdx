@@ -113,8 +113,30 @@ For more details, refer to the official [NVIDIA Cosmos-Xenna project](https://gi
 **Key Features**:
 - **ActorPool-based execution**: Creates dedicated actor pools per stage for optimal resource utilization
 - **Load balancing**: Uses `map_unordered` for efficient work distribution across actors
+- **Progress tracking**: Built-in tqdm progress bars for real-time visibility into task completion
 - **RAFT support**: Native integration with [RAFT](https://github.com/rapidsai/raft) (RAPIDS Analytics Framework Toolbox) for GPU-accelerated clustering and nearest-neighbor operations
 - **Head node exclusion**: Optional `ignore_head_node` parameter to reserve the Ray cluster's [head node](https://docs.ray.io/en/latest/cluster/key-concepts.html#head-node) for coordination tasks only
+
+```python
+from nemo_curator.backends.experimental import RayActorPoolExecutor
+
+executor = RayActorPoolExecutor(
+    show_progress=True,       # Display tqdm progress bars (default: True)
+    progress_interval=10.0,   # Minimum seconds between progress bar updates (default: 10.0)
+    ignore_head_node=True,
+)
+
+results = pipeline.run(executor)
+```
+
+**Configuration Parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `config` | `dict \| None` | `None` | Executor-specific configuration dictionary |
+| `ignore_head_node` | `bool` | `False` | Exclude head node from task scheduling |
+| `show_progress` | `bool` | `True` | Display tqdm progress bars during stage execution |
+| `progress_interval` | `float` | `10.0` | Minimum interval in seconds between progress bar updates |
 
 <Accordion title="Example: Fuzzy Deduplication">
 
