@@ -45,7 +45,6 @@ from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.audio.common import resolve_model_path
-from nemo_curator.stages.audio.filtering.sigmos_filter_module.sigmos_pipeline import predict_audio_mos
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -156,6 +155,8 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _ensure_predict(self) -> None:
         if self._predict_audio_mos is None:
+            from nemo_curator.stages.audio.filtering.sigmos_filter_module.sigmos_pipeline import predict_audio_mos
+
             self._predict_audio_mos = predict_audio_mos
             logger.info("SIGMOS predict_audio_mos loaded successfully")
 
