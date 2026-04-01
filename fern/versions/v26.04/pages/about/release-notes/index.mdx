@@ -25,6 +25,12 @@ Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and i
 - **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
 - **Ray**: Updated to 2.54
 
+## Improvements
+
+### AEGIS Classifier GPU Utilization (Issue #878)
+
+Confirmed full GPU utilization for the AEGIS safety classifier when running on multi-GPU setups. The AEGIS classifier, which uses the LlamaGuard-7b generative model, now properly distributes inference across all available GPUs. Added a performance note to the [classifier documentation](/curate-text/process-data/quality-assessment/distributed-classifier) to set expectations for processing times relative to encoder-based classifiers.
+
 ## Bug Fixes
 
 ### Audio Stage Name Propagation (PR #1470)
