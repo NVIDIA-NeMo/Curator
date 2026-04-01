@@ -4801,7 +4801,6 @@ all = [
     { name = "pycuda" },
     { name = "pylibcugraph-cu12" },
     { name = "pylibraft-cu12" },
-    { name = "pynvml" },
     { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
@@ -4830,13 +4829,11 @@ audio-cuda12 = [
     { name = "gpustat" },
     { name = "nemo-toolkit", extra = ["asr"] },
     { name = "nvidia-ml-py" },
-    { name = "pynvml" },
     { name = "soundfile" },
 ]
 cuda12 = [
     { name = "gpustat" },
     { name = "nvidia-ml-py" },
-    { name = "pynvml" },
 ]
 deduplication-cuda12 = [
     { name = "cudf-cu12" },
@@ -4861,7 +4858,6 @@ image-cuda12 = [
     { name = "pillow" },
     { name = "pylibcugraph-cu12" },
     { name = "pylibraft-cu12" },
-    { name = "pynvml" },
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
     { name = "scikit-learn" },
@@ -4873,7 +4869,6 @@ inference-server = [
     { name = "gpustat" },
     { name = "nixl-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "nvidia-ml-py" },
-    { name = "pynvml" },
     { name = "ray", extra = ["llm", "serve"] },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
@@ -4908,7 +4903,6 @@ math-cuda12 = [
     { name = "pycld2" },
     { name = "pylibcugraph-cu12" },
     { name = "pylibraft-cu12" },
-    { name = "pynvml" },
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
     { name = "resiliparse" },
@@ -4929,7 +4923,6 @@ sdg-cuda12 = [
     { name = "gpustat" },
     { name = "nixl-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "nvidia-ml-py" },
-    { name = "pynvml" },
     { name = "ray", extra = ["llm", "serve"] },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
@@ -4964,7 +4957,6 @@ text-cuda12 = [
     { name = "pycld2" },
     { name = "pylibcugraph-cu12" },
     { name = "pylibraft-cu12" },
-    { name = "pynvml" },
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
     { name = "resiliparse" },
@@ -4994,7 +4986,6 @@ video-cuda12 = [
     { name = "nvidia-ml-py" },
     { name = "opencv-python" },
     { name = "pycuda" },
-    { name = "pynvml" },
     { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "torch", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torch", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -5108,7 +5099,6 @@ requires-dist = [
     { name = "pycuda", marker = "extra == 'video-cuda12'" },
     { name = "pylibcugraph-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "pylibraft-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
-    { name = "pynvml", marker = "extra == 'cuda12'", specifier = ">=13.0.1" },
     { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "==2.0.2" },
     { name = "raft-dask-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "rapidsmpf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
@@ -7152,18 +7142,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/75/b5/39d59c44ecd828fabfdbd796b50a561e6543ca90ef440ab307374f107856/pyloudnorm-0.1.1.tar.gz", hash = "sha256:63cd4e197dea4e7795160ea08ed02d318091bce883e436a6dbc5963326b71e1e", size = 8588, upload-time = "2023-01-05T16:11:28.601Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/58/f5/6724805521ab4e723a12182f92374031032aff28a8a89dc8505c52b79032/pyloudnorm-0.1.1-py3-none-any.whl", hash = "sha256:d7f12ebdd097a464d87ce2878fc4d942f15f8233e26cc03f33fefa226f869a14", size = 9636, upload-time = "2023-01-05T16:11:27.331Z" },
-]
-
-[[package]]
-name = "pynvml"
-version = "13.0.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "nvidia-ml-py" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5c/57/da7dc63a79f59e082e26a66ac02d87d69ea316b35b35b7a00d82f3ce3d2f/pynvml-13.0.1.tar.gz", hash = "sha256:1245991d9db786b4d2f277ce66869bd58f38ac654e38c9397d18f243c8f6e48f", size = 35226, upload-time = "2025-09-05T20:33:25.377Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/4a/cac76c174bb439a0c46c9a4413fcbea5c6cabfb01879f7bbdb9fdfaed76c/pynvml-13.0.1-py3-none-any.whl", hash = "sha256:e2b20e0a501eeec951e2455b7ab444759cf048e0e13a57b08049fa2775266aa8", size = 28810, upload-time = "2025-09-05T20:33:24.13Z" },
 ]
 
 [[package]]

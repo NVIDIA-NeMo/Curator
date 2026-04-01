@@ -72,7 +72,6 @@ dependencies = [
 cuda12 = [
     "gpustat",
     "nvidia-ml-py",
-    "pynvml>=13.0.1",
 ]
 vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
