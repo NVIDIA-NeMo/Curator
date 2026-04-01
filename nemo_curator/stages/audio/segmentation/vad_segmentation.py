@@ -47,10 +47,12 @@ from loguru import logger
 
 try:
     from silero_vad import get_speech_timestamps, load_silero_vad
+
     _SILERO_AVAILABLE = True
 except ImportError:
     _SILERO_AVAILABLE = False
 
+from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.common import ensure_waveform_2d, load_audio_file
 from nemo_curator.stages.base import ProcessingStage
@@ -102,7 +104,8 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
     def __post_init__(self):
         super().__init__()
         if not _SILERO_AVAILABLE:
-            raise ImportError("silero_vad is required for VADSegmentationStage. Install it with: pip install silero-vad")
+            msg = "silero_vad is required for VADSegmentationStage. Install it with: pip install silero-vad"
+            raise ImportError(msg)
         self._vad_model = None
         self._device = None
 
@@ -117,7 +120,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
             return {}
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         self._initialize_model()
 
     def teardown(self) -> None:
@@ -127,19 +130,24 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
             if self._device is not None and self._device.type == "cuda":
                 torch.cuda.empty_cache()
 
+    @staticmethod
+    def _check_gpu_availability(gpus: float) -> None:
+        if gpus > 0 and not torch.cuda.is_available():
+            msg = (
+                "Resources request GPU (gpus > 0) but CUDA is not available. "
+                "Either set resources=Resources(gpus=0) for CPU-only or install CUDA."
+            )
+            raise RuntimeError(msg)
+
     def _initialize_model(self) -> None:
         if self._vad_model is not None:
             return
+        self._check_gpu_availability(self._resources.gpus)
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message="Sampling rate is a multiply of 16000")
                 model = load_silero_vad()
 
-            if self._resources.gpus > 0 and not torch.cuda.is_available():
-                raise RuntimeError(
-                    "Resources request GPU (gpus > 0) but CUDA is not available. "
-                    "Either set resources=Resources(gpus=0) for CPU-only or install CUDA."
-                )
             use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
 
             if use_gpu:
@@ -151,18 +159,22 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
                 logger.info("Silero VAD model loaded on CPU")
 
             self._vad_model = model
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error(f"Failed to load VAD model: {e}")
             raise
 
     @property
-    def vad_model(self):
+    def vad_model(self) -> Any:  # noqa: ANN401
         self._initialize_model()
         return self._vad_model
 
     def _build_segment_item(
-        self, item: dict[str, Any], waveform: torch.Tensor, sample_rate: int,
-        segment: dict[str, float], segment_num: int,
+        self,
+        item: dict[str, Any],
+        waveform: torch.Tensor,
+        sample_rate: int,
+        segment: dict[str, float],
+        segment_num: int,
     ) -> dict[str, Any]:
         """Build a single segment item dict from a VAD result."""
         start_ms = int(segment["start"] * 1000)
@@ -176,20 +188,56 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
             segment_waveform = waveform[:, start_sample:end_sample].clone()
 
         segment_data: dict[str, Any] = {
-            k: v for k, v in item.items()
-            if k not in (self.waveform_key, self.sample_rate_key, "start_ms", "end_ms",
-                         "segment_num", "duration_sec", "duration", "num_samples")
+            k: v
+            for k, v in item.items()
+            if k
+            not in (
+                self.waveform_key,
+                self.sample_rate_key,
+                "start_ms",
+                "end_ms",
+                "segment_num",
+                "duration_sec",
+                "duration",
+                "num_samples",
+            )
         }
-        segment_data.update({
-            "waveform": segment_waveform,
-            "sample_rate": sample_rate,
-            "start_ms": start_ms,
-            "end_ms": end_ms,
-            "segment_num": segment_num,
-            "duration_sec": (end_ms - start_ms) / 1000.0,
-            "original_file": item.get("original_file", item.get("audio_filepath", "unknown")),
-        })
+        segment_data.update(
+            {
+                "waveform": segment_waveform,
+                "sample_rate": sample_rate,
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "segment_num": segment_num,
+                "duration_sec": (end_ms - start_ms) / 1000.0,
+                "original_file": item.get("original_file", item.get("audio_filepath", "unknown")),
+            }
+        )
         return segment_data
+
+    def _resolve_audio(self, item: dict[str, Any]) -> tuple[torch.Tensor, int] | None:
+        """Resolve waveform and sample_rate from task data. Returns None on failure."""
+        waveform = item.get(self.waveform_key)
+        sample_rate = item.get(self.sample_rate_key)
+
+        if waveform is None:
+            audio_filepath = item.get("audio_filepath")
+            if audio_filepath and os.path.exists(audio_filepath):
+                try:
+                    waveform, sample_rate = load_audio_file(audio_filepath)
+                    item[self.waveform_key] = waveform
+                    item[self.sample_rate_key] = sample_rate
+                except Exception as e:  # noqa: BLE001
+                    logger.error(f"Failed to load audio file {audio_filepath}: {e}")
+                    return None
+            else:
+                logger.error("Missing waveform and no valid audio_filepath provided")
+                return None
+        elif sample_rate is None:
+            logger.warning("Waveform present but sample_rate missing - task skipped")
+            return None
+
+        return ensure_waveform_2d(waveform), sample_rate
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         """
@@ -204,30 +252,13 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         self._initialize_model()
 
         if self._vad_model is None:
-            raise RuntimeError("VAD model failed to initialize. Cannot process audio.")
+            msg = "VAD model failed to initialize. Cannot process audio."
+            raise RuntimeError(msg)
 
-        item = task.data
-        waveform = item.get(self.waveform_key)
-        sample_rate = item.get(self.sample_rate_key)
-
-        if waveform is None:
-            audio_filepath = item.get("audio_filepath")
-            if audio_filepath and os.path.exists(audio_filepath):
-                try:
-                    waveform, sample_rate = load_audio_file(audio_filepath)
-                    item[self.waveform_key] = waveform
-                    item[self.sample_rate_key] = sample_rate
-                except Exception as e:  # noqa: BLE001
-                    logger.error(f"Failed to load audio file {audio_filepath}: {e}")
-                    return []
-            else:
-                logger.error("Missing waveform and no valid audio_filepath provided")
-                return []
-        elif sample_rate is None:
-            logger.warning("Waveform present but sample_rate missing - task skipped")
+        audio_result = self._resolve_audio(task.data)
+        if audio_result is None:
             return []
-
-        waveform = ensure_waveform_2d(waveform)
+        waveform, sample_rate = audio_result
 
         try:
             segments = self._get_vad_segments(waveform, sample_rate)
@@ -235,14 +266,16 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
                 logger.warning("No speech segments detected by VAD")
                 return []
 
-            original_file = item.get("audio_filepath", "unknown")
+            original_file = task.data.get("audio_filepath", "unknown")
             file_name = os.path.basename(original_file) if original_file != "unknown" else task.task_id
             total_duration = sum((s["end"] - s["start"]) for s in segments)
-            logger.info(f"[VADSegmentation] {file_name}: {len(segments)} segments extracted ({total_duration:.1f}s total speech)")
+            logger.info(
+                f"[VADSegmentation] {file_name}: {len(segments)} segments extracted ({total_duration:.1f}s total speech)"
+            )
 
             if self.nested:
                 task.data["segments"] = [
-                    self._build_segment_item(item, waveform, sample_rate, seg, i)
+                    self._build_segment_item(task.data, waveform, sample_rate, seg, i)
                     for i, seg in enumerate(segments)
                 ]
                 del task.data[self.waveform_key]
@@ -250,7 +283,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
 
             output_tasks: list[AudioTask] = []
             for i, segment in enumerate(segments):
-                seg_data = self._build_segment_item(item, waveform, sample_rate, segment, i)
+                seg_data = self._build_segment_item(task.data, waveform, sample_rate, segment, i)
                 seg_task = AudioTask(
                     data=seg_data,
                     task_id=f"{task.task_id}_seg_{i}",
@@ -259,19 +292,17 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
                 if task._metadata:
                     seg_task._metadata = dict(task._metadata)
                 output_tasks.append(seg_task)
-            return output_tasks
 
         except Exception as e:  # noqa: BLE001
             logger.exception(f"Error during VAD segmentation: {e}")
             return []
+        else:
+            return output_tasks
 
     def _get_vad_segments(self, waveform: torch.Tensor, sample_rate: int) -> list[dict[str, float]]:
         """Get speech segments using VAD."""
         if waveform.dim() > 1:
-            if waveform.shape[0] > 1:
-                waveform = waveform.mean(dim=0)
-            else:
-                waveform = waveform.squeeze(0)
+            waveform = waveform.mean(dim=0) if waveform.shape[0] > 1 else waveform.squeeze(0)
 
         if self._device is not None and waveform.device != self._device:
             waveform = waveform.to(self._device)
@@ -305,9 +336,11 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         for ts in speech_timestamps:
             start_sec = ts["start"] / vad_sample_rate
             end_sec = ts["end"] / vad_sample_rate
-            segments.append({
-                "start": start_sec,
-                "end": end_sec,
-            })
+            segments.append(
+                {
+                    "start": start_sec,
+                    "end": end_sec,
+                }
+            )
 
         return segments
