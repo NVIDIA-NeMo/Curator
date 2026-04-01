@@ -81,6 +81,7 @@ class AudioDataFilterStage(CompositeStage):
         self._cfg = load_config(config_path)
         if config:
             from .config import _deep_merge
+
             self._cfg = _deep_merge(self._cfg, config)
 
     def decompose(self) -> list[ProcessingStage]:
@@ -88,11 +89,13 @@ class AudioDataFilterStage(CompositeStage):
         stages: list[ProcessingStage] = []
 
         mc = cfg.get("mono_conversion", {})
-        stages.append(MonoConversionStage(
-            output_sample_rate=mc.get("output_sample_rate", 48000),
-            strict_sample_rate=mc.get("strict_sample_rate", True),
-            name="MonoConversion",
-        ))
+        stages.append(
+            MonoConversionStage(
+                output_sample_rate=mc.get("output_sample_rate", 48000),
+                strict_sample_rate=mc.get("strict_sample_rate", True),
+                name="MonoConversion",
+            )
+        )
 
         vad = cfg.get("vad", {})
         band = cfg.get("band_filter", {})
@@ -109,37 +112,57 @@ class AudioDataFilterStage(CompositeStage):
         enable_speaker = speaker.get("enable", True)
 
         self._append_filter_stages(
-            stages, vad, band, utmos, sigmos,
-            enable_vad, enable_band, enable_utmos, enable_sigmos,
+            stages,
+            vad,
+            band,
+            utmos,
+            sigmos,
+            enable_vad,
+            enable_band,
+            enable_utmos,
+            enable_sigmos,
             suffix="",
         )
 
         if enable_speaker:
             if enable_vad:
-                stages.append(SegmentConcatenationStage(
-                    silence_duration_sec=concat.get("silence_duration_sec", 0.5),
-                    name="SegmentConcat",
-                ))
+                stages.append(
+                    SegmentConcatenationStage(
+                        silence_duration_sec=concat.get("silence_duration_sec", 0.5),
+                        name="SegmentConcat",
+                    )
+                )
 
-            stages.append(SpeakerSeparationStage(
-                exclude_overlaps=speaker.get("exclude_overlaps", True),
-                min_duration=speaker.get("min_duration", 0.8),
-                gap_threshold=speaker.get("gap_threshold", 0.1),
-                buffer_time=speaker.get("buffer_time", 0.5),
-                name="SpeakerSeparation",
-            ))
+            stages.append(
+                SpeakerSeparationStage(
+                    exclude_overlaps=speaker.get("exclude_overlaps", True),
+                    min_duration=speaker.get("min_duration", 0.8),
+                    gap_threshold=speaker.get("gap_threshold", 0.1),
+                    buffer_time=speaker.get("buffer_time", 0.5),
+                    name="SpeakerSeparation",
+                )
+            )
 
             self._append_filter_stages(
-                stages, vad, band, utmos, sigmos,
-                enable_vad, enable_band, enable_utmos, enable_sigmos,
+                stages,
+                vad,
+                band,
+                utmos,
+                sigmos,
+                enable_vad,
+                enable_band,
+                enable_utmos,
+                enable_sigmos,
                 suffix="_Speaker",
             )
 
         if enable_vad or enable_speaker:
-            stages.append(TimestampMapperStage(
-                passthrough_keys=ts.get("passthrough_keys"),
-                name="TimestampMapper",
-            ))
+            stages.append(
+                TimestampMapperStage(
+                    passthrough_keys=ts.get("passthrough_keys"),
+                    name="TimestampMapper",
+                )
+            )
 
         enabled = get_enabled_stages(cfg)
         logger.info(
@@ -151,44 +174,57 @@ class AudioDataFilterStage(CompositeStage):
     @staticmethod
     def _append_filter_stages(  # noqa: PLR0913
         stages: list[ProcessingStage],
-        vad: dict, band: dict, utmos: dict, sigmos: dict,
-        enable_vad: bool, enable_band: bool,
-        enable_utmos: bool, enable_sigmos: bool,
+        vad: dict,
+        band: dict,
+        utmos: dict,
+        sigmos: dict,
+        enable_vad: bool,
+        enable_band: bool,
+        enable_utmos: bool,
+        enable_sigmos: bool,
         *,
         suffix: str,
     ) -> None:
         """Append VAD + quality filter stages to *stages* list."""
         if enable_vad:
-            stages.append(VADSegmentationStage(
-                min_duration_sec=vad.get("min_duration_sec", 2.0),
-                max_duration_sec=vad.get("max_duration_sec", 60.0),
-                threshold=vad.get("threshold", 0.5),
-                min_interval_ms=vad.get("min_interval_ms", 500),
-                speech_pad_ms=vad.get("speech_pad_ms", 300),
-                nested=(suffix == ""),
-                name=f"VAD{suffix}",
-            ))
+            stages.append(
+                VADSegmentationStage(
+                    min_duration_sec=vad.get("min_duration_sec", 2.0),
+                    max_duration_sec=vad.get("max_duration_sec", 60.0),
+                    threshold=vad.get("threshold", 0.5),
+                    min_interval_ms=vad.get("min_interval_ms", 500),
+                    speech_pad_ms=vad.get("speech_pad_ms", 300),
+                    nested=(suffix == ""),
+                    name=f"VAD{suffix}",
+                )
+            )
 
         if enable_band:
-            stages.append(BandFilterStage(
-                band_value=band.get("band_value", "full_band"),
-                name=f"BandFilter{suffix}",
-            ))
+            stages.append(
+                BandFilterStage(
+                    band_value=band.get("band_value", "full_band"),
+                    name=f"BandFilter{suffix}",
+                )
+            )
 
         if enable_utmos:
-            stages.append(UTMOSFilterStage(
-                mos_threshold=utmos.get("mos_threshold", 3.5),
-                name=f"UTMOS{suffix}",
-            ))
+            stages.append(
+                UTMOSFilterStage(
+                    mos_threshold=utmos.get("mos_threshold", 3.5),
+                    name=f"UTMOS{suffix}",
+                )
+            )
 
         if enable_sigmos:
-            stages.append(SIGMOSFilterStage(
-                noise_threshold=sigmos.get("noise_threshold", 4.0),
-                ovrl_threshold=sigmos.get("ovrl_threshold", 3.5),
-                sig_threshold=sigmos.get("sig_threshold"),
-                col_threshold=sigmos.get("col_threshold"),
-                disc_threshold=sigmos.get("disc_threshold"),
-                loud_threshold=sigmos.get("loud_threshold"),
-                reverb_threshold=sigmos.get("reverb_threshold"),
-                name=f"SIGMOS{suffix}",
-            ))
+            stages.append(
+                SIGMOSFilterStage(
+                    noise_threshold=sigmos.get("noise_threshold", 4.0),
+                    ovrl_threshold=sigmos.get("ovrl_threshold", 3.5),
+                    sig_threshold=sigmos.get("sig_threshold"),
+                    col_threshold=sigmos.get("col_threshold"),
+                    disc_threshold=sigmos.get("disc_threshold"),
+                    loud_threshold=sigmos.get("loud_threshold"),
+                    reverb_threshold=sigmos.get("reverb_threshold"),
+                    name=f"SIGMOS{suffix}",
+                )
+            )

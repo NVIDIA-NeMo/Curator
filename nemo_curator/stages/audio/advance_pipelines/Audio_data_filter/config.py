@@ -38,7 +38,15 @@ import yaml
 from loguru import logger
 
 SUPPORTED_AUDIO_FORMATS: tuple[str, ...] = (
-    ".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus", ".webm",
+    ".wav",
+    ".mp3",
+    ".flac",
+    ".ogg",
+    ".m4a",
+    ".aac",
+    ".wma",
+    ".opus",
+    ".webm",
 )
 
 DEFAULT_OUTPUT_FORMAT: str = "wav"
@@ -111,10 +119,7 @@ def _validate(cfg: dict[str, Any]) -> None:
         mn = vad.get("min_duration_sec", 0)
         mx = vad.get("max_duration_sec", float("inf"))
         if mn >= mx:
-            msg = (
-                f"vad.min_duration_sec ({mn}) must be less than "
-                f"vad.max_duration_sec ({mx})"
-            )
+            msg = f"vad.min_duration_sec ({mn}) must be less than vad.max_duration_sec ({mx})"
             raise ValueError(msg)
 
     concat = cfg.get("concatenation", {})
