@@ -103,7 +103,15 @@ def split_parquet_file_by_size(
                 row_group = pf.read_row_group(row_group_idx)
 
                 if row_group.nbytes > target_size_bytes:
-                    # Large row group case. Split into smaller chunks to get below target size.
+                    # Flush any pending small row groups first to preserve order.
+                    if row_groups_to_write:
+                        sub_table = row_groups_to_write[0] if len(row_groups_to_write) == 1 else pa.concat_tables(row_groups_to_write)
+                        out_file = _join_out_path(output_path, f"{outfile_prefix}_{file_idx}{ext}", so)
+                        _write_table_to_file(sub_table, out_file, so)
+                        file_idx += 1
+                        row_groups_to_write = []
+                        current_size = 0
+                    # Now write the large row group's chunks.
                     chunks = _split_table(row_group, target_size=target_size_bytes)
                     for chunk in chunks:
                         out_file = _join_out_path(output_path, f"{outfile_prefix}_{file_idx}{ext}", so)
@@ -226,17 +234,17 @@ def main(args: argparse.ArgumentParser | None = None) -> None:
     _handlers = {"parquet": split_parquet_file_by_size, "jsonl": split_jsonl_file_by_size}
 
     with RayClient():
-         ray.get(
-             [
+        ray.get(
+            [
                 _handlers[args.file_type].remote(
                     input_file=f,
                     output_path=args.output_path,
                     target_size_mb=args.target_size_mb,
                     storage_options=storage_options,
                 )
-                 for f in files
-             ]
-         )
+                    for f in files
+            ]
+        )
 
 
 if __name__ == "__main__":
