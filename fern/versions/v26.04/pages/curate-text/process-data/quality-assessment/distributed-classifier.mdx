@@ -390,6 +390,10 @@ Classifiers that share the same base tokenizer can reuse each other's tokens:
 Classifiers from different tokenizer groups are **not** compatible. You cannot reuse tokens generated for a DeBERTa-based classifier with an AEGIS classifier, or the reverse.
 </Note>
 
+<Warning>
+When using `use_existing_tokens=True` with `AegisClassifier`, you must also specify the `aegis_prompt_field` parameter. This field tells the classifier which column contains the pre-formatted prompt text. Omitting it raises a `ValueError` at pipeline construction time.
+</Warning>
+
 ### How It Works
 
 Each classifier exposes two parameters for token sharing:
