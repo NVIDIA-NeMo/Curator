@@ -167,9 +167,6 @@ video_cuda12 = [
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.9.1",
     "torchaudio",
-    # Nemotron VL support
-    "transformers>=4.56.0",
-    "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # Math Curation Dependencies
@@ -252,12 +249,12 @@ override-dependencies = [
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
     "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
+    "transformers>=4.56.0", # Override nemo-toolkit[asr]'s <=4.52.0 constraint; required for Nemotron VL support
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
-    "transformers<=4.55.2", # Else Cosmos Embed imports fail
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
 ]
 
