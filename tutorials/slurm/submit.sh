@@ -1,19 +1,18 @@
 #!/bin/bash
 # =============================================================================
-# NeMo Curator — SLURM submit script (bare-metal, shared virtualenv)
+# NeMo Curator — SLURM submit script (bare-metal, using uv)
 #
 # Runs the slurm demo pipeline across multiple nodes using SlurmRayClient.
-# Uses a virtualenv installed on a shared filesystem (Lustre/NFS) so every
-# node sees the same Python environment without a container runtime.
+# Uses `uv run` to execute with the correct project dependencies without
+# requiring a system Python installation on compute nodes.
 #
 # Prerequisites:
+#   - uv installed (https://docs.astral.sh/uv/getting-started/installation/)
 #   - NeMo Curator source checked out on a shared filesystem
-#   - A virtualenv built from that source:
-#       python -m venv .venv && pip install -e .
 #   - Shared filesystem accessible from all nodes (e.g. Lustre, NFS)
 #
 # If your cluster has Pyxis/enroot, prefer submit_container.sh instead —
-# it avoids managing a shared Python installation.
+# it uses the official NGC container and is the recommended approach.
 #
 # Usage:
 #   sbatch tutorials/slurm/submit.sh
@@ -47,6 +46,9 @@ CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 #   export RAY_PORT_BROADCAST_DIR="/shared/ray_ports"
 export RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}"
 
+# uv cache — set to a shared location to avoid re-downloading on each node
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${HOME}/.cache/uv}"
+
 echo "=================================================="
 echo "  NeMo Curator — SLURM Demo"
 echo "=================================================="
@@ -62,16 +64,12 @@ mkdir -p logs
 srun \
     --ntasks-per-node=1 \
     bash -c "
+cd '${CURATOR_DIR}'
 export RAY_TMPDIR=/tmp/ray_\${SLURM_JOB_ID}
-
-# Activate the shared virtualenv — must be on Lustre/NFS visible to all nodes.
-source '${CURATOR_DIR}/.venv/bin/activate'
-
-echo \"[\$(hostname)] SLURM_NODEID=\${SLURM_NODEID} python=\$(python --version 2>&1)\"
+echo \"[\$(hostname)] SLURM_NODEID=\${SLURM_NODEID} python=\$(uv run python --version 2>&1)\"
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null \
     | sed \"s/^/  [\$(hostname)] GPU /\" || echo \"  [\$(hostname)] no GPUs\"
-
-python '${CURATOR_DIR}/tutorials/slurm/pipeline.py' \
+uv run python '${CURATOR_DIR}/tutorials/slurm/pipeline.py' \
     --slurm \
     --num-tasks 80
 "
