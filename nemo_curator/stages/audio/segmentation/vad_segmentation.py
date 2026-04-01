@@ -42,8 +42,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
-import torchaudio
 from loguru import logger
+
+try:
+    import torchaudio
+
+    _TORCHAUDIO_AVAILABLE = True
+except ImportError:
+    torchaudio = None
+    _TORCHAUDIO_AVAILABLE = False
 
 try:
     from silero_vad import get_speech_timestamps, load_silero_vad
@@ -315,6 +322,9 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
             waveform_cpu = waveform.cpu() if waveform.device.type != "cpu" else waveform
             if waveform_cpu.dim() == 1:
                 waveform_cpu = waveform_cpu.unsqueeze(0)
+            if not _TORCHAUDIO_AVAILABLE:
+                msg = "torchaudio is required for resampling. Install it with: pip install torchaudio"
+                raise ImportError(msg)
             resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=SILERO_TARGET_RATE)
             vad_waveform = resampler(waveform_cpu).squeeze(0)
             if device.type != "cpu":
