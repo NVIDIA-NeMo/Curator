@@ -19,7 +19,7 @@ import ray
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.models.client import OpenAIClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.request.onmi_llm_request import OmniLLMRequestStage
+from nemo_curator.stages.audio.request.omni_llm_request import OmniLLMRequestStage
 from nemo_curator.stages.audio.request.prepare_omni_request import PrepareOmniRequestStage
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
@@ -50,6 +50,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=0.7, help="Temperature")
     parser.add_argument("--top-p", type=float, default=0.95, help="Top-p")
     parser.add_argument("--no-ray-local", action="store_true", help="Skip ray.init(local); use existing cluster")
+    parser.add_argument(
+        "--s3cfg", type=str, default="",
+        help="Path to s3 credentials file and section, e.g. ~/.s3cfg[default]"
+    )
 
     # Optional: launch vLLM as a subprocess (for single-container setups)
     parser.add_argument(
@@ -110,6 +114,7 @@ def main() -> None:
                     input_index=args.input_index,
                     user_prompt=args.user_prompt,
                     system_prompt=args.system_prompt,
+                    s3cfg=args.s3cfg,
                 )
             )
         else:

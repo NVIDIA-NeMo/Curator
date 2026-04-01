@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.audio.request.onmi_llm_request import OmniLLMRequestStage
+from nemo_curator.stages.audio.request.omni_llm_request import OmniLLMRequestStage
 from nemo_curator.stages.audio.request.prepare_omni_lhotse import PrepareOmniLhotseStage
 from nemo_curator.stages.audio.request.prepare_omni_request import PrepareOmniRequestStage
 

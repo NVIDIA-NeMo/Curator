@@ -1,13 +1,19 @@
 import base64
+import configparser
+import io
 import mimetypes
 import tarfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pandas as pd
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch
+
+# Global S3 client (initialized lazily)
+_s3_client = None
 
 
 def _is_valid_value(value: str | None) -> bool:
@@ -19,12 +25,106 @@ def _is_valid_value(value: str | None) -> bool:
     return not (isinstance(value, str) and not value.strip())
 
 
+def _is_remote_storage_path(value: str) -> bool:
+    """Return True if value is an S3 or AIS object storage path."""
+    if not value or not isinstance(value, str):
+        return False
+    s = value.strip()
+    return s.startswith(("s3://", "ais://"))
+
+
+def _parse_s3cfg(config_path: str = "~/.s3cfg", section: str = "default") -> dict:
+    """Parse an .s3cfg file and return credentials."""
+    path = Path(config_path).expanduser()
+    if not path.exists():
+        msg = f"Config file not found: {path}"
+        raise FileNotFoundError(msg)
+    config = configparser.ConfigParser()
+    config.read(path)
+    if section not in config:
+        msg = f"No [{section}] section found in {path}"
+        raise ValueError(msg)
+    return {
+        "use_https": config.getboolean(section, "use_https", fallback=True),
+        "access_key": config.get(section, "access_key", fallback=None),
+        "secret_key": config.get(section, "secret_key", fallback=None),
+        "bucket_location": config.get(section, "bucket_location", fallback=None),
+        "host_base": config.get(section, "host_base", fallback=None),
+        "authn_token": config.get(section, "authn_token", fallback=None),
+    }
+
+
+class _AISClient:
+    """Thin S3-compatible client for AIStore using Bearer token auth."""
+
+    def __init__(self, endpoint_url: str, token: str):
+        import requests as _requests
+
+        self._base = endpoint_url.rstrip("/")
+        self._session = _requests.Session()
+        self._session.headers["Authorization"] = f"Bearer {token}"
+
+    def get_object(self, Bucket: str, Key: str, **_kwargs: str) -> dict:  # noqa: N803
+        """Fetch an object from AIStore via S3-compatible endpoint."""
+        from botocore.exceptions import ClientError
+
+        _http_error_threshold = 400
+        url = f"{self._base}/s3/{Bucket}/{Key}"
+        resp = self._session.get(url)
+        if resp.status_code >= _http_error_threshold:
+            raise ClientError(
+                {"Error": {"Code": str(resp.status_code), "Message": resp.reason}},
+                "GetObject",
+            )
+        return {"Body": io.BytesIO(resp.content)}
+
+
+def _init_s3_client(s3cfg: str) -> None:
+    """Initialize the global S3 client from an s3cfg path like ``~/.s3cfg[default]``."""
+    global _s3_client  # noqa: PLW0603
+    if _s3_client is not None:
+        return
+    path, section = s3cfg.rsplit("[", 1)
+    cfg = _parse_s3cfg(path, section.rstrip("]"))
+    endpoint_url = ("https://" if cfg["use_https"] else "http://") + cfg["host_base"]
+    if cfg.get("authn_token"):
+        _s3_client = _AISClient(endpoint_url, cfg["authn_token"])
+    else:
+        import boto3
+        from botocore.config import Config
+
+        _s3_client = boto3.client(
+            "s3",
+            endpoint_url=endpoint_url,
+            aws_access_key_id=cfg["access_key"],
+            aws_secret_access_key=cfg["secret_key"],
+            region_name=cfg["bucket_location"],
+            config=Config(connect_timeout=5),
+        )
+
+
+def _parse_s3_path(s3_path: str) -> tuple[str, str]:
+    """Parse ``s3://bucket/key`` into ``(bucket, key)``."""
+    parsed = urlparse(str(s3_path))
+    return parsed.netloc, parsed.path.lstrip("/")
+
+
+def _read_remote_bytes(path: str) -> bytes:
+    """Read bytes from a remote storage path using the global S3 client."""
+    if _s3_client is None:
+        msg = "S3 client not initialized. Set s3cfg on PrepareOmniRequestStage."
+        raise RuntimeError(msg)
+    bucket, key = _parse_s3_path(path)
+    response = _s3_client.get_object(Bucket=bucket, Key=key)
+    return response["Body"].read()
+
+
 def _is_local_path(value: str) -> bool:
     """Return True if value looks like a local file path (not http/https)."""
     if not value or not isinstance(value, str):
         return False
     s = value.strip()
-    return not s.startswith(("http://", "https://"))
+    return not s.startswith(("http://", "https://", "s3://", "ais://"))
 
 
 def _parse_dali_webdataset_index(index_path: Path) -> dict[str, tuple[int, int]]:
@@ -102,6 +202,7 @@ class PrepareOmniRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     input_index: str = ""
     user_prompt: str = "text"
     system_prompt: str = "system_text"
+    s3cfg: str = ""
 
     _tar_member_index: dict[str, tuple[int, int]] | None = field(default=None, init=False, repr=False)
     _tar_member_names_cache: list[str] | None = field(default=None, init=False, repr=False)
@@ -208,6 +309,14 @@ class PrepareOmniRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             b64 = base64.standard_b64encode(raw).decode("ascii")
             return b64, mime_type
 
+        if _is_remote_storage_path(path):
+            raw = _read_remote_bytes(path)
+            mime_type, _ = mimetypes.guess_type(path)
+            if mime_type is None:
+                mime_type = "application/octet-stream"
+            b64 = base64.standard_b64encode(raw).decode("ascii")
+            return b64, mime_type
+
         path_obj = Path(path).expanduser().resolve()
         if not path_obj.is_file():
             msg = "Local path is not a file: " + path
@@ -256,7 +365,7 @@ class PrepareOmniRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                     (e.g. NVIDIA inference API with Gemini).
 
         """
-        if not _is_local_path(value):
+        if not _is_local_path(value) and not _is_remote_storage_path(value):
             return {"type": content_format, content_format: {"url": value}}
 
         if content_format == "input_audio":
@@ -318,6 +427,8 @@ class PrepareOmniRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, input_batch: DocumentBatch) -> DocumentBatch:
         """Build LLM messages from each row and add a 'messages' column."""
+        if self.s3cfg:
+            _init_s3_client(self.s3cfg)
         df = input_batch.to_pandas().copy()
         df["messages"] = df.apply(lambda row: self._row_to_messages(row.to_dict()), axis=1)
         return DocumentBatch(

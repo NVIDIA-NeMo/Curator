@@ -28,13 +28,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, _EmptyTask
 
 if TYPE_CHECKING:
-    from lhotse import Cut
-
-try:
-    from lhotse import CutSet
-except ModuleNotFoundError as exc:
-    msg = "Install lhotse (e.g. pip install lhotse) to use PrepareOmniLhotseStage."
-    raise RuntimeError(msg) from exc
+    from lhotse import Cut, CutSet
 
 
 def _require_soundfile() -> None:
@@ -118,6 +112,12 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
             raise ValueError(msg)
 
     def _build_cutset(self) -> CutSet:
+        try:
+            from lhotse import CutSet
+        except ModuleNotFoundError as exc:
+            msg = "Install lhotse (e.g. pip install lhotse) to use PrepareOmniLhotseStage."
+            raise RuntimeError(msg) from exc
+
         if self.lhotse_mode == "nemo_tarred":
             _require_nemo_tarred()
             from nemo.collections.common.data.lhotse.nemo_adapters import LazyNeMoTarredIterator

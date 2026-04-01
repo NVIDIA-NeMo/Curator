@@ -1,2 +1,4 @@
 aistore>=1.17.0,<=1.22.0
+boto3
+lhotse
 OpenAI
