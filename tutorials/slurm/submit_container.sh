@@ -48,10 +48,10 @@ CONTAINER_IMAGE="${CONTAINER_IMAGE:-nvcr.io/nvidia/nemo-curator:26.02}"
 # Format: <host_path>:<container_path>[,<host_path2>:<container_path2>]
 CONTAINER_MOUNTS="${CONTAINER_MOUNTS:-/lustre:/lustre}"
 
-# Use per-job /tmp to avoid cross-job Ray state collisions.
-# On clusters where /tmp is node-local, set RAY_PORT_BROADCAST_DIR to a
-# shared filesystem path so all nodes can discover the head's GCS port:
-#   export RAY_PORT_BROADCAST_DIR="/shared/ray_ports"
+# Shared directory for Ray port broadcast — must be visible to ALL nodes.
+# On most clusters /tmp is node-local, so we use a Lustre path here.
+# Adjust to any shared filesystem path accessible from every compute node.
+export RAY_PORT_BROADCAST_DIR="${CURATOR_DIR}/logs"
 
 echo "=================================================="
 echo "  NeMo Curator — SLURM Demo (container)"
@@ -73,6 +73,7 @@ srun \
     --container-workdir="${CURATOR_DIR}" \
     bash -c "
 export RAY_TMPDIR=/tmp/ray_\${SLURM_JOB_ID}
+export RAY_PORT_BROADCAST_DIR='${CURATOR_DIR}/logs'
 
 # Activate the local virtualenv so the latest Curator code (from this
 # checkout) is used instead of the version bundled in the container image.

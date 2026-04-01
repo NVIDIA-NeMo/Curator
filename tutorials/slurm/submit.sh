@@ -40,10 +40,9 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
-# Use per-job /tmp to avoid cross-job Ray state collisions.
-# On clusters where /tmp is node-local, set RAY_PORT_BROADCAST_DIR to a
-# shared filesystem path so all nodes can discover the head's GCS port:
-#   export RAY_PORT_BROADCAST_DIR="/shared/ray_ports"
+# Shared directory for Ray port broadcast — must be visible to ALL nodes.
+# On most clusters /tmp is node-local, so we use a path on the shared FS.
+export RAY_PORT_BROADCAST_DIR="${CURATOR_DIR}/logs"
 export RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}"
 
 # uv cache — set to a shared location to avoid re-downloading on each node
@@ -66,6 +65,7 @@ srun \
     bash -c "
 cd '${CURATOR_DIR}'
 export RAY_TMPDIR=/tmp/ray_\${SLURM_JOB_ID}
+export RAY_PORT_BROADCAST_DIR='${CURATOR_DIR}/logs'
 echo \"[\$(hostname)] SLURM_NODEID=\${SLURM_NODEID} python=\$(uv run python --version 2>&1)\"
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null \
     | sed \"s/^/  [\$(hostname)] GPU /\" || echo \"  [\$(hostname)] no GPUs\"
