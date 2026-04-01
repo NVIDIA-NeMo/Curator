@@ -1,0 +1,153 @@
+# Variables (replaced at sync time by convert_curator_specific.py):
+#   {current_release}, {{ current_release }}, <release/> -> version from file path (e.g. 26.02)
+#   Use in source: # NeMo Curator Release Notes: {{ current_release }}  or  <release/>
+#
+# Version display names pair NeMo calendar trains (YY.MM) with git release tags (vMAJOR.MINOR.PATCH).
+# Update both when you cut a new docs version. See CHANGELOG.md / GitHub releases for tag ↔ release alignment.
+
+instances:
+  - url: nemo-curator.docs.buildwithfern.com/nemo/curator
+    custom-domain: docs.nvidia.com/nemo/curator
+
+redirects:
+  - source: "/nemo/curator/home"
+    destination: "/nemo/curator/home/welcome"
+  # Sphinx HTML used .../path/to/page/index.html; Fern canonical URLs omit index.html.
+  # Add a pair here when you add a new `versions:` slug. See also the catch-all below.
+  # https://www.buildwithfern.com/learn/docs/configuration/site-level-settings#redirects-configuration
+  - source: "/nemo/curator/index.html"
+    destination: "/nemo/curator/home/welcome"
+  - source: "/nemo/curator/latest/:path*/index.html"
+    destination: "/nemo/curator/latest/:path*"
+  - source: "/nemo/curator/26.04/:path*/index.html"
+    destination: "/nemo/curator/v26.04/:path*"
+  - source: "/nemo/curator/26.02/:path*/index.html"
+    destination: "/nemo/curator/v26.02/:path*"
+  - source: "/nemo/curator/25.09/:path*/index.html"
+    destination: "/nemo/curator/v25.09/:path*"
+  # Legacy: calendar-train paths (YY.MM) without v- → Fern `versions:` slugs (vYY.MM)
+  - source: "/nemo/curator/25.09"
+    destination: "/nemo/curator/v25.09"
+  - source: "/nemo/curator/25.09/:path*"
+    destination: "/nemo/curator/v25.09/:path*"
+  - source: "/nemo/curator/26.02"
+    destination: "/nemo/curator/v26.02"
+  - source: "/nemo/curator/26.02/:path*"
+    destination: "/nemo/curator/v26.02/:path*"
+  - source: "/nemo/curator/26.04"
+    destination: "/nemo/curator/v26.04"
+  - source: "/nemo/curator/26.04/:path*"
+    destination: "/nemo/curator/v26.04/:path*"
+  # Unversioned paths and any slug not listed above (e.g. new version before redirects are updated)
+  - source: "/nemo/curator/:path*/index.html"
+    destination: "/nemo/curator/:path*"
+  # Sphinx-style page URLs (foo.html); :path*.html must follow all :path*/index.html rules above
+  - source: "/nemo/curator/25.09/:path*.html"
+    destination: "/nemo/curator/v25.09/:path*"
+  - source: "/nemo/curator/26.02/:path*.html"
+    destination: "/nemo/curator/v26.02/:path*"
+  - source: "/nemo/curator/26.04/:path*.html"
+    destination: "/nemo/curator/v26.04/:path*"
+  - source: "/nemo/curator/:path*.html"
+    destination: "/nemo/curator/:path*"
+  # Audio concepts: legacy nested nav URLs → flat slugs (aligned with Sphinx filenames)
+  - source: "/nemo/curator/about/concepts/audio/curation/pipeline"
+    destination: "/nemo/curator/about/concepts/audio/curation-pipeline"
+  - source: "/nemo/curator/about/concepts/audio/audio/batch"
+    destination: "/nemo/curator/about/concepts/audio/audio-batch"
+  - source: "/nemo/curator/about/concepts/audio/asr/pipeline"
+    destination: "/nemo/curator/about/concepts/audio/asr-pipeline"
+  - source: "/nemo/curator/about/concepts/audio/quality/metrics"
+    destination: "/nemo/curator/about/concepts/audio/quality-metrics"
+  - source: "/nemo/curator/about/concepts/audio/manifests/ingest"
+    destination: "/nemo/curator/about/concepts/audio/manifests-ingest"
+  - source: "/nemo/curator/about/concepts/audio/text/integration"
+    destination: "/nemo/curator/about/concepts/audio/text-integration"
+  # Reference / Infra: legacy nested nav URLs → flat slugs
+  - source: "/nemo/curator/reference/infra/memory/management"
+    destination: "/nemo/curator/reference/infra/memory-management"
+  - source: "/nemo/curator/reference/infra/gpu/processing"
+    destination: "/nemo/curator/reference/infra/gpu-processing"
+  - source: "/nemo/curator/reference/infra/resumable/processing"
+    destination: "/nemo/curator/reference/infra/resumable-processing"
+  - source: "/nemo/curator/reference/infra/container/environments"
+    destination: "/nemo/curator/reference/infra/container-environments"
+  # Text / video concepts & deployment: legacy nested nav → flat slugs
+  - source: "/nemo/curator/about/concepts/text/data/curation/pipeline"
+    destination: "/nemo/curator/about/concepts/text/data/data-curation-pipeline"
+  - source: "/nemo/curator/about/concepts/video/data/flow"
+    destination: "/nemo/curator/about/concepts/video/data-flow"
+  - source: "/nemo/curator/admin/deployment/slurm/image"
+    destination: "/nemo/curator/admin/deployment/slurm-image"
+
+title: NeMo Curator
+
+footer: ./components/CustomFooter.tsx
+
+versions:
+  - display-name: "Latest · v1.1.0 (26.02)"
+    path: versions/latest.yml
+    slug: latest
+    availability: stable
+  - display-name: "26.02 · v1.1.0"
+    path: versions/v26.02.yml
+    slug: v26.02
+    availability: stable
+  - display-name: "25.09 · v1.0.0"
+    path: versions/v25.09.yml
+    slug: v25.09
+    availability: stable
+
+layout:
+  searchbar-placement: header
+  page-width: 1376px
+  sidebar-width: 248px
+  content-width: 812px
+  tabs-placement: header
+  hide-feedback: true
+
+colors:
+  accentPrimary:
+    dark: "#76B900"
+    light: "#76B900"
+  background:
+    light: "#FFFFFF"
+    dark: "#000000"
+
+theme:
+  page-actions: toolbar
+  footer-nav: minimal
+
+logo:
+  dark: ./assets/NVIDIA_dark.svg
+  light: ./assets/NVIDIA_light.svg
+  height: 20
+  href: /nemo/curator/home/welcome
+  right-text: NeMo Curator
+
+favicon: ./assets/NVIDIA_symbol.svg
+
+js:
+  - url: https://assets.adobedtm.com/5d4962a43b79/c1061d2c5e7b/launch-191c2462b890.min.js
+    strategy: beforeInteractive
+
+css:
+  - ./main.css
+
+navbar-links:
+  - type: github
+    value: https://github.com/NVIDIA-NeMo/Curator
+
+libraries:
+  nemo-curator:
+    input:
+      git: https://github.com/NVIDIA-NeMo/Curator
+      subpath: nemo_curator
+    output:
+      path: ./product-docs/nemo-curator/Full-Library-Reference
+    lang: python
+
+experimental:
+  mdx-components:
+    - ./components
+  basepath-aware: true
