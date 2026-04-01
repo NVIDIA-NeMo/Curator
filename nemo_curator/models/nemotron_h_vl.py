@@ -96,7 +96,7 @@ class NemotronHVL(ModelInterface):
         if model_variant == "nemotron":
             self._normalized_variant: NemotronVariant = "nemotron-bf16"
         else:
-            self._normalized_variant = model_variant
+            self._normalized_variant = model_variant  # type: ignore[assignment]
 
         if self._normalized_variant not in _NEMOTRON_VARIANTS_INFO:
             valid_variants = ", ".join(_NEMOTRON_VARIANTS_INFO.keys())
