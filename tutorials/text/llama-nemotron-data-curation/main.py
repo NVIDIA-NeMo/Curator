@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ from filters.heuristic_filters import (
     malformed_filter,
 )
 from filters.model_filters import ApplyChatTemplate, CompletionTokenCountFilter, NonEnglishFilter, TokenCountFilter
-from utils.jsonl_utils import interleave_datasets, split_jsonl_by_size
+from utils.jsonl_utils import interleave_datasets
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
@@ -35,6 +35,7 @@ from nemo_curator.stages.text.filters import ScoreFilter
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.utils.file_utils import get_all_file_paths_under
+from nemo_curator.utils.split_large_files import split_jsonl_file_by_size
 
 
 def main(args: argparse.Namespace) -> None:  # noqa: PLR0915
@@ -65,14 +66,20 @@ def main(args: argparse.Namespace) -> None:  # noqa: PLR0915
         # Filter out files that don't contain any of the provided substrings
         input_files = [filename for filename in input_files if any(s in filename for s in args.filename_filter)]
 
-    # Grab integer from blocksize string, e.g., "100mb" -> 100
-    json_blocksize = int("".join(c for c in args.json_blocksize if c.isdigit()))
     input_dir = os.path.join(args.output_dir, "input_data_shards")
     os.makedirs(input_dir, exist_ok=False)
 
     # Split into smaller files for parallel processing
-    for f in input_files:
-        split_jsonl_by_size(f, json_blocksize, input_dir, "split")
+    ray.get(
+        [
+            split_jsonl_file_by_size.remote(
+                input_file=f,
+                output_path=input_dir,
+                target_size_mb=args.jsonl_blocksize_mb,
+            )
+            for f in input_files
+        ]
+    )
 
     # Read files for each pipeline
     pipeline_thinking_on.add_stage(JsonlReader(file_paths=input_dir))
@@ -222,10 +229,10 @@ def attach_args() -> argparse.ArgumentParser:
         help="If specified, only files with names containing one or more of the provided substrings will be processed.",
     )
     parser.add_argument(
-        "--json-blocksize",
-        type=str,
-        default="100mb",
-        help="Blocksize to use for reading the JSONL files.",
+        "--jsonl-blocksize-mb",
+        type=int,
+        default=100,
+        help="Blocksize (in MB) to use for splitting the JSONL files.",
     )
 
     parser.add_argument(
