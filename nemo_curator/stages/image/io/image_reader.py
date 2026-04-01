@@ -15,11 +15,13 @@
 import pathlib
 from collections.abc import Generator
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import torch
 from loguru import logger
 
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask, ImageBatch, ImageObject
@@ -50,6 +52,12 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             self.resources = Resources(gpus=self.num_gpus_per_worker)
         else:
             self.resources = Resources()
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        """Ray stage specification for this stage."""
+        return {
+            RayStageSpecKeys.IS_FANOUT_STAGE: True,
+        }
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -98,11 +106,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
         # Use the tar filename stem as the id prefix for single shards; for grouped shards,
         # synthesize a group prefix and place generated image paths under the tars' parent dir.
         base_path = tar_paths[0] if len(tar_paths) == 1 else tar_paths[0].parent
-        id_prefix = (
-            tar_paths[0].stem
-            if len(tar_paths) == 1
-            else f"group_{tar_paths[0].stem}_x{len(tar_paths)}"
-        )
+        id_prefix = tar_paths[0].stem if len(tar_paths) == 1 else f"group_{tar_paths[0].stem}_x{len(tar_paths)}"
 
         while samples_completed < total_samples:
             img_batch = pipe.run()
