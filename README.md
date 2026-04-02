@@ -48,7 +48,7 @@ python tutorials/quickstart.py
 NeMo Curator uses a modular, Ray-based pipeline architecture. Data flows through composable processing stages — each stage handles a discrete curation task (loading, filtering, deduplication, etc.) and can be configured with independent resource requirements.
 
 <p align="center">
-  <img src="./docs/_images/architecture-diagram.png" alt="NeMo Curator architecture diagram showing modular pipeline stages" width="700"/>
+  <img src="./fern/assets/images/architecture-diagram.png" alt="NeMo Curator architecture diagram showing modular pipeline stages" width="700"/>
 </p>
 
 ---
@@ -112,7 +112,7 @@ Prepare high-quality speech datasets for automatic speech recognition (ASR) and 
 High-quality training data is the single most important factor in building performant AI models. Raw datasets contain noise, duplicates, low-quality content, and potentially harmful material that degrade model performance and increase training costs.
 
 <p align="center">
-  <img src="./docs/_images/data-curation-challenges.png" alt="Common data curation challenges: quality, deduplication, filtering, and scale" width="700"/>
+  <img src="./fern/assets/images/data-curation-challenges.png" alt="Common data curation challenges: quality, deduplication, filtering, and scale" width="700"/>
 </p>
 
 NeMo Curator addresses these challenges with GPU-accelerated pipelines that scale from a single machine to multi-node clusters, enabling you to curate datasets at the scale required for modern AI training.
@@ -137,7 +137,7 @@ NeMo Curator leverages NVIDIA RAPIDS™ libraries such as cuDF, cuML, and cuGrap
 - **Near-linear scaling** from one to four H100 80 GB nodes (2.05 hrs → 0.50 hrs)
 
 <p align="center">
-  <img src="./docs/_images/text-benchmarks.png" alt="Performance benchmarks showing 16x speed improvement, 40% cost savings, and near-linear scaling" width="700"/>
+  <img src="./fern/assets/images/text-benchmarks.png" alt="Performance benchmarks showing 16x speed improvement, 40% cost savings, and near-linear scaling" width="700"/>
 </p>
 
 ### Quality Improvements
@@ -145,7 +145,7 @@ NeMo Curator leverages NVIDIA RAPIDS™ libraries such as cuDF, cuML, and cuGrap
 Data curation modules measurably improve model performance. In ablation studies using a 357M-parameter GPT model trained on curated Common Crawl data:
 
 <p align="center">
-  <img src="./docs/_images/ablation.png" alt="Model accuracy improvements across curation pipeline stages" width="700"/>
+  <img src="./fern/assets/images/ablation.png" alt="Model accuracy improvements across curation pipeline stages" width="700"/>
 </p>
 
 **Results:** Progressive improvements in zero-shot downstream task performance through text cleaning, deduplication, and quality filtering stages.

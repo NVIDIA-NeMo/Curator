@@ -12,10 +12,6 @@ modality: "universal"
 
 # NeMo Curator Migration Guide: Dask to Ray
 
-```{important}
-NeMo Curator currently uses **Ray** as its execution engine for all modalities. The older Dask-based API has been removed. This guide is for users migrating existing Dask-based workflows to the current Ray-based architecture. If you are new to NeMo Curator, start with the {ref}`Getting Started guides <gs-overview>` instead.
-```
-
 This guide explains how to transition existing Dask-based NeMo Curator workflows to the new Ray-based pipeline architecture.
 
 ```{seealso}
