@@ -15,4 +15,7 @@
 from nemo_curator.stages.interleaved.io.reader import WebdatasetReader
 from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParquetWriterStage
 
-__all__ = ["InterleavedParquetWriterStage", "WebdatasetReader"]
+__all__ = [
+    "InterleavedParquetWriterStage",
+    "WebdatasetReader",
+]
