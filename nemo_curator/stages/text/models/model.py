@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,6 +45,7 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         padding_side: The side to pad the input tokens. Defaults to "right".
+        max_seq_length: If provided, clips the input tokens before the forward pass. Defaults to None.
         unpack_inference_batch: Whether to unpack the inference batch with **kwargs. Defaults to False.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
@@ -59,6 +60,7 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
+        max_seq_length: int | None = None,
         unpack_inference_batch: bool = False,
         autocast: bool = True,
     ):
@@ -72,6 +74,7 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.model_inference_batch_size = model_inference_batch_size
         self.has_seq_order = has_seq_order
         self.padding_side = padding_side
+        self.max_seq_length = max_seq_length
         self.unpack_inference_batch = unpack_inference_batch
         self.autocast = autocast
 
@@ -159,6 +162,15 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df_cpu = batch.to_pandas()
+
+        if self.max_seq_length is not None:
+            # Slice each row to the maximum sequence length
+            if self.padding_side == "right":
+                df_cpu[INPUT_ID_FIELD] = df_cpu[INPUT_ID_FIELD].apply(lambda x: x[: self.max_seq_length])
+                df_cpu[ATTENTION_MASK_FIELD] = df_cpu[ATTENTION_MASK_FIELD].apply(lambda x: x[: self.max_seq_length])
+            elif self.padding_side == "left":
+                df_cpu[INPUT_ID_FIELD] = df_cpu[INPUT_ID_FIELD].apply(lambda x: x[-self.max_seq_length :])
+                df_cpu[ATTENTION_MASK_FIELD] = df_cpu[ATTENTION_MASK_FIELD].apply(lambda x: x[-self.max_seq_length :])
 
         processed_outputs = []
         for model_input_batch in self.yield_next_batch(df_cpu):

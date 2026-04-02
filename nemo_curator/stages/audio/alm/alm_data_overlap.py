@@ -26,8 +26,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 MAX_OVERLAP_PERCENTAGE = 100
 
@@ -149,28 +149,18 @@ def _get_filepath_from_stats(stats: dict[str, Any] | None, key: str) -> str | No
 
 
 @dataclass
-class ALMDataOverlapStage(LegacySpeechStage):
+class ALMDataOverlapStage(ProcessingStage[AudioTask, AudioTask]):
+    """Filter overlapping ALM windows.
+
+    Removes windows with overlap exceeding the threshold, keeping
+    windows closest to target duration.
     """
-    Filter overlapping ALM windows.
 
-    Native NeMo Curator stage that removes windows with overlap exceeding
-    the threshold, keeping windows closest to target duration.
-
-    This follows the exact pattern from nemo_curator.stages.audio.common:
-    - Inherits from LegacySpeechStage
-    - Uses @dataclass decorator
-    - Implements process_dataset_entry() method
-    - Returns list[AudioBatch] from process_dataset_entry
-
-    Produces identical output to SDP implementation.
-    """
+    name: str = "alm_data_overlap"
 
     # Processing parameters (EXACT match to SDP)
     overlap_percentage: int = 0
     target_duration: float = 120.0
-
-    # Stage metadata
-    name: str = "alm_data_overlap"
 
     def __post_init__(self) -> None:
         """Validate parameters."""
@@ -181,23 +171,19 @@ class ALMDataOverlapStage(LegacySpeechStage):
             msg = "target_duration must be positive"
             raise ValueError(msg)
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
-        """
-        Process a single manifest entry and filter overlapping windows.
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["windows"]
 
-        Args:
-            data_entry: Single entry from manifest (dict with windows, etc.)
-
-        Returns:
-            list[AudioBatch] - Always returns entry (matching SDP behavior)
-        """
+    def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
-        input_windows = len(data_entry.get("windows", []))
-        result = self._filter_overlaps(data_entry)
+        input_windows = len(task.data.get("windows", []))
+        result = self._filter_overlaps(task.data)
+        task.data.clear()
+        task.data.update(result)
         filter_time = time.perf_counter() - t0
 
-        output_windows = len(result.get("filtered_windows", []))
-        filtered_dur = result.get("filtered_dur", 0.0)
+        output_windows = len(task.data.get("filtered_windows", []))
+        filtered_dur = task.data.get("filtered_dur", 0.0)
         self._log_metrics(
             {
                 "filter_time": filter_time,
@@ -207,7 +193,7 @@ class ALMDataOverlapStage(LegacySpeechStage):
             }
         )
 
-        return [AudioBatch(data=[result])]
+        return task
 
     def _filter_overlaps(self, entry: dict[str, Any]) -> dict[str, Any]:
         """Filter overlapping windows from entry."""

@@ -23,3 +23,43 @@ Improved Prometheus and Grafana monitoring support for shared clusters:
 - **Graceful cleanup on shutdown**: `RayClient.stop()` now removes Ray service discovery entries from the Prometheus configuration automatically.
 
 Learn more in the [Monitoring](/reference/infra/monitoring) documentation.
+
+### Cosmos-Xenna 0.2.0 (PR #1571)
+
+Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and improved GPU management:
+
+- **Simplified `Resources` API**: Removed `nvdecs`, `nvencs`, and `entire_gpu` fields. GPU allocation now uses `gpu_memory_gb` (fractional single-GPU) or `gpus` (one or more full GPUs) exclusively.
+- **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
+- **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
+
+### Workflow Results API
+
+Standardized return type for all deduplication workflows:
+
+- **`WorkflowRunResult` dataclass**: All deduplication workflow `run()` methods now return `WorkflowRunResult` instead of `None` or `dict`
+- **`WorkflowBase` abstract class**: New base class that most deduplication workflows inherit from, enforcing a consistent `run()` → `WorkflowRunResult` interface. (`TextSemanticDeduplicationWorkflow` implements the same interface without formal inheritance.)
+- **Structured metadata**: Access per-stage timing (`total_time`, `identification_time`, and others), duplicate counts (`num_duplicates`, `num_duplicates_removed`), and output paths through `result.metadata`
+- **`TaskPerfUtils` compatibility**: `collect_stage_metrics()` and `aggregate_task_metrics()` now accept `WorkflowRunResult` directly
+
+## Dependency Updates
+
+- **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
+- **Ray**: Updated to 2.54
+
+## Bug Fixes
+
+### Audio Stage Name Propagation (PR #1470)
+
+Fixed audio pipeline stage names not propagating in `StagePerfStats`, making benchmark output unable to identify per-stage timing. All audio stages (`GetAudioDurationStage`, `PreserveByValueStage`, `AudioToDocumentStage`, `GetPairwiseWerStage`) now correctly report their names, and stage performance history persists when stages create new task objects.
+
+### Video vLLM Setup Race Condition (PR #1590)
+
+Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage` where multiple workers simultaneously initializing vLLM would race on the shared `torch.compile` cache directory, causing `FileNotFoundError`. Model initialization now runs once per node in `setup_on_node()` instead of per-worker in `setup()`, matching the pattern used by text vLLM stages.
+
+## Breaking Changes
+
+- **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
+- **`ExactDeduplicationWorkflow.run()` and `FuzzyDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `None`
+- **`SemanticDeduplicationWorkflow.run()` and `TextSemanticDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `dict`
+- **`TextDuplicatesRemovalWorkflow.run()`** now returns `WorkflowRunResult` instead of `list[FileGroupTask] | None`
+- Code that previously ignored the return value is unaffected. Code that consumed the old `dict` return from semantic workflows must migrate to `result.metadata` and `result.pipeline_tasks`.
