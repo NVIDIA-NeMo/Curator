@@ -67,7 +67,7 @@ class QwenVL(ModelInterface):
         self.max_output_tokens = max_output_tokens
         self.model_does_preprocess = model_does_preprocess
         self.disable_mmcache = disable_mmcache
-        self.stage2_prompt = stage2_prompt_text
+        self.stage2_prompt = stage2_prompt_text if stage2_prompt_text else "Please refine this caption: "
         self.verbose = verbose
         self.weight_file = str(pathlib.Path(model_dir) / _QWEN_VARIANTS_INFO[model_variant])
         # Default pattern for stage2 caption generation - matches (.*)(user_prompt)(.*)
