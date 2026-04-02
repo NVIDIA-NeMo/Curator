@@ -321,6 +321,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     )
 
     ### Wikipedia Paraphrasing Stage
+    # Add the synthetic data generation stage
     pipeline.add_stage(
         WikipediaParaphrasingStage(
             client=llm_client,
