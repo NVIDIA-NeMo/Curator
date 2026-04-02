@@ -295,7 +295,7 @@ def main() -> None:  # noqa: PLR0915
         from nemo_curator.backends.experimental.utils import get_available_cpu_gpu_resources
         from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
 
-        _, num_gpus = get_available_cpu_gpu_resources()
+        _, num_gpus = get_available_cpu_gpu_resources(init_and_shutdown=True)
         num_gpus = int(num_gpus)
         print(f"Detected {num_gpus} GPUs, using tensor_parallel_size={num_gpus}")
 
