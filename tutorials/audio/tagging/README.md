@@ -44,7 +44,7 @@ source .venv/bin/activate
 
 ### Prerequisites
 
-- **GPU**: Required for diarization (PyAnnote), ASR alignment (NeMo), and quality metrics (TorchSQUIM)
+- **GPU**: Required for diarization (PyAnnote), VAD (Pyannote), ASR alignment (NeMo)
 - **HuggingFace Token**: Required for PyAnnote model access. Request access at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
 
 ## Quick Start
@@ -218,17 +218,14 @@ tests/stages/audio/tagging/e2e/
     └── tts_pipeline.yaml   # Test configuration for the pipeline
 ```
 
-> **Note:** A valid HuggingFace token (`HF_SECRET_KEY`) is required for diarization tests.
+> **Note:** A valid HuggingFace token (`HF_TOKEN`) is required for diarization tests.
 Export the variable before running the test:
 >
 > ```bash
-> export HF_SECRET_KEY=your_hf_token
+> export HF_TOKEN=your_hf_token
 > ```
 
 See the test file for detailed comments on the pipeline steps and configuration overrides.
-
-
-
 ```
 
 ## Troubleshooting

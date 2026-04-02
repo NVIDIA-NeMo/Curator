@@ -114,7 +114,6 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     _pipeline: Any = field(default=None, repr=False)
     _vad_model: Any = field(default=None, repr=False)  # WhisperXVADModel
     _rng: random.Random | None = field(default=None, repr=False)
-    _model_initialized: bool = field(default=False, repr=False)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key]
@@ -122,13 +121,9 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, self.segments_key, self.overlap_segments_key]
 
-    def __post_init__(self):
-        """Validate config."""
-        if not self.hf_token:
-            msg = "hf_token is required for PyAnnote models"
-            raise ValueError(msg)
-
-    def setup_on_node(self, _node_info: NodeInfo, _worker_metadata: WorkerMetadata) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         """Download model weights (called once per node)."""
         if self._pipeline is None:
             self._pipeline = PyAnnotePipeline.from_pretrained(self.model_name, token=self.hf_token)
@@ -139,11 +134,8 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
                 vad_offset=0.363,
             )
 
-    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Load models to device (called per replica before processing)."""
-        if self._model_initialized:
-            return
-
         if not torch.cuda.is_available() and self.device == "cuda":
             msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
             raise RuntimeError(msg)
@@ -164,7 +156,6 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         self._vad_model.to(self.device)
 
         self._rng = random.Random()  # noqa: S311
-        self._model_initialized = True
         logger.info(f"[{self.name}] Initialized PyAnnote diarization on {self.device}")
 
     def add_vad_segments(  # noqa: PLR0913

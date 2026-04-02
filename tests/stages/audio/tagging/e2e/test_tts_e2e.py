@@ -35,7 +35,7 @@ from .conftest import CONFIGS_DIR, REFERENCE_DIR
 from .utils import check_output
 
 
-@pytest.mark.skipif(not os.getenv("HF_SECRET_KEY"), reason="HF_SECRET_KEY required for PyAnnote models")
+@pytest.mark.skipif(not os.getenv("HF_TOKEN"), reason="HF_TOKEN required for PyAnnote models")
 def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     """TTS tagging pipeline e2e: Resample + Diarize + Split + ASR Align + Join + Merge + ITN + BW + SQUIM + Segments."""
     config_path = CONFIGS_DIR / "tts_pipeline.yaml"
@@ -48,7 +48,7 @@ def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     cfg.workspace_dir = str(tmp_path)
     cfg.resampled_audio_dir = str(tmp_path / "audio_resampled")
     cfg.device = "cpu"
-    cfg.hf_token = os.getenv("HF_SECRET_KEY", "")
+    cfg.hf_token = os.getenv("HF_TOKEN", "")
     cfg.language_short = "en"
 
     # Override NeMoASRAlignerStage (index 4) to use CTC model for CPU testing
@@ -57,7 +57,7 @@ def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     cfg.stages[4].decoder_type = "ctc"
 
     pipeline = create_pipeline_from_yaml(cfg)
-    executor = XennaExecutor(config={"execution_mode": "batch"})
+    executor = XennaExecutor()
     pipeline.run(executor)
 
     check_output(cfg.final_manifest, reference_manifest, text_key="text")

@@ -12,9 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-from typing import Any
-
+from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import BaseASRProcessorStage
 from nemo_curator.tasks import AudioTask
 
@@ -22,7 +20,7 @@ from nemo_curator.tasks import AudioTask
 class ConcreteASRProcessor(BaseASRProcessorStage):
     """Concrete subclass for testing base behavior."""
 
-    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         pass
 
     def process(self, task: AudioTask) -> AudioTask:

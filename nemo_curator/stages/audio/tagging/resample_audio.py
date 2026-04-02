@@ -24,10 +24,10 @@ https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/audio/commo
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Any
 
 from fsspec.core import url_to_fs
 
+from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.audio.common import get_audio_duration
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -60,7 +60,7 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     # Stage metadata
     name: str = "ResampleAudio"
 
-    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         fs, path = url_to_fs(self.resampled_audio_dir)
         fs.makedirs(path, exist_ok=True)
 

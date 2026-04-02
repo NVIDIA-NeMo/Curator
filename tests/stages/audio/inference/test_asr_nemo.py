@@ -83,7 +83,7 @@ class TestAsrNeMoStage:
             assert results[0].data["pred_text"] == "the cat"
             assert results[1].data["pred_text"] == "sat on a mat"
 
-    @patch("nemo_curator.stages.audio.inference.asr_nemo.nemo_asr")
+    @patch("nemo_curator.stages.audio.inference.asr.asr_nemo.nemo_asr")
     def test_setup_on_node_downloads_only(self, mock_nemo_asr: MagicMock) -> None:
         mock_nemo_asr.models.ASRModel.from_pretrained.return_value = "/cache/model.nemo"
         stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
@@ -93,7 +93,7 @@ class TestAsrNeMoStage:
         )
         assert stage.asr_model is None
 
-    @patch("nemo_curator.stages.audio.inference.asr_nemo.nemo_asr")
+    @patch("nemo_curator.stages.audio.inference.asr.asr_nemo.nemo_asr")
     def test_setup_on_node_failure(self, mock_nemo_asr: MagicMock) -> None:
         mock_nemo_asr.models.ASRModel.from_pretrained.side_effect = Exception("network error")
         stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
@@ -104,7 +104,7 @@ class TestAsrNeMoStage:
         stage = InferenceAsrNemoStage(model_name="dummy", asr_model=MagicMock())
         stage.setup_on_node()
 
-    @patch("nemo_curator.stages.audio.inference.asr_nemo.nemo_asr")
+    @patch("nemo_curator.stages.audio.inference.asr.asr_nemo.nemo_asr")
     def test_setup_on_node_with_cache_dir(self, mock_nemo_asr: MagicMock, tmp_path: Path) -> None:
         cache = str(tmp_path / "models")
         mock_nemo_asr.models.ASRModel.from_pretrained.return_value = "/cache/model.nemo"
@@ -114,7 +114,7 @@ class TestAsrNeMoStage:
             model_name="nvidia/parakeet-tdt-0.6b-v2", return_model_file=True, cache_dir=cache
         )
 
-    @patch("nemo_curator.stages.audio.inference.asr_nemo.nemo_asr")
+    @patch("nemo_curator.stages.audio.inference.asr.asr_nemo.nemo_asr")
     def test_setup_loads_model(self, mock_nemo_asr: MagicMock) -> None:
         mock_model = MagicMock()
         mock_nemo_asr.models.ASRModel.from_pretrained.return_value = mock_model
@@ -122,7 +122,7 @@ class TestAsrNeMoStage:
         stage.setup()
         assert stage.asr_model is mock_model
 
-    @patch("nemo_curator.stages.audio.inference.asr_nemo.nemo_asr")
+    @patch("nemo_curator.stages.audio.inference.asr.asr_nemo.nemo_asr")
     def test_setup_with_cache_dir(self, mock_nemo_asr: MagicMock, tmp_path: Path) -> None:
         cache = str(tmp_path / "models")
         mock_model = MagicMock()
@@ -133,7 +133,7 @@ class TestAsrNeMoStage:
         call_kwargs = mock_nemo_asr.models.ASRModel.from_pretrained.call_args[1]
         assert call_kwargs["cache_dir"] == cache
 
-    @patch("nemo_curator.stages.audio.inference.asr_nemo.nemo_asr")
+    @patch("nemo_curator.stages.audio.inference.asr.asr_nemo.nemo_asr")
     def test_setup_failure(self, mock_nemo_asr: MagicMock) -> None:
         mock_nemo_asr.models.ASRModel.from_pretrained.side_effect = Exception("GPU OOM")
         stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")

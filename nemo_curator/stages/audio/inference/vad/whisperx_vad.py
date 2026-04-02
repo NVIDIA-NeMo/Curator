@@ -30,6 +30,8 @@ from loguru import logger
 from whisperx.audio import SAMPLE_RATE
 from whisperx.vads.pyannote import Pyannote, load_vad_model
 
+os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "true"
+
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio.common import get_audio_duration
 from nemo_curator.stages.base import ProcessingStage
@@ -60,16 +62,7 @@ class WhisperXVADModel:
             "vad_onset": vad_onset,
             "vad_offset": vad_offset,
         }
-
-        prev = os.environ.get("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD")
-        os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "true"
-        try:
-            self._model = load_vad_model(torch.device(device), token=use_auth_token, **default_vad_options)
-        finally:
-            if prev is None:
-                os.environ.pop("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", None)
-            else:
-                os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = prev
+        self._model = load_vad_model(torch.device(device), token=use_auth_token, **default_vad_options)
 
     def to(self, device: str) -> None:
         """Move the model to the given device."""
@@ -120,7 +113,6 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "WhisperXVAD"
 
     _vad_model: Any = field(default=None, repr=False)
-    _model_initialized: bool = field(default=False, repr=False)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key]
@@ -128,7 +120,9 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, self.segments_key]
 
-    def setup_on_node(self, _node_info: NodeInfo, _worker_metadata: WorkerMetadata) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         """Setup stage on node."""
         if self.device == "cuda" and not torch.cuda.is_available():
             msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
@@ -140,9 +134,7 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
                 vad_offset=self.vad_offset,
             )
 
-    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
-        if self._model_initialized:
-            return
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         if self.device == "cuda" and not torch.cuda.is_available():
             msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
             raise RuntimeError(msg)
@@ -154,7 +146,6 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
                 vad_offset=self.vad_offset,
             )
         self._vad_model.to(self.device)
-        self._model_initialized = True
         logger.info(f"[{self.name}] Initialized WhisperX VAD on {self.device}")
 
     def process(self, task: AudioTask) -> AudioTask:

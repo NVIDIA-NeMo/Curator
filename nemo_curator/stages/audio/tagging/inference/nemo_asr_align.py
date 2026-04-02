@@ -197,7 +197,6 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
     name: str = "NeMoASRAligner"
     _asr_model: Any = field(default=None, repr=False)
     _override_cfg: Any = field(default=None, repr=False)
-    _model_initialized: bool = field(default=False, repr=False)
 
     def __post_init__(self) -> None:
         """Validate config."""
@@ -211,16 +210,15 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         else:
             self._asr_model = nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name)
 
-    def setup_on_node(self, _node_info: NodeInfo, _worker_metadata: WorkerMetadata) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         """Download model weights (called once per node)."""
         if self._asr_model is None:
             self.load_model()
 
-    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Load model to device and configure decoding (called per replica)."""
-        if self._model_initialized:
-            return
-
         if not torch.cuda.is_available() and self.device == "cuda":
             msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
             raise RuntimeError(msg)
@@ -257,7 +255,6 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         self._override_cfg.return_hypotheses = True
         self._override_cfg.timestamps = self.compute_timestamps
 
-        self._model_initialized = True
         logger.info(f"[{self.name}] Initialized ASR model on {self.device}")
 
     def inputs(self) -> tuple[list[str], list[str]]:

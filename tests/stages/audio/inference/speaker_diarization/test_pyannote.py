@@ -20,7 +20,7 @@ import pytest
 from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import has_overlap
 from nemo_curator.tasks import AudioTask
 
-hf_token = os.getenv("HF_SECRET_KEY")
+hf_token = os.getenv("HF_TOKEN")
 
 
 class TestPyannoteHasOverlap:
@@ -85,7 +85,7 @@ class TestPyannoteHasOverlap:
 class TestPyAnnoteDiarizationStage:
     """Tests for PyAnnoteDiarizationStage."""
 
-    @pytest.mark.skipif(not hf_token, reason="HF_SECRET_KEY not set")
+    @pytest.mark.skipif(not hf_token, reason="HF_TOKEN not set")
     def test_process(self, wav_filepath: Path) -> None:
         """Process a single entry for diarization."""
         from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
