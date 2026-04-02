@@ -52,7 +52,7 @@ from nemo_curator.stages.audio.preprocessing import MonoConversionStage, Segment
 from nemo_curator.stages.audio.segmentation import SpeakerSeparationStage, VADSegmentationStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 
-from .config import get_enabled_stages, load_config
+from .config import _deep_merge, get_enabled_stages, load_config
 
 
 class AudioDataFilterStage(CompositeStage):
@@ -80,8 +80,6 @@ class AudioDataFilterStage(CompositeStage):
         self.name = name
         self._cfg = load_config(config_path)
         if config:
-            from .config import _deep_merge
-
             self._cfg = _deep_merge(self._cfg, config)
 
     def decompose(self) -> list[ProcessingStage]:
