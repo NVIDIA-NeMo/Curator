@@ -9,7 +9,7 @@ WebDataset tar shards
         |
         v
 ┌─────────────────────────┐
-│  WebdatasetReader       │  CompositeStage: FilePartitioning + WebdatasetReaderStage
+│  WebdatasetReader       │  CompositeStage: FilePartitioning + InterleavedWebdatasetReaderStage
 │  (io/reader.py)         │  Parses tar members -> normalized interleaved rows
 └────────┬────────────────┘
          |  InterleavedBatch (Arrow/Pandas)
@@ -52,7 +52,6 @@ Extra fields from the source data flow through the pipeline as additional column
 
 ```python
 reader = WebdatasetReader(
-    source_id_field="pdf_name",
     file_paths="/data/shards/",
     fields=("p_hash", "score", "aux"),  # These become extra columns
 )
@@ -117,7 +116,6 @@ from nemo_curator.stages.interleaved.stages import InterleavedAspectRatioFilterS
 
 pipeline = Pipeline(name="mint1t_pipeline")
 pipeline.add_stage(WebdatasetReader(
-    source_id_field="pdf_name",
     file_paths="/data/mint1t/shards/",
 ))
 pipeline.add_stage(InterleavedAspectRatioFilterStage(drop_invalid_rows=True))
@@ -141,7 +139,7 @@ stages/interleaved/
 │   ├── reader.py                   # WebdatasetReader (CompositeStage)
 │   ├── readers/
 │   │   ├── base.py                 # BaseInterleavedReader
-│   │   └── webdataset.py           # WebdatasetReaderStage (ProcessingStage)
+│   │   └── webdataset.py           # InterleavedWebdatasetReaderStage (ProcessingStage)
 │   └── writers/
 │       ├── base.py                 # BaseInterleavedWriter (filesystem + materialization + process)
 │       └── tabular.py              # InterleavedParquetWriterStage
