@@ -30,8 +30,6 @@ from loguru import logger
 from whisperx.audio import SAMPLE_RATE
 from whisperx.vads.pyannote import Pyannote, load_vad_model
 
-os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "true"
-
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio.common import get_audio_duration
 from nemo_curator.stages.base import ProcessingStage
@@ -62,7 +60,16 @@ class WhisperXVADModel:
             "vad_onset": vad_onset,
             "vad_offset": vad_offset,
         }
-        self._model = load_vad_model(torch.device(device), token=use_auth_token, **default_vad_options)
+
+        prev = os.environ.get("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD")
+        os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "true"
+        try:
+            self._model = load_vad_model(torch.device(device), token=use_auth_token, **default_vad_options)
+        finally:
+            if prev is None:
+                os.environ.pop("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", None)
+            else:
+                os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = prev
 
     def to(self, device: str) -> None:
         """Move the model to the given device."""

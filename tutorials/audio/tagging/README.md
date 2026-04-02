@@ -45,7 +45,7 @@ source .venv/bin/activate
 ### Prerequisites
 
 - **GPU**: Required for diarization (PyAnnote), VAD (Pyannote), ASR alignment (NeMo)
-- **HuggingFace Token**: Required for PyAnnote model access. Request access at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
+- **HuggingFace Token**: Required for PyAnnote model access. Request access at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1), [pyannote/voice-activity-detection](https://huggingface.co/pyannote/voice-activity-detection)
 
 ## Quick Start
 
@@ -96,17 +96,16 @@ The output manifest is a JSONL file where each line contains the fully processed
       "text": "Hello, how are you today?",
       "words": [
         {"word": "Hello", "start": 1.23, "end": 1.55},
-        {"word": "how", "start": 1.60, "end": 1.72}
+        {"word": "how", "start": 1.60, "end": 1.72} ...
       ],
-      "metrics": {
-        "bandwidth": 8000,
-        "pesq": 3.2,
-        "stoi": 0.92,
-        "si_sdr": 15.1
-      }
     }
   ],
-  "overlap_segments": []
+  "overlap_segments": [],
+  "text": "Hello, how are you today? Let's get started with the tutorial.",
+  "alignment": [
+    {"word": "Hello", "start": 1.23, "end": 1.55},
+    {"word": "how", "start": 1.60, "end": 1.72}, ...
+  ],
 }
 ```
 
