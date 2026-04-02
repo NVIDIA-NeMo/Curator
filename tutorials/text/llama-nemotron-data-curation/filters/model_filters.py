@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -82,7 +82,7 @@ class NonEnglishFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             add_generation_prompt=False,
         )
         text = str(text).replace("\n", " ").strip()
-        return self.model.predict(text)[0][0] == "__label__en"
+        return self.model.predict([text])[0][0][0] == "__label__en"
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()

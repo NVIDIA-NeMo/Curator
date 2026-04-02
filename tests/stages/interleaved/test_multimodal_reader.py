@@ -21,7 +21,7 @@ import pandas as pd
 import pytest
 from PIL import Image
 
-from nemo_curator.stages.interleaved.io.readers.webdataset import WebdatasetReaderStage
+from nemo_curator.stages.interleaved.io.readers.webdataset import InterleavedWebdatasetReaderStage
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 
 from .conftest import build_multi_frame_tiff, task_for_tar, write_tar
@@ -78,9 +78,8 @@ def test_reader_supports_custom_field_mapping(tmp_path: Path) -> None:
         image_bytes=image_bytes,
     )
     task = _task_for_tar(tar_path, "file_group_custom")
-    reader = WebdatasetReaderStage(
+    reader = InterleavedWebdatasetReaderStage(
         sample_id_field="doc_id",
-        source_id_field="source_doc",
         texts_field="captions",
         images_field="frames",
         image_member_field="primary_image",
@@ -115,9 +114,8 @@ def test_reader_reads_all_fields_by_default(tmp_path: Path) -> None:
     }
     _write_tar_sample(tar_path, payload, json_name="sample.meta.json")
     task = _task_for_tar(tar_path, "all_fields")
-    reader = WebdatasetReaderStage(
+    reader = InterleavedWebdatasetReaderStage(
         sample_id_field="doc_id",
-        source_id_field="source_doc",
         texts_field="captions",
         images_field="frames",
         image_member_field="primary_image",
@@ -156,9 +154,8 @@ def test_reader_uses_resolved_content_key_for_content_type(tmp_path: Path) -> No
         tf.addfile(jpg_info, BytesIO(b"jpg"))
 
     task = _task_for_tar(tar_path, "content_type_resolve")
-    reader = WebdatasetReaderStage(
+    reader = InterleavedWebdatasetReaderStage(
         sample_id_field="doc_id",
-        source_id_field="source_doc",
         texts_field="captions",
         images_field="frames",
         image_member_field="primary_image",
@@ -179,8 +176,7 @@ def test_reader_image_tokens_with_frame_index(tmp_path: Path) -> None:
     }
     _write_tar_sample(tar_path, payload, json_name="sample.json", image_name="doc.pdf.tiff", image_bytes=b"TIFF_DATA")
     task = _task_for_tar(tar_path, "sub_image_test")
-    reader = WebdatasetReaderStage(
-        source_id_field="pdf_name",
+    reader = InterleavedWebdatasetReaderStage(
         sample_id_field="pdf_name",
         image_extensions=(".tiff",),
     )
@@ -215,7 +211,7 @@ def test_reader_interleaved_positions_do_not_overlap(tmp_path: Path) -> None:
     }
     _write_tar_sample(tar_path, payload, image_name="interleaved.pdf.jpg", image_bytes=b"\xff\xd8\xff")
     task = _task_for_tar(tar_path, "interleaved_test")
-    reader = WebdatasetReaderStage(source_id_field="pdf_name", sample_id_field="pdf_name")
+    reader = InterleavedWebdatasetReaderStage(sample_id_field="pdf_name")
     df = _as_df(reader.process(task))
 
     text_rows = df[df["modality"] == "text"].sort_values("position")
@@ -242,7 +238,7 @@ def test_reader_empty_output_schema_includes_requested_passthrough_fields(tmp_pa
         tf.addfile(img_info, BytesIO(b"abc"))
 
     task = _task_for_tar(tar_path, "empty_schema")
-    reader = WebdatasetReaderStage(source_id_field="pdf_name", fields=("p_hash",))
+    reader = InterleavedWebdatasetReaderStage(fields=("p_hash",))
     df = _as_df(reader.process(task))
     assert "p_hash" in df.columns
 
@@ -252,7 +248,7 @@ def test_reader_fields_reserved_key_raises(tmp_path: Path) -> None:
     payload = {"pdf_name": "doc.pdf", "texts": ["t"], "images": []}
     _write_tar_sample(tar_path, payload)
     task = _task_for_tar(tar_path, "reserved_key")
-    reader = WebdatasetReaderStage(source_id_field="pdf_name", fields=("sample_id",))
+    reader = InterleavedWebdatasetReaderStage(fields=("sample_id",))
     with pytest.raises(ValueError, match="fields contains reserved keys"):
         _ = reader.process(task)
 
@@ -262,7 +258,7 @@ def test_reader_fields_missing_key_warns_and_fills_none(tmp_path: Path, caplog: 
     payload = {"pdf_name": "doc.pdf", "texts": ["t"], "images": []}
     _write_tar_sample(tar_path, payload)
     task = _task_for_tar(tar_path, "missing_key")
-    reader = WebdatasetReaderStage(source_id_field="pdf_name", fields=("p_hash",))
+    reader = InterleavedWebdatasetReaderStage(fields=("p_hash",))
     with caplog.at_level("WARNING"):
         result = reader.process(task)
     df = _as_df(result)
@@ -283,8 +279,7 @@ def test_reader_per_image_fields_distributed_to_image_rows(tmp_path: Path) -> No
     }
     _write_tar_sample(tar_path, payload)
     task = _task_for_tar(tar_path, "per_image")
-    reader = WebdatasetReaderStage(
-        source_id_field="pdf_name",
+    reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
     )
     df = _as_df(reader.process(task))
@@ -313,8 +308,7 @@ def test_reader_per_text_fields_distributed_to_text_rows(tmp_path: Path) -> None
     }
     _write_tar_sample(tar_path, payload)
     task = _task_for_tar(tar_path, "per_text")
-    reader = WebdatasetReaderStage(
-        source_id_field="pdf_name",
+    reader = InterleavedWebdatasetReaderStage(
         per_text_fields=("text_scores",),
     )
     df = _as_df(reader.process(task))
@@ -346,8 +340,7 @@ def test_reader_per_image_and_per_text_fields_together(tmp_path: Path) -> None:
     }
     _write_tar_sample(tar_path, payload)
     task = _task_for_tar(tar_path, "both_per_modality")
-    reader = WebdatasetReaderStage(
-        source_id_field="pdf_name",
+    reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
         per_text_fields=("text_lang",),
     )
@@ -381,8 +374,7 @@ def test_reader_per_modality_fields_excluded_from_sample_passthrough(tmp_path: P
     }
     _write_tar_sample(tar_path, payload)
     task = _task_for_tar(tar_path, "exclude_pt")
-    reader = WebdatasetReaderStage(
-        source_id_field="pdf_name",
+    reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
         per_text_fields=("text_scores",),
     )
@@ -404,8 +396,7 @@ def test_reader_per_modality_field_missing_warns(tmp_path: Path, caplog: pytest.
     }
     _write_tar_sample(tar_path, payload)
     task = _task_for_tar(tar_path, "missing_per_field")
-    reader = WebdatasetReaderStage(
-        source_id_field="pdf_name",
+    reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
     )
     with caplog.at_level("WARNING"):
@@ -426,8 +417,7 @@ def test_reader_raises_on_non_list_per_modality_field(tmp_path: Path) -> None:
     }
     _write_tar_sample(tar_path, payload)
     task = _task_for_tar(tar_path, "non_list_field")
-    reader = WebdatasetReaderStage(
-        source_id_field="pdf_name",
+    reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
     )
     with pytest.raises(TypeError, match="must be a list"):
@@ -456,8 +446,7 @@ def test_reader_materialize_on_read_extracts_individual_tiff_frames(tmp_path: Pa
         {"sample.json": json.dumps(payload).encode(), "doc.pdf.tiff": tiff_bytes},
     )
     task = task_for_tar(tar_path, "tiff_frame_test")
-    reader = WebdatasetReaderStage(
-        source_id_field="pdf_name",
+    reader = InterleavedWebdatasetReaderStage(
         sample_id_field="pdf_name",
         image_extensions=(".tiff",),
         materialize_on_read=True,
@@ -504,13 +493,12 @@ def test_reader_materialize_on_read_records_error_for_missing_member(tmp_path: P
         {"sample.json": json.dumps(payload).encode(), "doc.pdf.tiff": tiff_bytes},
     )
     task = task_for_tar(tar_path, "corrupt_member_test")
-    reader = WebdatasetReaderStage(
-        source_id_field="pdf_name",
+    reader = InterleavedWebdatasetReaderStage(
         sample_id_field="pdf_name",
         image_extensions=(".tiff",),
         materialize_on_read=True,
     )
-    with patch.object(WebdatasetReaderStage, "_extract_tar_member", return_value=None):
+    with patch.object(InterleavedWebdatasetReaderStage, "_extract_tar_member", return_value=None):
         df = _as_df(reader.process(task))
 
     image_rows = df[df["modality"] == "image"]
@@ -535,8 +523,7 @@ def test_reader_frame_counter_resets_per_content_key(tmp_path: Path) -> None:
         {"sample.json": json.dumps(payload).encode(), "a.tiff": tiff_a, "b.tiff": tiff_b},
     )
     task = task_for_tar(tar_path, "multi_tiff_test")
-    reader = WebdatasetReaderStage(
-        source_id_field="pdf_name",
+    reader = InterleavedWebdatasetReaderStage(
         sample_id_field="pdf_name",
         image_extensions=(".tiff",),
     )
@@ -569,8 +556,7 @@ def test_reader_materialize_preserves_raw_bytes_on_frame_extraction_failure(tmp_
         {"sample.json": json.dumps(payload).encode(), "doc.pdf.tiff": tiff_bytes},
     )
     task = task_for_tar(tar_path, "oob_frame_test")
-    reader = WebdatasetReaderStage(
-        source_id_field="pdf_name",
+    reader = InterleavedWebdatasetReaderStage(
         sample_id_field="pdf_name",
         image_extensions=(".tiff",),
         materialize_on_read=True,
@@ -590,16 +576,81 @@ def test_reader_materialize_preserves_raw_bytes_on_frame_extraction_failure(tmp_
     assert "frame" in bad_row["materialize_error"]
 
 
+# --- materialize_on_read: JPEG / PNG (non-TIFF formats) ---
+
+
+def _make_image_bytes(fmt: str) -> bytes:
+    """Return minimal valid image bytes for the given PIL format name."""
+    buf = BytesIO()
+    img = Image.new("RGB", (8, 8), color=(128, 64, 32))
+    img.save(buf, format=fmt)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("ext", "fmt", "expected_content_type"),
+    [
+        (".jpg", "JPEG", "image/jpeg"),
+        (".png", "PNG", "image/png"),
+    ],
+    ids=["jpeg", "png"],
+)
+def test_reader_materialize_on_read_jpeg_png_bytes_preserved(
+    tmp_path: Path,
+    ext: str,
+    fmt: str,
+    expected_content_type: str,
+) -> None:
+    """JPEG and PNG images must pass through materialize_on_read byte-for-byte.
+
+    Unlike multi-frame TIFFs, these formats are single-frame and must never
+    enter the _extract_tiff_frame path.  Verifies:
+      - content_type is detected correctly
+      - frame_index is absent from source_ref (not treated as TIFF)
+      - binary_content exactly matches the original bytes
+      - materialize_error is null
+    """
+    image_bytes = _make_image_bytes(fmt)
+    image_member = f"sample{ext}"
+    # Use the member name directly as the image token so the reader resolves it
+    payload = {"texts": ["hello"], "images": [image_member]}
+    tar_path = write_tar(
+        tmp_path / f"wds{ext}.tar",
+        {
+            "sample.json": json.dumps(payload).encode(),
+            image_member: image_bytes,
+        },
+    )
+    task = task_for_tar(tar_path, f"{fmt.lower()}_test")
+    reader = InterleavedWebdatasetReaderStage(materialize_on_read=True)
+    df = _as_df(reader.process(task))
+
+    image_rows = df[df["modality"] == "image"]
+    assert len(image_rows) == 1, f"Expected 1 image row for {fmt}"
+
+    row = image_rows.iloc[0]
+    assert row["content_type"] == expected_content_type, f"content_type mismatch for {fmt}"
+    assert row["binary_content"] == image_bytes, f"{fmt} bytes must be preserved verbatim"
+    assert pd.isna(row["materialize_error"]) or row["materialize_error"] is None
+
+    ref = InterleavedBatch.parse_source_ref(row["source_ref"])
+    assert ref["frame_index"] is None, f"{fmt} must not have a frame_index in source_ref"
+
+    # Confirm PIL can decode the round-tripped bytes
+    decoded = Image.open(BytesIO(row["binary_content"]))
+    assert decoded.format == fmt, f"Round-tripped bytes must decode as {fmt}"
+
+
 # --- BaseInterleavedReader ---
 
 
 def test_base_reader_inputs_outputs() -> None:
-    reader = WebdatasetReaderStage(source_id_field="pdf_name")
+    reader = InterleavedWebdatasetReaderStage()
     assert reader.inputs() == (["data"], [])
     assert reader.outputs() == (["data"], ["sample_id", "position", "modality"])
 
 
-# --- WebdatasetReaderStage edge cases ---
+# --- InterleavedWebdatasetReaderStage edge cases ---
 
 
 def test_reader_empty_tar(tmp_path: Path) -> None:
@@ -615,7 +666,7 @@ def test_reader_empty_tar(tmp_path: Path) -> None:
         data=[str(tar_path)],
         _metadata={"source_files": [str(tar_path)]},
     )
-    reader = WebdatasetReaderStage(source_id_field="pdf_name")
+    reader = InterleavedWebdatasetReaderStage()
     result = reader.process(task)
     assert isinstance(result, InterleavedBatch)
     assert len(result.to_pandas()) == 0
@@ -636,7 +687,7 @@ def test_reader_multi_tar(tmp_path: Path) -> None:
         data=[str(tmp_path / "shard1.tar"), str(tmp_path / "shard2.tar")],
         _metadata={"source_files": ["shard1.tar", "shard2.tar"]},
     )
-    reader = WebdatasetReaderStage(source_id_field="pdf_name")
+    reader = InterleavedWebdatasetReaderStage()
     result = reader.process(task)
     if isinstance(result, list):
         all_dfs = [b.to_pandas() for b in result]
@@ -660,7 +711,7 @@ def test_reader_max_batch_bytes_splits(tmp_path: Path) -> None:
         data=[str(tmp_path / "doc1.tar"), str(tmp_path / "doc2.tar")],
         _metadata={"source_files": ["doc1.tar", "doc2.tar"]},
     )
-    reader = WebdatasetReaderStage(source_id_field="pdf_name", max_batch_bytes=1)
+    reader = InterleavedWebdatasetReaderStage(max_batch_bytes=1)
     result = reader.process(task)
     assert isinstance(result, list)
     assert len(result) >= 2
@@ -668,31 +719,68 @@ def test_reader_max_batch_bytes_splits(tmp_path: Path) -> None:
         assert "_processed_" in batch.task_id
 
 
-def test_reader_non_list_texts_field(tmp_path: Path) -> None:
-    """Non-list texts field produces no text rows."""
-    payload = {"pdf_name": "doc.pdf", "texts": "not a list", "images": []}
-    tar_path = write_tar(
-        tmp_path / "non_list.tar",
-        {"sample.json": json.dumps(payload).encode()},
+def test_reader_source_files_per_split_only_contributing_tars(tmp_path: Path) -> None:
+    """Each split's source_files lists only the tars that contributed rows to that split."""
+    # doc1.tar has sample "doc1", doc2.tar has sample "doc2" — one sample per tar so
+    # with max_batch_bytes=1 each split should contain exactly one sample from one tar.
+    tar1 = str(tmp_path / "doc1.tar")
+    tar2 = str(tmp_path / "doc2.tar")
+    for sample_id, tar_path in [("doc1", tar1), ("doc2", tar2)]:
+        payload = {"pdf_name": f"{sample_id}.pdf", "texts": ["hello"], "images": []}
+        write_tar(Path(tar_path), {f"{sample_id}.json": json.dumps(payload).encode()})
+
+    task = FileGroupTask(
+        task_id="sf_split",
+        dataset_name="d",
+        data=[tar1, tar2],
+        _metadata={"source_files": [tar1, tar2]},
     )
-    task = task_for_tar(tar_path)
-    reader = WebdatasetReaderStage(source_id_field="pdf_name")
-    df = _as_df(reader.process(task))
-    assert (df["modality"] == "text").sum() == 0
+    reader = InterleavedWebdatasetReaderStage(max_batch_bytes=1)
+    result = reader.process(task)
+
+    assert isinstance(result, list), "expected multiple batches"
+    assert len(result) == 2, f"expected exactly 2 splits, got {len(result)}"
+
+    for batch in result:
+        df = batch.to_pandas()
+        sample_ids = set(df["sample_id"].tolist())
+        src = batch._metadata["source_files"]
+        assert len(src) == 1, f"expected 1 source file for split, got {src}"
+        if "doc1" in sample_ids:
+            assert tar1 + "::split_" in src[0], f"doc1 split should point to {tar1}, got {src}"
+        elif "doc2" in sample_ids:
+            assert tar2 + "::split_" in src[0], f"doc2 split should point to {tar2}, got {src}"
+        else:
+            pytest.fail(f"unexpected sample_ids in split: {sample_ids}")
 
 
-def test_reader_non_list_images_field(tmp_path: Path) -> None:
-    """Non-list images field produces no image rows."""
-    payload = {"pdf_name": "doc.pdf", "texts": ["hello"], "images": None}
-    tar_path = write_tar(
-        tmp_path / "no_images.tar",
-        {"sample.json": json.dumps(payload).encode()},
-    )
-    task = task_for_tar(tar_path)
-    reader = WebdatasetReaderStage(source_id_field="pdf_name")
-    df = _as_df(reader.process(task))
-    assert (df["modality"] == "image").sum() == 0
-    assert (df["modality"] == "text").sum() == 1
+@pytest.mark.parametrize(
+    ("payload", "modality", "expected_count"),
+    [
+        pytest.param(
+            {"pdf_name": "doc.pdf", "texts": "not a list", "images": []},
+            "text",
+            0,
+            id="non_list_texts",
+        ),
+        pytest.param(
+            {"pdf_name": "doc.pdf", "texts": ["hello"], "images": None},
+            "image",
+            0,
+            id="non_list_images",
+        ),
+    ],
+)
+def test_reader_non_list_field(
+    tmp_path: Path,
+    payload: dict,
+    modality: str,
+    expected_count: int,
+) -> None:
+    """Non-list texts/images field produces no rows for that modality."""
+    tar_path = write_tar(tmp_path / "shard.tar", {"sample.json": json.dumps(payload).encode()})
+    df = _as_df(InterleavedWebdatasetReaderStage().process(task_for_tar(tar_path)))
+    assert (df["modality"] == modality).sum() == expected_count
 
 
 @pytest.mark.parametrize(
@@ -709,7 +797,7 @@ def test_resolve_image_content_key(
     member_names: set[str],
     expected: str | None,
 ) -> None:
-    result = WebdatasetReaderStage._resolve_image_content_key(image_token, default_member, member_names)
+    result = InterleavedWebdatasetReaderStage._resolve_image_content_key(image_token, default_member, member_names)
     assert result == expected
 
 
@@ -721,6 +809,21 @@ def test_reader_uses_stem_as_sample_id(tmp_path: Path) -> None:
         {"my_custom_name.json": json.dumps(payload).encode()},
     )
     task = task_for_tar(tar_path)
-    reader = WebdatasetReaderStage(source_id_field="pdf_name", sample_id_field=None)
+    reader = InterleavedWebdatasetReaderStage()
     df = _as_df(reader.process(task))
     assert (df["sample_id"] == "my_custom_name").all()
+
+
+def test_reader_unknown_fields_pass_through_by_default(tmp_path: Path) -> None:
+    """All non-reserved JSON fields flow through as passthrough columns when fields= is not set."""
+    payload = {"pdf_name": "doc.pdf", "url": "https://example.com", "texts": ["hi"], "images": []}
+    tar_path = write_tar(
+        tmp_path / "passthrough.tar",
+        {"sample1.json": json.dumps(payload).encode()},
+    )
+    task = task_for_tar(tar_path)
+    reader = InterleavedWebdatasetReaderStage()
+    df = _as_df(reader.process(task))
+    meta = df[df["modality"] == "metadata"].iloc[0]
+    assert meta["pdf_name"] == "doc.pdf"
+    assert meta["url"] == "https://example.com"

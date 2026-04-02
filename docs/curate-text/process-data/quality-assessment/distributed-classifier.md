@@ -383,6 +383,26 @@ You can integrate your own classification models by extending `DistributedDataCl
 
 NVIDIA NeMo Curator's distributed classifiers are optimized for high-throughput processing through several key features:
 
+### CPU-based tokenization and GPU-based model inference
+
+Each classifier is broken down under the hood into a tokenizer stage and a model inference stage. Tokenization is run on the CPU while model inference is run on the GPU. For example, this means that behind the scenes, the `DomainClassifier` stage is actually being broken down into 2 stages (some parameters and details omitted to avoid complexity):
+
+```python
+class TokenizerStage:
+    self.resources = Resources(cpus=1)
+    self.model_identifier = "nvidia/domain-classifier"
+    self.text_field = "text"
+    self.padding_side = "right"
+    ...
+class ModelStage:
+    self.resources = Resources(cpus=1, gpus=1)
+    self.model_identifier = "nvidia/domain-classifier"
+    self.model_inference_batch_size = 256
+    ...
+```
+
+Pipelines take care of resource allocation and autoscaling to achieve enhanced performance and minimize GPU idleness. This means that we are able to achieve speedups by ensuring that model inference is run in parallel across all available GPUs, while other stages such as I/O, tokenization, and filtering are run across all available CPUs. This is possible because Curator pipelines are composable, which allows each stage in a pipeline to run independently and with its own specified hardware resources.
+
 ### Intelligent Batching and Sequence Handling
 
 The classifiers optimize throughput through:
@@ -390,3 +410,69 @@ The classifiers optimize throughput through:
 - **Length-based sorting**: Input sequences are sorted by length when `sort_by_length=True` (default)
 - **Efficient batching**: Similar-length sequences are grouped together to minimize padding overhead
 - **GPU memory optimization**: Batches are sized to maximize GPU utilization based on available memory
+
+### Avoid Unnecessary Re-Tokenization
+
+Several of the text classifiers use the same tokenizer before running the model forward pass. To avoid unnecessary re-tokenization, the `keep_tokens` and `use_existing_tokens` parameters can be used.
+
+**Important: Not every text classifier uses the same tokenizer, so it is important to confirm that classifiers' tokenizers are compatible with each other. Curator will not verify this for you.**
+
+The `ContentTypeClassifier`, `QualityClassifier`, `DomainClassifier`, and `PromptTaskComplexityClassifier` all use a DeBERTa tokenizer, which means that we only need to tokenize once. To avoid unnecessary re-tokenization, you can do:
+
+```python
+# Since this is the first classifier in the pipeline, there are no existing tokens to use,
+# but we can make sure to keep the computed tokens for the next classifier
+content_type_classifier = ContentTypeClassifier(use_existing_tokens=False, keep_tokens=True, ...)
+pipeline.add_stage(content_type_classifier)
+
+# Use tokens from the previous classifier and keep tokens for the next classifier
+quality_classifier = QualityClassifier(use_existing_tokens=True, keep_tokens=True, ...)
+pipeline.add_stage(quality_classifier)
+
+# Use tokens from the previous classifier and keep tokens for the next classifier
+domain_classifier = DomainClassifier(use_existing_tokens=True, keep_tokens=True, ...)
+pipeline.add_stage(domain_classifier)
+
+# Use tokens from the previous classifier
+# Since this is the final classifier in the pipeline, we drop the computed tokens
+prompt_task_complexity_classifier = PromptTaskComplexityClassifier(use_existing_tokens=True, keep_tokens=False, ...)
+pipeline.add_stage(prompt_task_complexity_classifier)
+```
+
+In addition to the above example, the `FineWebEduClassifier`, `FineWebMixtralEduClassifier`, and `FineWebNemotronEduClassifier` are all compatible with each other:
+
+```python
+fineweb_classifier = FineWebEduClassifier(use_existing_tokens=False, keep_tokens=True, ...)
+pipeline.add_stage(fineweb_classifier)
+
+fineweb_mixtral_classifier = FineWebMixtralEduClassifier(use_existing_tokens=True, keep_tokens=True, ...)
+pipeline.add_stage(fineweb_mixtral_classifier)
+
+fineweb_nemotron_classifier = FineWebNemotronEduClassifier(use_existing_tokens=True, keep_tokens=False, ...)
+pipeline.add_stage(fineweb_nemotron_classifier)
+```
+
+The `AegisClassifier` variants ([nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0) and [nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0)) are compatible with each other as well. This example is a bit more complex because it also involves keeping the formatted Aegis prompt field. See the `AegisClassifier` implementation for more details.
+
+```python
+aegis_defensive_classifier = AegisClassifier(
+    aegis_variant="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
+    label_field="aegis_defensive_pred",
+    use_existing_tokens=False,
+    keep_tokens=True,
+    keep_aegis_prompt_field=True,
+    ...
+)
+pipeline.add_stage(aegis_defensive_classifier)
+
+aegis_permissive_classifier = AegisClassifier(
+    aegis_variant="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
+    label_field="aegis_permissive_pred",
+    use_existing_tokens=True,
+    aegis_prompt_field="_curator_hidden_text",  # created by aegis_defensive_classifier
+    keep_tokens=False,
+    keep_aegis_prompt_field=False,
+    ...
+)
+pipeline.add_stage(aegis_permissive_classifier)
+```

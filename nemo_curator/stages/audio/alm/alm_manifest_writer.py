@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ALM Manifest Writer Stage — writes AudioBatch entries to a JSONL manifest."""
+"""ALM Manifest Writer Stage — writes AudioTask dicts to a JSONL manifest."""
 
 import json
 from dataclasses import dataclass
@@ -21,26 +21,36 @@ from typing import Any
 from fsspec.core import url_to_fs
 from loguru import logger
 
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch, FileGroupTask
+from nemo_curator.tasks import AudioTask, FileGroupTask
 
 
 @dataclass
-class ALMManifestWriterStage(ProcessingStage[AudioBatch, FileGroupTask]):
-    """Append AudioBatch entries to a JSONL manifest file.
+class ALMManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
+    """Append a single AudioTask to a JSONL manifest file.
 
-    Each processed AudioBatch has its data entries appended to the output
-    file. The file is truncated on ``setup()`` so repeated pipeline runs
-    produce a clean output. Supports local and cloud paths via fsspec.
+    The output file is truncated once per node in ``setup_on_node()``
+    so repeated pipeline runs produce a clean output.
+    Supports local and cloud paths via fsspec.
 
     Args:
         output_path: Destination JSONL path (local or cloud).
     """
 
-    output_path: str
     name: str = "alm_manifest_writer"
+    output_path: str = ""
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002, ANN401
+    def __post_init__(self) -> None:
+        if not self.output_path:
+            msg = "output_path is required for ALMManifestWriterStage"
+            raise ValueError(msg)
+
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
         fs, path = url_to_fs(self.output_path)
         parent_dir = "/".join(path.split("/")[:-1])
         if parent_dir:
@@ -49,11 +59,10 @@ class ALMManifestWriterStage(ProcessingStage[AudioBatch, FileGroupTask]):
             pass
         logger.info(f"ALMManifestWriterStage: writing to {self.output_path}")
 
-    def process(self, task: AudioBatch) -> FileGroupTask:
+    def process(self, task: AudioTask) -> FileGroupTask:
         fs, path = url_to_fs(self.output_path)
         with fs.open(path, "a", encoding="utf-8") as f:
-            for entry in task.data:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
         return FileGroupTask(
             task_id=task.task_id,
             dataset_name=task.dataset_name,
