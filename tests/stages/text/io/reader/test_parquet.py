@@ -278,7 +278,7 @@ def test_parquet_reader_with_file_group_tasks_fixture(parquet_file_group_tasks: 
         assert actual_texts == expected_texts
 
 
-def test_parquet_reader_with_blocksize_limit(tmp_path: Path):
+def test_parquet_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogCaptureFixture):
     # Storage size is larger than 10_000 bytes
     # In-memory size is larger than 1 billion bytes
     size = 1000
@@ -300,5 +300,6 @@ def test_parquet_reader_with_blocksize_limit(tmp_path: Path):
     assert len(file_tasks) == 1
     # Since the in-memory size is larger than 1 billion bytes, the ParquetReaderStage should raise ValueError
     parquet_reader_stage = stage.decompose()[1]
-    with pytest.raises(ValueError, match="Error reading data from files"):
+    with caplog.at_level("WARNING"):
         parquet_reader_stage.process(file_tasks[0])
+    assert "Error encountered while reading data from files" in caplog.text

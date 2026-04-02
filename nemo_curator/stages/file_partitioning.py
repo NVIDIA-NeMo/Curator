@@ -152,7 +152,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                     msg = (
                         f"File group task has exceeded the storage limit per partition: {partition}. "
                         f"Total storage size is {total_storage_size} bytes (limit {self._blocksize} bytes). "
-                        "Please increase blocksize if possible (the maximum recommended blocksize is 2GiB). "
+                        "Please increase blocksize if possible (the maximum recommended blocksize is 2 GiB). "
                         "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
                     )
                     raise ValueError(msg)
@@ -161,7 +161,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                     msg = (
                         f"File group task has exceeded the storage limit per partition: {partition}. "
                         f"Total storage size is {total_storage_size} bytes (limit {self._blocksize} bytes). "
-                        "Please reduce files_per_partition if possible, or set blocksize instead (the maximum recommended blocksize is 2GiB). "
+                        "Please reduce files_per_partition if possible, or set blocksize instead (the maximum recommended blocksize is 2 GiB). "
                         "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
                     )
                     raise ValueError(msg)

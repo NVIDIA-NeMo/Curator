@@ -179,7 +179,7 @@ class TestJsonlReaderWithIdGenerator:
             stage.setup()
 
 
-def test_jsonl_reader_with_blocksize_limit(tmp_path: Path):
+def test_jsonl_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogCaptureFixture):
     # Storage size is larger than 10 million bytes
     # In-memory size is also larger than 10 million bytes
     size = 1000
@@ -199,5 +199,6 @@ def test_jsonl_reader_with_blocksize_limit(tmp_path: Path):
     assert len(file_tasks) == 1
     # Since the in-memory size is larger than 10 million bytes, the JsonlReaderStage should raise ValueError
     jsonl_reader_stage = JsonlReaderStage(blocksize=10_000_000)
-    with pytest.raises(ValueError, match="Error reading data from files"):
+    with caplog.at_level("WARNING"):
         jsonl_reader_stage.process(file_tasks[0])
+    assert "Error encountered while reading data from files" in caplog.text
