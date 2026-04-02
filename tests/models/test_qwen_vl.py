@@ -71,7 +71,7 @@ class TestQwenVL:
         assert qwen_vl.max_output_tokens == 512
         assert qwen_vl.model_does_preprocess is False
         assert qwen_vl.disable_mmcache is False
-        assert qwen_vl.stage2_prompt is None
+        assert qwen_vl.stage2_prompt == "Please refine this caption: "
         assert qwen_vl.verbose is False
 
         expected_weight_file = str(pathlib.Path(self.model_dir) / _QWEN_VARIANTS_INFO[self.model_variant])
