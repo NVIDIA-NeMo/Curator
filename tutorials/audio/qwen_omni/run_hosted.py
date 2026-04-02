@@ -72,6 +72,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=0.0, help="Temperature")
     parser.add_argument("--top-p", type=float, default=0.95, help="Top-p")
     parser.add_argument("--no-ray-local", action="store_true", help="Skip ray.init(local); use existing cluster")
+    parser.add_argument("--lhotse_mode", type=str, default="", help="Lhotse mode, nemo_tarred or lhotse_shar")
+    parser.add_argument(
+        "--s3cfg",
+        type=str,
+        default="",
+        help="Path to AIS/S3 config file and section, e.g. ~/.s3cfg[default]. "
+        "Endpoint and token can also be set via AIS_ENDPOINT and AIS_AUTHN_TOKEN env vars.",
+    )
     return parser.parse_args()
 
 
@@ -103,6 +111,7 @@ def main() -> None:
                 input_index=args.input_index,
                 user_prompt=args.user_prompt,
                 system_prompt=args.system_prompt,
+                s3cfg=args.s3cfg,
             )
         )
     else:
