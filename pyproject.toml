@@ -181,10 +181,12 @@ math_cuda12 = [
     "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
-# Interleaved / PDF Curation Dependencies
+# Multimodal / Interleaved Dependencies
 interleaved_cpu = [
     "opencv-python",
+    "Pillow",
     "pypdfium2",
+    "s3fs>=2024.12.0",
 ]
 
 interleaved_cuda12 = [
@@ -234,7 +236,7 @@ test = [
     "pyyaml",
     "rich",
     "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
-    "s3fs", # added for testing cloud fs
+    "s3fs>=2024.12.0", # added for testing cloud fs
     "slack_sdk",
 ]
 
@@ -262,12 +264,12 @@ override-dependencies = [
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
     "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
+    "transformers>=4.56.0,<5.0", # Override nemo-toolkit[asr]'s <=4.52.0 constraint; required for Nemotron VL support
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
-    "transformers<=4.55.2", # Else Cosmos Embed imports fail
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
 ]
 
@@ -357,6 +359,9 @@ fixable = ["ALL"]
 "tutorials/**" = [
     "INP001", # no __init__.py is required
     "PLE2515", # ignore \u200b complaint
+]
+"fern/**/*.py" = [
+    "INP001", # Fern CLI helper scripts; not an installable package
 ]
 
 [tool.pytest.ini_options]
