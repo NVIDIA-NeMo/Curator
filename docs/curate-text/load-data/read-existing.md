@@ -148,21 +148,89 @@ Both `JsonlReader` and `ParquetReader` support these configuration options:
 
 `ParquetReader` provides these optimizations:
 
-- **PyArrow Engine**: Uses `pyarrow` engine by default for better performance
-- **Storage Options**: Supports cloud storage via `storage_options` in `read_kwargs`
-- **Schema Handling**: Automatic schema inference and validation
-- **Columnar Efficiency**: Optimized for reading specific columns
+- **PyArrow Engine**: Uses `pyarrow` engine by default for better performance.
+- **Storage Options**: Supports cloud storage through `storage_options` in `read_kwargs`.
+- **Schema Handling**: Automatic schema inference and validation.
+- **Columnar Efficiency**: Optimized for reading specific columns.
 
 ### Performance Tips
 
-- Use `fields` parameter to read required columns for better performance
-- Set `files_per_partition` based on your cluster size and memory constraints
-- Use `blocksize` for fine-grained control over partition sizes
+- Use the `fields` parameter to read only the required columns for better performance.
+- Set `files_per_partition` based on your cluster size and memory constraints.
+- Use the `blocksize` parameter for fine-grained control over partition sizes.
+
+### Memory Tips
+
+:::{warning}
+If you set the `blocksize` parameter to a size smaller than your input file size(s), Curator does not split the input files and instead attempts to read each file in full. To avoid out-of-memory issues, use the helper script described below.
+:::
+
+If any of your individual JSONL or Parquet files are greater than 2 GiB, we recommend using the `nemo_curator/utils/split_large_files.py` helper script to split them into more manageable sizes and prevent out-of-memory issues. You can run it with:
+
+```bash
+python nemo_curator/utils/split_large_files.py --input-path "/path/to/input/dir" --file-type "parquet" --output-path "/path/to/output/dir" --target-size-mb 128
+```
+
+It supports splitting JSONL or Parquet files as specified by the `--file-type` argument.
+
+Another option is running file splitting within your existing script. For example, you can split large JSONL files with:
+
+```python
+import ray
+from nemo_curator.core.client import RayClient
+from nemo_curator.utils.split_large_files import split_jsonl_file_by_size
+
+# Start Ray client as usual
+ray_client = RayClient()
+ray_client.start()
+
+input_files = []  # your list of input jsonl files
+
+ray.get(
+  [
+    split_jsonl_file_by_size.remote(
+      input_file=f,
+      output_path="/path/to/output/dir",
+      target_size_mb=128,
+    )
+    for f in input_files
+  ]
+)
+
+# initialize your Curator pipeline with JsonlReader, etc.
+```
+
+Similarly for Parquet files:
+
+```python
+import ray
+from nemo_curator.core.client import RayClient
+from nemo_curator.utils.split_large_files import split_parquet_file_by_size
+
+# Start Ray client as usual
+ray_client = RayClient()
+ray_client.start()
+
+input_files = []  # your list of input parquet files
+
+ray.get(
+  [
+    split_parquet_file_by_size.remote(
+      input_file=f,
+      output_path="/path/to/output/dir",
+      target_size_mb=128,
+    )
+    for f in input_files
+  ]
+)
+
+# initialize your Curator pipeline with ParquetReader, etc.
+```
 
 ## Output Integration
 
 Both readers produce `DocumentBatch` tasks that integrate seamlessly with:
 
-- **Processing Stages**: Apply filters, transformations, and quality checks
-- **Writer Stages**: Export to JSONL, Parquet, or other formats
-- **Analysis Tools**: Convert to Pandas/PyArrow for inspection and debugging
+- **Processing Stages**: Apply filters, transformations, and quality checks.
+- **Writer Stages**: Export to JSONL, Parquet, or other formats.
+- **Analysis Tools**: Convert to Pandas/PyArrow for inspection and debugging.
