@@ -12,6 +12,15 @@ modality: "universal"
 
 ## What's New in 26.04
 
+### vLLM Default for Semantic Deduplication Embeddings
+
+The default embedding backend for `TextSemanticDeduplicationWorkflow` switched from SentenceTransformers to vLLM:
+
+- **Default model**: `google/embeddinggemma-300m` (previously `sentence-transformers/all-MiniLM-L6-v2`)
+- **Backend**: `VLLMEmbeddingModelStage` replaces `EmbeddingCreatorStage` for embedding generation in the semantic dedup workflow
+- **New parameters**: `embedding_pretokenize`, `embedding_vllm_init_kwargs`, `model_cache_dir` replace the previous SentenceTransformers-specific parameters
+- **Bug fix**: Resolved CUDA fork error when running vLLM stages with `RayDataExecutor` by setting `VLLM_WORKER_MULTIPROC_METHOD=spawn` in Ray remote tasks
+
 ### Multi-User Metrics Isolation
 
 Improved Prometheus and Grafana monitoring support for shared clusters:
@@ -58,6 +67,8 @@ Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage`
 
 ## Breaking Changes
 
+- **`TextSemanticDeduplicationWorkflow` parameter changes**: `embedding_max_seq_length`, `embedding_padding_side`, `embedding_pooling`, and `embedding_model_inference_batch_size` are removed. Use `embedding_pretokenize`, `embedding_vllm_init_kwargs`, and `model_cache_dir` instead.
+- **Default embedding model changed**: `TextSemanticDeduplicationWorkflow` now defaults to `google/embeddinggemma-300m` with vLLM instead of `sentence-transformers/all-MiniLM-L6-v2` with SentenceTransformers.
 - **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
 - **`ExactDeduplicationWorkflow.run()` and `FuzzyDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `None`
 - **`SemanticDeduplicationWorkflow.run()` and `TextSemanticDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `dict`
