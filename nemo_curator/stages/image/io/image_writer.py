@@ -26,12 +26,13 @@ import pyarrow.parquet as pq
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resumable import ResumableStage
 from nemo_curator.tasks.file_group import FileGroupTask
 from nemo_curator.tasks.image import ImageBatch
 
 
 @dataclass
-class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
+class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask], ResumableStage):
     """Write images to tar files and corresponding metadata to a Parquet file.
 
     - Images are packed into tar archives with at most ``images_per_tar`` entries each.
@@ -45,6 +46,8 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
     deterministic_name: bool = True
     remove_image_data: bool = False
     name: str = "image_writer"
+    resume: bool = False
+    checkpoint_dir: str | None = None
 
     def __post_init__(self) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
@@ -201,7 +204,7 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
                 parquet_paths.append(parquet_path)
 
         # Return FileGroupTask with produced files
-        return FileGroupTask(
+        output_task = FileGroupTask(
             task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=[*tar_paths, *parquet_paths],
@@ -213,3 +216,8 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
             },
             _stage_perf=task._stage_perf,
         )
+
+        if self.resume and self.checkpoint_dir:
+            self.record_completion(task, output_task)
+
+        return output_task

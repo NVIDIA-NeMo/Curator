@@ -29,7 +29,7 @@ from nemo_curator.stages.image.io.image_reader import ImageReaderStage
 from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 
 
-def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
+def create_image_curation_pipeline(args: argparse.Namespace, checkpoint_dir: str | None = None) -> Pipeline:
     """Create image curation pipeline with file partitioning, image reading, embedding, aesthetic scoring, and NSFW detection stages."""
 
     # Define pipeline
@@ -85,6 +85,9 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
         verbose=args.verbose,
     ))
 
+    if checkpoint_dir is not None:
+        pipeline.enable_resumability(checkpoint_dir)
+
     return pipeline
 
 
@@ -101,6 +104,8 @@ def main(args: argparse.Namespace) -> None:
     print(f"Model directory: {args.model_dir}")
     print(f"Tar files per partition: {args.tar_files_per_partition}")
     print(f"Task batch size: {args.batch_size}")
+    if args.resume:
+        print(f"Checkpoint directory: {args.checkpoint_dir}")
     print("\n" + "=" * 50 + "\n")
 
     # Step 1: Download and prepare webdataset from parquet file
@@ -131,7 +136,8 @@ def main(args: argparse.Namespace) -> None:
     # Step 2: Create and run curation pipeline
     print("Step 2: Running image curation pipeline...")
     start_time = time.time()
-    pipeline = create_image_curation_pipeline(args)
+    checkpoint_dir = args.checkpoint_dir if args.resume else None
+    pipeline = create_image_curation_pipeline(args, checkpoint_dir=checkpoint_dir)
 
     # Print pipeline description
     print(pipeline.describe())
@@ -293,5 +299,25 @@ if __name__ == "__main__":
         help="Number of images per tar file in output dataset"
     )
 
+    # Resumability arguments
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        default=False,
+        help="Enable pipeline resumability. Completed partitions are skipped on restart.",
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=str,
+        default=None,
+        help=(
+            "Directory for resumability checkpoints. "
+            "Defaults to a 'checkpoints' folder inside --output-dataset-dir."
+        ),
+    )
+
     args = parser.parse_args()
+
+    if args.resume and args.checkpoint_dir is None:
+        args.checkpoint_dir = os.path.join(args.output_dataset_dir, "checkpoints")
     main(args)
