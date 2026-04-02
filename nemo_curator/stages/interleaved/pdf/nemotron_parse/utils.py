@@ -521,29 +521,3 @@ def extract_pdfs_from_jsonl_batch(
             results[offset] = None
     return results
 
-
-
-def load_completed_sample_ids(output_dir: str, id_column: str = "sample_id") -> set[str]:
-    """Scan existing parquet files for already-processed IDs (for resume support).
-
-    Args:
-        output_dir: Directory containing output parquet files.
-        id_column: Column name to extract completed IDs from.
-    """
-    import glob
-
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-    from loguru import logger
-
-    output_dir = os.path.abspath(output_dir)
-    completed: set[str] = set()
-    for path in glob.glob(os.path.join(output_dir, "*.parquet")):
-        try:
-            table = pq.read_table(path, columns=[id_column])
-            completed.update(table[id_column].to_pylist())
-        except (OSError, pa.ArrowInvalid, KeyError) as e:  # noqa: PERF203
-            logger.warning(f"Could not read {path} for resume: {e}")
-
-    logger.info(f"Resume scan: found {len(completed)} completed IDs in {output_dir}")
-    return completed
