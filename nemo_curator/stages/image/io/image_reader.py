@@ -73,7 +73,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
         @pipeline_def(
             batch_size=self.batch_size,
             num_threads=self.num_threads,
-            device_id=0, # First device; unused for CPU-only DALI builds
+            device_id=0,  # First device; unused for CPU-only DALI builds
         )
         def webdataset_pipeline() -> object:
             # Read only JPGs to avoid Python-side JSON parsing overhead
