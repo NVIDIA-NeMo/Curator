@@ -115,7 +115,16 @@ High-quality training data is the single most important factor in building perfo
   <img src="./fern/assets/images/data-curation-challenges.png" alt="Common data curation challenges: quality, deduplication, filtering, and scale" width="700"/>
 </p>
 
-NeMo Curator addresses these challenges with GPU-accelerated pipelines that scale from a single machine to multi-node clusters, enabling you to curate datasets at the scale required for modern AI training.
+At scale, data curation is a **throughput maximization problem**. A typical pipeline chains stages with very different compute profiles — lightweight CPU tokenization, small GPU classifiers, large GPU inference models — and a naive sequential approach leaves most hardware idle most of the time.
+
+**Example:** Consider a pipeline with language identification (0.5B model, 1 GB VRAM, 2s/sample), tokenization (CPU-only, 1s/sample), and a 5B answer model (10 GB VRAM, 10s/sample) processing 1,000 questions on a single 102 GB GPU:
+
+| Approach | How it works | Total runtime |
+|----------|-------------|---------------|
+| **Sequential** | Process each sample through all stages, one at a time | ~13,000 seconds |
+| **NeMo Curator** | Stream batches, auto-scale replicas per stage, overlap CPU/GPU work | ~1,000 seconds |
+
+NeMo Curator achieves this by streaming data through the pipeline so all stages run concurrently, auto-balancing replicas to match each stage's throughput (2× language ID, 1× tokenizer, 10× answer model), and keeping GPU workers busy over 99% of the time after an initial warm-up period. See the [deep-dive docs](https://docs.nvidia.com/nemo/curator/latest/about/deep-dives) for details.
 
 ---
 

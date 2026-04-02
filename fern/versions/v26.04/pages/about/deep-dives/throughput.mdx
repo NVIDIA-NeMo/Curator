@@ -10,9 +10,44 @@ modality: "universal"
 
 # Maximizing Throughput
 
-NeMo Curator is designed to scale from a single GPU to multi-node clusters with near-linear performance gains. This guide covers the key levers for maximizing throughput.
+NeMo Curator is designed to scale from a single GPU to multi-node clusters with near-linear performance gains. This guide covers why data curation is a throughput problem, how Curator solves it, and the key levers for maximizing performance.
 
-## Scaling Results
+## Data Curation as a Throughput Problem
+
+Data curation pipelines process large numbers of samples. The goal is to **minimize total runtime** across all samples — not just the latency of a single sample. This means throughput (samples processed per unit time) matters more than per-sample latency.
+
+### Illustrative Example
+
+Consider a pipeline that processes 1,000 questions through three stages on a single GPU (102 GB memory):
+
+| Stage | Model Size | GPU Memory | Runtime (batch size = 1) |
+|-------|-----------|-----------|-------------------------|
+| Language Identification | 0.5B | 1 GB | 2 seconds |
+| Tokenization | — | None (CPU) | 1 second |
+| Answer Model | 5B | 10 GB | 10 seconds |
+
+**Naive sequential approach:** Process each question through all three stages one at a time: 1,000 × (2 + 1 + 10) = **13,000 seconds**.
+
+This has three problems:
+1. During tokenization, GPU resources are completely idle.
+2. Language identification is idle for 11 seconds while tokenization and the answer model run.
+3. Total GPU memory usage is only 11 GB out of 102 GB — there's room for multiple model replicas.
+
+**NeMo Curator's approach:** Stream batches through the pipeline, auto-scale replicas per stage based on throughput, and overlap CPU/GPU work:
+
+| Stage | Autoscaling Factor | Throughput |
+|-------|-------------------|------------|
+| Language Identification | 2× | 1 task/second |
+| Tokenization | 1× | 1 task/second |
+| Answer Model | 10× | 1 task/second |
+
+By running 10 replicas of the bottleneck stage (answer model) and 2 replicas of language identification, every stage achieves the same throughput of 1 task/second. After an initial warm-up period, Curator rearranges resources so GPU workers are **kept busy over 99% of the time**. Result: **~1,000 seconds** — a 13× improvement on the same hardware.
+
+<Note>
+This is an illustrative example to demonstrate the principles. Actual speedups depend on your specific pipeline, hardware, and data characteristics. The key insight is that Curator's streaming and auto-balancing automatically solve the throughput optimization problem that would otherwise require manual tuning.
+</Note>
+
+## Multi-Node Scaling Results
 
 Benchmarks on an 8 TB RedPajama v2 dataset (1.78 trillion tokens) demonstrate near-linear scaling:
 

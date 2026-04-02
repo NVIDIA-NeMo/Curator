@@ -42,6 +42,8 @@ Streaming with heterogeneous compute allows NeMo Curator to overlap stages that 
 
 This overlap provides **up to 20% throughput improvement** in pipelines that mix tokenization with inference, because the CPU and GPU work happens in parallel rather than taking turns.
 
+Combined with auto-balancing, streaming enables Curator to rearrange resources so that GPU stage workers are **kept busy over 99% of the time** after an initial warm-up period.
+
 ## Heterogeneous Executors
 
 NeMo Curator supports streaming with multiple executors — Cosmos Xenna, Ray Data, and others — each optimized for different workload patterns. The executor handles scheduling, backpressure, and resource allocation so that streaming "just works" regardless of how many stages your pipeline has.
