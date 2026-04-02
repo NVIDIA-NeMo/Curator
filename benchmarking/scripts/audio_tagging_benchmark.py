@@ -93,7 +93,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             hf_token=hf_token,
             max_length=max_segment_length,
             device=device,
-        ).with_(resources=Resources(cpus=cpus))
+        ).with_(resources=Resources(cpus=cpus, gpus=0.5))
     )
 
     # Split long audio segments
@@ -113,7 +113,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             decoder_type="rnnt",
             batch_size=asr_batch_size,
             device=device,
-        ).with_(resources=Resources(cpus=cpus))
+        ).with_(resources=Resources(cpus=cpus, gpus=0.45))
     )
 
     # Rejoin split audio metadata
@@ -135,10 +135,13 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
 
     run_time_taken = time.perf_counter() - run_start_time
 
+    total_duration = sum(task.data["duration"] for task in results) / 3600
+
     logger.success("Audio tagging benchmark completed successfully!!")
     logger.success(f"Processed {len(results)} tasks")
+    logger.success(f"Total audio duration processed: {total_duration:.2f} hours")
     logger.success(f"Throughput: {len(results) / run_time_taken:.2f} tasks per second")
-    logger.success(f"Total duration: {run_time_taken / 60:.2f} minutes")
+    logger.success(f"Total time taken: {run_time_taken / 60:.2f} minutes")
 
     return {
         "metrics": {
@@ -160,7 +163,7 @@ def main() -> int:
     parser.add_argument(
         "--max-segment-length", type=float, default=40.0, help="Maximum segment duration (seconds) to infer ASR"
     )
-    parser.add_argument("--asr-batch-size", type=int, default=32, help="Batch size for ASR alignment")
+    parser.add_argument("--asr-batch-size", type=int, default=100, help="Batch size for ASR alignment")
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data", "ray_actors"], help="Executor")
     parser.add_argument("--cpus", type=int, default=10, help="Number of CPUs to use for the pipeline")
 
