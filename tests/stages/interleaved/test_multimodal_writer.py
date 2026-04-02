@@ -22,7 +22,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from nemo_curator.stages.interleaved.io.readers.webdataset import WebdatasetReaderStage
+from nemo_curator.stages.interleaved.io.readers.webdataset import InterleavedWebdatasetReaderStage
 from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
@@ -30,7 +30,7 @@ from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA, RESERVED_COLUMNS
 
 
 def _read_batch(input_task: FileGroupTask) -> InterleavedBatch:
-    batch = WebdatasetReaderStage(source_id_field="pdf_name").process(input_task)
+    batch = InterleavedWebdatasetReaderStage().process(input_task)
     assert isinstance(batch, InterleavedBatch)
     return batch
 
@@ -61,7 +61,12 @@ def test_writer_marks_materialize_error_on_bad_source_path(tmp_path: Path, input
         _stage_perf=batch._stage_perf,
     )
 
-    writer = InterleavedParquetWriterStage(path=str(tmp_path / "out_bad"), materialize_on_write=True, mode="overwrite")
+    writer = InterleavedParquetWriterStage(
+        path=str(tmp_path / "out_bad"),
+        materialize_on_write=True,
+        mode="overwrite",
+        on_materialize_error="warn",
+    )
     write_task = writer.process(bad_batch)
     written = pd.read_parquet(write_task.data[0])
 
@@ -263,7 +268,7 @@ def test_heterogeneous_passthrough_fields_combine_as_nullable(tmp_path: Path) ->
         },
     )
 
-    reader = WebdatasetReaderStage(source_id_field="pdf_name")
+    reader = InterleavedWebdatasetReaderStage()
     batch_a = reader.process(FileGroupTask(task_id="a", dataset_name="d", data=[shard_a]))
     batch_b = reader.process(FileGroupTask(task_id="b", dataset_name="d", data=[shard_b]))
     assert isinstance(batch_a, InterleavedBatch)
