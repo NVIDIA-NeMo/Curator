@@ -13,10 +13,9 @@
 # limitations under the License.
 
 import json
-import tarfile
 from io import BytesIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pyarrow as pa
@@ -37,73 +36,7 @@ from nemo_curator.stages.interleaved.utils.materialization import (
 from nemo_curator.tasks import InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
-from .conftest import build_multi_frame_tiff, write_tar
-
-# --- helpers ---
-
-
-def _make_tar(tmp_path: Path, members: dict[str, bytes], name: str = "shard.tar") -> str:
-    tar_path = tmp_path / name
-    with tarfile.open(tar_path, "w") as tf:
-        for member_name, payload in members.items():
-            info = tarfile.TarInfo(name=member_name)
-            info.size = len(payload)
-            tf.addfile(info, BytesIO(payload))
-    return str(tar_path)
-
-
-def _image_task(rows: list[dict], metadata: dict | None = None) -> InterleavedBatch:
-    table = pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA)
-    return InterleavedBatch(task_id="test", dataset_name="d", data=table, _metadata=metadata or {})
-
-
-def _image_row(
-    path: str | None,
-    member: str | None = None,
-    byte_offset: int | None = None,
-    byte_size: int | None = None,
-) -> dict:
-    return {
-        "sample_id": "s1",
-        "position": 0,
-        "modality": "image",
-        "content_type": "image/jpeg",
-        "text_content": None,
-        "binary_content": None,
-        "source_ref": InterleavedBatch.build_source_ref(
-            path=path, member=member, byte_offset=byte_offset, byte_size=byte_size
-        ),
-        "materialize_error": None,
-    }
-
-
-# --- source_ref parsing tests ---
-
-
-@pytest.fixture
-def single_row_table() -> pa.Table:
-    return pa.Table.from_pylist(
-        [
-            {
-                "sample_id": "s1",
-                "position": 0,
-                "modality": "text",
-                "content_type": "text/plain",
-                "text_content": "hello",
-                "binary_content": None,
-                "source_ref": json.dumps(
-                    {"path": "/dataset/shard.tar", "member": "s1.json", "byte_offset": 10, "byte_size": 20}
-                ),
-                "materialize_error": None,
-            }
-        ],
-        schema=INTERLEAVED_SCHEMA,
-    )
-
-
-@pytest.fixture
-def single_row_task(single_row_table: pa.Table) -> InterleavedBatch:
-    return InterleavedBatch(task_id="t1", dataset_name="d1", data=single_row_table)
+from .conftest import build_multi_frame_tiff, make_image_row, make_image_task, write_tar
 
 
 def test_with_parsed_source_ref_columns(single_row_task: InterleavedBatch) -> None:
@@ -131,48 +64,39 @@ def test_parse_source_ref_empty_values() -> None:
 # --- classify_rows tests ---
 
 
-def test_classify_rows_direct_read() -> None:
+@pytest.mark.parametrize(
+    ("src_path", "src_member", "byte_range", "expected_bucket", "expected_missing"),
+    [
+        pytest.param("/img.jpg", None, None, "direct_read", [], id="direct_read"),
+        pytest.param("/shard.tar", "img.jpg", None, "tar_extract", [], id="tar_extract"),
+        pytest.param("/shard.tar", "img.jpg", (512, 1024), "range_read", [], id="range_read"),
+        pytest.param(None, None, None, None, [0], id="missing_path"),
+    ],
+)
+def test_classify_rows(
+    src_path: str | None,
+    src_member: str | None,
+    byte_range: tuple[int, int] | None,
+    expected_bucket: str | None,
+    expected_missing: list[int],
+) -> None:
+    byte_offset, byte_size = byte_range if byte_range else (None, None)
     df = pd.DataFrame(
-        {"_src_path": ["/img.jpg"], "_src_member": [None], "_src_byte_offset": [None], "_src_byte_size": [None]}
+        {
+            "_src_path": [src_path],
+            "_src_member": [src_member],
+            "_src_byte_offset": [byte_offset],
+            "_src_byte_size": [byte_size],
+        }
     )
-    mask = pd.Series([True])
-    result = _classify_rows(df, mask)
-    assert "/img.jpg" in result.direct_read
-    assert not result.tar_extract
-    assert not result.range_read
-
-
-def test_classify_rows_tar_extract() -> None:
-    df = pd.DataFrame(
-        {"_src_path": ["/shard.tar"], "_src_member": ["img.jpg"], "_src_byte_offset": [None], "_src_byte_size": [None]}
-    )
-    mask = pd.Series([True])
-    result = _classify_rows(df, mask)
-    assert "/shard.tar" in result.tar_extract
-    assert not result.range_read
-    assert not result.direct_read
-
-
-def test_classify_rows_range_read() -> None:
-    df = pd.DataFrame(
-        {"_src_path": ["/shard.tar"], "_src_member": ["img.jpg"], "_src_byte_offset": [512], "_src_byte_size": [1024]}
-    )
-    mask = pd.Series([True])
-    result = _classify_rows(df, mask)
-    assert "/shard.tar" in result.range_read
-    assert not result.tar_extract
-    assert not result.direct_read
-    entry = result.range_read["/shard.tar"][0]
-    assert entry == (0, "img.jpg", 512, 1024, None)
-
-
-def test_classify_rows_missing_path() -> None:
-    df = pd.DataFrame(
-        {"_src_path": [None], "_src_member": [None], "_src_byte_offset": [None], "_src_byte_size": [None]}
-    )
-    mask = pd.Series([True])
-    result = _classify_rows(df, mask)
-    assert result.missing == [0]
+    result = _classify_rows(df, pd.Series([True]))
+    assert result.missing == expected_missing
+    if expected_bucket is not None:
+        assert src_path in getattr(result, expected_bucket)
+        for other in {"direct_read", "tar_extract", "range_read"} - {expected_bucket}:
+            assert not getattr(result, other)
+        if expected_bucket == "range_read":
+            assert result.range_read[src_path][0] == (0, src_member, byte_offset, byte_size, None)
 
 
 def test_classify_rows_mixed_batch() -> None:
@@ -200,7 +124,7 @@ def test_materialize_fills_binary_from_direct_path(tmp_path: Path) -> None:
     img_path = tmp_path / "test.jpg"
     img_path.write_bytes(image_bytes)
 
-    task = _image_task([_image_row(path=str(img_path))])
+    task = make_image_task([make_image_row(path=str(img_path))])
     result = materialize_task_binary_content(task)
     df = result.to_pandas()
     assert df.loc[0, "binary_content"] == image_bytes
@@ -212,9 +136,9 @@ def test_materialize_fills_binary_from_direct_path(tmp_path: Path) -> None:
 
 def test_materialize_fills_binary_from_tar_extract(tmp_path: Path) -> None:
     payload = b"tar-image-bytes"
-    tar_path = _make_tar(tmp_path, {"img.jpg": payload})
+    tar_path = write_tar(tmp_path / "shard.tar", {"img.jpg": payload})
 
-    task = _image_task([_image_row(path=tar_path, member="img.jpg")])
+    task = make_image_task([make_image_row(path=tar_path, member="img.jpg")])
     result = materialize_task_binary_content(task)
     df = result.to_pandas()
     assert df.loc[0, "binary_content"] == payload
@@ -222,9 +146,9 @@ def test_materialize_fills_binary_from_tar_extract(tmp_path: Path) -> None:
 
 
 def test_materialize_tar_extract_missing_member(tmp_path: Path) -> None:
-    tar_path = _make_tar(tmp_path, {"other.jpg": b"data"})
+    tar_path = write_tar(tmp_path / "shard.tar", {"other.jpg": b"data"})
 
-    task = _image_task([_image_row(path=tar_path, member="missing.jpg")])
+    task = make_image_task([make_image_row(path=tar_path, member="missing.jpg")])
     result = materialize_task_binary_content(task)
     df = result.to_pandas()
     assert pd.isna(df.loc[0, "binary_content"]) or df.loc[0, "binary_content"] is None
@@ -239,7 +163,9 @@ def test_materialize_fills_binary_from_range_read(tmp_path: Path) -> None:
     raw_file = tmp_path / "data.bin"
     raw_file.write_bytes(b"HEADER" + payload + b"FOOTER")
 
-    task = _image_task([_image_row(path=str(raw_file), member="data.bin", byte_offset=6, byte_size=len(payload))])
+    task = make_image_task(
+        [make_image_row(path=str(raw_file), member="data.bin", byte_offset=6, byte_size=len(payload))]
+    )
     result = materialize_task_binary_content(task)
     df = result.to_pandas()
     assert df.loc[0, "binary_content"] == payload
@@ -247,7 +173,9 @@ def test_materialize_fills_binary_from_range_read(tmp_path: Path) -> None:
 
 
 def test_materialize_range_read_bad_path(tmp_path: Path) -> None:
-    task = _image_task([_image_row(path=str(tmp_path / "nonexistent.bin"), member="x", byte_offset=0, byte_size=10)])
+    task = make_image_task(
+        [make_image_row(path=str(tmp_path / "nonexistent.bin"), member="x", byte_offset=0, byte_size=10)]
+    )
     result = materialize_task_binary_content(task)
     df = result.to_pandas()
     assert isinstance(df.loc[0, "materialize_error"], str)
@@ -262,11 +190,11 @@ def test_materialize_range_read_deduplicates_identical_ranges(tmp_path: Path) ->
     raw_file.write_bytes(b"HDR" + payload + b"TRL")
 
     rows = [
-        _image_row(path=str(raw_file), member="img.tiff", byte_offset=3, byte_size=len(payload)),
-        _image_row(path=str(raw_file), member="img.tiff", byte_offset=3, byte_size=len(payload)),
-        _image_row(path=str(raw_file), member="img.tiff", byte_offset=3, byte_size=len(payload)),
+        make_image_row(path=str(raw_file), member="img.tiff", byte_offset=3, byte_size=len(payload)),
+        make_image_row(path=str(raw_file), member="img.tiff", byte_offset=3, byte_size=len(payload)),
+        make_image_row(path=str(raw_file), member="img.tiff", byte_offset=3, byte_size=len(payload)),
     ]
-    task = _image_task(rows)
+    task = make_image_task(rows)
     result = materialize_task_binary_content(task)
     df = result.to_pandas()
     for i in range(3):
@@ -283,20 +211,20 @@ def test_materialize_mixed_strategies(tmp_path: Path) -> None:
     direct_path.write_bytes(direct_bytes)
 
     tar_bytes = b"tar-img"
-    tar_path = _make_tar(tmp_path, {"member.jpg": tar_bytes})
+    tar_path = write_tar(tmp_path / "shard.tar", {"member.jpg": tar_bytes})
 
     range_bytes = b"range-img"
     range_file = tmp_path / "range.bin"
     range_file.write_bytes(b"XX" + range_bytes + b"YY")
 
     rows = [
-        _image_row(path=str(direct_path)),
-        _image_row(path=tar_path, member="member.jpg"),
-        _image_row(path=str(range_file), member="range.bin", byte_offset=2, byte_size=len(range_bytes)),
+        make_image_row(path=str(direct_path)),
+        make_image_row(path=tar_path, member="member.jpg"),
+        make_image_row(path=str(range_file), member="range.bin", byte_offset=2, byte_size=len(range_bytes)),
     ]
     for i, row in enumerate(rows):
         row["position"] = i
-    task = _image_task(rows)
+    task = make_image_task(rows)
     result = materialize_task_binary_content(task)
     df = result.to_pandas()
     assert df.loc[0, "binary_content"] == direct_bytes
@@ -350,7 +278,7 @@ def test_materialize_no_image_rows() -> None:
 
 
 def test_materialize_missing_path_sets_error() -> None:
-    task = _image_task([_image_row(path=None)])
+    task = make_image_task([make_image_row(path=None)])
     result = materialize_task_binary_content(task)
     df = result.to_pandas()
     assert "missing path" in str(df.loc[0, "materialize_error"])
@@ -804,7 +732,7 @@ def test_count_with_pandas_data() -> None:
 
 
 def test_webdataset_reader_composite_decompose(tmp_path: Path) -> None:
-    reader = WebdatasetReader(file_paths=str(tmp_path), source_id_field="pdf_name")
+    reader = WebdatasetReader(file_paths=str(tmp_path))
     stages = reader.decompose()
     assert len(stages) == 2
     assert stages[0].name == "file_partitioning"
@@ -829,7 +757,7 @@ def test_materialize_records_error_for_non_oserror_on_direct_read() -> None:
     """Non-OSError exceptions during direct-read materialization must be
     recorded as materialize_error, not crash the pipeline.
     """
-    task = _image_task([_image_row(path="/fake/path.jpg")])
+    task = make_image_task([make_image_row(path="/fake/path.jpg")])
     with patch("nemo_curator.stages.interleaved.utils.materialization.fsspec.open", side_effect=RuntimeError("boom")):
         result = materialize_task_binary_content(task)
     df = result.to_pandas()
@@ -1169,3 +1097,54 @@ def test_aspect_ratio_filter_no_image_rows() -> None:
     out_df = stage.process(task).to_pandas()
     assert len(out_df) == 2
     assert out_df["modality"].tolist() == ["metadata", "text"]
+
+
+def test_image_aspect_ratio_corrupted_bytes_returns_none() -> None:
+    assert InterleavedAspectRatioFilterStage._image_aspect_ratio(b"not-an-image") is None
+
+
+def test_image_aspect_ratio_zero_height_returns_none() -> None:
+    mock_img = MagicMock()
+    mock_img.__enter__.return_value = mock_img
+    mock_img.size = (100, 0)
+    with patch("nemo_curator.stages.interleaved.stages.Image.open", return_value=mock_img):
+        assert InterleavedAspectRatioFilterStage._image_aspect_ratio(b"\x89PNG\r\n") is None
+
+
+def test_image_aspect_ratio_pillow_not_installed_raises() -> None:
+    with (
+        patch("nemo_curator.stages.interleaved.stages.Image", None),
+        pytest.raises(RuntimeError, match="Pillow is required"),
+    ):
+        InterleavedAspectRatioFilterStage._image_aspect_ratio(b"x")
+
+
+class _PassthroughFilter(BaseInterleavedFilterStage):
+    name: str = "passthrough"
+
+    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+        return pd.Series(True, index=df.index, dtype=bool)
+
+
+_DROP_COL = object()  # sentinel: drop the binary_content column entirely
+
+
+def _materialized_bytes(binary_content: object) -> list[tuple[int, bytes | None]]:
+    task = make_image_task([make_image_row(path=None)])
+    df = task.to_pandas()
+    if binary_content is _DROP_COL:
+        df_mat = df.drop(columns=["binary_content"])
+    else:
+        df_mat = df.copy()
+        df_mat["binary_content"] = binary_content
+    fake = InterleavedBatch(task_id="t", dataset_name="d", data=df_mat, _metadata=task._metadata)
+    with patch("nemo_curator.stages.interleaved.stages.materialize_task_binary_content", return_value=fake):
+        return list(_PassthroughFilter().iter_materialized_bytes(task, df, df["modality"] == "image"))
+
+
+def test_iter_materialized_bytes_missing_column_yields_none() -> None:
+    assert all(v is None for _, v in _materialized_bytes(_DROP_COL))
+
+
+def test_iter_materialized_bytes_non_bytes_value_yields_none() -> None:
+    assert all(v is None for _, v in _materialized_bytes("not-bytes"))

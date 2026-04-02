@@ -16,12 +16,14 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
 from PIL import Image
 
 from nemo_curator.stages.interleaved.utils.materialization import (
+    _build_global_range_index,
     _build_image_mask,
     _classify_rows,
     _extract_tiff_frame,
@@ -35,37 +37,7 @@ from nemo_curator.stages.interleaved.utils.materialization import (
 from nemo_curator.tasks import InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
-from .conftest import build_multi_frame_tiff, write_tar
-
-
-def _image_task(rows: list[dict], metadata: dict | None = None) -> InterleavedBatch:
-    table = pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA)
-    return InterleavedBatch(task_id="test", dataset_name="d", data=table, _metadata=metadata or {})
-
-
-def _image_row(
-    path: str | None,
-    member: str | None = None,
-    byte_offset: int | None = None,
-    byte_size: int | None = None,
-    content_type: str = "image/jpeg",
-) -> dict:
-    return {
-        "sample_id": "s1",
-        "position": 0,
-        "modality": "image",
-        "content_type": content_type,
-        "text_content": None,
-        "binary_content": None,
-        "source_ref": InterleavedBatch.build_source_ref(
-            path=path,
-            member=member,
-            byte_offset=byte_offset,
-            byte_size=byte_size,
-        ),
-        "materialize_error": None,
-    }
-
+from .conftest import build_jpeg_in_tiff, build_multi_frame_tiff, make_image_row, make_image_task, write_tar
 
 # --- _get_frame_index ---
 
@@ -147,26 +119,59 @@ def test_extract_tiff_frame_variants(image_bytes: bytes | None, frame_index: int
         assert result is None
 
 
+def test_extract_tiff_frame_jpeg_in_tiff_preserves_pixels() -> None:
+    """Regression: JPEG-compressed TIFF frames must not corrupt pixel values.
+
+    MINT-1T PDFs are stored as JPEG-in-TIFF multi-frame files.  Previously,
+    _extract_tiff_frame reused the source JPEG compression when saving the
+    extracted frame; JPEG does not support alpha channels, which caused wrong
+    pixel values and a corrupted alpha channel on RGBA frames.
+    """
+    tiff_bytes = build_jpeg_in_tiff(n_frames=2)
+    orig = Image.open(BytesIO(tiff_bytes))
+    for frame_index in range(2):
+        orig.seek(frame_index)
+        orig_arr = np.array(orig)
+
+        result = _extract_tiff_frame(tiff_bytes, frame_index)
+        assert result is not None
+        result_img = Image.open(BytesIO(result))
+        assert result_img.mode == orig.mode
+        assert result_img.size == orig.size
+        # All pixels must be identical (lossless round-trip after JPEG decode)
+        assert np.array_equal(np.array(result_img), orig_arr), f"Frame {frame_index}: pixel mismatch after extraction"
+
+
 # --- _fill_tar_extract_rows ---
 
 
-def test_fill_tar_extract_rows_bad_tar_path() -> None:
-    groups = {"/nonexistent/path.tar": [(0, "img.jpg", None)]}
-    binary_values: list[object] = [None]
-    error_values: list[str | None] = [None]
-    _fill_tar_extract_rows(groups, {}, binary_values, error_values)
-    assert error_values[0] == "failed to read path"
-
-
-def test_fill_tar_extract_rows_frame_extraction_failure(tmp_path: Path) -> None:
-    tiff_bytes = build_multi_frame_tiff(1)
-    tar_path = write_tar(tmp_path / "oob.tar", {"doc.tiff": tiff_bytes})
-    groups = {tar_path: [(0, "doc.tiff", 99)]}
+@pytest.mark.parametrize(
+    ("tar_path_factory", "member", "frame_index", "expected_error"),
+    [
+        pytest.param(lambda _: "/nonexistent/path.tar", "img.jpg", None, "failed to read path", id="bad_tar_path"),
+        pytest.param(
+            lambda tmp: write_tar(tmp / "oob.tar", {"doc.tiff": build_multi_frame_tiff(1)}),
+            "doc.tiff",
+            99,
+            "failed to extract frame",
+            id="oob_frame",
+        ),
+    ],
+)
+def test_fill_tar_extract_rows_errors(
+    tmp_path: Path,
+    tar_path_factory: object,
+    member: str,
+    frame_index: int | None,
+    expected_error: str,
+) -> None:
+    tar_path = tar_path_factory(tmp_path)
+    groups = {tar_path: [(0, member, frame_index)]}
     binary_values: list[object] = [None]
     error_values: list[str | None] = [None]
     _fill_tar_extract_rows(groups, {}, binary_values, error_values)
     assert error_values[0] is not None
-    assert "failed to extract frame" in error_values[0]
+    assert expected_error in error_values[0]
 
 
 # --- _scatter_range_blobs ---
@@ -205,32 +210,34 @@ def test_scatter_range_blobs_bytearray_conversion() -> None:
     assert error_values[0] is None
 
 
-def test_scatter_range_blobs_with_tiff_frame() -> None:
-    tiff_bytes = build_multi_frame_tiff(3)
+@pytest.mark.parametrize(
+    ("n_frames", "frame_index", "expect_success", "expected_error_substr"),
+    [
+        pytest.param(3, 1, True, None, id="valid_frame"),
+        pytest.param(1, 99, False, "failed to extract frame", id="oob_frame"),
+    ],
+)
+def test_scatter_range_blobs_tiff_frame(
+    n_frames: int,
+    frame_index: int,
+    expect_success: bool,
+    expected_error_substr: str | None,
+) -> None:
+    tiff_bytes = build_multi_frame_tiff(n_frames)
     range_keys = [(0, len(tiff_bytes))]
     unique_ranges: dict[tuple[int, int], list[tuple[int, str, int | None]]] = {
-        (0, len(tiff_bytes)): [(0, "doc.tiff", 1)],
+        (0, len(tiff_bytes)): [(0, "doc.tiff", frame_index)],
     }
     binary_values: list[object] = [None]
     error_values: list[str | None] = [None]
     _scatter_range_blobs([tiff_bytes], range_keys, unique_ranges, binary_values, error_values)
-    assert binary_values[0] is not None
-    assert error_values[0] is None
-    img = Image.open(BytesIO(binary_values[0]))
-    assert img.n_frames == 1
-
-
-def test_scatter_range_blobs_tiff_frame_extraction_failure() -> None:
-    tiff_bytes = build_multi_frame_tiff(1)
-    range_keys = [(0, len(tiff_bytes))]
-    unique_ranges: dict[tuple[int, int], list[tuple[int, str, int | None]]] = {
-        (0, len(tiff_bytes)): [(0, "doc.tiff", 99)],
-    }
-    binary_values: list[object] = [None]
-    error_values: list[str | None] = [None]
-    _scatter_range_blobs([tiff_bytes], range_keys, unique_ranges, binary_values, error_values)
-    assert error_values[0] is not None
-    assert "failed to extract frame" in error_values[0]
+    if expect_success:
+        assert binary_values[0] is not None
+        assert error_values[0] is None
+        assert Image.open(BytesIO(binary_values[0])).n_frames == 1
+    else:
+        assert error_values[0] is not None
+        assert expected_error_substr in error_values[0]
 
 
 # --- _fill_range_read_rows ---
@@ -246,6 +253,67 @@ def test_fill_range_read_rows_url_to_fs_failure() -> None:
     ):
         _fill_range_read_rows(groups, {}, binary_values, error_values)
     assert error_values[0] == "failed to resolve filesystem"
+
+
+def test_build_global_range_index_groups_by_filesystem(tmp_path: Path) -> None:
+    """Paths on different filesystems produce separate (fs, unique_ranges) groups."""
+    import fsspec
+
+    local_path = str(tmp_path / "a.bin")
+    Path(local_path).write_bytes(b"x" * 64)
+
+    mem_path = "memory://test_group_index/b.bin"
+    with fsspec.open(mem_path, "wb") as f:
+        f.write(b"y" * 64)
+
+    groups = {
+        local_path: [(0, "m0", 0, 8, None)],
+        mem_path: [(1, "m1", 0, 8, None)],
+    }
+    error_values: list[str | None] = [None, None]
+    result = _build_global_range_index(groups, {}, error_values)
+
+    # Two distinct filesystem backends → two groups
+    assert len(result) == 2
+    fs_types = {type(fs).__name__ for fs, _ in result}
+    assert "LocalFileSystem" in fs_types
+    assert "MemoryFileSystem" in fs_types
+    assert all(e is None for e in error_values)
+
+
+def test_fill_range_read_rows_mixed_filesystems(tmp_path: Path) -> None:
+    """Range reads work correctly when groups span local and in-memory filesystems."""
+    import fsspec
+
+    # Local file: embed target bytes at a known offset
+    local_payload = b"LOCAL_PAYLOAD"
+    local_prefix = b"HEADER_PREFIX_"
+    local_content = local_prefix + local_payload + b"_SUFFIX"
+    local_file = tmp_path / "local.bin"
+    local_file.write_bytes(local_content)
+    local_path = str(local_file)
+
+    # Memory file: embed target bytes at a known offset
+    mem_payload = b"MEMORY_PAYLOAD"
+    mem_prefix = b"MEM_PREFIX_"
+    mem_content = mem_prefix + mem_payload + b"_SUFFIX"
+    mem_path = "memory://test_mixed_fs/data.bin"
+    with fsspec.open(mem_path, "wb") as f:
+        f.write(mem_content)
+
+    groups = {
+        local_path: [(0, "local_member", len(local_prefix), len(local_payload), None)],
+        mem_path: [(1, "mem_member", len(mem_prefix), len(mem_payload), None)],
+    }
+    binary_values: list[object] = [None, None]
+    error_values: list[str | None] = [None, None]
+
+    _fill_range_read_rows(groups, {}, binary_values, error_values)
+
+    assert binary_values[0] == local_payload
+    assert binary_values[1] == mem_payload
+    assert error_values[0] is None
+    assert error_values[1] is None
 
 
 # --- _init_materialization_buffers ---
@@ -314,10 +382,10 @@ def test_materialize_with_content_type_filter(tmp_path: Path) -> None:
     png_path.write_bytes(png_bytes)
 
     rows = [
-        _image_row(path=str(jpeg_path), content_type="image/jpeg"),
-        {**_image_row(path=str(png_path), content_type="image/png"), "position": 1},
+        make_image_row(path=str(jpeg_path), content_type="image/jpeg"),
+        {**make_image_row(path=str(png_path), content_type="image/png"), "position": 1},
     ]
-    task = _image_task(rows)
+    task = make_image_task(rows)
     result = materialize_task_binary_content(task, image_content_types=("image/jpeg",))
     df = result.to_pandas()
     assert df.loc[0, "binary_content"] == jpeg_bytes
@@ -349,3 +417,43 @@ def test_materialize_with_only_missing_binary_false(tmp_path: Path) -> None:
     result = materialize_task_binary_content(task, only_missing_binary=False)
     df = result.to_pandas()
     assert df.loc[0, "binary_content"] == new_bytes
+
+
+def test_materialize_preserves_passthrough_columns_with_src_prefix(tmp_path: Path) -> None:
+    """User passthrough columns starting with '_src_' must survive materialization unchanged.
+
+    Previously, the cleanup step used startswith('_src_') which silently dropped any
+    user column whose JSON key happened to start with that prefix (e.g. '_src_html').
+    """
+    img_path = tmp_path / "img.jpg"
+    img_path.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 16)  # minimal JPEG header
+
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": InterleavedBatch.build_source_ref(path=str(img_path), member=None),
+            "materialize_error": None,
+            "_src_html": "keep-me",
+            "_src_metadata": "also-keep-me",
+        }
+    ]
+    schema_with_passthrough = INTERLEAVED_SCHEMA.append(pa.field("_src_html", pa.string())).append(
+        pa.field("_src_metadata", pa.string())
+    )
+    task = InterleavedBatch(
+        task_id="passthrough_test",
+        dataset_name="d",
+        data=pa.Table.from_pylist(rows, schema=schema_with_passthrough),
+    )
+    result = materialize_task_binary_content(task)
+    df = result.to_pandas()
+
+    assert "_src_html" in df.columns, "_src_html passthrough column was dropped"
+    assert "_src_metadata" in df.columns, "_src_metadata passthrough column was dropped"
+    assert df.loc[0, "_src_html"] == "keep-me"
+    assert df.loc[0, "_src_metadata"] == "also-keep-me"
