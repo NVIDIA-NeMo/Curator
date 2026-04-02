@@ -128,44 +128,17 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         self._proc_size: tuple[int, int] = tuple(self._processor.image_processor.final_size)
         logger.info(f"[HF] Model loaded, proc_size={self._proc_size}")
 
-    @staticmethod
-    def _pick_free_port() -> int:
-        import socket
-
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("", 0))
-            return s.getsockname()[1]
-
     def _setup_vllm(self) -> None:
-        import os
-        import time
+        from vllm import SamplingParams
 
-        from vllm import LLM, SamplingParams
+        from nemo_curator.backends.vllm_utils import create_vllm_llm, resolve_local_model_path
 
-        resolved_path = self._resolve_local_model_path()
-
-        max_attempts = 3
-        for attempt in range(1, max_attempts + 1):
-            free_port = self._pick_free_port()
-            os.environ["MASTER_PORT"] = str(free_port)
-            try:
-                self._llm = LLM(
-                    model=resolved_path,
-                    max_num_seqs=self.max_num_seqs,
-                    limit_mm_per_prompt={"image": 1},
-                    dtype="bfloat16",
-                    trust_remote_code=True,
-                    enforce_eager=self.enforce_eager,
-                )
-                break
-            except RuntimeError as e:
-                if "EADDRINUSE" in str(e) or "address already in use" in str(e):
-                    logger.warning(f"[vLLM] Port {free_port} collision on attempt {attempt}, retrying...")
-                    time.sleep(2)
-                    if attempt == max_attempts:
-                        raise
-                else:
-                    raise
+        resolved_path = resolve_local_model_path(self.model_path)
+        self._llm = create_vllm_llm(
+            resolved_path,
+            max_num_seqs=self.max_num_seqs,
+            enforce_eager=self.enforce_eager,
+        )
         self._sampling_params = SamplingParams(
             temperature=0,
             top_k=1,
@@ -178,12 +151,6 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         processor = AutoProcessor.from_pretrained(resolved_path, trust_remote_code=True)
         self._proc_size = tuple(processor.image_processor.final_size)
         del processor
-
-    def _resolve_local_model_path(self) -> str:
-        """Resolve the HF model to a local snapshot path to avoid repeated API calls."""
-        from huggingface_hub import snapshot_download
-
-        return snapshot_download(self.model_path, local_files_only=True)
 
     def teardown(self) -> None:
         if self.backend == "vllm":
