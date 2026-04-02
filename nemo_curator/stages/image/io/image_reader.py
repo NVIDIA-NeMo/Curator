@@ -135,13 +135,16 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             if image_objects:
                 yield image_objects
 
-    def _stream_batches(self, tar_files: list[pathlib.Path]) -> Generator[ImageBatch, None, None]:
+    def _stream_batches(
+        self, tar_files: list[pathlib.Path], metadata: dict | None = None
+    ) -> Generator[ImageBatch, None, None]:
         """Emit one ImageBatch per DALI run across all provided tar files."""
         for batch_id, image_objects in enumerate(self._read_tars_with_dali(tar_files)):
             yield ImageBatch(
                 task_id=f"image_batch_{batch_id}",
                 dataset_name="tar_files",
                 data=image_objects,
+                _metadata=metadata or {},
             )
 
     def process(self, task: FileGroupTask) -> list[ImageBatch]:
@@ -153,4 +156,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
 
         tar_files = [pathlib.Path(p) for p in tar_file_paths]
 
-        return list(self._stream_batches(tar_files))
+        # Propagate original_task_id so downstream resumable writers (e.g. ImageWriterStage)
+        # can record completions under the same key that FilePartitioningStage checks.
+        metadata = {"original_task_id": task._metadata.get("original_task_id", task.task_id)}
+        return list(self._stream_batches(tar_files, metadata))
