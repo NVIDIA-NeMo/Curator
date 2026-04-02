@@ -38,7 +38,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
     batch_size: int = 100
     verbose: bool = True
     num_threads: int = 8
-    num_gpus_per_worker: float = 0.5
+    num_gpus_per_worker: float = 0.25
     name: str = "image_reader"
 
     def __post_init__(self) -> None:
