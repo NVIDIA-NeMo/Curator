@@ -65,11 +65,11 @@ Key advantages over the OpenAI Client-based approach:
 
 ```bash
 # Generate 20 synthetic Q&A pairs in multiple languages
-python synthetic_data_generation_example.py --num-samples 20
+python synthetic_data_generation_example.py --num-samples 10
 
 # Customize languages and disable filtering
 python synthetic_data_generation_example.py \
-    --num-samples 50 \
+    --num-samples 10 \
     --languages English French German Spanish \
     --no-filter-languages
 ```
@@ -138,36 +138,6 @@ python nemotron_cc/nemo_data_designer/nemotron_cc_sdg_high_quality_example_pipel
     --output-path ./synthetic_output \
     --output-format parquet
 ```
-
-## Command-Line Arguments
-
-Refer to each script's `--help` output for the complete list of available arguments.
-
-### OpenAI Client-based scripts
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--api-key` | env var | NVIDIA API key |
-| `--base-url` | NVIDIA API | Base URL for API endpoint |
-| `--model-name` | meta/llama-3.3-70b-instruct | Model to use for generation |
-| `--output-path` | ./synthetic_output | Output directory |
-| `--max-concurrent-requests` | 3 | Concurrent API requests |
-| `--temperature` | 0.9 (QA) / 0.5 (Nemotron-CC) | Sampling temperature |
-
-### NDD-based scripts
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--provider` | local (NDD medical) / `--provider-name nvidia` (Nemotron-CC) | Model provider (`nvidia`, or omit for local server) |
-| `--model` / `--model-name` | openai/gpt-oss-20b (NDD medical) / meta/llama-3.3-70b-instruct | Model identifier |
-| `--output-path` | ./synthetic_output | Output directory |
-| `--output-format` | parquet | Output format (`jsonl` or `parquet`) — Nemotron-CC NDD scripts |
-| `--temperature` | 0.5 | Sampling temperature |
-| `--top-p` | 0.9 | Nucleus sampling parameter |
-| `--max-tokens` | task-dependent | Maximum tokens to generate |
-| `--max-parallel-requests` | 4 | NDD concurrency for parallel LLM requests |
-| `--mock` | false | Use built-in sample data instead of Parquet input |
-| `--data-designer-config-file` | none | Path to a Data Designer YAML config (NDD medical script) |
 
 ---
 
