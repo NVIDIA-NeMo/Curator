@@ -30,18 +30,23 @@ Example:
     pipeline.add_stage(BandFilterStage(band_value="narrow_band"))
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import ClassVar, Literal
 
 import torch
+from huggingface_hub import hf_hub_download
 from loguru import logger
 
-from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.stages.audio.common import resolve_model_path, resolve_waveform_from_item
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.audio.common import resolve_waveform_from_item
 from nemo_curator.stages.audio.filtering.band_filter_module.predict import BandPredictor
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+_HF_REPO_ID = "nvidia/nemocurator-speech-bandwidth-filter"
+_HF_MODEL_FILENAME = "band_classifier_model_band_7000_samples.joblib"
 
 
 @dataclass
@@ -53,7 +58,9 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
     based on the specified band_value to pass.
 
     Args:
-        model_path: Path to band classifier model (.joblib)
+        model_path: Local path to band classifier model (.joblib). If not provided,
+            the model is downloaded from HuggingFace (nvidia/nemocurator-speech-bandwidth-filter).
+        cache_dir: Directory to cache downloaded models.
         band_value: Which band type to pass ("full_band" or "narrow_band")
 
     Note:
@@ -68,7 +75,8 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
         stage = BandFilterStage(band_value="narrow_band")
     """
 
-    model_path: str = "model/band_classifier_model_band_7000_samples.joblib"
+    model_path: str | None = None
+    cache_dir: str | None = None
     band_value: Literal["full_band", "narrow_band"] = "full_band"
 
     name: str = "BandFilter"
@@ -91,6 +99,20 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["band_prediction"]
 
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
+        try:
+            if self.model_path is None:
+                self.model_path = hf_hub_download(
+                    repo_id=_HF_REPO_ID,
+                    filename=_HF_MODEL_FILENAME,
+                    cache_dir=self.cache_dir,
+                )
+                logger.info(f"Band filter model downloaded to {self.model_path}")
+        except Exception:  # noqa: BLE001
+            logger.warning("Model pre-download in setup_on_node failed; will retry in setup().")
+
     def setup(self, _: WorkerMetadata | None = None) -> None:
         self._initialize_predictor()
 
@@ -101,10 +123,19 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+    def _resolve_model_path(self) -> str:
+        if self.model_path is not None and os.path.isfile(self.model_path):
+            return self.model_path
+        return hf_hub_download(
+            repo_id=_HF_REPO_ID,
+            filename=_HF_MODEL_FILENAME,
+            cache_dir=self.cache_dir,
+        )
+
     def _initialize_predictor(self) -> None:
         if self._predictor is None:
             try:
-                model_path = resolve_model_path(self.model_path, __file__, "band_filter_module")
+                model_path = self._resolve_model_path()
                 self._predictor = BandPredictor(
                     model_path=model_path,
                     feature_cache_size=100,

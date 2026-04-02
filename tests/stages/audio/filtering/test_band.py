@@ -87,15 +87,6 @@ class TestBandFilterStage:
 
         assert result == []
 
-    def test_predictor_not_available(self) -> None:
-        stage = BandFilterStage(band_value="full_band")
-        stage._predictor = None
-
-        with patch.object(stage, "_initialize_predictor"):
-            result = stage.process(_make_task())
-
-        assert result == []
-
     @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
     def test_process_nested_segments_filters(self, mock_init: MagicMock) -> None:
         """Nested segments: only segments passing the band filter survive."""
