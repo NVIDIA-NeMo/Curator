@@ -14,7 +14,7 @@ For comprehensive documentation, refer to the [Synthetic Data Generation Guide](
 ```bash
 export NVIDIA_API_KEY="your-api-key-here"
 ```
-- **NeMo Curator**: Installed with text extras (`pip install nemo-curator[text_cuda12]`)
+- **NeMo Curator**: Installed with text extras (`uv pip install "nemo-curator[text_cuda12]"`)
 
 
 ## SDG Backends
