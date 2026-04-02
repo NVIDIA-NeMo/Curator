@@ -181,9 +181,9 @@ class PrepareOmniRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     Args:
         format: How to encode audio content parts.
-            ``"audio_url"`` (default) — vLLM / Qwen3-Omni format.
-            ``"input_audio"`` — OpenAI-compatible hosted API format
-            (e.g. NVIDIA inference API with Gemini).
+            ``"data_url"`` (default) — ``audio_url`` with ``data:`` URI (vLLM).
+            ``"input_data"`` — ``input_audio`` with raw base64 + format (OpenAI / NIM).
+            Images always use ``image_url`` regardless of this setting.
         input_tar: Path to a tar archive. When set, ``audio_filepath_key`` /
             ``image_filepath_key`` values are **member names** inside the tar
             (as in ``tar tf``). With ``input_index``, bytes are read via the DALI
@@ -328,18 +328,26 @@ class PrepareOmniRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         b64 = base64.standard_b64encode(raw).decode("ascii")
         return b64, mime_type
 
-    def _local_file_to_input_audio(self, path: str) -> tuple[str, str]:
-        """Read a local audio file, return an ``input_audio`` content part.
+    def _file_to_base64(self, path: str) -> tuple[str, str]:
+        """Read a file (audio or image), return ``(base64_data, extension)``.
 
-        The ``input_audio`` format is used by OpenAI-compatible hosted APIs
-        (e.g. NVIDIA inference API with Gemini) as opposed to ``audio_url``
-        which is used by vLLM.
+        Used for ``input_audio`` content parts where the API expects raw base64
+        bytes plus a short format string (e.g. ``"wav"``, ``"png"``).
+        Supports tar, S3/AIS remote storage, and local files.
         """
         if self._uses_input_tar():
             raw, resolved_name = self._read_bytes_from_tar(path)
             ext = Path(resolved_name).suffix.lstrip(".").lower()
             if not ext:
-                ext = "wav"
+                ext = "bin"
+            b64 = base64.standard_b64encode(raw).decode("ascii")
+            return b64, ext
+
+        if _is_remote_storage_path(path):
+            raw = _read_remote_bytes(path)
+            ext = Path(path).suffix.lstrip(".").lower()
+            if not ext:
+                ext = "bin"
             b64 = base64.standard_b64encode(raw).decode("ascii")
             return b64, ext
 
@@ -349,48 +357,47 @@ class PrepareOmniRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             raise FileNotFoundError(msg)
         raw = path_obj.read_bytes()
         b64 = base64.standard_b64encode(raw).decode("ascii")
-        # Derive format from extension (wav, mp3, flac, etc.)
         ext = path_obj.suffix.lstrip(".").lower()
         if not ext:
-            ext = "wav"
+            ext = "bin"
         return b64, ext
 
     def _url_or_data_url(self, value: str, content_format: str) -> dict:
-        """Return value as-is if remote URL; if local path, read file and return data URL.
-        Args:
-            value: The value to encode.
-            content_format: How to encode audio content parts.
-                    ``"audio_url"`` — vLLM / Qwen3-Omni format (default).
-                    ``"input_audio"`` — OpenAI-compatible hosted API format
-                    (e.g. NVIDIA inference API with Gemini).
+        """Encode a media reference as an OpenAI-compatible content part.
 
+        Args:
+            value: File path (local, tar member, S3/AIS) or HTTP(S) URL.
+            content_format: Content part type to produce:
+                ``"audio_url"``   — ``data:`` URL (vLLM).
+                ``"input_audio"`` — raw base64 + format (OpenAI Chat / NIM).
+                ``"image_url"``   — ``data:`` URL (universal).
         """
         if not _is_local_path(value) and not _is_remote_storage_path(value):
             return {"type": content_format, content_format: {"url": value}}
 
         if content_format == "input_audio":
-            b64, ext = self._local_file_to_input_audio(value)
+            b64, ext = self._file_to_base64(value)
             return {"type": content_format, content_format: {"data": b64, "format": ext}}
-        elif content_format == "audio_url":
+        if content_format in ("audio_url", "image_url"):
             b64, mime_type = self._local_file_to_data_url(value)
             return {"type": content_format, content_format: {"url": f"data:{mime_type};base64,{b64}"}}
-        elif content_format == "input_image":
-            b64, ext = self._local_file_to_input_audio(value)  # TODO: check this
-            return {"type": content_format, content_format: {"data": b64, "format": ext}}
-        elif content_format == "image_url":
-            b64, mime_type = self._local_file_to_data_url(value)
-            return {"type": content_format, content_format: {"url": f"data:{mime_type};base64,{b64}"}}
-        else:
-            msg = f"Invalid format: {content_format}. Supported formats: input_audio, audio_url, image_url."
-            raise ValueError(msg)
+        msg = f"Invalid content_format: {content_format!r}. Supported: input_audio, audio_url, image_url."
+        raise ValueError(msg)
 
     def _user_content_format_for_media(self, *, image: bool) -> str:
-        """Map stage ``format`` to API content part type for image or audio."""
+        """Map stage ``format`` to API content part type.
+
+        Images always use ``image_url`` (accepted by both vLLM and OpenAI).
+        Audio uses ``audio_url`` (vLLM) or ``input_audio`` (OpenAI / NIM)
+        depending on the ``format`` setting.
+        """
+        if image:
+            return "image_url"
         if self.format == "data_url":
-            return "image_url" if image else "audio_url"
+            return "audio_url"
         if self.format == "input_data":
-            return "input_image" if image else "input_audio"
-        msg = f"Invalid format: {self.format}. Supported formats: input_data, data_url."
+            return "input_audio"
+        msg = f"Invalid format: {self.format!r}. Supported: 'data_url', 'input_data'."
         raise ValueError(msg)
 
     def _row_to_messages(self, row: dict) -> list[dict]:

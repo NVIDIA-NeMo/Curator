@@ -147,11 +147,14 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
         raise ValueError(msg)
 
     def _user_content_format(self, *, image: bool) -> str:
+        """Images always use ``image_url``; audio depends on ``format`` setting."""
+        if image:
+            return "image_url"
         if self.format == "data_url":
-            return "image_url" if image else "audio_url"
+            return "audio_url"
         if self.format == "input_data":
-            return "input_image" if image else "input_audio"
-        msg = f"Invalid format: {self.format}. Use data_url or input_data."
+            return "input_audio"
+        msg = f"Invalid format: {self.format!r}. Supported: 'data_url', 'input_data'."
         raise ValueError(msg)
 
     def _cut_to_messages(self, cut: Cut) -> list[dict]:
