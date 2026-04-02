@@ -75,7 +75,7 @@ from dataclasses import dataclass
 from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.core.client import RayClient, SlurmRayClient
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
@@ -274,7 +274,11 @@ def main() -> None:
     args.output_dir = os.path.abspath(args.output_dir)
     os.makedirs(args.output_dir, exist_ok=True)
 
-    ray_client = SlurmRayClient() if os.environ.get("SLURM_JOB_ID") else RayClient()
+    if os.environ.get("SLURM_JOB_ID"):
+        from nemo_curator.core.client import SlurmRayClient  # noqa: PLC0415
+        ray_client = SlurmRayClient()
+    else:
+        ray_client = RayClient()
     ray_client.start()
 
     try:
