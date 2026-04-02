@@ -38,7 +38,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
     batch_size: int = 100
     verbose: bool = True
     num_threads: int = 8
-    num_gpus_per_worker: float = 1.0  # One worker per GPU to prevent OOM
+    num_gpus_per_worker: float = 0.5
     name: str = "image_reader"
 
     def __post_init__(self) -> None:
@@ -70,13 +70,10 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             )
             raise RuntimeError(msg) from exc
 
-        # Set device_id based on runtime CUDA availability (checked on worker, not head node)
-        dali_device_id = 0 if torch.cuda.is_available() else None
-
         @pipeline_def(
             batch_size=self.batch_size,
             num_threads=self.num_threads,
-            device_id=dali_device_id,
+            device_id=0,
         )
         def webdataset_pipeline() -> object:
             # Read only JPGs to avoid Python-side JSON parsing overhead
