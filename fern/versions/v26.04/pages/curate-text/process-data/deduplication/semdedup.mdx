@@ -114,10 +114,7 @@ semantic_workflow = SemanticDeduplicationWorkflow(
     eps=None,  # Skip duplicate identification for analysis
 )
 result = semantic_workflow.run()
-<<<<<<< HEAD
-=======
 # result.metadata contains: total_time, num_duplicates, kmeans_time, pairwise_time
->>>>>>> upstream/26.04-staging
 
 # Step 4: Analyze similarity distribution to choose eps
 # Step 5: Identify duplicates with chosen eps
