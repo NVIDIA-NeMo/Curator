@@ -10,7 +10,7 @@ modality: "text-only"
 
 # Synthetic Data Generation
 
-NeMo Curator provides synthetic data generation (SDG) capabilities for creating and augmenting training data using Large Language Models (LLMs). These pipelines integrate with OpenAI-compatible APIs, enabling you to use NVIDIA NIM endpoints, local vLLM servers, or other inference providers.
+NeMo Curator provides synthetic data generation (SDG) capabilities for creating and augmenting training data using Large Language Models (LLMs). These pipelines integrate with OpenAI-compatible APIs, enabling you to use NVIDIA NIM endpoints, NeMo Curator's built-in [Inference Server](/curate-text/synthetic/inference-server) (Ray Serve + vLLM), or other inference providers.
 
 ## Use Cases
 
@@ -48,7 +48,7 @@ flowchart LR
     C --> D["Postprocessing<br/>(Cleanup, Filtering)"]
     D --> E["Output Dataset<br/>(Parquet/JSONL)"]
     
-    F["LLM Client<br/>(NVIDIA API,<br/>vLLM, TGI)"] -.->|"API Calls"| C
+    F["LLM Client<br/>(NVIDIA API,<br/>InferenceServer,<br/>vLLM, TGI)"] -.->|"API Calls"| C
     
     classDef stage fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
     classDef infra fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
@@ -73,9 +73,17 @@ Before using synthetic data generation, ensure you have:
    uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[text_cuda12]
    ```
 
-   <Note>
-   Nemotron-CC pipelines use the `transformers` library for tokenization, which is included in NeMo Curator's core dependencies.
-   </Note>
+3. **Local inference** (optional) — to serve models alongside your pipeline:
+
+   ```bash
+   uv pip install nemo-curator[inference_server]
+   ```
+
+   Refer to the [Inference Server](/curate-text/synthetic/inference-server) guide for setup details.
+
+<Note>
+Nemotron-CC pipelines use the `transformers` library for tokenization, which is included in NeMo Curator core dependencies.
+</Note>
 
 ## Available SDG Stages
 
@@ -98,6 +106,12 @@ Before using synthetic data generation, ensure you have:
 Configure OpenAI-compatible clients for NVIDIA APIs and custom endpoints
 configuration
 performance
+</Card>
+
+<Card title="Inference Server" href="/curate-text/synthetic/inference-server">
+Serve LLMs locally via Ray Serve and vLLM alongside curation pipelines
+ray-serve
+local-inference
 </Card>
 
 <Card title="Multilingual Q&A Generation" href="/curate-text/synthetic/multilingual-qa">
