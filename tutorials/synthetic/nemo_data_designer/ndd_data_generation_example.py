@@ -349,9 +349,6 @@ def main() -> None:  # noqa: PLR0915
     )
 
     pipeline.add_stage(DataDesignerStage(config_builder=config_builder, model_providers=model_providers))
-    # ndd_stage = DataDesignerStage(config_builder=config_builder, model_providers=model_providers)
-    # ndd_stage.xenna_stage_spec = lambda: {"num_workers": 2}
-    # pipeline.add_stage(ndd_stage)
 
     pipeline.add_stage(
         JsonlWriter(
