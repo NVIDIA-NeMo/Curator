@@ -32,13 +32,13 @@ import argparse
 import importlib.util
 import os
 import time
+import traceback
 from pathlib import Path
 
 import ray
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
-from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks.utils import TaskPerfUtils
@@ -68,7 +68,9 @@ def compute_output_metrics(output_path: str) -> dict:
         total_bytes = sum(os.path.getsize(f) for f in output_files)
         metrics["output_total_mb"] = total_bytes / (1024 * 1024)
     except Exception as e:
+        error_traceback = traceback.format_exc()
         logger.warning(f"Could not compute output metrics: {e}")
+        logger.debug(f"Full traceback:\n{error_traceback}")
     return metrics
 
 
@@ -79,17 +81,11 @@ def run_benchmark(args: argparse.Namespace) -> dict:
     output_path = Path(args.output_path).absolute()
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # We need ray.put() below to broadcast query URLs, which triggers an
-    # implicit ray.init() if Ray isn't initialized yet.  That bare init
-    # would lack the runtime_env that XennaExecutor normally sets (see
-    # XennaExecutor.run()), causing Xenna's GPU probe to fail.  Mirror
-    # what XennaExecutor does: explicit ray.init with the env var BEFORE
-    # any other Ray calls.
+    # Ray must be initialized before ray.put(); replicate the executor's
+    # runtime_env so GPU visibility is configured for Xenna workers.
     os.environ.setdefault("RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES", "1")
-    ray_client = RayClient()
-    ray_client.start()
-
     ray.init(
+        address="auto",
         ignore_reinit_error=True,
         runtime_env={
             "env_vars": {
@@ -98,57 +94,55 @@ def run_benchmark(args: argparse.Namespace) -> dict:
         },
     )
 
+    # Step 1: Collect query URLs
+    logger.info(f"Collecting unique URLs from {query_path}...")
+    url_start = time.perf_counter()
+    query_urls = collect_unique_urls(str(query_path), args.url_col)
+    url_elapsed = time.perf_counter() - url_start
+    num_query_urls = len(query_urls)
+    logger.info(f"Collected {num_query_urls:,} unique URLs in {url_elapsed:.2f}s")
+
+    # Step 2: Broadcast URLs via Ray object store
+    broadcast_start = time.perf_counter()
+    query_urls_ref = ray.put(query_urls)
+    broadcast_elapsed = time.perf_counter() - broadcast_start
+    logger.info(f"Broadcast URLs to Ray object store in {broadcast_elapsed:.2f}s")
+
+    # Step 3: Collect CC Index files
+    cc_files = get_cc_index_files(str(cc_index_path), args.crawls)
+    num_cc_files = len(cc_files)
+    cc_total_bytes = sum(os.path.getsize(f) for f in cc_files)
+    logger.info(f"CC Index: {num_cc_files} files, {cc_total_bytes / (1024**3):.2f} GB")
+
+    # Step 4: Build pipeline
+    pipeline = Pipeline(
+        name="cc_index_lookup_benchmark",
+        stages=[
+            FilePartitioningStage(file_paths=cc_files, blocksize=args.blocksize),
+            CCIndexLookupStage(
+                query_urls_ref=query_urls_ref,
+                output_path=str(output_path),
+                url_col=args.url_col,
+            ),
+        ],
+    )
+
+    logger.info(f"Pipeline description:\n{pipeline.describe()}")
+    logger.info("Starting CC Index lookup pipeline...")
+
+    # Step 5: Run pipeline
+    executor = setup_executor(args.executor)
+    pipeline_start = time.perf_counter()
     try:
-        # Step 1: Collect query URLs
-        logger.info(f"Collecting unique URLs from {query_path}...")
-        url_start = time.perf_counter()
-        query_urls = collect_unique_urls(str(query_path), args.url_col)
-        url_elapsed = time.perf_counter() - url_start
-        num_query_urls = len(query_urls)
-        logger.info(f"Collected {num_query_urls:,} unique URLs in {url_elapsed:.2f}s")
-
-        # Step 2: Broadcast URLs via Ray object store
-        broadcast_start = time.perf_counter()
-        query_urls_ref = ray.put(query_urls)
-        broadcast_elapsed = time.perf_counter() - broadcast_start
-        logger.info(f"Broadcast URLs to Ray object store in {broadcast_elapsed:.2f}s")
-
-        # Step 3: Collect CC Index files
-        cc_files = get_cc_index_files(str(cc_index_path), args.crawls)
-        num_cc_files = len(cc_files)
-        cc_total_bytes = sum(os.path.getsize(f) for f in cc_files)
-        logger.info(f"CC Index: {num_cc_files} files, {cc_total_bytes / (1024**3):.2f} GB")
-
-        # Step 4: Build pipeline
-        pipeline = Pipeline(
-            name="cc_index_lookup_benchmark",
-            stages=[
-                FilePartitioningStage(file_paths=cc_files, blocksize=args.blocksize),
-                CCIndexLookupStage(
-                    query_urls_ref=query_urls_ref,
-                    output_path=str(output_path),
-                    url_col=args.url_col,
-                ),
-            ],
-        )
-
-        logger.info(f"Pipeline description:\n{pipeline.describe()}")
-        logger.info("Starting CC Index lookup pipeline...")
-
-        # Step 5: Run pipeline
-        executor = setup_executor(args.executor)
-        pipeline_start = time.perf_counter()
-        try:
-            results = pipeline.run(executor)
-            success = True
-        except Exception:
-            logger.exception("CC Index lookup pipeline failed")
-            results = []
-            success = False
-        pipeline_elapsed = time.perf_counter() - pipeline_start
-
-    finally:
-        ray_client.stop()
+        results = pipeline.run(executor)
+        success = True
+    except Exception as e:
+        error_traceback = traceback.format_exc()
+        logger.error(f"CC Index lookup pipeline failed: {e}")
+        logger.debug(f"Full traceback:\n{error_traceback}")
+        results = []
+        success = False
+    pipeline_elapsed = time.perf_counter() - pipeline_start
 
     return _build_results(
         results=results,

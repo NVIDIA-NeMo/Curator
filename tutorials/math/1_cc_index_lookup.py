@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import cudf
+import pandas as pd
 import ray
 from loguru import logger
 
@@ -136,8 +137,6 @@ def collect_unique_urls(input_path: str, url_col: str = "url") -> cudf.DataFrame
     Uses pandas for reading and dedup, then converts the small deduplicated result to cuDF
     for the downstream GPU merge.
     """
-    import pandas as pd
-
     logger.info(f"Collecting unique URLs from: {input_path}")
 
     input_files = get_all_file_paths_under(input_path, recurse_subdirectories=True, keep_extensions=[".parquet"])

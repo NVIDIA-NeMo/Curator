@@ -232,7 +232,7 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
                 if self._s3_client is None:
                     try:
                         import boto3
-                    except ImportError as exc:
+                    except ModuleNotFoundError as exc:
                         msg = (
                             "CommonCrawlWARCReader configured with use_s3=True but boto3 is not installed. "
                             "Install boto3 or set use_s3=False (or unset CC_USE_S3)."
@@ -296,6 +296,8 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
                 logger.debug(f"No response record found in WARC for {filename}, returning raw content")
                 return decompressed
 
+        except RuntimeError:
+            raise  # Propagate configuration errors (e.g. missing boto3)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"S3 fetch failed for {filename}: {e}")
             return None
@@ -392,7 +394,12 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
                 try:
                     i, result = future.result()
                     results[i] = result
-                except Exception as e:  # noqa: BLE001, PERF203
+                except RuntimeError:  # noqa: PERF203
+                    # Propagate configuration errors (e.g. missing boto3)
+                    for f in futures:
+                        f.cancel()
+                    raise
+                except Exception as e:  # noqa: BLE001
                     logger.warning(f"Error in thread pool: {e}")
 
         return results

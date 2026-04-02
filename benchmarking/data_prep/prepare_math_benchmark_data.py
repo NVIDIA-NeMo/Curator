@@ -59,6 +59,7 @@ from huggingface_hub import hf_hub_download, list_repo_files
 from huggingface_hub.utils import HfHubHTTPError, RepositoryNotFoundError
 from loguru import logger
 
+from benchmarking.scripts.utils import setup_executor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.common_crawl.download import CommonCrawlWARCReader
@@ -381,8 +382,6 @@ def run_enrichment(args: argparse.Namespace) -> int:
     except ValueError as e:
         logger.error(str(e))
         return 1
-
-    from utils import setup_executor
 
     logger.info("Building enrichment pipeline (ParquetReader -> CommonCrawlWARCReader -> ParquetWriter)...")
     enriched_dir = str(output_path / "enriched")

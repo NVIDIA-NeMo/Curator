@@ -126,6 +126,23 @@ class TestReadWarcRecordS3:
             Range=f"bytes=0-{len(raw_gz) - 1}",
         )
 
+    def test_batch_fetch_propagates_boto3_runtime_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """RuntimeError from missing boto3 propagates through the threadpool."""
+        monkeypatch.setitem(sys.modules, "boto3", None)
+        reader = CommonCrawlWARCReader(use_s3=True)
+        reader._s3_client = None
+
+        df = pd.DataFrame(
+            {
+                "warc_filename": ["file.warc.gz"],
+                "warc_record_offset": [0],
+                "warc_record_length": [100],
+            }
+        )
+
+        with pytest.raises(RuntimeError, match="boto3 is not installed"):
+            reader._read_warc_records_batch(df)
+
     def test_read_warc_record_s3_failure(self) -> None:
         """S3 exception returns None and does not raise."""
         reader = CommonCrawlWARCReader(use_s3=True)

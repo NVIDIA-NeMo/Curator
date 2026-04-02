@@ -40,8 +40,10 @@ Example usage:
 
 import argparse
 import time
+import traceback
 from pathlib import Path
 
+import pandas as pd
 import ray.data
 from loguru import logger
 from utils import load_dataset_files, setup_executor, write_benchmark_results
@@ -64,8 +66,6 @@ MIN_HIGH_QUALITY_SCORE = 3
 
 
 def _fill_null_text(text: str | None) -> str:
-    import pandas as pd
-
     if pd.isna(text) or text is None:
         return ""
     return str(text)
@@ -175,7 +175,9 @@ def compute_extraction_metrics(output_dir: str) -> dict:
         metrics["html_empty_text_count"] = totals["html_empty"]
 
     except Exception as e:
+        error_traceback = traceback.format_exc()
         logger.warning(f"Could not compute extraction metrics: {e}")
+        logger.debug(f"Full traceback:\n{error_traceback}")
 
     return metrics
 
@@ -209,7 +211,9 @@ def compute_classifier_metrics(output_dir: str) -> dict:
             metrics["docs_score_ge_3"] = sum(score_counts[MIN_HIGH_QUALITY_SCORE:])
 
     except Exception as e:
+        error_traceback = traceback.format_exc()
         logger.warning(f"Could not compute classifier metrics: {e}")
+        logger.debug(f"Full traceback:\n{error_traceback}")
 
     return metrics
 
@@ -244,7 +248,9 @@ def compute_llm_cleanup_metrics(output_dir: str) -> dict:
         metrics["no_useful_content_count"] = totals["no_content"]
 
     except Exception as e:
+        error_traceback = traceback.format_exc()
         logger.warning(f"Could not compute LLM cleanup metrics: {e}")
+        logger.debug(f"Full traceback:\n{error_traceback}")
 
     return metrics
 
@@ -283,7 +289,9 @@ def run_benchmark(args: argparse.Namespace) -> dict:
         results = pipeline.run(executor, initial_tasks=None)
         success = True
     except Exception as e:
+        error_traceback = traceback.format_exc()
         logger.error(f"Pipeline failed: {e}")
+        logger.debug(f"Full traceback:\n{error_traceback}")
         results = []
         success = False
 
