@@ -65,7 +65,10 @@ class InterleavedQRCodeFilterStage(BaseInterleavedFilterStage):
             if image_bytes is None:
                 keep_mask.loc[idx] = False
                 continue
-            image = image_bytes_to_array(image_bytes)
-            qr_ratio = _qr_code_ratio(image)
-            keep_mask.loc[idx] = qr_ratio < self.score_threshold
+            try:
+                image = image_bytes_to_array(image_bytes)
+                qr_ratio = _qr_code_ratio(image)
+                keep_mask.loc[idx] = qr_ratio < self.score_threshold
+            except OSError:
+                keep_mask.loc[idx] = False
         return keep_mask

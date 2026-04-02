@@ -50,7 +50,10 @@ class InterleavedBlurFilterStage(BaseInterleavedFilterStage):
             if image_bytes is None:
                 keep_mask.loc[idx] = False
                 continue
-            image = image_bytes_to_array(image_bytes)
-            sharpness = _sharpness_score(image)
-            keep_mask.loc[idx] = sharpness >= self.score_threshold
+            try:
+                image = image_bytes_to_array(image_bytes)
+                sharpness = _sharpness_score(image)
+                keep_mask.loc[idx] = sharpness >= self.score_threshold
+            except OSError:
+                keep_mask.loc[idx] = False
         return keep_mask
