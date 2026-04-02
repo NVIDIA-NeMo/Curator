@@ -152,7 +152,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         self._check_gpu_availability(self._resources.gpus)
         try:
             with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="Sampling rate is a multiply of 16000")
+                warnings.filterwarnings("ignore", message="Sampling rate is a multiple of 16000")
                 model = load_silero_vad()
 
             use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
@@ -256,8 +256,6 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         When ``nested=True``, returns a single ``AudioTask`` with all segment
         dicts stored in ``task.data["segments"]`` (no fan-out).
         """
-        self._initialize_model()
-
         if self._vad_model is None:
             msg = "VAD model failed to initialize. Cannot process audio."
             raise RuntimeError(msg)
