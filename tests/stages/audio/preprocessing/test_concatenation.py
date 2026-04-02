@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
 import torch
 
 from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage
@@ -99,8 +100,6 @@ class TestSegmentConcatenationStage:
         assert result == []
 
     def test_missing_segments_key_raises(self) -> None:
-        import pytest
-
         task = AudioTask(data={"other_key": "value"}, task_id="empty", dataset_name="ds")
         stage = SegmentConcatenationStage()
         with pytest.raises(ValueError):  # noqa: PT011
