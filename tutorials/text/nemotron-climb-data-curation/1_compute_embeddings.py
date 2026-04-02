@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import argparse
-import json
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
