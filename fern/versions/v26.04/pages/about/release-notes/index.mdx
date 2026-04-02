@@ -21,6 +21,18 @@ The default embedding backend for `TextSemanticDeduplicationWorkflow` switched f
 - **New parameters**: `embedding_pretokenize`, `embedding_vllm_init_kwargs`, `model_cache_dir` replace the previous SentenceTransformers-specific parameters
 - **Bug fix**: Resolved CUDA fork error when running vLLM stages with `RayDataExecutor` by setting `VLLM_WORKER_MULTIPROC_METHOD=spawn` in Ray remote tasks
 
+### Multi-User Metrics Isolation
+
+Improved Prometheus and Grafana monitoring support for shared clusters:
+
+- **Per-user metrics directories**: The default metrics path now includes the user ID (`/tmp/nemo_curator_metrics_{uid}`), which prevents conflicts when multiple users share a Ray cluster.
+- **`metrics_dir` parameter**: New parameter on `RayClient` and `start_prometheus_grafana.py` for explicit control of where metrics data, PID files, and configuration are stored.
+- **PID-file-based process tracking**: NeMo Curator tracks Prometheus and Grafana instances through PID files instead of process-name scanning, which enables multiple isolated monitoring instances per node.
+- **Automatic Ray dashboard generation**: The Grafana setup now auto-generates Ray default, data, serve, and serve-deployment dashboards from the built-in Ray dashboard factory.
+- **Graceful cleanup on shutdown**: `RayClient.stop()` now removes Ray service discovery entries from the Prometheus configuration automatically.
+
+Learn more in the [Monitoring](/reference/infra/monitoring) documentation.
+
 ### Cosmos-Xenna 0.2.0 (PR #1571)
 
 Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and improved GPU management:
