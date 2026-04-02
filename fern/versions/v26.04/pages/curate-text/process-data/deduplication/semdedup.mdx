@@ -66,7 +66,7 @@ workflow = TextSemanticDeduplicationWorkflow(
 
 executor = RayDataExecutor()
 result = workflow.run(executor)
-# result.metadata contains: total_time, num_duplicates, num_duplicates_removed
+# result.metadata contains: total_time, num_duplicates, num_duplicates_removed, embedding_time, identification_time, removal_time, final_output_path
 ```
 
 ## Configuration
@@ -114,6 +114,10 @@ semantic_workflow = SemanticDeduplicationWorkflow(
     eps=None,  # Skip duplicate identification for analysis
 )
 result = semantic_workflow.run()
+<<<<<<< HEAD
+=======
+# result.metadata contains: total_time, num_duplicates, kmeans_time, pairwise_time
+>>>>>>> upstream/26.04-staging
 
 # Step 4: Analyze similarity distribution to choose eps
 # Step 5: Identify duplicates with chosen eps
@@ -351,6 +355,7 @@ try:
         # ... other parameters
     )
     result = workflow.run()
+    # result.metadata contains: total_time, num_duplicates, num_duplicates_removed, embedding_time, identification_time, removal_time, final_output_path
 finally:
     client.stop()
 ```

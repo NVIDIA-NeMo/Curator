@@ -45,3 +45,5 @@ jobs:
       - name: Generate library reference MDX (product-docs)
         working-directory: ./fern
         run: fern docs md generate
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
