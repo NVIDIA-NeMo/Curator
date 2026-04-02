@@ -33,6 +33,21 @@ navigation:
               - page: Deduplication
                 path: ./v26.04/pages/about/concepts/deduplication.mdx
                 slug: deduplication
+              - section: Scaling & Performance
+                slug: scaling
+                contents:
+                  - page: Resource Allocation
+                    path: ./v26.04/pages/about/concepts/resource-allocation.mdx
+                    slug: resource-allocation
+                  - page: Streaming
+                    path: ./v26.04/pages/about/concepts/streaming.mdx
+                    slug: streaming
+                  - page: Auto-Balancing
+                    path: ./v26.04/pages/about/concepts/auto-balancing.mdx
+                    slug: auto-balancing
+                  - page: Throughput
+                    path: ./v26.04/pages/about/concepts/throughput.mdx
+                    slug: throughput
               - section: Text Concepts
                 slug: text
                 contents:
@@ -111,24 +126,6 @@ navigation:
                   - page: Text Integration
                     path: ./v26.04/pages/about/concepts/audio/text-integration.mdx
                     slug: text-integration
-          - section: Deep Dives
-            slug: deep-dives
-            contents:
-              - page: Overview
-                path: ./v26.04/pages/about/deep-dives/index.mdx
-                slug: ""
-              - page: Resource Allocation
-                path: ./v26.04/pages/about/deep-dives/resource-allocation.mdx
-                slug: resource-allocation
-              - page: Streaming Architecture
-                path: ./v26.04/pages/about/deep-dives/streaming.mdx
-                slug: streaming
-              - page: Auto-Balancing Stages
-                path: ./v26.04/pages/about/deep-dives/auto-balancing.mdx
-                slug: auto-balancing
-              - page: Maximizing Throughput
-                path: ./v26.04/pages/about/deep-dives/throughput.mdx
-                slug: throughput
           - section: Release Notes
             slug: release-notes
             contents:

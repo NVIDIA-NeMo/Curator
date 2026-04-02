@@ -124,7 +124,7 @@ At scale, data curation is a **throughput maximization problem**. A typical pipe
 | **Sequential** | Process each sample through all stages, one at a time | ~13,000 seconds |
 | **NeMo Curator** | Stream batches, auto-scale replicas per stage, overlap CPU/GPU work | ~1,000 seconds |
 
-NeMo Curator achieves this by streaming data through the pipeline so all stages run concurrently, auto-balancing replicas to match each stage's throughput (2× language ID, 1× tokenizer, 10× answer model), and keeping GPU workers busy over 99% of the time after an initial warm-up period. See the [deep-dive docs](https://docs.nvidia.com/nemo/curator/latest/about/deep-dives) for details.
+NeMo Curator achieves this by streaming data through the pipeline so all stages run concurrently, auto-balancing replicas to match each stage's throughput (2× language ID, 1× tokenizer, 10× answer model), and keeping GPU workers busy over 99% of the time after an initial warm-up period. See the [scaling concepts](https://docs.nvidia.com/nemo/curator/latest/about/concepts/scaling) for details.
 
 ---
 
