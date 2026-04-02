@@ -38,6 +38,11 @@ import torch
 from loguru import logger
 from pydub import AudioSegment
 
+try:
+    from nemo.collections.asr.models import SortformerEncLabelModel
+except ImportError:
+    SortformerEncLabelModel = None
+
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.common import resolve_waveform_from_item
@@ -102,8 +107,6 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def setup_on_node(self, _node_info: Any = None, _worker_metadata: Any = None) -> None:  # noqa: ANN401
         try:
-            from nemo.collections.asr.models import SortformerEncLabelModel
-
             SortformerEncLabelModel.from_pretrained(self.model_path)
         except Exception:  # noqa: BLE001
             logger.warning("Model pre-download in setup_on_node failed; will retry in setup().")

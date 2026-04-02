@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pickle
 from unittest.mock import MagicMock, patch
 
 import torch
@@ -135,8 +136,6 @@ class TestSpeakerSeparationStage:
         assert result == "raised"
 
     def test_pickling(self) -> None:
-        import pickle
-
         stage = SpeakerSeparationStage(min_duration=1.0, exclude_overlaps=False)
         pickled = pickle.dumps(stage)
         restored = pickle.loads(pickled)  # noqa: S301

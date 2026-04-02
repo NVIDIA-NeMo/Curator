@@ -66,6 +66,8 @@ class SpeakerSeparator:
             elif isinstance(self.config, dict):
                 val = self.config.get("speaker_model_path")
             self.model_name = val or "nvidia/diar_sortformer_4spk-v1"
+            if not val:
+                logger.info("No model path specified, defaulting to nvidia/diar_sortformer_4spk-v1")
 
         # Check for GPU usage
         self.use_gpu = False
@@ -82,8 +84,8 @@ class SpeakerSeparator:
         self._load_model()
 
     def _load_model(self) -> None:
-        """Load the diarization model from HuggingFace Hub."""
-        logger.info(f"Loading speaker separation model from HuggingFace: {self.model_name}")
+        """Load the diarization model from Hugging Face Hub."""
+        logger.info(f"Loading speaker separation model from Hugging Face: {self.model_name}")
         try:
             self.diar_model = SortformerEncLabelModel.from_pretrained(
                 self.model_name,
