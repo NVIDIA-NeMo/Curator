@@ -1,0 +1,83 @@
+---
+description: "How to scale NeMo Curator from a single GPU to multi-node clusters for maximum throughput"
+categories: ["architecture"]
+tags: ["deep-dive", "throughput", "scaling", "multi-node", "performance"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "universal"
+---
+
+# Maximizing Throughput
+
+NeMo Curator is designed to scale from a single GPU to multi-node clusters with near-linear performance gains. This guide covers the key levers for maximizing throughput.
+
+## Scaling Results
+
+Benchmarks on an 8 TB RedPajama v2 dataset (1.78 trillion tokens) demonstrate near-linear scaling:
+
+| Configuration | Fuzzy Dedup Time | Speedup |
+|---------------|------------------|---------|
+| 1× H100 80 GB node | 2.05 hours | 1× |
+| 2× H100 80 GB nodes | 1.01 hours | 2.0× |
+| 4× H100 80 GB nodes | 0.50 hours | 4.1× |
+
+This near-linear scaling holds because NeMo Curator partitions work across nodes with minimal cross-node communication for most pipeline stages.
+
+## Key Levers
+
+### 1. Add More Nodes
+
+The most straightforward way to increase throughput. When you add nodes to your Ray cluster, the executor automatically distributes pipeline stages across the expanded cluster.
+
+```bash
+# Start head node
+ray start --head --port=6379
+
+# Add worker nodes (run on each additional machine)
+ray start --address=<head-node-ip>:6379
+```
+
+### 2. Tune Batch Size
+
+Larger batches amortize fixed costs (model loading, scheduling overhead) but use more memory. Find the largest batch size that fits in your hardware:
+
+```python
+reader = ImageReaderStage(
+    batch_size=512,  # Increase if memory allows
+)
+```
+
+### 3. Match Stage Resources to Hardware
+
+Ensure GPU-heavy stages request enough GPU resources, and CPU-heavy stages don't unnecessarily block GPU workers:
+
+```python
+# GPU-heavy: give it full GPU access
+embedding_stage = ImageEmbeddingStage(
+    num_gpus_per_worker=1,
+)
+
+# CPU-heavy: no GPU needed
+filter_stage = ScoreFilter(
+    filter_obj=WordCountFilter(min_words=80),
+)
+```
+
+### 4. Use Pipeline Parallelism
+
+The streaming architecture means multiple stages run concurrently on different batches. Ensure your pipeline has enough stages to keep all hardware busy — a two-stage pipeline (read → write) won't saturate a large cluster.
+
+### 5. Profile and Iterate
+
+Use Ray Dashboard and stage performance stats to identify bottlenecks. Common issues:
+
+- **I/O bound reader**: Increase reader parallelism or use faster storage (NVMe, parallel file system).
+- **Single slow stage**: Check if the stage can use more GPU memory or workers.
+- **Network bottleneck**: For multi-node setups, ensure nodes are connected with high-bandwidth networking (InfiniBand or high-speed Ethernet).
+
+## Best Practices
+
+- **Start small, scale up.** Validate your pipeline on a subset of data before scaling to the full dataset.
+- **Monitor GPU utilization.** Low GPU utilization often indicates an upstream bottleneck (I/O, CPU processing) rather than insufficient GPU resources.
+- **Use the NeMo Curator container.** The [NGC container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) includes optimized dependencies and drivers for maximum performance.

@@ -1,0 +1,72 @@
+---
+description: "How NeMo Curator allocates CPUs, GPUs, and memory across pipeline stages"
+categories: ["architecture"]
+tags: ["deep-dive", "resources", "gpu", "cpu", "allocation"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "universal"
+---
+
+# Resource Allocation
+
+NeMo Curator gives you fine-grained control over how hardware resources are distributed across pipeline stages. Each stage declares its own resource requirements, and the executor schedules work accordingly.
+
+## How It Works
+
+Every `ProcessingStage` can specify a `Resources` object that declares its CPU, GPU, and memory needs:
+
+```python
+from nemo_curator.core.resources import Resources
+
+resources = Resources(
+    cpus=4,
+    gpus=1,
+    gpu_memory_gb=16,
+)
+```
+
+When a pipeline runs, the executor reads each stage's resource declaration and schedules tasks to satisfy those constraints. Stages that need GPUs are placed on GPU-equipped nodes; CPU-only stages can run on any available worker.
+
+## Key Concepts
+
+### Fractional GPU Allocation
+
+Not every stage needs an entire GPU. NeMo Curator supports fractional GPU allocation so multiple lightweight stages can share a single GPU:
+
+```python
+# Two stages sharing one GPU
+embedding_stage = ImageEmbeddingStage(
+    num_gpus_per_worker=0.25,  # 4 workers share one GPU
+)
+```
+
+This is useful for inference stages where the model fits in a fraction of GPU memory, allowing you to increase parallelism without requiring more hardware.
+
+### CPU-Only Stages
+
+Stages that perform I/O, text parsing, or rule-based filtering typically don't need GPU access. Declaring them as CPU-only frees GPU resources for stages that need them:
+
+```python
+# CPU-only filtering — no GPU required
+filter_stage = ScoreFilter(
+    filter_obj=WordCountFilter(min_words=80),
+)
+```
+
+### Memory Budgets
+
+For stages that load large models or accumulate state (such as deduplication hash tables), you can set memory requirements to prevent out-of-memory errors:
+
+```python
+resources = Resources(
+    cpus=2,
+    gpu_memory_gb=40,  # Reserve 40 GB of GPU memory
+)
+```
+
+## Best Practices
+
+- **Start with defaults.** Most stages have sensible default resource declarations. Override only when you observe resource contention or underutilization.
+- **Profile before tuning.** Use Ray Dashboard or stage performance stats to identify bottlenecks before adjusting allocations.
+- **Match hardware to workload.** If your pipeline is mostly CPU-bound (text filtering, deduplication), you may not need GPU nodes at all.

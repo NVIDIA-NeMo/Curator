@@ -217,6 +217,10 @@ NeMo Curator provides several installation extras to install only the components
 **Development Dependencies**: For development tools (pre-commit, ruff, pytest), use `uv sync --group dev --group linting --group test` instead of pip extras. Development dependencies are managed as dependency groups, not optional dependencies.
 ```
 
+```{warning}
+**pip is not supported for installing all extras together.** Some optional dependencies have conflicting transitive version requirements (for example, `nemo-toolkit[asr]` and `vllm` require incompatible versions of `transformers`). NeMo Curator uses `uv dependency overrides <https://docs.astral.sh/uv/concepts/dependencies/#dependency-overrides>`_ to resolve these conflicts, which pip does not support. If you must use pip, install only one modality extra at a time (for example, ``pip install nemo-curator[text_cpu]``). For multi-modality installations, use ``uv`` or the NeMo Curator container.
+```
+
 ---
 
 ## Installation Verification

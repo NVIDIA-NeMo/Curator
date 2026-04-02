@@ -111,6 +111,24 @@ navigation:
                   - page: Text Integration
                     path: ./v26.04/pages/about/concepts/audio/text-integration.mdx
                     slug: text-integration
+          - section: Deep Dives
+            slug: deep-dives
+            contents:
+              - page: Overview
+                path: ./v26.04/pages/about/deep-dives/index.mdx
+                slug: ""
+              - page: Resource Allocation
+                path: ./v26.04/pages/about/deep-dives/resource-allocation.mdx
+                slug: resource-allocation
+              - page: Streaming Architecture
+                path: ./v26.04/pages/about/deep-dives/streaming.mdx
+                slug: streaming
+              - page: Auto-Balancing Stages
+                path: ./v26.04/pages/about/deep-dives/auto-balancing.mdx
+                slug: auto-balancing
+              - page: Maximizing Throughput
+                path: ./v26.04/pages/about/deep-dives/throughput.mdx
+                slug: throughput
           - section: Release Notes
             slug: release-notes
             contents:

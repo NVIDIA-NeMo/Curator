@@ -1,0 +1,53 @@
+---
+description: "How NeMo Curator's streaming architecture processes data in constant memory"
+categories: ["architecture"]
+tags: ["deep-dive", "streaming", "batching", "memory", "data-flow"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "universal"
+---
+
+# Streaming Architecture
+
+NeMo Curator processes data as a stream of batches rather than loading entire datasets into memory. This design enables curation of datasets much larger than available RAM or GPU memory.
+
+## Streaming vs. Batch-All-at-Once
+
+| Aspect | Batch-All-at-Once | Streaming |
+|--------|-------------------|-----------|
+| **Memory usage** | Proportional to dataset size | Constant (proportional to batch size) |
+| **Time to first output** | After entire dataset is processed | After first batch completes |
+| **Dataset size limit** | Bounded by available memory | Bounded only by storage |
+| **Pipeline parallelism** | Stages run sequentially | Stages run concurrently on different batches |
+
+## How It Works
+
+When a pipeline runs, the reader stage emits data in discrete batches (e.g., `DocumentBatch` for text, `ImageBatch` for images). Each batch flows through the pipeline independently:
+
+1. **Reader** emits batch N
+2. While **Stage 1** processes batch N, the **Reader** emits batch N+1
+3. While **Stage 2** processes batch N, **Stage 1** processes batch N+1, and the **Reader** emits batch N+2
+
+This overlap means that all stages can be active simultaneously on different batches, maximizing hardware utilization.
+
+## Configuring Batch Size
+
+Batch size controls the trade-off between memory usage and throughput:
+
+```python
+reader = ImageReaderStage(
+    batch_size=256,  # Number of items per batch
+)
+```
+
+- **Smaller batches**: Lower memory usage, but more scheduling overhead.
+- **Larger batches**: Higher throughput from amortized overhead, but more memory per batch.
+
+## When Streaming Matters
+
+Streaming is most beneficial when:
+
+- **Datasets exceed memory.** A 10 TB Common Crawl snapshot cannot fit in RAM, but it can be streamed through a pipeline in manageable chunks.
+- **You need early results.** Streaming lets you inspect output from the first batch while the rest of the dataset is still being processed.
+- **Pipeline stages have different speeds.** Faster stages don't have to wait for slower ones to finish the entire dataset — they stay busy processing the next batch.

@@ -1,0 +1,48 @@
+---
+description: "How NeMo Curator automatically balances resources across pipeline stages"
+categories: ["architecture"]
+tags: ["deep-dive", "auto-balancing", "scheduling", "performance"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "universal"
+---
+
+# Auto-Balancing Stages
+
+NeMo Curator's executor automatically balances resources across pipeline stages to prevent bottlenecks and maximize throughput. This means you can focus on defining your curation logic rather than manually tuning parallelism.
+
+## The Problem: Unbalanced Pipelines
+
+In a typical curation pipeline, stages have different processing speeds. For example:
+
+- A **reader stage** may emit batches faster than a downstream **embedding stage** can consume them.
+- A **GPU inference stage** may be much faster than a **CPU filtering stage**.
+
+Without balancing, fast stages sit idle while slow stages accumulate a backlog, wasting hardware resources.
+
+## How Auto-Balancing Works
+
+The Xenna executor monitors the throughput and backpressure of each stage at runtime. It uses this information to:
+
+1. **Scale workers dynamically.** If a stage is falling behind, the executor allocates additional workers to that stage (within the available resource budget).
+2. **Apply backpressure.** If a downstream stage can't keep up, upstream stages slow their output rate rather than buffering unbounded data in memory.
+3. **Rebalance on topology changes.** When nodes join or leave the cluster, the executor redistributes work across the new topology.
+
+## What This Means for You
+
+- **No manual parallelism tuning.** You don't need to calculate the optimal number of workers per stage — the executor adapts at runtime.
+- **Predictable memory usage.** Backpressure prevents unbounded buffering, so memory usage stays stable even with unbalanced stages.
+- **Efficient hardware utilization.** Resources shift toward the current bottleneck instead of being statically allocated.
+
+## Monitoring Stage Balance
+
+Use stage performance stats to see how the executor is balancing your pipeline:
+
+```python
+results = pipeline.run(executor)
+for stage_name, stats in results.stage_stats.items():
+    print(f"{stage_name}: {stats.throughput:.1f} items/sec, {stats.num_workers} workers")
+```
+
+If you notice a persistent bottleneck that auto-balancing can't resolve (for example, a stage that needs more GPU memory than is available), consider splitting the pipeline or scaling your cluster.

@@ -1,0 +1,37 @@
+---
+description: "Deep-dives into NeMo Curator's architecture and design decisions for scaling data curation pipelines"
+categories: ["architecture"]
+tags: ["deep-dive", "architecture", "performance", "scaling"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "universal"
+---
+
+# Deep Dives
+
+Explore the design decisions and technical capabilities that make NeMo Curator scale from a single machine to multi-node GPU clusters.
+
+<Cards>
+
+<Card title="Resource Allocation" href="/about/deep-dives/resource-allocation">
+
+Learn how NeMo Curator allocates CPUs, GPUs, and memory across pipeline stages for optimal hardware utilization.
+</Card>
+
+<Card title="Streaming Architecture" href="/about/deep-dives/streaming">
+
+Understand how streaming execution processes data in batches for constant memory usage, compared to batch-all-at-once approaches.
+</Card>
+
+<Card title="Auto-Balancing Stages" href="/about/deep-dives/auto-balancing">
+
+Discover how the executor automatically balances resources across pipeline stages to eliminate bottlenecks.
+</Card>
+
+<Card title="Maximizing Throughput" href="/about/deep-dives/throughput">
+
+Scale up from a single GPU to multi-node clusters with near-linear scaling and learn best practices for throughput optimization.
+</Card>
+
+</Cards>
