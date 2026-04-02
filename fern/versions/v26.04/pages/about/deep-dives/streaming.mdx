@@ -8,28 +8,43 @@ content_type: "concept"
 modality: "universal"
 ---
 
-# Streaming Architecture
+# Streaming vs. Batch Processing
 
-NeMo Curator processes data as a stream of batches rather than loading entire datasets into memory. This design enables curation of datasets much larger than available RAM or GPU memory.
+Different inference stages have different compute requirements. NeMo Curator uses Ray streaming to increase GPU utilization and processing speed compared to traditional batch-all-at-once approaches.
 
-## Streaming vs. Batch-All-at-Once
+## Batch Mode vs. Streaming Mode
 
-| Aspect | Batch-All-at-Once | Streaming |
-|--------|-------------------|-----------|
-| **Memory usage** | Proportional to dataset size | Constant (proportional to batch size) |
-| **Time to first output** | After entire dataset is processed | After first batch completes |
-| **Dataset size limit** | Bounded by available memory | Bounded only by storage |
-| **Pipeline parallelism** | Stages run sequentially | Stages run concurrently on different batches |
+### Batch Mode
 
-## How It Works
+In batch mode, each stage processes the **entire dataset** before the next stage begins. Stages with different compute requirements (CPU-only tokenization, single-GPU classifiers, multi-GPU encoders) all run sequentially:
 
-When a pipeline runs, the reader stage emits data in discrete batches (e.g., `DocumentBatch` for text, `ImageBatch` for images). Each batch flows through the pipeline independently:
+| Aspect | Batch Mode |
+|--------|-----------|
+| **Execution** | One stage at a time across the full dataset |
+| **Memory usage** | Proportional to dataset size |
+| **GPU utilization** | Low — GPUs idle while CPU stages run, and vice versa |
+| **Time to first output** | After the entire pipeline finishes |
 
-1. **Reader** emits batch N
-2. While **Stage 1** processes batch N, the **Reader** emits batch N+1
-3. While **Stage 2** processes batch N, **Stage 1** processes batch N+1, and the **Reader** emits batch N+2
+### Streaming Mode
 
-This overlap means that all stages can be active simultaneously on different batches, maximizing hardware utilization.
+In streaming mode, data flows through the pipeline as discrete batches. Each stage processes its current batch and immediately passes it downstream, so **all stages run concurrently** on different batches:
+
+| Aspect | Streaming Mode |
+|--------|---------------|
+| **Execution** | All stages active simultaneously on different batches |
+| **Memory usage** | Constant (proportional to batch size, not dataset size) |
+| **GPU utilization** | High — stages with different hardware needs overlap |
+| **Time to first output** | After the first batch completes the pipeline |
+
+## Why Streaming Is Faster
+
+Streaming with heterogeneous compute allows NeMo Curator to overlap stages that use different resources. For example, while a GPU inference stage processes batch N, a CPU tokenization stage can process batch N+1 simultaneously — neither blocks the other.
+
+This overlap provides **up to 20% throughput improvement** in pipelines that mix tokenization with inference, because the CPU and GPU work happens in parallel rather than taking turns.
+
+## Heterogeneous Executors
+
+NeMo Curator supports streaming with multiple executors — Cosmos Xenna, Ray Data, and others — each optimized for different workload patterns. The executor handles scheduling, backpressure, and resource allocation so that streaming "just works" regardless of how many stages your pipeline has.
 
 ## Configuring Batch Size
 
@@ -44,10 +59,8 @@ reader = ImageReaderStage(
 - **Smaller batches**: Lower memory usage, but more scheduling overhead.
 - **Larger batches**: Higher throughput from amortized overhead, but more memory per batch.
 
-## When Streaming Matters
+## When Streaming Matters Most
 
-Streaming is most beneficial when:
-
-- **Datasets exceed memory.** A 10 TB Common Crawl snapshot cannot fit in RAM, but it can be streamed through a pipeline in manageable chunks.
-- **You need early results.** Streaming lets you inspect output from the first batch while the rest of the dataset is still being processed.
-- **Pipeline stages have different speeds.** Faster stages don't have to wait for slower ones to finish the entire dataset — they stay busy processing the next batch.
+- **Datasets exceed memory.** A 10 TB Common Crawl snapshot cannot fit in RAM, but it can be streamed in manageable chunks.
+- **Pipeline stages have different hardware needs.** CPU-only and GPU stages overlap instead of taking turns.
+- **You need early results.** Inspect output from the first batch while the rest of the dataset is still processing.

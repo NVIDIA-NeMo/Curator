@@ -8,26 +8,32 @@ content_type: "concept"
 modality: "universal"
 ---
 
-# Auto-Balancing Stages
+# Auto-Balancing Heterogeneous Models
 
-NeMo Curator's executor automatically balances resources across pipeline stages to prevent bottlenecks and maximize throughput. This means you can focus on defining your curation logic rather than manually tuning parallelism.
+NeMo Curator auto-balances resources at the application level across pipeline stages to maximize throughput. This means you can focus on defining your curation logic rather than manually tuning parallelism.
 
 ## The Problem: Unbalanced Pipelines
 
-In a typical curation pipeline, stages have different processing speeds. For example:
+In a typical curation pipeline, stages have very different processing speeds. Consider a video pipeline with a fast stage, a slow stage, and a medium stage — all sharing a fixed GPU budget:
 
-- A **reader stage** may emit batches faster than a downstream **embedding stage** can consume them.
-- A **GPU inference stage** may be much faster than a **CPU filtering stage**.
-
-Without balancing, fast stages sit idle while slow stages accumulate a backlog, wasting hardware resources.
+**Without auto-balancing (3 GPUs):**
+- The **fast stage** produces work faster than the slow stage can consume it.
+- Jobs back up in the queue for the **slow stage**, creating a bottleneck.
+- The **final stage** is starved for work — it sits idle waiting for output from the slow stage.
+- **Result: 1 video/s throughput** despite having 3 GPUs available.
 
 ## How Auto-Balancing Works
 
-The Xenna executor monitors the throughput and backpressure of each stage at runtime. It uses this information to:
+The executor monitors the throughput and queue depth of each stage at runtime and uses this information to:
 
-1. **Scale workers dynamically.** If a stage is falling behind, the executor allocates additional workers to that stage (within the available resource budget).
-2. **Apply backpressure.** If a downstream stage can't keep up, upstream stages slow their output rate rather than buffering unbounded data in memory.
-3. **Rebalance on topology changes.** When nodes join or leave the cluster, the executor redistributes work across the new topology.
+1. **Rebalance resources at regular intervals.** The executor monitors throughput of different stages and shifts GPU/CPU allocations toward bottleneck stages.
+2. **Apply backpressure.** When a downstream stage can't keep up, upstream stages slow their output rate rather than buffering unbounded data in memory. This reduces memory pressure and prevents spilling to disk.
+3. **Scale workers dynamically.** If a stage is falling behind, the executor allocates additional workers to that stage (within the available resource budget).
+
+**With auto-balancing (7 GPUs):**
+- The executor detects the slow stage bottleneck and allocates **4× more workers** to it.
+- Queues stay relatively clear — new jobs are picked up promptly.
+- **Result: 4 videos/s throughput** — a 4× improvement by intelligently distributing resources.
 
 ## What This Means for You
 
