@@ -68,6 +68,7 @@ RUN bash install_ffmpeg.sh && \
 FROM nemo_curator_dep AS nemo_curator
 
 ARG CURATOR_EXTRA=all
+ARG CURATOR_GROUPS="--all-groups"
 WORKDIR /opt/Curator
 
 # Selective file copying before dependency installation for better layer caching
@@ -75,8 +76,15 @@ COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
 # Install Curator
-RUN uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} --all-groups --no-cache && \
-    find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} +
+RUN uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache && \
+    find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
+    # Address GHSA-72hv-8253-57qq: jackson-core bundled in ray_dist.jar (jackson-core 2.16.1 < 2.18.6)
+    # Ray's Java support is not used; deleting the JAR removes the vulnerable jackson-core classes.
+    # TODO: Remove once Ray upgrades bundled jackson-core to >=2.18.6 (https://github.com/ray-project/ray/issues/35949)
+    find /opt/venv -name "ray_dist.jar" -delete && \
+    if find /opt/venv -name "ray_dist.jar" | grep -q .; then \
+        echo "ERROR: GHSA-72hv-8253-57qq not fixed — ray_dist.jar still present after deletion" && exit 1; \
+    fi
 
 COPY . /opt/Curator
 
