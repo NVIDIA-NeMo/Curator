@@ -321,16 +321,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     )
 
     ### Wikipedia Paraphrasing Stage
-    # Add the synthetic data generation stage
-    # wikipedia_paraphrasing_stage = WikipediaParaphrasingStage(
-    #     client=llm_client,
-    #     model_name=args.model_name,
-    #     generation_config=generation_config,
-    #     input_field="text",
-    #     output_field="rephrased",
-    # )
-    # wikipedia_paraphrasing_stage.xenna_stage_spec = lambda: {"num_workers": 3}
-    # pipeline.add_stage(wikipedia_paraphrasing_stage)
     pipeline.add_stage(
         WikipediaParaphrasingStage(
             client=llm_client,
