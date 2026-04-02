@@ -171,6 +171,7 @@ video_cuda12 = [
 # Math Curation Dependencies
 math_cpu = [
     "nemo_curator[text_cpu]",  # Math examples use text processing utilities
+    "boto3>=1.35",  # S3 range requests for Common Crawl WARC fetching
 ]
 
 math_cuda12 = [
