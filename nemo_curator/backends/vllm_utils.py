@@ -20,7 +20,7 @@ automatic port-collision retry, and resolving an HuggingFace model ID to a
 local snapshot path.
 
 They were extracted from the Nemotron-Parse inference stage, which was the
-first stage in NeMo Curator to be tested at scale (320× H100).  Future stages
+first stage in NeMo Curator to be tested at scale (320x H100).  Future stages
 that use vLLM (video, text, audio) should import from here rather than
 duplicating this logic.  See GitHub issue #1720 for the roadmap to wire these
 utilities into other modalities.
@@ -40,7 +40,7 @@ def pick_free_port() -> int:
         return s.getsockname()[1]
 
 
-def create_vllm_llm(
+def create_vllm_llm(  # noqa: PLR0913
     model_path: str,
     *,
     max_num_seqs: int = 64,
@@ -49,7 +49,7 @@ def create_vllm_llm(
     trust_remote_code: bool = True,
     limit_mm_per_prompt: dict | None = None,
     max_port_retries: int = 3,
-) -> "vllm.LLM":  # noqa: F821
+) -> "vllm.LLM":  # noqa: F821,UP037
     """Create a :class:`vllm.LLM` instance with automatic port-collision retry.
 
     vLLM selects a MASTER_PORT for the distributed backend at startup.  On a
@@ -104,7 +104,8 @@ def create_vllm_llm(
             else:
                 raise
 
-    raise RuntimeError("unreachable")  # pragma: no cover
+    msg = "unreachable"
+    raise RuntimeError(msg)  # pragma: no cover
 
 
 def resolve_local_model_path(model_path: str) -> str:

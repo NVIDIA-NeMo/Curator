@@ -103,7 +103,8 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
     def __post_init__(self) -> None:
         super().__init__()
         if self.manifest_path is None:
-            raise ValueError("manifest_path is required")
+            msg = "manifest_path is required"
+            raise ValueError(msg)
         self._partitioner = PDFPartitioningStage(
             manifest_path=self.manifest_path,
             pdfs_per_task=self.pdfs_per_task,
