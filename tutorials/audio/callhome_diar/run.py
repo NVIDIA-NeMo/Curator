@@ -34,7 +34,6 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
 
@@ -43,7 +42,7 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch, _EmptyTask
+from nemo_curator.tasks import AudioTask, _EmptyTask
 
 COLLAR = 0.25
 CKPT_HASH_KEY = "_ckpt_hash"
@@ -54,45 +53,41 @@ CKPT_HASH_KEY = "_ckpt_hash"
 # ---------------------------------------------------------------------------
 
 
-def _task_hash(task: AudioBatch) -> str:
-    """Derive a stable content hash for an AudioBatch.
+def _task_hash(task: AudioTask) -> str:
+    """Derive a stable content hash for an AudioTask.
 
     Uses session_name / audio_filepath from the task data as the identity
     key so the hash stays the same across stages.
     """
-    identifiers: list[str] = []
-    for item in task.data or []:
-        if isinstance(item, dict):
-            if "session_name" in item:
-                identifiers.append(item["session_name"])
-            elif "audio_filepath" in item:
-                identifiers.append(item["audio_filepath"])
-    if not identifiers:
-        identifiers.append(task.task_id)
-    raw = "|".join(sorted(identifiers))
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+    if "session_name" in task.data:
+        identity = task.data["session_name"]
+    elif "audio_filepath" in task.data:
+        identity = task.data["audio_filepath"]
+    else:
+        identity = task.task_id
+    return hashlib.sha256(identity.encode()).hexdigest()[:16]
 
 
 def _stage_ckpt_dir(checkpoint_dir: Path, stage_index: int, stage_name: str) -> Path:
     return checkpoint_dir / f"stage_{stage_index:02d}_{stage_name}"
 
 
-def _save_task(directory: Path, h: str, task: AudioBatch) -> None:
+def _save_task(directory: Path, h: str, task: AudioTask) -> None:
     """Write a single task checkpoint, keyed by its hash."""
     directory.mkdir(parents=True, exist_ok=True)
     payload = {
         "task_id": task.task_id,
         "dataset_name": task.dataset_name,
-        "data": task.data,
+        "data": dict(task.data),
         "_metadata": task._metadata,
     }
     (directory / f"{h}.json").write_text(json.dumps(payload, indent=2))
 
 
-def _load_task(path: Path) -> AudioBatch:
-    """Reconstruct a single AudioBatch from a checkpoint file."""
+def _load_task(path: Path) -> AudioTask:
+    """Reconstruct a single AudioTask from a checkpoint file."""
     payload = json.loads(path.read_text())
-    return AudioBatch(
+    return AudioTask(
         task_id=payload["task_id"],
         dataset_name=payload["dataset_name"],
         data=payload["data"],
@@ -100,7 +95,7 @@ def _load_task(path: Path) -> AudioBatch:
     )
 
 
-def _load_all_tasks(directory: Path) -> list[AudioBatch]:
+def _load_all_tasks(directory: Path) -> list[AudioTask]:
     """Load every task checkpoint in a stage directory."""
     if not directory.exists():
         return []
@@ -134,7 +129,7 @@ def parse_args() -> argparse.Namespace:
 
 
 @dataclass
-class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioBatch]):
+class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioTask]):
     """Discover CallHome WAV files with matching .cha annotations, skipping already-processed."""
 
     data_dir: str = ""
@@ -149,17 +144,17 @@ class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.filepath_key]
 
-    def process(self, task: _EmptyTask) -> list[AudioBatch]:  # noqa: ARG002
+    def process(self, task: _EmptyTask) -> list[AudioTask]:  # noqa: ARG002
         cha_path = Path(self.cha_dir)
         done = {p.stem for p in Path(self.rttm_out_dir).glob("*.rttm")} if self.rttm_out_dir else set()
-        tasks: list[AudioBatch] = []
+        tasks: list[AudioTask] = []
         for wav in sorted(Path(self.data_dir).glob("*.wav")):
             fid = wav.stem
             if fid in done or not (cha_path / f"{fid}.cha").exists():
                 continue
             tasks.append(
-                AudioBatch(
-                    data=[{self.filepath_key: str(wav), "session_name": fid}],
+                AudioTask(
+                    data={self.filepath_key: str(wav), "session_name": fid},
                     task_id=f"callhome_{fid}",
                     dataset_name="callhome_eng0",
                 )
@@ -168,7 +163,7 @@ class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioBatch]):
 
 
 @dataclass
-class EnsureMonoStage(ProcessingStage[AudioBatch, AudioBatch]):
+class EnsureMonoStage(ProcessingStage[AudioTask, AudioTask]):
     """Downmix stereo WAVs to mono 16 kHz via sox."""
 
     mono_dir: str = "mono"
@@ -193,19 +188,20 @@ class EnsureMonoStage(ProcessingStage[AudioBatch, AudioBatch]):
         )
         return mono_path
 
-    def process(self, task: AudioBatch) -> AudioBatch:
-        items = [{**item, self.filepath_key: self._ensure_mono(item[self.filepath_key])} for item in task.data]
-        return AudioBatch(
+    def process(self, task: AudioTask) -> AudioTask:
+        output_data = dict(task.data)
+        output_data[self.filepath_key] = self._ensure_mono(task.data[self.filepath_key])
+        return AudioTask(
             task_id=task.task_id,
             dataset_name=task.dataset_name,
-            data=items,
+            data=output_data,
             _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )
 
 
 @dataclass
-class DERComputationStage(ProcessingStage[AudioBatch, AudioBatch]):
+class DERComputationStage(ProcessingStage[AudioTask, AudioTask]):
     """Compute Diarization Error Rate against CHA ground-truth annotations."""
 
     cha_dir: str = ""
@@ -220,32 +216,26 @@ class DERComputationStage(ProcessingStage[AudioBatch, AudioBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.der_metrics_key]
 
-    def validate_input(self, task: AudioBatch) -> bool:
+    def validate_input(self, task: AudioTask) -> bool:
         if not hasattr(task, "data") or task.data is None:
             return False
-        # task.data is a list of dicts; base class expects task.data to have the key as attr
-        if not isinstance(task.data, list):
-            return super().validate_input(task)
-        return all(isinstance(item, dict) and self.diar_segments_key in item for item in task.data)
+        return self.diar_segments_key in task.data
 
-    def process(self, task: AudioBatch) -> AudioBatch:
+    def process(self, task: AudioTask) -> AudioTask:
         cha_path = Path(self.cha_dir)
-        items: list[dict[str, Any]] = []
-        for item in task.data:
-            item = dict(item)  # noqa: PLW2901
-            sess = item.get("session_name", "unknown")
-            cha_file = cha_path / f"{sess}.cha"
-            metrics = None
-            if cha_file.exists():
-                gt, uem_start, uem_end = self._parse_cha(cha_file)
-                if gt and item.get(self.diar_segments_key):
-                    metrics = self._compute_der(gt, item[self.diar_segments_key], uem_start, uem_end)
-            item[self.der_metrics_key] = metrics
-            items.append(item)
-        return AudioBatch(
+        output_data = dict(task.data)
+        sess = output_data.get("session_name", "unknown")
+        cha_file = cha_path / f"{sess}.cha"
+        metrics = None
+        if cha_file.exists():
+            gt, uem_start, uem_end = self._parse_cha(cha_file)
+            if gt and output_data.get(self.diar_segments_key):
+                metrics = self._compute_der(gt, output_data[self.diar_segments_key], uem_start, uem_end)
+        output_data[self.der_metrics_key] = metrics
+        return AudioTask(
             task_id=task.task_id,
             dataset_name=task.dataset_name,
-            data=items,
+            data=output_data,
             _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )
@@ -400,7 +390,7 @@ def _print_summary(results: list[dict], collar: float) -> None:
 def _run_stages_with_checkpoints(
     stages: list[ProcessingStage],
     checkpoint_dir: Path,
-) -> list[AudioBatch]:
+) -> list[AudioTask]:
     """Execute stages one at a time with per-task hash-based checkpointing.
 
     For each stage the flow is:
@@ -414,7 +404,7 @@ def _run_stages_with_checkpoints(
     un-processed tasks will be re-run.
     """
     executor = XennaExecutor()
-    current_tasks: list[AudioBatch] | None = None
+    current_tasks: list[AudioTask] | None = None
     t0 = time.time()
 
     for idx, stage in enumerate(stages):
@@ -444,8 +434,8 @@ def _run_stages_with_checkpoints(
         # --- subsequent stages: split cached vs todo ---
         existing_hashes = {p.stem for p in sdir.glob("*.json")} if sdir.exists() else set()
 
-        cached_tasks: list[AudioBatch] = []
-        todo_tasks: list[AudioBatch] = []
+        cached_tasks: list[AudioTask] = []
+        todo_tasks: list[AudioTask] = []
 
         for task in current_tasks:
             h = task._metadata.get(CKPT_HASH_KEY) or _task_hash(task)
@@ -539,10 +529,9 @@ def main() -> None:
 
     output_tasks = output_tasks or []
     results = [
-        {**item["der_metrics"], "file_id": item.get("session_name", "unknown")}
+        {**task.data["der_metrics"], "file_id": task.data.get("session_name", "unknown")}
         for task in output_tasks
-        for item in (task.data or [])
-        if item.get("der_metrics") is not None
+        if task.data.get("der_metrics") is not None
     ]
 
     _print_summary(results, args.collar)

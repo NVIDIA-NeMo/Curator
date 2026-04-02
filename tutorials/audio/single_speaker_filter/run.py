@@ -55,7 +55,7 @@ from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
 from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
 from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 CKPT_HASH_KEY = "_ckpt_hash"
 
@@ -65,36 +65,30 @@ CKPT_HASH_KEY = "_ckpt_hash"
 # ---------------------------------------------------------------------------
 
 
-def _task_hash(task: AudioBatch) -> str:
+def _task_hash(task: AudioTask) -> str:
     """Stable content hash derived from audio_filepath."""
-    identifiers: list[str] = []
-    for item in task.data or []:
-        if isinstance(item, dict) and "audio_filepath" in item:
-            identifiers.append(item["audio_filepath"])
-    if not identifiers:
-        identifiers.append(task.task_id)
-    raw = "|".join(sorted(identifiers))
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+    identity = task.data.get("audio_filepath", task.task_id)
+    return hashlib.sha256(identity.encode()).hexdigest()[:16]
 
 
 def _stage_ckpt_dir(checkpoint_dir: Path, stage_index: int, stage_name: str) -> Path:
     return checkpoint_dir / f"stage_{stage_index:02d}_{stage_name}"
 
 
-def _save_task(directory: Path, h: str, task: AudioBatch) -> None:
+def _save_task(directory: Path, h: str, task: AudioTask) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     payload = {
         "task_id": task.task_id,
         "dataset_name": task.dataset_name,
-        "data": task.data,
+        "data": dict(task.data),
         "_metadata": task._metadata,
     }
     (directory / f"{h}.json").write_text(json.dumps(payload, indent=2))
 
 
-def _load_task(path: Path) -> AudioBatch:
+def _load_task(path: Path) -> AudioTask:
     payload = json.loads(path.read_text())
-    return AudioBatch(
+    return AudioTask(
         task_id=payload["task_id"],
         dataset_name=payload["dataset_name"],
         data=payload["data"],
@@ -102,7 +96,7 @@ def _load_task(path: Path) -> AudioBatch:
     )
 
 
-def _load_all_tasks(directory: Path) -> list[AudioBatch]:
+def _load_all_tasks(directory: Path) -> list[AudioTask]:
     if not directory.exists():
         return []
     return [_load_task(p) for p in sorted(directory.glob("*.json"))]
@@ -114,7 +108,7 @@ def _load_all_tasks(directory: Path) -> list[AudioBatch]:
 
 
 @dataclass
-class SingleSpeakerFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
+class SingleSpeakerFilterStage(ProcessingStage[AudioTask, AudioTask]):
     """Keep only audio samples where Sortformer detected exactly one speaker."""
 
     diar_segments_key: str = "diar_segments"
@@ -126,29 +120,36 @@ class SingleSpeakerFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.diar_segments_key]
 
-    def validate_input(self, task: AudioBatch) -> bool:
+    def validate_input(self, task: AudioTask) -> bool:
         if not hasattr(task, "data") or task.data is None:
             return False
-        if not isinstance(task.data, list):
-            return super().validate_input(task)
-        return all(isinstance(item, dict) and self.diar_segments_key in item for item in task.data)
+        return self.diar_segments_key in task.data
 
-    def process(self, task: AudioBatch) -> AudioBatch:
-        surviving = []
-        for item in task.data:
-            segments = item.get(self.diar_segments_key, [])
+    def process(self, task: AudioTask) -> AudioTask:
+        msg = "SingleSpeakerFilterStage only supports process_batch"
+        raise NotImplementedError(msg)
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        results = []
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task!s} failed validation for stage {self}"
+                raise ValueError(msg)
+            segments = task.data.get(self.diar_segments_key, [])
             speakers = {seg["speaker"] for seg in segments}
             if len(speakers) == 1:
-                entry = {k: v for k, v in item.items() if k != self.diar_segments_key}
-                entry["num_speakers"] = 1
-                surviving.append(entry)
-        return AudioBatch(
-            task_id=task.task_id,
-            dataset_name=task.dataset_name,
-            data=surviving,
-            _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
-        )
+                output_data = {k: v for k, v in task.data.items() if k != self.diar_segments_key}
+                output_data["num_speakers"] = 1
+                results.append(
+                    AudioTask(
+                        task_id=task.task_id,
+                        dataset_name=task.dataset_name,
+                        data=output_data,
+                        _metadata=task._metadata,
+                        _stage_perf=task._stage_perf,
+                    )
+                )
+        return results
 
 
 # ---------------------------------------------------------------------------
@@ -159,10 +160,10 @@ class SingleSpeakerFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
 def _run_stages_with_checkpoints(
     stages: list[ProcessingStage],
     checkpoint_dir: Path,
-) -> list[AudioBatch]:
+) -> list[AudioTask]:
     """Execute stages sequentially with per-task hash-based checkpointing."""
     executor = XennaExecutor()
-    current_tasks: list[AudioBatch] | None = None
+    current_tasks: list[AudioTask] | None = None
     t0 = time.time()
 
     for idx, stage in enumerate(stages):
@@ -190,8 +191,8 @@ def _run_stages_with_checkpoints(
             continue
 
         # --- subsequent stages: split cached vs todo ---
-        cached_tasks: list[AudioBatch] = []
-        todo_tasks: list[AudioBatch] = []
+        cached_tasks: list[AudioTask] = []
+        todo_tasks: list[AudioTask] = []
 
         for task in current_tasks:
             h = task._metadata.get(CKPT_HASH_KEY) or _task_hash(task)
@@ -291,11 +292,15 @@ def main() -> None:
     print("Starting pipeline with inter-stage checkpointing...", flush=True)
     _run_stages_with_checkpoints(stages, args.checkpoint_dir)
 
-    with open(args.output_manifest) as f:
-        entries_out = sum(1 for line in f if line.strip())
+    if args.output_manifest.exists():
+        with open(args.output_manifest) as f:
+            entries_out = sum(1 for line in f if line.strip())
+    else:
+        entries_out = 0
     print(f"\n{'=' * 60}")
     print(f"Filtered: {entries_out} / {total_entries} entries have exactly 1 speaker")
-    print(f"Output manifest: {args.output_manifest}")
+    if entries_out > 0:
+        print(f"Output manifest: {args.output_manifest}")
     print(f"{'=' * 60}")
 
     ray_client.stop()

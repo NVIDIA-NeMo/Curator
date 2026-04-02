@@ -21,7 +21,7 @@ from nemo_curator.stages.audio.inference.sortformer import (
     _parse_sortformer_segments,
     _write_rttm,
 )
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 class TestParseSortformerSegments:
@@ -120,35 +120,27 @@ class TestInferenceSortformerStage:
         mock_model.diarize.return_value = fake_segments_per_file
         return mock_model
 
-    def test_process_audio_batch(self) -> None:
+    def test_process_audio_task(self) -> None:
         fake_output = [
             ["0.00 2.70 speaker_0", "0.80 13.60 speaker_1"],
-            ["1.00 4.00 speaker_0"],
         ]
         mock_model = self._make_mock_model(fake_output)
         stage = InferenceSortformerStage(diar_model=mock_model)
 
-        task = AudioBatch(
-            data=[
-                {"audio_filepath": "/test/audio1.wav"},
-                {"audio_filepath": "/test/audio2.wav"},
-            ],
+        task = AudioTask(
+            data={"audio_filepath": "/test/audio1.wav"},
         )
         result = stage.process(task)
 
-        assert isinstance(result, AudioBatch)
-        assert len(result.data) == 2
-        assert result.data[0]["audio_filepath"] == "/test/audio1.wav"
-        assert result.data[0]["diar_segments"] == [
+        assert isinstance(result, AudioTask)
+        assert result.data["audio_filepath"] == "/test/audio1.wav"
+        assert result.data["diar_segments"] == [
             {"start": 0.0, "end": 2.7, "speaker": "speaker_0"},
             {"start": 0.8, "end": 13.6, "speaker": "speaker_1"},
         ]
-        assert result.data[1]["diar_segments"] == [
-            {"start": 1.0, "end": 4.0, "speaker": "speaker_0"},
-        ]
         assert result.task_id.endswith("_sortformer")
         mock_model.diarize.assert_called_once_with(
-            audio=["/test/audio1.wav", "/test/audio2.wav"],
+            audio=["/test/audio1.wav"],
             batch_size=1,
         )
 
@@ -160,7 +152,7 @@ class TestInferenceSortformerStage:
             rttm_out_dir=str(tmp_path),
         )
 
-        task = AudioBatch(data=[{"audio_filepath": "/test/my_audio.wav"}])
+        task = AudioTask(data={"audio_filepath": "/test/my_audio.wav"})
         stage.process(task)
 
         rttm_file = tmp_path / "my_audio.rttm"
@@ -173,12 +165,12 @@ class TestInferenceSortformerStage:
         mock_model = self._make_mock_model(fake_output)
         stage = InferenceSortformerStage(diar_model=mock_model)
 
-        task = AudioBatch(
-            data=[{"audio_filepath": "/test/audio1.wav", "extra_key": "extra_value"}],
+        task = AudioTask(
+            data={"audio_filepath": "/test/audio1.wav", "extra_key": "extra_value"},
         )
         result = stage.process(task)
-        assert result.data[0]["extra_key"] == "extra_value"
-        assert "diar_segments" in result.data[0]
+        assert result.data["extra_key"] == "extra_value"
+        assert "diar_segments" in result.data
 
     def test_process_uses_session_name_from_data(self, tmp_path: Path) -> None:
         fake_output = [["0.00 1.00 speaker_0"]]
@@ -188,8 +180,8 @@ class TestInferenceSortformerStage:
             rttm_out_dir=str(tmp_path),
         )
 
-        task = AudioBatch(
-            data=[{"audio_filepath": "/test/audio1.wav", "session_name": "sess_42"}],
+        task = AudioTask(
+            data={"audio_filepath": "/test/audio1.wav", "session_name": "sess_42"},
         )
         stage.process(task)
         assert (tmp_path / "sess_42.rttm").exists()

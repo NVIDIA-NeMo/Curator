@@ -27,7 +27,7 @@ from nemo_curator.stages.base import ProcessingStage
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 
 def _parse_sortformer_segments(raw_segments: list) -> list[dict[str, Any]]:
@@ -82,7 +82,7 @@ def _write_rttm(segments: list[dict[str, Any]], sess_name: str, rttm_out_dir: st
 
 
 @dataclass
-class InferenceSortformerStage(ProcessingStage[AudioBatch, AudioBatch]):
+class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
     """Speaker diarization inference using Streaming Sortformer (NeMo).
 
     Uses the NeMo SortformerEncLabelModel for end-to-end neural speaker
@@ -179,38 +179,32 @@ class InferenceSortformerStage(ProcessingStage[AudioBatch, AudioBatch]):
         )
         return [_parse_sortformer_segments(segs) for segs in predicted_segments]
 
-    def process(self, task: AudioBatch) -> AudioBatch:
-        """Run speaker diarization on each audio file in the task."""
+    def process(self, task: AudioTask) -> AudioTask:
+        """Run speaker diarization on the audio file in the task."""
         if not self.validate_input(task):
             msg = f"Task {task!s} failed validation for stage {self}"
             raise ValueError(msg)
 
-        files = [item[self.filepath_key] for item in task.data]
-        session_names = [item.get("session_name") if isinstance(item, dict) else None for item in task.data]
+        file_path = task.data[self.filepath_key]
+        sess_name = task.data.get("session_name")
+        resolved_sess_name = (
+            sess_name if sess_name is not None else os.path.splitext(os.path.basename(file_path))[0]
+        )
 
-        all_segments = self.diarize(files)
+        all_segments = self.diarize([file_path])
+        segments = all_segments[0]
 
-        audio_items: list[dict[str, Any]] = []
-        for i, (file_path, sess_name) in enumerate(zip(files, session_names, strict=True)):
-            resolved_sess_name = (
-                sess_name if sess_name is not None else os.path.splitext(os.path.basename(file_path))[0]
-            )
+        if self.rttm_out_dir is not None:
+            _write_rttm(segments, resolved_sess_name, self.rttm_out_dir)
 
-            segments = all_segments[i]
+        output_data = dict(task.data)
+        output_data[self.diar_segments_key] = segments
 
-            if self.rttm_out_dir is not None:
-                _write_rttm(segments, resolved_sess_name, self.rttm_out_dir)
-
-            item = dict(task.data[i]) if isinstance(task.data[i], dict) else {}
-            item[self.filepath_key] = file_path
-            item[self.diar_segments_key] = segments
-            audio_items.append(item)
-
-        return AudioBatch(
+        return AudioTask(
             task_id=f"{task.task_id}_sortformer",
             dataset_name=task.dataset_name,
-            filepath_key=getattr(task, "filepath_key", self.filepath_key),
-            data=audio_items,
+            filepath_key=task.filepath_key or self.filepath_key,
+            data=output_data,
             _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )
