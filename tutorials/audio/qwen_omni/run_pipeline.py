@@ -52,7 +52,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-ray-local", action="store_true", help="Skip ray.init(local); use existing cluster")
     parser.add_argument(
         "--s3cfg", type=str, default="",
-        help="Path to s3 credentials file and section, e.g. ~/.s3cfg[default]"
+        help="Path to AIS/S3 config file and section, e.g. ~/.s3cfg[default]. "
+             "Endpoint and token can also be set via AIS_ENDPOINT and AIS_AUTHN_TOKEN env vars."
     )
 
     # Optional: launch vLLM as a subprocess (for single-container setups)

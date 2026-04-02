@@ -12,12 +12,58 @@ The pipeline expects a JSONL file where each row has some or all of these fields
 {"image_url": "/path/to/photo.jpg", "text": "What do you see?"}
 ```
 
-- `audio_url` — path to a local audio file (WAV, MP3, FLAC) or a remote URL
-- `image_url` — path to a local image or a remote URL
+- `audio_filepath` — local path, HTTP URL, or `s3://` / `ais://` object storage path
+- `image_url` — local path, HTTP URL, or `s3://` / `ais://` object storage path
 - `text` — the prompt / question
 - `system_text` — optional system prompt
 
 Output adds a `predicted_text` column with the model's response.
+
+
+## Remote storage (AIStore / S3)
+
+Audio and image files can be read from AIStore (`ais://`) or S3-compatible
+(`s3://`) object storage. The pipeline uses the
+[AIStore Python SDK](https://github.com/NVIDIA/aistore) to access remote
+objects through an AIS gateway.
+
+### Setup
+
+1. Set the AIS gateway endpoint and AuthN token:
+   ```bash
+   export AIS_ENDPOINT=http://ais-gateway:51080
+   export AIS_AUTHN_TOKEN="<your-token>"
+   ```
+
+2. Create an `.s3cfg` config (used for fallback endpoint/token resolution):
+   ```ini
+   [default]
+   use_https = True
+   host_base = ais-gateway:51080
+   ```
+
+3. Reference S3/AIS paths in your JSONL manifest:
+   ```json
+   {"audio_filepath": "s3://my-bucket/audio/clip.wav", "text": "Transcribe."}
+   {"audio_filepath": "ais://my-bucket/audio/clip.wav", "text": "Transcribe."}
+   ```
+
+4. Pass `--s3cfg` when running the pipeline:
+   ```bash
+   docker run --gpus all --ipc=host --shm-size=8g \
+     -v /path/to/data:/data \
+     -v ~/.s3cfg:/root/.s3cfg:ro \
+     -e AIS_ENDPOINT=http://ais-gateway:51080 \
+     -e AIS_AUTHN_TOKEN="$AIS_AUTHN_TOKEN" \
+     -e NUM_GPU=2 \
+     curator-qwen3-omni \
+     --input_manifest /data/input.jsonl \
+     --output_path /data/output/ \
+     --s3cfg '/root/.s3cfg[default]'
+   ```
+
+`s3://` paths are accessed via the AIS gateway as remote S3 backend
+(`provider=aws`). `ais://` paths access native AIS buckets directly.
 
 
 ## Option 1: Pre-built image from nvcr.io (recommended)
