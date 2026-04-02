@@ -29,7 +29,6 @@ from nemo_curator.core.utils import split_table_by_group_max_bytes
 from nemo_curator.stages.interleaved.utils import (
     DEFAULT_IMAGE_EXTENSIONS,
     DEFAULT_JSON_EXTENSIONS,
-    require_source_id_field,
     resolve_storage_options,
     validate_and_project_source_fields,
 )
@@ -67,14 +66,13 @@ class _SampleContext:
 
 
 @dataclass
-class WebdatasetReaderStage(BaseInterleavedReader):
+class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
     """Read MINT1T-style WebDataset shards into a row-wise multimodal task."""
 
     materialize_on_read: bool = False
     max_batch_bytes: int | None = None
     json_extensions: tuple[str, ...] = DEFAULT_JSON_EXTENSIONS
     image_extensions: tuple[str, ...] = field(default_factory=lambda: DEFAULT_IMAGE_EXTENSIONS)
-    source_id_field: str = ""
     sample_id_field: str | None = None
     texts_field: str = "texts"
     images_field: str = "images"
@@ -85,7 +83,7 @@ class WebdatasetReaderStage(BaseInterleavedReader):
     name: str = "webdataset_reader"
 
     def __post_init__(self) -> None:
-        self.source_id_field = require_source_id_field(self.source_id_field)
+        super().__post_init__()
 
     # -- source_ref construction --
 
@@ -254,7 +252,6 @@ class WebdatasetReaderStage(BaseInterleavedReader):
 
     def _build_passthrough_row(self, sample: dict[str, Any]) -> dict[str, Any]:
         excluded = RESERVED_COLUMNS | {
-            self.source_id_field,
             *([self.sample_id_field] if self.sample_id_field else []),
             self.texts_field,
             self.images_field,
@@ -283,7 +280,8 @@ class WebdatasetReaderStage(BaseInterleavedReader):
         return result
 
     def _empty_output_schema(self) -> pa.Schema:
-        schema = INTERLEAVED_SCHEMA
+        # Use explicit schema if set; otherwise fall back to INTERLEAVED_SCHEMA as base
+        base = self.schema if self.schema is not None else INTERLEAVED_SCHEMA
         seen = set(self.fields or ())
         all_extra = list(self.fields or ())
         for f in (*self.per_image_fields, *self.per_text_fields):
@@ -291,22 +289,15 @@ class WebdatasetReaderStage(BaseInterleavedReader):
                 all_extra.append(f)
                 seen.add(f)
         if not all_extra:
-            return schema
-        existing = set(schema.names)
-        extra_fields = [pa.field(name, pa.null()) for name in all_extra if name not in existing]
-        return pa.schema([*schema, *extra_fields]) if extra_fields else schema
+            return base
+        existing = set(base.names)
+        extra_fields = []
+        for name in all_extra:
+            if name not in existing:
+                extra_fields.append(pa.field(name, pa.null()))
+        return pa.schema([*base, *extra_fields]) if extra_fields else base
 
-    @staticmethod
-    def _reconcile_schema(inferred: pa.Schema) -> pa.Schema:
-        """Build a schema with canonical types for reserved columns and inferred types for passthrough."""
-        canonical = {f.name: f for f in INTERLEAVED_SCHEMA}
-        fields = []
-        for f in inferred:
-            if f.name in canonical:
-                fields.append(canonical[f.name])
-            else:
-                fields.append(f)
-        return pa.schema(fields)
+    # _align_output is inherited from BaseInterleavedReader
 
     # -- image member resolution --
 
@@ -398,19 +389,39 @@ class WebdatasetReaderStage(BaseInterleavedReader):
                 else:
                     frame_index = parsed_ref.get("frame_index")
                     if frame_index is not None:
-                        extracted = _extract_tiff_frame(raw_bytes, frame_index)
-                        if extracted is None:
+                        tiff_frame = _extract_tiff_frame(raw_bytes, frame_index)
+                        if tiff_frame is None:
                             row["materialize_error"] = f"failed to extract frame {frame_index} from '{content_key}'"
                         else:
-                            raw_bytes = extracted
+                            raw_bytes = tiff_frame
                 row["binary_content"] = raw_bytes
             read_ctx.byte_cache.clear()
         return sample_rows
+
+    # -- source file helpers --
+
+    @staticmethod
+    def _source_files_for_split(
+        split: pa.Table,
+        idx: int,
+        sample_id_to_tar: dict[str, str],
+        all_tars: list[str],
+    ) -> list[str]:
+        """Return source_files for one split, listing only the contributing tars."""
+        seen: set[str] = set()
+        for sid in split["sample_id"].unique().to_pylist():
+            tar = sample_id_to_tar.get(sid)
+            if tar is not None:
+                seen.add(tar)
+        # Preserve original task.data order; fall back to all tars if none mapped.
+        split_tars = [p for p in all_tars if p in seen] or all_tars
+        return [f"{p}::split_{idx:05d}" for p in split_tars]
 
     # -- main entry point --
 
     def process(self, task: FileGroupTask) -> InterleavedBatch | list[InterleavedBatch]:
         rows: list[dict[str, Any]] = []
+        sample_id_to_tar: dict[str, str] = {}
         storage_options = resolve_storage_options(io_kwargs=self.read_kwargs)
 
         for tar_path in task.data:
@@ -430,11 +441,14 @@ class WebdatasetReaderStage(BaseInterleavedReader):
                 for member in members:
                     if not member.name.endswith(self.json_extensions):
                         continue
-                    rows.extend(self._rows_from_member(tf=tf, member=member, read_ctx=read_ctx))
+                    member_rows = self._rows_from_member(tf=tf, member=member, read_ctx=read_ctx)
+                    if member_rows:
+                        sample_id_to_tar.setdefault(member_rows[0]["sample_id"], tar_path)
+                    rows.extend(member_rows)
 
         if rows:
             table = pa.Table.from_pylist(rows)
-            table = table.cast(self._reconcile_schema(table.schema))
+            table = self._align_output(table)
         else:
             # Empty tables use _empty_output_schema(); passthrough columns get
             # pa.null() type which is intentional (no data to infer from).
@@ -444,6 +458,10 @@ class WebdatasetReaderStage(BaseInterleavedReader):
         for idx, split in enumerate(splits):
             task_id = f"{task.task_id}_processed" if len(splits) == 1 else f"{task.task_id}_processed_{idx:05d}"
             metadata = dict(task._metadata)
+            if len(splits) == 1:
+                metadata["source_files"] = list(task.data)
+            else:
+                metadata["source_files"] = self._source_files_for_split(split, idx, sample_id_to_tar, task.data)
             if storage_options:
                 metadata["source_storage_options"] = storage_options
             batches.append(
