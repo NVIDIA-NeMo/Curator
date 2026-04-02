@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
@@ -84,6 +84,7 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
     zip_base_dir: str | None = None
     pdf_dir: str | None = None
     jsonl_base_dir: str | None = None
+    completed_ids: set[str] = field(default_factory=set)
     model_path: str = DEFAULT_MODEL_PATH
     backend: str = "vllm"
     pdfs_per_task: int = 10
@@ -109,6 +110,7 @@ class NemotronParsePDFReader(CompositeStage[_EmptyTask, InterleavedBatch]):
             manifest_path=self.manifest_path,
             pdfs_per_task=self.pdfs_per_task,
             max_pdfs=self.max_pdfs,
+            completed_ids=self.completed_ids,
             dataset_name=self.dataset_name,
             file_name_field=self.file_name_field,
             file_names_field=self.file_names_field,

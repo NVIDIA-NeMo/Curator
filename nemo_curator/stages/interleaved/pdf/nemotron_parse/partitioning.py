@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -67,6 +68,7 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     manifest_path: str
     pdfs_per_task: int = 10
     max_pdfs: int | None = None
+    completed_ids: set[str] = field(default_factory=set)
     dataset_name: str = "pdf_dataset"
     file_name_field: str = "file_name"
     file_names_field: str = "cc_pdf_file_names"
@@ -107,6 +109,9 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
                 for fname in dict.fromkeys(file_names):
                     if not fname:
+                        continue
+                    sample_id = os.path.splitext(fname)[0]
+                    if sample_id in self.completed_ids:
                         continue
                     entries.append(json.dumps({"file_name": fname, "url": url, **extra}))
 

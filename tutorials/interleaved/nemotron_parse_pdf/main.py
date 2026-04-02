@@ -179,10 +179,20 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--file-names-field", default="cc_pdf_file_names", help="JSONL field for list of PDF filenames")
     parser.add_argument("--url-field", default="url", help="JSONL field for source URL")
 
+    # Resume
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Skip already-processed PDFs by scanning output-dir for existing parquets.",
+    )
+
     return parser
 
 
-def create_nemotron_parse_pdf_pipeline(args: argparse.Namespace) -> Pipeline:
+def create_nemotron_parse_pdf_pipeline(
+    args: argparse.Namespace,
+    completed_ids: set[str] | None = None,
+) -> Pipeline:
     """Build the Nemotron-Parse PDF processing pipeline from parsed arguments."""
     pipeline = Pipeline(
         name="nemotron_parse_pdf",
@@ -191,6 +201,7 @@ def create_nemotron_parse_pdf_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline.add_stage(
         NemotronParsePDFReader(
             manifest_path=args.manifest,
+            completed_ids=completed_ids or set(),
             zip_base_dir=args.zip_base_dir,
             pdf_dir=args.pdf_dir,
             jsonl_base_dir=args.jsonl_base_dir,
@@ -274,6 +285,13 @@ def main() -> None:
     args.output_dir = os.path.abspath(args.output_dir)
     os.makedirs(args.output_dir, exist_ok=True)
 
+    completed_ids: set[str] = set()
+    if args.resume and os.path.isdir(args.output_dir):
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import load_completed_sample_ids  # noqa: PLC0415
+        completed_ids = load_completed_sample_ids(args.output_dir)
+        if completed_ids:
+            logger.info(f"Resume: {len(completed_ids)} PDFs already processed, will skip them")
+
     if os.environ.get("SLURM_JOB_ID"):
         from nemo_curator.core.client import SlurmRayClient  # noqa: PLC0415
         ray_client = SlurmRayClient()
@@ -282,7 +300,7 @@ def main() -> None:
     ray_client.start()
 
     try:
-        pipeline = create_nemotron_parse_pdf_pipeline(args)
+        pipeline = create_nemotron_parse_pdf_pipeline(args, completed_ids=completed_ids)
         logger.info(f"\n{pipeline.describe()}")
 
         executor = XennaExecutor(
