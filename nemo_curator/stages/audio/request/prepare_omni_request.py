@@ -1,6 +1,5 @@
 import base64
 import configparser
-import io
 import mimetypes
 import tarfile
 from dataclasses import dataclass, field
@@ -12,8 +11,8 @@ import pandas as pd
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch
 
-# Global S3 client (initialized lazily)
-_s3_client = None
+# Global AIStore client (initialized lazily)
+_ais_client = None
 
 
 def _is_valid_value(value: str | None) -> bool:
@@ -48,75 +47,60 @@ def _parse_s3cfg(config_path: str = "~/.s3cfg", section: str = "default") -> dic
         "use_https": config.getboolean(section, "use_https", fallback=True),
         "access_key": config.get(section, "access_key", fallback=None),
         "secret_key": config.get(section, "secret_key", fallback=None),
-        "bucket_location": config.get(section, "bucket_location", fallback=None),
         "host_base": config.get(section, "host_base", fallback=None),
         "authn_token": config.get(section, "authn_token", fallback=None),
     }
 
 
-class _AISClient:
-    """Thin S3-compatible client for AIStore using Bearer token auth."""
+def _init_ais_client(s3cfg: str) -> None:
+    """Initialize the global AIStore client.
 
-    def __init__(self, endpoint_url: str, token: str):
-        import requests as _requests
+    The AIS gateway endpoint is resolved in order:
+    1. ``AIS_ENDPOINT`` environment variable (same as the ``ais`` CLI)
+    2. ``host_base`` field in the s3cfg section
 
-        self._base = endpoint_url.rstrip("/")
-        self._session = _requests.Session()
-        self._session.headers["Authorization"] = f"Bearer {token}"
-
-    def get_object(self, Bucket: str, Key: str, **_kwargs: str) -> dict:  # noqa: N803
-        """Fetch an object from AIStore via S3-compatible endpoint."""
-        from botocore.exceptions import ClientError
-
-        _http_error_threshold = 400
-        url = f"{self._base}/s3/{Bucket}/{Key}"
-        resp = self._session.get(url)
-        if resp.status_code >= _http_error_threshold:
-            raise ClientError(
-                {"Error": {"Code": str(resp.status_code), "Message": resp.reason}},
-                "GetObject",
-            )
-        return {"Body": io.BytesIO(resp.content)}
-
-
-def _init_s3_client(s3cfg: str) -> None:
-    """Initialize the global S3 client from an s3cfg path like ``~/.s3cfg[default]``."""
-    global _s3_client  # noqa: PLW0603
-    if _s3_client is not None:
+    The AuthN token is resolved in order:
+    1. ``AIS_AUTHN_TOKEN`` environment variable
+    2. ``authn_token`` field in the s3cfg section
+    """
+    global _ais_client  # noqa: PLW0603
+    if _ais_client is not None:
         return
+
+    try:
+        from aistore.sdk import Client as AISClient
+    except ModuleNotFoundError as exc:
+        msg = "Install aistore (pip install aistore) to read from AIS/S3 storage."
+        raise RuntimeError(msg) from exc
+
+    import os
+
     path, section = s3cfg.rsplit("[", 1)
     cfg = _parse_s3cfg(path, section.rstrip("]"))
-    endpoint_url = ("https://" if cfg["use_https"] else "http://") + cfg["host_base"]
-    if cfg.get("authn_token"):
-        _s3_client = _AISClient(endpoint_url, cfg["authn_token"])
-    else:
-        import boto3
-        from botocore.config import Config
 
-        _s3_client = boto3.client(
-            "s3",
-            endpoint_url=endpoint_url,
-            aws_access_key_id=cfg["access_key"],
-            aws_secret_access_key=cfg["secret_key"],
-            region_name=cfg["bucket_location"],
-            config=Config(connect_timeout=5),
-        )
+    endpoint_url = os.environ.get("AIS_ENDPOINT")
+    if not endpoint_url:
+        endpoint_url = ("https://" if cfg["use_https"] else "http://") + cfg["host_base"]
+
+    token = os.environ.get("AIS_AUTHN_TOKEN") or cfg.get("authn_token") or None
+    _ais_client = AISClient(endpoint_url, token=token)
 
 
-def _parse_s3_path(s3_path: str) -> tuple[str, str]:
-    """Parse ``s3://bucket/key`` into ``(bucket, key)``."""
-    parsed = urlparse(str(s3_path))
-    return parsed.netloc, parsed.path.lstrip("/")
+def _parse_remote_path(path: str) -> tuple[str, str, str]:
+    """Parse ``s3://bucket/key`` or ``ais://bucket/key`` into ``(provider, bucket, key)``."""
+    parsed = urlparse(str(path))
+    scheme = parsed.scheme.lower()
+    provider = "ais" if scheme == "ais" else "aws"
+    return provider, parsed.netloc, parsed.path.lstrip("/")
 
 
 def _read_remote_bytes(path: str) -> bytes:
-    """Read bytes from a remote storage path using the global S3 client."""
-    if _s3_client is None:
-        msg = "S3 client not initialized. Set s3cfg on PrepareOmniRequestStage."
+    """Read bytes from a remote storage path using the global AIStore client."""
+    if _ais_client is None:
+        msg = "AIStore client not initialized. Set s3cfg on PrepareOmniRequestStage."
         raise RuntimeError(msg)
-    bucket, key = _parse_s3_path(path)
-    response = _s3_client.get_object(Bucket=bucket, Key=key)
-    return response["Body"].read()
+    provider, bucket, key = _parse_remote_path(path)
+    return _ais_client.bucket(bucket, provider=provider).object(key).get_reader().read_all()
 
 
 def _is_local_path(value: str) -> bool:
@@ -435,7 +419,7 @@ class PrepareOmniRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process(self, input_batch: DocumentBatch) -> DocumentBatch:
         """Build LLM messages from each row and add a 'messages' column."""
         if self.s3cfg:
-            _init_s3_client(self.s3cfg)
+            _init_ais_client(self.s3cfg)
         df = input_batch.to_pandas().copy()
         df["messages"] = df.apply(lambda row: self._row_to_messages(row.to_dict()), axis=1)
         return DocumentBatch(
