@@ -41,8 +41,7 @@ class _Window:
     end_frame: int
     # MP4 bytes for this window
     mp4_bytes: bytes | None = None
-    # Qwen LLM input for this window
-    qwen_llm_input: dict[str, Any] | None = None
+    llm_inputs: dict[str, dict[str, Any]] = field(default_factory=dict)
     # X1 model input for this window
     x1_input: Any | None = None
     # `caption: {model_name: caption}`
@@ -61,7 +60,7 @@ class _Window:
         total_size = 0
         total_size += len(self.mp4_bytes) if self.mp4_bytes else 0
         # TODO: this is probably inaccurate
-        total_size += sys.getsizeof(self.qwen_llm_input) if self.qwen_llm_input else 0
+        total_size += sum(sys.getsizeof(v) for v in self.llm_inputs.values())
         total_size += sys.getsizeof(self.caption)
         total_size += sys.getsizeof(self.enhanced_caption)
         total_size += len(self.webp_bytes) if self.webp_bytes else 0
