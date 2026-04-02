@@ -19,6 +19,7 @@ FROM ${CURATOR_IMAGE} AS nemo_curator_benchmarking
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
     less \
+    lynx \
     openssh-client \
     vim \
     wget \
