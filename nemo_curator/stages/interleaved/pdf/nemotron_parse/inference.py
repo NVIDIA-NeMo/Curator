@@ -131,7 +131,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
     def _setup_vllm(self) -> None:
         from vllm import SamplingParams
 
-        from nemo_curator.backends.vllm_utils import create_vllm_llm, resolve_local_model_path
+        from nemo_curator.utils.vllm_utils import create_vllm_llm, resolve_local_model_path
 
         resolved_path = resolve_local_model_path(self.model_path)
         self._llm = create_vllm_llm(

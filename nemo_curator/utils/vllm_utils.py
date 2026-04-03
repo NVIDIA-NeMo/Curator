@@ -127,5 +127,14 @@ def resolve_local_model_path(model_path: str) -> str:
         return model_path
 
     from huggingface_hub import snapshot_download
+    from huggingface_hub.errors import LocalEntryNotFoundError
 
-    return snapshot_download(model_path, local_files_only=True)
+    try:
+        return snapshot_download(model_path, local_files_only=True)
+    except LocalEntryNotFoundError:
+        raise RuntimeError(
+            f"Model '{model_path}' is not cached locally. "
+            f"Please pre-download it before submitting the job:\n\n"
+            f"    huggingface-cli download {model_path}\n\n"
+            f"Then re-run with the local cache path or the model ID."
+        ) from None
