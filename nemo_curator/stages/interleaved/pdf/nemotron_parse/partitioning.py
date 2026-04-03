@@ -89,6 +89,9 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
         with open(self.manifest_path) as f:
             for line in f:
+                line = line.strip()
+                if not line:
+                    continue
                 record = json.loads(line)
                 url = record.get(self.url_field, "")
 
