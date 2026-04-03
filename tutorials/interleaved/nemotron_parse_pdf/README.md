@@ -8,7 +8,7 @@ Convert PDFs into structured, interleaved parquet — text blocks, tables, image
 git clone https://github.com/NVIDIA-NeMo/Curator.git
 cd Curator
 pip install uv
-uv sync --extra image_cuda12
+uv sync --extra interleaved_cuda12
 ```
 
 ## Quickstart

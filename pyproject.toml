@@ -183,10 +183,13 @@ math_cuda12 = [
 
 # Multimodal / Interleaved Dependencies
 interleaved_cpu = [
+    "albumentations",
+    "open_clip_torch",
     "opencv-python",
     "Pillow",
     "pypdfium2",
     "s3fs>=2024.12.0",
+    "timm",
 ]
 
 interleaved_cuda12 = [
