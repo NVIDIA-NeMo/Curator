@@ -130,7 +130,12 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
         if self.model_path is not None:
             return
         try:
-            snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
+            repo_dir = snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
+            nemo_files = [f for f in os.listdir(repo_dir) if f.endswith(".nemo")]
+            if nemo_files:
+                self.model_path = os.path.join(repo_dir, nemo_files[0])
+            else:
+                logger.warning(f"No .nemo file found in {repo_dir}; setup() will fail")
         except Exception:  # noqa: BLE001
             logger.info(f"Could not pre-cache {self.model_name}; actors will download on first use")
 
@@ -141,14 +146,11 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
             self._configure_streaming()
             return
 
-        if self.model_path is not None:
-            self.diar_model = SortformerEncLabelModel.restore_from(
-                restore_path=self.model_path,
-                map_location="cuda",
-                strict=False,
-            )
-        else:
-            self.diar_model = SortformerEncLabelModel.from_pretrained(self.model_name)
+        self.diar_model = SortformerEncLabelModel.restore_from(
+            restore_path=self.model_path,
+            map_location="cuda",
+            strict=False,
+        )
 
         self.diar_model.eval()
         self._configure_streaming()
