@@ -47,7 +47,6 @@ def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     cfg.final_manifest = str(tmp_path / "tts_output.jsonl")
     cfg.workspace_dir = str(tmp_path)
     cfg.resampled_audio_dir = str(tmp_path / "audio_resampled")
-    cfg.device = "cpu"
     cfg.hf_token = os.getenv("HF_TOKEN", "")
     cfg.language_short = "en"
 

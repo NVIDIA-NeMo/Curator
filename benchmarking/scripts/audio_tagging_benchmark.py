@@ -44,7 +44,6 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     input_manifest: str,
     repeat_factor: int,
     hf_token: str,
-    device: str,
     max_segment_length: float,
     asr_batch_size: int,
     executor: str,
@@ -59,7 +58,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     final_manifest = str(results_dir / "tagging_output.jsonl")
 
     logger.info("Starting audio tagging pipeline benchmark")
-    logger.info(f"Device: {device}, CPUs: {cpus}")
+    logger.info(f"CPUs: {cpus}")
     logger.info(f"Max segment length: {max_segment_length}s")
 
     exc = setup_executor(executor, config={"execution_mode": "streaming"})
@@ -92,7 +91,6 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             name="PyAnnoteDiarization",
             hf_token=hf_token,
             max_length=max_segment_length,
-            device=device,
         ).with_(resources=Resources(cpus=cpus, gpus=0.5))
     )
 
@@ -112,7 +110,6 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             is_fastconformer=True,
             decoder_type="rnnt",
             batch_size=asr_batch_size,
-            device=device,
         ).with_(resources=Resources(cpus=cpus, gpus=0.45))
     )
 
@@ -159,7 +156,6 @@ def main() -> int:
     parser.add_argument("--repeat-factor", type=int, default=1, help="Repeat factor for the input manifest entries")
     parser.add_argument("--benchmark-results-path", required=True, help="Path to write benchmark results")
     parser.add_argument("--hf-token", default="", help="HuggingFace token for PyAnnote")
-    parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"], help="Compute device for GPU stages")
     parser.add_argument(
         "--max-segment-length", type=float, default=40.0, help="Maximum segment duration (seconds) to infer ASR"
     )

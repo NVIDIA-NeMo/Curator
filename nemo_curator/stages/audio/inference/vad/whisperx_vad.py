@@ -33,6 +33,7 @@ from whisperx.vads.pyannote import Pyannote, load_vad_model
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio.common import get_audio_duration
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
@@ -111,13 +112,13 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
 
     min_length: float = 0.5
     max_length: float = 40.0
-    device: str = "cuda"
     vad_onset: float = 0.5
     vad_offset: float = 0.363
     segments_key: str = "vad_segments"
     audio_filepath_key: str = "resampled_audio_filepath"
 
     name: str = "WhisperXVAD"
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1))
 
     _vad_model: Any = field(default=None, repr=False)
 
@@ -127,33 +128,31 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, self.segments_key]
 
+    @property
+    def _device(self) -> str:
+        """Derive device from resources configuration."""
+        return "cuda" if self.resources.requires_gpu and torch.cuda.is_available() else "cpu"
+
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
         """Setup stage on node."""
-        if self.device == "cuda" and not torch.cuda.is_available():
-            msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
-            raise RuntimeError(msg)
         if self._vad_model is None:
             self._vad_model = WhisperXVADModel(
-                device=self.device,
+                device=self._device,
                 vad_onset=self.vad_onset,
                 vad_offset=self.vad_offset,
             )
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        if self.device == "cuda" and not torch.cuda.is_available():
-            msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
-            raise RuntimeError(msg)
-
         if self._vad_model is None:
             self._vad_model = WhisperXVADModel(
-                device=self.device,
+                device=self._device,
                 vad_onset=self.vad_onset,
                 vad_offset=self.vad_offset,
             )
-        self._vad_model.to(self.device)
-        logger.info(f"[{self.name}] Initialized WhisperX VAD on {self.device}")
+        self._vad_model.to(self._device)
+        logger.info(f"[{self.name}] Initialized WhisperX VAD on {self._device}")
 
     def process(self, task: AudioTask) -> AudioTask:
         data_entry = task.data

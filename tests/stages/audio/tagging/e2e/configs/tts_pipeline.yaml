@@ -8,7 +8,6 @@ final_manifest: ???
 workspace_dir: /tmp/tagging_test_workspace
 resampled_audio_dir: ${workspace_dir}/audio_resampled
 language_short: en
-device: cpu
 hf_token: ""
 sample_rate: 16000
 max_segment_length: 40
@@ -36,7 +35,6 @@ stages:
     name: "PyAnnoteDiarization"
     hf_token: ${hf_token}
     max_length: ${max_segment_length}
-    device: ${device}
     resources: ${resources}
 
   # 3. Split long audio segments
@@ -52,7 +50,7 @@ stages:
     is_fastconformer: true
     decoder_type: ctc
     batch_size: 32
-    device: ${device}
+    resources: ${resources}
 
   # 5. Join split audio metadata
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage

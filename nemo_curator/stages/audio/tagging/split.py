@@ -276,7 +276,6 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
         num_workers: Data-loading workers for ASR inference.
         infer_segment_only: If True, run ASR only on individual segments
             rather than full audio / meta-entries.
-        device: Device to run ASR model on.
         compute_timestamps: Whether to compute word-level timestamps.
         timestamp_type: Timestamp granularity (``"word"`` or ``"char"``).
         text_key: Output key for predicted text.
@@ -315,9 +314,6 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
     disable_word_confidence: bool = False
     segments_key: str = "segments"
 
-    # Device
-    device: str = "cuda"
-
     name: str = "SplitASRAlignJoin"
 
     def __post_init__(self) -> None:
@@ -341,7 +337,6 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
                 split_batch_size=self.split_batch_size,
                 num_workers=self.num_workers,
                 infer_segment_only=self.infer_segment_only,
-                device=self.device,
                 compute_timestamps=self.compute_timestamps,
                 timestamp_type=self.timestamp_type,
                 text_key=self.text_key,

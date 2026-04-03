@@ -37,6 +37,7 @@ from nemo_curator.stages.audio.common import get_audio_duration
 from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADModel
 from nemo_curator.stages.audio.tagging.utils import add_non_speaker_segments
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
@@ -83,7 +84,6 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         embedding_batch_size: Batch size for speaker embeddings
         min_length: Minimum segment length in seconds
         max_length: Maximum segment length in seconds
-        device: Device to run models on ('cuda' or 'cpu')
     """
 
     # HuggingFace token
@@ -100,15 +100,13 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     min_length: float = 0.5
     max_length: float = 40.0
 
-    # Device configuration
-    device: str = "cuda"
-
     audio_filepath_key: str = "resampled_audio_filepath"
     segments_key: str = "segments"
     overlap_segments_key: str = "overlap_segments"
 
     # Stage metadata
     name: str = "PyAnnoteDiarization"
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1))
 
     # Internal state (not serialized, initialized in setup() to allow deepcopy)
     _pipeline: Any = field(default=None, repr=False)
@@ -120,6 +118,11 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, self.segments_key, self.overlap_segments_key]
+
+    @property
+    def _device(self) -> str:
+        """Derive device from resources configuration."""
+        return "cuda" if self.resources.requires_gpu and torch.cuda.is_available() else "cpu"
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
@@ -136,10 +139,6 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Load models to device (called per replica before processing)."""
-        if not torch.cuda.is_available() and self.device == "cuda":
-            msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
-            raise RuntimeError(msg)
-
         if self._pipeline is None:
             self._pipeline = PyAnnotePipeline.from_pretrained(self.model_name, token=self.hf_token)
         self._pipeline.segmentation_batch_size = self.segmentation_batch_size
@@ -147,16 +146,16 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
 
         if self._vad_model is None:
             self._vad_model = WhisperXVADModel(
-                device=self.device,
+                device=self._device,
                 vad_onset=0.5,
                 vad_offset=0.363,
             )
 
-        self._pipeline.to(torch.device(self.device))
-        self._vad_model.to(self.device)
+        self._pipeline.to(torch.device(self._device))
+        self._vad_model.to(self._device)
 
         self._rng = random.Random()  # noqa: S311
-        logger.info(f"[{self.name}] Initialized PyAnnote diarization on {self.device}")
+        logger.info(f"[{self.name}] Initialized PyAnnote diarization on {self._device}")
 
     def add_vad_segments(  # noqa: PLR0913
         self,

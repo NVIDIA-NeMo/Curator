@@ -15,6 +15,7 @@
 from pathlib import Path
 
 from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
@@ -23,8 +24,8 @@ class TestWhisperXVADStage:
         stage = WhisperXVADStage(
             min_length=0.5,
             max_length=40.0,
-            device="cpu",
             segments_key="vad_segments",
+            resources=Resources(cpus=1.0),
         )
         stage.setup()
 
