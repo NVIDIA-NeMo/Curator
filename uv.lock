@@ -942,6 +942,18 @@ wheels = [
 ]
 
 [[package]]
+name = "coloredlogs"
+version = "15.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "humanfriendly" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cc/c7/eed8f27100517e8c0e6b923d5f0845d0cb99763da6fdee00478f91db7325/coloredlogs-15.0.1.tar.gz", hash = "sha256:7c991aa71a4577af2f82600d8f8f3a89f936baeaf9b50a9c197da014e5bf16b0", size = 278520, upload-time = "2021-06-11T10:22:45.202Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a7/06/3d6badcf13db419e25b07041d9c7b4a2c331d3f4e7134445ec5df57714cd/coloredlogs-15.0.1-py2.py3-none-any.whl", hash = "sha256:612ee75c546f53e92e70049c9dbfcc18c935a2b9a53b66085ce9ef6a6e5c0934", size = 46018, upload-time = "2021-06-11T10:22:42.561Z" },
+]
+
+[[package]]
 name = "colorful"
 version = "0.5.8"
 source = { registry = "https://pypi.org/simple" }
@@ -1452,6 +1464,36 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a9/95/a3dbbb5028f35eafb79008e7522a75244477d2838f38cbb722248dabc2a8/cycler-0.12.1.tar.gz", hash = "sha256:88bb128f02ba341da8ef447245a9e138fae777f6a23943da4540077d3601eb1c", size = 7615, upload-time = "2023-10-07T05:32:18.335Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl", hash = "sha256:85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30", size = 8321, upload-time = "2023-10-07T05:32:16.783Z" },
+]
+
+[[package]]
+name = "cython"
+version = "3.2.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/85/7574c9cd44b69a27210444b6650f6477f56c75fee1b70d7672d3e4166167/cython-3.2.4.tar.gz", hash = "sha256:84226ecd313b233da27dc2eb3601b4f222b8209c3a7216d8733b031da1dc64e6", size = 3280291, upload-time = "2026-01-04T14:14:14.473Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a1/10/720e0fb84eab4c927c4dd6b61eb7993f7732dd83d29ba6d73083874eade9/cython-3.2.4-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:02cb0cc0f23b9874ad262d7d2b9560aed9c7e2df07b49b920bda6f2cc9cb505e", size = 2960836, upload-time = "2026-01-04T14:14:51.103Z" },
+    { url = "https://files.pythonhosted.org/packages/7d/3d/b26f29092c71c36e0462752885bdfb18c23c176af4de953fdae2772a8941/cython-3.2.4-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f136f379a4a54246facd0eb6f1ee15c3837cb314ce87b677582ec014db4c6845", size = 3370134, upload-time = "2026-01-04T14:14:53.627Z" },
+    { url = "https://files.pythonhosted.org/packages/56/9e/539fb0d09e4f5251b5b14f8daf77e71fee021527f1013791038234618b6b/cython-3.2.4-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:35ab0632186057406ec729374c737c37051d2eacad9d515d94e5a3b3e58a9b02", size = 3537552, upload-time = "2026-01-04T14:14:56.852Z" },
+    { url = "https://files.pythonhosted.org/packages/10/c6/82d19a451c050d1be0f05b1a3302267463d391db548f013ee88b5348a8e9/cython-3.2.4-cp310-cp310-win_amd64.whl", hash = "sha256:ca2399dc75796b785f74fb85c938254fa10c80272004d573c455f9123eceed86", size = 2766191, upload-time = "2026-01-04T14:14:58.709Z" },
+    { url = "https://files.pythonhosted.org/packages/85/cc/8f06145ec3efa121c8b1b67f06a640386ddacd77ee3e574da582a21b14ee/cython-3.2.4-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:ff9af2134c05e3734064808db95b4dd7341a39af06e8945d05ea358e1741aaed", size = 2953769, upload-time = "2026-01-04T14:15:00.361Z" },
+    { url = "https://files.pythonhosted.org/packages/55/b0/706cf830eddd831666208af1b3058c2e0758ae157590909c1f634b53bed9/cython-3.2.4-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:67922c9de058a0bfb72d2e75222c52d09395614108c68a76d9800f150296ddb3", size = 3243841, upload-time = "2026-01-04T14:15:02.066Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/25/58893afd4ef45f79e3d4db82742fa4ff874b936d67a83c92939053920ccd/cython-3.2.4-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b362819d155fff1482575e804e43e3a8825332d32baa15245f4642022664a3f4", size = 3378083, upload-time = "2026-01-04T14:15:04.248Z" },
+    { url = "https://files.pythonhosted.org/packages/32/e4/424a004d7c0d8a4050c81846ebbd22272ececfa9a498cb340aa44fccbec2/cython-3.2.4-cp311-cp311-win_amd64.whl", hash = "sha256:1a64a112a34ec719b47c01395647e54fb4cf088a511613f9a3a5196694e8e382", size = 2769990, upload-time = "2026-01-04T14:15:06.53Z" },
+    { url = "https://files.pythonhosted.org/packages/91/4d/1eb0c7c196a136b1926f4d7f0492a96c6fabd604d77e6cd43b56a3a16d83/cython-3.2.4-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:64d7f71be3dd6d6d4a4c575bb3a4674ea06d1e1e5e4cd1b9882a2bc40ed3c4c9", size = 2970064, upload-time = "2026-01-04T14:15:08.567Z" },
+    { url = "https://files.pythonhosted.org/packages/03/1c/46e34b08bea19a1cdd1e938a4c123e6299241074642db9d81983cef95e9f/cython-3.2.4-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:869487ea41d004f8b92171f42271fbfadb1ec03bede3158705d16cd570d6b891", size = 3226757, upload-time = "2026-01-04T14:15:10.812Z" },
+    { url = "https://files.pythonhosted.org/packages/12/33/3298a44d201c45bcf0d769659725ae70e9c6c42adf8032f6d89c8241098d/cython-3.2.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:55b6c44cd30821f0b25220ceba6fe636ede48981d2a41b9bbfe3c7902ce44ea7", size = 3388969, upload-time = "2026-01-04T14:15:12.45Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/f3/4275cd3ea0a4cf4606f9b92e7f8766478192010b95a7f516d1b7cf22cb10/cython-3.2.4-cp312-cp312-win_amd64.whl", hash = "sha256:767b143704bdd08a563153448955935844e53b852e54afdc552b43902ed1e235", size = 2756457, upload-time = "2026-01-04T14:15:14.67Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/8b/fd393f0923c82be4ec0db712fffb2ff0a7a131707b842c99bf24b549274d/cython-3.2.4-cp39-abi3-macosx_10_9_x86_64.whl", hash = "sha256:36bf3f5eb56d5281aafabecbaa6ed288bc11db87547bba4e1e52943ae6961ccf", size = 2875622, upload-time = "2026-01-04T14:15:39.749Z" },
+    { url = "https://files.pythonhosted.org/packages/73/48/48530d9b9d64ec11dbe0dd3178a5fe1e0b27977c1054ecffb82be81e9b6a/cython-3.2.4-cp39-abi3-manylinux1_i686.manylinux_2_28_i686.manylinux_2_5_i686.whl", hash = "sha256:6d5267f22b6451eb1e2e1b88f6f78a2c9c8733a6ddefd4520d3968d26b824581", size = 3210669, upload-time = "2026-01-04T14:15:41.911Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/91/4865fbfef1f6bb4f21d79c46104a53d1a3fa4348286237e15eafb26e0828/cython-3.2.4-cp39-abi3-manylinux2014_armv7l.manylinux_2_17_armv7l.manylinux_2_31_armv7l.whl", hash = "sha256:3b6e58f73a69230218d5381817850ce6d0da5bb7e87eb7d528c7027cbba40b06", size = 2856835, upload-time = "2026-01-04T14:15:43.815Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/39/60317957dbef179572398253f29d28f75f94ab82d6d39ea3237fb6c89268/cython-3.2.4-cp39-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:e71efb20048358a6b8ec604a0532961c50c067b5e63e345e2e359fff72feaee8", size = 2994408, upload-time = "2026-01-04T14:15:45.422Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/30/7c24d9292650db4abebce98abc9b49c820d40fa7c87921c0a84c32f4efe7/cython-3.2.4-cp39-abi3-musllinux_1_2_armv7l.whl", hash = "sha256:28b1e363b024c4b8dcf52ff68125e635cb9cb4b0ba997d628f25e32543a71103", size = 2891478, upload-time = "2026-01-04T14:15:47.394Z" },
+    { url = "https://files.pythonhosted.org/packages/86/70/03dc3c962cde9da37a93cca8360e576f904d5f9beecfc9d70b1f820d2e5f/cython-3.2.4-cp39-abi3-musllinux_1_2_i686.whl", hash = "sha256:31a90b4a2c47bb6d56baeb926948348ec968e932c1ae2c53239164e3e8880ccf", size = 3225663, upload-time = "2026-01-04T14:15:49.446Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/97/10b50c38313c37b1300325e2e53f48ea9a2c078a85c0c9572057135e31d5/cython-3.2.4-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:e65e4773021f8dc8532010b4fbebe782c77f9a0817e93886e518c93bd6a44e9d", size = 3115628, upload-time = "2026-01-04T14:15:51.323Z" },
+    { url = "https://files.pythonhosted.org/packages/8f/b1/d6a353c9b147848122a0db370863601fdf56de2d983b5c4a6a11e6ee3cd7/cython-3.2.4-cp39-abi3-win32.whl", hash = "sha256:2b1f12c0e4798293d2754e73cd6f35fa5bbdf072bdc14bc6fc442c059ef2d290", size = 2437463, upload-time = "2026-01-04T14:15:53.787Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/d8/319a1263b9c33b71343adfd407e5daffd453daef47ebc7b642820a8b68ed/cython-3.2.4-cp39-abi3-win_arm64.whl", hash = "sha256:3b8e62049afef9da931d55de82d8f46c9a147313b69d5ff6af6e9121d545ce7a", size = 2442754, upload-time = "2026-01-04T14:15:55.382Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/fa/d3c15189f7c52aaefbaea76fb012119b04b9013f4bf446cb4eb4c26c4e6b/cython-3.2.4-py3-none-any.whl", hash = "sha256:732fc93bc33ae4b14f6afaca663b916c2fdd5dcbfad7114e17fb2434eeaea45c", size = 1257078, upload-time = "2026-01-04T14:14:12.373Z" },
 ]
 
 [[package]]
@@ -2345,6 +2387,14 @@ wheels = [
 ]
 
 [[package]]
+name = "flatbuffers"
+version = "25.12.19"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e8/2d/d2a548598be01649e2d46231d151a6c56d10b964d94043a335ae56ea2d92/flatbuffers-25.12.19-py2.py3-none-any.whl", hash = "sha256:7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4", size = 26661, upload-time = "2025-12-19T23:16:13.622Z" },
+]
+
+[[package]]
 name = "fonttools"
 version = "4.61.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2867,6 +2917,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/98/63/4910c5fa9128fdadf6a9c5ac138e8b1b6cee4ca44bf7915bbfbce4e355ee/huggingface_hub-0.36.0.tar.gz", hash = "sha256:47b3f0e2539c39bf5cde015d63b72ec49baff67b6931c3d97f3f84532e2b8d25", size = 463358, upload-time = "2025-10-23T12:12:01.413Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/bd/1a875e0d592d447cbc02805fd3fe0f497714d6a2583f59d14fa9ebad96eb/huggingface_hub-0.36.0-py3-none-any.whl", hash = "sha256:7bcc9ad17d5b3f07b57c78e79d527102d08313caa278a641993acddcb894548d", size = 566094, upload-time = "2025-10-23T12:11:59.557Z" },
+]
+
+[[package]]
+name = "humanfriendly"
+version = "10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyreadline3", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cc/3f/2c29224acb2e2df4d2046e4c73ee2662023c58ff5b113c4c1adac0886c43/humanfriendly-10.0.tar.gz", hash = "sha256:6b0b831ce8f15f7300721aa49829fc4e83921a9a301cc7f606be6686a2288ddc", size = 360702, upload-time = "2021-09-17T21:40:43.31Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f0/0f/310fb31e39e2d734ccaa2c0fb981ee41f7bd5056ce9bc29b2248bd569169/humanfriendly-10.0-py2.py3-none-any.whl", hash = "sha256:1697e1a8a8f550fd43c2865cd84542fc175a61dcb779b6fee18cf6b6ccba1477", size = 86794, upload-time = "2021-09-17T21:40:39.897Z" },
 ]
 
 [[package]]
@@ -4816,8 +4878,11 @@ all = [
     { name = "mwparserfromhell" },
     { name = "nemo-toolkit", extra = ["asr"] },
     { name = "nixl-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "nvidia-cudnn-cu12" },
     { name = "nvidia-dali-cuda120" },
     { name = "nvidia-ml-py" },
+    { name = "onnx" },
+    { name = "onnxruntime-gpu" },
     { name = "opencv-python" },
     { name = "peft" },
     { name = "pillow" },
@@ -4835,26 +4900,48 @@ all = [
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
     { name = "sentencepiece" },
+    { name = "silero-vad" },
     { name = "soundfile" },
     { name = "torch", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torch", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchaudio", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torchcodec" },
     { name = "torchvision", version = "0.24.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchvision", version = "0.24.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "trafilatura" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "warcio" },
 ]
+audio-common = [
+    { name = "nemo-toolkit", extra = ["asr"] },
+    { name = "onnx" },
+    { name = "silero-vad" },
+    { name = "soundfile" },
+    { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { name = "torchaudio", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+]
 audio-cpu = [
     { name = "nemo-toolkit", extra = ["asr"] },
+    { name = "onnx" },
+    { name = "onnxruntime" },
+    { name = "silero-vad" },
     { name = "soundfile" },
+    { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { name = "torchaudio", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 audio-cuda12 = [
     { name = "gpustat" },
     { name = "nemo-toolkit", extra = ["asr"] },
+    { name = "nvidia-cudnn-cu12" },
     { name = "nvidia-ml-py" },
+    { name = "onnx" },
+    { name = "onnxruntime-gpu" },
+    { name = "silero-vad" },
     { name = "soundfile" },
+    { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { name = "torchaudio", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torchcodec" },
 ]
 cuda12 = [
     { name = "gpustat" },
@@ -5032,6 +5119,8 @@ vllm = [
 
 [package.dev-dependencies]
 build = [
+    { name = "cython" },
+    { name = "packaging" },
     { name = "setuptools" },
     { name = "torch", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torch", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -5088,7 +5177,8 @@ requires-dist = [
     { name = "lxml", marker = "extra == 'text-cpu'" },
     { name = "mecab-python3" },
     { name = "mwparserfromhell", marker = "extra == 'text-cpu'", specifier = "==0.6.5" },
-    { name = "nemo-curator", extras = ["audio-cpu"], marker = "extra == 'audio-cuda12'" },
+    { name = "nemo-curator", extras = ["audio-common"], marker = "extra == 'audio-cpu'" },
+    { name = "nemo-curator", extras = ["audio-common"], marker = "extra == 'audio-cuda12'" },
     { name = "nemo-curator", extras = ["audio-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'audio-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'image-cuda12'" },
@@ -5117,11 +5207,15 @@ requires-dist = [
     { name = "nemo-curator", extras = ["vllm"], marker = "extra == 'inference-server'" },
     { name = "nemo-curator", extras = ["vllm"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["vllm"], marker = "extra == 'video-cuda12'" },
-    { name = "nemo-toolkit", extras = ["asr"], marker = "extra == 'audio-cpu'", specifier = ">=2.7.2" },
+    { name = "nemo-toolkit", extras = ["asr"], marker = "extra == 'audio-common'", specifier = ">=2.7.2" },
     { name = "nixl-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'inference-server'", specifier = ">=0.10.0", index = "https://pypi.org/simple" },
+    { name = "nvidia-cudnn-cu12", marker = "extra == 'audio-cuda12'" },
     { name = "nvidia-dali-cuda120", marker = "extra == 'image-cuda12'" },
     { name = "nvidia-ml-py", marker = "extra == 'cuda12'" },
     { name = "omegaconf" },
+    { name = "onnx", marker = "extra == 'audio-common'", specifier = ">=1.19.0" },
+    { name = "onnxruntime", marker = "extra == 'audio-cpu'", specifier = ">=1.20.1,<1.24" },
+    { name = "onnxruntime-gpu", marker = "extra == 'audio-cuda12'", specifier = ">=1.20.1,<1.24" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "opencv-python", marker = "extra == 'video-cpu'" },
     { name = "pandas", specifier = ">=2.1.0" },
@@ -5144,13 +5238,17 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'deduplication-cuda12'", specifier = "<1.8.0" },
     { name = "sentence-transformers", marker = "extra == 'text-cpu'" },
     { name = "sentencepiece", marker = "extra == 'text-cpu'" },
-    { name = "soundfile", marker = "extra == 'audio-cpu'", specifier = ">=0.12.0" },
+    { name = "silero-vad", marker = "extra == 'audio-common'" },
+    { name = "soundfile", marker = "extra == 'audio-common'", specifier = ">=0.12.0" },
     { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'", index = "https://pypi.org/simple" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "<=2.9.1", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torch", marker = "(platform_machine != 'x86_64' and extra == 'video-cuda12') or (sys_platform == 'darwin' and extra == 'video-cuda12')", specifier = "<=2.9.1", index = "https://pypi.org/simple" },
+    { name = "torchaudio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'audio-common'", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchaudio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchaudio", marker = "(platform_machine != 'x86_64' and extra == 'audio-common') or (sys_platform == 'darwin' and extra == 'audio-common')", index = "https://pypi.org/simple" },
     { name = "torchaudio", marker = "(platform_machine != 'x86_64' and extra == 'video-cuda12') or (sys_platform == 'darwin' and extra == 'video-cuda12')", index = "https://pypi.org/simple" },
+    { name = "torchcodec", marker = "extra == 'audio-cuda12'" },
     { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'image-cpu'", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cpu'", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchvision", marker = "(platform_machine != 'x86_64' and extra == 'image-cpu') or (sys_platform == 'darwin' and extra == 'image-cpu')", index = "https://pypi.org/simple" },
@@ -5161,10 +5259,12 @@ requires-dist = [
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'vllm'", specifier = ">=0.14.1" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
 ]
-provides-extras = ["cuda12", "vllm", "inference-server", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "math-cpu", "math-cuda12", "interleaved-cpu", "sdg-cpu", "sdg-cuda12", "all"]
+provides-extras = ["cuda12", "vllm", "inference-server", "deduplication-cuda12", "audio-common", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "math-cpu", "math-cuda12", "interleaved-cpu", "sdg-cpu", "sdg-cuda12", "all"]
 
 [package.metadata.requires-dev]
 build = [
+    { name = "cython" },
+    { name = "packaging" },
     { name = "setuptools" },
     { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'", specifier = "<=2.9.1", index = "https://pypi.org/simple" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", specifier = "<=2.9.1", index = "https://download.pytorch.org/whl/cu128" },
@@ -5661,10 +5761,12 @@ name = "nvidia-cudnn-cu12"
 version = "9.10.2.21"
 source = { registry = "https://pypi.nvidia.com/" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-cublas-cu12" },
 ]
 wheels = [
+    { url = "https://pypi.nvidia.com/nvidia-cudnn-cu12/nvidia_cudnn_cu12-9.10.2.21-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:c9132cc3f8958447b4910a1720036d9eff5928cc3179b0a51fb6d167c6cc87d8" },
     { url = "https://pypi.nvidia.com/nvidia-cudnn-cu12/nvidia_cudnn_cu12-9.10.2.21-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:949452be657fa16687d0930933f032835951ef0892b37d2d53824d1a84dc97a8" },
+    { url = "https://pypi.nvidia.com/nvidia-cudnn-cu12/nvidia_cudnn_cu12-9.10.2.21-py3-none-win_amd64.whl", hash = "sha256:c6288de7d63e6cf62988f0923f96dc339cea362decb1bf5b3141883392a7d65e" },
 ]
 
 [[package]]
@@ -6014,6 +6116,57 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/23/1d/391f3c567ae068c8ac4f1d1316bae97c9eb45e702f05975fe0e17ad441f0/onnx-1.21.0-cp312-abi3-win32.whl", hash = "sha256:9ea4e824964082811938a9250451d89c4ec474fe42dd36c038bfa5df31993d1e", size = 16287200, upload-time = "2026-03-27T21:32:57.277Z" },
     { url = "https://files.pythonhosted.org/packages/9c/a6/5eefbe5b40ea96de95a766bd2e0e751f35bdea2d4b951991ec9afaa69531/onnx-1.21.0-cp312-abi3-win_amd64.whl", hash = "sha256:458d91948ad9a7729a347550553b49ab6939f9af2cddf334e2116e45467dc61f", size = 16441045, upload-time = "2026-03-27T21:33:00.081Z" },
     { url = "https://files.pythonhosted.org/packages/63/c4/0ed8dc037a39113d2a4d66e0005e07751c299c46b993f1ad5c2c35664c20/onnx-1.21.0-cp312-abi3-win_arm64.whl", hash = "sha256:ca14bc4842fccc3187eb538f07eabeb25a779b39388b006db4356c07403a7bbb", size = 16403134, upload-time = "2026-03-27T21:33:03.987Z" },
+]
+
+[[package]]
+name = "onnxruntime"
+version = "1.23.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "coloredlogs" },
+    { name = "flatbuffers" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "protobuf" },
+    { name = "sympy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/35/d6/311b1afea060015b56c742f3531168c1644650767f27ef40062569960587/onnxruntime-1.23.2-cp310-cp310-macosx_13_0_arm64.whl", hash = "sha256:a7730122afe186a784660f6ec5807138bf9d792fa1df76556b27307ea9ebcbe3", size = 17195934, upload-time = "2025-10-27T23:06:14.143Z" },
+    { url = "https://files.pythonhosted.org/packages/db/db/81bf3d7cecfbfed9092b6b4052e857a769d62ed90561b410014e0aae18db/onnxruntime-1.23.2-cp310-cp310-macosx_13_0_x86_64.whl", hash = "sha256:b28740f4ecef1738ea8f807461dd541b8287d5650b5be33bca7b474e3cbd1f36", size = 19153079, upload-time = "2025-10-27T23:05:57.686Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/4d/a382452b17cf70a2313153c520ea4c96ab670c996cb3a95cc5d5ac7bfdac/onnxruntime-1.23.2-cp310-cp310-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8f7d1fe034090a1e371b7f3ca9d3ccae2fabae8c1d8844fb7371d1ea38e8e8d2", size = 15219883, upload-time = "2025-10-22T03:46:21.66Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/56/179bf90679984c85b417664c26aae4f427cba7514bd2d65c43b181b7b08b/onnxruntime-1.23.2-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:4ca88747e708e5c67337b0f65eed4b7d0dd70d22ac332038c9fc4635760018f7", size = 17370357, upload-time = "2025-10-22T03:46:57.968Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/6d/738e50c47c2fd285b1e6c8083f15dac1a5f6199213378a5f14092497296d/onnxruntime-1.23.2-cp310-cp310-win_amd64.whl", hash = "sha256:0be6a37a45e6719db5120e9986fcd30ea205ac8103fd1fb74b6c33348327a0cc", size = 13467651, upload-time = "2025-10-27T23:06:11.904Z" },
+    { url = "https://files.pythonhosted.org/packages/44/be/467b00f09061572f022ffd17e49e49e5a7a789056bad95b54dfd3bee73ff/onnxruntime-1.23.2-cp311-cp311-macosx_13_0_arm64.whl", hash = "sha256:6f91d2c9b0965e86827a5ba01531d5b669770b01775b23199565d6c1f136616c", size = 17196113, upload-time = "2025-10-22T03:47:33.526Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/a8/3c23a8f75f93122d2b3410bfb74d06d0f8da4ac663185f91866b03f7da1b/onnxruntime-1.23.2-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:87d8b6eaf0fbeb6835a60a4265fde7a3b60157cf1b2764773ac47237b4d48612", size = 19153857, upload-time = "2025-10-22T03:46:37.578Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/d8/506eed9af03d86f8db4880a4c47cd0dffee973ef7e4f4cff9f1d4bcf7d22/onnxruntime-1.23.2-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:bbfd2fca76c855317568c1b36a885ddea2272c13cb0e395002c402f2360429a6", size = 15220095, upload-time = "2025-10-22T03:46:24.769Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/80/113381ba832d5e777accedc6cb41d10f9eca82321ae31ebb6bcede530cea/onnxruntime-1.23.2-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:da44b99206e77734c5819aa2142c69e64f3b46edc3bd314f6a45a932defc0b3e", size = 17372080, upload-time = "2025-10-22T03:47:00.265Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/db/1b4a62e23183a0c3fe441782462c0ede9a2a65c6bbffb9582fab7c7a0d38/onnxruntime-1.23.2-cp311-cp311-win_amd64.whl", hash = "sha256:902c756d8b633ce0dedd889b7c08459433fbcf35e9c38d1c03ddc020f0648c6e", size = 13468349, upload-time = "2025-10-22T03:47:25.783Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/9e/f748cd64161213adeef83d0cb16cb8ace1e62fa501033acdd9f9341fff57/onnxruntime-1.23.2-cp312-cp312-macosx_13_0_arm64.whl", hash = "sha256:b8f029a6b98d3cf5be564d52802bb50a8489ab73409fa9db0bf583eabb7c2321", size = 17195929, upload-time = "2025-10-22T03:47:36.24Z" },
+    { url = "https://files.pythonhosted.org/packages/91/9d/a81aafd899b900101988ead7fb14974c8a58695338ab6a0f3d6b0100f30b/onnxruntime-1.23.2-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:218295a8acae83905f6f1aed8cacb8e3eb3bd7513a13fe4ba3b2664a19fc4a6b", size = 19157705, upload-time = "2025-10-22T03:46:40.415Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/35/4e40f2fba272a6698d62be2cd21ddc3675edfc1a4b9ddefcc4648f115315/onnxruntime-1.23.2-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:76ff670550dc23e58ea9bc53b5149b99a44e63b34b524f7b8547469aaa0dcb8c", size = 15226915, upload-time = "2025-10-22T03:46:27.773Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/88/9cc25d2bafe6bc0d4d3c1db3ade98196d5b355c0b273e6a5dc09c5d5d0d5/onnxruntime-1.23.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:0f9b4ae77f8e3c9bee50c27bc1beede83f786fe1d52e99ac85aa8d65a01e9b77", size = 17382649, upload-time = "2025-10-22T03:47:02.782Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/b4/569d298f9fc4d286c11c45e85d9ffa9e877af12ace98af8cab52396e8f46/onnxruntime-1.23.2-cp312-cp312-win_amd64.whl", hash = "sha256:25de5214923ce941a3523739d34a520aac30f21e631de53bba9174dc9c004435", size = 13470528, upload-time = "2025-10-22T03:47:28.106Z" },
+]
+
+[[package]]
+name = "onnxruntime-gpu"
+version = "1.23.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "coloredlogs" },
+    { name = "flatbuffers" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "protobuf" },
+    { name = "sympy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cb/ae/39283748c68a96be4f5f8a9561e0e3ca92af1eae6c2b1c07fb1da5f65cd1/onnxruntime_gpu-1.23.2-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:18de50c6c8eea50acc405ea13d299aec593e46478d7a22cd32cdbbdf7c42899d", size = 300525411, upload-time = "2025-10-22T16:56:08.415Z" },
+    { url = "https://files.pythonhosted.org/packages/21/c9/47abd3ec1f34498224d2a8f5cc4d1445eb5cc7dee8e3644b1a972619c0d2/onnxruntime_gpu-1.23.2-cp310-cp310-win_amd64.whl", hash = "sha256:deba091e15357355aa836fd64c6c4ac97dd0c4609c38b08a69675073ea46b321", size = 244505340, upload-time = "2025-10-27T22:47:43.215Z" },
+    { url = "https://files.pythonhosted.org/packages/43/a4/e3d7fbe32b44e814ae24ed642f05fac5d96d120efd82db7a7cac936e85a9/onnxruntime_gpu-1.23.2-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:d76d1ac7a479ecc3ac54482eea4ba3b10d68e888a0f8b5f420f0bdf82c5eec59", size = 300525715, upload-time = "2025-10-22T16:56:19.928Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/5c/dba7c009e73dcce02e7f714574345b5e607c5c75510eb8d7bef682b45e5d/onnxruntime_gpu-1.23.2-cp311-cp311-win_amd64.whl", hash = "sha256:054282614c2fc9a4a27d74242afbae706a410f1f63cc35bc72f99709029a5ba4", size = 244506823, upload-time = "2025-10-22T16:55:09.526Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/d9/b7140a4f1615195938c7e358c0804bb84271f0d6886b5cbf105c6cb58aae/onnxruntime_gpu-1.23.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:4f2d1f720685d729b5258ec1b36dee1de381b8898189908c98cbeecdb2f2b5c2", size = 300509596, upload-time = "2025-10-22T16:56:31.728Z" },
+    { url = "https://files.pythonhosted.org/packages/87/da/2685c79e5ea587beddebe083601fead0bdf3620bc2f92d18756e7de8a636/onnxruntime_gpu-1.23.2-cp312-cp312-win_amd64.whl", hash = "sha256:fe925a84b00e291e0ad3fac29bfd8f8e06112abc760cdc82cb711b4f3935bd95", size = 244508327, upload-time = "2025-10-22T16:55:19.397Z" },
 ]
 
 [[package]]
@@ -7207,6 +7360,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/62/1d/d559954c70be4aade5a6c292c2a940718c4f1da764866b82d8f4261eea3c/pyparsing-3.3.0.tar.gz", hash = "sha256:0de16f2661afbab11fe6645d9472c3b96968d2fffea5b0cc9da88f5be286f039", size = 1550386, upload-time = "2025-12-22T14:49:04.322Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/23/c8dd17cbb1bd6614f306a983e260e31c01f3e8e8cc8954ba68749db6ae82/pyparsing-3.3.0-py3-none-any.whl", hash = "sha256:d15038408e0097d3a01e7e0846731f7f2450c5b6e4a75a52baabd6bbf24585be", size = 121782, upload-time = "2025-12-22T14:49:02.822Z" },
+]
+
+[[package]]
+name = "pyreadline3"
+version = "3.5.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/49/4cea918a08f02817aabae639e3d0ac046fef9f9180518a3ad394e22da148/pyreadline3-3.5.4.tar.gz", hash = "sha256:8d57d53039a1c75adba8e50dd3d992b28143480816187ea5efbd5c78e6c885b7", size = 99839, upload-time = "2024-09-19T02:40:10.062Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5a/dc/491b7661614ab97483abf2056be1deee4dc2490ecbf7bff9ab5cdbac86e1/pyreadline3-3.5.4-py3-none-any.whl", hash = "sha256:eaf8e6cc3c49bcccf145fc6067ba8643d1df34d604a1ec0eccbf7a18e6d3fae6", size = 83178, upload-time = "2024-09-19T02:40:08.598Z" },
 ]
 
 [[package]]
@@ -8507,6 +8669,22 @@ wheels = [
 ]
 
 [[package]]
+name = "silero-vad"
+version = "6.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "torch", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { name = "torch", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { name = "torchaudio", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/32/d3/e31f526482782764aa4f70e20fd4545cf2e4a81a60b6fb0f089f6d107991/silero_vad-6.2.1.tar.gz", hash = "sha256:b23062b0e39fad17b1266fc23c1e7b4290219dbe82ce08510889e32f681f4b3b", size = 28913811, upload-time = "2026-02-24T08:41:59.329Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/2b/48566f29a8b53d856ceb1994f209122749b3fda0a733a07e82047257de7a/silero_vad-6.2.1-py3-none-any.whl", hash = "sha256:09de93c4d874bb19c53e62a47dd38be5f163cedad2b5599583231f2a84ef79cb", size = 9146242, upload-time = "2026-02-24T08:41:56.955Z" },
+]
+
+[[package]]
 name = "siphash24"
 version = "1.8"
 source = { registry = "https://pypi.org/simple" }
@@ -9171,6 +9349,25 @@ wheels = [
     { url = "https://download-r2.pytorch.org/whl/cu128/torchaudio-2.9.1%2Bcu128-cp311-cp311-win_amd64.whl", hash = "sha256:c91eea923573e7b02611a324232e4adb7aad5f828aa875b1f48241c228980899" },
     { url = "https://download-r2.pytorch.org/whl/cu128/torchaudio-2.9.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:54eb19e634b8c567886a1b53b4184506d943c3ba5139198e9fe1b941bc566f30" },
     { url = "https://download-r2.pytorch.org/whl/cu128/torchaudio-2.9.1%2Bcu128-cp312-cp312-win_amd64.whl", hash = "sha256:88896c7bfa486102439fab6c85ac834176617e9c06eb0be9074c07ee1183b47d" },
+]
+
+[[package]]
+name = "torchcodec"
+version = "0.11.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1f/85/077709a188cfea3d2785e9997d448f4908ea32f12020064bc907c416f469/torchcodec-0.11.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:dff020aaec66b16b41e8eb01990de1ec7a9bc72403e86c5e719e8bb36c041cbf", size = 3700611, upload-time = "2026-03-24T15:56:07.62Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/ce/9bd0e140e99e573e6779cece937c5b83fa0c11d7f42f2a52b38701221f20/torchcodec-0.11.0-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:df4cd0a8ae0942a965ee8ce216da895e4ef90b3ad31c6bde3789d73843d093c7", size = 2377435, upload-time = "2026-03-24T15:56:09.603Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/9a/20e0ce18c9b34eb2330f0083e874cca4d1774da11daeb0ef9d2003f52ea4/torchcodec-0.11.0-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:43c539d08415e79006f8f3fb9da94ee63bc801a502651b7692ddec770842f9f8", size = 2515222, upload-time = "2026-03-24T15:56:11.706Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/86/44b3a43c37c40cfdf66b4f212e2276ab76d9770640a6ed1aa409e4ef90f2/torchcodec-0.11.0-cp310-cp310-win_amd64.whl", hash = "sha256:f7b0e4ec48435ac69ff88524183cf25087d4ecdc3077a730c3f665e29280479b", size = 1903113, upload-time = "2026-03-24T15:56:13.675Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/c9/2b43de18d7352be57461a80d7fbcc8107a3ca2ad389153a5b85b0f71d445/torchcodec-0.11.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:176208beb6576f673c5ef7c82bec122880041127e8c3f22186e2d961bc089317", size = 4202508, upload-time = "2026-03-24T15:56:15.539Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/c3/d131dec79beaea09f88269ebbfa7fbb99c238ba740112a87c606371c3cd7/torchcodec-0.11.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:5562c28dce8114597116f0884908745c29ce401e4a9d0ae46853cbcd858d4f52", size = 2385509, upload-time = "2026-03-24T15:56:17.196Z" },
+    { url = "https://files.pythonhosted.org/packages/a1/a4/7c43426ab337df4de25b33f5139a0e9affd9851b1e3a86db1c829dab71d7/torchcodec-0.11.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:4f1717eeb9d2c9d4b5e03c37fce90188189ad5231ca7a50c4b3299e3b9d8a106", size = 2526183, upload-time = "2026-03-24T15:56:19.179Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/e7/4575960e23cd3295c99ec417ee706f0da85ce3a8c9039fbbb8d114b27359/torchcodec-0.11.0-cp311-cp311-win_amd64.whl", hash = "sha256:0e3654fae566891273567f1eebe2baeff0b35ee71eaa8884dd7790c4faa2fe32", size = 1915260, upload-time = "2026-03-24T15:56:21.095Z" },
+    { url = "https://files.pythonhosted.org/packages/72/f2/85da3abfef5443b0fd7a70706dabf54e0fb5592ed6b03b3f8bfccff06af0/torchcodec-0.11.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:3e5abd61ad9de69a7008545f5c08736b66298f4e895b1f9fad01ae41bce75252", size = 4368773, upload-time = "2026-03-24T15:56:22.952Z" },
+    { url = "https://files.pythonhosted.org/packages/73/4c/b466aa762abf2e771cfd865bac1c03259a66c482b83978898c00810cb97f/torchcodec-0.11.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:aca62724bf7d4b5b70db60183e8bee67ba77f4f0afdb052e6d1900528b97de6e", size = 2397523, upload-time = "2026-03-24T15:56:25.026Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/01/2488f553e8014c911652c2bf29265b73ec3753ac13ac4816b9c831ad27e2/torchcodec-0.11.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:669895505b7f0cd17bd6a71cf8bfa85190a9de1dc87f77051682c73149d58023", size = 2545573, upload-time = "2026-03-24T15:56:26.765Z" },
+    { url = "https://files.pythonhosted.org/packages/21/a7/e12e7cc5d69dd55e3edef7f16f46bcca5978c6262c86e51ccd3913bff92b/torchcodec-0.11.0-cp312-cp312-win_amd64.whl", hash = "sha256:8a1f023e26dddca77c1c81de83cf9201ecb363b818405557da70e4777b966697", size = 1921067, upload-time = "2026-03-24T15:56:28.417Z" },
 ]
 
 [[package]]
