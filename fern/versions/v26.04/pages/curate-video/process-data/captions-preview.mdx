@@ -1,7 +1,7 @@
 ---
-description: "Generate clip captions with Qwen and optional preview images"
+description: "Generate clip captions with Qwen or Nemotron VLM and optional preview images"
 categories: ["video-curation"]
-tags: ["captions", "qwen", "preview", "video"]
+tags: ["captions", "qwen", "nemotron", "preview", "video", "vlm"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "howto"
@@ -10,7 +10,7 @@ modality: "video-only"
 
 # Captions and Preview
 
-Prepare inputs, generate captions, optionally enhance them, and produce preview images.
+Prepare inputs, generate captions, optionally enhance them, and produce preview images. NeMo Curator supports two vision-language models for video captioning: **Qwen-VL** and **Nemotron VLM**.
 
 ---
 
@@ -19,7 +19,7 @@ Prepare inputs, generate captions, optionally enhance them, and produce preview 
 Use the pipeline stages or the example script flags to prepare captions and preview images.
 
 <Tabs>
-<Tab title="Pipeline Stage">
+<Tab title="Qwen VL">
 
 ```python
 from nemo_curator.pipeline import Pipeline
@@ -55,6 +55,40 @@ pipe.add_stage(
         generate_stage2_caption=False,
         stage2_prompt_text=None,
         disable_mmcache=True,
+    )
+)
+pipe.run()
+```
+
+</Tab>
+
+<Tab title="Nemotron VLM">
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.video.caption.caption_preparation import CaptionPreparationStage
+from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage
+from nemo_curator.stages.video.preview.preview import PreviewStage
+
+pipe = Pipeline(name="nemotron_captions")
+pipe.add_stage(
+    CaptionPreparationStage(
+        model_variant="nemotron",
+        prompt_variant="default",
+        sampling_fps=2.0,
+        window_size=256,
+        remainder_threshold=128,
+        generate_previews=True,
+        verbose=True,
+    )
+)
+pipe.add_stage(PreviewStage(target_fps=1.0, target_height=240, verbose=True))
+pipe.add_stage(
+    CaptionGenerationStage(
+        model_dir="/models",
+        model_variant="nemotron",
+        caption_batch_size=8,
+        max_output_tokens=512,
     )
 )
 pipe.run()
@@ -122,7 +156,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `model_variant` | str | `"qwen"` | Vision‑language model used to format inputs for captioning (currently `qwen`). |
+| `model_variant` | str | `"qwen"` | Vision‑language model variant: `"qwen"` or `"nemotron"`. |
 | `prompt_variant` | {"default", "av", "av-surveillance"} | `"default"` | Built‑in prompt to steer caption content when `prompt_text` is not provided. |
 | `prompt_text` | str \| None | `None` | Custom prompt text. When set, overrides `prompt_variant`. |
 | `sampling_fps` | float | 2.0 | Source sampling rate for creating per‑window inputs. |
@@ -151,7 +185,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 
 ## Caption generation and enhancement
 
-1. Generate window‑level captions with a vision‑language model (Qwen‑VL). This stage reads `clip.windows[*].qwen_llm_input` created earlier and writes `window.caption["qwen"]`.
+1. Generate window‑level captions with a vision‑language model. Supported models are **Qwen-VL** and **Nemotron VLM** (NemotronH hybrid Mamba-Attention). This stage reads the model-specific LLM input created by `CaptionPreparationStage` and writes captions per window.
 
    ```python
    from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage
@@ -194,7 +228,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `model_dir` | str | `"models/qwen"` | Directory for model weights; downloaded on each node if missing. |
-| `model_variant` | {"qwen"} | `"qwen"` | Vision‑language model variant. |
+| `model_variant` | {"qwen", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"} | `"qwen"` | Vision‑language model variant. See [Nemotron VLM variants](#nemotron-vlm-variants) for quantization options. |
 | `caption_batch_size` | int | 16 | Batch size for caption generation. |
 | `fp8` | bool | `False` | Use FP8 weights when available. |
 | `max_output_tokens` | int | 512 | Maximum number of tokens to generate per caption. |
@@ -211,7 +245,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `model_dir` | str | `"models/qwen"` | Directory for language‑model weights; downloaded per node if missing. |
-| `model_variant` | {"qwen"} | `"qwen"` | Language‑model variant. |
+| `model_variant` | {"qwen", "nemotron"} | `"qwen"` | Language‑model variant. |
 | `prompt_variant` | {"default", "av-surveillance"} | `"default"` | Built‑in enhancement prompt when `prompt_text` is not provided. |
 | `prompt_text` | str \| None | `None` | Custom enhancement prompt. When set, overrides `prompt_variant`. |
 | `model_batch_size` | int | 128 | Batch size for enhancement generation. |
@@ -265,6 +299,20 @@ previews_dir = ClipWriterStage.get_output_path_previews("/outputs")
 ```
 
 Refer to Save & Export for directory structure and file locations: [Save & Export](/curate-video/save-export).
+
+## Nemotron VLM Variants
+
+The Nemotron VLM (NemotronH hybrid Mamba-Attention) is available in multiple quantization variants from HuggingFace. Models download automatically on first use.
+
+| Variant | HuggingFace Model ID | Precision | Notes |
+| --- | --- | --- | --- |
+| `nemotron` / `nemotron-bf16` | `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16` | BF16 | Default variant, highest quality |
+| `nemotron-fp8` | `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-FP8` | FP8 | Reduced memory, slight quality trade-off |
+| `nemotron-nvfp4` | `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD` | NVFP4 | Smallest memory footprint |
+
+<Note>
+Nemotron VLM requires vLLM with V1 engine support and `flash-attn>=2.8.3`.
+</Note>
 
 ### Requirements and Troubleshooting
 

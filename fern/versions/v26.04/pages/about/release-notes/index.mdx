@@ -62,6 +62,54 @@ Standardized return type for all deduplication workflows:
 - **Structured metadata**: Access per-stage timing (`total_time`, `identification_time`, and others), duplicate counts (`num_duplicates`, `num_duplicates_removed`), and output paths through `result.metadata`
 - **`TaskPerfUtils` compatibility**: `collect_stage_metrics()` and `aggregate_task_metrics()` now accept `WorkflowRunResult` directly
 
+### Nemotron VLM for Video Captioning (PR #1160)
+
+Added NemotronH hybrid Mamba-Attention VLM as an alternative to Qwen-VL for video captioning:
+
+- **`NemotronHVL` model class**: Supports `nemotron` (BF16), `nemotron-fp8`, and `nemotron-nvfp4` quantization variants from HuggingFace (`nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-*`).
+- **`CaptionGenerationStage` and `CaptionPreparationStage`**: Updated to accept `model_variant="nemotron"` alongside the existing `"qwen"` option.
+- **Automatic model download**: Models download from HuggingFace on first use with pinned revision hashes for reproducibility.
+
+Learn more in the [Captions and Preview](/curate-video/process-data/captions-preview) documentation.
+
+### Audio Preprocessing Stages (PR #1575)
+
+New stages for preparing raw audio before ASR and quality assessment:
+
+- **`MonoConversionStage`**: Converts multi-channel audio to mono by averaging channels and verifies sample rate compliance.
+- **`SegmentConcatenationStage`**: Assembles VAD-segmented audio (from `VADSegmentationStage(nested=True)`) into a single waveform per source file with configurable silence between segments.
+- **`TimestampMapperStage`**: Resolves segment positions in the concatenated waveform back to original file timestamps, producing metadata-only output.
+
+Learn more in the [Audio Preprocessing](/curate-audio/process-data/preprocessing) documentation.
+
+### Audio Band Filtering (PR #1576)
+
+New bandwidth classification stage for filtering audio by spectral quality:
+
+- **`BandFilterStage`**: Classifies audio as `"full_band"` or `"narrow_band"` using a pre-trained model from HuggingFace (`nvidia/nemocurator-speech-bandwidth-filter`), then filters based on the specified band type.
+- **GPU support**: Configurable via `Resources(gpus=N)` for GPU-accelerated inference.
+
+Learn more in the [Band Filtering](/curate-audio/process-data/preprocessing/band-filtering) documentation.
+
+### Fuzzy Dedup LSH Memory Tuning (PR #1603)
+
+Added GPU memory management parameters to `FuzzyDeduplicationWorkflow` for the LSH stage:
+
+- **`lsh_num_output_partitions`**: Control the number of shuffle output partitions (default: auto-selected as closest power of 2 &lt;= input tasks).
+- **`lsh_rmm_pool_size`**: Configure the RMM GPU memory pool size (`"auto"` = 90% of free memory, `None` = 50% expandable).
+- **`lsh_spill_memory_limit`**: Set the device memory spill threshold (`"auto"` = 80% of RMM pool, `None` = disabled).
+
+Learn more in the [Fuzzy Deduplication](/curate-text/process-data/deduplication/fuzzy) documentation.
+
+### Interleaved IO Improvements (PR #1652)
+
+Schema utilities and base-class enhancements for multimodal readers and writers:
+
+- **`schema` and `schema_overrides` parameters**: New parameters on `BaseInterleavedReader` for strict schema alignment or partial type overrides on output tables.
+- **`WebdatasetReaderStage` renamed to `InterleavedWebdatasetReaderStage`**: Clarifies naming for the interleaved reader stage.
+- **`source_id_field` removed**: The `source_id_field` parameter has been removed from `WebdatasetReader` and `InterleavedWebdatasetReaderStage`.
+- **Schema utility functions**: `reconcile_schema`, `resolve_schema`, and `align_table` handle type reconciliation for reserved and passthrough columns.
+
 ### Actor Pool Progress Bars (PR #1457)
 
 Added tqdm progress bars to `RayActorPoolExecutor` for real-time visibility into task completion during stage processing and shuffle inserts. Progress bars are enabled by default and can be configured with `show_progress` and `progress_interval` parameters. This is particularly useful for long-running deduplication jobs where progress is not otherwise apparent.
@@ -72,6 +120,11 @@ Added tqdm progress bars to `RayActorPoolExecutor` for real-time visibility into
 - **Ray**: Updated to 2.54
 - **cryptography**: Bumped from >=46.0.5 to >=46.0.6 to address CVE GHSA-m959-cc7f-wv43 (PR #1682)
 - **uv**: Added minimum required version (>=0.7.0) to prevent lockfile revision drift
+- **nemo-toolkit[asr]**: Bumped to >=2.7.2 to fix CVE-2025-33245 and CVE-2025-33253 (RCE via unsafe deserialization) (PR #1612)
+- **xgrammar**: Bumped to >=0.1.32 to fix GHSA-7rgv-gqhr-fxg3 (DoS via uncontrolled recursion) (PR #1612)
+- **pyopenssl**: Bumped from 22.0.0 to 26.0.0 (PR #1669)
+- **onnx**: Bumped from 1.20.0 to 1.21.0 (PR #1713)
+- **flash-attn**: Pinned to >=2.8.3 for NemotronH VLM compatibility (PR #1160)
 
 ## Bug Fixes
 
@@ -95,3 +148,7 @@ Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage`
 - **`SemanticDeduplicationWorkflow.run()` and `TextSemanticDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `dict`
 - **`TextDuplicatesRemovalWorkflow.run()`** now returns `WorkflowRunResult` instead of `list[FileGroupTask] | None`
 - Code that previously ignored the return value is unaffected. Code that consumed the old `dict` return from semantic workflows must migrate to `result.metadata` and `result.pipeline_tasks`.
+- **`WebdatasetReaderStage` renamed to `InterleavedWebdatasetReaderStage`** (PR #1652): Code that imports `WebdatasetReaderStage` directly must update to `InterleavedWebdatasetReaderStage`. The `WebdatasetReader` composite stage is unchanged.
+- **`source_id_field` removed** (PR #1652): The `source_id_field` parameter has been removed from `WebdatasetReader` and the underlying reader stage. Remove this parameter from existing code.
+- **`ray_dist.jar` removed from Docker image** (PR #1612): The `ray_dist.jar` file has been removed from the Dockerfile to address GHSA-72hv-8253-57qq. This does not affect Python-based workflows.
+- **`FuzzyDeduplicationWorkflow` LSH defaults changed** (PR #1603): The `rmm_pool_size` and `spill_memory_limit` parameters passed to the internal LSH stage now default to `"auto"` (previously hardcoded). This is exposed through the new `lsh_rmm_pool_size` and `lsh_spill_memory_limit` workflow parameters.

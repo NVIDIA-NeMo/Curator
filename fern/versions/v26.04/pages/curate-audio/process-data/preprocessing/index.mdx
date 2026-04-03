@@ -1,0 +1,127 @@
+---
+description: "Convert multi-channel audio to mono, concatenate VAD segments, and map timestamps back to original files"
+categories: ["audio-processing"]
+tags: ["audio-preprocessing", "mono-conversion", "segment-concatenation", "timestamp-mapping", "vad"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# Audio Preprocessing
+
+Prepare raw audio files for downstream processing with stages that handle channel conversion, segment assembly, and timestamp resolution. These stages typically run early in an audio pipeline before ASR inference and quality assessment.
+
+## Overview
+
+Audio preprocessing in NeMo Curator provides three stages that work together:
+
+1. **MonoConversionStage**: Converts multi-channel audio to mono and verifies sample rate
+2. **SegmentConcatenationStage**: Assembles VAD-segmented audio into a single waveform per source file
+3. **TimestampMapperStage**: Resolves segment positions in the concatenated waveform back to the original file
+
+A typical preprocessing pipeline chains these stages with VAD segmentation:
+
+```
+MonoConversion → VADSegmentation(nested=True) → SegmentConcatenation → [processing] → TimestampMapper
+```
+
+## Mono Conversion
+
+Convert multi-channel audio to mono by averaging channels and verify the sample rate matches expectations.
+
+```python
+from nemo_curator.stages.audio.preprocessing import MonoConversionStage
+
+stage = MonoConversionStage(
+    output_sample_rate=48000,
+    audio_filepath_key="audio_filepath",
+    strict_sample_rate=True,
+)
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `output_sample_rate` | int | 48000 | Expected sample rate in Hz |
+| `audio_filepath_key` | str | "audio_filepath" | Key in data dict for audio file path |
+| `strict_sample_rate` | bool | True | Reject audio with mismatched sample rate |
+
+**Output fields**: `waveform`, `sample_rate`, `is_mono`, `duration`, `num_samples`
+
+When `strict_sample_rate` is `True`, audio files with a sample rate different from `output_sample_rate` are filtered out. Set to `False` to accept any sample rate.
+
+## Segment Concatenation
+
+Concatenate VAD segments from `VADSegmentationStage(nested=True)` into a single waveform per source file, with configurable silence between segments.
+
+```python
+from nemo_curator.stages.audio.preprocessing import SegmentConcatenationStage
+
+stage = SegmentConcatenationStage(
+    silence_duration_sec=0.5,
+)
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `silence_duration_sec` | float | 0.5 | Duration of silence inserted between segments (seconds) |
+
+**Input**: Expects `task.data["segments"]` list from `VADSegmentationStage(nested=True)`
+
+**Output fields**: `waveform`, `sample_rate`, `num_segments`, `total_duration_sec`, `original_file`
+
+Segments are sorted by `segment_num` before concatenation. Gaps from filtered-out segments are preserved in the correct order. Segment-to-original mappings are stored in `task._metadata["segment_mappings"]` for use by `TimestampMapperStage`.
+
+## Timestamp Mapping
+
+Resolve segment positions in the concatenated waveform back to positions in the original audio file. Strips waveform data from the output, producing metadata-only results.
+
+```python
+from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
+
+stage = TimestampMapperStage(
+    passthrough_keys=["speaker_id", "quality_score"],
+)
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `passthrough_keys` | list[str] \| None | None | Additional data keys to preserve in output |
+
+**Input**: Requires `task._metadata["segment_mappings"]` from `SegmentConcatenationStage`
+
+**Output fields**: `original_file`, `original_start_ms`, `original_end_ms`, `duration_ms`, `duration_sec`
+
+## Complete Pipeline
+
+Here is a complete pipeline combining preprocessing stages with VAD and ASR:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.preprocessing import MonoConversionStage, SegmentConcatenationStage
+from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
+
+pipeline = Pipeline(name="audio_preprocessing")
+
+# 1. Convert to mono and verify sample rate
+pipeline.add_stage(MonoConversionStage(
+    output_sample_rate=48000,
+    strict_sample_rate=True,
+))
+
+# 2. Run VAD segmentation (nested mode groups segments per file)
+# pipeline.add_stage(VADSegmentationStage(nested=True))
+
+# 3. Concatenate segments into single waveform
+pipeline.add_stage(SegmentConcatenationStage(
+    silence_duration_sec=0.5,
+))
+
+# 4. Run downstream processing (ASR, quality assessment, etc.)
+# ...
+
+# 5. Map timestamps back to original file positions
+pipeline.add_stage(TimestampMapperStage(
+    passthrough_keys=["transcript", "quality_score"],
+))
+```

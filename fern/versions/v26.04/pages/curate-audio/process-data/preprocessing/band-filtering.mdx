@@ -1,0 +1,97 @@
+---
+description: "Classify and filter audio by bandwidth using a pre-trained model to remove low-quality narrow-band recordings"
+categories: ["audio-processing"]
+tags: ["audio-filtering", "bandwidth-classification", "band-filter", "quality-filtering"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# Band Filtering
+
+Classify audio as full-band or narrow-band based on spectral characteristics, then filter to keep only the desired bandwidth type. This is useful for removing low-quality telephone or compressed audio from training datasets.
+
+## How It Works
+
+`BandFilterStage` uses a pre-trained classifier model to predict whether each audio file is full-band or narrow-band:
+
+- **Full-band**: Broad frequency range typical of high-quality recordings
+- **Narrow-band**: Limited frequency range typical of telephone audio or heavy compression
+
+The model downloads automatically from HuggingFace (`nvidia/nemocurator-speech-bandwidth-filter`) on first use.
+
+## Quick Start
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.filtering import BandFilterStage
+
+pipeline = Pipeline(name="band_filter")
+
+# Keep only full-band audio
+pipeline.add_stage(BandFilterStage(band_value="full_band"))
+```
+
+## Configuration
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_path` | str \| None | None | Local path to `.joblib` model file. Auto-downloads from HuggingFace if not provided. |
+| `cache_dir` | str \| None | None | Directory to cache downloaded models |
+| `band_value` | "full_band" \| "narrow_band" | "full_band" | Which bandwidth type to pass through the filter |
+
+**Output field**: `band_prediction` (str: "full_band" or "narrow_band")
+
+## GPU Support
+
+`BandFilterStage` runs on CPU by default. To use GPU acceleration, configure the stage resources:
+
+```python
+from nemo_curator.stages.audio.filtering import BandFilterStage
+from nemo_curator.stages.resources import Resources
+
+stage = BandFilterStage(
+    band_value="full_band",
+    resources=Resources(gpus=1),
+)
+```
+
+## Using a Local Model
+
+If you have a pre-downloaded model or a custom-trained classifier, provide the path directly:
+
+```python
+stage = BandFilterStage(
+    model_path="/path/to/band_classifier_model.joblib",
+    band_value="full_band",
+)
+```
+
+## Pipeline Example
+
+Combine band filtering with other audio processing stages:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.filtering import BandFilterStage
+from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
+
+pipeline = Pipeline(name="audio_quality")
+
+# 1. Calculate duration
+pipeline.add_stage(GetAudioDurationStage(
+    audio_filepath_key="audio_filepath",
+    duration_key="duration",
+))
+
+# 2. Filter short/long audio
+pipeline.add_stage(PreserveByValueStage(
+    input_value_key="duration",
+    target_value=1.0,
+    operator="ge",
+))
+
+# 3. Keep only full-band audio
+pipeline.add_stage(BandFilterStage(band_value="full_band"))
+```

@@ -95,6 +95,29 @@ Configure fuzzy deduplication using these key parameters:
 | `input_filetype` | str | "parquet" | Input file format ("parquet" or "jsonl") |
 | `input_blocksize` | str \| int | "1GiB" | Size of input blocks for processing |
 | `perform_removal` | bool | False | Reserved; must remain `False`. Fuzzy removal is performed with `TextDuplicatesRemovalWorkflow`. |
+| `lsh_num_output_partitions` | int \| None | None | Total partitions during LSH shuffle. If None, auto-selects closest power of 2 &lt;= input tasks. |
+| `lsh_rmm_pool_size` | int \| "auto" \| None | "auto" | RMM GPU memory pool size in bytes. `"auto"` = 90% of free GPU memory; `None` = 50% expandable. |
+| `lsh_spill_memory_limit` | int \| "auto" \| None | "auto" | Device memory spill limit in bytes. `"auto"` = 80% of RMM pool; `None` = spilling disabled. |
+
+### LSH GPU Memory Tuning
+
+The `lsh_*` parameters control GPU memory allocation during the LSH stage, which is the most memory-intensive phase:
+
+- **`lsh_rmm_pool_size`**: Controls the RAPIDS Memory Manager pool. `"auto"` (default) allocates 90% of free GPU memory as a fixed pool. Set to `None` for a 50% expandable pool that grows on demand.
+- **`lsh_spill_memory_limit`**: Controls when data spills from GPU to host memory. `"auto"` (default) spills at 80% of the RMM pool. Set to `None` to disable spilling entirely (risks OOM on large datasets).
+- **`lsh_num_output_partitions`**: Controls shuffle parallelism. Higher values reduce per-partition memory at the cost of more shuffle overhead. Leave as `None` for automatic selection.
+
+```python
+# Example: manual GPU memory configuration for a 40GB GPU
+fuzzy_workflow = FuzzyDeduplicationWorkflow(
+    input_path="input_data/",
+    cache_path="./cache",
+    output_path="./results",
+    lsh_rmm_pool_size=34_000_000_000,     # 34GB fixed pool
+    lsh_spill_memory_limit=27_000_000_000, # Spill at 27GB
+    lsh_num_output_partitions=64,          # 64 output partitions
+)
+```
 
 ### Similarity Threshold
 
