@@ -75,6 +75,16 @@ The exact deduplication identification stage now supports batched insertion into
 - **New `identification_batchsize` parameter** on `ExactDeduplicationWorkflow`: Controls how many input blocks are concatenated and inserted together. For example, an `input_blocksize` of `256MiB` with `identification_batchsize=4` processes ~1 GB of data per insertion call.
 - **Batch-aware shuffle adapter**: The Ray actor pool shuffle adapter now automatically uses `read_and_insert_batch` when a stage provides it, falling back to single-task processing otherwise.
 
+### LSH Memory Configuration for Fuzzy Deduplication (PR #1603)
+
+`FuzzyDeduplicationWorkflow` now exposes three parameters for controlling GPU memory and shuffle behavior during the LSH stage:
+
+- **`lsh_num_output_partitions`**: Sets the total number of output partitions for the LSH shuffle. When `None` (default), the partition count is chosen automatically.
+- **`lsh_rmm_pool_size`**: Controls the RMM GPU memory pool size in bytes. Defaults to `"auto"` (90% of free GPU memory).
+- **`lsh_spill_memory_limit`**: Controls the device memory limit for spilling to host. Defaults to `"auto"` (80% of the RMM pool size). Set to `None` to disable spilling.
+
+These parameters were previously hardcoded in the LSH stage and are now configurable at the workflow level, enabling finer-grained GPU memory tuning for large-scale fuzzy deduplication jobs.
+
 ## Dependency Updates
 
 - **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
