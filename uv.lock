@@ -4866,7 +4866,6 @@ all = [
     { name = "cudf-cu12" },
     { name = "cuml-cu12" },
     { name = "cvcuda-cu12" },
-    { name = "cython" },
     { name = "data-designer" },
     { name = "easydict" },
     { name = "einops" },
@@ -4885,7 +4884,6 @@ all = [
     { name = "onnx" },
     { name = "onnxruntime-gpu" },
     { name = "opencv-python" },
-    { name = "packaging" },
     { name = "peft" },
     { name = "pillow" },
     { name = "pycld2" },
@@ -4900,7 +4898,6 @@ all = [
     { name = "s3fs" },
     { name = "s5cmd" },
     { name = "scikit-learn" },
-    { name = "seaborn" },
     { name = "sentence-transformers" },
     { name = "sentencepiece" },
     { name = "silero-vad" },
@@ -4917,38 +4914,29 @@ all = [
     { name = "warcio" },
 ]
 audio-common = [
-    { name = "cython" },
     { name = "nemo-toolkit", extra = ["asr"] },
     { name = "onnx" },
-    { name = "packaging" },
-    { name = "seaborn" },
     { name = "silero-vad" },
     { name = "soundfile" },
     { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchaudio", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 audio-cpu = [
-    { name = "cython" },
     { name = "nemo-toolkit", extra = ["asr"] },
     { name = "onnx" },
     { name = "onnxruntime" },
-    { name = "packaging" },
-    { name = "seaborn" },
     { name = "silero-vad" },
     { name = "soundfile" },
     { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchaudio", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 audio-cuda12 = [
-    { name = "cython" },
     { name = "gpustat" },
     { name = "nemo-toolkit", extra = ["asr"] },
     { name = "nvidia-cudnn-cu12" },
     { name = "nvidia-ml-py" },
     { name = "onnx" },
     { name = "onnxruntime-gpu" },
-    { name = "packaging" },
-    { name = "seaborn" },
     { name = "silero-vad" },
     { name = "soundfile" },
     { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
@@ -5131,6 +5119,8 @@ vllm = [
 
 [package.dev-dependencies]
 build = [
+    { name = "cython" },
+    { name = "packaging" },
     { name = "setuptools" },
     { name = "torch", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torch", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -5172,7 +5162,6 @@ requires-dist = [
     { name = "cudf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "cuml-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "cvcuda-cu12", marker = "extra == 'video-cuda12'" },
-    { name = "cython", marker = "extra == 'audio-common'" },
     { name = "data-designer", marker = "extra == 'sdg-cpu'", specifier = "==0.4.0" },
     { name = "easydict", marker = "extra == 'video-cpu'" },
     { name = "einops", marker = "extra == 'video-cpu'" },
@@ -5229,7 +5218,6 @@ requires-dist = [
     { name = "onnxruntime-gpu", marker = "extra == 'audio-cuda12'", specifier = ">=1.20.1,<1.24" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "opencv-python", marker = "extra == 'video-cpu'" },
-    { name = "packaging", marker = "extra == 'audio-common'" },
     { name = "pandas", specifier = ">=2.1.0" },
     { name = "peft", marker = "extra == 'text-cpu'" },
     { name = "pillow", marker = "extra == 'image-cpu'" },
@@ -5248,7 +5236,6 @@ requires-dist = [
     { name = "s3fs", marker = "extra == 'interleaved-cpu'", specifier = ">=2024.12.0" },
     { name = "s5cmd", marker = "extra == 'text-cpu'" },
     { name = "scikit-learn", marker = "extra == 'deduplication-cuda12'", specifier = "<1.8.0" },
-    { name = "seaborn", marker = "extra == 'audio-common'", specifier = ">=0.11.2" },
     { name = "sentence-transformers", marker = "extra == 'text-cpu'" },
     { name = "sentencepiece", marker = "extra == 'text-cpu'" },
     { name = "silero-vad", marker = "extra == 'audio-common'" },
@@ -5276,6 +5263,8 @@ provides-extras = ["cuda12", "vllm", "inference-server", "deduplication-cuda12",
 
 [package.metadata.requires-dev]
 build = [
+    { name = "cython" },
+    { name = "packaging" },
     { name = "setuptools" },
     { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'", specifier = "<=2.9.1", index = "https://pypi.org/simple" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", specifier = "<=2.9.1", index = "https://download.pytorch.org/whl/cu128" },
@@ -8541,20 +8530,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/82/31/006cbb4b648ba379a95c87262c2855cd0d09453e500937f78b30f02fa1cd/scipy-1.16.3-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:c5192722cffe15f9329a3948c4b1db789fbb1f05c97899187dcf009b283aea70", size = 38678975, upload-time = "2025-10-28T17:33:15.809Z" },
     { url = "https://files.pythonhosted.org/packages/c2/7f/acbd28c97e990b421af7d6d6cd416358c9c293fc958b8529e0bd5d2a2a19/scipy-1.16.3-cp312-cp312-win_amd64.whl", hash = "sha256:56edc65510d1331dae01ef9b658d428e33ed48b4f77b1d51caf479a0253f96dc", size = 38555926, upload-time = "2025-10-28T17:33:21.388Z" },
     { url = "https://files.pythonhosted.org/packages/ce/69/c5c7807fd007dad4f48e0a5f2153038dc96e8725d3345b9ee31b2b7bed46/scipy-1.16.3-cp312-cp312-win_arm64.whl", hash = "sha256:a8a26c78ef223d3e30920ef759e25625a0ecdd0d60e5a8818b7513c3e5384cf2", size = 25463014, upload-time = "2025-10-28T17:33:25.975Z" },
-]
-
-[[package]]
-name = "seaborn"
-version = "0.13.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "pandas" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/86/59/a451d7420a77ab0b98f7affa3a1d78a313d2f7281a57afb1a34bae8ab412/seaborn-0.13.2.tar.gz", hash = "sha256:93e60a40988f4d65e9f4885df477e2fdaff6b73a9ded434c1ab356dd57eefff7", size = 1457696, upload-time = "2024-01-25T13:21:52.551Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/83/11/00d3c3dfc25ad54e731d91449895a79e4bf2384dc3ac01809010ba88f6d5/seaborn-0.13.2-py3-none-any.whl", hash = "sha256:636f8336facf092165e27924f223d3c62ca560b1f2bb5dff7ab7fad265361987", size = 294914, upload-time = "2024-01-25T13:21:49.598Z" },
 ]
 
 [[package]]

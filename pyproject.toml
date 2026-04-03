@@ -98,11 +98,7 @@ deduplication_cuda12 = [
 audio_common = [
     "nemo_toolkit[asr]>=2.7.2",
     "soundfile>=0.12.0",
-    # ADV (Audio DataVerse) Dependencies
-    "Cython",
-    "packaging",
     "torchaudio",
-    "seaborn>=0.11.2",
     "onnx>=1.19.0",
     "silero-vad",
 ]
@@ -225,7 +221,7 @@ all = [
 ]
 
 [dependency-groups]
-build = ["setuptools", "torch<=2.9.1"]
+build = ["setuptools", "torch<=2.9.1", "Cython", "packaging"]
 dev = ["jupyter"]
 linting = ["pre-commit", "ruff==0.14.10"]
 test = [
