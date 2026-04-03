@@ -33,7 +33,7 @@ def main(args: argparse.Namespace) -> None:
         embedding_field=args.embedding_field,
         input_path=args.input_path,
         output_path=args.output_path,
-        metadata_fields=args.metadata_fields,
+        metadata_fields=[args.text_field],
         embedding_dim=args.embedding_dim,
         input_filetype=args.input_filetype,
         verbose=args.verbose,
@@ -68,7 +68,7 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--n-clusters", type=int, default=1000)
     parser.add_argument("--id-field", type=str, default="id")
     parser.add_argument("--embedding-field", type=str, default="embeddings")
-    parser.add_argument("--metadata-fields", nargs="+")
+    parser.add_argument("--text-field", type=str, default="text")
     parser.add_argument("--embedding-dim", type=int, default=None)
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--max-iter", type=int, default=300)

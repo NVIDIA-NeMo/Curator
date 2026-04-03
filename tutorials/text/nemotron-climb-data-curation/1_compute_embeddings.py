@@ -21,6 +21,9 @@ from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 from nemo_curator.stages.text.modules.add_id import AddId
 
+_EMBEDDING_MODEL = "NovaSearch/stella_en_400M_v5"
+_EMBEDDING_MODEL_MAX_SEQ_LENGTH = 512
+
 
 def main(args: argparse.Namespace) -> None:
     ray_client = RayClient(num_cpus=args.num_cpus, num_gpus=args.num_gpus)
@@ -46,23 +49,27 @@ def main(args: argparse.Namespace) -> None:
 
     pipeline.add_stage(reader(file_paths=args.input_path, files_per_partition=1))
 
+    # TODO: Do we need the ID field in the recipe at all?
     if args.id_field is not None:
         pipeline.add_stage(AddId(id_field=args.id_field))
+
+    if args.embedding_model == _EMBEDDING_MODEL and args.max_seq_length is None:
+        args.max_seq_length = _EMBEDDING_MODEL_MAX_SEQ_LENGTH
 
     pipeline.add_stage(
         EmbeddingCreatorStage(
             model_identifier=args.embedding_model,
-            use_sentence_transformer=False,
+            use_sentence_transformer=True,
             text_field=args.text_field,
             embedding_field=args.embedding_field,
             cache_dir=args.cache_dir,
             max_chars=args.max_chars,
-            max_seq_length=None,
-            padding_side="right",
-            embedding_pooling="mean_pooling",  # or "last_token"
-            model_inference_batch_size=1024,
-            autocast=True,
-            sort_by_length=True,
+            max_seq_length=args.max_seq_length,
+            padding_side=args.padding_side,
+            embedding_pooling=args.embedding_pooling,
+            model_inference_batch_size=args.model_inference_batch_size,
+            autocast=args.autocast,
+            sort_by_length=args.sort_by_length,
             hf_token=args.hf_token,
         )
     )
@@ -88,13 +95,20 @@ def attach_args() -> argparse.ArgumentParser:
     # ID args
     parser.add_argument("--id-field", type=str, default=None)
 
-    # Embedder args
-    # TODO: Add all arguments
-    parser.add_argument("--embedding-model", type=str, default="NovaSearch/stella_en_400M_v5")
+    # Embedding model args
+    parser.add_argument("--embedding-model", type=str, default=_EMBEDDING_MODEL)
+    # TODO: parser.add_argument("--transformers-init-kwargs", type=json.loads, default={})
+    parser.add_argument("--use-sentence-transformer", action="store_true")
     parser.add_argument("--text-field", type=str, default="text")
     parser.add_argument("--embedding-field", type=str, default="embeddings")
-    parser.add_argument("--max-chars", type=int, default=None)
     parser.add_argument("--cache-dir", type=str, default=None)
+    parser.add_argument("--max-chars", type=int, default=None)
+    parser.add_argument("--max-seq-length", type=str, default=None)
+    parser.add_argument("--padding-side", type=str, default="right")
+    parser.add_argument("--embedding-pooling", type=str, default="mean_pooling", choices=["mean_pooling", "last_token"])
+    parser.add_argument("--model-inference-batch-size", type=int, default=1024)
+    parser.add_argument("--autocast", action="store_true")
+    parser.add_argument("--sort-by-length", action="store_true")
     parser.add_argument("--hf-token", type=str, default=None)
 
     # Writer args
