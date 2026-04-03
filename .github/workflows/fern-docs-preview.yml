@@ -1,0 +1,115 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Generates a Fern preview URL for documentation PRs and posts it as a PR comment.
+# Uses pull_request_target so the workflow can access DOCS_FERN_TOKEN for fork PRs.
+# Each PR gets a stable preview URL (keyed by branch name) that updates on every push.
+#
+# Required configuration:
+# - Organization secret: DOCS_FERN_TOKEN (from `fern token` for the nvidia Fern org)
+
+name: Preview Fern Docs
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, ready_for_review]
+    paths:
+      - 'fern/**'
+      - '.github/workflows/fern-docs-preview.yml'
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout PR head
+        run: |
+          git fetch origin pull/${{ github.event.pull_request.number }}/head:pr-${{ github.event.pull_request.number }}
+          git checkout pr-${{ github.event.pull_request.number }}
+
+      - name: Setup Fern CLI
+        uses: fern-api/setup-fern-cli@v1
+
+      - name: Generate library reference MDX (autodocs)
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        working-directory: ./fern
+        run: fern docs md generate
+
+      - name: Generate preview URL
+        id: generate-docs
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          OUTPUT=$(fern generate --docs --preview --id "$HEAD_REF" 2>&1) || true
+          echo "$OUTPUT"
+          URL=$(echo "$OUTPUT" | grep -oP 'Published docs to \K.*(?= \()')
+          echo "preview_url=$URL" >> $GITHUB_OUTPUT
+          echo "Preview URL: $URL"
+        working-directory: ./fern
+
+      - name: Get page links for changed MDX files
+        id: page-links
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        run: |
+          PREVIEW_URL="${{ steps.generate-docs.outputs.preview_url }}"
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- '*.mdx' 2>/dev/null || echo "")
+
+          if [ -z "$CHANGED_FILES" ] || [ -z "$PREVIEW_URL" ]; then
+            echo "page_links=" >> $GITHUB_OUTPUT; exit 0
+          fi
+
+          BASE_URL=$(echo "$PREVIEW_URL" | grep -oP 'https?://[^/]+')
+
+          FILES_PARAM=$(echo "$CHANGED_FILES" | tr '\n' ',' | sed 's/,$//')
+          RESPONSE=$(curl -sf -H "FERN_TOKEN: $FERN_TOKEN" "${PREVIEW_URL}/api/fern-docs/get-slug-for-file?files=${FILES_PARAM}" 2>/dev/null) || {
+            echo "page_links=" >> $GITHUB_OUTPUT; exit 0
+          }
+
+          PAGE_LINKS=$(echo "$RESPONSE" | jq -r --arg url "$BASE_URL" \
+            '.mappings[] | select(.slug != null) | "- [\(.slug)](\($url)/\(.slug))"')
+
+          if [ -n "$PAGE_LINKS" ]; then
+            { echo "page_links<<EOF"; echo "$PAGE_LINKS"; echo "EOF"; } >> $GITHUB_OUTPUT
+          else
+            echo "page_links=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create comment content
+        run: |
+          echo ":herb: **Preview your docs:** <${{ steps.generate-docs.outputs.preview_url }}>" > comment.md
+
+          if [ -n "${{ steps.page-links.outputs.page_links }}" ]; then
+            echo "" >> comment.md
+            echo "Here are the markdown pages you've updated:" >> comment.md
+            echo "${{ steps.page-links.outputs.page_links }}" >> comment.md
+          fi
+
+      - name: Post PR comment
+        uses: thollander/actions-comment-pull-request@v2.4.3
+        with:
+          filePath: comment.md
+          comment_tag: preview-docs
+          mode: upsert
