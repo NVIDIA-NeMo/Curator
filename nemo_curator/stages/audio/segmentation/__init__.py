@@ -12,12 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio quality filtering stages."""
+"""Audio segmentation stages."""
 
-from .band import BandFilterStage
-from .utmos import UTMOSFilterStage
+from .speaker_separation import SpeakerSeparationStage
 
-__all__ = [
-    "BandFilterStage",
-    "UTMOSFilterStage",
-]
+__all__ = ["SpeakerSeparationStage"]
