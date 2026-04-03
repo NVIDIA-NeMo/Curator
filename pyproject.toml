@@ -72,7 +72,6 @@ dependencies = [
 cuda12 = [
     "gpustat",
     "nvidia-ml-py",
-    "pynvml>=13.0.1",
 ]
 vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
@@ -97,7 +96,7 @@ deduplication_cuda12 = [
 ]
 
 audio_cpu = [
-    "nemo_toolkit[asr]==2.4.0",
+    "nemo_toolkit[asr]>=2.7.2",
     "soundfile>=0.12.0",
 ]
 audio_cuda12 = [
@@ -172,6 +171,7 @@ video_cuda12 = [
 # Math Curation Dependencies
 math_cpu = [
     "nemo_curator[text_cpu]",  # Math examples use text processing utilities
+    "boto3>=1.35",  # S3 range requests for Common Crawl WARC fetching
 ]
 
 math_cuda12 = [
@@ -179,6 +179,12 @@ math_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
     "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+]
+
+# Multimodal / Interleaved Dependencies
+interleaved_cpu = [
+    "Pillow",
+    "s3fs>=2024.12.0",
 ]
 
 # Synthetic Data Generation (SDG) Dependencies
@@ -197,6 +203,7 @@ all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
+    "nemo_curator[interleaved_cpu]",
     "nemo_curator[math_cuda12]",
     "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
@@ -221,7 +228,7 @@ test = [
     "pyyaml",
     "rich",
     "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
-    "s3fs", # added for testing cloud fs
+    "s3fs>=2024.12.0", # added for testing cloud fs
     "slack_sdk",
 ]
 
@@ -243,7 +250,7 @@ constraint-dependencies = [
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
-    "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
+    "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
     "apex; sys_platform == 'never'",
@@ -254,8 +261,8 @@ override-dependencies = [
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
-    "transformers<=4.55.2", # Else Cosmos Embed imports fail
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
+    "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
 
 
@@ -344,6 +351,9 @@ fixable = ["ALL"]
 "tutorials/**" = [
     "INP001", # no __init__.py is required
     "PLE2515", # ignore \u200b complaint
+]
+"fern/**/*.py" = [
+    "INP001", # Fern CLI helper scripts; not an installable package
 ]
 
 [tool.pytest.ini_options]
