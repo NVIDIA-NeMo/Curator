@@ -42,22 +42,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
+import torchaudio
 from loguru import logger
-
-try:
-    import torchaudio
-
-    _TORCHAUDIO_AVAILABLE = True
-except ImportError:
-    torchaudio = None
-    _TORCHAUDIO_AVAILABLE = False
-
-try:
-    from silero_vad import get_speech_timestamps, load_silero_vad
-
-    _SILERO_AVAILABLE = True
-except ImportError:
-    _SILERO_AVAILABLE = False
+from silero_vad import get_speech_timestamps, load_silero_vad
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
@@ -110,9 +97,6 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self):
         super().__init__()
-        if not _SILERO_AVAILABLE:
-            msg = "silero_vad is required for VADSegmentationStage. Install it with: pip install silero-vad"
-            raise ImportError(msg)
         self._vad_model = None
         self._device = None
 
@@ -169,11 +153,6 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         except Exception as e:
             logger.error(f"Failed to load VAD model: {e}")
             raise
-
-    @property
-    def vad_model(self) -> Any:  # noqa: ANN401
-        self._initialize_model()
-        return self._vad_model
 
     def _build_segment_item(
         self,
@@ -320,9 +299,6 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
             waveform_cpu = waveform.cpu() if waveform.device.type != "cpu" else waveform
             if waveform_cpu.dim() == 1:
                 waveform_cpu = waveform_cpu.unsqueeze(0)
-            if not _TORCHAUDIO_AVAILABLE:
-                msg = "torchaudio is required for resampling. Install it with: pip install torchaudio"
-                raise ImportError(msg)
             resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=SILERO_TARGET_RATE)
             vad_waveform = resampler(waveform_cpu).squeeze(0)
             if device.type != "cpu":
@@ -331,7 +307,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
 
         speech_timestamps = get_speech_timestamps(
             vad_waveform,
-            self.vad_model,
+            self._vad_model,
             sampling_rate=vad_sample_rate,
             threshold=self.threshold,
             min_speech_duration_ms=self.min_duration_sec * 1000,

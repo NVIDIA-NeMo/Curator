@@ -18,8 +18,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-pytest.importorskip("silero_vad", reason="silero_vad not installed")
-
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.tasks import AudioTask
