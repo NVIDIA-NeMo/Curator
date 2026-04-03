@@ -166,7 +166,8 @@ The workflow produces these output files:
 - Use `input_blocksize="2GiB"` for optimal performance
 - Clear output directory between runs
 - Use `assign_id=True` for consistent ID tracking
-- For large cluster runs, tune `total_nparts`, `rmm_pool_size`, and `spill_memory_limit` explicitly to match your hardware and dataset size
+- Setting `total_nparts` to smaller values (`256` or `512`) often leads to better shuffle performance compared to the defaults for really large runs
+- For large cluster runs, tune `rmm_pool_size` and `spill_memory_limit` explicitly to match your hardware and dataset size
 </Accordion>
 
 For comparison with other deduplication methods and guidance on when to use exact deduplication, refer to the [Deduplication overview ](/curate-text/process-data/deduplication).
