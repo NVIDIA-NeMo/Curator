@@ -88,8 +88,8 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         entries: list[str] = []
 
         with open(self.manifest_path) as f:
-            for line in f:
-                line = line.strip()
+            for raw_line in f:
+                line = raw_line.strip()
                 if not line:
                     continue
                 record = json.loads(line)

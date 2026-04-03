@@ -275,7 +275,7 @@ def main() -> None:
     os.makedirs(args.output_dir, exist_ok=True)
 
     if os.environ.get("SLURM_JOB_ID"):
-        from nemo_curator.core.client import SlurmRayClient  # noqa: PLC0415
+        from nemo_curator.core.client import SlurmRayClient
         ray_client = SlurmRayClient()
     else:
         ray_client = RayClient()
