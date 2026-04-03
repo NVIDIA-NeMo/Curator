@@ -25,12 +25,12 @@ import git
 import pynvml
 from loguru import logger
 from runner.session import Session
-from runner.utils import get_obj_for_json, get_total_memory_bytes, run_shm_size_check
+from runner.utils import get_obj_for_json, get_shm_usage, get_total_memory_bytes
 
 
 def dump_env(session_obj: Session, output_path: Path) -> dict[str, Any]:
     env_data = get_env()
-    env_data["default_object_store_size_bytes"] = session_obj.default_object_store_size_bytes
+    env_data["object_store_size"] = session_obj.object_store_size
 
     # Try package managers in order of preference for capturing the environment
     # package_managers = [("uv", "pip freeze"), ("pip", "freeze"), ("micromamba", "list --explicit"), ("conda", "list --explicit")]  # noqa: ERA001
@@ -66,7 +66,8 @@ def get_env() -> dict[str, Any]:
 
     git_commit_string = get_git_commit_string()
     cuda_visible_devices = get_gpu_info_string()
-    shm_size_bytes, _ = run_shm_size_check(human_readable=False)
+    shm = get_shm_usage()
+    shm_size_bytes = shm.get("total_bytes")
 
     # The image digest is not known at image build time and is not available inside the
     # container, so it must be passed in when the container is run.
@@ -98,7 +99,7 @@ def get_git_commit_string() -> str:
     try:
         repo = git.Repo(Path(__file__).parent, search_parent_directories=True)
         commit_str = repo.head.commit.hexsha
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"Failed to get git commit string: {e}")
         commit_str = "unknown"
 
@@ -125,7 +126,7 @@ def get_gpu_info_string() -> str:
             gpu_info_str = ", ".join(counts)
         else:
             gpu_info_str = "No GPUs found"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"Failed to get GPU info: {e}")
         gpu_info_str = "unknown"
 

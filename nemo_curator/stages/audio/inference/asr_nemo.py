@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,82 +21,82 @@ import torch
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioBatch, DocumentBatch, FileGroupTask
+from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | AudioBatch, AudioBatch]):
-    """Stage that do speech recognition inference using NeMo model.
+class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
+    """Speech recognition inference using a NeMo ASR model.
+
+    Overrides ``process_batch`` for batched GPU inference.
 
     Args:
-        model_name (str): name of the speech recognition NeMo model. See full list at https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/all_chkpt.html
-        asr_model (Any): ASR model object. Defaults to None
-        filepath_key (str): which key of the data object should be used to find the path to audiofile. Defaults to “audio_filepath”
-        pred_text_key (str): key is used to identify the field containing the predicted transcription associated with a particular audio sample. Defaults to “pred_text”
-        name (str): Stage name. Defaults to "ASR_inference"
+        model_name: Pretrained NeMo ASR model name.
+            See full list at https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/all_chkpt.html
+        cache_dir: Optional directory for model download cache.
+            When set, NeMo stores/loads the pretrained checkpoint here
+            instead of the default cache location.
+        filepath_key: Key in the entry dict pointing to the audio file.
+        pred_text_key: Key where the predicted transcription is stored.
     """
 
-    model_name: str
-    asr_model: Any | None = None
+    name: str = "ASR_inference"
+    model_name: str = ""
+    cache_dir: str | None = None
+    asr_model: Any | None = field(default=None, repr=False)
     filepath_key: str = "audio_filepath"
     pred_text_key: str = "pred_text"
-    name: str = "ASR_inference"
-    batch_size: int = 16
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    batch_size: int = 16
+
+    def __post_init__(self) -> None:
+        if not self.model_name and not self.asr_model:
+            msg = "Either model_name or asr_model is required for InferenceAsrNemoStage"
+            raise ValueError(msg)
 
     def check_cuda(self) -> torch.device:
         return torch.device("cuda") if self.resources.gpus > 0 else torch.device("cpu")
 
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
-        self.setup()
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        if self.asr_model:
+            return
+        try:
+            kwargs: dict[str, Any] = {"model_name": self.model_name, "return_model_file": True}
+            if self.cache_dir is not None:
+                kwargs["cache_dir"] = self.cache_dir
+            nemo_asr.models.ASRModel.from_pretrained(**kwargs)
+        except Exception as e:
+            msg = f"Failed to download {self.model_name}"
+            raise RuntimeError(msg) from e
 
-    def setup(self, _worker_metadata: WorkerMetadata = None) -> None:
-        """Initialise heavy object self.asr_model: nemo_asr.models.ASRModel"""
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         if not self.asr_model:
             try:
                 map_location = self.check_cuda()
-                self.asr_model = nemo_asr.models.ASRModel.from_pretrained(
-                    model_name=self.model_name, map_location=map_location
-                )
+                kwargs: dict[str, Any] = {"model_name": self.model_name, "map_location": map_location}
+                if self.cache_dir is not None:
+                    kwargs["cache_dir"] = self.cache_dir
+                self.asr_model = nemo_asr.models.ASRModel.from_pretrained(**kwargs)
             except Exception as e:
-                msg = f"Failed to download {self.model_name}"
+                msg = f"Failed to load {self.model_name}"
                 raise RuntimeError(msg) from e
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        """Define the input attributes required by this stage.
-
-        Returns:
-            Tuple of (top_level_attrs, data_attrs) where:
-            - top_level_attrs: ["data"] - requires FileGroupTask.data to be populated
-        """
-        return ["data"], []
+        return [], [self.filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        """Define the output attributes produced by this stage.
-
-        Returns:
-            Tuple of (top_level_attrs, data_attrs) where:
-            - top_level_attrs: ["data"] - populates FileGroupTask.data
-            - data_attrs: [self.filepath_key, self.pred_text_key] - audiofile path and predicted text.
-        """
-        return ["data"], [self.filepath_key, self.pred_text_key]
+        return [], [self.filepath_key, self.pred_text_key]
 
     def transcribe(self, files: list[str]) -> list[str]:
-        """Run inference for speech recognition model
-         Args:
-            files: list of audio file paths.
-
-        Returns:
-            list of predicted texts.
-        """
-
         outputs = self.asr_model.transcribe(files)
 
-        # Tuple (hyps, all_hyps) noqa: ERA001
         if isinstance(outputs, tuple):
             outputs = outputs[0]
 
-        # list[list[Hypothesis]] noqa: ERA001
         if outputs and isinstance(outputs[0], list):
             if outputs[0] and hasattr(outputs[0][0], "text"):
                 return [inner[0].text for inner in outputs]
@@ -104,48 +104,19 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Audi
 
         return [output.text for output in outputs]
 
-    def process(self, task: FileGroupTask | DocumentBatch | AudioBatch) -> AudioBatch:
-        """Process a audio task by reading audio file and do ASR inference.
+    def process(self, task: AudioTask) -> AudioTask:
+        msg = "InferenceAsrNemoStage only supports process_batch"
+        raise NotImplementedError(msg)
 
-
-        Args:
-            tasks: List of FileGroupTask containing a path to audop file for inference.
-
-        Returns:
-            List of SpeechObject with self.filepath_key .
-            If errors occur, the task is returned with error information stored.
-        """
-        files = []
-        audio_items = []
-
-        if not self.validate_input(task):
-            msg = f"Task {task!s} failed validation for stage {self}"
-            raise ValueError(msg)
-        if isinstance(task, FileGroupTask):
-            files = [task.data[0]]
-        elif isinstance(task, DocumentBatch):
-            files = list(task.data[self.filepath_key])
-        elif isinstance(task, AudioBatch):
-            files = [item[self.filepath_key] for item in task.data]
-        else:
-            raise TypeError(str(task))
-
-        outputs = self.transcribe(files)
-
-        for i, text in enumerate(outputs):
-            entry = task.data[i]
-            file_path = files[i]
-
-            if isinstance(entry, dict):
-                item = entry
-                item[self.pred_text_key] = text
-            else:
-                item = {self.filepath_key: file_path, self.pred_text_key: text}
-            audio_items.append(item)
-
-        return AudioBatch(
-            task_id=f"task_id_{self.model_name}",
-            dataset_name=f"{self.model_name}_inference",
-            filepath_key=self.filepath_key,
-            data=audio_items,
-        )
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        if len(tasks) == 0:
+            return []
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
+        files = [t.data[self.filepath_key] for t in tasks]
+        texts = self.transcribe(files)
+        for task, text in zip(tasks, texts, strict=True):
+            task.data[self.pred_text_key] = text
+        return tasks

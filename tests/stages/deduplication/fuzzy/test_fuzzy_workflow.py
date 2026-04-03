@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from contextlib import suppress
 from pathlib import Path
 from typing import Literal
@@ -165,10 +166,10 @@ def no_duplicates_fuzzy_dedup_data(tmp_path: Path) -> list[FileGroupTask]:
 class TestFuzzyDuplicates:
     @pytest.mark.parametrize("use_64_bit_hash", [False, True])
     @pytest.mark.parametrize(
-        ("num_bands", "text_field", "duplicate_docs", "filetype"),
+        ("num_bands", "text_field", "duplicate_docs", "filetype", "lsh_num_output_partitions"),
         [
-            (5, "text", [[4, -1], [1, 2, 300]], "parquet"),
-            (10, "content", [[4, -1], [1, 2, 300]], "jsonl"),
+            (5, "text", [[4, -1], [1, 2, 300]], "parquet", 4),
+            (10, "content", [[4, -1], [1, 2, 300]], "jsonl", None),
         ],
     )
     def test_fuzzy_dedup(  # noqa: PLR0913
@@ -180,12 +181,13 @@ class TestFuzzyDuplicates:
         text_field: str,
         duplicate_docs: list[list[int]],
         tmp_path: Path,
+        lsh_num_output_partitions: int | None,
     ) -> None:
         tasks = request.getfixturevalue(f"fuzzy_dedup_data_{filetype}")
         cache_path = tmp_path / "cache"
         output_path = tmp_path / "output"
         cache_path.mkdir(exist_ok=True)
-
+        bands_per_iteration = 5
         workflow = FuzzyDeduplicationWorkflow(
             cache_path=str(cache_path),
             output_path=str(output_path),
@@ -197,10 +199,14 @@ class TestFuzzyDuplicates:
             num_bands=num_bands,
             minhashes_per_band=1,
             use_64_bit_hash=use_64_bit_hash,
-            bands_per_iteration=5,
+            bands_per_iteration=bands_per_iteration,
+            lsh_num_output_partitions=lsh_num_output_partitions,
         )
 
-        workflow.run(initial_tasks=tasks)
+        result = workflow.run(initial_tasks=tasks)
+        assert result.pipeline_tasks
+        assert result.get_metadata("total_time") > 0
+        assert result.get_metadata("connected_components_pipeline_time") > 0
 
         # Verify the duplicate groups found match expected
         connected_components_df = cudf.read_parquet(cache_path / "ConnectedComponentsStage")
@@ -220,12 +226,19 @@ class TestFuzzyDuplicates:
             set(got_group) == set(expected_group)
             for got_group, expected_group in zip(result_df, duplicate_docs, strict=False)
         )
+        if lsh_num_output_partitions is not None:
+            for band_start in range(0, num_bands, bands_per_iteration):
+                band_end = min(band_start + bands_per_iteration, num_bands)
+                band_dir = cache_path / "LSHStage" / f"band_{band_start}-band_{band_end}"
+                parquet_files = [f for f in os.listdir(band_dir) if f.endswith(".parquet")]
+                assert len(parquet_files) == lsh_num_output_partitions
 
         removal_ids_df = cudf.read_parquet(output_path / DUPLICATE_IDS_SUBDIR)
         removal_ids_df = removal_ids_df.merge(original_df_with_curator_ids, on=CURATOR_DEDUP_ID_STR, how="left")
         removal_ids = set(removal_ids_df.id.to_arrow().to_pylist())
         # For every duplicate group assert that 1 document was not removed
         assert all(len(set(expected_group) - removal_ids) == 1 for expected_group in duplicate_docs)
+        assert result.get_metadata("num_duplicates") == len(removal_ids)
 
     def test_fuzzy_dedup_no_duplicates(
         self,
@@ -249,9 +262,14 @@ class TestFuzzyDuplicates:
             minhashes_per_band=1,
             use_64_bit_hash=False,
             bands_per_iteration=10,
+            lsh_rmm_pool_size=3 * 1024 * 1024 * 1024,
+            lsh_spill_memory_limit=2 * 1024 * 1024 * 1024,
         )
 
-        workflow.run(initial_tasks=tasks)
+        result = workflow.run(initial_tasks=tasks)
+        assert result.pipeline_tasks
+        assert result.get_metadata("total_time") > 0
+        assert result.get_metadata("num_duplicates") == 0
 
         assert not (cache_path / "ConnectedComponentsStage").exists()
         assert not (cache_path / "BucketsToEdgesStage").exists()

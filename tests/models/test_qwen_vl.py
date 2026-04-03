@@ -71,7 +71,7 @@ class TestQwenVL:
         assert qwen_vl.max_output_tokens == 512
         assert qwen_vl.model_does_preprocess is False
         assert qwen_vl.disable_mmcache is False
-        assert qwen_vl.stage2_prompt is None
+        assert qwen_vl.stage2_prompt == "Please refine this caption: "
         assert qwen_vl.verbose is False
 
         expected_weight_file = str(pathlib.Path(self.model_dir) / _QWEN_VARIANTS_INFO[self.model_variant])
@@ -133,7 +133,7 @@ class TestQwenVL:
             max_model_len=32768,
             gpu_memory_utilization=0.85,
             mm_processor_kwargs=expected_mm_processor_kwargs,
-            disable_mm_preprocessor_cache=False,
+            mm_processor_cache_gb=4,
             max_num_batched_tokens=32768,
         )
 
@@ -157,7 +157,7 @@ class TestQwenVL:
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
-    def test_setup_without_fp8(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:  # noqa: ARG002
+    def test_setup_without_fp8(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
         """Test setup method with fp8 quantization disabled."""
         # Create QwenVL instance with fp8=False
         qwen_vl = QwenVL(
@@ -178,7 +178,7 @@ class TestQwenVL:
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
-    def test_setup_with_model_preprocessing(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:  # noqa: ARG002
+    def test_setup_with_model_preprocessing(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
         """Test setup method with model preprocessing enabled."""
         qwen_vl = QwenVL(
             model_dir=self.model_dir,
@@ -198,7 +198,7 @@ class TestQwenVL:
             "do_normalize": True,
         }
         assert call_args[1]["mm_processor_kwargs"] == expected_mm_processor_kwargs
-        assert call_args[1]["disable_mm_preprocessor_cache"] is True
+        assert call_args[1]["mm_processor_cache_gb"] == 0
 
     @patch("nemo_curator.models.qwen_vl.grouping.split_by_chunk_size")
     def test_generate_simple_case(self, mock_split_by_chunk_size: Mock) -> None:
@@ -393,7 +393,7 @@ class TestQwenVL:
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
-    def test_setup_sampling_params_with_custom_tokens(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:  # noqa: ARG002
+    def test_setup_sampling_params_with_custom_tokens(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
         """Test that SamplingParams uses the custom max_output_tokens."""
         custom_tokens = 256
         qwen_vl = QwenVL(

@@ -159,14 +159,14 @@
           {
             "id": "renameByRegex",
             "options": {
-              "regex": "(.*)InternVideo2FrameCreation",
+              "regex": "(.*)CosmosEmbed1FrameCreation",
               "renamePattern": "$1VideoEmbeddingInput"
             }
           },
           {
             "id": "renameByRegex",
             "options": {
-              "regex": "(.*)InternVideo2Embedding",
+              "regex": "(.*)CosmosEmbed1Embedding",
               "renamePattern": "$1VideoEmbedding"
             }
           },
@@ -1084,7 +1084,7 @@
             "disabled": true,
             "id": "renameByRegex",
             "options": {
-              "regex": "(.*)InternVideo2Embedding",
+              "regex": "(.*)CosmosEmbed1Embedding",
               "renamePattern": "$1VideoEmbedding"
             }
           }

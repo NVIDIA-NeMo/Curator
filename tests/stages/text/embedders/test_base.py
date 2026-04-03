@@ -217,6 +217,7 @@ class TestEmbeddingCreatorStage:
     def test_embedding_creator_stage_initialization_and_decomposition(self) -> None:
         """Test initialization, decomposition, and parameter passing to decomposed stages."""
         # Test with custom parameters including hf_token and unk_token
+        # Note: use_sentence_transformer=False is required to test EmbeddingModelStage with custom pooling
         stage = EmbeddingCreatorStage(
             model_identifier="test-model",
             text_field="content",
@@ -228,6 +229,7 @@ class TestEmbeddingCreatorStage:
             model_inference_batch_size=128,
             sort_by_length=False,
             hf_token="test-token",  # noqa:S106
+            use_sentence_transformer=False,
         )
 
         # Test decomposition and stage types
@@ -295,15 +297,22 @@ class TestEmbeddingCreatorStage:
 
     @pytest.mark.parametrize("pooling_strategy", ["mean_pooling", "last_token"])
     @pytest.mark.parametrize("autocast", [True, False])
+    @pytest.mark.parametrize("use_sentence_transformer", [True, False])
+    @pytest.mark.gpu
     def test_embedding_creator_stage_with_reference_embeddings(
-        self, pooling_strategy: str, sample_data: DocumentBatch, autocast: bool
+        self, pooling_strategy: str, sample_data: DocumentBatch, autocast: bool, use_sentence_transformer: bool
     ) -> None:
         """Test embeddings match reference implementation (requires GPU and model download)."""
+        if use_sentence_transformer and pooling_strategy != "mean_pooling":
+            pytest.skip(
+                "Ignoring last_token strategy for sentence transformer as behavior for miniLM is mean pooling "
+            )
         stage = EmbeddingCreatorStage(
             model_identifier="sentence-transformers/all-MiniLM-L6-v2",
             embedding_pooling=pooling_strategy,
             model_inference_batch_size=32,
             autocast=autocast,
+            use_sentence_transformer=use_sentence_transformer,
         )
 
         # Decompose and setup stages

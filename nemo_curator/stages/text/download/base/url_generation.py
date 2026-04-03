@@ -81,3 +81,8 @@ class URLGenerationStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         return {
             "is_fanout_stage": True,
         }
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {
+            "num_workers_per_node": 1,
+        }

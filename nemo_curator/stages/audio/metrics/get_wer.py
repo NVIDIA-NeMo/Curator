@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@ from dataclasses import dataclass
 
 import editdistance
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 
 def get_wer(text: str, pred_text: str) -> float:
@@ -46,27 +46,28 @@ def get_wordrate(text: str, duration: float) -> float:
 
 
 @dataclass
-class GetPairwiseWerStage(LegacySpeechStage):
+class GetPairwiseWerStage(ProcessingStage[AudioTask, AudioTask]):
     """Count pairwise word-error-rate (WER) * 100% for each pair of text and pred_text.
 
     WER is measured between ``data[self.text_key]`` and ``data[self.pred_text_key]``.
 
-
     Args:
-        text_key (str): a string indicating which key of the data entries
-            should be used to find the utterance transcript. Defaults to "text".
-        pred_text_key (str): a string indicating which key of the data entries
-            should be used to access the ASR predictions. Defaults to "pred_text".
-
-    Returns:
-         The same data as in the input manifest with wer_key and corresponding values.
+        text_key: Key for the utterance transcript. Defaults to "text".
+        pred_text_key: Key for the ASR predictions. Defaults to "pred_text".
+        wer_key: Key to store the computed WER. Defaults to "wer".
     """
 
+    name: str = "GetPairwiseWerStage"
     text_key: str = "text"
     pred_text_key: str = "pred_text"
     wer_key: str = "wer"
 
-    def process_dataset_entry(self, data_entry: dict) -> list[AudioBatch]:
-        wer = get_wer(data_entry[self.text_key], data_entry[self.pred_text_key])
-        data_entry[self.wer_key] = wer
-        return [AudioBatch(data=data_entry)]
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.text_key, self.pred_text_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.text_key, self.pred_text_key, self.wer_key]
+
+    def process(self, task: AudioTask) -> AudioTask:
+        task.data[self.wer_key] = get_wer(task.data[self.text_key], task.data[self.pred_text_key])
+        return task

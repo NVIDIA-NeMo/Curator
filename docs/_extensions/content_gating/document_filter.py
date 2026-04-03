@@ -87,7 +87,7 @@ def extract_only_condition(file_path: str) -> str:
             logger.warning(f"Failed to parse frontmatter in {file_path}")
             return None
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"Error reading {file_path}: {e}")
         return None
 

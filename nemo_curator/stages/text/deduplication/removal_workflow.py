@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from loguru import logger
 
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.tasks import FileGroupTask
@@ -29,7 +31,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class TextDuplicatesRemovalWorkflow:
+class TextDuplicatesRemovalWorkflow(WorkflowBase):
     # required args
     input_path: str | None
     ids_to_remove_path: str
@@ -38,7 +40,7 @@ class TextDuplicatesRemovalWorkflow:
     # input args
     input_filetype: Literal["parquet", "jsonl"] = "parquet"
     input_fields: list[str] | None = None
-    input_id_field: str | None = CURATOR_DEDUP_ID_STR
+    id_field: str | None = CURATOR_DEDUP_ID_STR
     input_files_per_partition: int | None = None
     input_blocksize: str | None = None
     input_file_extensions: list[str] | None = None
@@ -46,8 +48,8 @@ class TextDuplicatesRemovalWorkflow:
     input_kwargs: dict[str, Any] | None = None
 
     # ids_to_remove args
-    ids_to_remove_duplicate_id_field: str = "id"
-    ids_to_remove_read_kwargs: dict[str, Any] | None = None
+    duplicate_id_field: str = "id"
+    duplicate_id_read_kwargs: dict[str, Any] | None = None
 
     # id generator args
     id_generator_path: str | None = None
@@ -62,9 +64,9 @@ class TextDuplicatesRemovalWorkflow:
 
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
-        if self.id_generator_path is None and self.input_id_field == CURATOR_DEDUP_ID_STR:
+        if self.id_generator_path is None and self.id_field == CURATOR_DEDUP_ID_STR:
             logger.warning(
-                f"Using {CURATOR_DEDUP_ID_STR} as input_id_field for removal stage, even though we are not using id generator."
+                f"Using {CURATOR_DEDUP_ID_STR} as id_field for removal stage, even though we are not using id generator."
             )
 
     def _generate_stages(self, initial_tasks: list[FileGroupTask] | None = None) -> list[ProcessingStage]:
@@ -115,9 +117,9 @@ class TextDuplicatesRemovalWorkflow:
         stages.append(
             TextDuplicatesRemovalStage(
                 ids_to_remove_path=self.ids_to_remove_path,
-                id_field=self.input_id_field,
-                duplicate_id_field=self.ids_to_remove_duplicate_id_field,
-                read_kwargs=self.ids_to_remove_read_kwargs,
+                id_field=self.id_field,
+                duplicate_id_field=self.duplicate_id_field,
+                read_kwargs=self.duplicate_id_read_kwargs,
             )
         )
 
@@ -145,15 +147,29 @@ class TextDuplicatesRemovalWorkflow:
 
         return stages
 
+    @staticmethod
+    def _count_removed_duplicates(tasks: list[FileGroupTask] | None) -> int:
+        """Sum num_removed metadata reported by downstream stages."""
+        total_removed = 0
+        for task in tasks or []:
+            metadata = getattr(task, "_metadata", {}) or {}
+            total_removed += metadata.get("num_removed", 0)
+        return total_removed
+
     def run(
         self, executor: Optional["BaseExecutor"] = None, initial_tasks: list[FileGroupTask] | None = None
-    ) -> list[FileGroupTask] | None:
+    ) -> WorkflowRunResult:
         pipeline = Pipeline(
             name="text_duplicates_removal_workflow",
             description="Text duplicates removal workflow",
             stages=self._generate_stages(initial_tasks),
         )
-        if self.input_task_limit is not None and len(initial_tasks) > self.input_task_limit:
+        workflow_result = WorkflowRunResult(workflow_name="text_duplicates_removal")
+        if (
+            self.input_task_limit is not None
+            and initial_tasks is not None
+            and len(initial_tasks) > self.input_task_limit
+        ):
             logger.warning(
                 f"Initial tasks provided ({len(initial_tasks)}) is greater than input_task_limit ({self.input_task_limit}), truncating to {self.input_task_limit}"
             )
@@ -164,6 +180,10 @@ class TextDuplicatesRemovalWorkflow:
 
             executor = XennaExecutor()
 
+        output_tasks: list[FileGroupTask] | None = None
+        execution_time = 0.0
+        num_duplicates_removed = 0
+
         if self.id_generator_path is not None:
             from nemo_curator.stages.deduplication.id_generator import (
                 create_id_generator_actor,
@@ -172,13 +192,22 @@ class TextDuplicatesRemovalWorkflow:
 
             create_id_generator_actor(self.id_generator_path, storage_options=self.id_generator_storage_options)
             try:
-                output = pipeline.run(executor, initial_tasks=initial_tasks)
+                start_time = time.time()
+                output_tasks = pipeline.run(executor, initial_tasks=initial_tasks)
+                execution_time = time.time() - start_time
+                num_duplicates_removed = self._count_removed_duplicates(output_tasks)
             except Exception as e:
                 logger.error(f"Error running pipeline: {e}")
                 raise
             finally:
                 kill_id_generator_actor()
-            return output
-
         else:
-            return pipeline.run(executor, initial_tasks=initial_tasks)
+            start_time = time.time()
+            output_tasks = pipeline.run(executor, initial_tasks=initial_tasks)
+            execution_time = time.time() - start_time
+            num_duplicates_removed = self._count_removed_duplicates(output_tasks)
+
+        workflow_result.add_pipeline_tasks("removal", output_tasks)
+        workflow_result.add_metadata("total_time", execution_time)
+        workflow_result.add_metadata("num_duplicates_removed", num_duplicates_removed)
+        return workflow_result

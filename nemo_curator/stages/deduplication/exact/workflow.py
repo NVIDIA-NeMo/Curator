@@ -21,6 +21,7 @@ from loguru import logger
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.backends.utils import merge_executor_configs, warn_on_env_var_override
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult
 from nemo_curator.stages.deduplication.exact.identification import ExactDuplicateIdentification
 from nemo_curator.stages.deduplication.id_generator import (
     create_id_generator_actor,
@@ -33,7 +34,7 @@ from nemo_curator.tasks import FileGroupTask
 ID_GENERATOR_OUTPUT_FILENAME = "exact_id_generator.json"
 
 
-class ExactDeduplicationWorkflow:
+class ExactDeduplicationWorkflow(WorkflowBase):
     """
     A pipeline that performs exact deduplication of a dataset.
     It consists of the following stages:
@@ -52,6 +53,7 @@ class ExactDeduplicationWorkflow:
         input_path: str | list[str] | None = None,
         input_filetype: Literal["jsonl", "parquet"] = "parquet",
         input_blocksize: str | int = "2GiB",
+        identification_batchsize: int = 1,
         input_file_extensions: list[str] | None = None,
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
@@ -60,6 +62,9 @@ class ExactDeduplicationWorkflow:
         id_field: str | None = None,
         text_field: str = "text",
         perform_removal: bool = False,
+        total_nparts: int | None = None,
+        rmm_pool_size: int | Literal["auto"] | None = "auto",
+        spill_memory_limit: int | Literal["auto"] | None = "auto",
         env_vars: dict[str, Any] | None = None,
     ):
         """
@@ -78,6 +83,9 @@ class ExactDeduplicationWorkflow:
             If an integer is provided, it will be interpreted as bytes.
             If a string is provided, it will be interpreted as a size with a unit.
             If not provided, the default blocksize of 1GiB will be used.
+        identification_batchsize: int = 1
+            Number of batches to process in a single call for identification.
+            For example: A input_blocksize of 256MiB and identification_batchsize of 4 will result in ~1GB of data processed in a single call.
         input_file_extensions: list[str] | None
             File extensions of the input dataset.
             If not provided, the default extensions for the input_filetype will be used.
@@ -96,6 +104,16 @@ class ExactDeduplicationWorkflow:
             Field containing the text to deduplicate.
         perform_removal: bool
             Whether to remove the duplicates from the original dataset.
+        total_nparts: int | None = None
+            Total number of output partitions. If None, will be set automatically by the executor.
+        rmm_pool_size: int | Literal["auto"] | None = "auto"
+            Size of the RMM GPU memory pool in bytes.
+            If "auto", the memory pool is set to 90% of the free GPU memory.
+            If None, the memory pool is set to 50% of the free GPU memory that can expand if needed.
+        spill_memory_limit: int | Literal["auto"] | None = "auto"
+            Device memory limit in bytes for spilling to host.
+            If "auto", the limit is set to 80% of the RMM pool size.
+            If None spilling is disabled.
         env_vars: dict[str, Any] | None = None
             Environment variables to pass to the pipeline.
         """
@@ -103,6 +121,7 @@ class ExactDeduplicationWorkflow:
         self.output_path = output_path
         self.input_filetype = input_filetype
         self.input_blocksize = input_blocksize
+        self.identification_batchsize = identification_batchsize
         self.input_file_extensions = input_file_extensions
         self.read_kwargs = read_kwargs
         self.write_kwargs = write_kwargs
@@ -111,6 +130,9 @@ class ExactDeduplicationWorkflow:
         self.assign_id = assign_id
         self.id_field = id_field
         self.perform_removal = perform_removal
+        self.total_nparts = total_nparts
+        self.rmm_pool_size = rmm_pool_size
+        self.spill_memory_limit = spill_memory_limit
 
         self.env_vars = env_vars
 
@@ -149,8 +171,12 @@ class ExactDeduplicationWorkflow:
                     assign_id=self.assign_id,
                     id_field=self.id_field,
                     # Matches previous implementation to write out to 1/3 the number of input tasks
-                    total_nparts=max(1, num_input_tasks // 3),
-                ),
+                    total_nparts=max(1, num_input_tasks // 3)
+                    if self.total_nparts is None
+                    else max(1, self.total_nparts),
+                    rmm_pool_size=self.rmm_pool_size,
+                    spill_memory_limit=self.spill_memory_limit,
+                ).with_(batch_size=int(self.identification_batchsize)),
             ],
         )
 
@@ -165,17 +191,27 @@ class ExactDeduplicationWorkflow:
             msg = "input_path to the dataset must be provided if initial_tasks are not provided manually."
             raise ValueError(msg)
 
-    def run(
+    def run(  # noqa: PLR0915
         self, initial_tasks: list[FileGroupTask] | None = None, executor: RayActorPoolExecutor | None = None
-    ) -> None:
+    ) -> WorkflowRunResult:
         """Run the deduplication pipeline.
 
         Args:
             initial_tasks:
             Set of FileGroupTasks generated by a previous stage pointing to the dataset to be deduplicated.
             If not provided, the pipeline will generate the input tasks based on the input_dir and input_file_extensions.
+        executor: RayActorPoolExecutor | None
+            Executor to use for the pipeline.
+            If not provided, the default RayActorPoolExecutor will be used.
+
+        Returns:
+            WorkflowRunResult object containing the results and timing information
         """
         self._validate_initial_tasks(initial_tasks)
+        workflow_result = WorkflowRunResult(workflow_name="exact_deduplication")
+        input_filegroups_time = 0.0
+        identification_time = 0.0
+
         if executor is None:
             executor = RayActorPoolExecutor(config=self.executor_config)
         else:
@@ -185,6 +221,8 @@ class ExactDeduplicationWorkflow:
             previous_config = executor.config
             executor.config = merge_executor_configs(executor.config, self.executor_config)
             warn_on_env_var_override(previous_config, executor.config)
+        total_start_time = time.time()
+
         if self.assign_id:
             try:
                 create_id_generator_actor()
@@ -196,26 +234,30 @@ class ExactDeduplicationWorkflow:
                 """
                 raise RuntimeError(err_msg) from None
 
+        id_generator_path = None
         try:
-            start_time = time.time()
             if initial_tasks is None:
                 input_filegroups_pipeline = self._create_input_filegroups()
-                initial_tasks = input_filegroups_pipeline.run(executor=executor, initial_tasks=initial_tasks)
-                initial_filegroups_end_time = time.time()
-                logger.info(
-                    f"Created input tasks from {self.input_path} in {(initial_filegroups_end_time - start_time):.2f} seconds"
-                )
-
+                input_start_time = time.time()
+                initial_tasks = input_filegroups_pipeline.run(executor=executor, initial_tasks=None)
+                input_filegroups_time = time.time() - input_start_time
+                workflow_result.add_metadata("input_filegroups_time", input_filegroups_time)
+                workflow_result.add_pipeline_tasks("input_filegroups", initial_tasks)
+                logger.info(f"Created input tasks from {self.input_path} in {input_filegroups_time:.2f} seconds")
+            initial_tasks = initial_tasks or []
             identification_pipeline = self._create_identification_pipeline(num_input_tasks=len(initial_tasks))
             identification_start_time = time.time()
             removal_id_tasks = identification_pipeline.run(executor=executor, initial_tasks=initial_tasks)
             identification_end_time = time.time()
-            logger.info(
-                f"Exact duplicate identification pipeline completed in {(identification_end_time - identification_start_time):.2f} seconds"
-            )
+            identification_time = identification_end_time - identification_start_time
+            workflow_result.add_metadata("identification_time", identification_time)
+            workflow_result.add_pipeline_tasks("identification", removal_id_tasks)
+            logger.info(f"Exact duplicate identification pipeline completed in {identification_time:.2f} seconds")
 
-            num_duplicates = sum(task._metadata.get("num_removal_ids", 0) for task in removal_id_tasks)
-            if num_duplicates == 0:
+            num_duplicates_identified = sum(
+                task._metadata.get("num_removal_ids", 0) for task in removal_id_tasks or []
+            )
+            if num_duplicates_identified == 0:
                 logger.info("No exact duplicates found in the dataset.")
 
             if self.assign_id:
@@ -227,8 +269,18 @@ class ExactDeduplicationWorkflow:
                     else None,
                 )
                 logger.info(f"Id generator written to {id_generator_path}")
-            end_time = time.time()
-            logger.info(f"Exact deduplication pipeline completed in {(end_time - start_time):.2f} seconds")
         finally:
             if self.assign_id:
                 kill_id_generator_actor()
+
+        total_end_time = time.time()
+        total_time = total_end_time - total_start_time
+        workflow_summary = {
+            "total_time": total_time,
+            "num_duplicates": num_duplicates_identified,
+            # paths
+            "id_generator_path": id_generator_path,
+        }
+        workflow_result.extend_metadata(workflow_summary)
+        logger.info(f"Exact deduplication pipeline completed in {total_time:.2f} seconds")
+        return workflow_result

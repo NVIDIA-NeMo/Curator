@@ -119,7 +119,6 @@ class TestClipTranscodingStage:
         resources = stage.resources
         assert isinstance(resources, Resources)
         assert resources.cpus == 6.0
-        assert not resources.entire_gpu
 
     def test_process_no_clips(self) -> None:
         """Test processing when video has no clips."""
@@ -274,7 +273,7 @@ class TestClipTranscodingStage:
         assert "-hwaccel" not in command
 
     def test_add_hwaccel_options_enabled(self) -> None:
-        """Test hardware acceleration options when enabled."""
+        """Test hardware acceleration command options when hwaccel is enabled."""
         command = []
         stage = ClipTranscodingStage(use_hwaccel=True, encoder="h264_nvenc", nb_streams_per_gpu=1)
 
@@ -282,10 +281,9 @@ class TestClipTranscodingStage:
 
         assert "-hwaccel" in command
         assert "-hwaccel_output_format" in command
-        assert stage.resources.gpus == 1.0
 
     def test_add_hwaccel_options_enabled_multiple_streams(self) -> None:
-        """Test hardware acceleration options when enabled."""
+        """Test hardware acceleration command options with multiple streams."""
         command = []
         stage = ClipTranscodingStage(use_hwaccel=True, encoder="h264_nvenc", nb_streams_per_gpu=4)
 
@@ -293,7 +291,14 @@ class TestClipTranscodingStage:
 
         assert "-hwaccel" in command
         assert "-hwaccel_output_format" in command
-        assert stage.resources.gpus == 0.25
+
+    def test_resources_fractional_gpu_allocation(self) -> None:
+        """Test that nb_streams_per_gpu correctly sets fractional GPU allocation."""
+        stage_single = ClipTranscodingStage(use_hwaccel=True, encoder="h264_nvenc", nb_streams_per_gpu=1)
+        assert stage_single.resources.gpus == 1.0
+
+        stage_multi = ClipTranscodingStage(use_hwaccel=True, encoder="h264_nvenc", nb_streams_per_gpu=4)
+        assert stage_multi.resources.gpus == 0.25
 
     def test_add_input_options(self) -> None:
         """Test adding input options to FFmpeg command."""

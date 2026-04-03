@@ -63,8 +63,8 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_path="./results/ExactDuplicateIds",
     output_path="./deduplicated",
     input_filetype="parquet",
-    input_id_field="_curator_dedup_id",
-    ids_to_remove_duplicate_id_field="_curator_dedup_id",
+    id_field="_curator_dedup_id",
+    duplicate_id_field="_curator_dedup_id",
     id_generator_path="./results/exact_id_generator.json"
 )
 removal_workflow.run()
@@ -133,8 +133,8 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_path="/path/to/output/ExactDuplicateIds",
     output_path="/path/to/deduplicated",
     input_filetype="parquet",
-    input_id_field="_curator_dedup_id",
-    ids_to_remove_duplicate_id_field="_curator_dedup_id",
+    id_field="_curator_dedup_id",
+    duplicate_id_field="_curator_dedup_id",
     id_generator_path="/path/to/output/exact_id_generator.json"  # Required if assign_id=True
 )
 removal_workflow.run()
@@ -146,13 +146,13 @@ removal_workflow.run()
 **When `assign_id=True`**:
 
 - Duplicate IDs file contains `_curator_dedup_id` column
-- Set `ids_to_remove_duplicate_id_field="_curator_dedup_id"`
+- Set `duplicate_id_field="_curator_dedup_id"`
 - `id_generator_path` is required
 
 **When `assign_id=False`**:
 
 - Duplicate IDs file contains the column specified by `id_field` (e.g., `"id"`)
-- Set `ids_to_remove_duplicate_id_field` to match your `id_field` value
+- Set `duplicate_id_field` to match your `id_field` value
 - `id_generator_path` not required
 :::
 

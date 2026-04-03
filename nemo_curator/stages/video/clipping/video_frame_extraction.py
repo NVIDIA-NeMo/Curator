@@ -24,16 +24,8 @@ from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import VideoTask
+from nemo_curator.utils.nvcodec_utils import _PYNVC_AVAILABLE, PyNvcFrameExtractor
 from nemo_curator.utils.operation_utils import make_pipeline_named_temporary_file
-
-try:
-    from nemo_curator.utils.nvcodec_utils import PyNvcFrameExtractor
-
-    _PYNVC_AVAILABLE = True
-except (ImportError, RuntimeError):
-    logger.warning("PyNvcFrameExtractor not available, PyNvCodec mode will fall back to FFmpeg")
-    PyNvcFrameExtractor = None
-    _PYNVC_AVAILABLE = False
 
 
 def get_frames_from_ffmpeg(
@@ -123,7 +115,7 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
         if self.decoder_mode == "pynvc":
-            if _PYNVC_AVAILABLE and PyNvcFrameExtractor is not None:
+            if _PYNVC_AVAILABLE:
                 self.pynvc_frame_extractor = PyNvcFrameExtractor(
                     width=self.output_hw[1],
                     height=self.output_hw[0],

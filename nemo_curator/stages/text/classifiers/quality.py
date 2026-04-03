@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from nemo_curator.stages.text.models.utils import format_name_with_suffix
 
 from .base import DistributedDataClassifier
-from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
+from .utils import DEBERTA_TOKENIZER_PADDING_SIDE
 
 QUALITY_CLASSIFIER_MODEL_IDENTIFIER = "nvidia/quality-classifier-deberta"
 MAX_SEQ_LENGTH = 1024
@@ -44,6 +44,10 @@ class QualityClassifier(DistributedDataClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            Defaults to False.
 
     """
 
@@ -58,6 +62,8 @@ class QualityClassifier(DistributedDataClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 256,
         autocast: bool = True,
+        keep_tokens: bool = False,
+        use_existing_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=QUALITY_CLASSIFIER_MODEL_IDENTIFIER,
@@ -72,6 +78,8 @@ class QualityClassifier(DistributedDataClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
+            keep_tokens=keep_tokens,
+            use_existing_tokens=use_existing_tokens,
         )
 
         self.name = format_name_with_suffix(QUALITY_CLASSIFIER_MODEL_IDENTIFIER)

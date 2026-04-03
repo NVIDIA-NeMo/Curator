@@ -124,8 +124,14 @@ def exact_no_dedup_data_jsonl(tmp_path: Path) -> list[FileGroupTask]:
 @pytest.mark.gpu
 @pytest.mark.usefixtures("shared_ray_client")
 class TestExactDuplicatesWorkflow:
-    @pytest.mark.parametrize("assign_id", [True, False])
-    def test_dup(self, exact_dedup_data_parquet: list[FileGroupTask], tmpdir: Path, assign_id: bool) -> None:
+    @pytest.mark.parametrize(("assign_id", "identification_batchsize"), [(True, 1), (False, 3)])
+    def test_dup(
+        self,
+        exact_dedup_data_parquet: list[FileGroupTask],
+        tmpdir: Path,
+        assign_id: bool,
+        identification_batchsize: int,
+    ) -> None:
         workflow = ExactDeduplicationWorkflow(
             output_path=str(tmpdir),
             input_filetype="parquet",
@@ -133,8 +139,13 @@ class TestExactDuplicatesWorkflow:
             id_field="id" if not assign_id else None,
             text_field="text",
             perform_removal=False,
+            identification_batchsize=identification_batchsize,
         )
-        workflow.run(initial_tasks=exact_dedup_data_parquet)
+        result = workflow.run(initial_tasks=exact_dedup_data_parquet)
+        assert result.pipeline_tasks
+        assert result.get_metadata("total_time") > 0
+        expected_num_duplicates = 2
+        assert result.get_metadata("num_duplicates") == expected_num_duplicates
 
         original_df_with_curator_ids = (
             get_original_df_with_curator_ids(
@@ -154,6 +165,7 @@ class TestExactDuplicatesWorkflow:
         )
         removal_ids = set(removal_ids_df.id.to_arrow().to_pylist())
         duplicate_docs = [{1, -1}, {2, 4}]
+        assert len(removal_ids) == expected_num_duplicates
         # For every duplicate group assert that 1 document was not removed
         assert all(len(expected_group - removal_ids) == 1 for expected_group in duplicate_docs)
 
@@ -165,8 +177,14 @@ class TestExactDuplicatesWorkflow:
             text_field="content",
             perform_removal=False,
             input_path=str(tmpdir),
+            total_nparts=2,
+            rmm_pool_size=None,
+            spill_memory_limit="auto",
         )
-        workflow.run(initial_tasks=exact_no_dedup_data_jsonl)
+        result = workflow.run(initial_tasks=exact_no_dedup_data_jsonl)
+        assert result.pipeline_tasks
+        assert result.get_metadata("total_time") > 0
+        assert (result.get_metadata("num_duplicates") or 0) == 0
 
         removal_ids_df = cudf.read_parquet(tmpdir / "ExactDuplicateIds")
         assert len(removal_ids_df) == 0
