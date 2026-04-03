@@ -345,7 +345,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         # Divide input_data into batches of `batch_size` each
         # Simulate `num_input_tasks` input tasks
         batch_size = 10
-        num_input_tasks = 100
+        num_input_tasks = 3
         input_batches = [input_data[i : i + batch_size] for i in range(0, len(input_data), batch_size)]
         input_tasks = []
         id_counter = 0
