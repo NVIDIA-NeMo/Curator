@@ -62,6 +62,10 @@ Standardized return type for all deduplication workflows:
 - **Structured metadata**: Access per-stage timing (`total_time`, `identification_time`, and others), duplicate counts (`num_duplicates`, `num_duplicates_removed`), and output paths through `result.metadata`
 - **`TaskPerfUtils` compatibility**: `collect_stage_metrics()` and `aggregate_task_metrics()` now accept `WorkflowRunResult` directly
 
+### Image Reader Ray Data Support (PR #1610)
+
+`ImageReaderStage` now works with `RayDataExecutor` in addition to `XennaExecutor`. The stage declares itself as a fanout stage, enabling Ray Data to repartition the multiple `ImageBatch` objects produced from each tar file across downstream workers for parallel processing.
+
 ### Actor Pool Progress Bars (PR #1457)
 
 Added tqdm progress bars to `RayActorPoolExecutor` for real-time visibility into task completion during stage processing and shuffle inserts. Progress bars are enabled by default and can be configured with `show_progress` and `progress_interval` parameters. This is particularly useful for long-running deduplication jobs where progress is not otherwise apparent.
