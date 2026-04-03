@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio quality filtering stages."""
+"""
+Audio postprocessing stages.
 
-from .band import BandFilterStage
-from .utmos import UTMOSFilterStage
+These stages run after filtering and speaker separation to produce
+the final output:
+- TimestampMapperStage: Map segment positions back to original file timestamps
+"""
 
-__all__ = [
-    "BandFilterStage",
-    "UTMOSFilterStage",
-]
+from .timestamp_mapper import TimestampMapperStage
+
+__all__ = ["TimestampMapperStage"]
