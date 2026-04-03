@@ -196,8 +196,6 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
         Returns:
             List of AudioTask objects, one per speaker.
         """
-        self._initialize_separator()
-
         if self._separator is None:
             msg = "Speaker separator failed to initialize. Cannot process audio."
             raise RuntimeError(msg)
