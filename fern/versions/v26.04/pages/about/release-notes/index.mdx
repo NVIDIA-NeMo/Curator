@@ -93,6 +93,28 @@ Resolved four HIGH-severity vulnerabilities affecting Curator dependencies:
 - **nemo-toolkit**: Bumped `nemo_toolkit[asr]` from `==2.4.0` to `>=2.7.2` to address deserialization CVEs. Only affects `audio_cpu` and `audio_cuda12` extras.
 - **xgrammar**: Moved from `constraint-dependencies` (`>=0.1.21`) to `override-dependencies` (`>=0.1.32`) to override vLLM's pinned version and address CVE-2026-25048.
 
+## Enhancements
+
+### Exact Deduplication Workflow Tuning Parameters (PR #1561)
+
+Exposed additional configuration parameters in `ExactDeduplicationWorkflow` for fine-grained control over large-scale cluster runs:
+
+- **`total_nparts`**: Set the total number of output partitions explicitly instead of relying on the automatic default (one-third of input task count).
+- **`rmm_pool_size`**: Configure the RMM GPU memory pool size in bytes. Supports `"auto"` (90% of free GPU memory), a specific byte value, or `None` (50% of free GPU memory with dynamic expansion).
+- **`spill_memory_limit`**: Set the device memory threshold for spilling to host in bytes. Supports `"auto"` (80% of the RMM pool size), a specific byte value, or `None` (spilling disabled).
+
+These parameters are useful when the defaults are not optimal for your hardware or dataset size:
+
+```python
+workflow = ExactDeduplicationWorkflow(
+    input_path="input_data/",
+    output_path="./results",
+    total_nparts=512,
+    rmm_pool_size=72 * 1024 * 1024 * 1024,  # 72 GiB
+    spill_memory_limit="auto",
+)
+```
+
 ## Bug Fixes
 
 ### CUDA Fork Error with vLLM and RayDataExecutor (PR #1606)
