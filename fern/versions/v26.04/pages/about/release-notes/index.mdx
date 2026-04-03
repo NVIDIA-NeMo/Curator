@@ -24,14 +24,14 @@ Built-in LLM serving alongside curation pipelines using Ray Serve and vLLM:
 
 Learn more in the [Inference Server](/curate-text/synthetic/inference-server) documentation.
 
-### vLLM Default for Semantic Deduplication Embeddings
+### vLLM Default for Semantic Deduplication Embeddings (PR #1606)
 
-The default embedding backend for `TextSemanticDeduplicationWorkflow` switched from SentenceTransformers to vLLM:
+Switched the default embedding backend in `TextSemanticDeduplicationWorkflow` from SentenceTransformers to vLLM, with `google/embeddinggemma-300m` as the new default model:
 
-- **Default model**: `google/embeddinggemma-300m` (previously `sentence-transformers/all-MiniLM-L6-v2`)
-- **Backend**: `VLLMEmbeddingModelStage` replaces `EmbeddingCreatorStage` for embedding generation in the semantic dedup workflow
-- **New parameters**: `embedding_pretokenize`, `embedding_vllm_init_kwargs`, `model_cache_dir` replace the previous SentenceTransformers-specific parameters
-- **Bug fix**: Resolved CUDA fork error when running vLLM stages with `RayDataExecutor` by setting `VLLM_WORKER_MULTIPROC_METHOD=spawn` in Ray remote tasks
+- **vLLM embedding backend**: `TextSemanticDeduplicationWorkflow` now uses `VLLMEmbeddingModelStage` for embedding generation, replacing `EmbeddingCreatorStage` (SentenceTransformers).
+- **New default model**: Changed from `sentence-transformers/all-MiniLM-L6-v2` to `google/embeddinggemma-300m`.
+- **New parameters**: Added `embedding_pretokenize`, `embedding_vllm_init_kwargs`, and `model_cache_dir` for vLLM configuration.
+- **Removed parameters**: The SentenceTransformers-specific parameters `embedding_model_inference_batch_size`, `embedding_pooling`, `embedding_padding_side`, and `embedding_max_seq_length` are no longer available.
 
 ### Multi-User Metrics Isolation
 
@@ -75,6 +75,10 @@ Added tqdm progress bars to `RayActorPoolExecutor` for real-time visibility into
 
 ## Bug Fixes
 
+### CUDA Fork Error with vLLM and RayDataExecutor (PR #1606)
+
+Fixed a `RuntimeError: Cannot re-initialize CUDA in forked subprocess` error that occurred when running vLLM stages with `RayDataExecutor`. The vLLM auto-detection for `spawn` versus `fork` multiprocessing only triggers inside Ray actors, not Ray tasks. The `RayDataExecutor.execute_setup_on_node` method dispatches `setup_on_node` as a remote task, so vLLM previously defaulted to `fork` and caused a CUDA reinitialization error. Fixed by setting `VLLM_WORKER_MULTIPROC_METHOD=spawn` in the remote task.
+
 ### Audio Stage Name Propagation (PR #1470)
 
 Fixed audio pipeline stage names not propagating in `StagePerfStats`, making benchmark output unable to identify per-stage timing. All audio stages (`GetAudioDurationStage`, `PreserveByValueStage`, `AudioToDocumentStage`, `GetPairwiseWerStage`) now correctly report their names, and stage performance history persists when stages create new task objects.
@@ -85,8 +89,7 @@ Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage`
 
 ## Breaking Changes
 
-- **`TextSemanticDeduplicationWorkflow` parameter changes**: `embedding_max_seq_length`, `embedding_padding_side`, `embedding_pooling`, and `embedding_model_inference_batch_size` are removed. Use `embedding_pretokenize`, `embedding_vllm_init_kwargs`, and `model_cache_dir` instead.
-- **Default embedding model changed**: `TextSemanticDeduplicationWorkflow` now defaults to `google/embeddinggemma-300m` with vLLM instead of `sentence-transformers/all-MiniLM-L6-v2` with SentenceTransformers.
+- **`TextSemanticDeduplicationWorkflow` embedding backend**: The default embedding backend changed from SentenceTransformers to vLLM. The default model changed from `sentence-transformers/all-MiniLM-L6-v2` to `google/embeddinggemma-300m`. The parameters `embedding_model_inference_batch_size`, `embedding_pooling`, `embedding_padding_side`, and `embedding_max_seq_length` have been removed. Use `embedding_vllm_init_kwargs` to pass configuration to the vLLM backend instead.
 - **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
 - **`ExactDeduplicationWorkflow.run()` and `FuzzyDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `None`
 - **`SemanticDeduplicationWorkflow.run()` and `TextSemanticDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `dict`
