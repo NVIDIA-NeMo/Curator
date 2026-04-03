@@ -75,11 +75,23 @@ The exact deduplication identification stage now supports batched insertion into
 - **New `identification_batchsize` parameter** on `ExactDeduplicationWorkflow`: Controls how many input blocks are concatenated and inserted together. For example, an `input_blocksize` of `256MiB` with `identification_batchsize=4` processes ~1 GB of data per insertion call.
 - **Batch-aware shuffle adapter**: The Ray actor pool shuffle adapter now automatically uses `read_and_insert_batch` when a stage provides it, falling back to single-task processing otherwise.
 
+## Security Fixes
+
+### CVE Fixes for Audio and Inference Dependencies (PR #1612)
+
+Resolved four HIGH-severity vulnerabilities affecting Curator dependencies:
+
+- **nemo-toolkit RCE (CVE-2025-33245, CVE-2025-33253)**: NeMo Toolkit versions before 2.6.1 used `torch.load()` and `pickle.load()` without `weights_only=True` when loading model checkpoints, enabling remote code execution through maliciously crafted `.nemo` or `.ckpt` files. Curator's `InferenceAsrNemoStage` calls `ASRModel.from_pretrained()`, which uses this deserialization path. The CVE was fixed in nemo-toolkit 2.6.1; bumped to `>=2.7.2` to pick up additional fixes and ensure compatibility with Curator's dependency set.
+- **xgrammar DoS (CVE-2026-25048)**: Constructing a grammar rule with deeply nested parentheses triggered a segfault via uncontrolled recursion in xgrammar's syntax parsing, which could crash applications using vLLM structured output without authentication. Fixed by overriding vLLM's `xgrammar==0.1.29` pin to `>=0.1.32`.
+- **jackson-core DoS (GHSA-72hv-8253-57qq)**: The non-blocking JSON parser in jackson-core 2.16.1, bundled inside `ray_dist.jar` in the Ray Python package, bypassed the `maxNumberLength` constraint, allowing denial of service through arbitrarily long JSON numbers. Since Curator does not use Ray's Java support, the JAR is now deleted during the Docker image build with a build-time verification guard. This fix applies only to the container image.
+
 ## Dependency Updates
 
 - **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
 - **Ray**: Updated to 2.54
 - **uv**: Added minimum required version (>=0.7.0) to prevent lockfile revision drift
+- **nemo-toolkit**: Bumped `nemo_toolkit[asr]` from `==2.4.0` to `>=2.7.2` to address deserialization CVEs. Only affects `audio_cpu` and `audio_cuda12` extras.
+- **xgrammar**: Moved from `constraint-dependencies` (`>=0.1.21`) to `override-dependencies` (`>=0.1.32`) to override vLLM's pinned version and address CVE-2026-25048.
 
 ## Bug Fixes
 
