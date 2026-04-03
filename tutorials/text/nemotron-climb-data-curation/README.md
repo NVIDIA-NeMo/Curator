@@ -4,10 +4,14 @@ TODO: Description here
 
 ## Step 0: Requirements
 
+The following Python libraries are needed to run this tutorial:
+
 - `nemo-curator`
 - `lightgbm`
 - `seaborn`
 - `xformers`
+
+TODO: Add hardware requirements
 
 ## Step 1: Compute Embeddings
 
@@ -66,6 +70,8 @@ Use a FastText model to prune the created clusters:
 python 3_cluster_pruning.py
 ```
 
+TODO: Add more information
+
 ## Step 4: Generate Training Data Mixtures
 
 Generate a mixture of data ratios to be used for training a proxy model:
@@ -73,6 +79,8 @@ Generate a mixture of data ratios to be used for training a proxy model:
 ```bash
 python 4_synthesize_mixture.py
 ```
+
+TODO: Add more information
 
 ## Step 5: Train Proxy Model
 
@@ -82,6 +90,8 @@ Kick off a Megatron training job with the specified data ratios:
 # TODO: Add script
 ```
 
+TODO: Add more information
+
 ## Step 6: Evaluate Proxy Model
 
 Evaluate the proxy model using NeMo Evaluator:
@@ -90,6 +100,8 @@ Evaluate the proxy model using NeMo Evaluator:
 # TODO: Add script
 ```
 
+TODO: Add more information
+
 ## Step 7: Train Predictor
 
 Train a LightGBM model on the results with:
@@ -97,3 +109,5 @@ Train a LightGBM model on the results with:
 ```bash
 python 7_predictor_training.py
 ```
+
+TODO: Add more information
