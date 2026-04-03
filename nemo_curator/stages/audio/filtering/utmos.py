@@ -39,16 +39,8 @@ from typing import Any
 
 import numpy as np
 import torch
+import torchaudio
 from loguru import logger
-
-try:
-    import torchaudio
-
-    _TORCHAUDIO_AVAILABLE = True
-except ImportError:
-    torchaudio = None
-    _TORCHAUDIO_AVAILABLE = False
-
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.base import ProcessingStage
@@ -220,7 +212,6 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
             return None
         waveform, sr = audio_result
 
-        self._ensure_model()
         if self._model is None:
             return None
 
@@ -229,9 +220,6 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
             waveform = waveform.to(device)
 
             if sr != self.sample_rate:
-                if not _TORCHAUDIO_AVAILABLE:
-                    msg = "torchaudio is required for resampling. Install it with: pip install torchaudio"
-                    raise ImportError(msg)  # noqa: TRY301
                 if sr not in self._resamplers:
                     self._resamplers[sr] = torchaudio.transforms.Resample(sr, self.sample_rate).to(device)
                 waveform = self._resamplers[sr](waveform)
