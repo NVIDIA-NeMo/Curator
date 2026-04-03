@@ -41,6 +41,7 @@ import numpy as np
 import torch
 import torchaudio
 from loguru import logger
+
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.base import ProcessingStage
