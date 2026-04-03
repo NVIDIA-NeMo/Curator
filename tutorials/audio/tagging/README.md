@@ -4,7 +4,7 @@ This tutorial demonstrates how to process raw, unlabelled audio into labelled tr
 
 ## Overview
 
-The audio tagging pipeline is a processing framework that takes raw audio files and produces segmented, annotated manifests. It covers resampling, speaker diarization, ASR forced alignment, and merge stages.
+The audio tagging pipeline is a processing framework that takes raw audio files and produces segmented, annotated manifests. It covers resampling, speaker diarization, ASR forced alignment, merge stages, text normalization, quality metrics, and WER computation.
 
 ### Pipeline Flow
 
@@ -31,7 +31,15 @@ The audio tagging pipeline is a processing framework that takes raw audio files 
 | 4 | **NeMoASRAlignerStage** | Forced alignment via NeMo FastConformer | Yes |
 | 5 | **JoinSplitAudioMetadataStage** | Rejoin split audio metadata | No |
 | 6 | **MergeAlignmentDiarizationStage** | Merge alignment with diarization segments | No |
-| 7 | **ManifestWriterStage** | Write output JSONL manifest | No |
+| 7 | **InverseTextNormalizationStage** | Inverse text normalization (spoken → written) | No |
+| 8 | **ChineseConversionStage** | Traditional → Simplified Chinese conversion | No |
+| 9 | **ArabicRemoveDiacriticsStage** | Remove diacritics from Arabic text | No |
+| 10 | **PNCwithBERTStage** | Punctuation & capitalization via NeMo BERT | Yes |
+| 11 | **BandwidthEstimationStage** | Spectral bandwidth estimation | No |
+| 12 | **TorchSquimQualityMetricsStage** | PESQ, STOI, SI-SDR quality metrics | Yes |
+| 13 | **PrepareModuleSegmentsStage** | Merge/split segments for TTS or ASR | No |
+| 14 | **ComputeWERStage** | Word/character error rate computation | No |
+| 15 | **ManifestWriterStage** | Write output JSONL manifest | No |
 
 ## Installation
 
@@ -57,6 +65,19 @@ python tutorials/audio/tagging/main.py \
   --config-name tts_pipeline \
   input_manifest=/data/input.jsonl \
   final_manifest=/data/tts_output.jsonl \
+  hf_token=<your_hf_token>
+```
+
+### ASR Pipeline
+
+The ASR pipeline extends the TTS pipeline with bandwidth estimation, SQUIM quality metrics, a second-pass ASR transcription, and WER computation:
+
+```bash
+python tutorials/audio/tagging/main.py \
+  --config-path . \
+  --config-name asr_pipeline \
+  input_manifest=/data/input.jsonl \
+  final_manifest=/data/asr_output.jsonl \
   hf_token=<your_hf_token>
 ```
 
@@ -168,6 +189,7 @@ stages.4.batch_size=16
 tutorials/audio/tagging/
 ├── main.py              # Pipeline runner (YAML-driven)
 ├── tts_pipeline.yaml    # TTS pipeline configuration
+├── asr_pipeline.yaml    # ASR pipeline configuration
 └── README.md            # This file
 ```
 
@@ -188,33 +210,36 @@ tests/stages/audio/tagging/
 ├── test_resample_audio.py
 ├── test_split.py
 ├── test_utils.py
-└── inference/
-    ├── test_base_asr_processor.py
-    └── test_nemo_asr_align.py
+├── test_prepare_module_segments.py
+├── inference/
+│   ├── test_base_asr_processor.py
+│   └── test_nemo_asr_align.py
+├── text/
+│   ├── test_itn.py
+│   └── test_text.py
+└── metrics/
+    └── test_metrics.py
 
 ### End-to-End Pipeline Test
 
-An automated end-to-end (E2E) test validates the full TTS audio tagging pipeline. This test mirrors the tutorial configuration and ensures all pipeline stages work together as expected.
+Automated end-to-end (E2E) tests validate the full TTS and ASR audio tagging pipelines. These tests mirror the tutorial configurations and ensure all pipeline stages work together as expected.
 
-To run the E2E test:
+To run the E2E tests:
 
 ```bash
-pytest tests/stages/audio/tagging/e2e/test_tts_e2e.py -v
+pytest tests/stages/audio/tagging/e2e/ -v
 ```
-
-**What the E2E test does:**
-- Runs the entire YAML-driven pipeline found in `tutorials/audio/tagging/tts_pipeline.yaml`
-- Uses test audio fixtures and a sample manifest for reproducibility
-- Asserts output matches a reference (expected) manifest, including proper alignment and diarization
 
 **Relevant files:**
 ```
 tests/stages/audio/tagging/e2e/
 ├── test_tts_e2e.py         # End-to-end TTS tagging pipeline test
+├── test_asr_e2e.py         # End-to-end ASR tagging pipeline test
 ├── conftest.py             # Test fixtures (manifests, input data)
 ├── utils.py                # Output validation helpers
 └── configs/
-    └── tts_pipeline.yaml   # Test configuration for the pipeline
+    ├── tts_pipeline.yaml   # Test configuration for the TTS pipeline
+    └── asr_pipeline.yaml   # Test configuration for the ASR pipeline
 ```
 
 > **Note:** A valid HuggingFace token (`HF_TOKEN`) is required for diarization tests.

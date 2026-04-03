@@ -14,11 +14,12 @@
 
 """Audio tagging pipeline benchmarking script.
 
-Runs the core audio tagging pipeline end-to-end:
-  ManifestReader -> Resample -> Diarize -> Split -> ASR Align ->
-  Join -> Merge -> Write
+Runs the audio tagging pipeline end-to-end:
+    ManifestReader -> Resample -> Diarize -> Split -> ASR Align ->
+         Join -> Merge -> Bandwidth -> Squim -> PrepareModuleSegments -> ITN ->
+         2nd-pass ASR -> ComputeWER -> Write
 
-Exercises the core stages of the tagging pipeline for regression tracking.
+Exercises the tagging pipeline stages for regression tracking.
 """
 
 import argparse
@@ -34,6 +35,10 @@ from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
 from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
+from nemo_curator.stages.audio.tagging.metrics.bandwidth import BandwidthEstimationStage
+from nemo_curator.stages.audio.tagging.metrics.squim import TorchSquimQualityMetricsStage
+from nemo_curator.stages.audio.tagging.metrics.wer import ComputeWERStage
+from nemo_curator.stages.audio.tagging.prepare_module_segments import PrepareModuleSegmentsStage
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
 from nemo_curator.stages.audio.tagging.split import JoinSplitAudioMetadataStage, SplitLongAudioStage
 from nemo_curator.stages.resources import Resources
@@ -44,11 +49,12 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     input_manifest: str,
     repeat_factor: int,
     hf_token: str,
-    device: str,
     max_segment_length: float,
     asr_batch_size: int,
     executor: str,
     cpus: int,
+    gpus: float,
+    pipeline_type: str = "core",
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the full audio tagging pipeline benchmark."""
@@ -59,7 +65,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     final_manifest = str(results_dir / "tagging_output.jsonl")
 
     logger.info("Starting audio tagging pipeline benchmark")
-    logger.info(f"Device: {device}, CPUs: {cpus}")
+    logger.info(f"GPUs: {gpus}, CPUs: {cpus}")
     logger.info(f"Max segment length: {max_segment_length}s")
 
     exc = setup_executor(executor, config={"execution_mode": "streaming"})
@@ -92,8 +98,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             name="PyAnnoteDiarization",
             hf_token=hf_token,
             max_length=max_segment_length,
-            device=device,
-        ).with_(resources=Resources(cpus=cpus, gpus=0.5))
+        ).with_(resources=Resources(cpus=cpus, gpus=gpus))
     )
 
     # Split long audio segments
@@ -112,8 +117,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             is_fastconformer=True,
             decoder_type="rnnt",
             batch_size=asr_batch_size,
-            device=device,
-        ).with_(resources=Resources(cpus=cpus, gpus=0.45))
+        ).with_(resources=Resources(cpus=cpus, gpus=gpus))
     )
 
     # Rejoin split audio metadata
@@ -127,6 +131,47 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             words_key="words",
         ).with_(resources=Resources(cpus=cpus))
     )
+
+    if pipeline_type == "full":
+        pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=cpus)))
+
+        pipeline.add_stage(
+            TorchSquimQualityMetricsStage(name="SquimMetrics").with_(resources=Resources(cpus=cpus, gpus=gpus))
+        )
+
+        pipeline.add_stage(
+            PrepareModuleSegmentsStage(
+                name="PrepareModuleSegments",
+                module="asr",
+                min_duration=5,
+                max_duration=20,
+                full_utterance_ratio=0.8,
+            ).with_(resources=Resources(cpus=cpus))
+        )
+
+        pipeline.add_stage(
+            NeMoASRAlignerStage(
+                name="ASRAlignment2",
+                model_name="nvidia/stt_en_conformer_ctc_large",
+                is_fastconformer=False,
+                decoder_type="ctc",
+                batch_size=64,
+                split_batch_size=100,
+                text_key="text_2",
+                infer_segment_only=True,
+                compute_timestamps=False,
+            ).with_(resources=Resources(cpus=cpus, gpus=gpus))
+        )
+
+        pipeline.add_stage(
+            ComputeWERStage(
+                name="ComputeWER",
+                language="en",
+                hypothesis_text_key="text",
+                reference_text_key="text_2",
+                pnc_chars=".?,",
+            ).with_(resources=Resources(cpus=cpus))
+        )
 
     # Write output manifest
     pipeline.add_stage(ManifestWriterStage(output_path=final_manifest).with_(resources=Resources(cpus=cpus)))
@@ -159,7 +204,13 @@ def main() -> int:
     parser.add_argument("--repeat-factor", type=int, default=1, help="Repeat factor for the input manifest entries")
     parser.add_argument("--benchmark-results-path", required=True, help="Path to write benchmark results")
     parser.add_argument("--hf-token", default="", help="HuggingFace token for PyAnnote")
-    parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"], help="Compute device for GPU stages")
+    parser.add_argument("--gpus", type=float, default=0.5, help="GPU fraction per stage (0 for CPU-only)")
+    parser.add_argument(
+        "--pipeline-type",
+        default="core",
+        choices=["core", "full"],
+        help="Pipeline type: 'core' (basic tagging) or 'full' (with quality metrics, WER)",
+    )
     parser.add_argument(
         "--max-segment-length", type=float, default=40.0, help="Maximum segment duration (seconds) to infer ASR"
     )

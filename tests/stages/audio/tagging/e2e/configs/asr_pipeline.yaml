@@ -1,0 +1,97 @@
+# ASR Audio Tagging Pipeline - E2E Test Configuration
+#
+# Mirrors tutorials/audio/tagging/asr_pipeline.yaml with test-friendly defaults.
+# Stages use _target_ for Hydra instantiation via create_pipeline_from_yaml.
+#
+# Per-stage `resources` and `batch_size` are extracted before Hydra instantiation
+# and applied via the stage's .with_() method.
+
+input_manifest: ???
+final_manifest: ???
+workspace_dir: /tmp/tagging_test_workspace
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+language_short: en
+hf_token: ""
+sample_rate: 16000
+text_key1: text
+text_key2: text_2
+max_segment_length: 40
+resources:
+  cpus: 1
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: "ResampleAudio"
+    resampled_audio_dir: ${resampled_audio_dir}
+    input_format: "wav"
+    target_sample_rate: ${sample_rate}
+    target_format: "wav"
+    target_nchannels: 1
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
+    name: "PyAnnoteDiarization"
+    hf_token: ${hf_token}
+    max_length: ${max_segment_length}
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.tagging.SplitASRAlignJoinStage
+    name: "SplitASRAlignJoin"
+    suggested_max_len: ${max_segment_length}
+    min_len: 1.0
+    is_fastconformer: true
+    decoder_type: rnnt
+
+  - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
+    name: "MergeAlignmentDiar"
+    text_key: "text"
+    words_key: "words"
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
+    name: "BandwidthEstimation"
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
+    name: "SquimMetrics"
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.tagging.PrepareModuleSegmentsStage
+    name: "PrepareModuleSegments"
+    module: asr
+    min_duration: 5
+    max_duration: 20
+    max_pause: 2
+    terminal_punct_marks: ".!?。？！。"
+    full_utterance_ratio: 0.8
+    punctuation_split_only: false
+    resources: ${resources}
+
+  # Second pass ASR
+  - _target_: nemo_curator.stages.audio.tagging.NeMoASRAlignerStage
+    model_name: nvidia/stt_en_conformer_ctc_large
+    is_fastconformer: False
+    decoder_type: ctc
+    batch_size: 64
+    split_batch_size: 100
+    text_key: ${text_key2}
+    infer_segment_only: True
+    compute_timestamps: False
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.tagging.ComputeWERStage
+    name: "ComputeWER"
+    language: ${language_short}
+    hypothesis_text_key: "text"
+    reference_text_key: ${text_key2}
+    pnc_chars: ".?,"
+    compute_pnc_wer: False
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    name: "ManifestWriter"
+    output_path: ${final_manifest}

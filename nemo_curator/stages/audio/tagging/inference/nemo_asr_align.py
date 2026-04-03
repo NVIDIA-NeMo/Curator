@@ -35,6 +35,7 @@ from nemo.collections.asr.parts.submodules.rnnt_decoding import RNNTDecodingConf
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
@@ -53,7 +54,6 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
         infer_segment_only: If True, process segments only; else full audio / meta-entries.
         text_key: Key for predicted text in manifest.
         words_key: Key for word alignments in manifest (same as SDP alignment_key).
-        device: Device to run the model on ("cuda" or "cpu").
         compute_timestamps: Whether to compute word-level timestamps.
         segments_key: Key for segments list in manifest.
     """
@@ -72,13 +72,17 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
     text_key: str = "text"
     words_key: str = "words"
 
-    # Device and timestamps
-    device: str = "cuda"
     compute_timestamps: bool = True
     segments_key: str = "segments"
 
     # Stage metadata (subclasses can override)
     name: str = "BaseASRProcessor"
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1))
+
+    @property
+    def _device(self) -> str:
+        """Derive device from resources configuration."""
+        return "cuda" if self.resources.requires_gpu and torch.cuda.is_available() else "cpu"
 
     def _prepare_segment_batch_with_metadata(
         self,
@@ -155,7 +159,6 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         transcribe_batch_size (int): Batch size for transcribing. Defaults to 32
         timestamp_type (str): Type of timestamp ('word' or 'char')
         disable_word_confidence (bool): Whether to disable word confidence score computation
-        device (str): Device to run model on. Defaults to "cuda"
     """
 
     # Model configuration
@@ -190,9 +193,6 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
     words_key: str = "words"
     disable_word_confidence: bool = False
 
-    # Device
-    device: str = "cuda"
-
     # Stage metadata
     name: str = "NeMoASRAligner"
     _asr_model: Any = field(default=None, repr=False)
@@ -219,14 +219,10 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Load model to device and configure decoding (called per replica)."""
-        if not torch.cuda.is_available() and self.device == "cuda":
-            msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
-            raise RuntimeError(msg)
-
         if self._asr_model is None:
             self.load_model()
 
-        self._asr_model.to(self.device)
+        self._asr_model.to(self._device)
         self._asr_model.eval()
 
         if self.is_fastconformer:
@@ -255,7 +251,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         self._override_cfg.return_hypotheses = True
         self._override_cfg.timestamps = self.compute_timestamps
 
-        logger.info(f"[{self.name}] Initialized ASR model on {self.device}")
+        logger.info(f"[{self.name}] Initialized ASR model on {self._device}")
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["duration", self.segments_key, "split_filepaths", "split_metadata"]

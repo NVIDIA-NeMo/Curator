@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""End-to-end test for the TTS audio tagging pipeline.
+"""End-to-end test for the ASR audio tagging pipeline.
 
 Runs the full pipeline:
   ManifestReader -> Resample -> Diarize -> SplitASRAlignJoin (composite) ->
@@ -20,6 +20,9 @@ Runs the full pipeline:
 
 Uses create_pipeline_from_yaml + pipeline.run(executor) as shown in
 tutorials/audio/tagging/main.py.
+
+ASR pipeline differs from TTS in PrepareModuleSegmentsStage:
+  - module=asr, full_utterance_ratio=0.8 (allows partial utterances)
 """
 
 import os
@@ -36,27 +39,27 @@ from .utils import check_output
 
 
 @pytest.mark.skipif(not os.getenv("HF_TOKEN"), reason="HF_TOKEN required for PyAnnote models")
-def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
-    """TTS tagging pipeline e2e: Resample + Diarize + Split + ASR Align + Join + Merge + ITN + BW + SQUIM + Segments."""
-    config_path = CONFIGS_DIR / "tts_pipeline.yaml"
-    reference_manifest = str(REFERENCE_DIR / "tts" / "test_data_reference.jsonl")
+def test_asr_e2e(tmp_path: Path, get_input_manifest: str) -> None:
+    """ASR tagging pipeline e2e: Resample + Diarize + Split + ASR Align + Join + Merge + ITN + BW + SQUIM + Segments."""
+    config_path = CONFIGS_DIR / "asr_pipeline.yaml"
+    reference_manifest = str(REFERENCE_DIR / "asr" / "test_data_reference.jsonl")
 
     cfg = OmegaConf.load(config_path)
 
     cfg.input_manifest = get_input_manifest
-    cfg.final_manifest = str(tmp_path / "tts_output.jsonl")
+    cfg.final_manifest = str(tmp_path / "asr_output.jsonl")
     cfg.workspace_dir = str(tmp_path)
     cfg.resampled_audio_dir = str(tmp_path / "audio_resampled")
     cfg.hf_token = os.getenv("HF_TOKEN", "")
     cfg.language_short = "en"
 
-    # Override NeMoASRAlignerStage (index 4) to use CTC model for CPU testing
-    cfg.stages[4].model_name = "nvidia/stt_en_fastconformer_ctc_large"
-    cfg.stages[4].is_fastconformer = True
-    cfg.stages[4].decoder_type = "ctc"
+    # Override composite stage (index 3) to use CTC model for CPU testing
+    cfg.stages[3].model_name = "nvidia/stt_en_fastconformer_ctc_large"
+    cfg.stages[3].is_fastconformer = True
+    cfg.stages[3].decoder_type = "ctc"
 
     pipeline = create_pipeline_from_yaml(cfg)
-    executor = XennaExecutor()
+    executor = XennaExecutor(config={"execution_mode": "batch"})
     pipeline.run(executor)
 
     check_output(cfg.final_manifest, reference_manifest, text_key="text")

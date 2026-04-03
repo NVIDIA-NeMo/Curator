@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
@@ -25,7 +26,7 @@ class TestNeMoASRAlignerStage:
             model_name="nvidia/stt_en_fastconformer_ctc_large",
             is_fastconformer=True,
             decoder_type="ctc",
-            device="cpu",
+            resources=Resources(cpus=1.0, gpus=0.0),
         )
         stage.setup()
 
