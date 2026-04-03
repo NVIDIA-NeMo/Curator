@@ -66,6 +66,34 @@ Standardized return type for all deduplication workflows:
 
 Added tqdm progress bars to `RayActorPoolExecutor` for real-time visibility into task completion during stage processing and shuffle inserts. Progress bars are enabled by default and can be configured with `show_progress` and `progress_interval` parameters. This is particularly useful for long-running deduplication jobs where progress is not otherwise apparent.
 
+### ALM Data Curation Pipeline (PR #1419)
+
+New four-stage pipeline for curating audio language model training data from diarized audio segments:
+
+- **`ALMDataBuilderStage`**: Constructs fixed-duration training windows from consecutive audio segments, filtering by sample rate, bandwidth, and speaker count. Tracks loss statistics for pipeline diagnostics.
+- **`ALMDataOverlapStage`**: Removes overlapping windows based on a configurable overlap threshold, keeping windows closest to the target duration.
+- **`ALMManifestReader`**: Streams JSONL manifests line-by-line using fsspec, avoiding the memory overhead of loading entire files with Pandas.
+- **`ALMManifestWriterStage`**: Writes filtered results as JSONL with single-writer concurrency for safe output.
+- **Hydra configuration**: YAML-driven pipeline runner with command-line parameter overrides and backend selection (Xenna or Ray Data).
+
+Learn more in the [ALM Pipeline Concepts](/about/concepts/audio/alm-pipeline) documentation and the [ALM Tutorial](/curate-audio/tutorials/alm).
+
+### AudioBatch to AudioTask Redesign (PR #1608)
+
+Redesigned the audio task model from `AudioBatch` (list of dicts) to `AudioTask` (single dict), aligning the audio modality with the patterns used by video, text, and image:
+
+- **Single-entry task model**: Each `AudioTask` wraps one manifest entry instead of a batch, simplifying stage logic and enabling per-entry validation.
+- **Direct `ProcessingStage` subclassing**: All audio stages now subclass `ProcessingStage[AudioTask, AudioTask]` directly, removing the intermediate `AudioTaskStage` class.
+- **Configurable backend selection**: Both FLEURS and ALM tutorial runners support Xenna and Ray Data backends through Hydra configuration.
+
+### Audio Stage-Wise Profiling (PR #1676)
+
+Added stage-wise profiling for FLEURS GPU and ALM CPU pipelines with benchmark scripts integrated into the nightly CI matrix:
+
+- **Per-stage timing breakdowns** on DGX A100: FLEURS pipeline completes in approximately 100 seconds with Xenna (4.01 tasks per second) and 123 seconds with Ray Data (3.27 tasks per second).
+- **Bottleneck analysis**: Identified data download (91% of FLEURS wall time) and `repeat_entries` (44% of ALM wall time) as primary bottlenecks.
+- **Nightly CI entries**: Split FLEURS and ALM benchmarks into separate Xenna and Ray Data entries for both-backend coverage.
+
 ## Improvements
 
 ### Batched Shuffle Insertion for Exact Deduplication (PR #1369)

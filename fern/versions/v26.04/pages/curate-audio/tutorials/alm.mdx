@@ -1,0 +1,297 @@
+---
+description: "Tutorial for curating audio language model training data using the ALM pipeline with window construction and overlap filtering"
+categories: ["tutorials"]
+tags: ["alm", "audio-language-model", "windowing", "speaker-diarization", "training-data", "hydra"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "tutorial"
+modality: "audio-only"
+---
+
+# ALM Pipeline Tutorial
+
+Learn how to curate training data for audio language models using NVIDIA NeMo Curator's ALM pipeline. This tutorial walks you through reading diarized audio manifests, constructing fixed-duration training windows, filtering overlapping windows, and writing the results.
+
+## Overview
+
+This tutorial demonstrates the ALM data curation workflow:
+
+1. **Read Manifests**: Stream JSONL manifests with diarized audio metadata
+2. **Build Windows**: Construct candidate training windows from consecutive segments
+3. **Filter Overlaps**: Remove redundant windows that share too much audio content
+4. **Write Results**: Export filtered windows as JSONL for downstream training
+
+**What you will learn:**
+- How to configure and run the four-stage ALM pipeline
+- Tuning window duration, speaker count, and quality thresholds
+- Selecting between Xenna and Ray Data backends
+- Interpreting pipeline output and loss statistics
+
+## Working Example Location
+
+The complete working code for this tutorial is located at:
+
+```
+<nemo_curator_repository>/tutorials/audio/alm/
+├── README.md           # Tutorial documentation
+├── main.py             # Hydra-based pipeline runner
+└── pipeline.yaml       # Pipeline configuration
+```
+
+**Accessing the code:**
+```bash
+git clone https://github.com/NVIDIA/NeMo-Curator.git
+cd NeMo-Curator/tutorials/audio/alm/
+```
+
+## Prerequisites
+
+- NeMo Curator installed with audio extras (refer to the [Installation Guide](/admin/installation))
+- Python 3.10 or later
+- Input data in JSONL format with diarized segments (refer to the [input format](#input-format) section)
+- Basic familiarity with Hydra configuration
+
+<Tip>
+The ALM pipeline runs entirely on CPU. No GPU is required.
+</Tip>
+
+## Input Format
+
+Each line of the input JSONL manifest must contain the following fields:
+
+```json
+{
+  "audio_filepath": "/path/to/audio.wav",
+  "audio_sample_rate": 16000,
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 5.2,
+      "speaker": "speaker_0",
+      "text": "transcript text",
+      "metrics": {"bandwidth": 8000}
+    }
+  ]
+}
+```
+
+**Required fields:**
+- `audio_filepath`: Path to the source audio file
+- `audio_sample_rate`: Sample rate in Hz (entries below `min_sample_rate` are skipped)
+- `segments`: Array of diarized speech segments, each with `start`, `end`, `speaker`, and `metrics.bandwidth`
+
+Sample input data is available at `tests/fixtures/audio/alm/sample_input.jsonl` in the repository.
+
+## Step-by-Step Walkthrough
+
+### Step 1: Review the Pipeline Configuration
+
+The ALM pipeline is defined in `pipeline.yaml` with four stages:
+
+```yaml
+stages:
+  # Stage 0: Read JSONL manifests
+  - _target_: nemo_curator.stages.audio.alm.ALMManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  # Stage 1: Build candidate windows
+  - _target_: nemo_curator.stages.audio.alm.ALMDataBuilderStage
+    target_window_duration: 120.0
+    tolerance: 0.1
+    min_sample_rate: 16000
+    min_bandwidth: 8000
+    min_speakers: 2
+    max_speakers: 5
+    truncation: true
+    drop_fields: "words"
+    drop_fields_top_level: "words,segments"
+
+  # Stage 2: Filter overlapping windows
+  - _target_: nemo_curator.stages.audio.alm.ALMDataOverlapStage
+    overlap_percentage: 50
+    target_duration: 120.0
+
+  # Stage 3: Write filtered output
+  - _target_: nemo_curator.stages.audio.alm.ALMManifestWriterStage
+    output_path: ${output_dir}/alm_output.jsonl
+```
+
+### Step 2: Understand the Configuration Parameters
+
+The following table describes the key parameters for each stage:
+
+**ALMDataBuilderStage parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `target_window_duration` | float | 120.0 | Target window length in seconds |
+| `tolerance` | float | 0.1 | Acceptable deviation from target (10% means 108 to 132 seconds) |
+| `min_sample_rate` | int | 16,000 | Minimum sample rate in Hz |
+| `min_bandwidth` | int | 8,000 | Minimum bandwidth per segment in Hz |
+| `min_speakers` | int | 2 | Minimum distinct speakers per window |
+| `max_speakers` | int | 5 | Maximum distinct speakers per window |
+| `truncation` | bool | True | Truncate segments exceeding maximum duration |
+| `drop_fields` | str | `"words"` | Comma-separated segment-level fields to remove |
+| `drop_fields_top_level` | str | `"words,segments"` | Comma-separated entry-level fields to remove |
+
+**ALMDataOverlapStage parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `overlap_percentage` | int | 0 | Overlap threshold (0 = aggressive, 100 = keep all) |
+| `target_duration` | float | 120.0 | Preferred window duration for tie-breaking |
+
+### Step 3: Run the Pipeline
+
+Run the pipeline using the Hydra-based runner:
+
+```bash
+# Using default Xenna backend
+python main.py \
+  --config-path . \
+  --config-name pipeline \
+  manifest_path=/path/to/manifests \
+  output_dir=./alm_output
+
+# Using Ray Data backend
+python main.py \
+  --config-path . \
+  --config-name pipeline \
+  manifest_path=/path/to/manifests \
+  output_dir=./alm_output \
+  backend=ray_data
+```
+
+**Override individual stage parameters from the command line:**
+
+```bash
+# Shorter windows with stricter overlap filtering
+python main.py \
+  --config-path . \
+  --config-name pipeline \
+  manifest_path=/path/to/manifests \
+  output_dir=./alm_output \
+  stages.1.target_window_duration=60 \
+  stages.2.overlap_percentage=30
+```
+
+### Step 4: Run with the Sample Data
+
+Test the pipeline with the included sample data:
+
+```bash
+python main.py \
+  --config-path . \
+  --config-name pipeline \
+  manifest_path=../../../tests/fixtures/audio/alm/sample_input.jsonl \
+  output_dir=./sample_output
+```
+
+**Expected output with sample data (five input entries):**
+- **181 candidate windows** from the builder stage
+- **25 filtered windows** after overlap filtering at 50% threshold
+- **Approximately 3,035 seconds** of total filtered audio duration
+
+## Understanding the Results
+
+After the pipeline completes, the output JSONL file contains one line per input entry with the following fields:
+
+```json
+{
+  "audio_filepath": "/path/to/audio.wav",
+  "filtered_windows": [
+    {
+      "segments": [
+        {"start": 0.0, "end": 5.2, "speaker": "speaker_0"}
+      ],
+      "speaker_durations": [45.2, 38.1, 22.5, 14.2, 0.0]
+    }
+  ],
+  "filtered_dur": 120.5,
+  "filtered_dur_list": [120.5],
+  "stats": {
+    "total_segments": 150,
+    "total_dur": 3600.0,
+    "lost_bw": 5,
+    "lost_sr": 0,
+    "lost_spk": 12,
+    "lost_win": 8
+  },
+  "truncation_events": 3
+}
+```
+
+**Key output fields:**
+- `filtered_windows`: Windows that passed both quality and overlap filtering
+- `speaker_durations`: Top five speakers by duration within each window, zero-padded to length five
+- `filtered_dur`: Total duration of all filtered windows for this entry
+- `stats`: Breakdown of why segments were excluded (bandwidth, sample rate, speaker count, window constraints)
+- `truncation_events`: Number of segments that were truncated to fit within the maximum window duration
+
+### Reading the Loss Statistics
+
+The `stats` dictionary helps diagnose low pipeline yield:
+
+| Statistic | Meaning | Tuning Action |
+|-----------|---------|---------------|
+| `lost_bw` | Segments below minimum bandwidth | Lower `min_bandwidth` if audio quality is acceptable |
+| `lost_sr` | Entries below minimum sample rate | Lower `min_sample_rate` or resample input audio |
+| `lost_spk` | Windows outside speaker count range | Widen `min_speakers` and `max_speakers` range |
+| `lost_win` | Windows outside duration tolerance | Increase `tolerance` or adjust `target_window_duration` |
+
+## Customization Examples
+
+### Shorter Windows for Fine-Tuning
+
+```yaml
+stages:
+  - _target_: nemo_curator.stages.audio.alm.ALMDataBuilderStage
+    target_window_duration: 30.0
+    tolerance: 0.2
+    min_speakers: 2
+    max_speakers: 3
+```
+
+### Permissive Filtering for Maximum Yield
+
+```yaml
+stages:
+  - _target_: nemo_curator.stages.audio.alm.ALMDataBuilderStage
+    min_bandwidth: 4000
+    min_sample_rate: 8000
+    min_speakers: 1
+    max_speakers: 10
+
+  - _target_: nemo_curator.stages.audio.alm.ALMDataOverlapStage
+    overlap_percentage: 80
+```
+
+### Processing Multiple Manifest Files
+
+Pass a list of paths or a directory:
+
+```bash
+python main.py \
+  --config-path . \
+  --config-name pipeline \
+  manifest_path=/data/manifests/ \
+  output_dir=./alm_output
+```
+
+The `ALMManifestReader` discovers all `.jsonl` and `.json` files in the directory and its subdirectories.
+
+## Next Steps
+
+After completing this tutorial, explore:
+
+- **[ALM Data Builder](/curate-audio/process-data/alm/data-builder)**: Detailed reference for window construction
+- **[ALM Overlap Filtering](/curate-audio/process-data/alm/overlap-filtering)**: Detailed reference for overlap filtering
+- **[ALM Pipeline Concepts](/about/concepts/audio/alm-pipeline)**: Architectural overview
+- **[Beginner Tutorial](/curate-audio/tutorials/beginner)**: FLEURS-based ASR pipeline for comparison
+
+## Related Topics
+
+- **[Audio Curation Pipeline](/about/concepts/audio/curation-pipeline)**: Broader audio curation workflow
+- **[Manifests and Ingest](/about/concepts/audio/manifests-ingest)**: Manifest format concepts
+- **[Execution Backends](/reference/infra/execution-backends)**: Xenna and Ray Data backend details

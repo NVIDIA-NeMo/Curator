@@ -1,0 +1,140 @@
+---
+description: "Audio Language Model (ALM) data curation pipeline for creating training windows from diarized audio segments"
+categories: ["concepts-architecture"]
+tags: ["concepts", "alm", "audio-language-model", "windowing", "speaker-diarization", "training-data"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "audio-only"
+---
+
+# ALM Pipeline
+
+The Audio Language Model (ALM) pipeline curates training data for audio language models by extracting fixed-duration windows from diarized audio segments. It reads JSONL manifests, builds candidate windows that meet quality constraints, removes overlapping windows, and writes the filtered results to a new manifest.
+
+## Overview
+
+Audio language models require training windows that contain multiple speakers, meet duration targets, and maintain audio quality thresholds. The ALM pipeline automates this extraction process with four stages:
+
+1. **Read**: Stream JSONL manifests line-by-line without loading entire files into memory
+2. **Build**: Create candidate windows from consecutive segments, filtering by sample rate, bandwidth, and speaker count
+3. **Filter**: Remove overlapping windows, keeping those closest to the target duration
+4. **Write**: Output filtered windows as JSONL for downstream training
+
+```mermaid
+graph TD
+    A[JSONL Manifests] --> B[ALMManifestReader]
+    B --> C[ALMDataBuilderStage]
+    C --> D[ALMDataOverlapStage]
+    D --> E[ALMManifestWriterStage]
+    E --> F[Filtered JSONL Output]
+
+    B -- "1 AudioTask per manifest line" --> C
+    C -- "Candidate windows with stats" --> D
+    D -- "Non-overlapping windows" --> E
+```
+
+## Window Construction
+
+`ALMDataBuilderStage` constructs candidate training windows by iterating over consecutive segments within each manifest entry. For each potential starting segment, the stage builds a window by appending subsequent segments until the accumulated duration reaches the target.
+
+The following constraints determine whether a window is valid:
+
+| Constraint | Parameter | Default | Description |
+|-----------|-----------|---------|-------------|
+| Sample rate | `min_sample_rate` | 16,000 Hz | Minimum audio sample rate for the entry |
+| Bandwidth | `min_bandwidth` | 8,000 Hz | Minimum bandwidth per segment |
+| Speaker count | `min_speakers`, `max_speakers` | 2, 5 | Required range of distinct speakers per window |
+| Duration | `target_window_duration` ± `tolerance` | 120 s ± 10% | Acceptable window duration range (108 to 132 seconds) |
+| Truncation | `truncation` | `True` | Whether to truncate segments that exceed the maximum duration |
+
+Each valid window contains a `segments` list and a `speaker_durations` array (top five speakers by duration, zero-padded to length five).
+
+### Loss Tracking
+
+The builder stage tracks why segments are excluded through a `stats` dictionary on each output task. Loss categories include bandwidth below threshold (`lost_bw`), sample rate below threshold (`lost_sr`), speaker count outside range (`lost_spk`), and window duration outside tolerance (`lost_win`). These statistics help diagnose pipeline yield and tune parameters.
+
+## Overlap Filtering
+
+`ALMDataOverlapStage` removes redundant windows that share too much audio content. The stage sorts windows by start time and calculates the overlap ratio between consecutive pairs.
+
+The `overlap_percentage` parameter controls filtering aggressiveness:
+
+| Value | Behavior | Use Case |
+|-------|----------|----------|
+| 0 | Remove any overlapping windows | Maximum deduplication |
+| 50 | Remove windows with greater than 50% overlap | Balanced filtering |
+| 100 | Keep all windows regardless of overlap | No filtering |
+
+When two windows overlap beyond the threshold, the stage keeps the window whose duration is closest to `target_duration` and discards the other.
+
+## Manifest I/O
+
+### Reading
+
+`ALMManifestReader` is a composite stage that decomposes into two sub-stages:
+
+1. **`FilePartitioningStage`**: Discovers and partitions manifest files from a path or list of paths
+2. **`ALMManifestReaderStage`**: Reads each partition line-by-line using fsspec, producing one `AudioTask` per JSONL line
+
+This approach avoids loading entire manifests into memory with Pandas, keeping memory usage proportional to a single line rather than three to five times the file size.
+
+### Writing
+
+`ALMManifestWriterStage` appends each `AudioTask` as a JSON line to the output file. It uses a single-writer constraint (`num_workers=1`) to prevent concurrent write conflicts. The stage truncates the output file on setup to ensure clean results across reruns.
+
+Both reader and writer stages support local and cloud paths (S3, GCS) through fsspec.
+
+## Input and Output Formats
+
+### Input
+
+Each line of the input JSONL manifest must contain the following fields:
+
+```json
+{
+  "audio_filepath": "/path/to/audio.wav",
+  "audio_sample_rate": 16000,
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 5.2,
+      "speaker": "speaker_0",
+      "metrics": {"bandwidth": 8000}
+    }
+  ]
+}
+```
+
+### Output
+
+Each line of the output JSONL manifest contains the original fields plus pipeline results:
+
+```json
+{
+  "audio_filepath": "/path/to/audio.wav",
+  "filtered_windows": [
+    {
+      "segments": [{"start": 0.0, "end": 5.2, "speaker": "speaker_0"}],
+      "speaker_durations": [45.2, 38.1, 22.5, 14.2, 0.0]
+    }
+  ],
+  "filtered_dur": 120.5,
+  "stats": {
+    "total_segments": 150,
+    "total_dur": 3600.0,
+    "lost_bw": 5,
+    "lost_sr": 0,
+    "lost_spk": 12,
+    "lost_win": 8
+  }
+}
+```
+
+## Related Topics
+
+- **[ALM Tutorial](/curate-audio/tutorials/alm)**: Step-by-step guide for running the ALM pipeline
+- **[ALM Data Builder](/curate-audio/process-data/alm/data-builder)**: Detailed reference for window construction parameters
+- **[ALM Overlap Filtering](/curate-audio/process-data/alm/overlap-filtering)**: Detailed reference for overlap filtering configuration
+- **[Audio Curation Pipeline](/about/concepts/audio/curation-pipeline)**: Overview of the broader audio curation workflow
+- **[Manifests and Ingest](/about/concepts/audio/manifests-ingest)**: General manifest format concepts

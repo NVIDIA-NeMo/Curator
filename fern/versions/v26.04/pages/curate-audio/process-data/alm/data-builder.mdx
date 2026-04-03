@@ -1,0 +1,125 @@
+---
+description: "ALMDataBuilderStage reference for constructing training windows from diarized audio segments with quality filtering"
+categories: ["audio-processing"]
+tags: ["alm", "data-builder", "windowing", "speaker-diarization", "bandwidth", "sample-rate"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# ALM Data Builder
+
+`ALMDataBuilderStage` constructs candidate training windows from consecutive diarized audio segments. Each window must meet configurable constraints for duration, sample rate, bandwidth, and speaker count before it is included in the output.
+
+## How it Works
+
+For each input manifest entry, the stage:
+
+1. Checks the entry-level sample rate against `min_sample_rate` (skips the entire entry if below threshold)
+2. Iterates over segments as potential window starting points
+3. For each starting segment, appends consecutive segments until the accumulated duration reaches the target
+4. Optionally truncates the final segment if the window exceeds the maximum duration
+5. Validates that the window contains the required number of distinct speakers
+6. Records loss statistics for segments that do not meet constraints
+
+The stage processes one `AudioTask` at a time and mutates the task data in place.
+
+## Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `target_window_duration` | float | 120.0 | Target window length in seconds |
+| `tolerance` | float | 0.1 | Fractional deviation from target duration. A value of 0.1 produces a range of 108 to 132 seconds for a 120-second target. |
+| `min_bandwidth` | int | 8,000 | Minimum bandwidth in Hz per segment. Segments below this threshold are excluded. |
+| `min_sample_rate` | int | 16,000 | Minimum audio sample rate in Hz. Entries below this threshold are skipped entirely. |
+| `min_speakers` | int | 2 | Minimum distinct speakers required per window |
+| `max_speakers` | int | 5 | Maximum distinct speakers allowed per window |
+| `truncation` | bool | True | Whether to truncate the final segment when a window exceeds the maximum duration |
+| `drop_fields` | str | `"words"` | Comma-separated segment-level fields to remove from output |
+| `drop_fields_top_level` | str | `"words,segments"` | Comma-separated entry-level fields to remove from output |
+
+## Basic Usage
+
+```python
+from nemo_curator.stages.audio.alm import ALMDataBuilderStage
+
+# Default configuration: 120-second windows, 2-5 speakers
+builder = ALMDataBuilderStage()
+```
+
+## Advanced Configuration
+
+### Short Windows for Fine-Tuning
+
+```python
+builder = ALMDataBuilderStage(
+    target_window_duration=30.0,
+    tolerance=0.2,           # 24-36 seconds
+    min_speakers=2,
+    max_speakers=3,
+)
+```
+
+### Permissive Quality Thresholds
+
+```python
+builder = ALMDataBuilderStage(
+    min_bandwidth=4000,      # Accept lower-quality audio
+    min_sample_rate=8000,    # Accept telephone-quality audio
+    min_speakers=1,          # Allow single-speaker windows
+    max_speakers=10,
+)
+```
+
+### Preserving Segment Fields
+
+By default, the stage drops `words` from segments and `words,segments` from the top level. To preserve all fields:
+
+```python
+builder = ALMDataBuilderStage(
+    drop_fields="",
+    drop_fields_top_level="",
+)
+```
+
+## Output Fields
+
+The stage adds the following fields to each `AudioTask`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `windows` | list | Candidate windows, each containing `segments` and `speaker_durations` |
+| `stats` | dict | Loss statistics tracking why segments were excluded |
+| `truncation_events` | int | Number of segments that were truncated |
+
+### Speaker Durations
+
+Each window includes a `speaker_durations` array containing the total speaking time of the top five speakers, sorted by duration in descending order. The array is zero-padded to length five when a window has fewer than five speakers.
+
+### Loss Statistics
+
+The `stats` dictionary contains the following counters:
+
+| Statistic | Description |
+|-----------|-------------|
+| `total_segments` | Total input segments processed |
+| `total_dur` | Total input duration in seconds |
+| `lost_bw` | Segments excluded for low bandwidth |
+| `lost_sr` | Entries excluded for low sample rate |
+| `lost_spk` | Windows excluded for speaker count outside range |
+| `lost_win` | Windows excluded for duration outside tolerance |
+| `lost_no_spkr` | Segments excluded for having no speaker label |
+
+## Best Practices
+
+- Start with the default parameters and adjust based on the `stats` output
+- If `lost_spk` is high relative to total segments, widen the speaker count range
+- If `lost_bw` is high, verify that the input data has bandwidth metadata in `segments[].metrics.bandwidth`
+- Use `drop_fields` to reduce output file size when downstream stages do not need word-level or segment-level detail
+
+## Related Topics
+
+- **[ALM Overlap Filtering](/curate-audio/process-data/alm/overlap-filtering)**: Next stage in the ALM pipeline
+- **[ALM Pipeline Concepts](/about/concepts/audio/alm-pipeline)**: Architectural overview
+- **[ALM Tutorial](/curate-audio/tutorials/alm)**: End-to-end walkthrough with sample data

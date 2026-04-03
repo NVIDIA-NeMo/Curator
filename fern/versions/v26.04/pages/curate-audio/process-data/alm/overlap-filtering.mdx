@@ -1,0 +1,100 @@
+---
+description: "ALMDataOverlapStage reference for removing overlapping training windows based on configurable thresholds"
+categories: ["audio-processing"]
+tags: ["alm", "overlap-filtering", "deduplication", "windowing", "training-data"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# ALM Overlap Filtering
+
+`ALMDataOverlapStage` removes redundant training windows that share too much audio content. When two windows overlap beyond a configurable threshold, the stage keeps the window whose duration is closest to the target and discards the other.
+
+## How it Works
+
+The stage processes each `AudioTask` independently:
+
+1. Extracts the `windows` list produced by `ALMDataBuilderStage`
+2. Sorts windows by start time
+3. Compares consecutive pairs and calculates the overlap ratio (overlap duration divided by the shorter window duration)
+4. When the overlap ratio exceeds the threshold, keeps the window closest to `target_duration`
+5. Writes filtered results back to the task
+
+## Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `overlap_percentage` | int | 0 | Overlap threshold from 0 to 100. Lower values remove more windows. |
+| `target_duration` | float | 120.0 | Preferred window duration in seconds, used for tie-breaking |
+
+### Overlap Percentage Behavior
+
+| Value | Behavior | Typical Use Case |
+|-------|----------|------------------|
+| 0 | Remove any overlapping windows | Maximum deduplication, smallest output |
+| 50 | Remove windows with greater than 50% overlap | Balanced yield and diversity |
+| 100 | Keep all windows regardless of overlap | No filtering, maximum output |
+
+## Basic Usage
+
+```python
+from nemo_curator.stages.audio.alm import ALMDataOverlapStage
+
+# Remove windows with any overlap
+overlap_filter = ALMDataOverlapStage(
+    overlap_percentage=0,
+    target_duration=120.0,
+)
+```
+
+## Advanced Configuration
+
+### Moderate Filtering
+
+```python
+# Keep windows unless they overlap by more than 50%
+overlap_filter = ALMDataOverlapStage(
+    overlap_percentage=50,
+    target_duration=120.0,
+)
+```
+
+### Short-Window Pipeline
+
+When using shorter target windows, match the `target_duration` parameter:
+
+```python
+overlap_filter = ALMDataOverlapStage(
+    overlap_percentage=30,
+    target_duration=30.0,  # Match ALMDataBuilderStage target
+)
+```
+
+## Output Fields
+
+The stage adds the following fields to each `AudioTask`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `filtered_windows` | list | Windows that passed overlap filtering |
+| `filtered_dur` | float | Total duration of filtered windows in seconds |
+| `filtered_dur_list` | list | Duration of each individual filtered window |
+| `total_dur_window` | float | Total duration of all input windows before filtering |
+
+## Tuning the Overlap Threshold
+
+The right threshold depends on your training requirements:
+
+- **For diverse training data**, use a low `overlap_percentage` (0 to 30) to maximize the variety of audio content in the training set
+- **For maximum training volume**, use a higher `overlap_percentage` (70 to 100) to retain more windows at the cost of some redundancy
+- **For balanced results**, use `overlap_percentage=50` as a starting point and adjust based on the ratio of `filtered_windows` to input `windows`
+
+Monitor the yield by comparing `filtered_dur` to `total_dur_window` in the output.
+
+## Related Topics
+
+- **[ALM Data Builder](/curate-audio/process-data/alm/data-builder)**: Previous stage in the ALM pipeline
+- **[ALM Pipeline Concepts](/about/concepts/audio/alm-pipeline)**: Architectural overview
+- **[ALM Tutorial](/curate-audio/tutorials/alm)**: End-to-end walkthrough with sample data
