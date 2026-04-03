@@ -77,6 +77,18 @@ datasets:
     formats:
     - type: "wds_tar_dir"
       path: "{datasets_path}/multimodal/mint1t"
+  - name: "finemath4plus"
+    formats:
+    - type: "parquet"
+      path: "{datasets_path}/finemath4plus/enriched"
+  - name: "cc_index_query_dataset"
+    formats:
+    - type: "parquet"
+      path: "{datasets_path}/cc_index_benchmark/dataset/megamath_web/megamath-web"
+  - name: "cc_index_partitions"
+    formats:
+    - type: "parquet"
+      path: "{datasets_path}/cc_index_benchmark/cc_index"
 default_timeout_s: 7200
 
 # Optional sinks
@@ -1005,3 +1017,123 @@ entries:
         min_value: 1
       - metric: total_filtered_windows
         min_value: 1
+
+  - name: math_preprocess
+    enabled: true
+    script: math_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:finemath4plus,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+    timeout_s: 600
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+          - type_html_count
+          - extraction_success_rate
+        ping_on_failure:
+          - U07AZ1HPL1X  # Ranjit Rajan
+          - U0849HBGCLD  # Sukrit Rao
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+    requirements:
+      - metric: num_input_documents
+        exact_value: 1300
+      - metric: extraction_success_rate
+        min_value: 1.0
+
+  - name: math_preprocess_classifier
+    enabled: true
+    script: math_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:finemath4plus,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --run-classifier
+    timeout_s: 900
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+          - mean_finemath_score
+          - classifier_percent_time
+        ping_on_failure:
+          - U07AZ1HPL1X  # Ranjit Rajan
+          - U0849HBGCLD  # Sukrit Rao
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      - metric: num_input_documents
+        exact_value: 1300
+      - metric: docs_score_ge_3
+        exact_value: 1057
+
+  - name: math_preprocess_llm_cleanup
+    enabled: true
+    script: math_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:finemath4plus,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --run-llm-cleanup
+      --model=microsoft/phi-4
+      --prompt=HTML_TO_TEXT_PROMPT
+      --chunk-data
+      --chunk-length=4096
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+          - num_output_documents_post_merge
+          - llm_cleanup_percent_time
+        ping_on_failure:
+          - U07AZ1HPL1X  # Ranjit Rajan
+          - U0849HBGCLD  # Sukrit Rao
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      - metric: num_input_documents
+        exact_value: 1300
+      - metric: num_output_documents_post_merge
+        exact_value: 1300
+
+  - name: math_cc_index_lookup
+    enabled: true
+    script: cc_index_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --query-dataset-path={dataset:cc_index_query_dataset,parquet}
+      --cc-index-path={dataset:cc_index_partitions,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_gb_per_sec
+          - total_cc_index_rows_scanned
+          - total_matched_rows
+          - match_rate
+        ping_on_failure:
+          - U07AZ1HPL1X  # Ranjit Rajan
+          - U0849HBGCLD  # Sukrit Rao
+    ray:
+      num_cpus: 64
+      num_gpus: 8
+      enable_object_spilling: false
+    requirements:
+      - metric: total_matched_rows
+        exact_value: 2384
+      - metric: num_cc_index_files
+        exact_value: 50

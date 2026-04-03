@@ -12,17 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any
 
 from nemo_curator.stages.base import CompositeStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.stages.interleaved.io.readers.webdataset import WebdatasetReaderStage
+from nemo_curator.stages.interleaved.io.readers.webdataset import InterleavedWebdatasetReaderStage
 from nemo_curator.stages.interleaved.utils import (
     DEFAULT_IMAGE_EXTENSIONS,
     DEFAULT_JSON_EXTENSIONS,
     DEFAULT_WEBDATASET_EXTENSIONS,
-    require_source_id_field,
     resolve_storage_options,
 )
 from nemo_curator.tasks import InterleavedBatch, _EmptyTask
@@ -41,7 +42,6 @@ class WebdatasetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
     file_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_WEBDATASET_EXTENSIONS))
     json_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_JSON_EXTENSIONS))
     image_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_IMAGE_EXTENSIONS))
-    source_id_field: str = ""
     sample_id_field: str | None = None
     texts_field: str = "texts"
     images_field: str = "images"
@@ -53,7 +53,6 @@ class WebdatasetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
 
     def __post_init__(self):
         super().__init__()
-        self.source_id_field = require_source_id_field(self.source_id_field)
         self.storage_options = resolve_storage_options(io_kwargs=self.read_kwargs)
 
     def decompose(self) -> list:
@@ -65,13 +64,12 @@ class WebdatasetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
                 file_extensions=self.file_extensions,
                 storage_options=self.storage_options,
             ),
-            WebdatasetReaderStage(
+            InterleavedWebdatasetReaderStage(
                 read_kwargs=self.read_kwargs,
                 materialize_on_read=self.materialize_on_read,
                 max_batch_bytes=self.max_batch_bytes,
                 json_extensions=tuple(self.json_extensions),
                 image_extensions=tuple(self.image_extensions),
-                source_id_field=self.source_id_field,
                 sample_id_field=self.sample_id_field,
                 texts_field=self.texts_field,
                 images_field=self.images_field,
