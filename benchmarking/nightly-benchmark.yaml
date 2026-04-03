@@ -648,8 +648,17 @@ entries:
       enable_object_spilling: false
     sink_data:
       - name: slack
+        # time_taken_s intentionally omitted: FLEURS includes dataset download
+        # whose wall-clock varies with network conditions, making it unreliable
+        # as a Slack regression metric. Only throughput/count are reported.
+        additional_metrics:
+          - throughput_tasks_per_sec
+          - num_tasks_processed
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: is_success
+        exact_value: true
 
   - name: audio_fleurs_raydata
     enabled: true
@@ -669,8 +678,17 @@ entries:
       enable_object_spilling: false
     sink_data:
       - name: slack
+        # time_taken_s intentionally omitted: FLEURS includes dataset download
+        # whose wall-clock varies with network conditions, making it unreliable
+        # as a Slack regression metric. Only throughput/count are reported.
+        additional_metrics:
+          - throughput_tasks_per_sec
+          - num_tasks_processed
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: is_success
+        exact_value: true
 
   - name: arxiv_e2e_pipeline_raydata
     enabled: true
@@ -947,6 +965,10 @@ entries:
     timeout_s: 600
     sink_data:
       - name: slack
+        additional_metrics:
+          - throughput_entries_per_sec
+          - throughput_windows_per_sec
+          - time_taken_s
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
     ray:
@@ -979,6 +1001,10 @@ entries:
     timeout_s: 600
     sink_data:
       - name: slack
+        additional_metrics:
+          - throughput_entries_per_sec
+          - throughput_windows_per_sec
+          - time_taken_s
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
     ray:
