@@ -44,13 +44,7 @@ from typing import Any
 import torch
 import torchaudio
 from loguru import logger
-
-try:
-    from silero_vad import get_speech_timestamps, load_silero_vad
-
-    _SILERO_AVAILABLE = True
-except ImportError:
-    _SILERO_AVAILABLE = False
+from silero_vad import get_speech_timestamps, load_silero_vad
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
@@ -103,9 +97,6 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self):
         super().__init__()
-        if not _SILERO_AVAILABLE:
-            msg = "silero_vad is required for VADSegmentationStage. Install it with: pip install silero-vad"
-            raise ImportError(msg)
         self._vad_model = None
         self._device = None
 
@@ -145,7 +136,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         self._check_gpu_availability(self._resources.gpus)
         try:
             with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="Sampling rate is a multiply of 16000")
+                warnings.filterwarnings("ignore", message="Sampling rate is a multiple of 16000")
                 model = load_silero_vad()
 
             use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
@@ -162,11 +153,6 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         except Exception as e:
             logger.error(f"Failed to load VAD model: {e}")
             raise
-
-    @property
-    def vad_model(self) -> Any:  # noqa: ANN401
-        self._initialize_model()
-        return self._vad_model
 
     def _build_segment_item(
         self,
@@ -249,8 +235,6 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         When ``nested=True``, returns a single ``AudioTask`` with all segment
         dicts stored in ``task.data["segments"]`` (no fan-out).
         """
-        self._initialize_model()
-
         if self._vad_model is None:
             msg = "VAD model failed to initialize. Cannot process audio."
             raise RuntimeError(msg)
@@ -323,7 +307,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
 
         speech_timestamps = get_speech_timestamps(
             vad_waveform,
-            self.vad_model,
+            self._vad_model,
             sampling_rate=vad_sample_rate,
             threshold=self.threshold,
             min_speech_duration_ms=self.min_duration_sec * 1000,

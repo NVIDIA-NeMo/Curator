@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pickle
 from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
 
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.tasks import AudioTask
 
@@ -208,15 +210,11 @@ class TestVADSegmentationStage:
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
     def test_non_nested_mode_ray_stage_spec_has_fanout(self, mock_load_vad: MagicMock, mock_get_ts: MagicMock) -> None:
-        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
-
         stage = VADSegmentationStage(nested=False)
         spec = stage.ray_stage_spec()
         assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
 
     def test_pickling(self) -> None:
-        import pickle
-
         stage = VADSegmentationStage(min_duration_sec=2.0, threshold=0.6)
         pickled = pickle.dumps(stage)
         restored = pickle.loads(pickled)  # noqa: S301
