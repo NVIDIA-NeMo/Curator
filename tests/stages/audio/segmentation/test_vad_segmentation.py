@@ -14,12 +14,14 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 import torch
 
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.tasks import AudioTask
 
 
+@pytest.mark.gpu
 class TestVADSegmentationStage:
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")

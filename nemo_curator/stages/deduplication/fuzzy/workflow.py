@@ -80,6 +80,9 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
         minhashes_per_band: int = 13,
         use_64_bit_hash: bool = False,
         bands_per_iteration: int = 5,
+        lsh_num_output_partitions: int | None = None,
+        lsh_rmm_pool_size: int | Literal["auto"] | None = "auto",
+        lsh_spill_memory_limit: int | Literal["auto"] | None = "auto",
         env_vars: dict[str, Any] | None = None,
     ):
         """
@@ -136,6 +139,19 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
 
         env_vars: dict[str, Any] | None = None
             Environment variables to pass to the pipeline.
+
+        lsh_num_output_partitions: int | None = None
+            Total number of partitions to write during the LSH shuffle.
+            If None, the number of partitions will be decided automatically by the executor
+            as the closest power of 2 <= number of input tasks.
+        lsh_rmm_pool_size: int | Literal["auto"] | None = "auto"
+            Size of the RMM GPU memory pool in bytes for the LSH stage.
+            If "auto", the memory pool is set to 90% of the free GPU memory.
+            If None, the memory pool is set to 50% of free GPU memory and can expand if needed.
+        lsh_spill_memory_limit: int | Literal["auto"] | None = "auto"
+            Device memory limit in bytes for spilling to host during the LSH stage.
+            If "auto", the limit is set to 80% of the RMM pool size.
+            If None, spilling is disabled.
         """
         self.input_path = input_path
         self.cache_path = cache_path
@@ -158,6 +174,10 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
         self.bands_per_iteration = bands_per_iteration
 
         self.env_vars = env_vars
+
+        self.lsh_num_output_partitions = lsh_num_output_partitions
+        self.lsh_rmm_pool_size = lsh_rmm_pool_size
+        self.lsh_spill_memory_limit = lsh_spill_memory_limit
 
         self.num_hashes = self.num_bands * self.minhashes_per_band
         self.executor_config = {"runtime_env": {"env_vars": env_vars}} if env_vars is not None else None
@@ -227,8 +247,9 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                     read_kwargs=self.cache_kwargs,
                     write_kwargs=self.cache_kwargs,
                     bands_per_iteration=self.bands_per_iteration,
-                    rmm_pool_size="auto",
-                    spill_memory_limit="auto",
+                    total_nparts=self.lsh_num_output_partitions,
+                    rmm_pool_size=self.lsh_rmm_pool_size,
+                    spill_memory_limit=self.lsh_spill_memory_limit,
                 ),
             ],
         )
