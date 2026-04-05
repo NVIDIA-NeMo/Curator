@@ -20,7 +20,7 @@ noise, overall quality, signal quality, coloration, discontinuity,
 loudness, and reverberation.
 
 Accepts a single input format: either in-memory (waveform + sample_rate)
-or audio_filepath to a WAV file. Uses predict_audio_mos in-memory only;
+or audio_filepath to a WAV file. Uses the SigMOS ONNX model directly;
 no temp files.
 
 Example:
@@ -43,16 +43,9 @@ import numpy as np
 import torch
 from loguru import logger
 
-try:
-    from nemo_curator.stages.audio.filtering.sigmos_filter_module.sigmos_pipeline import predict_audio_mos
-
-    _SIGMOS_AVAILABLE = True
-except ImportError:
-    predict_audio_mos = None
-    _SIGMOS_AVAILABLE = False
-
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.audio.common import resolve_model_path
+from nemo_curator.stages.audio.filtering.sigmos_filter_module.third_party.sigmos.sigmos import build_sigmos_model
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -103,7 +96,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     Filters audio segments based on SIGMOS quality metrics.
     Input: items with waveform + sample_rate (tensor/array) or audio_filepath (WAV).
-    Uses in-memory predict_audio_mos only; no temp files.
+    The ONNX model is loaded once in setup() and reused for all predictions.
 
     Args:
         model_path: Path to SIGMOS ONNX model
@@ -135,7 +128,7 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self):
         super().__init__()
-        self._predict_audio_mos = None
+        self._model = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -155,22 +148,33 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
         from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
 
         ensure_cudnn_loaded()
-        self._ensure_predict()
+        self._initialize_model()
 
     def teardown(self) -> None:
-        self._predict_audio_mos = None
+        self._model = None
         torch.cuda.empty_cache()
-
-    def _ensure_predict(self) -> None:
-        if self._predict_audio_mos is None:
-            if not _SIGMOS_AVAILABLE:
-                msg = "onnxruntime is required for SIGMOS. Install it with: pip install onnxruntime"
-                raise ImportError(msg)
-            self._predict_audio_mos = predict_audio_mos
-            logger.info("SIGMOS predict_audio_mos loaded successfully")
 
     def _resolve_model_path(self) -> str:
         return resolve_model_path(self.model_path, __file__, "sigmos_filter_module")
+
+    def _initialize_model(self) -> None:
+        if self._model is not None:
+            return
+
+        resolved_path = self._resolve_model_path()
+        if torch.cuda.is_available():
+            device_id = int(torch.cuda.current_device())
+            self._model = build_sigmos_model(
+                force_cpu=False,
+                device_id=device_id,
+                model_path=resolved_path,
+            )
+        else:
+            self._model = build_sigmos_model(
+                force_cpu=True,
+                model_path=resolved_path,
+            )
+        logger.info("SIGMOS model loaded successfully")
 
     def _scores_from_prediction(self, score_data: Any) -> dict[str, float]:  # noqa: ANN401
         if isinstance(score_data, dict):
@@ -235,12 +239,11 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
             return None
         audio_np, sample_rate = audio_result
 
-        self._ensure_predict()
-        if self._predict_audio_mos is None:
+        if self._model is None:
             return None
 
         try:
-            score_data = self._predict_audio_mos(audio_np, sample_rate, model_path=self._resolve_model_path())
+            score_data = self._model.run(audio=audio_np, sr=sample_rate)
         except Exception as e:  # noqa: BLE001
             logger.exception(f"[{task.task_id}] SIGMOS prediction error: {e}")
             return None

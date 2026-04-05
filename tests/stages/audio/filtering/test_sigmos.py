@@ -49,15 +49,17 @@ def _make_task(duration_s: float = 1.0, sample_rate: int = 48000) -> AudioTask:
     )
 
 
+def _make_mock_model(scores: dict) -> MagicMock:
+    model = MagicMock()
+    model.run.return_value = scores
+    return model
+
+
 class TestSIGMOSFilterStage:
-    @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
-    def test_process_passes_good_scores(self, mock_ensure: MagicMock) -> None:
+    @patch.object(SIGMOSFilterStage, "_initialize_model")
+    def test_process_passes_good_scores(self, mock_init: MagicMock) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
-
-        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
-            return _GOOD_SCORES
-
-        stage._predict_audio_mos = fake_predict
+        stage._model = _make_mock_model(_GOOD_SCORES)
 
         result = stage.process(_make_task())
 
@@ -65,21 +67,17 @@ class TestSIGMOSFilterStage:
         assert result.data["sigmos_noise"] == 4.5
         assert result.data["sigmos_ovrl"] == 4.0
 
-    @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
-    def test_process_rejects_bad_scores(self, mock_ensure: MagicMock) -> None:
+    @patch.object(SIGMOSFilterStage, "_initialize_model")
+    def test_process_rejects_bad_scores(self, mock_init: MagicMock) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
-
-        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
-            return _BAD_SCORES
-
-        stage._predict_audio_mos = fake_predict
+        stage._model = _make_mock_model(_BAD_SCORES)
 
         result = stage.process(_make_task())
 
         assert result == []
 
-    @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
-    def test_none_thresholds_disable_checks(self, mock_ensure: MagicMock) -> None:
+    @patch.object(SIGMOSFilterStage, "_initialize_model")
+    def test_none_thresholds_disable_checks(self, mock_init: MagicMock) -> None:
         stage = SIGMOSFilterStage(
             noise_threshold=None,
             ovrl_threshold=None,
@@ -89,45 +87,33 @@ class TestSIGMOSFilterStage:
             loud_threshold=None,
             reverb_threshold=None,
         )
-
-        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
-            return _BAD_SCORES
-
-        stage._predict_audio_mos = fake_predict
+        stage._model = _make_mock_model(_BAD_SCORES)
 
         result = stage.process(_make_task())
 
         assert isinstance(result, AudioTask)
 
-    @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
-    def test_partial_threshold_fail(self, mock_ensure: MagicMock) -> None:
+    @patch.object(SIGMOSFilterStage, "_initialize_model")
+    def test_partial_threshold_fail(self, mock_init: MagicMock) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=None)
-
-        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
-            return {
-                "MOS_NOISE": 3.0,
-                "MOS_OVRL": 5.0,
-                "MOS_SIG": 5.0,
-                "MOS_COL": 5.0,
-                "MOS_DISC": 5.0,
-                "MOS_LOUD": 5.0,
-                "MOS_REVERB": 5.0,
-            }
-
-        stage._predict_audio_mos = fake_predict
+        stage._model = _make_mock_model({
+            "MOS_NOISE": 3.0,
+            "MOS_OVRL": 5.0,
+            "MOS_SIG": 5.0,
+            "MOS_COL": 5.0,
+            "MOS_DISC": 5.0,
+            "MOS_LOUD": 5.0,
+            "MOS_REVERB": 5.0,
+        })
 
         result = stage.process(_make_task())
 
         assert result == []
 
-    @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
-    def test_sigmos_output_keys(self, mock_ensure: MagicMock) -> None:
+    @patch.object(SIGMOSFilterStage, "_initialize_model")
+    def test_sigmos_output_keys(self, mock_init: MagicMock) -> None:
         stage = SIGMOSFilterStage(noise_threshold=1.0, ovrl_threshold=1.0)
-
-        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
-            return _GOOD_SCORES
-
-        stage._predict_audio_mos = fake_predict
+        stage._model = _make_mock_model(_GOOD_SCORES)
 
         result = stage.process(_make_task())
 
@@ -143,38 +129,40 @@ class TestSIGMOSFilterStage:
         ]:
             assert key in result.data
 
-    @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
-    def test_no_audio_no_filepath_skipped(self, mock_ensure: MagicMock) -> None:
+    @patch.object(SIGMOSFilterStage, "_initialize_model")
+    def test_no_audio_no_filepath_skipped(self, mock_init: MagicMock) -> None:
         stage = SIGMOSFilterStage()
-        stage._predict_audio_mos = MagicMock()
+        stage._model = _make_mock_model(_GOOD_SCORES)
 
         task = AudioTask(data={"some_key": "value"}, task_id="test", dataset_name="test")
         result = stage.process(task)
 
         assert result == []
 
-    def test_predictor_not_available(self) -> None:
+    def test_model_not_available(self) -> None:
         stage = SIGMOSFilterStage()
-        stage._predict_audio_mos = None
+        stage._model = None
 
-        with patch.object(stage, "_ensure_predict"):
+        with patch.object(stage, "_initialize_model"):
             result = stage.process(_make_task())
 
         assert result == []
 
-    @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
-    def test_process_nested_segments_filters(self, mock_ensure: MagicMock) -> None:
+    @patch.object(SIGMOSFilterStage, "_initialize_model")
+    def test_process_nested_segments_filters(self, mock_init: MagicMock) -> None:
         """Nested segments: only segments passing thresholds survive."""
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
         call_count = {"n": 0}
 
-        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
+        def fake_run(audio: object, sr: int) -> dict:  # noqa: ARG001
             call_count["n"] += 1
             if call_count["n"] % 2 == 1:
                 return _GOOD_SCORES
             return _BAD_SCORES
 
-        stage._predict_audio_mos = fake_predict
+        model = MagicMock()
+        model.run.side_effect = fake_run
+        stage._model = model
 
         sr = 48000
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(4)]
@@ -191,15 +179,11 @@ class TestSIGMOSFilterStage:
         for seg in result.data["segments"]:
             assert "sigmos_noise" in seg
 
-    @patch("nemo_curator.stages.audio.filtering.sigmos.SIGMOSFilterStage._ensure_predict")
-    def test_process_nested_all_filtered_returns_empty(self, mock_ensure: MagicMock) -> None:
+    @patch.object(SIGMOSFilterStage, "_initialize_model")
+    def test_process_nested_all_filtered_returns_empty(self, mock_init: MagicMock) -> None:
         """Nested segments: when all fail thresholds, return []."""
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
-
-        def fake_predict(_audio_data: object, _sample_rate: int, model_path: str | None = None) -> dict:  # noqa: ARG001
-            return _BAD_SCORES
-
-        stage._predict_audio_mos = fake_predict
+        stage._model = _make_mock_model(_BAD_SCORES)
 
         sr = 48000
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]

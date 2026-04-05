@@ -18,19 +18,12 @@ SIGMOS pipeline: in-memory MOS prediction for SIGMOSFilterStage.
 Only predict_audio_mos(audio_data, sample_rate, model_path) is used by the stage.
 """
 
-import os
-import sys
 from typing import Any
 
 import numpy as np
 import torch
 
-try:
-    from .third_party.sigmos.sigmos import build_sigmos_model
-except ImportError:
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    sys.path.append(os.path.join(current_dir, "third_party"))
-    from sigmos.sigmos import build_sigmos_model
+from .third_party.sigmos.sigmos import build_sigmos_model
 
 _MODEL_CACHE: dict[str, Any] = {}
 

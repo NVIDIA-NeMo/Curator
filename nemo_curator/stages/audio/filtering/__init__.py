@@ -16,8 +16,10 @@
 
 from .band import BandFilterStage
 from .sigmos import SIGMOSFilterStage
+from .utmos import UTMOSFilterStage
 
 __all__ = [
     "BandFilterStage",
     "SIGMOSFilterStage",
+    "UTMOSFilterStage",
 ]
