@@ -214,7 +214,8 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def teardown(self) -> None:
         self._model = None
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def _resolve_model_path(self) -> str:
         """Resolve the ONNX model path: model_path override → model_dir download."""
