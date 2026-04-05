@@ -23,6 +23,10 @@ Accepts a single input format: either in-memory (waveform + sample_rate)
 or audio_filepath to a WAV file. Uses the SigMOS ONNX model directly;
 no temp files.
 
+The ONNX model is downloaded automatically from Microsoft's SIG-Challenge
+repository on first use and cached at ~/.cache/nemo_curator/sigmos_model/.
+Users can also provide a pre-downloaded model via the ``model_path`` parameter.
+
 Example:
     from nemo_curator.pipeline import Pipeline
     from nemo_curator.stages.audio.filtering import SIGMOSFilterStage
@@ -37,18 +41,26 @@ Example:
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
+import requests
 import torch
 from loguru import logger
 
-from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.stages.audio.common import resolve_model_path
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio.filtering.sigmos_filter_module.third_party.sigmos.sigmos import build_sigmos_model
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+_SIGMOS_MODEL_URL = (
+    "https://github.com/microsoft/SIG-Challenge/raw/main/"
+    "ICASSP2024/sigmos/model-sigmos_1697718653_41d092e8-epo-200.onnx"
+)
+_SIGMOS_MODEL_FILENAME = "model-sigmos_1697718653_41d092e8-epo-200.onnx"
+_DEFAULT_MODEL_DIR = str(Path.home() / ".cache" / "nemo_curator" / "sigmos_model")
 
 
 def _get_audio_numpy_sr(item: dict[str, Any], task_id: str) -> tuple[np.ndarray, int] | None:
@@ -98,8 +110,17 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
     Input: items with waveform + sample_rate (tensor/array) or audio_filepath (WAV).
     The ONNX model is loaded once in setup() and reused for all predictions.
 
+    The model is automatically downloaded from Microsoft's SIG-Challenge
+    GitHub repository on first use and cached at
+    ``~/.cache/nemo_curator/sigmos_model/``. To skip downloading, place
+    the ONNX file there manually or pass ``model_path`` pointing
+    directly to the file.
+
     Args:
-        model_path: Path to SIGMOS ONNX model
+        model_dir: Directory to store the downloaded model weights
+            (default: ``~/.cache/nemo_curator/sigmos_model/``).
+        model_path: Direct path to a local SIGMOS ONNX model file.
+            Overrides model_dir when provided.
         noise_threshold: Minimum noise score (None to disable)
         ovrl_threshold: Minimum overall score (None to disable)
         sig_threshold: Minimum signal score (None to disable)
@@ -113,7 +134,8 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
         Use .with_(resources=Resources(gpus=X)) to configure GPU allocation.
     """
 
-    model_path: str = "model/model-sigmos_1697718653_41d092e8-epo-200.onnx"
+    model_dir: str = _DEFAULT_MODEL_DIR
+    model_path: str | None = None
     noise_threshold: float | None = 4.0
     ovrl_threshold: float | None = 3.5
     sig_threshold: float | None = None
@@ -144,6 +166,46 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
             "sigmos_reverb",
         ]
 
+    @staticmethod
+    def _download_model(model_dir: str) -> str:
+        """Download SIGMOS ONNX model from Microsoft's SIG-Challenge repository.
+
+        Returns the path to the validated model file.
+        """
+        weights_path = str(Path(model_dir) / _SIGMOS_MODEL_FILENAME)
+
+        if not os.path.exists(weights_path):
+            Path(model_dir).mkdir(parents=True, exist_ok=True)
+
+            logger.info(f"Downloading SIGMOS model from {_SIGMOS_MODEL_URL}")
+            response = requests.get(_SIGMOS_MODEL_URL, timeout=120)
+            response.raise_for_status()
+
+            with open(weights_path, "wb") as f:
+                f.write(response.content)
+
+            logger.info(f"SIGMOS model saved to {weights_path}")
+
+        if not os.path.isfile(weights_path) or os.path.getsize(weights_path) == 0:
+            msg = (
+                f"SIGMOS model file is missing or empty at {weights_path}. "
+                f"Download manually from {_SIGMOS_MODEL_URL} "
+                f"and place it at {weights_path}"
+            )
+            raise RuntimeError(msg)
+
+        return weights_path
+
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
+        try:
+            if self.model_path is None:
+                self._download_model(self.model_dir)
+                logger.info("SIGMOS model pre-downloaded on node")
+        except Exception:  # noqa: BLE001
+            logger.warning("SIGMOS model pre-download in setup_on_node failed; will retry in setup().")
+
     def setup(self, _: WorkerMetadata | None = None) -> None:
         from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
 
@@ -155,7 +217,10 @@ class SIGMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
         torch.cuda.empty_cache()
 
     def _resolve_model_path(self) -> str:
-        return resolve_model_path(self.model_path, __file__, "sigmos_filter_module")
+        """Resolve the ONNX model path: model_path override → model_dir download."""
+        if self.model_path is not None and os.path.isfile(self.model_path):
+            return self.model_path
+        return self._download_model(self.model_dir)
 
     def _initialize_model(self) -> None:
         if self._model is not None:
