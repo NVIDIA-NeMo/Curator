@@ -182,7 +182,9 @@ class TestVADSegmentationStage:
 
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
-    def test_nested_mode_no_speech_returns_empty(self, mock_load_vad: MagicMock, mock_get_ts: MagicMock) -> None:
+    def test_nested_mode_no_speech_returns_task_with_empty_segments(
+        self, mock_load_vad: MagicMock, mock_get_ts: MagicMock
+    ) -> None:
         mock_load_vad.return_value = MagicMock()
         mock_get_ts.return_value = []
 
@@ -197,8 +199,8 @@ class TestVADSegmentationStage:
         stage.setup()
         result = stage.process(task)
 
-        assert isinstance(result, list)
-        assert len(result) == 0
+        assert isinstance(result, AudioTask)
+        assert result.data["segments"] == []
 
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")

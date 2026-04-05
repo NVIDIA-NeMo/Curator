@@ -26,13 +26,13 @@ Example:
     from nemo_curator.stages.audio.segmentation import VADSegmentationStage
     from nemo_curator.stages.resources import Resources
 
-    # Default execution (GPU with cpus=1.0, gpus=0.3)
+    # Default execution (CPU-only)
     pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0, threshold=0.5))
 
-    # Custom GPU allocation
+    # Opt into GPU if desired
     pipeline.add_stage(
         VADSegmentationStage(min_duration_sec=2.0)
-        .with_(resources=Resources(gpus=0.1))
+        .with_(resources=Resources(gpus=0.3))
     )
 """
 
@@ -78,8 +78,8 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         sample_rate_key: Key to get sample rate.
 
     Note:
-        Default resources: cpus=1.0, gpus=0.3. Silero VAD is lightweight.
-        Use .with_(resources=Resources(gpus=X)) to override GPU allocation.
+        Default resources: cpus=1.0, gpus=0.0 (CPU). Silero VAD is lightweight.
+        Use .with_(resources=Resources(gpus=X)) to opt into GPU execution.
     """
 
     min_interval_ms: int = 500
@@ -93,7 +93,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
 
     name: str = "VADSegmentation"
     batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=0.3))
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=0.0))
 
     def __post_init__(self):
         super().__init__()
@@ -248,6 +248,9 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
             segments = self._get_vad_segments(waveform, sample_rate)
             if not segments:
                 logger.warning("No speech segments detected by VAD")
+                if self.nested:
+                    task.data["segments"] = []
+                    return task
                 return []
 
             original_file = task.data.get("audio_filepath", "unknown")
