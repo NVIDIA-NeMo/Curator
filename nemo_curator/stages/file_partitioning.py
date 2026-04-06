@@ -155,7 +155,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                         "Please increase blocksize if possible (the maximum recommended blocksize is 512 MB). "
                         "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
                     )
-                    raise ValueError(msg)
+                    logger.warning(msg)
                 # Scenario 2: The user did not specify blocksize and the partition created is too large
                 elif total_storage_size > self._blocksize:
                     msg = (
@@ -164,7 +164,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                         "Please reduce files_per_partition if possible, or set blocksize instead (the maximum recommended blocksize is 512 MB). "
                         "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
                     )
-                    raise ValueError(msg)
+                    logger.warning(msg)
 
         # Create FileGroupTask for each partition
         tasks = []
