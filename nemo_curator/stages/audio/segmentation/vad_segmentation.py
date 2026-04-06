@@ -118,7 +118,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         if self._vad_model is not None:
             del self._vad_model
             self._vad_model = None
-            if self._device is not None and self._device.type == "cuda":
+            if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
     @staticmethod

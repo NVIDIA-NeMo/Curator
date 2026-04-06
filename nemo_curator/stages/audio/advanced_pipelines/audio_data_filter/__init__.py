@@ -12,14 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio quality filtering stages."""
+"""
+Audio Data Filter pipeline.
 
-from .band import BandFilterStage
-from .sigmos import SIGMOSFilterStage
-from .utmos import UTMOSFilterStage
+Composite pipeline stage for audio curation with VAD,
+quality filtering, speaker separation, and timestamp tracking.
+
+Example::
+
+    from nemo_curator.stages.audio.advanced_pipelines import (
+        AudioDataFilterStage,
+    )
+
+    # Using default config
+    pipeline.add_stage(AudioDataFilterStage())
+
+    # Using custom YAML config
+    pipeline.add_stage(AudioDataFilterStage(config_path="my_config.yaml"))
+"""
+
+from .audio_data_filter import AudioDataFilterStage
 
 __all__ = [
-    "BandFilterStage",
-    "SIGMOSFilterStage",
-    "UTMOSFilterStage",
+    "AudioDataFilterStage",
 ]
