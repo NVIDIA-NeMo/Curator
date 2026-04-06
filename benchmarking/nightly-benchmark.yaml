@@ -968,6 +968,8 @@ entries:
           - num_rows
           - num_output_files
           - materialize_error_count
+        ping_on_failure:
+          - UGFRT88RE
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -994,6 +996,8 @@ entries:
           - num_rows
           - num_output_files
           - materialize_error_count
+        ping_on_failure:
+          - UGFRT88RE
     ray:
       num_cpus: 64
       num_gpus: 4
