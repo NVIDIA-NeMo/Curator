@@ -15,7 +15,9 @@
 """Audio quality filtering stages."""
 
 from .band import BandFilterStage
+from .utmos import UTMOSFilterStage
 
 __all__ = [
     "BandFilterStage",
+    "UTMOSFilterStage",
 ]
