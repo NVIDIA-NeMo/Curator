@@ -25,16 +25,14 @@ python 1_compute_embeddings.py \
     --output-file-type "jsonl" \
     --text-field "text" \
     --id-field "climb_id" \
-    --use-sentence-transformer \
-    --autocast \
-    --sort-by-length
+    --use-sentence-transformer
 ```
 
 At least 1 GPU is required to run this step. Use the `--num-cpus` and `--num-gpus` arguments as desired to control the number of CPUs and GPUs used by the Ray client. The script uses all available resources by default.
 
 If the dataset already contains a unique ID field, feel free to omit the `--id-field` argument.
 
-The script uses the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) embedding model by default. The [SentenceTransformers](https://huggingface.co/sentence-transformers) library is used via the `--use-sentence-transformer` flag to enhance performance. The `--autocast` flag leverages mixed-precision inference, which can speed up embedding generation and reduce memory usage on GPUs. The `--sort-by-length` flag is a Curator-specific function which sorts the input data by the length of the input tokens; sorting is encouraged to improve performance.
+The script uses the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) embedding model by default. The [SentenceTransformers](https://huggingface.co/sentence-transformers) library is used via the `use-sentence-transformer` flag to enhance performance.
 
 Some of the default parameters in the script include:
 

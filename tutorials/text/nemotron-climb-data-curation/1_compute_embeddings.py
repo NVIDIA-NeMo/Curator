@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import argparse
+import json
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
@@ -49,12 +50,14 @@ def main(args: argparse.Namespace) -> None:
 
     pipeline.add_stage(reader(file_paths=args.input_path, files_per_partition=1))
 
-    # TODO: Do we need the ID field in the recipe at all?
     if args.id_field is not None:
         pipeline.add_stage(AddId(id_field=args.id_field))
 
     if args.embedding_model == _EMBEDDING_MODEL and args.max_seq_length is None:
         args.max_seq_length = _EMBEDDING_MODEL_MAX_SEQ_LENGTH
+
+    if args.embedding_model == _EMBEDDING_MODEL and args.transformers_init_kwargs == {}:
+        args.transformers_init_kwargs = {"trust_remote_code": True}
 
     pipeline.add_stage(
         EmbeddingCreatorStage(
@@ -68,9 +71,10 @@ def main(args: argparse.Namespace) -> None:
             padding_side=args.padding_side,
             embedding_pooling=args.embedding_pooling,
             model_inference_batch_size=args.model_inference_batch_size,
-            autocast=args.autocast,
-            sort_by_length=args.sort_by_length,
+            autocast=not args.disable_autocast,
+            sort_by_length=not args.disable_sort_by_length,
             hf_token=args.hf_token,
+            transformers_init_kwargs=args.transformers_init_kwargs,
         )
     )
 
@@ -97,7 +101,6 @@ def attach_args() -> argparse.ArgumentParser:
 
     # Embedding model args
     parser.add_argument("--embedding-model", type=str, default=_EMBEDDING_MODEL)
-    # TODO: parser.add_argument("--transformers-init-kwargs", type=json.loads, default={})
     parser.add_argument("--use-sentence-transformer", action="store_true")
     parser.add_argument("--text-field", type=str, default="text")
     parser.add_argument("--embedding-field", type=str, default="embeddings")
@@ -107,9 +110,10 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--padding-side", type=str, default="right")
     parser.add_argument("--embedding-pooling", type=str, default="mean_pooling", choices=["mean_pooling", "last_token"])
     parser.add_argument("--model-inference-batch-size", type=int, default=1024)
-    parser.add_argument("--autocast", action="store_true")
-    parser.add_argument("--sort-by-length", action="store_true")
+    parser.add_argument("--disable-autocast", action="store_true")
+    parser.add_argument("--disable-sort-by-length", action="store_true")
     parser.add_argument("--hf-token", type=str, default=None)
+    parser.add_argument("--transformers-init-kwargs", type=json.loads, default={})
 
     # Writer args
     parser.add_argument("--output-path", type=str, required=True)
