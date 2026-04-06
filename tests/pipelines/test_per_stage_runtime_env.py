@@ -15,7 +15,8 @@
 """Tests for per-stage runtime environment: different Python package versions per stage.
 
 Each stage declares runtime_env and Ray creates an isolated virtualenv per unique spec set.
-RayData, Xenna, and RayActorPool backends are all tested via parametrization.
+RayData, Xenna, and RayActorPool backends are all tested via parametrization, for both
+pip and uv spec types.
 """
 
 from typing import Any, ClassVar
@@ -84,7 +85,7 @@ class BaseEnvStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
 
 class VersionStage1(ProcessingStage[DocumentBatch, DocumentBatch]):
-    """Stage 1: packaging==23.2."""
+    """Stage 1: packaging==23.2 (default pip; overridable via with_())."""
 
     name = "version_stage_1"
     resources = Resources(cpus=0.5)
@@ -102,7 +103,7 @@ class VersionStage1(ProcessingStage[DocumentBatch, DocumentBatch]):
 
 
 class VersionStage2(ProcessingStage[DocumentBatch, DocumentBatch]):
-    """Stage 2: packaging==24.0."""
+    """Stage 2: packaging==24.0 (default pip; overridable via with_())."""
 
     name = "version_stage_2"
     resources = Resources(cpus=0.5)
@@ -122,15 +123,19 @@ class VersionStage2(ProcessingStage[DocumentBatch, DocumentBatch]):
 @pytest.mark.parametrize(
     "backend_config",
     [
-        pytest.param((RayDataExecutor, {}), id="ray_data"),
-        pytest.param((XennaExecutor, {"execution_mode": "streaming"}), id="xenna_streaming"),
-        pytest.param((XennaExecutor, {"execution_mode": "batch"}), id="xenna_batch"),
-        pytest.param((RayActorPoolExecutor, {}), id="ray_actor_pool"),
+        pytest.param((RayDataExecutor, {}, "pip"), id="ray_data-pip"),
+        pytest.param((RayDataExecutor, {}, "uv"), id="ray_data-uv"),
+        pytest.param((XennaExecutor, {"execution_mode": "streaming"}, "pip"), id="xenna_streaming-pip"),
+        pytest.param((XennaExecutor, {"execution_mode": "streaming"}, "uv"), id="xenna_streaming-uv"),
+        pytest.param((XennaExecutor, {"execution_mode": "batch"}, "pip"), id="xenna_batch-pip"),
+        pytest.param((XennaExecutor, {"execution_mode": "batch"}, "uv"), id="xenna_batch-uv"),
+        pytest.param((RayActorPoolExecutor, {}, "pip"), id="ray_actor_pool-pip"),
+        pytest.param((RayActorPoolExecutor, {}, "uv"), id="ray_actor_pool-uv"),
     ],
     indirect=True,
 )
 class TestPerStageRuntimeEnv:
-    """Stages with different runtime_env see different package versions across all backends."""
+    """Stages with different runtime_env see different package versions across all backends and spec types."""
 
     backend_cls: type[BaseExecutor] | None = None
     config: dict[str, Any] | None = None
@@ -138,8 +143,8 @@ class TestPerStageRuntimeEnv:
 
     @pytest.fixture(scope="class", autouse=True)
     def backend_config(self, request: pytest.FixtureRequest, shared_ray_cluster: str):
-        """Run the three-stage pipeline once per backend and store results."""
-        backend_cls, config = request.param
+        """Run the three-stage pipeline once per backend/spec_type and store results."""
+        backend_cls, config, spec_type = request.param
         request.cls.backend_cls = backend_cls
         request.cls.config = config
 
@@ -148,9 +153,12 @@ class TestPerStageRuntimeEnv:
             dataset_name="test",
             data=pd.DataFrame({"text": ["hello"]}),
         )
+        # Use with_() to override runtime_env spec type (pip or uv) per parametrize run.
+        stage1 = VersionStage1().with_(runtime_env={spec_type: ["packaging==23.2"]})
+        stage2 = VersionStage2().with_(runtime_env={spec_type: ["packaging==24.0"]})
         pipeline = Pipeline(
             name="per_stage_runtime_env_test",
-            stages=[BaseEnvStage(), VersionStage1(), VersionStage2()],
+            stages=[BaseEnvStage(), stage1, stage2],
         )
         request.cls.results = pipeline.run(executor=backend_cls(config), initial_tasks=[initial])
 

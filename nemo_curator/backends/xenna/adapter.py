@@ -36,11 +36,9 @@ class CuratorRuntimeEnv:
 
     def __init__(self, runtime_env: dict[str, Any]) -> None:
         self._runtime_env = runtime_env
-
-    @property
-    def extra_env_vars(self) -> dict[str, str]:
-        """Environment variables from the runtime_env dict, as Xenna's actor pool expects."""
-        return self._runtime_env.get("env_vars", {})
+        # Xenna's actor pool both reads and writes extra_env_vars on the runtime env object,
+        # so this must be a plain settable attribute, not a read-only property.
+        self.extra_env_vars: dict[str, str] = dict(runtime_env.get("env_vars", {}))
 
     def to_ray_runtime_env(self) -> ray.runtime_env.RuntimeEnv:
         return ray.runtime_env.RuntimeEnv(**self._runtime_env)
