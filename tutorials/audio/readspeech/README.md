@@ -6,14 +6,14 @@ The pipeline downloads the dataset (4.88 GB compressed, 14,279 WAV files at 48kH
 
 ## Prerequisites
 
-Install NeMo Curator with audio dependencies:
+Install NeMo Curator with audio dependencies using [uv](https://docs.astral.sh/uv/):
 
 ```bash
 # GPU (recommended)
-pip install nemo_curator[audio_cuda12]
+uv sync --extra audio_cuda12
 
 # CPU only
-pip install nemo_curator[audio_cpu]
+uv sync --extra audio_cpu
 ```
 
 The full pipeline requires: `soundfile`, `torchaudio`, `librosa`, `scipy`, `pydub`, `onnxruntime`/`onnxruntime-gpu`, `silero-vad`, and `nemo_toolkit[asr]`. These are all included in the `audio_cuda12` / `audio_cpu` extras.
@@ -220,7 +220,7 @@ python extract_segments.py \
 |--------|---------|-------------|
 | `--manifest, -m` | required | Path to manifest.jsonl or directory of .jsonl files |
 | `--output-dir, -o` | required | Directory for extracted audio segments |
-| `--output-format, -f` | `wav` | Output format: wav, flac, ogg (no extra deps), mp3, m4a (need pydub + ffmpeg) |
+| `--output-format, -f` | `wav` | Output format: `wav`, `flac`, or `ogg` (via soundfile) |
 | `--verbose, -v` | `false` | Enable verbose (DEBUG) logging |
 
 ### Output
@@ -240,8 +240,7 @@ Without speaker separation, files are named `{original_name}_segment_{num}.wav`.
 
 The script also generates an `extraction_summary.json` with statistics including total segments extracted, total duration, and per-speaker segment counts.
 
-> **Note**: wav/flac/ogg output works out of the box via `soundfile`. For mp3/m4a output,
-> install `pip install pydub` and `sudo apt install ffmpeg` (or `conda install ffmpeg`).
+> **Note**: Supported output formats are `wav`, `flac`, and `ogg` via `soundfile`.
 
 
 **Storage**: ~11 GB (4.88 GB download + 6.3 GB extracted WAV files; archive is deleted after extraction).

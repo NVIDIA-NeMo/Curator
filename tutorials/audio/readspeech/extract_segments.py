@@ -27,9 +27,7 @@ Input can be:
 When given a directory, all .jsonl files are combined into a single
 manifest.jsonl in the output directory with escaped paths (\\/) cleaned up.
 
-Supports configurable output format:
-  wav/flac/ogg via soundfile (no extra dependencies)
-  mp3/m4a via pydub + ffmpeg (optional, install separately)
+Supports configurable output format: wav, flac, ogg (via soundfile).
 
 Usage:
     python extract_segments.py --manifest manifest.jsonl --output-dir extracted_segments/
@@ -57,7 +55,6 @@ SOUNDFILE_FORMATS = {
     "ogg": "VORBIS",
 }
 
-PYDUB_FORMATS = {"mp3", "m4a"}
 
 
 def load_manifest(manifest_path: str) -> list:
@@ -121,22 +118,10 @@ def load_manifests(input_path: str, output_dir: str) -> list:
 
 
 def _write_segment(
-    output_path: str, segment_audio: np.ndarray, sample_rate: int, audio_data: np.ndarray, output_format: str
+    output_path: str, segment_audio: np.ndarray, sample_rate: int, output_format: str
 ) -> None:
     """Write a single audio segment to disk."""
-    if output_format in SOUNDFILE_FORMATS:
-        sf.write(output_path, segment_audio, sample_rate, subtype=SOUNDFILE_FORMATS[output_format])
-    else:
-        from pydub import AudioSegment
-
-        pcm16 = (segment_audio * 32767).astype(np.int16)
-        audio_seg = AudioSegment(
-            data=pcm16.tobytes(),
-            sample_width=2,
-            frame_rate=sample_rate,
-            channels=1 if audio_data.ndim == 1 else audio_data.shape[1],
-        )
-        audio_seg.export(output_path, format=output_format)
+    sf.write(output_path, segment_audio, sample_rate, subtype=SOUNDFILE_FORMATS[output_format])
 
 
 def _process_file_segments(
@@ -194,7 +179,7 @@ def _process_file_segments(
             segment_audio, _ = sf.read(
                 original_file, start=start_sample, stop=end_sample, dtype="float32",
             )
-            _write_segment(output_path, segment_audio, sample_rate, segment_audio, output_format)
+            _write_segment(output_path, segment_audio, sample_rate, output_format)
             extracted += 1
             duration_total += duration_sec
             if speaker_id:
@@ -214,8 +199,7 @@ def extract_segments(input_path: str, output_dir: str, output_format: str = DEFA
     Args:
         input_path: Path to manifest.jsonl file or directory of .jsonl files
         output_dir: Directory to save extracted segments
-        output_format: Output audio format (wav, flac, ogg, mp3, m4a). Default: wav.
-            wav/flac/ogg use soundfile (no extra deps). mp3/m4a require pydub + ffmpeg.
+        output_format: Output audio format (wav, flac, ogg). Default: wav.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -290,8 +274,8 @@ def main() -> int:
         "-f",
         type=str,
         default=DEFAULT_OUTPUT_FORMAT,
-        choices=["wav", "flac", "ogg", "mp3", "m4a"],
-        help="Output audio format (default: wav). mp3/m4a require pydub + ffmpeg.",
+        choices=["wav", "flac", "ogg"],
+        help="Output audio format (default: wav).",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
 
