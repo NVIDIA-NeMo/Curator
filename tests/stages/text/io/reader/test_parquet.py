@@ -278,7 +278,7 @@ def test_parquet_reader_with_file_group_tasks_fixture(parquet_file_group_tasks: 
         assert actual_texts == expected_texts
 
 
-def test_parquet_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+def test_parquet_reader_with_blocksize_limit(tmp_path: Path):
     # Storage size is larger than 10_000 bytes
     # In-memory size is larger than 1 billion bytes
     size = 1000
@@ -290,4 +290,4 @@ def test_parquet_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogC
     # Since the storage size is larger than 10_000 bytes, the FilePartitioningStage should raise ValueError
     file_partitioning_stage = stage.decompose()[0]
     with pytest.raises(ValueError, match="File group task has exceeded the storage limit per partition"):
-        file_tasks = file_partitioning_stage.process(_EmptyTask)
+        file_partitioning_stage.process(_EmptyTask)

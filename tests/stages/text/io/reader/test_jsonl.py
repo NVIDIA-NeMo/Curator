@@ -20,7 +20,6 @@ import pytest
 from nemo_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
 )
-from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader, JsonlReaderStage
 from nemo_curator.tasks import FileGroupTask, _EmptyTask
 
@@ -179,7 +178,7 @@ class TestJsonlReaderWithIdGenerator:
             stage.setup()
 
 
-def test_jsonl_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+def test_jsonl_reader_with_blocksize_limit(tmp_path: Path):
     # Storage size is larger than 10 million bytes
     # In-memory size is also larger than 10 million bytes
     size = 1000
@@ -191,4 +190,4 @@ def test_jsonl_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogCap
     # Since the storage size is larger than 10 million bytes, the FilePartitioningStage should raise ValueError
     file_partitioning_stage = stage.decompose()[0]
     with pytest.raises(ValueError, match="File group task has exceeded the storage limit per partition"):
-        file_tasks = file_partitioning_stage.process(_EmptyTask)
+        file_partitioning_stage.process(_EmptyTask)
