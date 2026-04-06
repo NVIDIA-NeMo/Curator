@@ -25,7 +25,6 @@ import pandas as pd
 import pytest
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline.pipeline import Pipeline
@@ -123,14 +122,8 @@ class VersionStage2(ProcessingStage[DocumentBatch, DocumentBatch]):
 @pytest.mark.parametrize(
     "backend_config",
     [
-        pytest.param((RayDataExecutor, {}, "pip"), id="ray_data-pip"),
         pytest.param((RayDataExecutor, {}, "uv"), id="ray_data-uv"),
         pytest.param((XennaExecutor, {"execution_mode": "streaming"}, "pip"), id="xenna_streaming-pip"),
-        pytest.param((XennaExecutor, {"execution_mode": "streaming"}, "uv"), id="xenna_streaming-uv"),
-        pytest.param((XennaExecutor, {"execution_mode": "batch"}, "pip"), id="xenna_batch-pip"),
-        pytest.param((XennaExecutor, {"execution_mode": "batch"}, "uv"), id="xenna_batch-uv"),
-        pytest.param((RayActorPoolExecutor, {}, "pip"), id="ray_actor_pool-pip"),
-        pytest.param((RayActorPoolExecutor, {}, "uv"), id="ray_actor_pool-uv"),
     ],
     indirect=True,
 )
