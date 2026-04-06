@@ -35,12 +35,9 @@ For details on filter structure and the filtering process, refer to [Data Proces
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import (
-    WordCountFilter,
-    RepeatingTopNGramsFilter,
-    PunctuationFilter
-)
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter, PunctuationFilter
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
 
 # Create pipeline
 pipeline = Pipeline(name="heuristic_filtering")
@@ -87,13 +84,13 @@ results = pipeline.run()
 <Tab title="Configuration">
 ```python
 # Example configuration for common heuristic filters
-from nemo_curator.stages.text.filters import (
+from nemo_curator.stages.text.filters.heuristic import (
     WordCountFilter,
     PunctuationFilter,
-    RepeatingTopNGramsFilter,
     SymbolsToWordsFilter,
     CommonEnglishWordsFilter
 )
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
 
 # Define filter configurations
 filters_config = [
@@ -197,17 +194,17 @@ stages:
     file_paths: ${input_path}
     fields: null
 
-  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+  - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic_filter.WordCountFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.WordCountFilter
       min_words: 50
       max_words: 100000
     text_field: ${text_field}
     score_field: word_count
 
-  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+  - _target_: nemo_curator.stages.text.filters.score_filter.ScoreFilter
     filter_obj:
-      _target_: nemo_curator.stages.text.filters.heuristic_filter.PunctuationFilter
+      _target_: nemo_curator.stages.text.filters.heuristic.string.PunctuationFilter
       max_num_sentences_without_endmark_ratio: 0.85
     text_field: ${text_field}
     score_field: null
@@ -232,8 +229,9 @@ When building filter chains, follow these best practices:
 ```python
 # Efficient ordering - place fast filters first
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import WordCountFilter, UrlsFilter, RepeatingTopNGramsFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter, UrlsFilter
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
 
 pipeline = Pipeline(name="efficient_filtering")
 # Fast filters first
@@ -262,8 +260,8 @@ strict_filter = WordCountFilter(min_words=100, max_words=10000)
 <Tab title="Language Considerations">
 ```python
 # Chinese text filter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import SymbolsToWordsFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import SymbolsToWordsFilter
 
 cn_filter = ScoreFilter(
     filter_obj=SymbolsToWordsFilter(max_symbol_to_word_ratio=0.15, lang="zh"),
@@ -276,13 +274,13 @@ cn_filter = ScoreFilter(
 ```python
 # Comprehensive quality filter pipeline
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import (
-    WordCountFilter, 
-    PunctuationFilter, 
-    CommonEnglishWordsFilter, 
-    RepeatingTopNGramsFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import (
+    WordCountFilter,
+    PunctuationFilter,
+    CommonEnglishWordsFilter,
 )
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
 
 quality_pipeline = Pipeline(name="comprehensive_quality")
 
@@ -325,8 +323,9 @@ Use `Score` to add score columns to your data without removing any documents:
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import Score
-from nemo_curator.stages.text.filters import WordCountFilter, RepeatingTopNGramsFilter
+from nemo_curator.stages.text.filters import Score
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
 
 # Create scoring pipeline (no filtering)
 pipeline = Pipeline(name="score_analysis")
@@ -403,8 +402,9 @@ After analyzing distributions, apply filters with your chosen thresholds:
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import WordCountFilter, RepeatingTopNGramsFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic import WordCountFilter
+from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter
 
 pipeline = Pipeline(name="filtering_pipeline")
 pipeline.add_stage(JsonlReader(file_paths="input_data/", fields=["text", "id"]))
@@ -486,5 +486,29 @@ reader = JsonlReader(
 </Tab>
 
 </Tabs>
+
+## Pipeline Metrics
+
+When you run a filtering pipeline, each stage tracks the number of documents it processes. You can use these metrics to understand how each filter affects your dataset and to tune thresholds.
+
+After calling `pipeline.run()`, the returned task objects contain per-stage performance statistics through `_stage_perf`. Each entry is a `StagePerfStats` object with a `num_items_processed` field that records how many documents passed through that stage.
+
+```python
+# Run the pipeline and inspect filter metrics
+output_tasks = pipeline.run()
+
+for task in output_tasks:
+    # _stage_perf[0] is file partitioning, _stage_perf[1] is the reader
+    num_input = task._stage_perf[1].num_items_processed
+    # The last stage is the writer — its count reflects documents that survived all filters
+    num_output = task._stage_perf[-1].num_items_processed
+
+    if num_input > 0:
+        print(f"Task {task.task_id}: {num_input} input → {num_output} kept ({num_output / num_input:.1%})")
+    else:
+        print(f"Task {task.task_id}: 0 input → 0 kept")
+```
+
+These same metrics power the nightly benchmarks, which track `num_documents_processed`, `num_kept_documents`, and `throughput_docs_per_sec` for every pipeline run.
 
 Remember that the goal of filtering is to improve the quality of your training data, not necessarily to remove as many documents as possible. Monitor your filtering results and adjust thresholds based on your specific data characteristics and downstream tasks.

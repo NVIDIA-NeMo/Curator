@@ -186,6 +186,9 @@ NeMo Curator provides several installation extras to install only the components
 | **image_cuda12** | `uv pip install nemo-curator[image_cuda12]` | GPU-accelerated image processing with NVIDIA DALI |
 | **video_cpu** | `uv pip install nemo-curator[video_cpu]` | CPU-only video processing |
 | **video_cuda12** | `uv pip install --no-build-isolation nemo-curator[video_cuda12]` | GPU-accelerated video processing with CUDA libraries. Requires FFmpeg and additional build dependencies when using `uv`. |
+| **inference_server** | `uv pip install nemo-curator[inference_server]` | Ray Serve + vLLM for serving LLMs alongside curation pipelines |
+| **sdg_cpu** | `uv pip install nemo-curator[sdg_cpu]` | CPU-only synthetic data generation with Data Designer |
+| **sdg_cuda12** | `uv pip install nemo-curator[sdg_cuda12]` | GPU-accelerated synthetic data generation with local inference server support |
 
 <Note>
 **Development Dependencies**: For development tools (pre-commit, ruff, pytest), use `uv sync --group dev --group linting --group test` instead of pip extras. Development dependencies are managed as dependency groups, not optional dependencies.

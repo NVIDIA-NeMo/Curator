@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from nemo_curator.utils.split_large_files import parse_args, split_parquet_file_by_size
+from nemo_curator.utils.split_large_files import parse_args, split_jsonl_file_by_size, split_parquet_file_by_size
 
 
 @pytest.fixture
@@ -56,7 +57,9 @@ def parquet_file_factory(tmp_path: pathlib.Path):
 
 def test_default_target_size(parquet_file_factory: Callable, tmp_path: pathlib.Path):
     parquet_file = parquet_file_factory()
-    args = parse_args(["--infile", str(parquet_file), "--outdir", str(tmp_path)])
+    args = parse_args(
+        ["--input-path", str(parquet_file), "--output-path", str(tmp_path), "--file-type", "parquet"]
+    )
     assert args.target_size_mb == 128
 
 
@@ -65,20 +68,41 @@ def test_split_parquet_file_by_size(parquet_file_factory: Callable, tmp_path: pa
     parquet_file = parquet_file_factory(num_row_groups=num_row_groups)
     size_original_mb = pq.read_table(parquet_file).nbytes / (1024 * 1024)
     target_size_mb = size_original_mb / 3
-    outdir = tmp_path / "out"
-    outdir.mkdir(exist_ok=True)
-    split_parquet_file_by_size._function(input_file=parquet_file, outdir=outdir, target_size_mb=target_size_mb)
+    output_path = tmp_path / "out"
+    output_path.mkdir(exist_ok=True)
+    split_parquet_file_by_size._function(input_file=str(parquet_file), output_path=str(output_path), target_size_mb=target_size_mb)
 
     expected = pd.read_parquet(parquet_file)
-    result = pd.read_parquet(outdir)
+    result = pd.read_parquet(output_path)
 
     # Ensure the original and split data is the same
     pd.testing.assert_frame_equal(expected, result)
 
     # Check that split data files have expected sizes
-    files = sorted(outdir.rglob("*"))
+    files = sorted(output_path.rglob("*"))
     sizes_mb = [pq.read_table(f).nbytes / (1024 * 1024) for f in files]
     # Below the target size
     assert all(s_mb < target_size_mb for s_mb in sizes_mb), (sizes_mb, files)
     # More than half the target (ignoring the last file, which can sometimes be small)
+    assert all(s_mb > target_size_mb / 2 for s_mb in sizes_mb[:-1]), (sizes_mb, files)
+
+
+def test_split_jsonl_file_by_size(tmp_path: pathlib.Path):
+    jsonl_file = tmp_path / "data.jsonl"
+    payload = b"".join((json.dumps({"id": i, "text": "x" * 64}) + "\n").encode("utf-8") for i in range(8000))
+    jsonl_file.write_bytes(payload)
+
+    size_original_mb = len(payload) / (1024 * 1024)
+    target_size_mb = max(size_original_mb / 4, 1e-6)
+    output_path = tmp_path / "out"
+    output_path.mkdir(exist_ok=True)
+    split_jsonl_file_by_size._function(input_file=str(jsonl_file), output_path=str(output_path), target_size_mb=target_size_mb)
+
+    files = sorted(output_path.glob("data_*.jsonl"))
+    assert len(files) >= 2
+    roundtrip = b"".join(f.read_bytes() for f in files)
+    assert roundtrip == payload
+
+    sizes_mb = [f.stat().st_size / (1024 * 1024) for f in files]
+    assert all(s_mb < target_size_mb for s_mb in sizes_mb), (sizes_mb, files)
     assert all(s_mb > target_size_mb / 2 for s_mb in sizes_mb[:-1]), (sizes_mb, files)
