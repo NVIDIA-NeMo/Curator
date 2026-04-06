@@ -42,16 +42,17 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
     name: str = "image_reader"
 
     def __post_init__(self) -> None:
-        # Allow both GPU and CPU DALI; log mode for visibility
-        if torch.cuda.is_available():
-            logger.info("ImageReaderStage using DALI GPU decode.")
-        else:
-            logger.info("CUDA not available; ImageReaderStage using DALI CPU decode.")
+        # Always request GPU resources so stage gets scheduled on GPU workers
+        # CUDA availability is checked at runtime on workers, not during init
+        # This allows running with a CPU-only head node
+        self.resources = Resources(gpus=self.num_gpus_per_worker)
+        logger.info(f"ImageReaderStage requesting {self.num_gpus_per_worker} GPUs per worker.")
 
-        if torch.cuda.is_available():
-            self.resources = Resources(gpus=self.num_gpus_per_worker)
-        else:
-            self.resources = Resources()
+    def ray_stage_spec(self) -> dict[str, Any]:
+        # Run as a task so GPUs are released between calls, avoiding deadlocks
+        # with downstream GPU stages (e.g. ImageEmbeddingStage) that compete
+        # for the same physical GPUs.
+        return {RayStageSpecKeys.IS_ACTOR_STAGE: False}
 
     def ray_stage_spec(self) -> dict[str, Any]:
         """Ray stage specification for this stage."""

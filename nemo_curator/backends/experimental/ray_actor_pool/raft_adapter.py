@@ -121,7 +121,26 @@ class RayActorPoolRAFTAdapter(BaseStageAdapter):
 
     def _setup_nccl(self) -> None:
         """Setup NCCL communicator."""
+        import os
+
         from raft_dask.common.nccl import nccl
+
+        # Force-set NCCL env vars on the worker process.  Job-level env_vars
+        # only reach the driver; Ray actor workers inherit the node env which
+        # does not include them.  P2P and SHM must be disabled for multi-node
+        # NCCL collectives over the network.
+        _nccl_defaults = {
+            "NCCL_P2P_DISABLE": "1",
+            "NCCL_SHM_DISABLE": "1",
+        }
+        for key, val in _nccl_defaults.items():
+            os.environ.setdefault(key, val)
+
+        nccl_vars = {k: os.environ.get(k, "<unset>") for k in [
+            "NCCL_P2P_DISABLE", "NCCL_SHM_DISABLE", "NCCL_IB_DISABLE",
+            "NCCL_DEBUG", "UCX_TLS", "UCX_NET_DEVICES",
+        ]}
+        logger.info(f"{self._name}: NCCL/UCX env vars on worker: {nccl_vars}")
 
         self._nccl = nccl()
         self._nccl.init(self._pool_size, self.root_unique_id, self._index)

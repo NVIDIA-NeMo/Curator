@@ -41,10 +41,11 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
     name: str = "image_embedding"
 
     def __post_init__(self) -> None:
-        if torch.cuda.is_available():
-            self.resources = Resources(gpus=self.num_gpus_per_worker)
-        else:
-            self.resources = Resources()
+        # Always request GPU resources so stage gets scheduled on GPU workers
+        # CUDA availability is checked at runtime on workers, not during init
+        # This allows running with a CPU-only head node
+        self.resources = Resources(gpus=self.num_gpus_per_worker)
+        logger.info(f"ImageEmbeddingStage requesting {self.num_gpus_per_worker} GPUs per worker.")
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

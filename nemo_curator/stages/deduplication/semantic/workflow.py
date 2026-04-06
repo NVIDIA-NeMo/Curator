@@ -30,7 +30,6 @@ from loguru import logger
 # Ray Curator imports
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult
 
@@ -357,7 +356,10 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             msg = "kmeans_executor must be an instance of RayActorPoolExecutor."
             raise ValueError(msg)
         kmeans_executor = kmeans_executor or RayActorPoolExecutor()
-        pairwise_executor = pairwise_executor or XennaExecutor()
+        if pairwise_executor is None:
+            from nemo_curator.backends.xenna import XennaExecutor
+
+            pairwise_executor = XennaExecutor()
 
         try:
             # Setup
