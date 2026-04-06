@@ -84,6 +84,7 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
 
     def __post_init__(self) -> None:
         super().__post_init__()
+        self._storage_options = resolve_storage_options(io_kwargs=self.read_kwargs)
 
     # -- source_ref construction --
 
@@ -148,7 +149,7 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
         for field_name, values in passthrough.items():
             if index < len(values):
                 val = values[index]
-                row[field_name] = json.dumps(val, ensure_ascii=True) if isinstance(val, (dict, list)) else val
+                row[field_name] = json.dumps(val, ensure_ascii=False) if isinstance(val, (dict, list)) else val
 
     @staticmethod
     def _warn_per_modality_length_mismatch(
@@ -422,11 +423,10 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
     def process(self, task: FileGroupTask) -> InterleavedBatch | list[InterleavedBatch]:
         rows: list[dict[str, Any]] = []
         sample_id_to_tar: dict[str, str] = {}
-        storage_options = resolve_storage_options(io_kwargs=self.read_kwargs)
 
         for tar_path in task.data:
             with (
-                fsspec.open(tar_path, mode="rb", **storage_options) as fobj,
+                fsspec.open(tar_path, mode="rb", **self._storage_options) as fobj,
                 tarfile.open(fileobj=fobj, mode="r:*") as tf,
             ):
                 members = [m for m in tf.getmembers() if m.isfile()]
@@ -435,7 +435,7 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
                     tar_path=tar_path,
                     member_names=member_names,
                     member_info={m.name: m for m in members},
-                    storage_options=storage_options,
+                    storage_options=self._storage_options,
                     byte_cache={},
                 )
                 for member in members:
@@ -462,8 +462,8 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
                 metadata["source_files"] = list(task.data)
             else:
                 metadata["source_files"] = self._source_files_for_split(split, idx, sample_id_to_tar, task.data)
-            if storage_options:
-                metadata["source_storage_options"] = storage_options
+            if self._storage_options:
+                metadata["source_storage_options"] = self._storage_options
             batches.append(
                 InterleavedBatch(
                     task_id=task_id,

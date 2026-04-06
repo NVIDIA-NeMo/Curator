@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParquetWriterStage
-from nemo_curator.stages.interleaved.io.writers.webdataset import InterleavedWebdatasetWriterStage
+"""Audio segmentation stages."""
 
-__all__ = [
-    "InterleavedParquetWriterStage",
-    "InterleavedWebdatasetWriterStage",
-]
+from .speaker_separation import SpeakerSeparationStage
+from .vad_segmentation import VADSegmentationStage
+
+__all__ = ["SpeakerSeparationStage", "VADSegmentationStage"]

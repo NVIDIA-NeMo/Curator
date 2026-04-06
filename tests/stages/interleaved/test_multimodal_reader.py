@@ -13,18 +13,32 @@
 # limitations under the License.
 
 import json
+import logging
 import tarfile
 from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from PIL import Image
 
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.interleaved.io.reader import InterleavedParquetReader
+from nemo_curator.stages.interleaved.io.readers.base import BaseInterleavedReader
+from nemo_curator.stages.interleaved.io.readers.parquet import InterleavedParquetReaderStage
 from nemo_curator.stages.interleaved.io.readers.webdataset import InterleavedWebdatasetReaderStage
+from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParquetWriterStage
+from nemo_curator.stages.interleaved.io.writers.webdataset import InterleavedWebdatasetWriterStage
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
+from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
-from .conftest import build_multi_frame_tiff, task_for_tar, write_tar
+from .conftest import build_multi_frame_tiff, make_interleaved_batch, make_row, task_for_tar, write_tar
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
 
 
 def _as_df(task_or_tasks: InterleavedBatch | list[InterleavedBatch]) -> pd.DataFrame:
@@ -40,23 +54,76 @@ def _write_tar_sample(
     image_name: str = "image.jpg",
     image_bytes: bytes = b"abc",
 ) -> None:
-    with tarfile.open(tar_path, "w") as tf:
-        json_blob = json.dumps(payload).encode("utf-8")
-        json_info = tarfile.TarInfo(name=json_name)
-        json_info.size = len(json_blob)
-        tf.addfile(json_info, BytesIO(json_blob))
-        img_info = tarfile.TarInfo(name=image_name)
-        img_info.size = len(image_bytes)
-        tf.addfile(img_info, BytesIO(image_bytes))
+    write_tar(tar_path, {json_name: json.dumps(payload).encode("utf-8"), image_name: image_bytes})
 
 
-def _task_for_tar(tar_path: Path, task_id: str) -> FileGroupTask:
-    return FileGroupTask(
-        task_id=task_id,
-        dataset_name="custom_dataset",
-        data=[str(tar_path)],
-        _metadata={"source_files": [str(tar_path)]},
-    )
+def _write_parquet_task(batch: InterleavedBatch, out_dir: Path) -> str:
+    """Write *batch* to parquet and return the written file path."""
+    writer = InterleavedParquetWriterStage(path=str(out_dir), materialize_on_write=False, mode="overwrite")
+    write_task = writer.process(batch)
+    return write_task.data[0]
+
+
+def _make_aligned_rows(fake_jpg: bytes, num_images: int = 2) -> list[dict]:
+    """Build a standard s1 sample with sample_metadata/text_metadata/image_metadata on the correct rows.
+
+    sample_metadata lives on the metadata row, text_metadata on the text row, image_metadata on each
+    image row — three distinct classes used to verify per-row field alignment in round-trip tests.
+    """
+    rows = [
+        make_row("s1", -1, "metadata", sample_metadata="doc A", text_metadata=None, image_metadata=None),
+        make_row(
+            "s1",
+            0,
+            "text",
+            text_content="hello world",
+            sample_metadata=None,
+            text_metadata="conf:0.9",
+            image_metadata=None,
+        ),
+    ]
+    for i in range(num_images):
+        rows.append(
+            make_row(
+                "s1",
+                i + 1,
+                "image",
+                content_type="image/jpeg",
+                binary_content=fake_jpg,
+                sample_metadata=None,
+                text_metadata=None,
+                image_metadata=f'{{"page": {i}}}',
+            )
+        )
+    return rows
+
+
+def _assert_field_alignment(df: pd.DataFrame, *, image_vals: list, text_vals: list, sample_val: object) -> None:
+    """Verify sample/text/image extra fields land on the correct rows and are null everywhere else."""
+    meta = df[df["modality"] == "metadata"].sort_values("position")
+    text = df[df["modality"] == "text"].sort_values("position")
+    imgs = df[df["modality"] == "image"].sort_values("position")
+
+    assert len(meta) == 1, f"expected 1 metadata row, got {len(meta)}"
+    assert len(text) == len(text_vals), f"expected {len(text_vals)} text rows, got {len(text)}"
+    assert len(imgs) == len(image_vals), f"expected {len(image_vals)} image rows, got {len(imgs)}"
+
+    assert meta["sample_metadata"].iloc[0] == sample_val
+    assert text["sample_metadata"].isna().all()
+    assert imgs["sample_metadata"].isna().all()
+
+    assert text["text_metadata"].tolist() == text_vals
+    assert meta["text_metadata"].isna().all()
+    assert imgs["text_metadata"].isna().all()
+
+    assert imgs["image_metadata"].tolist() == image_vals
+    assert meta["image_metadata"].isna().all()
+    assert text["image_metadata"].isna().all()
+
+
+# ---------------------------------------------------------------------------
+# InterleavedWebdatasetReaderStage
+# ---------------------------------------------------------------------------
 
 
 def test_reader_supports_custom_field_mapping(tmp_path: Path) -> None:
@@ -77,7 +144,7 @@ def test_reader_supports_custom_field_mapping(tmp_path: Path) -> None:
         image_name="custom-image.jpg",
         image_bytes=image_bytes,
     )
-    task = _task_for_tar(tar_path, "file_group_custom")
+    task = task_for_tar(str(tar_path), "file_group_custom")
     reader = InterleavedWebdatasetReaderStage(
         sample_id_field="doc_id",
         texts_field="captions",
@@ -113,7 +180,7 @@ def test_reader_reads_all_fields_by_default(tmp_path: Path) -> None:
         "aux": {"page": 3},
     }
     _write_tar_sample(tar_path, payload, json_name="sample.meta.json")
-    task = _task_for_tar(tar_path, "all_fields")
+    task = task_for_tar(str(tar_path), "all_fields")
     reader = InterleavedWebdatasetReaderStage(
         sample_id_field="doc_id",
         texts_field="captions",
@@ -125,7 +192,7 @@ def test_reader_reads_all_fields_by_default(tmp_path: Path) -> None:
     meta_row = df[df["modality"] == "metadata"].iloc[0]
     assert meta_row["p_hash"] == "phash-1"
     assert meta_row["score"] == 0.91
-    assert meta_row["aux"] == json.dumps({"page": 3}, ensure_ascii=True)
+    assert meta_row["aux"] == json.dumps({"page": 3}, ensure_ascii=False)
     image_row = df[df["modality"] == "image"].iloc[0]
     assert pd.isna(image_row["p_hash"])
     assert "captions" not in df.columns
@@ -153,7 +220,7 @@ def test_reader_uses_resolved_content_key_for_content_type(tmp_path: Path) -> No
         jpg_info.size = 3
         tf.addfile(jpg_info, BytesIO(b"jpg"))
 
-    task = _task_for_tar(tar_path, "content_type_resolve")
+    task = task_for_tar(str(tar_path), "content_type_resolve")
     reader = InterleavedWebdatasetReaderStage(
         sample_id_field="doc_id",
         texts_field="captions",
@@ -175,7 +242,7 @@ def test_reader_image_tokens_with_frame_index(tmp_path: Path) -> None:
         "images": [None, "page_0_image_15", "page_1_image_22"],
     }
     _write_tar_sample(tar_path, payload, json_name="sample.json", image_name="doc.pdf.tiff", image_bytes=b"TIFF_DATA")
-    task = _task_for_tar(tar_path, "sub_image_test")
+    task = task_for_tar(str(tar_path), "sub_image_test")
     reader = InterleavedWebdatasetReaderStage(
         sample_id_field="pdf_name",
         image_extensions=(".tiff",),
@@ -210,7 +277,7 @@ def test_reader_interleaved_positions_do_not_overlap(tmp_path: Path) -> None:
         "images": [None, "page_img", None, "chart_img", None],
     }
     _write_tar_sample(tar_path, payload, image_name="interleaved.pdf.jpg", image_bytes=b"\xff\xd8\xff")
-    task = _task_for_tar(tar_path, "interleaved_test")
+    task = task_for_tar(str(tar_path), "interleaved_test")
     reader = InterleavedWebdatasetReaderStage(sample_id_field="pdf_name")
     df = _as_df(reader.process(task))
 
@@ -237,7 +304,7 @@ def test_reader_empty_output_schema_includes_requested_passthrough_fields(tmp_pa
         img_info.size = 3
         tf.addfile(img_info, BytesIO(b"abc"))
 
-    task = _task_for_tar(tar_path, "empty_schema")
+    task = task_for_tar(str(tar_path), "empty_schema")
     reader = InterleavedWebdatasetReaderStage(fields=("p_hash",))
     df = _as_df(reader.process(task))
     assert "p_hash" in df.columns
@@ -247,7 +314,7 @@ def test_reader_fields_reserved_key_raises(tmp_path: Path) -> None:
     tar_path = tmp_path / "reserved_key.tar"
     payload = {"pdf_name": "doc.pdf", "texts": ["t"], "images": []}
     _write_tar_sample(tar_path, payload)
-    task = _task_for_tar(tar_path, "reserved_key")
+    task = task_for_tar(str(tar_path), "reserved_key")
     reader = InterleavedWebdatasetReaderStage(fields=("sample_id",))
     with pytest.raises(ValueError, match="fields contains reserved keys"):
         _ = reader.process(task)
@@ -257,7 +324,7 @@ def test_reader_fields_missing_key_warns_and_fills_none(tmp_path: Path, caplog: 
     tar_path = tmp_path / "missing_key.tar"
     payload = {"pdf_name": "doc.pdf", "texts": ["t"], "images": []}
     _write_tar_sample(tar_path, payload)
-    task = _task_for_tar(tar_path, "missing_key")
+    task = task_for_tar(str(tar_path), "missing_key")
     reader = InterleavedWebdatasetReaderStage(fields=("p_hash",))
     with caplog.at_level("WARNING"):
         result = reader.process(task)
@@ -278,7 +345,7 @@ def test_reader_per_image_fields_distributed_to_image_rows(tmp_path: Path) -> No
         "image_metadata": [{"height": 100, "width": 200}],
     }
     _write_tar_sample(tar_path, payload)
-    task = _task_for_tar(tar_path, "per_image")
+    task = task_for_tar(str(tar_path), "per_image")
     reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
     )
@@ -288,7 +355,7 @@ def test_reader_per_image_fields_distributed_to_image_rows(tmp_path: Path) -> No
 
     image_rows = df[df["modality"] == "image"]
     assert len(image_rows) == 1
-    assert image_rows.iloc[0]["image_metadata"] == json.dumps({"height": 100, "width": 200})
+    assert image_rows.iloc[0]["image_metadata"] == json.dumps({"height": 100, "width": 200}, ensure_ascii=False)
 
     text_rows = df[df["modality"] == "text"]
     assert all(pd.isna(v) for v in text_rows["image_metadata"])
@@ -307,7 +374,7 @@ def test_reader_per_text_fields_distributed_to_text_rows(tmp_path: Path) -> None
         "text_scores": [0.95, 0.42],
     }
     _write_tar_sample(tar_path, payload)
-    task = _task_for_tar(tar_path, "per_text")
+    task = task_for_tar(str(tar_path), "per_text")
     reader = InterleavedWebdatasetReaderStage(
         per_text_fields=("text_scores",),
     )
@@ -339,7 +406,7 @@ def test_reader_per_image_and_per_text_fields_together(tmp_path: Path) -> None:
         "url": "https://example.com",
     }
     _write_tar_sample(tar_path, payload)
-    task = _task_for_tar(tar_path, "both_per_modality")
+    task = task_for_tar(str(tar_path), "both_per_modality")
     reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
         per_text_fields=("text_lang",),
@@ -347,7 +414,7 @@ def test_reader_per_image_and_per_text_fields_together(tmp_path: Path) -> None:
     df = _as_df(reader.process(task))
 
     image_rows = df[df["modality"] == "image"]
-    assert image_rows.iloc[0]["image_metadata"] == json.dumps({"page": 1, "width": 640})
+    assert image_rows.iloc[0]["image_metadata"] == json.dumps({"page": 1, "width": 640}, ensure_ascii=False)
     assert pd.isna(image_rows.iloc[0]["text_lang"])
 
     text_rows = df[df["modality"] == "text"].sort_values("position")
@@ -373,7 +440,7 @@ def test_reader_per_modality_fields_excluded_from_sample_passthrough(tmp_path: P
         "url": "https://example.com",
     }
     _write_tar_sample(tar_path, payload)
-    task = _task_for_tar(tar_path, "exclude_pt")
+    task = task_for_tar(str(tar_path), "exclude_pt")
     reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
         per_text_fields=("text_scores",),
@@ -395,7 +462,7 @@ def test_reader_per_modality_field_missing_warns(tmp_path: Path, caplog: pytest.
         "images": [],
     }
     _write_tar_sample(tar_path, payload)
-    task = _task_for_tar(tar_path, "missing_per_field")
+    task = task_for_tar(str(tar_path), "missing_per_field")
     reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
     )
@@ -416,7 +483,7 @@ def test_reader_raises_on_non_list_per_modality_field(tmp_path: Path) -> None:
         "image_metadata": "not-a-list",
     }
     _write_tar_sample(tar_path, payload)
-    task = _task_for_tar(tar_path, "non_list_field")
+    task = task_for_tar(str(tar_path), "non_list_field")
     reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
     )
@@ -747,9 +814,11 @@ def test_reader_source_files_per_split_only_contributing_tars(tmp_path: Path) ->
         src = batch._metadata["source_files"]
         assert len(src) == 1, f"expected 1 source file for split, got {src}"
         if "doc1" in sample_ids:
-            assert tar1 + "::split_" in src[0], f"doc1 split should point to {tar1}, got {src}"
+            assert src[0].startswith(tar1), f"doc1 split should point to {tar1}, got {src}"
+            assert "::split_" in src[0], f"doc1 split should have ::split_ suffix, got {src}"
         elif "doc2" in sample_ids:
-            assert tar2 + "::split_" in src[0], f"doc2 split should point to {tar2}, got {src}"
+            assert src[0].startswith(tar2), f"doc2 split should point to {tar2}, got {src}"
+            assert "::split_" in src[0], f"doc2 split should have ::split_ suffix, got {src}"
         else:
             pytest.fail(f"unexpected sample_ids in split: {sample_ids}")
 
@@ -827,3 +896,304 @@ def test_reader_unknown_fields_pass_through_by_default(tmp_path: Path) -> None:
     meta = df[df["modality"] == "metadata"].iloc[0]
     assert meta["pdf_name"] == "doc.pdf"
     assert meta["url"] == "https://example.com"
+
+
+# ---------------------------------------------------------------------------
+# InterleavedParquetReaderStage
+# ---------------------------------------------------------------------------
+
+
+def test_parquet_reader_roundtrip(tmp_path: Path) -> None:
+    """Write a batch with the parquet writer, read it back; data matches."""
+    batch = make_interleaved_batch(num_samples=2, include_images=False)
+    pq_path = _write_parquet_task(batch, tmp_path / "out")
+
+    task = FileGroupTask(task_id="pq_rt", dataset_name="d", data=[pq_path])
+    reader = InterleavedParquetReaderStage()
+    result = reader.process(task)
+    assert isinstance(result, InterleavedBatch)
+    df = result.to_pandas()
+
+    assert set(df["sample_id"].tolist()) == {"sample_0", "sample_1"}
+    text_rows = df[df["modality"] == "text"]
+    assert set(text_rows["text_content"].tolist()) == {"Hello 0", "Hello 1"}
+    assert result._metadata.get("source_files") == [pq_path]
+
+
+def test_parquet_reader_missing_columns_filled_with_null(tmp_path: Path) -> None:
+    """A parquet file with only 3 columns; all other schema cols become null."""
+    minimal = pa.Table.from_pylist(
+        [{"sample_id": "s1", "position": 0, "modality": "text"}],
+        schema=pa.schema(
+            [
+                pa.field("sample_id", pa.string()),
+                pa.field("position", pa.int32()),
+                pa.field("modality", pa.string()),
+            ]
+        ),
+    )
+    pq_path = tmp_path / "minimal.parquet"
+    pq.write_table(minimal, pq_path)
+
+    task = FileGroupTask(task_id="minimal", dataset_name="d", data=[str(pq_path)])
+    result = InterleavedParquetReaderStage().process(task)
+    assert isinstance(result, InterleavedBatch)
+    df = result.to_pandas()
+    assert len(df) == 1
+    assert pd.isna(df.loc[0, "text_content"])
+    assert pd.isna(df.loc[0, "binary_content"])
+
+
+def test_parquet_reader_fields_subset(tmp_path: Path) -> None:
+    """fields=(...) reads only reserved cols + requested extras; others absent."""
+    batch = make_interleaved_batch(num_samples=1, include_images=False)
+    pq_path = _write_parquet_task(batch, tmp_path / "out")
+
+    task = FileGroupTask(task_id="fields_sub", dataset_name="d", data=[pq_path])
+    result = InterleavedParquetReaderStage(fields=("text_content",)).process(task)
+    assert isinstance(result, InterleavedBatch)
+    df = result.to_pandas()
+    assert "text_content" in df.columns
+    assert "binary_content" in df.columns  # reserved — always present
+
+
+def test_parquet_reader_fields_null_fill_missing(tmp_path: Path) -> None:
+    """A field in fields= that is absent from disk is null-filled, not errored."""
+    batch = make_interleaved_batch(num_samples=1, include_images=False)
+    pq_path = _write_parquet_task(batch, tmp_path / "out")
+
+    task = FileGroupTask(task_id="null_fill", dataset_name="d", data=[pq_path])
+    result = InterleavedParquetReaderStage(fields=("nonexistent_field",)).process(task)
+    assert isinstance(result, InterleavedBatch)
+    df = result.to_pandas()
+    assert "nonexistent_field" in df.columns
+    assert df["nonexistent_field"].isna().all()
+
+
+def test_parquet_reader_extra_column_passthrough_by_default(tmp_path: Path) -> None:
+    """fields=None reads ALL columns in the file — sample/text/image extra fields are preserved
+    and land on the correct rows after read."""
+    fake_jpg = b"\xff\xd8\xff\xe0fake"
+    pq_path = str(tmp_path / "extra.parquet")
+    pq.write_table(pa.Table.from_pylist(_make_aligned_rows(fake_jpg)), pq_path)
+
+    result = InterleavedParquetReaderStage().process(
+        FileGroupTask(task_id="extra_col", dataset_name="d", data=[pq_path])
+    )
+    assert isinstance(result, InterleavedBatch)
+    _assert_field_alignment(
+        result.to_pandas(),
+        image_vals=['{"page": 0}', '{"page": 1}'],
+        text_vals=["conf:0.9"],
+        sample_val="doc A",
+    )
+
+
+def test_parquet_reader_extra_column_excluded_when_fields_set(tmp_path: Path) -> None:
+    """When fields= is explicit, only listed extras are read; unlisted ones are dropped."""
+    fake_jpg = b"\xff\xd8\xff\xe0fake"
+    pq_path = str(tmp_path / "extra.parquet")
+    pq.write_table(pa.Table.from_pylist(_make_aligned_rows(fake_jpg, num_images=1)), pq_path)
+
+    # fields=("text_metadata",) → only text_metadata + reserved cols; others are NOT read
+    result = InterleavedParquetReaderStage(fields=("text_metadata",)).process(
+        FileGroupTask(task_id="fields_excl", dataset_name="d", data=[pq_path])
+    )
+    assert isinstance(result, InterleavedBatch)
+    df = result.to_pandas()
+    assert "text_metadata" in df.columns
+    assert "image_metadata" not in df.columns
+    assert "sample_metadata" not in df.columns
+
+
+def test_parquet_reader_wds_to_pq_to_wds_roundtrip(tmp_path: Path) -> None:
+    """WDS→PQ→WDS: sample/text/image extra fields survive the full round-trip through parquet.
+
+    Primary regression test for the image_metadata loss bug: InterleavedParquetReaderStage
+    with fields=None must read ALL columns, not just RESERVED_COLUMNS.
+    """
+    fake_jpg = b"\xff\xd8\xff\xe0fake"
+    payload = {
+        "sample_id": "s1",
+        "sample_metadata": "doc A",
+        "texts": ["hello world", None, None],
+        "text_metadata": ["conf:0.9"],
+        "images": [None, "s1.1.jpg", "s1.2.jpg"],
+        "image_metadata": [{"page": 1}, {"page": 2}],
+    }
+    tar_path = write_tar(
+        tmp_path / "input.tar",
+        {"s1.json": json.dumps(payload).encode(), "s1.1.jpg": fake_jpg, "s1.2.jpg": fake_jpg},
+    )
+
+    wds_reader = InterleavedWebdatasetReaderStage(
+        sample_id_field="sample_id",
+        per_image_fields=("image_metadata",),
+        per_text_fields=("text_metadata",),
+    )
+
+    batch_wds = wds_reader.process(task_for_tar(tar_path))
+    assert isinstance(batch_wds, InterleavedBatch)
+    _assert_field_alignment(
+        batch_wds.to_pandas(),
+        image_vals=['{"page": 1}', '{"page": 2}'],
+        text_vals=["conf:0.9"],
+        sample_val="doc A",
+    )
+
+    pq_task = InterleavedParquetWriterStage(
+        path=str(tmp_path / "pq_out"), materialize_on_write=False, mode="overwrite"
+    ).process(batch_wds)
+
+    batch_pq = InterleavedParquetReaderStage().process(
+        FileGroupTask(task_id="pq_rt", dataset_name="d", data=[pq_task.data[0]])
+    )
+    assert isinstance(batch_pq, InterleavedBatch)
+    df_pq = batch_pq.to_pandas()
+    for col in ("sample_metadata", "text_metadata", "image_metadata"):
+        assert col in df_pq.columns, f"{col} lost in PQ read — bug regression"
+    _assert_field_alignment(
+        df_pq, image_vals=['{"page": 1}', '{"page": 2}'], text_vals=["conf:0.9"], sample_val="doc A"
+    )
+
+    wds2_task = InterleavedWebdatasetWriterStage(
+        path=str(tmp_path / "wds_out"), materialize_on_write=False, mode="overwrite"
+    ).process(batch_pq)
+    batch_final = wds_reader.process(FileGroupTask(task_id="final", dataset_name="d", data=wds2_task.data))
+    assert isinstance(batch_final, InterleavedBatch)
+    _assert_field_alignment(
+        batch_final.to_pandas(),
+        image_vals=['{"page": 1}', '{"page": 2}'],
+        text_vals=["conf:0.9"],
+        sample_val="doc A",
+    )
+
+
+def test_parquet_reader_pq_to_wds_to_pq_roundtrip(tmp_path: Path) -> None:
+    """PQ→WDS→PQ: sample/text/image extra columns survive a full write-to-WDS and back."""
+    fake_jpg = b"\xff\xd8\xff\xe0fake"
+    batch0 = InterleavedBatch(
+        task_id="pq0",
+        dataset_name="d",
+        data=pa.Table.from_pylist(_make_aligned_rows(fake_jpg)),
+        _metadata={"source_files": ["source.parquet"]},
+    )
+
+    pq_path0 = (
+        InterleavedParquetWriterStage(path=str(tmp_path / "pq0_out"), materialize_on_write=False, mode="overwrite")
+        .process(batch0)
+        .data[0]
+    )
+
+    batch1 = InterleavedParquetReaderStage().process(FileGroupTask(task_id="pq1", dataset_name="d", data=[pq_path0]))
+    assert isinstance(batch1, InterleavedBatch)
+    _assert_field_alignment(
+        batch1.to_pandas(),
+        image_vals=['{"page": 0}', '{"page": 1}'],
+        text_vals=["conf:0.9"],
+        sample_val="doc A",
+    )
+
+    wds_task = InterleavedWebdatasetWriterStage(
+        path=str(tmp_path / "wds1_out"), materialize_on_write=False, mode="overwrite"
+    ).process(batch1)
+
+    wds_reader = InterleavedWebdatasetReaderStage(
+        sample_id_field="sample_id",
+        per_image_fields=("image_metadata",),
+        per_text_fields=("text_metadata",),
+    )
+    batch2 = wds_reader.process(FileGroupTask(task_id="wds1", dataset_name="d", data=wds_task.data))
+    assert isinstance(batch2, InterleavedBatch)
+    _assert_field_alignment(
+        batch2.to_pandas(),
+        image_vals=['{"page": 0}', '{"page": 1}'],
+        text_vals=["conf:0.9"],
+        sample_val="doc A",
+    )
+
+    pq_path1 = (
+        InterleavedParquetWriterStage(path=str(tmp_path / "pq1_out"), materialize_on_write=False, mode="overwrite")
+        .process(batch2)
+        .data[0]
+    )
+    batch_final = InterleavedParquetReaderStage().process(
+        FileGroupTask(task_id="pq_final", dataset_name="d", data=[pq_path1])
+    )
+    assert isinstance(batch_final, InterleavedBatch)
+    _assert_field_alignment(
+        batch_final.to_pandas(),
+        image_vals=['{"page": 0}', '{"page": 1}'],
+        text_vals=["conf:0.9"],
+        sample_val="doc A",
+    )
+
+
+def test_parquet_reader_max_batch_bytes_splits(tmp_path: Path) -> None:
+    """Two parquet files, one sample each; max_batch_bytes=1 → 2 splits,
+    each split's source_files lists only its contributing file."""
+    batch_a = make_interleaved_batch(num_samples=1, task_id="a", include_images=False)
+    batch_b = make_interleaved_batch(num_samples=1, task_id="b", include_images=False)
+    # Give distinct sample_ids
+    rows_a = batch_a.to_pandas().copy()
+    rows_a["sample_id"] = "doc_a"
+    rows_b = batch_b.to_pandas().copy()
+    rows_b["sample_id"] = "doc_b"
+
+    out_a = tmp_path / "a"
+    out_b = tmp_path / "b"
+    writer = InterleavedParquetWriterStage(path=str(out_a), materialize_on_write=False, mode="overwrite")
+    pq_a = writer.process(InterleavedBatch(task_id="a", dataset_name="d", data=rows_a)).data[0]
+    writer2 = InterleavedParquetWriterStage(path=str(out_b), materialize_on_write=False, mode="overwrite")
+    pq_b = writer2.process(InterleavedBatch(task_id="b", dataset_name="d", data=rows_b)).data[0]
+
+    task = FileGroupTask(task_id="split_test", dataset_name="d", data=[pq_a, pq_b])
+    result = InterleavedParquetReaderStage(max_batch_bytes=1).process(task)
+
+    assert isinstance(result, list)
+    assert len(result) == 2
+    for batch in result:
+        sample_ids = set(batch.to_pandas()["sample_id"].tolist())
+        src = batch._metadata["source_files"]
+        assert len(src) == 1
+        if "doc_a" in sample_ids:
+            assert pq_a in src[0]
+        elif "doc_b" in sample_ids:
+            assert pq_b in src[0]
+
+
+def test_parquet_reader_empty_file(tmp_path: Path) -> None:
+    """An empty parquet file produces an empty InterleavedBatch with correct schema."""
+    empty = pa.Table.from_pylist([], schema=INTERLEAVED_SCHEMA)
+    pq_path = tmp_path / "empty.parquet"
+    pq.write_table(empty, pq_path)
+
+    task = FileGroupTask(task_id="empty", dataset_name="d", data=[str(pq_path)])
+    result = InterleavedParquetReaderStage().process(task)
+    assert isinstance(result, InterleavedBatch)
+    assert len(result.to_pandas()) == 0
+
+
+def test_parquet_reader_composite_decompose(tmp_path: Path) -> None:
+    """InterleavedParquetReader.decompose() returns [FilePartitioningStage, InterleavedParquetReaderStage]."""
+    reader = InterleavedParquetReader(file_paths=str(tmp_path))
+    stages = reader.decompose()
+    assert len(stages) == 2
+    assert isinstance(stages[0], FilePartitioningStage)
+    assert isinstance(stages[1], InterleavedParquetReaderStage)
+
+
+def test_parquet_reader_empty_file_list_returns_empty_batch() -> None:
+    result = InterleavedParquetReaderStage().process(FileGroupTask(task_id="t", dataset_name="d", data=[]))
+    assert isinstance(result, InterleavedBatch)
+    df = result.to_pandas()
+    assert len(df) == 0
+    assert set(INTERLEAVED_SCHEMA.names) <= set(df.columns)
+
+
+def test_source_files_for_split_null_sample_ids_fallback(caplog) -> None:  # noqa: ANN001
+    split = pa.table({"sample_id": pa.array([None, None], type=pa.string())})
+    with caplog.at_level(logging.WARNING, logger="nemo_curator"):
+        result = BaseInterleavedReader._source_files_for_split(split, 2, {}, ["/a.parquet", "/b.parquet"])
+    assert result == ["/a.parquet::split_00002", "/b.parquet::split_00002"]
+    assert any("falling back" in r.message for r in caplog.records)
