@@ -25,6 +25,7 @@ from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
     from nemo_curator.tasks import InterleavedBatch
 
 
@@ -52,13 +53,16 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
     name: str = "interleaved_clip_score_filter"
     resources: Resources = field(default_factory=lambda: Resources(gpu_memory_gb=20.0))
 
-    def __post_init__(self) -> None:
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        self._model = CLIPImageEmbeddings(self.model_dir)
+        self._model.setup()
+
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None: # noqa: ARG002
+        """Download the weights for the CLIP model on the node."""
         if self.model_dir is None:
             msg = "InterleavedCLIPScoreFilterStage requires model_dir to be set"
             raise RuntimeError(msg)
         CLIPImageEmbeddings.download_weights_on_node(self.model_dir)
-        self._model = CLIPImageEmbeddings(self.model_dir)
-        self._model.setup()
 
     def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
         keep_mask = pd.Series(True, index=df.index, dtype=bool)
@@ -83,7 +87,11 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
             indices, images = [], []
             for idx, b in rows:
                 indices.append(idx)
-                images.append(image_bytes_to_array(b))
+                arr = image_bytes_to_array(b)
+                if arr is None:
+                    keep_mask.loc[idx] = False
+                    continue
+                images.append(arr)
             img_emb = self._model(images)
             text_emb = self._model.encode_text(texts)
             scores = img_emb @ text_emb.T

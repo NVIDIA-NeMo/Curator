@@ -20,6 +20,9 @@ import numpy as np
 
 def image_bytes_to_array(image_bytes: bytes) -> np.ndarray:
     """Decode image bytes to RGB numpy array for OpenCV."""
-    arr = np.frombuffer(image_bytes, dtype=np.uint8)
-    image = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    try:
+        arr = np.frombuffer(image_bytes, dtype=np.uint8)
+        image = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    except OSError:
+        return None
