@@ -20,11 +20,11 @@ After preparing your data with NeMo Curator, you'll likely want to use it to tra
 - Training and inference scripts
 - Optimization techniques for large-scale deployments
 
-### Training a Tokenizer
+### Tokenization
 
-Tokenizers transform text into tokens that language models can interpret. While NeMo Curator doesn't handle tokenizer training or tokenization in general, NeMo does.
+Tokenizers transform text into tokens that language models can interpret. NeMo Curator provides `MegatronTokenizerWriter` for tokenizing curated datasets and exporting them in the binary format required by Megatron-LM for pretraining. See the [Save and Export](/curate-text/save-export) documentation for details.
 
-Learn how to train a tokenizer using NeMo in the [tokenizer training documentation](https://docs.nvidia.com/nemo-framework/user-guide/latest/llms/tokenizer/sentencepiece/train.html#training).
+For training custom tokenizers (such as SentencePiece models), use NeMo Framework. Learn how to train a tokenizer using NeMo in the [tokenizer training documentation](https://docs.nvidia.com/nemo-framework/user-guide/latest/llms/tokenizer/sentencepiece/train.html#training).
 
 ### Training Large Language Models
 
@@ -66,7 +66,7 @@ For organizations looking to deploy trained models to production, [NVIDIA AI Ent
 A typical end-to-end workflow with NVIDIA's AI tools includes:
 
 1. **Data Preparation**: Use NeMo Curator to clean, filter, and prepare your dataset
-2. **Tokenization**: Train or use a tokenizer with NeMo
+2. **Tokenization**: Use NeMo Curator's `MegatronTokenizerWriter` to tokenize curated data for Megatron-LM, or train a custom tokenizer with NeMo
 3. **Model Training**: Pretrain or fine-tune models with NeMo
 4. **Alignment**: Align models with human preferences using NeMo Aligner
 5. **Deployment**: Deploy models using NVIDIA AI Enterprise or Triton Inference Server
