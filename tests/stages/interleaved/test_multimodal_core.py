@@ -22,7 +22,7 @@ import pyarrow as pa
 import pytest
 
 from nemo_curator.core.utils import split_table_by_group_max_bytes
-from nemo_curator.stages.interleaved.io.reader import WebdatasetReader
+from nemo_curator.stages.interleaved.io.reader import InterleavedWebdatasetReader
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
     BaseInterleavedFilterStage,
@@ -732,7 +732,7 @@ def test_count_with_pandas_data() -> None:
 
 
 def test_webdataset_reader_composite_decompose(tmp_path: Path) -> None:
-    reader = WebdatasetReader(file_paths=str(tmp_path))
+    reader = InterleavedWebdatasetReader(file_paths=str(tmp_path))
     stages = reader.decompose()
     assert len(stages) == 2
     assert stages[0].name == "file_partitioning"
@@ -1130,6 +1130,7 @@ _DROP_COL = object()  # sentinel: drop the binary_content column entirely
 
 
 def _materialized_bytes(binary_content: object) -> list[tuple[int, bytes | None]]:
+    """Run iter_materialized_bytes with a fake materialization returning binary_content for the image row."""
     task = make_image_task([make_image_row(path=None)])
     df = task.to_pandas()
     if binary_content is _DROP_COL:
