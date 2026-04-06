@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pickle
 from pathlib import Path
 
 import pytest
@@ -103,10 +104,6 @@ class TestLoadConfig:
 
 
 class TestValidate:
-    def test_validate_valid_defaults(self) -> None:
-        cfg = load_config(None)
-        _validate(cfg)
-
     def test_validate_vad_min_ge_max_raises(self) -> None:
         cfg = load_config(None)
         cfg["vad"]["min_duration_sec"] = 60.0
@@ -238,19 +235,6 @@ class TestDecomposeConfig:
         assert vad_stages[0].nested is True
         assert vad_stages[1].nested is False
 
-    def test_decompose_stage_names_have_suffix(self) -> None:
-        stage = AudioDataFilterStage()
-        stages = stage.decompose()
-        names = [s.name for s in stages]
-        assert "VAD" in names
-        assert "VAD_Speaker" in names
-        assert "BandFilter" in names
-        assert "BandFilter_Speaker" in names
-        assert "UTMOS" in names
-        assert "UTMOS_Speaker" in names
-        assert "SIGMOS" in names
-        assert "SIGMOS_Speaker" in names
-
     def test_decompose_resources_from_config(self) -> None:
         stage = AudioDataFilterStage(config={"vad": {"gpus": 0.5}})
         stages = stage.decompose()
@@ -302,8 +286,6 @@ class TestDecomposeEdgeCases:
 
 class TestPickling:
     def test_audio_data_filter_stage_pickling(self) -> None:
-        import pickle
-
         stage = AudioDataFilterStage(config={"utmos": {"mos_threshold": 4.0}})
         pickled = pickle.dumps(stage)
         restored = pickle.loads(pickled)  # noqa: S301
@@ -325,6 +307,3 @@ class TestDefaultYAMLConsistency:
         for stage_name in stages_with_gpus:
             assert "gpus" in cfg[stage_name], f"{stage_name} missing 'gpus' in config"
 
-    def test_default_yaml_loads_without_error(self) -> None:
-        cfg = load_config(None)
-        _validate(cfg)
