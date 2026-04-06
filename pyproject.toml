@@ -101,6 +101,8 @@ audio_common = [
     "torchaudio",
     "onnx>=1.19.0",
     "silero-vad",
+    "librosa",
+    "scipy",
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",
