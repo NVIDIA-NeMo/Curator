@@ -509,6 +509,6 @@ for task in output_tasks:
         print(f"Task {task.task_id}: 0 input → 0 kept")
 ```
 
-These same metrics power the nightly benchmarks, which track `num_documents_processed`, `num_kept_documents`, and `throughput_docs_per_sec` for every ScoreFilter run.
+These same metrics power the nightly benchmarks, which track `num_documents_processed`, `num_kept_documents`, and `throughput_docs_per_sec` for every pipeline run.
 
 Remember that the goal of filtering is to improve the quality of your training data, not necessarily to remove as many documents as possible. Monitor your filtering results and adjust thresholds based on your specific data characteristics and downstream tasks.
