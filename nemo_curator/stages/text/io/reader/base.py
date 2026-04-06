@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -77,11 +77,13 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
         effective_read_kwargs: dict[str, Any] = {}
         if self.read_kwargs:
             effective_read_kwargs.update(self.read_kwargs)
+
         # Read the files
         result = self.read_data(task.data, effective_read_kwargs, self.fields)
-        # Validate
+
+        # Validate the result
         if (
-            result is None
+            (result is None)
             or (hasattr(result, "empty") and result.empty)
             or (hasattr(result, "num_rows") and result.num_rows == 0)
         ):
