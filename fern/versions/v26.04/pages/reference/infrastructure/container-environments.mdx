@@ -65,6 +65,14 @@ The primary container includes comprehensive support for all curation modalities
 
 ---
 
+## Security Hardening
+
+The container build includes the following security measures:
+
+- **`ray_dist.jar` removal**: Ray's Java support JAR is deleted during the build to remove a bundled jackson-core library affected by [GHSA-72hv-8253-57qq](https://github.com/advisories/GHSA-72hv-8253-57qq) (DoS via async JSON parser). NeMo Curator does not use Ray's Java support, so this has no functional impact. A build-time verification guard fails the build if the JAR is not successfully removed.
+
+---
+
 ## Container Build Arguments
 
 The main container accepts these build-time arguments for environment customization:

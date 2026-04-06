@@ -53,6 +53,10 @@ Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and i
 - **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
 - **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
 
+### Pipeline Stage Metrics (PR #1385)
+
+Pipeline stages now track document-level metrics through `StagePerfStats.num_items_processed`, so you can see how each stage affects your dataset. After calling `pipeline.run()`, the returned task objects expose per-stage document counts that you can use to monitor filtering behavior and tune thresholds.
+
 ### Workflow Results API
 
 Standardized return type for all deduplication workflows:
@@ -85,11 +89,45 @@ The exact deduplication identification stage now supports batched insertion into
 
 These parameters were previously hardcoded in the LSH stage and are now configurable at the workflow level, enabling finer-grained GPU memory tuning for large-scale fuzzy deduplication jobs.
 
+## Security Fixes
+
+### CVE Fixes for Audio and Inference Dependencies (PR #1612)
+
+Resolved four HIGH-severity vulnerabilities affecting Curator dependencies:
+
+- **nemo-toolkit RCE (CVE-2025-33245, CVE-2025-33253)**: NeMo Toolkit versions before 2.6.1 used `torch.load()` and `pickle.load()` without `weights_only=True` when loading model checkpoints, enabling remote code execution through maliciously crafted `.nemo` or `.ckpt` files. Curator's `InferenceAsrNemoStage` calls `ASRModel.from_pretrained()`, which uses this deserialization path. The CVE was fixed in nemo-toolkit 2.6.1; bumped to `>=2.7.2` to pick up additional fixes and ensure compatibility with Curator's dependency set.
+- **xgrammar DoS (CVE-2026-25048)**: Constructing a grammar rule with deeply nested parentheses triggered a segfault via uncontrolled recursion in xgrammar's syntax parsing, which could crash applications using vLLM structured output without authentication. Fixed by overriding vLLM's `xgrammar==0.1.29` pin to `>=0.1.32`.
+- **jackson-core DoS (GHSA-72hv-8253-57qq)**: The non-blocking JSON parser in jackson-core 2.16.1, bundled inside `ray_dist.jar` in the Ray Python package, bypassed the `maxNumberLength` constraint, allowing denial of service through arbitrarily long JSON numbers. Since Curator does not use Ray's Java support, the JAR is now deleted during the Docker image build with a build-time verification guard. This fix applies only to the container image.
+
 ## Dependency Updates
 
 - **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
 - **Ray**: Updated to 2.54
 - **uv**: Added minimum required version (>=0.7.0) to prevent lockfile revision drift
+- **nemo-toolkit**: Bumped `nemo_toolkit[asr]` from `==2.4.0` to `>=2.7.2` to address deserialization CVEs. Only affects `audio_cpu` and `audio_cuda12` extras.
+- **xgrammar**: Moved from `constraint-dependencies` (`>=0.1.21`) to `override-dependencies` (`>=0.1.32`) to override vLLM's pinned version and address CVE-2026-25048.
+
+## Enhancements
+
+### Exact Deduplication Workflow Tuning Parameters (PR #1561)
+
+Exposed additional configuration parameters in `ExactDeduplicationWorkflow` for fine-grained control over large-scale cluster runs:
+
+- **`total_nparts`**: Set the total number of output partitions explicitly instead of relying on the automatic default (one-third of input task count).
+- **`rmm_pool_size`**: Configure the RMM GPU memory pool size in bytes. Supports `"auto"` (90% of free GPU memory), a specific byte value, or `None` (50% of free GPU memory with dynamic expansion).
+- **`spill_memory_limit`**: Set the device memory threshold for spilling to host in bytes. Supports `"auto"` (80% of the RMM pool size), a specific byte value, or `None` (spilling disabled).
+
+These parameters are useful when the defaults are not optimal for your hardware or dataset size:
+
+```python
+workflow = ExactDeduplicationWorkflow(
+    input_path="input_data/",
+    output_path="./results",
+    total_nparts=512,
+    rmm_pool_size=72 * 1024 * 1024 * 1024,  # 72 GiB
+    spill_memory_limit="auto",
+)
+```
 
 ## Bug Fixes
 

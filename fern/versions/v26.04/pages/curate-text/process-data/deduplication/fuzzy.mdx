@@ -209,7 +209,7 @@ The workflow produces these output files:
 **Performance tuning**:
 
 - **Memory**: Adjust `bands_per_iteration` (lower = less memory, more iterations)
-- **GPU memory (LSH)**: Use `lsh_rmm_pool_size` and `lsh_spill_memory_limit` to control GPU memory allocation and host spilling during the LSH stage. Reducing the pool size or enabling spilling can prevent out-of-memory errors on smaller GPUs.
+- **GPU memory (LSH)**: Use `lsh_rmm_pool_size` to control GPU memory allocation and `lsh_spill_memory_limit` to tune host-spilling behavior during the LSH stage. Reducing the pool size or lowering the spill threshold can prevent out-of-memory errors on smaller GPUs.
 - **Shuffle partitions**: Set `lsh_num_output_partitions` to control the number of output partitions during the LSH shuffle. More partitions reduce per-partition memory but increase I/O overhead.
 - **Accuracy**: Use `char_ngrams &gt;= 20` to reduce false positives
 - **Best practices**: Clear cache between runs, use `input_blocksize="1GiB"`
