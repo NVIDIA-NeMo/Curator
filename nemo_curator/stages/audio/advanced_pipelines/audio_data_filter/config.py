@@ -19,7 +19,7 @@ Loads pipeline parameters from a YAML config file organised by stage.
 Users edit the YAML to override defaults without touching code.
 
 Example:
-    from nemo_curator.stages.audio.advance_pipelines.Audio_data_filter.config import (
+    from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.config import (
         load_config,
     )
 
@@ -36,20 +36,6 @@ from typing import Any
 
 import yaml
 from loguru import logger
-
-SUPPORTED_AUDIO_FORMATS: tuple[str, ...] = (
-    ".wav",
-    ".mp3",
-    ".flac",
-    ".ogg",
-    ".m4a",
-    ".aac",
-    ".wma",
-    ".opus",
-    ".webm",
-)
-
-DEFAULT_OUTPUT_FORMAT: str = "wav"
 
 _DEFAULT_CONFIG_PATH = Path(__file__).parent / "default_config.yaml"
 
@@ -121,6 +107,39 @@ def _validate(cfg: dict[str, Any]) -> None:
         if mn >= mx:
             msg = f"vad.min_duration_sec ({mn}) must be less than vad.max_duration_sec ({mx})"
             raise ValueError(msg)
+        threshold = vad.get("threshold", 0.5)
+        if not 0.0 <= threshold <= 1.0:
+            msg = f"vad.threshold must be in [0, 1], got {threshold}"
+            raise ValueError(msg)
+
+    utmos = cfg.get("utmos", {})
+    if utmos.get("enable", True):
+        mos = utmos.get("mos_threshold", 3.5)
+        if mos is not None and not 0.0 <= mos <= 5.0:
+            msg = f"utmos.mos_threshold must be in [0, 5] (MOS scale), got {mos}"
+            raise ValueError(msg)
+
+    sigmos = cfg.get("sigmos", {})
+    if sigmos.get("enable", True):
+        for key in ("noise_threshold", "ovrl_threshold", "sig_threshold",
+                     "col_threshold", "disc_threshold", "loud_threshold", "reverb_threshold"):
+            val = sigmos.get(key)
+            if val is not None and not 0.0 <= val <= 5.0:
+                msg = f"sigmos.{key} must be in [0, 5] (MOS scale), got {val}"
+                raise ValueError(msg)
+
+    speaker = cfg.get("speaker_separation", {})
+    if speaker.get("enable", True):
+        min_dur = speaker.get("min_duration", 0.8)
+        if min_dur <= 0:
+            msg = f"speaker_separation.min_duration must be positive, got {min_dur}"
+            raise ValueError(msg)
+
+    mc = cfg.get("mono_conversion", {})
+    sr = mc.get("output_sample_rate", 48000)
+    if not isinstance(sr, int) or sr <= 0:
+        msg = f"mono_conversion.output_sample_rate must be a positive integer, got {sr}"
+        raise ValueError(msg)
 
     concat = cfg.get("concatenation", {})
     silence = concat.get("silence_duration_sec", 0)
@@ -131,7 +150,7 @@ def _validate(cfg: dict[str, Any]) -> None:
 
 def get_enabled_stages(cfg: dict[str, Any]) -> list[str]:
     """Return a list of enabled stage names from a loaded config."""
-    stages: list[str] = []
+    stages: list[str] = ["mono_conversion"]
     if cfg.get("vad", {}).get("enable", True):
         stages.append("vad")
     if cfg.get("band_filter", {}).get("enable", True):
@@ -141,5 +160,7 @@ def get_enabled_stages(cfg: dict[str, Any]) -> list[str]:
     if cfg.get("sigmos", {}).get("enable", True):
         stages.append("sigmos")
     if cfg.get("speaker_separation", {}).get("enable", True):
+        stages.append("concatenation")
         stages.append("speaker_separation")
+    stages.append("timestamp_mapper")
     return stages

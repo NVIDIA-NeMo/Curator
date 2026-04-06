@@ -13,37 +13,25 @@
 # limitations under the License.
 
 """
-Advanced Audio Processing Pipelines.
+Audio Data Filter pipeline.
 
-This module provides composite pipeline stages that combine multiple
-audio processing steps into single, easy-to-use stages.
-
-Available Pipelines:
-    - Audio_data_filter: Audio Data Filter pipeline with VAD,
-      quality filtering (UTMOS, SIGMOS, Band), speaker separation,
-      and timestamp tracking.
+Composite pipeline stage for audio curation with VAD,
+quality filtering, speaker separation, and timestamp tracking.
 
 Example::
 
-    from nemo_curator.stages.audio.advance_pipelines import (
+    from nemo_curator.stages.audio.advanced_pipelines import (
         AudioDataFilterStage,
     )
 
-    # Using default config (all stages enabled)
+    # Using default config
     pipeline.add_stage(AudioDataFilterStage())
 
     # Using custom YAML config
     pipeline.add_stage(AudioDataFilterStage(config_path="my_config.yaml"))
-
-    # Using dict overrides
-    pipeline.add_stage(AudioDataFilterStage(
-        config={"utmos": {"mos_threshold": 4.0}},
-    ))
 """
 
-from nemo_curator.stages.audio.advance_pipelines.Audio_data_filter import (
-    AudioDataFilterStage,
-)
+from .audio_data_filter import AudioDataFilterStage
 
 __all__ = [
     "AudioDataFilterStage",

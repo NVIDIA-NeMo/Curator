@@ -23,7 +23,7 @@ VAD segmentation, speaker diarization/separation,
 and advanced audio processing pipelines.
 """
 
-from nemo_curator.stages.audio.advance_pipelines import AudioDataFilterStage
+from nemo_curator.stages.audio.advanced_pipelines import AudioDataFilterStage
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,

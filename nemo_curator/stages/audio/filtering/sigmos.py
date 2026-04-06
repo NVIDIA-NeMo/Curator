@@ -50,6 +50,7 @@ import torch
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.audio.filtering.sigmos_filter_module.third_party.sigmos.sigmos import build_sigmos_model
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -69,7 +70,7 @@ def _get_audio_numpy_sr(item: dict[str, Any], task_id: str) -> tuple[np.ndarray,
 
     Supports:
       - waveform (torch.Tensor or np.ndarray) + sample_rate (int)
-      - audio_filepath (str) to WAV: loaded with librosa, mono.
+      - audio_filepath (str): loaded with soundfile, mono.
 
     Returns None if unavailable or load fails.
     """
@@ -87,11 +88,8 @@ def _get_audio_numpy_sr(item: dict[str, Any], task_id: str) -> tuple[np.ndarray,
     path = item.get("audio_filepath")
     if path and os.path.isfile(path):
         try:
-            import librosa
-
-            audio, sr = librosa.load(path, sr=None, mono=True)
-            if audio.dtype != np.float32:
-                audio = audio.astype(np.float32)
+            wf, sr = load_audio_file(path, mono=True)
+            audio = wf.squeeze(0).numpy().astype(np.float32)
             return audio, int(sr)
         except Exception as e:  # noqa: BLE001
             logger.error(f"[{task_id}] Failed to load audio file: {e}")

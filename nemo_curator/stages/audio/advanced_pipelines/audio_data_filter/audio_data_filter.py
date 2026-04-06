@@ -50,6 +50,7 @@ from nemo_curator.stages.audio.filtering import BandFilterStage, SIGMOSFilterSta
 from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
 from nemo_curator.stages.audio.preprocessing import MonoConversionStage, SegmentConcatenationStage
 from nemo_curator.stages.audio.segmentation import SpeakerSeparationStage, VADSegmentationStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 
 from .config import _deep_merge, get_enabled_stages, load_config
@@ -92,6 +93,7 @@ class AudioDataFilterStage(CompositeStage):
                 output_sample_rate=mc.get("output_sample_rate", 48000),
                 strict_sample_rate=mc.get("strict_sample_rate", True),
                 name="MonoConversion",
+                resources=Resources(cpus=mc.get("cpus", 1.0)),
             )
         )
 
@@ -128,6 +130,7 @@ class AudioDataFilterStage(CompositeStage):
                     SegmentConcatenationStage(
                         silence_duration_sec=concat.get("silence_duration_sec", 0.5),
                         name="SegmentConcat",
+                        resources=Resources(cpus=concat.get("cpus", 1.0)),
                     )
                 )
 
@@ -138,6 +141,10 @@ class AudioDataFilterStage(CompositeStage):
                     gap_threshold=speaker.get("gap_threshold", 0.1),
                     buffer_time=speaker.get("buffer_time", 0.5),
                     name="SpeakerSeparation",
+                    resources=Resources(
+                        cpus=speaker.get("cpus", 1.0),
+                        gpus=speaker.get("gpus", 1.0),
+                    ),
                 )
             )
 
@@ -159,6 +166,7 @@ class AudioDataFilterStage(CompositeStage):
                 TimestampMapperStage(
                     passthrough_keys=ts.get("passthrough_keys"),
                     name="TimestampMapper",
+                    resources=Resources(cpus=ts.get("cpus", 1.0)),
                 )
             )
 
@@ -185,6 +193,10 @@ class AudioDataFilterStage(CompositeStage):
     ) -> None:
         """Append VAD + quality filter stages to *stages* list."""
         if enable_vad:
+            # Pre-speaker pass (suffix==""): nested=True so VAD stores segments
+            # inside the task for SegmentConcatenation to merge.
+            # Post-speaker pass (suffix=="_Speaker"): nested=False so VAD fans
+            # out into separate tasks for independent downstream processing.
             stages.append(
                 VADSegmentationStage(
                     min_duration_sec=vad.get("min_duration_sec", 2.0),
@@ -194,6 +206,10 @@ class AudioDataFilterStage(CompositeStage):
                     speech_pad_ms=vad.get("speech_pad_ms", 300),
                     nested=(suffix == ""),
                     name=f"VAD{suffix}",
+                    resources=Resources(
+                        cpus=vad.get("cpus", 1.0),
+                        gpus=vad.get("gpus", 0.3),
+                    ),
                 )
             )
 
@@ -202,6 +218,10 @@ class AudioDataFilterStage(CompositeStage):
                 BandFilterStage(
                     band_value=band.get("band_value", "full_band"),
                     name=f"BandFilter{suffix}",
+                    resources=Resources(
+                        cpus=band.get("cpus", 1.0),
+                        gpus=band.get("gpus", 0.0),
+                    ),
                 )
             )
 
@@ -210,6 +230,10 @@ class AudioDataFilterStage(CompositeStage):
                 UTMOSFilterStage(
                     mos_threshold=utmos.get("mos_threshold", 3.5),
                     name=f"UTMOS{suffix}",
+                    resources=Resources(
+                        cpus=utmos.get("cpus", 1.0),
+                        gpus=utmos.get("gpus", 0.5),
+                    ),
                 )
             )
 
@@ -224,5 +248,9 @@ class AudioDataFilterStage(CompositeStage):
                     loud_threshold=sigmos.get("loud_threshold"),
                     reverb_threshold=sigmos.get("reverb_threshold"),
                     name=f"SIGMOS{suffix}",
+                    resources=Resources(
+                        cpus=sigmos.get("cpus", 1.0),
+                        gpus=sigmos.get("gpus", 0.5),
+                    ),
                 )
             )

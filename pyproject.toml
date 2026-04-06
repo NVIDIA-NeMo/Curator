@@ -103,6 +103,7 @@ audio_common = [
     "silero-vad",
     "librosa",
     "scipy",
+    "pydub>=0.25.1",
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",
