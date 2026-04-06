@@ -4,6 +4,20 @@ Process the DNS Challenge Read Speech dataset using NeMo Curator's audio pipelin
 
 The pipeline downloads the dataset (4.88 GB compressed, 14,279 WAV files at 48kHz, 19.3 hours total audio) and applies quality filtering.
 
+## Prerequisites
+
+Install NeMo Curator with audio dependencies:
+
+```bash
+# GPU (recommended)
+pip install nemo_curator[audio_cuda12]
+
+# CPU only
+pip install nemo_curator[audio_cpu]
+```
+
+The full pipeline requires: `soundfile`, `torchaudio`, `librosa`, `scipy`, `pydub`, `onnxruntime`/`onnxruntime-gpu`, `silero-vad`, and `nemo_toolkit[asr]`. These are all included in the `audio_cuda12` / `audio_cpu` extras.
+
 ## Quick Start
 
 ```bash
@@ -130,6 +144,7 @@ python run.py \
 | `--batch_size` | `1` | Batch size |
 | `--sample_rate` | `48000` | Audio sample rate |
 | `--clean` | `false` | Clean output dir |
+| `--backend` | `xenna` | Execution backend: `xenna` or `ray_data` |
 | `--verbose` | `false` | DEBUG logging |
 
 ### Filter Toggles and Thresholds
@@ -143,10 +158,10 @@ python run.py \
 | `--vad-min-interval-ms` | `500` | Min silence to split segments (ms) |
 | `--vad-speech-pad-ms` | `300` | Padding before/after speech (ms) |
 | `--enable-utmos` | `false` | Enable UTMOS filter |
-| `--utmos-mos-threshold` | `3.4` | Min UTMOS MOS (1-5) |
+| `--utmos-mos-threshold` | `3.4` | Min UTMOS MOS (0-5) |
 | `--enable-sigmos` | `false` | Enable SIGMOS filter |
-| `--sigmos-noise-threshold` | `4.0` | Min SIGMOS noise (1-5) |
-| `--sigmos-ovrl-threshold` | `3.5` | Min SIGMOS overall (1-5) |
+| `--sigmos-noise-threshold` | `4.0` | Min SIGMOS noise (0-5) |
+| `--sigmos-ovrl-threshold` | `3.5` | Min SIGMOS overall (0-5) |
 | `--enable-band-filter` | `false` | Enable band filter |
 | `--band-value` | `full_band` | Band type to pass |
 | `--enable-speaker-separation` | `false` | Enable speaker diarization |
