@@ -52,8 +52,8 @@ exact_workflow = ExactDeduplicationWorkflow(
     perform_removal=False,
     input_filetype="parquet"
 )
-exact_workflow.run()
-# Duplicate IDs saved to ./results/ExactDuplicateIds/
+result = exact_workflow.run()
+# result.metadata contains: total_time, num_duplicates, identification_time, id_generator_path
 
 # Step 2: Remove duplicates
 removal_workflow = TextDuplicatesRemovalWorkflow(
@@ -65,8 +65,8 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_duplicate_id_field="_curator_dedup_id",
     id_generator_path="./results/exact_id_generator.json"
 )
-removal_workflow.run()
-# Clean dataset saved to ./deduplicated/
+result = removal_workflow.run()
+# result.metadata contains: total_time, num_duplicates_removed
 ```
 
 ## Configuration
@@ -82,7 +82,11 @@ Configure exact deduplication using these key parameters:
 | `id_field` | str \| None | None | Existing ID field name (if assign_id=False) |
 | `input_filetype` | str | "parquet" | Input file format ("parquet" or "jsonl") |
 | `input_blocksize` | str \| int | "2GiB" | Size of input blocks for processing |
+| `identification_batchsize` | int | 1 | Number of input blocks to concatenate and insert into the shuffler per call. Higher values increase GPU throughput at the cost of memory. For example, `input_blocksize="256MiB"` with `identification_batchsize=4` processes ~1 GB per call. |
 | `perform_removal` | bool | False | Reserved; must remain `False`. Exact removal is performed with `TextDuplicatesRemovalWorkflow`. |
+| `total_nparts` | int \| None | None | Total number of output partitions. If `None`, defaults to one-third of the number of input tasks. |
+| `rmm_pool_size` | int \| "auto" \| None | "auto" | RMM GPU memory pool size in bytes. `"auto"` uses 90% of free GPU memory; `None` uses 50% with dynamic expansion. |
+| `spill_memory_limit` | int \| "auto" \| None | "auto" | Device memory spill-to-host limit in bytes. `"auto"` sets the limit to 80% of the RMM pool size; `None` disables spilling. When `rmm_pool_size` is `None`, `"auto"` also resolves to no spilling. |
 
 ## Removing Duplicates
 
@@ -104,7 +108,7 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_duplicate_id_field="_curator_dedup_id",
     id_generator_path="/path/to/output/exact_id_generator.json"  # Required if assign_id=True
 )
-removal_workflow.run()
+result = removal_workflow.run()
 ```
 
 <Accordion title="ID Field Configuration">
@@ -160,9 +164,11 @@ The workflow produces these output files:
 
 **Best practices**:
 
-- Use `input_blocksize="2GiB"` for optimal performance
+- Use smaller `input_blocksize` values (`256MiB` to `512MiB`) with a larger `identification_batchsize` to target 2-6 GB of overall batches as memory allows. For example, `input_blocksize="256MiB"` with `identification_batchsize=8` processes ~2 GB per insertion call. This improves both shuffle throughput and removal performance compared to the `2GiB` default.
 - Clear output directory between runs
 - Use `assign_id=True` for consistent ID tracking
+- Setting `total_nparts` to smaller values (`256` or `512`) often leads to better shuffle performance compared to the defaults for really large runs
+- For large cluster runs, tune `rmm_pool_size` and `spill_memory_limit` explicitly to match your hardware and dataset size
 </Accordion>
 
 For comparison with other deduplication methods and guidance on when to use exact deduplication, refer to the [Deduplication overview ](/curate-text/process-data/deduplication).
