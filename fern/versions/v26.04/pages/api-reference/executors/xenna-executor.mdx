@@ -164,6 +164,21 @@ for task in results:
         print(f"  Items processed: {perf.num_items_processed}")
 ```
 
+## Troubleshooting
+
+### GPU Workers Unavailable with Cosmos-Xenna 0.1.2
+
+If you see the following error when running GPU stages:
+
+```
+RuntimeError: Worker is a GPU worker, but no GPUs are available. This likely means
+that the ray cluster was not started with 'RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0'.
+```
+
+This occurs when Cosmos-Xenna 0.1.2 (shipped in NeMo Curator 26.02) is used with Ray nightly builds or Ray versions newer than 2.43. Xenna 0.1.2 bypasses Ray's GPU allocation and requires `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0` to be set before the Ray cluster starts, but newer Ray releases changed the internal GPU visibility behavior.
+
+**Resolution**: Upgrade to NeMo Curator 26.04, which ships Cosmos-Xenna 0.2.0. Xenna 0.2.0 manages CUDA device visibility directly and does not require this environment variable.
+
 ## Source Code
 
 [View source on GitHub](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/backends/xenna/executor.py)

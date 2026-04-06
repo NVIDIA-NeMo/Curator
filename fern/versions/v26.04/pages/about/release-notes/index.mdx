@@ -129,6 +129,28 @@ Fixed audio pipeline stage names not propagating in `StagePerfStats`, making ben
 
 Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage` where multiple workers simultaneously initializing vLLM would race on the shared `torch.compile` cache directory, causing `FileNotFoundError`. Model initialization now runs once per node in `setup_on_node()` instead of per-worker in `setup()`, matching the pattern used by text vLLM stages.
 
+## Known Issues
+
+### Cosmos-Xenna 0.1.2 Incompatible with Ray Nightly Builds
+
+Cosmos-Xenna 0.1.2 (shipped in 26.02) fails to start GPU workers when paired with Ray nightly builds or Ray versions newer than 2.43. The error is:
+
+```
+RuntimeError: Worker is a GPU worker, but no GPUs are available. This likely means
+that the ray cluster was not started with 'RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0'.
+```
+
+Xenna 0.1.2 relies on `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0` being set before the Ray cluster starts because it bypasses Ray's built-in GPU allocation. Newer Ray releases changed the internal GPU visibility behavior, breaking this workaround.
+
+**Resolution**: Upgrade to NeMo Curator 26.04, which ships Cosmos-Xenna 0.2.0. Xenna 0.2.0 manages CUDA device visibility directly and no longer depends on `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`.
+
+If you must remain on 26.02, pin Ray to `<=2.43` and ensure the environment variable is set before starting the Ray cluster:
+
+```bash
+export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0
+ray start --head
+```
+
 ## Breaking Changes
 
 - **`TextSemanticDeduplicationWorkflow` embedding backend**: The default embedding backend changed from SentenceTransformers to vLLM. The default model changed from `sentence-transformers/all-MiniLM-L6-v2` to `google/embeddinggemma-300m`. The parameters `embedding_model_inference_batch_size`, `embedding_pooling`, `embedding_padding_side`, and `embedding_max_seq_length` have been removed. Use `embedding_vllm_init_kwargs` to pass configuration to the vLLM backend instead.
