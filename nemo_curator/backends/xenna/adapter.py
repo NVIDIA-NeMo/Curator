@@ -30,12 +30,17 @@ class CuratorRuntimeEnv:
     """Duck-typed replacement for Xenna's RuntimeEnv that supports the full Ray runtime_env dict.
 
     Xenna's RuntimeEnv only supports conda + env_vars. This class accepts a raw
-    Ray-format runtime_env dict and implements the two methods Xenna calls:
-    ``to_ray_runtime_env()`` and ``format()``.
+    Ray-format runtime_env dict and implements the interface Xenna calls:
+    ``to_ray_runtime_env()``, ``format()``, and ``extra_env_vars``.
     """
 
     def __init__(self, runtime_env: dict[str, Any]) -> None:
         self._runtime_env = runtime_env
+
+    @property
+    def extra_env_vars(self) -> dict[str, str]:
+        """Environment variables from the runtime_env dict, as Xenna's actor pool expects."""
+        return self._runtime_env.get("env_vars", {})
 
     def to_ray_runtime_env(self) -> ray.runtime_env.RuntimeEnv:
         return ray.runtime_env.RuntimeEnv(**self._runtime_env)
