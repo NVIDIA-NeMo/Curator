@@ -13,12 +13,15 @@
 # limitations under the License.
 
 import atexit
+import contextlib
 import os
 import shutil
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -436,10 +439,13 @@ class SlurmRayClient(RayClient):
         Safe to call multiple times.  Does not stop an externally
         managed cluster (one discovered via ``RAY_ADDRESS``).
         """
-        if not self._manages_cluster:
-            super().stop()
-            return
-
+        if self._manages_cluster:
+            slurm_job_id = os.environ.get("SLURM_JOB_ID")
+            if slurm_job_id:
+                port_file = self._head_port_file(slurm_job_id)
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(port_file)
+                    logger.info(f"SlurmRayClient: removed port file {port_file}")
         super().stop()
 
     # ------------------------------------------------------------------ #
@@ -458,10 +464,20 @@ class SlurmRayClient(RayClient):
         return os.path.join(broadcast_dir, f"ray_head_port_{slurm_job_id}")
 
     def _write_head_port(self, slurm_job_id: str) -> None:
-        """Write the actual Ray GCS port to a shared file so workers can read it."""
+        """Write the actual Ray GCS port to a shared file so workers can read it.
+
+        Uses an atomic write-then-rename so workers never observe an empty or
+        partially-written file (important on Lustre / NFS where open() truncates
+        before write() completes).
+        """
         port_file = self._head_port_file(slurm_job_id)
-        with open(port_file, "w") as f:
+        broadcast_dir = os.path.dirname(port_file)
+        with tempfile.NamedTemporaryFile(mode="w", dir=broadcast_dir, delete=False) as f:
+            tmp_path = f.name
             f.write(str(self.ray_port))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, port_file)  # atomic on POSIX
         logger.info(f"SlurmRayClient head: wrote port {self.ray_port} to {port_file}")
 
     def _read_head_port(self, slurm_job_id: str, timeout_s: int = 600) -> int:
@@ -470,10 +486,14 @@ class SlurmRayClient(RayClient):
         deadline = time.time() + timeout_s
         while time.time() < deadline:
             if os.path.exists(port_file):
-                with open(port_file) as f:
-                    port = int(f.read().strip())
-                logger.info(f"SlurmRayClient worker: read head port {port} from {port_file}")
-                return port
+                try:
+                    with open(port_file) as f:
+                        port = int(f.read().strip())
+                except (ValueError, OSError):
+                    pass  # file may be partially written; retry
+                else:
+                    logger.info(f"SlurmRayClient worker: read head port {port} from {port_file}")
+                    return port
             time.sleep(2)
         msg = f"Timed out waiting for head port file {port_file} after {timeout_s}s"
         raise TimeoutError(msg)
@@ -502,10 +522,8 @@ class SlurmRayClient(RayClient):
 
     def _cleanup_local_ray(self) -> None:
         """Stop any stale Ray processes on the local node."""
-        import contextlib
-
-        ray_bin = _find_ray_binary()
         with contextlib.suppress(Exception):
+            ray_bin = _find_ray_binary()
             subprocess.run([ray_bin, "stop", "--force"], capture_output=True, timeout=30, check=False)  # noqa: S603
 
     @staticmethod
@@ -515,10 +533,16 @@ class SlurmRayClient(RayClient):
         ``ray.init`` can hang indefinitely if the GCS is slow or unstable
         after a multi-job start.  We use SIGALRM (Linux/macOS only) to raise
         a ``TimeoutError`` if the call blocks longer than *timeout_s* seconds.
-        """
-        import signal
 
+        Falls back to an unguarded ``ray.init`` when called from a non-main
+        thread, where SIGALRM is unavailable.
+        """
         import ray as _ray
+
+        if threading.current_thread() is not threading.main_thread():
+            logger.warning("SIGALRM unavailable outside main thread — calling ray.init without timeout")
+            _ray.init(address=address, ignore_reinit_error=True)
+            return
 
         def _handler(_signum: int, _frame: object) -> None:
             msg = (

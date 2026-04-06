@@ -19,7 +19,7 @@ import time
 
 import pytest
 
-from nemo_curator.core.client import SlurmRayClient, _expand_slurm_nodelist, _find_ray_binary
+from nemo_curator.core.client import SlurmRayClient, _expand_slurm_nodelist, _find_ray_binary, _parse_slurm_nodelist
 
 # --------------------------------------------------------------------------- #
 # Helper tests
@@ -59,6 +59,51 @@ class TestExpandSlurmNodelist:
         monkeypatch.setattr("shutil.which", lambda _: None)
         result = _expand_slurm_nodelist("node-001")
         assert result == ["node-001"]
+
+
+class TestParseSlurmNodelist:
+    """Tests for the pure-Python fallback parser (no scontrol required)."""
+
+    def test_single_node(self):
+        assert _parse_slurm_nodelist("node-001") == ["node-001"]
+
+    def test_comma_separated(self):
+        assert _parse_slurm_nodelist("node-001,node-002,node-003") == [
+            "node-001",
+            "node-002",
+            "node-003",
+        ]
+
+    def test_simple_range(self):
+        assert _parse_slurm_nodelist("pool0-[01-05]") == [
+            "pool0-01",
+            "pool0-02",
+            "pool0-03",
+            "pool0-04",
+            "pool0-05",
+        ]
+
+    def test_mixed_range_and_list(self):
+        # prefix-[01-03,07,10-12] → 6 nodes
+        result = _parse_slurm_nodelist("node-[01-03,07,10-12]")
+        assert result == [
+            "node-01",
+            "node-02",
+            "node-03",
+            "node-07",
+            "node-10",
+            "node-11",
+            "node-12",
+        ]
+
+    def test_zero_padded_range(self):
+        result = _parse_slurm_nodelist("compute-[001-003]")
+        assert result == ["compute-001", "compute-002", "compute-003"]
+
+    def test_multiple_prefixes_with_ranges(self):
+        # Two separate bracket groups in a comma-split list
+        result = _parse_slurm_nodelist("gpu-[1-2],cpu-[3-4]")
+        assert result == ["gpu-1", "gpu-2", "cpu-3", "cpu-4"]
 
 
 # --------------------------------------------------------------------------- #
