@@ -81,4 +81,4 @@ Generate embeddings using vLLM for high-throughput GPU-accelerated inference wit
 
 ## Integration with Semantic Deduplication
 
-Text embeddings are a key input for [semantic deduplication](/curate-text/process-data/deduplication/semdedup). The `TextSemanticDeduplicationWorkflow` uses `EmbeddingCreatorStage` internally, but you can also generate embeddings separately and feed them into the deduplication workflow for more control over the embedding process.
+Text embeddings are a key input for [semantic deduplication](/curate-text/process-data/deduplication/semdedup). The `TextSemanticDeduplicationWorkflow` uses `VLLMEmbeddingModelStage` internally, but you can also generate embeddings separately and feed them into the deduplication workflow for more control over the embedding process.
