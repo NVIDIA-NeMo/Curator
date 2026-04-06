@@ -14,25 +14,20 @@
 # limitations under the License.
 
 # Fern docs publish workflow (NeMo Curator)
-# Publishes the Fern documentation site when changes land on the docs-website branch.
+# Publishes the Fern documentation site when a docs tag is pushed or manually triggered.
+#
+# To publish:  git tag docs/v1.2.0 && git push origin docs/v1.2.0
+# Or use the "Run workflow" button in the Actions tab.
 #
 # Required configuration:
-# - Repository secret: FERN_TOKEN (from `fern token` for your Fern org)
-#
-# To generate FERN_TOKEN:
-# 1. Install Fern CLI: npm install -g fern-api
-# 2. Run: fern token
-# 3. Add the token as a repository secret named FERN_TOKEN
+# - Organization secret: DOCS_FERN_TOKEN (from `fern token` for the nvidia Fern org)
 
 name: Publish Fern Docs
 
 on:
   push:
-    branches:
-      - docs-website
-    paths:
-      - 'fern/**'
-      - '.github/workflows/publish-fern-docs.yml'
+    tags:
+      - 'docs/v*'
   workflow_dispatch:
 
 permissions:
@@ -41,15 +36,12 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # Skip the first run after repo creation
-    if: ${{ github.event_name == 'workflow_dispatch' || github.run_number > 1 }}
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
@@ -59,11 +51,13 @@ jobs:
       # Libraries in docs.yml write under fern/product-docs/ (gitignored).
       # Run before publish so the Full Library Reference is included in the site.
       - name: Generate library reference MDX (autodocs)
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         working-directory: ./fern
         run: fern docs md generate
 
       - name: Publish Docs
         env:
-          FERN_TOKEN: ${{ secrets.FERN_TOKEN }}
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         working-directory: ./fern
         run: fern generate --docs
