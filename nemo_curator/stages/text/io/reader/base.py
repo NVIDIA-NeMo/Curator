@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
-import pyarrow as pa
 import ray
 from loguru import logger
 
@@ -30,17 +29,6 @@ from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.file_utils import parse_bytes_string_to_int
-
-
-def _dataframe_memory_bytes(data: pd.DataFrame | pa.Table) -> int:
-    """Total in-RAM footprint including Python str/object columns."""
-    if isinstance(data, pa.Table):
-        return data.nbytes
-    elif hasattr(data, "memory_usage"):  # pd.DataFrame or cudf.DataFrame
-        return int(data.memory_usage(deep=True).sum())
-    else:
-        msg = f"Unsupported data type for memory usage calculation: {type(data)}"
-        raise ValueError(msg)
 
 
 @dataclass
@@ -117,31 +105,6 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
         ):
             msg = f"No data read from files in task {task.task_id}"
             raise ValueError(msg)
-
-        # Even though we checked the storage size of the input files, the total in-memory size of the DataFrame can still be too large
-        # This is a more expensive but more accurate check than the storage size check
-        total_bytes = _dataframe_memory_bytes(result)
-        # Scenario 1: The user specified blocksize and the total in-memory size is 2x the blocksize
-        if self.blocksize is not None and total_bytes > (self._blocksize * 2):
-            msg = (
-                f"Error encountered while reading data from files: {task.data}. "
-                f"Estimated in-memory size is {total_bytes} bytes which is greater than 2x the specified blocksize. "
-                "The maximum recommended size for the in-memory DataFrame is 2 GiB. "
-                "Consider reducing the blocksize to help reduce the in-memory size accordingly. "
-                "Else, this can cause memory errors or performance issues in the downstream stages. "
-                "Any individual file(s) larger than the blocksize should be split into smaller chunks using nemo_curator.utils.split_large_files."
-            )
-            logger.warning(msg)
-        # Scenario 2: The user did not specify blocksize and the total in-memory size is 2x the blocksize
-        elif total_bytes > (self._blocksize * 2):
-            msg = (
-                f"Error encountered while reading data from files: {task.data}. "
-                f"Estimated in-memory size is {total_bytes} bytes which is greater than 2x the maximum recommended blocksize (2 GiB). "
-                "Reduce files_per_partition if possible, or set blocksize instead. "
-                "Else, this can cause memory errors or performance issues in the downstream stages. "
-                "Any individual file(s) larger than the blocksize should be split into smaller chunks using nemo_curator.utils.split_large_files."
-            )
-            logger.warning(msg)
 
         # Apply IDs only for Pandas DataFrames
         if isinstance(result, pd.DataFrame):

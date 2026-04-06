@@ -192,14 +192,3 @@ def test_jsonl_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogCap
     file_partitioning_stage = stage.decompose()[0]
     with pytest.raises(ValueError, match="File group task has exceeded the storage limit per partition"):
         file_tasks = file_partitioning_stage.process(_EmptyTask)
-
-    # Now force the file_partitioning_stage to pass
-    file_partitioning_stage = FilePartitioningStage(file_paths=str(tmp_path), blocksize=100_000_000)
-    file_tasks = file_partitioning_stage.process(_EmptyTask)
-    assert len(file_tasks) == 1
-    # Since the in-memory size is larger than 10 million bytes, the JsonlReaderStage should raise a warning
-    # because it exceeds the specified blocksize by more than 2x
-    jsonl_reader_stage = JsonlReaderStage(blocksize=5_000_000)
-    with caplog.at_level("WARNING"):
-        jsonl_reader_stage.process(file_tasks[0])
-    assert "Error encountered while reading data" in caplog.text
