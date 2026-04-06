@@ -18,10 +18,47 @@ Added two new embedding backends for text curation, giving users flexibility to 
 
 - **`VLLMEmbeddingModelStage`**: A new standalone embedding stage powered by [vLLM](https://docs.vllm.ai/) for high-throughput GPU-accelerated inference. Supports optional pretokenization (`pretokenize=True`) for best per-task throughput. Ideal for large embedding models where vLLM's batching and memory management outperform Sentence Transformers.
 - **`SentenceTransformerEmbeddingModelStage`**: A new embedding stage using the `sentence-transformers` library directly, providing native support for models from the Sentence Transformers ecosystem.
-- **`EmbeddingCreatorStage` enhancements**: Added `use_sentence_transformer` flag (defaults to `True`) to select between Sentence Transformers and HuggingFace `AutoModel` backends. Added `cache_dir` parameter for controlling model download location.
-- **New `vllm` optional dependency**: Install with `pip install nemo_curator[vllm]` (x86_64 Linux only). The `sentence-transformers` package is now included in the `text_cpu` extra.
+- **`EmbeddingCreatorStage` enhancements**: Added `use_sentence_transformer` flag (defaults to `True`) to select between Sentence Transformers' `SentenceTransformer` and Hugging Face's `AutoModel` classe. Added `cache_dir` parameter for controlling model download location.
+- **New `vllm` optional dependency**: The `vllm` package is automatically included with the relevant modality installations (`text_cuda12`, `video_cuda12`, `math_cuda12`). The `sentence-transformers` package is now included in the `text_cpu` extra.
 
 For usage details, see [Text Embeddings](/curate-text/process-data/embeddings) and [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder).
+
+### Inference Server (Ray Serve)
+
+Built-in LLM serving alongside curation pipelines using Ray Serve and vLLM:
+
+- **`InferenceServer` and `InferenceModelConfig`**: New APIs to deploy one or more LLMs as OpenAI-compatible endpoints directly within a Ray cluster, eliminating the need for separate inference infrastructure.
+- **Context manager support**: `InferenceServer` works as a context manager for automatic startup and cleanup of served models.
+- **GPU contention detection**: `Pipeline.run()` automatically detects when an InferenceServer is active and enforces `RayDataExecutor` usage for GPU pipeline stages to prevent resource conflicts.
+- **`GenerationConfig.extra_kwargs`**: New field for passing arbitrary parameters through to the OpenAI API `create()` call.
+- **New install extras**: `inference_server` (Ray Serve + vLLM dependencies) and `sdg_cuda12` (SDG with local inference support).
+
+Learn more in the [Inference Server](/curate-text/synthetic/inference-server) documentation.
+
+### Shared Tokenizer Support for Multiple Classifiers (PR #1528)
+
+Text classifiers that share the same base tokenizer can now reuse tokens across a pipeline, avoiding redundant tokenization. New parameters `keep_tokens` and `use_existing_tokens` on all distributed classifiers control this behavior. DeBERTa-based classifiers (DomainClassifier, MultilingualDomainClassifier, QualityClassifier, ContentTypeClassifier, FineWeb variants, PromptTaskComplexityClassifier) and LlamaGuard-based classifiers (AegisClassifier, InstructionDataGuardClassifier) each form a compatible tokenizer group.
+
+### vLLM Default for Semantic Deduplication Embeddings (PR #1606)
+
+Switched the default embedding backend in `TextSemanticDeduplicationWorkflow` from SentenceTransformers to vLLM, with `google/embeddinggemma-300m` as the new default model:
+
+- **vLLM embedding backend**: `TextSemanticDeduplicationWorkflow` now uses `VLLMEmbeddingModelStage` for embedding generation, replacing `EmbeddingCreatorStage` (SentenceTransformers).
+- **New default model**: Changed from `sentence-transformers/all-MiniLM-L6-v2` to `google/embeddinggemma-300m`.
+- **New parameters**: Added `embedding_pretokenize`, `embedding_vllm_init_kwargs`, and `model_cache_dir` for vLLM configuration.
+- **Removed parameters**: The SentenceTransformers-specific parameters `embedding_model_inference_batch_size`, `embedding_pooling`, `embedding_padding_side`, and `embedding_max_seq_length` are no longer available.
+
+### Multi-User Metrics Isolation
+
+Improved Prometheus and Grafana monitoring support for shared clusters:
+
+- **Per-user metrics directories**: The default metrics path now includes the user ID (`/tmp/nemo_curator_metrics_{uid}`), which prevents conflicts when multiple users share a Ray cluster.
+- **`metrics_dir` parameter**: New parameter on `RayClient` and `start_prometheus_grafana.py` for explicit control of where metrics data, PID files, and configuration are stored.
+- **PID-file-based process tracking**: NeMo Curator tracks Prometheus and Grafana instances through PID files instead of process-name scanning, which enables multiple isolated monitoring instances per node.
+- **Automatic Ray dashboard generation**: The Grafana setup now auto-generates Ray default, data, serve, and serve-deployment dashboards from the built-in Ray dashboard factory.
+- **Graceful cleanup on shutdown**: `RayClient.stop()` now removes Ray service discovery entries from the Prometheus configuration automatically.
+
+Learn more in the [Monitoring](/reference/infra/monitoring) documentation.
 
 ### Cosmos-Xenna 0.2.0 (PR #1571)
 
@@ -31,13 +68,104 @@ Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and i
 - **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
 - **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
 
+### Fused Document Iterate and Extract Stages (PR #1458)
+
+The data acquisition pipeline now uses a three-stage architecture instead of four, fusing the iterate and extract steps into a single `DocumentIterateExtractStage`. This reduces memory overhead and improves pipeline performance:
+
+- **Fused `DocumentIterateExtractStage`**: Combines `DocumentIterateStage` and `DocumentExtractStage` into a single stage that iterates through downloaded files and extracts structured content in one pass.
+- **Improved Memory Efficiency**: The fused stage processes records inline instead of materializing intermediate DataFrames, reducing peak memory usage. With limited RAM (200 GB), the Common Crawl pipeline succeeds with 32 CPUs where the unfused pipeline ran out of memory even at 16 CPUs.
+- **Better Performance**: Benchmarks show faster runtimes across both the Ray Data and Xenna executors (e.g., ~6% faster with Ray Data, ~18% faster with Xenna).
+
+### Pipeline Stage Metrics (PR #1385)
+
+Pipeline stages now track document-level metrics through `StagePerfStats.num_items_processed`, so you can see how each stage affects your dataset. After calling `pipeline.run()`, the returned task objects expose per-stage document counts that you can use to monitor filtering behavior and tune thresholds.
+
+### Workflow Results API
+
+Standardized return type for all deduplication workflows:
+
+- **`WorkflowRunResult` dataclass**: All deduplication workflow `run()` methods now return `WorkflowRunResult` instead of `None` or `dict`
+- **`WorkflowBase` abstract class**: New base class that most deduplication workflows inherit from, enforcing a consistent `run()` → `WorkflowRunResult` interface. (`TextSemanticDeduplicationWorkflow` implements the same interface without formal inheritance.)
+- **Structured metadata**: Access per-stage timing (`total_time`, `identification_time`, and others), duplicate counts (`num_duplicates`, `num_duplicates_removed`), and output paths through `result.metadata`
+- **`TaskPerfUtils` compatibility**: `collect_stage_metrics()` and `aggregate_task_metrics()` now accept `WorkflowRunResult` directly
+
+### Actor Pool Progress Bars (PR #1457)
+
+Added tqdm progress bars to `RayActorPoolExecutor` for real-time visibility into task completion during stage processing and shuffle inserts. Progress bars are enabled by default and can be configured with `show_progress` and `progress_interval` parameters. This is particularly useful for long-running deduplication jobs where progress is not otherwise apparent.
+
+## Improvements
+
+### Batched Shuffle Insertion for Exact Deduplication (PR #1369)
+
+The exact deduplication identification stage now supports batched insertion into the shuffler, improving throughput by processing multiple file groups in a single call. This reduces actor call overhead and enables larger, more efficient GPU operations during the shuffle phase.
+
+- **New `identification_batchsize` parameter** on `ExactDeduplicationWorkflow`: Controls how many input blocks are concatenated and inserted together. For example, an `input_blocksize` of `256MiB` with `identification_batchsize=4` processes ~1 GB of data per insertion call.
+- **Batch-aware shuffle adapter**: The Ray actor pool shuffle adapter now automatically uses `read_and_insert_batch` when a stage provides it, falling back to single-task processing otherwise.
+
+## Security Fixes
+
+### CVE Fixes for Audio and Inference Dependencies (PR #1612)
+
+Resolved four HIGH-severity vulnerabilities affecting Curator dependencies:
+
+- **nemo-toolkit RCE (CVE-2025-33245, CVE-2025-33253)**: NeMo Toolkit versions before 2.6.1 used `torch.load()` and `pickle.load()` without `weights_only=True` when loading model checkpoints, enabling remote code execution through maliciously crafted `.nemo` or `.ckpt` files. Curator's `InferenceAsrNemoStage` calls `ASRModel.from_pretrained()`, which uses this deserialization path. The CVE was fixed in nemo-toolkit 2.6.1; bumped to `>=2.7.2` to pick up additional fixes and ensure compatibility with Curator's dependency set.
+- **xgrammar DoS (CVE-2026-25048)**: Constructing a grammar rule with deeply nested parentheses triggered a segfault via uncontrolled recursion in xgrammar's syntax parsing, which could crash applications using vLLM structured output without authentication. Fixed by overriding vLLM's `xgrammar==0.1.29` pin to `>=0.1.32`.
+- **jackson-core DoS (GHSA-72hv-8253-57qq)**: The non-blocking JSON parser in jackson-core 2.16.1, bundled inside `ray_dist.jar` in the Ray Python package, bypassed the `maxNumberLength` constraint, allowing denial of service through arbitrarily long JSON numbers. Since Curator does not use Ray's Java support, the JAR is now deleted during the Docker image build with a build-time verification guard. This fix applies only to the container image.
+
 ## Dependency Updates
 
 - **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
 - **Ray**: Updated to 2.54
 - **sentence-transformers**: Added to the `text_cpu` optional dependency group
-- **vllm**: New `vllm` optional dependency group (`pip install nemo_curator[vllm]`, x86_64 Linux only)
+- **vllm**: New `vllm` optional dependency group
+- **uv**: Added minimum required version (>=0.7.0) to prevent lockfile revision drift
+- **nemo-toolkit**: Bumped `nemo_toolkit[asr]` from `==2.4.0` to `>=2.7.2` to address deserialization CVEs. Only affects `audio_cpu` and `audio_cuda12` extras.
+- **xgrammar**: Moved from `constraint-dependencies` (`>=0.1.21`) to `override-dependencies` (`>=0.1.32`) to override vLLM's pinned version and address CVE-2026-25048.
+
+## Enhancements
+
+### Exact Deduplication Workflow Tuning Parameters (PR #1561)
+
+Exposed additional configuration parameters in `ExactDeduplicationWorkflow` for fine-grained control over large-scale cluster runs:
+
+- **`total_nparts`**: Set the total number of output partitions explicitly instead of relying on the automatic default (one-third of input task count).
+- **`rmm_pool_size`**: Configure the RMM GPU memory pool size in bytes. Supports `"auto"` (90% of free GPU memory), a specific byte value, or `None` (50% of free GPU memory with dynamic expansion).
+- **`spill_memory_limit`**: Set the device memory threshold for spilling to host in bytes. Supports `"auto"` (80% of the RMM pool size), a specific byte value, or `None` (spilling disabled).
+
+These parameters are useful when the defaults are not optimal for your hardware or dataset size:
+
+```python
+workflow = ExactDeduplicationWorkflow(
+    input_path="input_data/",
+    output_path="./results",
+    total_nparts=512,
+    rmm_pool_size=72 * 1024 * 1024 * 1024,  # 72 GiB
+    spill_memory_limit="auto",
+)
+```
+
+## Bug Fixes
+
+### CUDA Fork Error with vLLM and RayDataExecutor (PR #1606)
+
+Fixed a `RuntimeError: Cannot re-initialize CUDA in forked subprocess` error that occurred when running vLLM stages with `RayDataExecutor`. The vLLM auto-detection for `spawn` versus `fork` multiprocessing only triggers inside Ray actors, not Ray tasks. The `RayDataExecutor.execute_setup_on_node` method dispatches `setup_on_node` as a remote task, so vLLM previously defaulted to `fork` and caused a CUDA reinitialization error. Fixed by setting `VLLM_WORKER_MULTIPROC_METHOD=spawn` in the remote task.
+
+### Audio Stage Name Propagation (PR #1470)
+
+Fixed audio pipeline stage names not propagating in `StagePerfStats`, making benchmark output unable to identify per-stage timing. All audio stages (`GetAudioDurationStage`, `PreserveByValueStage`, `AudioToDocumentStage`, `GetPairwiseWerStage`) now correctly report their names, and stage performance history persists when stages create new task objects.
+
+### Video vLLM Setup Race Condition (PR #1590)
+
+Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage` where multiple workers simultaneously initializing vLLM would race on the shared `torch.compile` cache directory, causing `FileNotFoundError`. Model initialization now runs once per node in `setup_on_node()` instead of per-worker in `setup()`, matching the pattern used by text vLLM stages.
 
 ## Breaking Changes
 
+- **`TextSemanticDeduplicationWorkflow` embedding backend**: The default embedding backend changed from SentenceTransformers to vLLM. The default model changed from `sentence-transformers/all-MiniLM-L6-v2` to `google/embeddinggemma-300m`. The parameters `embedding_model_inference_batch_size`, `embedding_pooling`, `embedding_padding_side`, and `embedding_max_seq_length` have been removed. Use `embedding_vllm_init_kwargs` to pass configuration to the vLLM backend instead.
 - **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
+- **`DocumentExtractStage` Removed**: The standalone `DocumentExtractStage` class has been removed. Use `DocumentIterateExtractStage` with an optional `extractor` parameter instead. The `DocumentExtractor` abstract base class is unchanged.
+- **`DocumentIterateStage` Renamed**: `DocumentIterateStage` has been replaced by `DocumentIterateExtractStage`. Update imports from `nemo_curator.stages.text.download.base.iterator`.
+- **Three-Stage Pipeline**: The data acquisition pipeline is now a three-step pattern (URL generation → download → iterate-extract) instead of four steps.
+- **`ExactDeduplicationWorkflow.run()` and `FuzzyDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `None`
+- **`SemanticDeduplicationWorkflow.run()` and `TextSemanticDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `dict`
+- **`TextDuplicatesRemovalWorkflow.run()`** now returns `WorkflowRunResult` instead of `list[FileGroupTask] | None`
+- Code that previously ignored the return value is unaffected. Code that consumed the old `dict` return from semantic workflows must migrate to `result.metadata` and `result.pipeline_tasks`.

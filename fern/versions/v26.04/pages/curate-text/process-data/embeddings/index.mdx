@@ -16,7 +16,7 @@ Generate text embeddings for large-scale datasets using NeMo Curator's built-in 
 
 NeMo Curator provides three embedding backends for text data, each suited to different model sizes and throughput requirements:
 
-1. **`EmbeddingCreatorStage`** — A composite stage that handles tokenization and embedding in sequence. Supports both Sentence Transformers and HuggingFace `AutoModel` backends via the `use_sentence_transformer` flag.
+1. **`EmbeddingCreatorStage`** — A composite stage that handles tokenization and embedding in sequence. Supports both Sentence Transformers' `SentenceTransformer` and Hugging Face's `AutoModel` classes via the `use_sentence_transformer` flag.
 2. **`VLLMEmbeddingModelStage`** — A standalone stage that uses vLLM for GPU-accelerated embedding generation with optional pretokenization. Best for large embedding models where vLLM's batching and GPU utilization provide significant throughput gains.
 3. **`SentenceTransformerEmbeddingModelStage`** — A model stage that uses the `sentence-transformers` library directly. Used internally by `EmbeddingCreatorStage` when `use_sentence_transformer=True`.
 
@@ -24,8 +24,8 @@ NeMo Curator provides three embedding backends for text data, each suited to dif
 
 | Backend | Best For | GPU Utilization | Setup |
 | --- | --- | --- | --- |
-| `EmbeddingCreatorStage` (Sentence Transformers) | Small to medium models (e.g., all-MiniLM-L6-v2) | Good | Minimal — included in `text_cpu` extra |
-| `VLLMEmbeddingModelStage` | Large models (e.g., Gemma-based embedders) | Excellent | Requires `vllm` extra (`pip install nemo_curator[vllm]`) |
+| `EmbeddingCreatorStage` (Sentence Transformers) | Small to medium models (e.g., all-MiniLM-L6-v2) | Good | Included in `text_cpu` extra |
+| `VLLMEmbeddingModelStage` | Large models (e.g., `google/embeddinggemma-300m`) and semantic deduplication | Excellent | Included in `text_cuda12` extra |
 | `EmbeddingCreatorStage` (AutoModel) | Custom pooling strategies | Good | Set `use_sentence_transformer=False` |
 
 <Note>
@@ -34,7 +34,7 @@ Benchmarks on 5 GB of Common Crawl data show that vLLM outperforms Sentence Tran
 
 ## Quick Start
 
-### EmbeddingCreatorStage (Recommended for Most Use Cases)
+### EmbeddingCreatorStage (Sentence Transformers)
 
 ```python
 from nemo_curator.backends.xenna import XennaExecutor
@@ -61,9 +61,9 @@ executor = XennaExecutor()
 pipeline.run(executor)
 ```
 
-### VLLMEmbeddingModelStage (For Large Models)
+### VLLMEmbeddingModelStage (Recommended for Semantic Deduplication)
 
-For large embedding models (>500M parameters), use `VLLMEmbeddingModelStage` for better GPU utilization and throughput. See the [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder) guide for setup, configuration, and code examples.
+`VLLMEmbeddingModelStage` is the default embedding backend for semantic deduplication, using `google/embeddinggemma-300m`. It provides better GPU utilization and throughput for large embedding models. See the [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder) guide for setup, configuration, and code examples.
 
 ---
 

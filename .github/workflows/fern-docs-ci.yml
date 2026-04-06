@@ -32,10 +32,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
@@ -43,7 +43,7 @@ jobs:
         run: npm install -g fern-api
 
       - name: Generate library reference MDX (product-docs)
-        working-directory: ./fern
-        run: fern docs md generate
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        working-directory: ./fern
+        run: fern docs md generate

@@ -79,6 +79,7 @@ config = GenerationConfig(
 | `stop` | str/list | None | Stop sequences to end generation |
 | `stream` | bool | False | Enable streaming (not recommended for batch processing) |
 | `n` | int | 1 | Number of completions to generate per request |
+| `extra_kwargs` | dict | None | Additional keyword arguments passed through to the OpenAI `create()` call |
 
 ## Performance Tuning
 
@@ -133,6 +134,28 @@ client = AsyncOpenAIClient(
     api_key="your-api-key",
     max_concurrent_requests=5,
 )
+```
+
+### Local Inference with InferenceServer
+
+To serve models locally and connect them to `AsyncOpenAIClient`, use NeMo Curator's built-in [Inference Server](/curate-text/synthetic/inference-server) (Ray Serve + vLLM):
+
+```python
+from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+from nemo_curator.models.client.openai_client import AsyncOpenAIClient
+
+config = InferenceModelConfig(
+    model_identifier="meta-llama/Llama-3-8B-Instruct",
+    engine_kwargs={"tensor_parallel_size": 2},
+)
+
+with InferenceServer(models=[config]) as server:
+    client = AsyncOpenAIClient(
+        base_url=server.endpoint,
+        api_key="unused",
+        max_concurrent_requests=10,
+    )
+    # Use client in pipeline stages
 ```
 
 ## Complete Example

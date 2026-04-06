@@ -258,6 +258,9 @@ navigation:
               - page: LLM Client Setup
                 path: ./v26.04/pages/curate-text/synthetic/llm-client.mdx
                 slug: llm-client
+              - page: Inference Server
+                path: ./v26.04/pages/curate-text/synthetic/inference-server.mdx
+                slug: inference-server
               - page: Multilingual Q&A
                 path: ./v26.04/pages/curate-text/synthetic/multilingual-qa.mdx
                 slug: multilingual-qa
@@ -513,6 +516,9 @@ navigation:
               - page: Memory Management
                 path: ./v26.04/pages/reference/infrastructure/memory-management.mdx
                 slug: memory-management
+              - page: Monitoring
+                path: ./v26.04/pages/reference/infrastructure/monitoring.mdx
+                slug: monitoring
               - page: GPU Processing
                 path: ./v26.04/pages/reference/infrastructure/gpu-processing.mdx
                 slug: gpu-processing

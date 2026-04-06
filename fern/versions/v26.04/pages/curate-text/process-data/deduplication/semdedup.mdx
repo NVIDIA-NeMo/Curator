@@ -51,21 +51,19 @@ Get started with semantic deduplication using the following example of identifyi
 
 ```python
 from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 
+# Default: uses vLLM with google/embeddinggemma-300m
 workflow = TextSemanticDeduplicationWorkflow(
     input_path="input_data/",
-    output_path="./results", 
+    output_path="./results",
     cache_path="./sem_cache",
-    model_identifier="sentence-transformers/all-MiniLM-L6-v2",
     n_clusters=100,
     eps=0.07,  # Similarity threshold
     id_field="doc_id",
-    perform_removal=True  # Complete deduplication
+    perform_removal=True,  # Complete deduplication
 )
 
-executor = RayDataExecutor()
-results = workflow.run(executor)
+results = workflow.run()
 # Clean dataset saved to ./results/deduplicated/
 ```
 
@@ -79,8 +77,8 @@ For fine-grained control, break semantic deduplication into separate stages:
 
 ```python
 from nemo_curator.stages.deduplication.id_generator import create_id_generator_actor
-from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
-from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow, IdentifyDuplicatesStage
+from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
+from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import ParquetReader
@@ -89,16 +87,17 @@ from nemo_curator.stages.text.io.writer import ParquetWriter
 # Step 1: Create ID generator
 create_id_generator_actor()
 
-# Step 2: Generate embeddings separately
+# Step 2: Generate embeddings separately (using vLLM)
 embedding_pipeline = Pipeline(
     name="embedding_pipeline",
     stages=[
         ParquetReader(file_paths=input_path, files_per_partition=1, fields=["text"], _generate_ids=True),
-        EmbeddingCreatorStage(
-            model_identifier="sentence-transformers/all-MiniLM-L6-v2",
+        # VLLMEmbeddingModelStage uses shorter parameter names than the workflow wrapper:
+        # pretokenize (not embedding_pretokenize), vllm_init_kwargs (not embedding_vllm_init_kwargs),
+        # max_chars (not embedding_max_chars), cache_dir (not model_cache_dir)
+        VLLMEmbeddingModelStage(
+            model_identifier="google/embeddinggemma-300m",
             text_field="text",
-            embedding_pooling="mean_pooling",
-            model_inference_batch_size=256,
         ),
         ParquetWriter(path=embedding_output_path, fields=["_curator_dedup_id", "embeddings"]),
     ],
@@ -114,7 +113,8 @@ semantic_workflow = SemanticDeduplicationWorkflow(
     embedding_field="embeddings",
     eps=None,  # Skip duplicate identification for analysis
 )
-semantic_out = semantic_workflow.run()
+result = semantic_workflow.run()
+# result.metadata contains: total_time, num_duplicates, kmeans_time, pairwise_time
 
 # Step 4: Analyze similarity distribution to choose eps
 # Step 5: Identify duplicates with chosen eps
@@ -138,44 +138,52 @@ Compare semantic deduplication with other methods:
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `model_identifier` | str | "sentence-transformers/all-MiniLM-L6-v2" | Pre-trained model for embedding generation |
-| `embedding_model_inference_batch_size` | int | 256 | Number of samples per embedding batch |
-| `n_clusters` | int | 100 | Number of clusters for k-means clustering |
-| `kmeans_max_iter` | int | 300 | Maximum iterations for clustering |
-| `eps` | float | 0.01 | Threshold for deduplication (higher = more aggressive) |
-| `which_to_keep` | str | "hard" | Strategy for keeping duplicates ("hard"/"easy"/"random") |
-| `pairwise_batch_size` | int | 1024 | Batch size for similarity computation |
-| `distance_metric` | str | "cosine" | Distance metric for similarity ("cosine" or "l2") |
-| `embedding_pooling` | str | "mean_pooling" | Pooling strategy ("mean_pooling" or "last_token") |
-| `perform_removal` | bool | true | Whether to perform duplicate removal |
-| `text_field` | str | "text" | Name of the text field in input data |
-| `id_field` | str | "_curator_dedup_id" | Name of the ID field in the data |
+| `model_identifier` | str | `"google/embeddinggemma-300m"` | Pre-trained model for embedding generation (vLLM backend) |
+| `embedding_pretokenize` | bool | `False` | Whether to pre-tokenize input before passing to vLLM |
+| `embedding_vllm_init_kwargs` | dict | `None` | Additional keyword arguments passed to the vLLM `LLM` initializer |
+| `embedding_max_chars` | int | `None` | Maximum number of characters for text truncation |
+| `model_cache_dir` | str | `None` | Directory to cache model weights |
+| `n_clusters` | int | `100` | Number of clusters for k-means clustering |
+| `kmeans_max_iter` | int | `300` | Maximum iterations for clustering |
+| `eps` | float | `0.01` | Threshold for deduplication (higher = more aggressive) |
+| `which_to_keep` | str | `"hard"` | Strategy for keeping duplicates ("hard", "easy", or "random") |
+| `pairwise_batch_size` | int | `1024` | Batch size for similarity computation |
+| `distance_metric` | str | `"cosine"` | Distance metric for similarity ("cosine" or "l2") |
+| `perform_removal` | bool | `True` | Whether to perform duplicate removal |
+| `text_field` | str | `"text"` | Name of the text field in input data |
+| `id_field` | str | `"_curator_dedup_id"` | Name of the ID field in the data |
 
 ### Similarity Threshold
 
 Control deduplication aggressiveness with `eps`:
 
-- **Lower values** (e.g., 0.001): More strict, less deduplication, higher confidence
-- **Higher values** (e.g., 0.1): Less strict, more aggressive deduplication
+- **Lower values** (such as 0.001): More strict, less deduplication, higher confidence
+- **Higher values** (such as 0.1): Less strict, more aggressive deduplication
 
 Experiment with different values to balance data reduction and dataset diversity.
 
 <Accordion title="Embedding Models">
 
-**Sentence Transformers** (recommended for text):
+Embedding generation uses vLLM as the inference backend. The default model is `google/embeddinggemma-300m`.
+
+**Default (vLLM)**:
 
 ```python
 workflow = TextSemanticDeduplicationWorkflow(
-    model_identifier="sentence-transformers/all-MiniLM-L6-v2",
-    # ... other parameters
+    # Uses google/embeddinggemma-300m by default
+    input_path="input_data/",
+    output_path="./results",
+    cache_path="./sem_cache",
 )
 ```
 
-**HuggingFace Models**:
+**Custom model with vLLM options**:
 
 ```python
 workflow = TextSemanticDeduplicationWorkflow(
-    model_identifier="facebook/opt-125m",
+    model_identifier="google/embeddinggemma-300m",
+    embedding_pretokenize=True,
+    embedding_vllm_init_kwargs={"enforce_eager": True, "max_model_len": 2048},
     # ... other parameters
 )
 ```
@@ -199,15 +207,19 @@ semantic_workflow = SemanticDeduplicationWorkflow(
     embedding_field="embeddings",
 )
 semantic_workflow.run()
+
+# Step 3: Filter original text dataset using the IDs to remove
+# See TextDuplicatesRemovalWorkflow for the removal step
 ```
 
 **When choosing a model**:
 
-- Ensure compatibility with your data type
-- Adjust `embedding_model_inference_batch_size` for memory requirements
+- Use models that support vLLM pooling (embedding) mode
 - Choose models appropriate for your language or domain
-- Avoid generic decoder-only LLMs (e.g., OPT/GPT) for embeddings; prefer models trained for sentence embeddings (e.g., E5/BGE/SBERT)
-- For large models (>500M params), consider using [VLLMEmbeddingModelStage](/curate-text/process-data/embeddings/vllm-embedder) for better throughput
+- Prefer models trained for sentence embeddings (for example, EmbeddingGemma, E5, BGE, or SBERT)
+- Use `embedding_pretokenize=True` for models that benefit from explicit tokenization control
+- Pass additional vLLM configuration through `embedding_vllm_init_kwargs`
+- For more control over the embedding process, consider using [VLLMEmbeddingModelStage](/curate-text/process-data/embeddings/vllm-embedder) separately
 </Accordion>
 
 <Accordion title="Advanced Configuration">
@@ -218,26 +230,26 @@ workflow = TextSemanticDeduplicationWorkflow(
     input_path="input_data/",
     output_path="results/",
     cache_path="semdedup_cache",
-    
-    # Embedding generation
+
+    # Embedding generation (vLLM backend)
     text_field="text",
-    model_identifier="sentence-transformers/all-MiniLM-L6-v2",
-    embedding_max_seq_length=512,
-    embedding_pooling="mean_pooling",
-    embedding_model_inference_batch_size=256,
-    
+    model_identifier="google/embeddinggemma-300m",
+    embedding_pretokenize=False,
+    embedding_max_chars=None,
+    model_cache_dir=None,
+
     # Deduplication
     n_clusters=100,
     eps=0.01,  # Similarity threshold
     distance_metric="cosine",
     which_to_keep="hard",
-    
+
     # K-means
     kmeans_max_iter=300,
     kmeans_tol=1e-4,
     pairwise_batch_size=1024,
-    
-    perform_removal=True
+
+    perform_removal=True,
 )
 ```
 </Accordion>
@@ -367,7 +379,8 @@ try:
         cache_path=cache_path,
         # ... other parameters
     )
-    results = workflow.run()
+    result = workflow.run()
+    # result.metadata contains: total_time, num_duplicates, num_duplicates_removed, embedding_time, identification_time, removal_time, final_output_path
 finally:
     client.stop()
 ```

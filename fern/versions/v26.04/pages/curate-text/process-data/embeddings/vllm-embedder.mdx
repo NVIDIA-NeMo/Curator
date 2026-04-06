@@ -13,10 +13,10 @@ modality: "text-only"
 Generate text embeddings using vLLM's optimized inference engine. The `VLLMEmbeddingModelStage` provides high-throughput embedding generation, particularly for large embedding models where vLLM's batching and GPU memory management provide significant performance advantages over Sentence Transformers.
 
 <Note>
-**Installation**: The vLLM embedder requires the `vllm` optional dependency. Install it with:
+**Installation**: The vLLM embedder is included in the `text_cuda12` installation. Install it with:
 
 ```bash
-pip install nemo_curator[vllm]
+uv pip install nemo_curator[text_cuda12]
 ```
 
 vLLM is only available on x86_64 Linux systems.
@@ -47,10 +47,9 @@ pipeline = Pipeline(
     stages=[
         ParquetReader(file_paths="input_data/", files_per_partition=1, fields=["text"]),
         VLLMEmbeddingModelStage(
-            model_identifier="google/gemma-embedding-model",
+            model_identifier="google/embeddinggemma-300m",
             text_field="text",
             embedding_field="embeddings",
-            pretokenize=True,
         ),
         ParquetWriter(path="output/", fields=["text", "embeddings"]),
     ],
@@ -66,14 +65,14 @@ pipeline.run(executor)
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `model_identifier` | `str` | Required | HuggingFace model name or path for the embedding model |
+| `model_identifier` | `str` | Required | Hugging Face model name or path for the embedding model |
 | `vllm_init_kwargs` | `dict` | `None` | Additional keyword arguments passed to `vllm.LLM()` for engine configuration |
 | `text_field` | `str` | `"text"` | Name of the input text column in the data |
 | `pretokenize` | `bool` | `False` | Tokenize text on CPU before passing to vLLM. Recommended for best throughput |
 | `embedding_field` | `str` | `"embeddings"` | Name of the output embedding column |
 | `max_chars` | `int` | `None` | Maximum characters per document (truncates before tokenization) |
 | `cache_dir` | `str` | `None` | Directory for caching downloaded model files |
-| `hf_token` | `str` | `None` | HuggingFace token for accessing gated models |
+| `hf_token` | `str` | `None` | Hugging Face token for accessing gated models |
 | `verbose` | `bool` | `False` | Enable verbose logging and progress bars |
 
 ### vLLM Engine Options
@@ -82,7 +81,7 @@ Pass additional vLLM configuration through `vllm_init_kwargs`:
 
 ```python
 VLLMEmbeddingModelStage(
-    model_identifier="google/gemma-embedding-model",
+    model_identifier="google/embeddinggemma-300m",
     pretokenize=True,
     vllm_init_kwargs={
         "enforce_eager": True,       # Disable CUDA graph for debugging
@@ -104,22 +103,22 @@ Default vLLM settings applied by the stage (can be overridden):
 
 When `pretokenize=True`, the stage:
 
-1. Loads a HuggingFace `AutoTokenizer` for the specified model
+1. Loads a Hugging Face `AutoTokenizer` for the specified model
 2. Tokenizes the input text batch on CPU with truncation to `max_model_len`
 3. Passes token IDs directly to vLLM using `TokensPrompt`
 
-This mode is recommended for production workloads. Benchmarks show it provides the best per-task throughput across both small and large embedding models by reducing GPU idle time during tokenization.
+Whether to use pretokenization depends on the model. For `google/embeddinggemma-300m` (the default for semantic deduplication), `pretokenize=False` is recommended and is the default. For other models, benchmarks show pretokenization can provide better per-task throughput by reducing GPU idle time during tokenization.
 
 ```python
 # Pretokenize mode (recommended)
 VLLMEmbeddingModelStage(
-    model_identifier="google/gemma-embedding-model",
+    model_identifier="google/embeddinggemma-300m",
     pretokenize=True,  # Tokenize on CPU, embed on GPU
 )
 
 # Direct text mode (simpler, slightly less throughput)
 VLLMEmbeddingModelStage(
-    model_identifier="google/gemma-embedding-model",
+    model_identifier="google/embeddinggemma-300m",
     pretokenize=False,  # vLLM handles tokenization internally
 )
 ```
@@ -134,5 +133,5 @@ The `VLLMEmbeddingModelStage` requests 1 CPU and 1 GPU per worker by default. Fo
 | --- | --- |
 | Large embedding models (>500M params) | vLLM — better GPU utilization and memory management |
 | Small embedding models (<100M params) | Sentence Transformers — lower overhead, faster startup |
-| High-throughput production pipelines | vLLM with `pretokenize=True` — best amortized throughput |
-| Quick prototyping | `EmbeddingCreatorStage` — simpler setup, no extra dependency |
+| Semantic deduplication | vLLM with `google/embeddinggemma-300m` — the default backend |
+| Quick prototyping | `EmbeddingCreatorStage` — simpler setup |

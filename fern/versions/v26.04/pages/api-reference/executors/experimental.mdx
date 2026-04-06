@@ -41,7 +41,7 @@ results = pipeline.run(executor=executor)
 
 ## RayActorPoolExecutor
 
-Uses Ray Actor Pool for distributed execution.
+Uses Ray Actor Pool for distributed execution with built-in progress tracking.
 
 ### Import
 
@@ -57,6 +57,8 @@ executor = RayActorPoolExecutor(
         "pool_size": 8,
     },
     ignore_head_node=True,
+    show_progress=True,
+    progress_interval=10.0,
 )
 
 results = pipeline.run(executor=executor)
@@ -66,8 +68,10 @@ results = pipeline.run(executor=executor)
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `pool_size` | `int` | Auto | Number of actors in the pool |
+| `config` | `dict \| None` | `None` | Executor-specific configuration dictionary |
 | `ignore_head_node` | `bool` | `False` | Exclude head node from execution |
+| `show_progress` | `bool` | `True` | Display tqdm progress bars during stage execution and shuffle inserts |
+| `progress_interval` | `float` | `10.0` | Minimum interval in seconds between progress bar updates |
 
 ## BaseExecutor Interface
 
