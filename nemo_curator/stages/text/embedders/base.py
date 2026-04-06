@@ -144,7 +144,7 @@ class SentenceTransformerEmbeddingModelStage(EmbeddingModelStage):
         self.unpack_inference_batch = False
         self.embedding_field = embedding_field
 
-        if "cache_folder" in transformers_init_kwargs:
+        if "cache_folder" in self.transformers_init_kwargs:
             msg = "Pass the cache_dir parameter to the stage instead of using cache_folder in the transformers_init_kwargs dictionary"
             raise ValueError(msg)
         if "use_auth_token" in self.transformers_init_kwargs:
