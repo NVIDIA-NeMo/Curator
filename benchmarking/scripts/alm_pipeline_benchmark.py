@@ -35,10 +35,10 @@ from loguru import logger
 from utils import RepeatEntriesStage, setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio import ManifestReader
 from nemo_curator.stages.audio.alm import (
     ALMDataBuilderStage,
     ALMDataOverlapStage,
-    ALMManifestReader,
 )
 
 
@@ -69,7 +69,7 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
     logger.info(f"Overlap percentage: {overlap_percentage}")
 
     pipeline = Pipeline(name="alm_benchmark", description="ALM Reader + Builder + Overlap benchmark pipeline")
-    pipeline.add_stage(ALMManifestReader(manifest_path=input_manifest))
+    pipeline.add_stage(ManifestReader(manifest_path=input_manifest))
     if repeat_factor > 1:
         pipeline.add_stage(RepeatEntriesStage(repeat_factor=repeat_factor))
         logger.info(f"Repeat factor: {repeat_factor}x (entries multiplied after reading)")

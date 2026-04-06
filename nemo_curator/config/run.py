@@ -35,23 +35,20 @@ def create_ray_client_from_yaml(cfg: DictConfig) -> RayClient:
 def _instantiate_stage(stage_cfg: DictConfig) -> Any:  # noqa: ANN401
     """Instantiate a single stage from its Hydra config.
 
-    Extracts ``resources`` and ``batch_size`` before calling
-    ``hydra.utils.instantiate`` (they are not constructor arguments) and
-    re-applies them via the stage's ``.with_()`` method.
+    Extracts ``resources`` before calling ``hydra.utils.instantiate``
+    (it is applied via ``.with_()``, not as a constructor argument) and
+    re-applies it after construction. ``batch_size`` is left in the config
+    dict so that stages declaring it as a dataclass field receive it
+    during construction.
     """
     cfg_dict = OmegaConf.to_container(stage_cfg, resolve=True)
 
     stage_resources = cfg_dict.pop("resources", None)
-    stage_batch_size = cfg_dict.pop("batch_size", None)
 
     stage = hydra.utils.instantiate(cfg_dict)
 
-    if stage_resources or stage_batch_size:
-        with_kwargs: dict[str, Any] = {}
-        if stage_resources:
-            with_kwargs["resources"] = Resources(**stage_resources)
-        if stage_batch_size:
-            with_kwargs["batch_size"] = stage_batch_size
+    if stage_resources:
+        with_kwargs: dict[str, Any] = {"resources": Resources(**stage_resources)}
         stage = stage.with_(**with_kwargs)
         logger.info(f"Applied .with_() to '{stage.name}': {with_kwargs}")
 

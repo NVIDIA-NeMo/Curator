@@ -82,7 +82,7 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
     @property
     def _device(self) -> str:
         """Derive device from resources configuration."""
-        return "cuda" if self.resources.requires_gpu and torch.cuda.is_available() else "cpu"
+        return "cuda" if self.resources.requires_gpu else "cpu"
 
     def _prepare_segment_batch_with_metadata(
         self,
@@ -208,16 +208,24 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         if self.model_path:
             self._asr_model = nemo_asr.models.ASRModel.restore_from(restore_path=self.model_path)
         else:
-            self._asr_model = nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name)
+            self._asr_model = nemo_asr.models.ASRModel.from_pretrained(
+                model_name=self.model_name, map_location=torch.device(self._device)
+            )
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
-        """Download model weights (called once per node)."""
+        """Download model weights without loading into memory (called once per node)."""
         if self._asr_model is None:
-            self.load_model()
+            if self.model_path:
+                return
+            try:
+                nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name, return_model_file=True)
+            except Exception as e:
+                msg = f"[{self.name}] Failed to download model {self.model_name}"
+                raise RuntimeError(msg) from e
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         """Load model to device and configure decoding (called per replica)."""
         if self._asr_model is None:
             self.load_model()

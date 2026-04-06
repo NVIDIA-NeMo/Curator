@@ -131,7 +131,7 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
     @property
     def _device(self) -> str:
         """Derive device from resources configuration."""
-        return "cuda" if self.resources.requires_gpu and torch.cuda.is_available() else "cpu"
+        return "cuda" if self.resources.requires_gpu else "cpu"
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
@@ -144,7 +144,7 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
                 vad_offset=self.vad_offset,
             )
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         if self._vad_model is None:
             self._vad_model = WhisperXVADModel(
                 device=self._device,

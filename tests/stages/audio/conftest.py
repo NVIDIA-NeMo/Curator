@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared fixtures for all audio stage tests (tagging + inference)."""
+"""Shared fixtures for all audio stage tests (tagging + inference + ALM)."""
 
+import json
 import subprocess
 
 import pytest
@@ -21,6 +22,18 @@ import pytest
 from tests import FIXTURES_DIR
 
 OPUS_FIXTURE = FIXTURES_DIR / "audio/tagging/audios/audio_1.opus"
+
+
+@pytest.fixture
+def sample_entries() -> list[dict]:
+    """Load sample entries from ALM fixture file."""
+    fixture_path = FIXTURES_DIR / "audio" / "alm" / "sample_input.jsonl"
+    entries = []
+    with open(fixture_path, encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                entries.append(json.loads(line.strip()))
+    return entries
 
 
 @pytest.fixture(scope="session")

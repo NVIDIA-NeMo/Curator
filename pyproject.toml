@@ -101,13 +101,16 @@ audio_cpu = [
     "accelerate",
     "pyannote-audio>=4.0.0",
     "whisperx==3.8.4",
-    "cuda-python>=12.3",
     "nemo_toolkit[asr]>=2.7.2",
     "soundfile>=0.12.0",
-    "torchaudio",
+    "torch>=2.8.0,<=2.9.1",
+    "torchaudio>=2.8.0,<=2.9.1",
+    "onnxruntime<=1.23.2",
+    "torchcodec>=0.9,<0.10",
 ]
 
 audio_cuda12 = [
+    "cuda-python>=12.3",
     "nemo_curator[audio_cpu]",
     "nemo_curator[cuda12]",
 ]
@@ -259,9 +262,7 @@ constraint-dependencies = [
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
     "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
-    "torchcodec>=0.9,<0.10", # torchcodec 0.10 requires torch 2.10; pin to 0.9.x for torch 2.9.x
     "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
-    "onnxruntime<=1.23.2", # requires for whisperx VAD
 ]
 override-dependencies = [
     "apex; sys_platform == 'never'",
@@ -273,10 +274,9 @@ override-dependencies = [
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
-    "tiktoken>=0.8.0", # Override nemo-toolkit[nlp]'s tiktoken==0.7.0 pin; data-designer needs >=0.8.0
-    "torch>=2.8.0,<=2.9.1",
-    "torchaudio>=2.8.0,<=2.9.1",
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
+    "torch>=2.8.0,<=2.9.1", # Override whisperx's torch<2.9.dev0 for vllm compat
+    "torchaudio>=2.8.0,<=2.9.1", # Override whisperx's torchaudio<2.9.dev0 for vllm compat
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
 

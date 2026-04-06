@@ -18,10 +18,10 @@ Audio Splitting and Joining Stages.
 """
 
 import math
-import os
 from dataclasses import dataclass
 
 import torchaudio
+from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
@@ -86,7 +86,6 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
         data_entry = task.data
         duration = data_entry["duration"]
 
-        # If audio is short enough, no splitting needed
         if duration < self.suggested_max_len:
             data_entry["split_filepaths"] = [data_entry["resampled_audio_filepath"]]
             data_entry["split_metadata"] = [
@@ -100,45 +99,49 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
             data_entry["split_timestamps"] = [0.0]
             return task
 
-        # Get split points
         splits = self.get_split_points(data_entry)
 
-        # Load audio
         audio_path = data_entry["resampled_audio_filepath"]
-        audio, sr = torchaudio.load(audio_path)
+        _fs, resolved_path = url_to_fs(audio_path)
 
-        path, filename = os.path.split(audio_path)
+        # parent_url preserves protocol prefix (e.g. "s3://bucket/dir") for stored paths;
+        # resolved_parent is the fsspec-resolved counterpart for torchaudio I/O.
+        parent_url, filename = audio_path.rsplit("/", 1) if "/" in audio_path else ("", audio_path)
+        resolved_parent = resolved_path.rsplit("/", 1)[0] if "/" in resolved_path else ""
+        stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+
+        audio, sr = torchaudio.load(resolved_path)
+
         split_start = 0
-        split_filepaths = []
-        actual_splits = []
-        split_durations = []
+        split_filepaths, actual_splits, split_durations = [], [], []
 
-        # Process each split
         for k, split in enumerate(splits):
-            split_filepath = os.path.join(path, os.path.splitext(filename)[0] + f".{k + 1}_of_{1 + len(splits)}.wav")
+            split_name = f"{stem}.{k + 1}_of_{1 + len(splits)}.wav"
+            split_filepath = f"{parent_url}/{split_name}" if parent_url else split_name
+            split_resolved = f"{resolved_parent}/{split_name}" if resolved_parent else split_name
             split_end = math.ceil(split * sr)
 
             if split_end - split_start > self.min_len * sr:
-                torchaudio.save(split_filepath, audio[:, split_start:split_end], sr)
+                torchaudio.save(split_resolved, audio[:, split_start:split_end], sr)
                 split_filepaths.append(split_filepath)
                 actual_splits.append(split_start / sr)
                 split_durations.append((split_end - split_start) / sr)
                 split_start = split_end
 
-        # Handle the last split
-        split_filepath = os.path.join(
-            path, os.path.splitext(filename)[0] + f".{1 + len(splits)}_of_{1 + len(splits)}.wav"
-        )
+        split_name = f"{stem}.{1 + len(splits)}_of_{1 + len(splits)}.wav"
+        split_filepath = f"{parent_url}/{split_name}" if parent_url else split_name
+        split_resolved = f"{resolved_parent}/{split_name}" if resolved_parent else split_name
         last_frame = len(audio[0])
         remaining_frames = last_frame - split_start
 
         if remaining_frames > self.min_len * sr and remaining_frames < (self.suggested_max_len + 1) * sr:
-            torchaudio.save(split_filepath, audio[:, split_start:], sr)
+            torchaudio.save(split_resolved, audio[:, split_start:], sr)
             split_filepaths.append(split_filepath)
             split_durations.append(remaining_frames / sr)
             actual_splits.append(split_start / sr)
 
         audio_item_id = data_entry.get("audio_item_id", "unknown")
+        split_filepaths_before = bool(split_filepaths)
 
         if not split_filepaths:
             duration = len(audio[0]) / sr
@@ -150,30 +153,43 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
             split_filepaths = [audio_path]
             split_durations = [duration]
             actual_splits = [0.0]
-            all_split_metadata = [
-                {
-                    "audio_item_id": audio_item_id,
-                    "resampled_audio_filepath": audio_path,
-                    "duration": duration,
-                }
-            ]
-        else:
-            # Create entries for each split
-            all_split_metadata = []
-            for idx, split_path in enumerate(split_filepaths):
-                split_metadata = {
-                    "audio_item_id": f"{audio_item_id}_{idx}",
-                    "resampled_audio_filepath": split_path,
-                    "duration": split_durations[idx],
-                }
-                all_split_metadata.append(split_metadata)
 
-        # Create meta-entry with split information
-        data_entry["split_metadata"] = all_split_metadata
+        data_entry["split_metadata"] = self._build_split_metadata(
+            audio_item_id,
+            split_filepaths,
+            split_durations,
+            fallback=not split_filepaths_before,
+        )
         data_entry["split_filepaths"] = split_filepaths
         data_entry["split_offsets"] = actual_splits
         data_entry["split_timestamps"] = splits
         return task
+
+    @staticmethod
+    def _build_split_metadata(
+        audio_item_id: str,
+        split_filepaths: list[str],
+        split_durations: list[float],
+        *,
+        fallback: bool = False,
+    ) -> list[dict]:
+        """Build per-split metadata dicts from filepaths and durations."""
+        if fallback:
+            return [
+                {
+                    "audio_item_id": audio_item_id,
+                    "resampled_audio_filepath": split_filepaths[0],
+                    "duration": split_durations[0],
+                }
+            ]
+        return [
+            {
+                "audio_item_id": f"{audio_item_id}_{idx}",
+                "resampled_audio_filepath": path,
+                "duration": split_durations[idx],
+            }
+            for idx, path in enumerate(split_filepaths)
+        ]
 
 
 @dataclass

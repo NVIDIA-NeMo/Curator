@@ -18,6 +18,8 @@ Merge Alignment and Diarization Stage.
 
 from dataclasses import dataclass
 
+from loguru import logger
+
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -164,6 +166,10 @@ class MergeAlignmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
                         elif next_overlap > current_overlap:
                             break
                         else:
+                            logger.debug(
+                                f"Word '{word.get('word', '')}' at [{word_start:.3f}, {word_end:.3f}] "
+                                f"falls in gap between segments; skipping."
+                            )
                             last_word_idx += 1
 
                     if last_word_idx == len(alignment):

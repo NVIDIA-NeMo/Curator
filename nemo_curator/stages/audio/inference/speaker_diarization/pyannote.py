@@ -56,11 +56,11 @@ def has_overlap(turn: Segment, overlaps: list) -> bool:
         if overlap.start > turn.end:
             # Overlap happens after turn, no need to keep looping since overlaps is sorted
             break
-        elif overlap.start >= turn.start and overlap.start <= turn.end:
+        elif overlap.start >= turn.start and overlap.start < turn.end:
             # overlap starts during turn
             turn_overlaps = True
             break
-        elif (overlap.end <= turn.end) and (overlap.end >= turn.start):
+        elif (overlap.end < turn.end) and (overlap.end > turn.start):
             # overlap ends during turn
             turn_overlaps = True
             break
@@ -86,8 +86,7 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         max_length: Maximum segment length in seconds
     """
 
-    # HuggingFace token
-    hf_token: str = ""
+    hf_token: str
 
     # Diarization pipeline model ID on HuggingFace
     model_name: str = "pyannote/speaker-diarization-3.1"
@@ -122,7 +121,7 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     @property
     def _device(self) -> str:
         """Derive device from resources configuration."""
-        return "cuda" if self.resources.requires_gpu and torch.cuda.is_available() else "cpu"
+        return "cuda" if self.resources.requires_gpu else "cpu"
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
@@ -137,7 +136,7 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
                 vad_offset=0.363,
             )
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         """Load models to device (called per replica before processing)."""
         if self._pipeline is None:
             self._pipeline = PyAnnotePipeline.from_pretrained(self.model_name, token=self.hf_token)

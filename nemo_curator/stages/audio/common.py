@@ -32,8 +32,8 @@ from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 def get_audio_duration(audio_filepath: str) -> float:
     """Get the duration of the audio file in seconds."""
     try:
-        raw, samplerate = soundfile.read(audio_filepath)
-        return raw.shape[0] / samplerate
+        info = soundfile.info(audio_filepath)
+        return info.frames / info.samplerate
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to get duration for audio file {audio_filepath}: {e}")
         return -1.0
@@ -150,14 +150,17 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     def ray_stage_spec(self) -> dict[str, Any]:
         return {"is_fanout_stage": True}
 
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {"num_workers_per_node": 1}
+
 
 @dataclass
 class ManifestReader(CompositeStage[_EmptyTask, AudioTask]):
-    """Composite stage for reading ALM JSONL manifests.
+    """Composite stage for reading JSONL manifests.
 
     Decomposes into:
     1. FilePartitioningStage — discovers and partitions manifest files
-    2. ALMManifestReaderStage — reads each partition line-by-line (no Pandas)
+    2. ManifestReaderStage — reads each partition line-by-line (no Pandas)
 
     Args:
         manifest_path: Path or list of paths to JSONL manifests (local or cloud).

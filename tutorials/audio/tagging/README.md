@@ -9,15 +9,15 @@ The audio tagging pipeline is a processing framework that takes raw audio files 
 ### Pipeline Flow
 
 ```
-┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
-│ Raw Audio  │─▶│ Resample   │─▶│ Diarize    │─▶│ Split Long │─▶│ ASR Align  │
-│ Manifest   │  │ (16kHz WAV)│  │ (PyAnnote) │  │ Audio      │  │ (NeMo)     │
-└────────────┘  └────────────┘  └────────────┘  └────────────┘  └────────────┘
-                                                                      │
-                ┌────────────┐  ┌────────────┐  ┌────────────┐        │
-                │ Output     │◀─│ Merge      │◀─│ Join Split │◀───────┘
-                │ Manifest   │  │            │  │            │
-                └────────────┘  └────────────┘  └────────────┘
+┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
+│ Raw Audio  │─▶│ Resample   │─▶│ Diarize    │─▶│ Split Long │
+│ Manifest   │  │ (16kHz WAV)│  │ (PyAnnote) │  │ Audio      │
+└────────────┘  └────────────┘  └────────────┘  └────────────┘
+                                                      │
+┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
+│ Output     │◀─│ Merge      │◀─│ Join Split │◀─│ ASR Align  │
+│ Manifest   │  │            │  │ Metadata   │  │ (NeMo)     │
+└────────────┘  └────────────┘  └────────────┘  └────────────┘
 ```
 
 ### Pipeline Stages
@@ -131,7 +131,6 @@ python tutorials/audio/tagging/main.py \
   input_manifest=/data/input.jsonl \
   final_manifest=/data/output.jsonl \
   hf_token=<your_hf_token> \
-  device=cpu \
   language_short=de \
   max_segment_length=30
 ```
@@ -143,7 +142,6 @@ python tutorials/audio/tagging/main.py \
 | `input_manifest` | Path to input JSONL manifest | **Required** |
 | `final_manifest` | Path for output JSONL manifest | **Required** |
 | `hf_token` | HuggingFace token for PyAnnote access | `""` |
-| `device` | Compute device (`cuda` or `cpu`) | `cuda` |
 | `sample_rate` | Target sample rate in Hz | `16000` |
 | `max_segment_length` | Maximum segment duration in seconds | `40` |
 | `workspace_dir` | Directory for intermediate files | `/tmp/tagging_workspace` |
@@ -191,6 +189,7 @@ tests/stages/audio/tagging/
 └── inference/
     ├── test_base_asr_processor.py
     └── test_nemo_asr_align.py
+```
 
 ### End-to-End Pipeline Test
 
@@ -208,6 +207,7 @@ pytest tests/stages/audio/tagging/e2e/test_tts_e2e.py -v
 - Asserts output matches a reference (expected) manifest, including proper alignment and diarization
 
 **Relevant files:**
+
 ```
 tests/stages/audio/tagging/e2e/
 ├── test_tts_e2e.py         # End-to-end TTS tagging pipeline test
@@ -218,14 +218,13 @@ tests/stages/audio/tagging/e2e/
 ```
 
 > **Note:** A valid HuggingFace token (`HF_TOKEN`) is required for diarization tests.
-Export the variable before running the test:
+> Export the variable before running the test:
 >
 > ```bash
 > export HF_TOKEN=your_hf_token
 > ```
 
 See the test file for detailed comments on the pipeline steps and configuration overrides.
-```
 
 ## Troubleshooting
 
@@ -243,7 +242,7 @@ See the test file for detailed comments on the pipeline steps and configuration 
 
 ### Slow Processing
 
-- Ensure `device=cuda` for GPU-accelerated stages
+- Ensure GPU-accelerated stages have `resources` with `gpus=1` (the default)
 - Increase `resources.cpus` for CPU-bound stages
 - Split large manifests and process in parallel
 

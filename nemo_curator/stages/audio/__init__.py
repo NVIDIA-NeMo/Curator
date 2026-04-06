@@ -24,6 +24,8 @@ and audio preprocessing (mono conversion, segment concatenation, timestamp mappi
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
+    ManifestReader,
+    ManifestWriterStage,
     PreserveByValueStage,
 )
 from nemo_curator.stages.audio.filtering import (
@@ -42,6 +44,8 @@ __all__ = [
     "ALMDataOverlapStage",
     "BandFilterStage",
     "GetAudioDurationStage",
+    "ManifestReader",
+    "ManifestWriterStage",
     "MonoConversionStage",
     "PreserveByValueStage",
     "SegmentConcatenationStage",

@@ -143,6 +143,10 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     return {
         "metrics": {
             "is_success": True,
+            "time_taken_s": run_time_taken,
+            "num_tasks_processed": len(results),
+            "throughput_tasks_per_sec": len(results) / run_time_taken if run_time_taken > 0 else 0,
+            "total_audio_duration_hours": total_duration,
         },
         "tasks": results,
     }
