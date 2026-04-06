@@ -177,7 +177,7 @@ def _process_file_segments(
         speaker_id = seg.get("speaker_id")
         duration_sec = seg.get("duration_sec", (end_ms - start_ms) / 1000)
 
-        count_key = speaker_id if speaker_id else "__all__"
+        count_key = speaker_id or "__all__"
         segment_num = segment_counts[count_key]
         segment_counts[count_key] += 1
 
