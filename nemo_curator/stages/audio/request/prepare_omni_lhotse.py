@@ -43,7 +43,7 @@ try:
     )
 except ModuleNotFoundError as exc:
     msg = (
-        "NeMo is required for lhotse_mode='nemo_tarred' or 'nemo_row'. "
+        "NeMo is required for lhotse_mode='nemo_tarred' or 'nemo_raw'. "
         "Install nemo_toolkit (e.g. pip install nemo_toolkit[asr])."
     )
     raise RuntimeError(msg) from exc
@@ -72,7 +72,7 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
     **lhotse_shar** uses :meth:`lhotse.CutSet.from_shar` with ``shar_in_dir`` (layout:
     ``cuts.*.jsonl.gz``, ``recording.*.tar``, etc.).
 
-    **nemo_row** uses NeMo's ``LazyNeMoIterator`` to read a standard NeMo JSONL manifest
+    **nemo_raw** uses NeMo's ``LazyNeMoIterator`` to read a standard NeMo JSONL manifest
     (``audio_filepath``, ``duration``, ``text``, etc.) and yield Lhotse cuts. This is not the
     same as :meth:`lhotse.CutSet.from_jsonl`, which expects Lhotse-native JSON with a
     ``type`` field per line.
@@ -82,8 +82,8 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
     ``input_batch`` when present.
 
     Args:
-        lhotse_mode: ``\"nemo_tarred\"`` or ``\"lhotse_shar\"`` or ``\"nemo_row``.
-        input_manifest: NeMo JSON manifest path(s) for ``nemo_tarred`` or ``nemo_row`` (see
+        lhotse_mode: ``\"nemo_tarred\"`` or ``\"lhotse_shar\"`` or ``\"nemo_raw``.
+        input_manifest: NeMo JSON manifest path(s) for ``nemo_tarred`` or ``nemo_raw`` (see
             NeMo lhotse adapters).
         input_tar: NeMo tarred audio path(s) for ``nemo_tarred`` (paired with manifest shards).
         shar_in_dir: Directory in Lhotse Shar format for ``lhotse_shar``.
@@ -98,7 +98,7 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
     input_manifest: str = ""
     input_tar: str = ""
     shar_in_dir: str = ""
-    lhotse_mode: Literal["nemo_tarred", "lhotse_shar", "nemo_row"] = "nemo_tarred"
+    lhotse_mode: Literal["nemo_tarred", "lhotse_shar", "nemo_raw"] = "nemo_tarred"
     format: Literal["data_url", "input_data"] = "data_url"
     system_prompt: str | None = None
     user_prompt_key: str | None = None
@@ -119,9 +119,9 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
         except ModuleNotFoundError as exc:
             msg = "Install lhotse (e.g. pip install lhotse) to use PrepareOmniLhotseStage."
             raise RuntimeError(msg) from exc
-        if self.lhotse_mode == "nemo_row":
+        if self.lhotse_mode == "nemo_raw":
             if not self.input_manifest.strip():
-                msg = "nemo_row requires non-empty input_manifest (NeMo JSONL: audio_filepath, duration, text, ...)."
+                msg = "nemo_raw requires non-empty input_manifest (NeMo JSONL: audio_filepath, duration, text, ...)."
                 raise ValueError(msg)
             return CutSet(LazyNeMoIterator(self.input_manifest.strip()))
 
