@@ -56,7 +56,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_CACHE_DIR=/opt/uv_cache
 ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
-RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
+RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages --seed
 
 FROM build AS nemo_curator_dep
 
