@@ -300,6 +300,48 @@ client.stop()
 
 ---
 
+## NDD-Backed Stages
+
+All five Nemotron-CC tasks have NDD-backed equivalents that replace the `AsyncOpenAIClient` with [NeMo Data Designer](/curate-text/synthetic/nemo-data-designer) execution. These stages share the same `input_field`, `output_field`, and prompt interface, but configure the LLM through NDD's `ModelConfig` and `ModelProvider` instead of an `AsyncOpenAIClient`.
+
+Import the NDD-backed stages from `nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.nemotron_cc`:
+
+```python
+import data_designer.config as dd
+
+from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.nemotron_cc import DiverseQAStage
+
+model_config = dd.ModelConfig(
+    alias="meta/llama-3.3-70b-instruct",
+    model="meta/llama-3.3-70b-instruct",
+    provider="nvidia",
+    inference_parameters=dd.ChatCompletionInferenceParams(
+        temperature=0.5, top_p=0.9, max_tokens=600,
+    ),
+)
+
+model_provider = dd.ModelProvider(
+    name="nvidia",
+    endpoint="https://integrate.api.nvidia.com/v1",
+    provider_type="openai",
+    api_key=os.environ["NVIDIA_API_KEY"],
+)
+
+pipeline.add_stage(
+    DiverseQAStage(
+        input_field="text",
+        output_field="diverse_qa",
+        model_alias="meta/llama-3.3-70b-instruct",
+        model_configs=[model_config],
+        model_providers=[model_provider],
+    )
+)
+```
+
+The NDD backend provides automatic token metric collection and supports both local `InferenceServer` and remote NVIDIA NIM endpoints. See the [NeMo Data Designer](/curate-text/synthetic/nemo-data-designer) guide for full configuration details.
+
+---
+
 ## Detailed Reference
 
 <Cards>
@@ -308,6 +350,12 @@ client.stop()
 Detailed reference for each Nemotron-CC stage, prompts, and post-processing
 reference
 api
+</Card>
+
+<Card title="NeMo Data Designer" href="/curate-text/synthetic/nemo-data-designer">
+Declarative generation with NDD-backed Nemotron-CC stages
+ndd
+declarative
 </Card>
 
 </Cards>

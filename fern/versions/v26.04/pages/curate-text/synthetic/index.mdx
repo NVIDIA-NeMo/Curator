@@ -37,6 +37,10 @@ Improve or restructure existing data using LLM capabilities. The Nemotron-CC sta
 - Condensed knowledge distillations
 - Extracted factual content
 
+### Declarative Mode (NeMo Data Designer)
+
+Define data generation pipelines declaratively using [NeMo Data Designer](/curate-text/synthetic/nemo-data-designer) (NDD). Instead of writing imperative LLM call logic, you configure structured column generation (samplers, expressions, LLM text columns) through a builder API or YAML file. NDD handles execution, batching, and token metric collection. This mode supports both standalone generation and NDD-backed versions of Nemotron-CC stages.
+
 ## Architecture
 
 The following diagram shows how SDG pipelines process data through preprocessing, LLM generation, and postprocessing stages:
@@ -95,6 +99,7 @@ Nemotron-CC pipelines use the `transformers` library for tokenization, which is 
 | `DistillStage` | Create condensed, information-dense paraphrases | Document text |
 | `ExtractKnowledgeStage` | Extract knowledge as textbook-style passages | Document text |
 | `KnowledgeListStage` | Extract structured fact lists | Document text |
+| `DataDesignerStage` | Declarative generation via NeMo Data Designer | Seed data (any schema) |
 
 ---
 
@@ -118,6 +123,12 @@ local-inference
 Generate synthetic Q&A pairs across multiple languages
 quickstart
 tutorial
+</Card>
+
+<Card title="NeMo Data Designer" href="/curate-text/synthetic/nemo-data-designer">
+Declarative data generation with structured columns and NDD-backed Nemotron-CC stages
+ndd
+declarative
 </Card>
 
 <Card title="Nemotron-CC Pipelines" href="/curate-text/synthetic/nemotron-cc">
