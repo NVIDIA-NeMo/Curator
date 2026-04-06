@@ -35,6 +35,7 @@ import hydra
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
+from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 
@@ -68,8 +69,12 @@ def main(cfg: DictConfig) -> None:
     output_dir = cfg.output_dir
     os.makedirs(output_dir, exist_ok=True)
 
-    execution_mode = cfg.get("execution_mode", "batch")
-    executor = XennaExecutor(config={"execution_mode": execution_mode})
+    backend = cfg.get("backend", "xenna")
+    if backend == "ray_data":
+        executor = RayDataExecutor()
+    else:
+        execution_mode = cfg.get("execution_mode", "batch")
+        executor = XennaExecutor(config={"execution_mode": execution_mode})
     logger.info(f"Starting pipeline execution (mode: {execution_mode})...")
     pipeline.run(executor)
 

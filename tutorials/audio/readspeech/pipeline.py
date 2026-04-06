@@ -37,6 +37,7 @@ import sys
 
 from loguru import logger
 
+from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import AudioDataFilterStage
@@ -174,6 +175,13 @@ Examples:
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
     parser.add_argument("--sample_rate", type=int, default=48000, help="Target sample rate")
     parser.add_argument("--clean", action="store_true", help="Clean output directory")
+    parser.add_argument(
+        "--backend",
+        type=str,
+        choices=["xenna", "ray_data"],
+        default="xenna",
+        help="Execution backend: 'xenna' (default) or 'ray_data'",
+    )
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
     parser.add_argument("--enable-vad", action="store_true", help="Enable VAD segmentation")
     parser.add_argument("--vad-min-duration", type=float, default=2.0, help="Min VAD segment (sec)")
@@ -252,7 +260,7 @@ def main() -> None:
     logger.info("Starting pipeline execution...")
 
     try:
-        executor = XennaExecutor(config={"execution_mode": "batch"})
+        executor = RayDataExecutor() if args.backend == "ray_data" else XennaExecutor(config={"execution_mode": "batch"})
         pipeline.run(executor)
 
         logger.info(f"Results written to {args.output_dir}/*.jsonl")

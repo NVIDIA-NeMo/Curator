@@ -153,11 +153,12 @@ def _process_file_segments(
     logger.info(f"  Segments to extract: {len(file_segments)}")
 
     try:
-        audio_data, sample_rate = sf.read(original_file, dtype="float32")
-        total_samples = len(audio_data) if audio_data.ndim == 1 else audio_data.shape[0]
+        file_info = sf.info(original_file)
+        sample_rate = file_info.samplerate
+        total_samples = file_info.frames
         logger.info(f"  Original duration: {total_samples / sample_rate:.2f}s")
     except Exception as e:  # noqa: BLE001
-        logger.error(f"  Failed to load audio: {e}")
+        logger.error(f"  Failed to read audio info: {e}")
         return 0, 0.0
 
     has_speakers = any("speaker_id" in seg for seg in file_segments)
@@ -190,10 +191,10 @@ def _process_file_segments(
         try:
             start_sample = int(start_ms * sample_rate / 1000)
             end_sample = int(end_ms * sample_rate / 1000)
-            segment_audio = (
-                audio_data[start_sample:end_sample] if audio_data.ndim == 1 else audio_data[start_sample:end_sample, :]
+            segment_audio, _ = sf.read(
+                original_file, start=start_sample, stop=end_sample, dtype="float32",
             )
-            _write_segment(output_path, segment_audio, sample_rate, audio_data, output_format)
+            _write_segment(output_path, segment_audio, sample_rate, segment_audio, output_format)
             extracted += 1
             duration_total += duration_sec
             if speaker_id:
