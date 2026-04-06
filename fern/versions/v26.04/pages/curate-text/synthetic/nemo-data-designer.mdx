@@ -259,6 +259,8 @@ The Nemotron-CC synthetic data stages have NDD-backed equivalents that replace t
 These stages inherit from `NDDBaseSyntheticStage`, which auto-builds an NDD config from the prompt fields. You configure the LLM through `model_configs` and `model_providers` instead of an `AsyncOpenAIClient`:
 
 ```python
+import os
+
 import data_designer.config as dd
 
 from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.nemotron_cc import DiverseQAStage
