@@ -92,7 +92,7 @@ class SigMOS:
         use_gpu = not force_cpu
 
         if use_gpu:
-            logger.info("SIGMOS ort inference on cuda device_id %s", self.device_id)
+            logger.info(f"SIGMOS ort inference on cuda device_id {self.device_id}")
             ort_provider = ("CUDAExecutionProvider", {"device_id": str(self.device_id)})
             self.session = ort.InferenceSession(model_file_path, options, providers=[ort_provider])
             provider_options = self.session.get_provider_options()
