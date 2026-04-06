@@ -12,17 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
+from typing import Any
 
+import ray.runtime_env
 from cosmos_xenna.pipelines import v1 as pipelines_v1
-from cosmos_xenna.pipelines.private.resources import NodeInfo as XennaNodeInfo
-from cosmos_xenna.pipelines.private.resources import Resources as XennaResources
-from cosmos_xenna.pipelines.private.resources import WorkerMetadata as XennaWorkerMetadata
+from cosmos_xenna.pipelines.v1 import NodeInfo as XennaNodeInfo
+from cosmos_xenna.pipelines.v1 import Resources as XennaResources
+from cosmos_xenna.pipelines.v1 import WorkerMetadata as XennaWorkerMetadata
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter, NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import Task
+
+
+class CuratorRuntimeEnv:
+    """Duck-typed replacement for Xenna's RuntimeEnv that supports the full Ray runtime_env dict.
+
+    Xenna's RuntimeEnv only supports conda + env_vars. This class accepts a raw
+    Ray-format runtime_env dict and implements the two methods Xenna calls:
+    ``to_ray_runtime_env()`` and ``format()``.
+    """
+
+    def __init__(self, runtime_env: dict[str, Any]) -> None:
+        self._runtime_env = runtime_env
+
+    def to_ray_runtime_env(self) -> ray.runtime_env.RuntimeEnv:
+        return ray.runtime_env.RuntimeEnv(**self._runtime_env)
+
+    def format(self) -> str:
+        return f"runtime_env_keys: {', '.join(self._runtime_env.keys())}"
 
 
 class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
@@ -58,15 +77,12 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
     def env_info(self) -> pipelines_v1.RuntimeEnv | None:
         """Runtime environment for this stage.
 
-        When the pipeline has resolved pip_specs to a venv (_resolved_site_packages_path),
-        we prepend to PYTHONPATH so workers use that env while keeping any existing path.
+        Converts the ProcessingStage.runtime_env dict (Ray-format) to a
+        CuratorRuntimeEnv that Xenna can forward to Ray actors.
         """
-        resolved_path = getattr(self.processing_stage, "_resolved_site_packages_path", None)
-        if resolved_path is not None:
-            existing = os.environ.get("PYTHONPATH", "")
-            new_path = f"{resolved_path}:{existing}" if existing else str(resolved_path)
-            return pipelines_v1.RuntimeEnv(extra_env_vars={"PYTHONPATH": new_path})
-        return None
+        if not self.processing_stage.runtime_env:
+            return None
+        return CuratorRuntimeEnv(self.processing_stage.runtime_env)
 
     def process_data(self, tasks: list[Task]) -> list[Task] | None:
         """Process batch of tasks with automatic performance tracking.

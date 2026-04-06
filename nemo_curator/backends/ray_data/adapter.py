@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import copy
-import os
 from collections.abc import Callable
 from typing import Any
 
@@ -104,21 +103,12 @@ class RayDataStageAdapter(BaseStageAdapter):
             concurrency_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
 
         # Per-stage ray_remote_args (e.g. runtime_env with different pip versions per stage).
-        ray_remote_args = copy.deepcopy(
-            self.stage.ray_stage_spec().get(RayStageSpecKeys.RAY_REMOTE_ARGS) or {}
-        )
-        # If pipeline resolved pip_specs to a venv, prepend to PYTHONPATH so workers use that env.
-        resolved_path = getattr(self.stage, "_resolved_site_packages_path", None)
-        if resolved_path is not None:
-            if ray_remote_args.get("runtime_env", {}).get("pip"):
-                msg = (
-                    f"Stage {self.stage.__class__.__name__} defines both pip_specs and ray_remote_args runtime_env.pip; "
-                    "package versions may conflict. Please use only one of them."
-                )
-                raise RuntimeError(msg)
-            env_vars = ray_remote_args.setdefault("runtime_env", {}).setdefault("env_vars", {})
-            existing = env_vars.get("PYTHONPATH") or os.environ.get("PYTHONPATH", "")
-            env_vars["PYTHONPATH"] = f"{resolved_path}:{existing}" if existing else str(resolved_path)
+        ray_remote_args = copy.deepcopy(self.stage.ray_stage_spec().get(RayStageSpecKeys.RAY_REMOTE_ARGS) or {})
+        # If the stage declares runtime_env, forward it directly to Ray so Ray creates and
+        # caches an isolated virtualenv for this stage's workers.
+        if self.stage.runtime_env:
+            ray_remote_args["runtime_env"] = self.stage.runtime_env
+
         concurrency_kwargs.update(ray_remote_args)
 
         # Calculate concurrency based on available resources

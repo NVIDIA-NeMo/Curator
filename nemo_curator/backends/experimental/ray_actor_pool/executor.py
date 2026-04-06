@@ -168,14 +168,16 @@ class RayActorPoolExecutor(BaseExecutor):
     def _create_actor_pool(self, stage: "ProcessingStage", num_actors: int) -> ActorPool:
         """Create an ActorPool for a specific stage."""
         actors = []
+        actor_options: dict = {
+            "num_cpus": stage.resources.cpus,
+            "num_gpus": stage.resources.gpus,
+        }
+        if stage.runtime_env:
+            actor_options["runtime_env"] = stage.runtime_env
         for i in range(num_actors):
             actor = (
                 create_named_ray_actor_pool_stage_adapter(stage, RayActorPoolStageAdapter)
-                .options(
-                    num_cpus=stage.resources.cpus,
-                    num_gpus=stage.resources.gpus,
-                    name=f"{stage.name}-{i}",
-                )
+                .options(**actor_options, name=f"{stage.name}-{i}")
                 .remote(stage)
             )
             actors.append(actor)

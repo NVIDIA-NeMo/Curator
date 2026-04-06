@@ -135,6 +135,13 @@ class XennaExecutor(BaseExecutor):
         logger.info(f"Execution mode: {exec_mode.name}")
 
         try:
+            # Ray clones the current virtualenv when creating per-stage pip virtualenvs.
+            # The NeMo Curator container's /opt/venv is created by uv, which does not include
+            # pip as a seed package, so the clone also lacks pip and `python -m pip install`
+            # fails inside the worker virtualenv.  Bootstrap pip first so the clone inherits it.
+            import ensurepip
+
+            ensurepip.bootstrap(upgrade=True)
             register_loguru_serializer()
             # Prevent Ray from overriding accelerator env vars when num_gpus=0, letting Xenna manage them instead.
             ray.init(

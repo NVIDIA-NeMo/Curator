@@ -19,7 +19,6 @@ import copy
 import time
 from abc import ABC, ABCMeta, abstractmethod
 from inspect import isabstract
-from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, final
 
 from loguru import logger
@@ -86,8 +85,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     name = "ProcessingStage"
     resources = Resources(cpus=1.0)
     batch_size = 1
-    pip_specs: ClassVar[list[str] | None] = None
-    _resolved_site_packages_path: Path | None = None  # set by resolve_stage_pip_envs
+    runtime_env: ClassVar[dict[str, Any] | None] = None
 
     @property
     @final
@@ -117,7 +115,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             msg = f"{cls.__name__} must not override '_batch_size'"
             raise TypeError(msg)
 
-        for attr in ("name", "resources", "batch_size"):
+        for attr in ("name", "resources", "batch_size", "runtime_env"):
             if isinstance(cls.__dict__.get(attr), property):
                 msg = (
                     f"{cls.__name__} must not define '{attr}' as a @property. "
@@ -262,7 +260,11 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         return {}
 
     def with_(
-        self, name: str | None = None, resources: Resources | None = None, batch_size: int | None = None
+        self,
+        name: str | None = None,
+        resources: Resources | None = None,
+        batch_size: int | None = None,
+        runtime_env: dict[str, Any] | None = None,
     ) -> ProcessingStage:
         """Apply configuration changes to this stage with overridden properties.
 
@@ -272,6 +274,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             name: Override the name property
             resources: Override the resources property
             batch_size: Override the batch_size property
+            runtime_env: Override the runtime_env (Ray runtime environment dict)
         """
         new_instance = copy.deepcopy(self)
 
@@ -282,6 +285,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             new_instance.resources = resources
         if batch_size is not None:
             new_instance.batch_size = batch_size
+        if runtime_env is not None:
+            new_instance.runtime_env = runtime_env
 
         return new_instance
 
