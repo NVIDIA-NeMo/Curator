@@ -36,7 +36,6 @@ class JsonlReaderStage(BaseReader):
     Args:
         fields (list[str], optional): If specified, only read these fields (columns). Defaults to None.
         read_kwargs (dict[str, Any], optional): Keyword arguments for the reader. Defaults to {}.
-        blocksize (int | str, optional): Target size of the partitions. If None, a blocksize <= 2 GiB is enforced.
         _generate_ids (bool): Whether to generate monotonically increasing IDs across all files.
             This uses IdGenerator actor, which needs to be instantiated before using this stage.
             This can be slow, so it is recommended to use AddId stage instead, unless monotonically increasing IDs
@@ -126,7 +125,6 @@ class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
             JsonlReaderStage(
                 fields=self.fields,
                 read_kwargs=(self.read_kwargs or {}),
-                blocksize=self.blocksize,
                 _generate_ids=self._generate_ids,
                 _assign_ids=self._assign_ids,
             ),

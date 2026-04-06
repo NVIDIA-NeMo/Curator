@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
-from nemo_curator.utils.file_utils import parse_bytes_string_to_int
 
 
 @dataclass
@@ -40,7 +39,6 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
 
     fields: list[str] | None = None
     read_kwargs: dict[str, Any] = field(default_factory=dict)
-    blocksize: int | str | None = None
     name: str = ""
     _generate_ids: bool = False
     _assign_ids: bool = False
@@ -49,20 +47,6 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
         if self._generate_ids and self._assign_ids:
             msg = "Cannot generate and assign IDs at the same time"
             raise ValueError(msg)
-
-        # self.blocksize is the value set by the user
-        # self._blocksize is the value used internally
-        if self.blocksize is not None:
-            self._blocksize = parse_bytes_string_to_int(self.blocksize)
-        else:
-            self._blocksize = parse_bytes_string_to_int("2GiB")
-
-        if self._blocksize > parse_bytes_string_to_int("2GiB"):
-            msg = (
-                f"Blocksize is greater than 2 GiB, which is not recommended: {self.blocksize} "
-                "Consider using a smaller blocksize to avoid potential memory issues."
-            )
-            logger.warning(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []

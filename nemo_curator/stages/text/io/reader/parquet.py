@@ -35,7 +35,6 @@ class ParquetReaderStage(BaseReader):
     Args:
         fields (list[str], optional): If specified, only read these columns. Defaults to None.
         read_kwargs (dict[str, Any], optional): Keyword arguments for the underlying reader. Defaults to {}.
-        blocksize (int | str, optional): Target size of the partitions. If None, a blocksize <= 2 GiB is enforced.
     """
 
     name: str = "parquet_reader"
@@ -111,7 +110,6 @@ class ParquetReader(CompositeStage[_EmptyTask, DocumentBatch]):
             ParquetReaderStage(
                 fields=self.fields,
                 read_kwargs=self.read_kwargs or {},
-                blocksize=self.blocksize,
                 _generate_ids=self._generate_ids,
                 _assign_ids=self._assign_ids,
             ),
