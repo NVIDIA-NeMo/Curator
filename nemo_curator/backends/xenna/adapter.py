@@ -41,7 +41,11 @@ class CuratorRuntimeEnv:
         self.extra_env_vars: dict[str, str] = dict(runtime_env.get("env_vars", {}))
 
     def to_ray_runtime_env(self) -> ray.runtime_env.RuntimeEnv:
-        return ray.runtime_env.RuntimeEnv(**self._runtime_env)
+        # Merge self.extra_env_vars (which Xenna may have mutated with per-actor env vars
+        # such as CUDA_VISIBLE_DEVICES) back into the runtime_env dict before handing it
+        # to Ray, so those injected vars are not silently dropped.
+        merged = {**self._runtime_env, "env_vars": self.extra_env_vars}
+        return ray.runtime_env.RuntimeEnv(**merged)
 
     def format(self) -> str:
         return f"runtime_env_keys: {', '.join(self._runtime_env.keys())}"
