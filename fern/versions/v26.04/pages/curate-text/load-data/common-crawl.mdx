@@ -119,6 +119,7 @@ pipeline.add_stage(writer)
 | `url_limit` | int \| None | Maximum number of WARC files to download (useful for testing) | None |
 | `record_limit` | int \| None | Maximum number of records to extract per WARC file | None |
 | `add_filename_column` | bool \| str | Whether to add source filename column to output; if str, uses it as the column name (default name: "file_name") | True |
+| `extractor_max_calls_per_worker` | int \| None | Restart Ray Data worker processes after this many tasks to mitigate memory fragmentation. Auto-set to `2` for `JusTextExtractor`. | Auto (`2` for jusText, `None` otherwise) |
 
 ## Output Format
 
@@ -228,7 +229,7 @@ For production workloads, consider these optimizations:
 ```python
 cc_stage = CommonCrawlDownloadExtractStage(
     start_snapshot="2020-50",
-    end_snapshot="2020-50", 
+    end_snapshot="2020-50",
     download_dir="/fast_storage/cc_downloads",
     use_aws_to_download=True,  # Faster S3 downloads
     verbose=False,  # Reduce logging overhead
@@ -237,3 +238,31 @@ cc_stage = CommonCrawlDownloadExtractStage(
     # record_limit=None
 )
 ```
+
+### Memory Management for Extraction
+
+JusText extraction relies on lxml/libxml2, which can cause C-heap memory fragmentation during long-running jobs. Over many WARC files, this fragmentation causes resident memory to grow until workers run out of memory.
+
+To mitigate this, Curator automatically sets `extractor_max_calls_per_worker=2` when using `JusTextExtractor`. This restarts Ray Data worker processes every two tasks, reclaiming fragmented memory. You can override this value:
+
+```python
+# Increase recycling frequency for very memory-constrained environments
+cc_stage = CommonCrawlDownloadExtractStage(
+    start_snapshot="2020-50",
+    end_snapshot="2020-50",
+    download_dir="./downloads",
+    extractor_max_calls_per_worker=1,  # Recycle after every task
+)
+
+# Disable worker recycling (not recommended for large jobs with jusText)
+cc_stage = CommonCrawlDownloadExtractStage(
+    start_snapshot="2020-50",
+    end_snapshot="2020-50",
+    download_dir="./downloads",
+    extractor_max_calls_per_worker=None,  # No recycling
+)
+```
+
+<Note>
+Worker recycling is only supported with the Ray Data executor and applies to task-based stages (not actor-based). For custom extraction stages that use C libraries prone to memory fragmentation, set `max_calls_per_worker` on `DocumentIterateExtractStage` directly.
+</Note>
