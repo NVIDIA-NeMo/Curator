@@ -141,6 +141,12 @@ workflow = ExactDeduplicationWorkflow(
 )
 ```
 
+## Improvements
+
+### AEGIS Classifier GPU Utilization (Issue #878)
+
+Confirmed full GPU utilization for the AEGIS safety classifier when running on multi-GPU setups. The AEGIS classifier, which uses the LlamaGuard-7b generative model, properly distributes inference across all available GPUs. Added a performance note to the [classifier documentation](/curate-text/process-data/quality-assessment/distributed-classifier) to set expectations for processing times relative to encoder-based classifiers.
+
 ## Bug Fixes
 
 ### CUDA Fork Error with vLLM and RayDataExecutor (PR #1606)

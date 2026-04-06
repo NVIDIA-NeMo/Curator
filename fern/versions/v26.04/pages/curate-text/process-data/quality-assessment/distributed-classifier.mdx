@@ -167,7 +167,13 @@ pipeline.add_stage(writer)
 results = pipeline.run()  # Uses XennaExecutor by default
 ```
 
-The classifier adds a column with labels: "safe," "O1" through "O13" (each representing specific safety risks), or "unknown." For raw LLM output, use:
+The classifier adds a column with labels: "safe," "O1" through "O13" (each representing specific safety risks), or "unknown."
+
+<Note>
+The AEGIS classifier relies on the [LlamaGuard-7b](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0) base model, which is a generative LLM. This makes it significantly slower than the other classifiers in NeMo Curator that use encoder-based models (such as DeBERTa). Full GPU utilization is confirmed when running AEGIS on multi-GPU setups, but expect longer processing times compared to non-generative classifiers due to the autoregressive nature of the underlying model.
+</Note>
+
+For raw LLM output, use:
 
 ```python
 safety_classifier = AegisClassifier(
