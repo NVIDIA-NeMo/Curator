@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -44,7 +44,7 @@ class EmbeddingModelStage(ModelStage):
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
         autocast: bool = True,
-        transformers_kwargs: dict[str, Any] | None = None,
+        transformers_init_kwargs: dict[str, Any] | None = None,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -59,11 +59,14 @@ class EmbeddingModelStage(ModelStage):
         self.embedding_field = embedding_field
         self.pooling = pooling
 
-        transformers_kwargs = transformers_kwargs or {}
-        if "local_files_only" in transformers_kwargs and transformers_kwargs["local_files_only"] is not None:
+        transformers_init_kwargs = transformers_init_kwargs or {}
+        if "cache_dir" in transformers_init_kwargs:
+            msg = "Pass the cache_dir parameter directly to the stage instead of using the transformers_init_kwargs dictionary"
+            raise ValueError(msg)
+        if "local_files_only" in transformers_init_kwargs:
             msg = "Passing the local_files_only parameter is not allowed"
             raise ValueError(msg)
-        self.transformers_kwargs = transformers_kwargs
+        self.transformers_init_kwargs = transformers_init_kwargs
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.embedding_field]
@@ -74,7 +77,7 @@ class EmbeddingModelStage(ModelStage):
             self.model_identifier,
             cache_dir=self.cache_dir,
             local_files_only=True,
-            **self.transformers_kwargs,
+            **self.transformers_init_kwargs,
         )
         self.model.eval().to("cuda")
 
@@ -125,6 +128,7 @@ class SentenceTransformerEmbeddingModelStage(EmbeddingModelStage):
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
         autocast: bool = True,
+        transformers_init_kwargs: dict[str, Any] | None = None,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -134,10 +138,15 @@ class SentenceTransformerEmbeddingModelStage(EmbeddingModelStage):
             has_seq_order=has_seq_order,
             padding_side=padding_side,
             autocast=autocast,
+            transformers_init_kwargs=transformers_init_kwargs,
         )
         # Override unpack_inference_batch to False as SentenceTransformer expects a dictionary input
         self.unpack_inference_batch = False
         self.embedding_field = embedding_field
+
+        if "use_auth_token" in transformers_init_kwargs:
+            msg = "Pass the hf_token parameter to the stage instead of using use_auth_token in the transformers_init_kwargs dictionary"
+            raise ValueError(msg)
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.embedding_field]
@@ -149,6 +158,7 @@ class SentenceTransformerEmbeddingModelStage(EmbeddingModelStage):
             cache_folder=self.cache_dir,
             use_auth_token=self.hf_token,
             local_files_only=True,
+            **self.transformers_init_kwargs,
         )
         self.model.eval().to("cuda")
 
@@ -175,7 +185,7 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
     autocast: bool = True
     sort_by_length: bool = True
     hf_token: str | None = None
-    transformers_kwargs: dict[str, Any] = field(default_factory=dict)
+    transformers_init_kwargs: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -200,7 +210,7 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
                 max_seq_length=self.max_seq_length,
                 padding_side=self.padding_side,
                 sort_by_length=self.sort_by_length,
-                transformers_kwargs=self.transformers_kwargs,
+                transformers_init_kwargs=self.transformers_init_kwargs,
             ),
             model_class(
                 model_identifier=self.model_identifier,
@@ -211,7 +221,7 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
                 has_seq_order=self.sort_by_length,
                 padding_side=self.padding_side,
                 autocast=self.autocast,
-                transformers_kwargs=self.transformers_kwargs,
+                transformers_init_kwargs=self.transformers_init_kwargs,
                 **model_additional_kwargs,
             ),
         ]
