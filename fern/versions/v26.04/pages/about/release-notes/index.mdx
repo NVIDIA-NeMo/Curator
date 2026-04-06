@@ -140,14 +140,16 @@ RuntimeError: Worker is a GPU worker, but no GPUs are available. This likely mea
 that the ray cluster was not started with 'RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0'.
 ```
 
-Xenna 0.1.2 relies on `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0` being set before the Ray cluster starts because it bypasses Ray's built-in GPU allocation. Newer Ray releases changed the internal GPU visibility behavior, breaking this workaround.
+Xenna 0.1.2 relies on `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1` being set before the Ray cluster starts so that Ray does not override `CUDA_VISIBLE_DEVICES` per worker, letting Xenna manage GPU visibility directly. Newer Ray releases changed the internal GPU visibility behavior, breaking this workaround.
+
+<Note>The error message text references `=0`, but the correct value is `=1`. Setting the variable to `1` tells Ray **not** to set `CUDA_VISIBLE_DEVICES`, which is what Xenna requires.</Note>
 
 **Resolution**: Upgrade to NeMo Curator 26.04, which ships Cosmos-Xenna 0.2.0. Xenna 0.2.0 manages CUDA device visibility directly and no longer depends on `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`.
 
 If you must remain on 26.02, pin Ray to `<=2.43` and ensure the environment variable is set before starting the Ray cluster:
 
 ```bash
-export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0
+export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
 ray start --head
 ```
 
