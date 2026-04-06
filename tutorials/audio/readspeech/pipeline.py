@@ -260,7 +260,7 @@ def main() -> None:
     logger.info("Starting pipeline execution...")
 
     try:
-        executor = RayDataExecutor() if args.backend == "ray_data" else XennaExecutor(config={"execution_mode": "batch"})
+        executor = RayDataExecutor() if args.backend == "ray_data" else XennaExecutor(config={"execution_mode": "streaming"})
         pipeline.run(executor)
 
         logger.info(f"Results written to {args.output_dir}/*.jsonl")
