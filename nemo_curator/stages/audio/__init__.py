@@ -18,7 +18,7 @@ Audio curation stages for NeMo Curator.
 This module provides stages for processing and curating audio data,
 including ASR inference, quality assessment, ALM data preparation,
 audio preprocessing (mono conversion, segment concatenation, timestamp mapping),
-audio quality filtering (SIGMOS, UTMOS, bandwidth classification filtering), 
+audio quality filtering (SIGMOS, UTMOS, bandwidth classification filtering),
 VAD segmentation, speaker diarization/separation,
 and advanced audio processing pipelines.
 """

@@ -38,6 +38,7 @@ import yaml
 from loguru import logger
 
 _DEFAULT_CONFIG_PATH = Path(__file__).parent / "default_config.yaml"
+_MOS_MAX = 5.0
 
 
 def _deep_merge(base: dict, overrides: dict) -> dict:
@@ -98,7 +99,7 @@ def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
     return merged
 
 
-def _validate(cfg: dict[str, Any]) -> None:
+def _validate(cfg: dict[str, Any]) -> None:  # noqa: C901
     """Validate cross-field constraints after merge."""
     vad = cfg.get("vad", {})
     if vad.get("enable", True):
@@ -115,8 +116,8 @@ def _validate(cfg: dict[str, Any]) -> None:
     utmos = cfg.get("utmos", {})
     if utmos.get("enable", True):
         mos = utmos.get("mos_threshold", 3.5)
-        if mos is not None and not 0.0 <= mos <= 5.0:
-            msg = f"utmos.mos_threshold must be in [0, 5] (MOS scale), got {mos}"
+        if mos is not None and not 0.0 <= mos <= _MOS_MAX:
+            msg = f"utmos.mos_threshold must be in [0, {_MOS_MAX}] (MOS scale), got {mos}"
             raise ValueError(msg)
 
     sigmos = cfg.get("sigmos", {})
@@ -124,8 +125,8 @@ def _validate(cfg: dict[str, Any]) -> None:
         for key in ("noise_threshold", "ovrl_threshold", "sig_threshold",
                      "col_threshold", "disc_threshold", "loud_threshold", "reverb_threshold"):
             val = sigmos.get(key)
-            if val is not None and not 0.0 <= val <= 5.0:
-                msg = f"sigmos.{key} must be in [0, 5] (MOS scale), got {val}"
+            if val is not None and not 0.0 <= val <= _MOS_MAX:
+                msg = f"sigmos.{key} must be in [0, {_MOS_MAX}] (MOS scale), got {val}"
                 raise ValueError(msg)
 
     speaker = cfg.get("speaker_separation", {})

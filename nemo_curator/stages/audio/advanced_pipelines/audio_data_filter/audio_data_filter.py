@@ -50,8 +50,8 @@ from nemo_curator.stages.audio.filtering import BandFilterStage, SIGMOSFilterSta
 from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
 from nemo_curator.stages.audio.preprocessing import MonoConversionStage, SegmentConcatenationStage
 from nemo_curator.stages.audio.segmentation import SpeakerSeparationStage, VADSegmentationStage
-from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.resources import Resources
 
 from .config import _deep_merge, get_enabled_stages, load_config
 

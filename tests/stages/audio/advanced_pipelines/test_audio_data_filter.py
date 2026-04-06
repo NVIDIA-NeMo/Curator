@@ -15,22 +15,19 @@
 from pathlib import Path
 
 import pytest
-import yaml
 
+from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.audio_data_filter import (
+    AudioDataFilterStage,
+)
 from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.config import (
     _deep_merge,
     _validate,
     get_enabled_stages,
     load_config,
 )
-from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.audio_data_filter import (
-    AudioDataFilterStage,
-)
 from nemo_curator.stages.audio.filtering import BandFilterStage, SIGMOSFilterStage, UTMOSFilterStage
-from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
 from nemo_curator.stages.audio.preprocessing import MonoConversionStage, SegmentConcatenationStage
 from nemo_curator.stages.audio.segmentation import SpeakerSeparationStage, VADSegmentationStage
-
 
 # ---------------------------------------------------------------------------
 # 1. Config: _deep_merge()
@@ -120,25 +117,25 @@ class TestValidate:
     def test_validate_vad_threshold_out_of_range(self) -> None:
         cfg = load_config(None)
         cfg["vad"]["threshold"] = 1.5
-        with pytest.raises(ValueError, match="vad.threshold"):
+        with pytest.raises(ValueError, match=r"vad\.threshold"):
             _validate(cfg)
 
     def test_validate_utmos_threshold_out_of_range(self) -> None:
         cfg = load_config(None)
         cfg["utmos"]["mos_threshold"] = 6.0
-        with pytest.raises(ValueError, match="utmos.mos_threshold"):
+        with pytest.raises(ValueError, match=r"utmos\.mos_threshold"):
             _validate(cfg)
 
     def test_validate_sigmos_threshold_out_of_range(self) -> None:
         cfg = load_config(None)
         cfg["sigmos"]["noise_threshold"] = -1.0
-        with pytest.raises(ValueError, match="sigmos.noise_threshold"):
+        with pytest.raises(ValueError, match=r"sigmos\.noise_threshold"):
             _validate(cfg)
 
     def test_validate_speaker_min_duration_zero(self) -> None:
         cfg = load_config(None)
         cfg["speaker_separation"]["min_duration"] = 0
-        with pytest.raises(ValueError, match="speaker_separation.min_duration"):
+        with pytest.raises(ValueError, match=r"speaker_separation\.min_duration"):
             _validate(cfg)
 
     def test_validate_sample_rate_zero(self) -> None:
