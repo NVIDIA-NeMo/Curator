@@ -14,15 +14,11 @@ Create custom data loading pipelines using Curator. This guide shows how to buil
 
 ## How It Works
 
-Curator uses the same **4-step pipeline pattern** described in [Data Acquisition Concepts ](/about/concepts/text/data/acquisition) for custom data loading. Each step uses an abstract base class with corresponding processing stages that compose into pipelines.
-
----
+Curator uses the same **3-step pipeline pattern** described in [Data Acquisition Concepts](/about/concepts/text/data/acquisition) for custom data loading. Each step maps to one or more abstract base classes with corresponding processing stages that compose into pipelines.
 
 ## Architecture Overview
 
-For detailed information about the core components and data flow, see [Data Acquisition Concepts ](/about/concepts/text/data/acquisition) and [Data Loading Concepts ](/about/concepts/text/data/loading).
-
----
+For detailed information about the core components and data flow, see [Data Acquisition Concepts](/about/concepts/text/data/acquisition) and [Data Loading Concepts](/about/concepts/text/data/loading).
 
 ## Implementation Guide
 
@@ -196,8 +192,6 @@ class CustomDataStage(DocumentDownloadExtractStage):
         return "Custom data"
 ```
 
----
-
 ## Usage Examples
 
 ### Basic Pipeline
@@ -240,8 +234,6 @@ if __name__ == "__main__":
 
 For executor options and configuration, refer to [Execution Backends](/reference/infra/execution-backends).
 
----
-
 ## Parameters Reference
 
 | Parameter | Type | Description | Default |
@@ -253,8 +245,6 @@ For executor options and configuration, refer to [Execution Backends](/reference
 | `url_limit` | int \| None | Maximum number of URLs to process | None |
 | `record_limit` | int \| None | Maximum records per file | None |
 | `add_filename_column` | bool \| str | Add filename column to output; if str, uses it as the column name (default name: "file_name") | True |
-
----
 
 ## Output Format
 

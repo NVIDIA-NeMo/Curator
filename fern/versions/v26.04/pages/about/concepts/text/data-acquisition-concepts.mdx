@@ -14,22 +14,21 @@ This guide covers the core concepts for acquiring and processing text data from 
 
 ## Overview
 
-Data acquisition in NeMo Curator follows a four-stage architecture:
+Data acquisition in NeMo Curator follows a three-stage architecture:
 
-1. **Generate URLs**: Discover and generate download URLs from minimal input
-2. **Download**: Retrieve raw data files from remote sources
-3. **Iterate**: Extract individual records from downloaded containers
-4. **Extract**: Convert raw content to clean, structured text
+1. **Generate URLs**: Discover and generate download URLs from minimal input.
+2. **Download**: Retrieve raw data files from remote sources.
+3. **Iterate** and **Extract**: Extract individual records from downloaded containers and convert raw content to clean, structured text.
 
 This process transforms diverse remote data sources into a standardized `DocumentBatch` that can be used throughout the text curation pipeline.
 
 ## Core Components
 
-The data acquisition framework consists of four abstract base classes that define the acquisition workflow:
+The data acquisition framework consists of abstract base classes that define the acquisition workflow:
 
 ### URLGenerator
 
-Generates URLs for downloading from minimal input configuration. You need to override `generate_urls` which generates a bunch of URLs that user wants to download.
+Generates URLs for downloading from minimal input configuration. Override the `generate_urls` method, which returns a list of URLs for the user to download.
 
 **Example Implementation**:
 
@@ -48,7 +47,7 @@ class CustomURLGenerator(URLGenerator):
 
 ### DocumentDownloader
 
-Connects to and downloads data from remote repositories. You must override `_get_output_filename` and `_download_to_path` which are called by an underlying function called `download` which tries to be idempotent.
+Connects to and downloads data from remote repositories. Override `_get_output_filename` and `_download_to_path`, which are called by the underlying `download` function, designed to be idempotent.
 
 **Example Implementation**:
 
@@ -75,7 +74,7 @@ class CustomDownloader(DocumentDownloader):
 
 ### DocumentIterator
 
-Extracts individual records from downloaded containers. You should only override `iterate` and `output_columns` where `iterate` must have logic to load the local file path and return bunch of documents. The `list[dict]` is finally considered to a Pandas DataFrame which is passed to Extractor.
+Extracts individual records from downloaded containers. Override `iterate` to load the file at the given path and yield records, and override `output_columns` to declare the output schema. Records are passed directly to the extractor (if provided) inline during iteration.
 
 **Example Implementation**:
 
@@ -100,7 +99,7 @@ class CustomIterator(DocumentIterator):
 
 ### DocumentExtractor (Optional)
 
-DocumentExtractor works on a Pandas DataFrame and is optional.
+DocumentExtractor transforms individual records and is optional. When provided to `DocumentIterateExtractStage`, it processes each record inline during iteration rather than as a separate stage.
 
 **Example Implementation**:
 
@@ -238,17 +237,17 @@ ray_client.stop()
 
 Data acquisition leverages distributed computing frameworks for scalable processing:
 
-- **Parallel Downloads**: Each URL in the generated list downloads through separate workers
-- **Concurrent Extraction**: Files process in parallel across workers
-- **Memory Management**: Streaming processing for large files
+- **Parallel Downloads**: Each URL in the generated list downloads through separate workers.
+- **Concurrent Extraction**: Files process in parallel across workers.
+- **Memory Management**: Streaming processing for large files.
 
 ## Integration with Data Loading
 
-Data acquisition produces a standardized output that integrates seamlessly with Curator's [Data Loading Concepts ](/about/concepts/text/data/loading):
+Data acquisition produces a standardized output that integrates seamlessly with Curator's [Data Loading Concepts](/about/concepts/text/data/loading):
 
-<Note>
+:::{note}
 Data acquisition includes basic content-level deduplication during extraction (such as removing duplicate HTML content within individual web pages). This is separate from the main deduplication pipeline stages (exact, fuzzy, and semantic deduplication) that operate on the full dataset after acquisition.
-</Note>
+:::
 
 ```python
 from nemo_curator.stages.text.io.writer import ParquetWriter
@@ -274,7 +273,7 @@ load_pipeline.add_stage(reader)
 
 This enables you to:
 
-- **Separate acquisition from processing** for better workflow management
-- **Cache acquired data** to avoid re-downloading
-- **Mix acquired and local data** in the same processing pipeline
-- **Use standard loading patterns** regardless of data origin
+- **Separate acquisition from processing** for better workflow management.
+- **Cache acquired data** to avoid re-downloading.
+- **Mix acquired and local data** in the same processing pipeline.
+- **Use standard loading patterns** regardless of data origin.

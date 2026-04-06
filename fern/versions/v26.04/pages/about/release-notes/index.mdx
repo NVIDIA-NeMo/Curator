@@ -57,6 +57,14 @@ Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and i
 - **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
 - **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
 
+### Fused Document Iterate and Extract Stages (PR #1458)
+
+The data acquisition pipeline now uses a three-stage architecture instead of four, fusing the iterate and extract steps into a single `DocumentIterateExtractStage`. This reduces memory overhead and improves pipeline performance:
+
+- **Fused `DocumentIterateExtractStage`**: Combines `DocumentIterateStage` and `DocumentExtractStage` into a single stage that iterates through downloaded files and extracts structured content in one pass.
+- **Improved Memory Efficiency**: The fused stage processes records inline instead of materializing intermediate DataFrames, reducing peak memory usage. With limited RAM (200 GB), the Common Crawl pipeline succeeds with 32 CPUs where the unfused pipeline ran out of memory even at 16 CPUs.
+- **Better Performance**: Benchmarks show faster runtimes across both the Ray Data and Xenna executors (e.g., ~6% faster with Ray Data, ~18% faster with Xenna).
+
 ### Pipeline Stage Metrics (PR #1385)
 
 Pipeline stages now track document-level metrics through `StagePerfStats.num_items_processed`, so you can see how each stage affects your dataset. After calling `pipeline.run()`, the returned task objects expose per-stage document counts that you can use to monitor filtering behavior and tune thresholds.
@@ -141,6 +149,9 @@ Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage`
 
 - **`TextSemanticDeduplicationWorkflow` embedding backend**: The default embedding backend changed from SentenceTransformers to vLLM. The default model changed from `sentence-transformers/all-MiniLM-L6-v2` to `google/embeddinggemma-300m`. The parameters `embedding_model_inference_batch_size`, `embedding_pooling`, `embedding_padding_side`, and `embedding_max_seq_length` have been removed. Use `embedding_vllm_init_kwargs` to pass configuration to the vLLM backend instead.
 - **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
+- **`DocumentExtractStage` Removed**: The standalone `DocumentExtractStage` class has been removed. Use `DocumentIterateExtractStage` with an optional `extractor` parameter instead. The `DocumentExtractor` abstract base class is unchanged.
+- **`DocumentIterateStage` Renamed**: `DocumentIterateStage` has been replaced by `DocumentIterateExtractStage`. Update imports from `nemo_curator.stages.text.download.base.iterator`.
+- **Three-Stage Pipeline**: The data acquisition pipeline is now a three-step pattern (URL generation → download → iterate-extract) instead of four steps.
 - **`ExactDeduplicationWorkflow.run()` and `FuzzyDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `None`
 - **`SemanticDeduplicationWorkflow.run()` and `TextSemanticDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `dict`
 - **`TextDuplicatesRemovalWorkflow.run()`** now returns `WorkflowRunResult` instead of `list[FileGroupTask] | None`
