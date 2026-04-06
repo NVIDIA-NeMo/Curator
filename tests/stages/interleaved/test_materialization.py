@@ -177,6 +177,18 @@ def test_fill_tar_extract_rows_errors(
 # --- _scatter_range_blobs ---
 
 
+def _make_range_setup(
+    filename: str, offset: int, size: int, frame_index: int | None = None
+) -> tuple[
+    list[tuple[str, int, int]],
+    dict[tuple[str, int, int], list[tuple[int, str, int | None]]],
+    list[object],
+    list[str | None],
+]:
+    key = (filename, offset, size)
+    return [key], {key: [(0, filename, frame_index)]}, [None], [None]
+
+
 @pytest.mark.parametrize(
     ("blob", "expected_error_substr"),
     [
@@ -186,24 +198,14 @@ def test_fill_tar_extract_rows_errors(
     ],
 )
 def test_scatter_range_blobs_error_cases(blob: object, expected_error_substr: str) -> None:
-    range_keys = [(0, 10)]
-    unique_ranges: dict[tuple[int, int], list[tuple[int, str, int | None]]] = {
-        (0, 10): [(0, "img.jpg", None)],
-    }
-    binary_values: list[object] = [None]
-    error_values: list[str | None] = [None]
+    range_keys, unique_ranges, binary_values, error_values = _make_range_setup("img.jpg", 0, 10)
     _scatter_range_blobs([blob], range_keys, unique_ranges, binary_values, error_values)
     assert error_values[0] is not None
     assert expected_error_substr in error_values[0]
 
 
 def test_scatter_range_blobs_bytearray_conversion() -> None:
-    range_keys = [(0, 10)]
-    unique_ranges: dict[tuple[int, int], list[tuple[int, str, int | None]]] = {
-        (0, 10): [(0, "img.jpg", None)],
-    }
-    binary_values: list[object] = [None]
-    error_values: list[str | None] = [None]
+    range_keys, unique_ranges, binary_values, error_values = _make_range_setup("img.jpg", 0, 10)
     _scatter_range_blobs([bytearray(b"image-data")], range_keys, unique_ranges, binary_values, error_values)
     assert binary_values[0] == b"image-data"
     assert isinstance(binary_values[0], bytes)
@@ -224,12 +226,9 @@ def test_scatter_range_blobs_tiff_frame(
     expected_error_substr: str | None,
 ) -> None:
     tiff_bytes = build_multi_frame_tiff(n_frames)
-    range_keys = [(0, len(tiff_bytes))]
-    unique_ranges: dict[tuple[int, int], list[tuple[int, str, int | None]]] = {
-        (0, len(tiff_bytes)): [(0, "doc.tiff", frame_index)],
-    }
-    binary_values: list[object] = [None]
-    error_values: list[str | None] = [None]
+    range_keys, unique_ranges, binary_values, error_values = _make_range_setup(
+        "doc.tiff", 0, len(tiff_bytes), frame_index
+    )
     _scatter_range_blobs([tiff_bytes], range_keys, unique_ranges, binary_values, error_values)
     if expect_success:
         assert binary_values[0] is not None

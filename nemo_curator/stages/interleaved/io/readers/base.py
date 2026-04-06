@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pyarrow as pa
+from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.utils.schema import align_table, reconcile_schema, resolve_schema
@@ -63,3 +64,31 @@ class BaseInterleavedReader(ProcessingStage[FileGroupTask, InterleavedBatch]):
         if self.schema is not None:
             return align_table(table, self.schema)
         return table.cast(reconcile_schema(table.schema))
+
+    @staticmethod
+    def _source_files_for_split(
+        split: pa.Table,
+        idx: int,
+        sample_id_to_path: dict[str, str],
+        all_paths: list[str],
+    ) -> list[str]:
+        """Return source_files for one split, annotated with the split index for lineage tracking.
+
+        The ``::split_NNN`` suffix is appended so that downstream consumers can correlate
+        each output batch back to the exact split of its source file(s), even when a single
+        source file is split into multiple batches by ``max_batch_bytes``.
+        """
+        seen: set[str] = set()
+        for sid in split["sample_id"].unique().to_pylist():
+            path = sample_id_to_path.get(sid)
+            if path is not None:
+                seen.add(path)
+        contributing = [p for p in all_paths if p in seen]
+        if not contributing:
+            logger.warning(
+                "_source_files_for_split: no source path found for any sample_id in this split "
+                "(possible null sample_ids); falling back to all {} source path(s).",
+                len(all_paths),
+            )
+            contributing = all_paths
+        return [f"{p}::split_{idx:05d}" for p in contributing]
