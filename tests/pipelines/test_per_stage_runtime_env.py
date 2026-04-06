@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for per-stage runtime environment: different Python package versions per stage.
+"""Tests for per-stage runtime_env support.
 
-Each stage declares runtime_env and Ray creates an isolated virtualenv per unique spec set.
-RayData, Xenna, and RayActorPool backends are all tested via parametrization, for both
-pip and uv spec types.
+Verifies that stages can declare different runtime_env (pip/uv packages) and
+that Ray's native runtime_env creates isolated venvs per actor on each node.
+Also verifies that runtime_env is additive: base-env packages remain importable.
 """
 
-from typing import Any, ClassVar
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -33,33 +33,15 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
 
 
-def _record_packaging_and_loguru(task: DocumentBatch, version_col: str, loguru_col: str) -> DocumentBatch:
-    """Helper: record packaging.__version__ and whether loguru is importable."""
-    import packaging
+class RecordPackagingVersionStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Records the packaging library version visible to this worker.
 
-    try:
-        from loguru import logger
+    The column name is derived from self.name so multiple instances with
+    different runtime_env can coexist in the same pipeline.
+    Also checks whether loguru (a Curator dep, not a Ray dep) is importable.
+    """
 
-        loguru_available = logger is not None
-    except ImportError:
-        loguru_available = False
-
-    batch = task.to_pandas().copy()
-    batch[version_col] = packaging.__version__
-    batch[loguru_col] = loguru_available
-    return DocumentBatch(
-        task_id=task.task_id,
-        dataset_name=task.dataset_name,
-        data=batch,
-        _metadata=task._metadata,
-        _stage_perf=task._stage_perf,
-    )
-
-
-class BaseEnvStage(ProcessingStage[DocumentBatch, DocumentBatch]):
-    """Stage with no runtime_env — runs in the base environment."""
-
-    name = "base_env"
+    name = "record_packaging_version"
     resources = Resources(cpus=0.5)
     batch_size = 1
 
@@ -67,13 +49,21 @@ class BaseEnvStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["base_packaging_version"]
+        return ["data"], []
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
         import packaging
 
+        try:
+            from loguru import logger
+
+            loguru_available = logger is not None
+        except ImportError:
+            loguru_available = False
+
         batch = task.to_pandas().copy()
-        batch["base_packaging_version"] = packaging.__version__
+        batch[f"{self.name}_version"] = packaging.__version__
+        batch[f"{self.name}_loguru_available"] = loguru_available
         return DocumentBatch(
             task_id=task.task_id,
             dataset_name=task.dataset_name,
@@ -83,52 +73,24 @@ class BaseEnvStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
 
-class VersionStage1(ProcessingStage[DocumentBatch, DocumentBatch]):
-    """Stage 1: packaging==23.2 (default pip; overridable via with_())."""
-
-    name = "version_stage_1"
-    resources = Resources(cpus=0.5)
-    batch_size = 1
-    runtime_env: ClassVar[dict] = {"pip": ["packaging==23.2"]}
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["base_packaging_version"]
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["stage1_packaging_version", "stage1_loguru_available"]
-
-    def process(self, task: DocumentBatch) -> DocumentBatch:
-        return _record_packaging_and_loguru(task, "stage1_packaging_version", "stage1_loguru_available")
-
-
-class VersionStage2(ProcessingStage[DocumentBatch, DocumentBatch]):
-    """Stage 2: packaging==24.0 (default pip; overridable via with_())."""
-
-    name = "version_stage_2"
-    resources = Resources(cpus=0.5)
-    batch_size = 1
-    runtime_env: ClassVar[dict] = {"pip": ["packaging==24.0"]}
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["stage1_packaging_version", "stage1_loguru_available"]
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["stage2_packaging_version", "stage2_loguru_available"]
-
-    def process(self, task: DocumentBatch) -> DocumentBatch:
-        return _record_packaging_and_loguru(task, "stage2_packaging_version", "stage2_loguru_available")
+def _make_initial_task() -> DocumentBatch:
+    return DocumentBatch(
+        task_id="runtime_env_test",
+        dataset_name="test",
+        data=pd.DataFrame({"text": ["hello"]}),
+    )
 
 
 @pytest.mark.parametrize(
     "backend_config",
     [
-        pytest.param((RayDataExecutor, {}, "uv"), id="ray_data-uv"),
-        pytest.param((XennaExecutor, {"execution_mode": "streaming"}, "pip"), id="xenna_streaming-pip"),
+        pytest.param((RayDataExecutor, {}), id="ray_data"),
+        pytest.param((XennaExecutor, {"execution_mode": "streaming"}), id="xenna_streaming"),
     ],
     indirect=True,
 )
 class TestPerStageRuntimeEnv:
-    """Stages with different runtime_env see different package versions across all backends and spec types."""
+    """Stages with different runtime_env see different package versions."""
 
     backend_cls: type[BaseExecutor] | None = None
     config: dict[str, Any] | None = None
@@ -136,56 +98,54 @@ class TestPerStageRuntimeEnv:
 
     @pytest.fixture(scope="class", autouse=True)
     def backend_config(self, request: pytest.FixtureRequest, shared_ray_cluster: str):
-        """Run the three-stage pipeline once per backend/spec_type and store results."""
-        backend_cls, config, spec_type = request.param
+        """Execute a 3-stage pipeline: base env, packaging==23.2 (pip), packaging==24.0 (uv)."""
+        backend_cls, config = request.param
         request.cls.backend_cls = backend_cls
         request.cls.config = config
 
-        initial = DocumentBatch(
-            task_id="test",
-            dataset_name="test",
-            data=pd.DataFrame({"text": ["hello"]}),
+        base_stage = RecordPackagingVersionStage().with_(name="base_env")
+        stage_v232 = RecordPackagingVersionStage().with_(
+            name="pinned_v232",
+            runtime_env={"pip": ["packaging==23.2"]},
         )
-        # Use with_() to override runtime_env spec type (pip or uv) per parametrize run.
-        stage1 = VersionStage1().with_(runtime_env={spec_type: ["packaging==23.2"]})
-        stage2 = VersionStage2().with_(runtime_env={spec_type: ["packaging==24.0"]})
-        pipeline = Pipeline(
-            name="per_stage_runtime_env_test",
-            stages=[BaseEnvStage(), stage1, stage2],
+        stage_v240 = RecordPackagingVersionStage().with_(
+            name="pinned_v240",
+            runtime_env={"uv": ["packaging==24.0"]},
         )
-        request.cls.results = pipeline.run(executor=backend_cls(config), initial_tasks=[initial])
 
-    def test_stage1_packaging_version(self):
-        assert self.results is not None
-        result = self.results[0].to_pandas()
-        assert result["stage1_packaging_version"].iloc[0] == "23.2"
+        pipeline = Pipeline(name="runtime_env_test", stages=[base_stage, stage_v232, stage_v240])
+        request.cls.results = pipeline.run(backend_cls(config), initial_tasks=[_make_initial_task()])
 
-    def test_stage2_packaging_version(self):
+    def test_output_count(self):
         assert self.results is not None
-        result = self.results[0].to_pandas()
-        assert result["stage2_packaging_version"].iloc[0] == "24.0"
+        assert len(self.results) == 1
 
     def test_base_env_uses_installed_version(self):
-        """Stage with no runtime_env sees the base environment's packaging version."""
-        assert self.results is not None
-        result = self.results[0].to_pandas()
-        assert "base_packaging_version" in result.columns
-        assert result["base_packaging_version"].iloc[0]  # non-empty
+        """Stage with no runtime_env should see the base environment's packaging version."""
+        df = self.results[0].to_pandas()
+        assert "base_env_version" in df.columns
+        assert df["base_env_version"].iloc[0]  # non-empty
+
+    def test_pinned_v232(self):
+        df = self.results[0].to_pandas()
+        assert df["pinned_v232_version"].iloc[0] == "23.2"
+
+    def test_pinned_v240(self):
+        df = self.results[0].to_pandas()
+        assert df["pinned_v240_version"].iloc[0] == "24.0"
 
     def test_all_three_versions_differ(self):
-        """Base env, 23.2, and 24.0 must all be distinct."""
-        assert self.results is not None
-        result = self.results[0].to_pandas()
+        """Base env, 23.2, and 24.0 should all be distinct."""
+        df = self.results[0].to_pandas()
         versions = {
-            result["base_packaging_version"].iloc[0],
-            result["stage1_packaging_version"].iloc[0],
-            result["stage2_packaging_version"].iloc[0],
+            df["base_env_version"].iloc[0],
+            df["pinned_v232_version"].iloc[0],
+            df["pinned_v240_version"].iloc[0],
         }
         assert len(versions) == 3, f"Expected 3 distinct versions, got {versions}"
 
     def test_runtime_env_is_additive(self):
-        """Stages with runtime_env can still import base-env packages (loguru is a Curator dep, not a Ray dep)."""
-        assert self.results is not None
-        result = self.results[0].to_pandas()
-        assert bool(result["stage1_loguru_available"].iloc[0]), "loguru not importable in stage1 runtime_env"
-        assert bool(result["stage2_loguru_available"].iloc[0]), "loguru not importable in stage2 runtime_env"
+        """Stages with runtime_env can still import base-env packages (loguru is a Curator dep, not Ray)."""
+        df = self.results[0].to_pandas()
+        assert bool(df["pinned_v232_loguru_available"].iloc[0])
+        assert bool(df["pinned_v240_loguru_available"].iloc[0])
