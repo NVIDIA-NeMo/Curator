@@ -57,6 +57,16 @@ Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and i
 - **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
 - **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
 
+### Filter and Modifier Directory Reorganization (PR #1472)
+
+Reorganized the `DocumentFilter` and `DocumentModifier` directory structures to avoid eagerly importing heavy dependencies:
+
+- **Lazy imports**: Importing `DocumentFilter` or `DocumentModifier` no longer pulls in heavyweight dependencies like HuggingFace Transformers, fastText, or histogram libraries.
+- **Grouped by dependency weight**: Filters are now organized into `heuristic/`, `token/`, `histogram/`, and `fasttext/` subdirectories.
+- **Modifiers reorganized**: Modifiers are now grouped into `string/`, `unicode/`, and `fasttext/` subdirectories.
+- **`ScoreFilter`/`Filter`/`Score` moved**: These stages moved from `stages.text.modules` to `stages.text.filters`.
+- **`Modify` moved**: Moved from `stages.text.modules` to `stages.text.modifiers`.
+
 ### Fused Document Iterate and Extract Stages (PR #1458)
 
 The data acquisition pipeline now uses a three-stage architecture instead of four, fusing the iterate and extract steps into a single `DocumentIterateExtractStage`. This reduces memory overhead and improves pipeline performance:
