@@ -24,6 +24,10 @@ Built-in LLM serving alongside curation pipelines using Ray Serve and vLLM:
 
 Learn more in the [Inference Server](/curate-text/synthetic/inference-server) documentation.
 
+### Shared Tokenizer Support for Multiple Classifiers (PR #1528)
+
+Text classifiers that share the same base tokenizer can now reuse tokens across a pipeline, avoiding redundant tokenization. New parameters `keep_tokens` and `use_existing_tokens` on all distributed classifiers control this behavior. DeBERTa-based classifiers (DomainClassifier, MultilingualDomainClassifier, QualityClassifier, ContentTypeClassifier, FineWeb variants, PromptTaskComplexityClassifier) and LlamaGuard-based classifiers (AegisClassifier, InstructionDataGuardClassifier) each form a compatible tokenizer group.
+
 ### vLLM Default for Semantic Deduplication Embeddings (PR #1606)
 
 Switched the default embedding backend in `TextSemanticDeduplicationWorkflow` from SentenceTransformers to vLLM, with `google/embeddinggemma-300m` as the new default model:
@@ -60,6 +64,10 @@ The data acquisition pipeline now uses a three-stage architecture instead of fou
 - **Fused `DocumentIterateExtractStage`**: Combines `DocumentIterateStage` and `DocumentExtractStage` into a single stage that iterates through downloaded files and extracts structured content in one pass.
 - **Improved Memory Efficiency**: The fused stage processes records inline instead of materializing intermediate DataFrames, reducing peak memory usage. With limited RAM (200 GB), the Common Crawl pipeline succeeds with 32 CPUs where the unfused pipeline ran out of memory even at 16 CPUs.
 - **Better Performance**: Benchmarks show faster runtimes across both the Ray Data and Xenna executors (e.g., ~6% faster with Ray Data, ~18% faster with Xenna).
+
+### Pipeline Stage Metrics (PR #1385)
+
+Pipeline stages now track document-level metrics through `StagePerfStats.num_items_processed`, so you can see how each stage affects your dataset. After calling `pipeline.run()`, the returned task objects expose per-stage document counts that you can use to monitor filtering behavior and tune thresholds.
 
 ### Workflow Results API
 
