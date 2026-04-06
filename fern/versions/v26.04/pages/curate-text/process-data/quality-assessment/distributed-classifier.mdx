@@ -373,6 +373,72 @@ pipeline.add_stage(writer)
 results = pipeline.run()  # Uses XennaExecutor by default
 ```
 
+## Share Tokens Across Multiple Classifiers
+
+Many of NeMo Curator's text classifiers use the same underlying tokenizer. When you run multiple classifiers in a single pipeline, you can tokenize once and reuse the tokens for all compatible classifiers. This avoids redundant tokenization and speeds up your pipeline.
+
+### Compatible Tokenizer Groups
+
+Classifiers that share the same base tokenizer can reuse each other's tokens:
+
+| Tokenizer | Classifiers |
+|---|---|
+| DeBERTa-v3-base | DomainClassifier, MultilingualDomainClassifier, QualityClassifier, ContentTypeClassifier, FineWebEduClassifier, FineWebMixtralEduClassifier, FineWebNemotronEduClassifier, PromptTaskComplexityClassifier |
+| LlamaGuard-7b | AegisClassifier, InstructionDataGuardClassifier |
+
+<Note>
+Classifiers from different tokenizer groups are **not** compatible. You cannot reuse tokens generated for a DeBERTa-based classifier with an AEGIS classifier, or the reverse.
+</Note>
+
+<Warning>
+When using `use_existing_tokens=True` with `AegisClassifier`, you must also specify the `aegis_prompt_field` parameter. This field tells the classifier which column contains the pre-formatted prompt text. Omitting it raises a `ValueError` at pipeline construction time.
+</Warning>
+
+### How It Works
+
+Each classifier exposes two parameters for token sharing:
+
+- **`keep_tokens`** (default: `False`): When `True`, the classifier preserves the `input_ids` and `attention_mask` columns in its output instead of dropping them. Set this on the *first* classifier in the pipeline so downstream classifiers can reuse the tokens.
+- **`use_existing_tokens`** (default: `False`): When `True`, the classifier skips its internal tokenization step and uses the `input_ids` and `attention_mask` columns already present in the data. Set this on all *subsequent* classifiers.
+
+### Example: Tokenize Once for Multiple Classifiers
+
+The following pipeline tokenizes the input text once with the DomainClassifier, then passes those tokens to the QualityClassifier and ContentTypeClassifier:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.classifiers import (
+    DomainClassifier,
+    QualityClassifier,
+    ContentTypeClassifier,
+)
+
+pipeline = Pipeline(name="shared_tokenizer_pipeline")
+
+# Load dataset
+pipeline.add_stage(JsonlReader(file_paths="documents/", fields=["text", "id"]))
+
+# First classifier: tokenize and keep the tokens
+pipeline.add_stage(DomainClassifier(keep_tokens=True))
+
+# Second classifier: reuse existing tokens, keep them for the next stage
+pipeline.add_stage(QualityClassifier(use_existing_tokens=True, keep_tokens=True))
+
+# Third classifier: reuse existing tokens, drop them (last in chain)
+pipeline.add_stage(ContentTypeClassifier(use_existing_tokens=True, keep_tokens=False))
+
+# Save the results
+pipeline.add_stage(JsonlWriter(path="classified_output/"))
+
+results = pipeline.run()
+```
+
+<Tip>
+Set `keep_tokens=True` on every classifier in the chain **except the last one**. The last classifier can use `keep_tokens=False` (the default) to drop the token columns from the final output.
+</Tip>
+
 ## Custom Model Integration
 
 You can integrate your own classification models by extending `DistributedDataClassifier`. Refer to the [Text Classifiers README](https://github.com/NVIDIA-NeMo/Curator/tree/main/nemo_curator/stages/text/classifiers#text-classifiers) for implementation details and examples.

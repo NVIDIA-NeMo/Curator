@@ -24,6 +24,10 @@ Built-in LLM serving alongside curation pipelines using Ray Serve and vLLM:
 
 Learn more in the [Inference Server](/curate-text/synthetic/inference-server) documentation.
 
+### Shared Tokenizer Support for Multiple Classifiers (PR #1528)
+
+Text classifiers that share the same base tokenizer can now reuse tokens across a pipeline, avoiding redundant tokenization. New parameters `keep_tokens` and `use_existing_tokens` on all distributed classifiers control this behavior. DeBERTa-based classifiers (DomainClassifier, MultilingualDomainClassifier, QualityClassifier, ContentTypeClassifier, FineWeb variants, PromptTaskComplexityClassifier) and LlamaGuard-based classifiers (AegisClassifier, InstructionDataGuardClassifier) each form a compatible tokenizer group.
+
 ### vLLM Default for Semantic Deduplication Embeddings (PR #1606)
 
 Switched the default embedding backend in `TextSemanticDeduplicationWorkflow` from SentenceTransformers to vLLM, with `google/embeddinggemma-300m` as the new default model:
