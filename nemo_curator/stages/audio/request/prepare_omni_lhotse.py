@@ -30,30 +30,27 @@ from nemo_curator.tasks import DocumentBatch, _EmptyTask
 if TYPE_CHECKING:
     from lhotse import Cut, CutSet
 
+try:
+    import soundfile as sf
+except ModuleNotFoundError as exc:
+    msg = "Install soundfile (e.g. pip install soundfile) to encode audio for Omni messages."
+    raise RuntimeError(msg) from exc
 
-def _require_soundfile() -> None:
-    try:
-        import soundfile  # noqa: F401
-    except ModuleNotFoundError as exc:
-        msg = "Install soundfile (e.g. pip install soundfile) to encode audio for Omni messages."
-        raise RuntimeError(msg) from exc
-
-
-def _require_nemo_tarred() -> None:
-    try:
-        from nemo.collections.common.data.lhotse.nemo_adapters import LazyNeMoTarredIterator  # noqa: F401
-    except ModuleNotFoundError as exc:
-        msg = (
-            "NeMo is required for lhotse_mode='nemo_tarred'. "
-            "Install nemo_toolkit (e.g. pip install nemo_toolkit[asr])."
-        )
-        raise RuntimeError(msg) from exc
+try:
+    from nemo.collections.common.data.lhotse.nemo_adapters import (
+        LazyNeMoIterator,
+        LazyNeMoTarredIterator,
+    )
+except ModuleNotFoundError as exc:
+    msg = (
+        "NeMo is required for lhotse_mode='nemo_tarred' or 'nemo_row'. "
+        "Install nemo_toolkit (e.g. pip install nemo_toolkit[asr])."
+    )
+    raise RuntimeError(msg) from exc
 
 
 def _audio_to_wav_bytes(audio: np.ndarray, sampling_rate: int) -> bytes:
     """Encode float audio array to WAV bytes (PCM16)."""
-    _require_soundfile()
-    import soundfile as sf
 
     buf = io.BytesIO()
     to_write = audio[:, np.newaxis] if audio.ndim == 1 else audio.T
@@ -75,14 +72,19 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
     **lhotse_shar** uses :meth:`lhotse.CutSet.from_shar` with ``shar_in_dir`` (layout:
     ``cuts.*.jsonl.gz``, ``recording.*.tar``, etc.).
 
+    **nemo_row** uses NeMo's ``LazyNeMoIterator`` to read a standard NeMo JSONL manifest
+    (``audio_filepath``, ``duration``, ``text``, etc.) and yield Lhotse cuts. This is not the
+    same as :meth:`lhotse.CutSet.from_jsonl`, which expects Lhotse-native JSON with a
+    ``type`` field per line.
+
     Input rows on ``input_batch`` are ignored; the stage materializes rows from the Lhotse
     iterator. Downstream metadata (``dataset_name``, ``task_id``) is preserved from
     ``input_batch`` when present.
 
     Args:
-        lhotse_mode: ``\"nemo_tarred\"`` or ``\"lhotse_shar\"``.
-        input_manifest: NeMo JSON manifest path(s) for ``nemo_tarred`` (see
-            ``LazyNeMoTarredIterator``).
+        lhotse_mode: ``\"nemo_tarred\"`` or ``\"lhotse_shar\"`` or ``\"nemo_row``.
+        input_manifest: NeMo JSON manifest path(s) for ``nemo_tarred`` or ``nemo_row`` (see
+            NeMo lhotse adapters).
         input_tar: NeMo tarred audio path(s) for ``nemo_tarred`` (paired with manifest shards).
         shar_in_dir: Directory in Lhotse Shar format for ``lhotse_shar``.
         format: ``\"data_url\"`` for OpenAI-style ``audio_url`` / ``image_url`` payloads, or
@@ -96,7 +98,7 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
     input_manifest: str = ""
     input_tar: str = ""
     shar_in_dir: str = ""
-    lhotse_mode: Literal["nemo_tarred", "lhotse_shar"] = "nemo_tarred"
+    lhotse_mode: Literal["nemo_tarred", "lhotse_shar", "nemo_row"] = "nemo_tarred"
     format: Literal["data_url", "input_data"] = "data_url"
     system_prompt: str | None = None
     user_prompt_key: str | None = None
@@ -117,11 +119,13 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
         except ModuleNotFoundError as exc:
             msg = "Install lhotse (e.g. pip install lhotse) to use PrepareOmniLhotseStage."
             raise RuntimeError(msg) from exc
+        if self.lhotse_mode == "nemo_row":
+            if not self.input_manifest.strip():
+                msg = "nemo_row requires non-empty input_manifest (NeMo JSONL: audio_filepath, duration, text, ...)."
+                raise ValueError(msg)
+            return CutSet(LazyNeMoIterator(self.input_manifest.strip()))
 
         if self.lhotse_mode == "nemo_tarred":
-            _require_nemo_tarred()
-            from nemo.collections.common.data.lhotse.nemo_adapters import LazyNeMoTarredIterator
-
             if not self.input_manifest.strip() or not self.input_tar.strip():
                 msg = "nemo_tarred requires non-empty input_manifest and input_tar."
                 raise ValueError(msg)
