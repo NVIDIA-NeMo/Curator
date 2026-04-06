@@ -487,4 +487,28 @@ reader = JsonlReader(
 
 </Tabs>
 
+## Pipeline Metrics
+
+When you run a filtering pipeline, each stage tracks the number of documents it processes. You can use these metrics to understand how each filter affects your dataset and to tune thresholds.
+
+After calling `pipeline.run()`, the returned task objects contain per-stage performance statistics through `_stage_perf`. Each entry is a `StagePerfStats` object with a `num_items_processed` field that records how many documents passed through that stage.
+
+```python
+# Run the pipeline and inspect filter metrics
+output_tasks = pipeline.run()
+
+for task in output_tasks:
+    # _stage_perf[0] is file partitioning, _stage_perf[1] is the reader
+    num_input = task._stage_perf[1].num_items_processed
+    # The last stage is the writer — its count reflects documents that survived all filters
+    num_output = task._stage_perf[-1].num_items_processed
+
+    if num_input > 0:
+        print(f"Task {task.task_id}: {num_input} input → {num_output} kept ({num_output / num_input:.1%})")
+    else:
+        print(f"Task {task.task_id}: 0 input → 0 kept")
+```
+
+These same metrics power the nightly benchmarks, which track `num_documents_processed`, `num_kept_documents`, and `throughput_docs_per_sec` for every pipeline run.
+
 Remember that the goal of filtering is to improve the quality of your training data, not necessarily to remove as many documents as possible. Monitor your filtering results and adjust thresholds based on your specific data characteristics and downstream tasks.
