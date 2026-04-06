@@ -59,8 +59,8 @@ fuzzy_workflow = FuzzyDeduplicationWorkflow(
     num_bands=20,
     minhashes_per_band=13
 )
-fuzzy_workflow.run()
-# Duplicate IDs saved to ./results/FuzzyDuplicateIds/
+result = fuzzy_workflow.run()
+# result.metadata contains: total_time, num_duplicates, minhash_time, lsh_time, connected_components_pipeline_time, id_generator_path
 
 # Step 2: Remove duplicates
 removal_workflow = TextDuplicatesRemovalWorkflow(
@@ -72,8 +72,8 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_duplicate_id_field="_curator_dedup_id",
     id_generator_path="./results/fuzzy_id_generator.json"
 )
-removal_workflow.run()
-# Clean dataset saved to ./deduplicated/
+result = removal_workflow.run()
+# result.metadata contains: total_time, num_duplicates_removed
 ```
 
 ## Configuration
@@ -138,7 +138,7 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_duplicate_id_field="_curator_dedup_id",
     id_generator_path="/path/to/output/fuzzy_id_generator.json"  # Required if IDs were auto-assigned
 )
-removal_workflow.run()
+result = removal_workflow.run()
 ```
 
 <Accordion title="ID Field Configuration">
