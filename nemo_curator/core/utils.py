@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@ import subprocess
 import time
 from typing import TYPE_CHECKING
 
+import pyarrow as pa
+import pyarrow.compute as pc
 import ray
 from loguru import logger
 
@@ -173,8 +175,6 @@ def init_cluster(  # noqa: PLR0913
 
     # We set some env vars for Xenna here. This is only used for Xenna clusters.
     os.environ["XENNA_RAY_METRICS_PORT"] = str(ray_metrics_port)
-    os.environ["XENNA_RESPECT_CUDA_VISIBLE_DEVICES"] = "1"
-
     if stdouterr_capture_file:
         with open(stdouterr_capture_file, "w") as f:
             proc = subprocess.Popen(  # noqa: S603
@@ -185,3 +185,56 @@ def init_cluster(  # noqa: PLR0913
     logger.info(f"Ray start command: {' '.join(ray_command)}")
 
     return proc
+
+
+def split_table_by_group_max_bytes(
+    table: pa.Table,
+    group_column: str,
+    max_batch_bytes: int | None,
+) -> list[pa.Table]:
+    """Split an Arrow table by approximate byte size without splitting group rows.
+
+    Each unique value in ``group_column`` is kept in a single output table.
+    If a single group exceeds ``max_batch_bytes``, it is still emitted as one chunk.
+
+    Note: null values in ``group_column`` are grouped together (consecutive
+    nulls are not split).  Callers should ensure the column is non-nullable
+    or handle nulls upstream.
+    """
+    if max_batch_bytes is None or table.num_rows == 0:
+        return [table]
+    if max_batch_bytes <= 0:
+        msg = f"max_batch_bytes must be > 0, got {max_batch_bytes}"
+        raise ValueError(msg)
+    if group_column not in table.column_names:
+        msg = f"Group column '{group_column}' not found in table"
+        raise ValueError(msg)
+
+    sort_indices = pc.sort_indices(table, sort_keys=[(group_column, "ascending")])
+    table = table.take(sort_indices)
+    col = table[group_column]
+    n = table.num_rows
+
+    if n <= 1:
+        return [table]
+
+    ne = pc.not_equal(col.slice(1), col.slice(0, n - 1))
+    split_points = pc.indices_nonzero(ne).to_pylist()
+    group_starts = [0, *(p + 1 for p in split_points)]
+    group_ends = [*(p + 1 for p in split_points), n]
+
+    avg_bytes_per_row = table.nbytes / n
+    chunk_split_indices: list[int] = []
+    chunk_bytes = 0.0
+    for i, (gs, ge) in enumerate(zip(group_starts, group_ends, strict=True)):
+        group_bytes = (ge - gs) * avg_bytes_per_row
+        if i > 0 and chunk_bytes > 0 and (chunk_bytes + group_bytes > max_batch_bytes):
+            chunk_split_indices.append(gs)
+            chunk_bytes = 0.0
+        chunk_bytes += group_bytes
+
+    if not chunk_split_indices:
+        return [table]
+    all_starts = [0, *chunk_split_indices]
+    all_ends = [*chunk_split_indices, n]
+    return [table.slice(s, e - s) for s, e in zip(all_starts, all_ends, strict=True)]
