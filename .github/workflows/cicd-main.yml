@@ -263,6 +263,7 @@ jobs:
       )
       && !cancelled()
     strategy:
+      fail-fast: false
       matrix:
         flag: [unit-test, e2e]
     steps:
@@ -273,6 +274,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           pattern: coverage-${{ matrix.flag }}-*
+          path: coverage-downloads
 
       - name: Get total coverage of current branch
         shell: bash -x -e -u -o pipefail {0}
@@ -280,10 +282,14 @@ jobs:
         run: |
           pip install coverage[toml]
           ls -al .
-          ls -al coverage-*/
-          coverage combine --keep $(ls coverage-*/.coverage)
+          if ! [ -d coverage-downloads ] || [ -z "$(ls -A coverage-downloads)" ]; then
+            echo "No coverage artifacts found for ${{ matrix.flag }}, skipping."
+            exit 0
+          fi
+          ls -al coverage-downloads/
+          coverage combine --keep $(find coverage-downloads -name '.coverage')
           coverage report -i
-          rm -rf coverage-*
+          rm -rf coverage-downloads
           ls -al
 
       - name: Upload coverage reports to Codecov

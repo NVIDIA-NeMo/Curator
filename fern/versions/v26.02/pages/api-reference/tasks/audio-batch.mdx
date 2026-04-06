@@ -1,0 +1,181 @@
+---
+title: AudioBatch
+description: "API reference for AudioBatch - the task type for audio processing"
+---
+
+`AudioBatch` is the task type for audio processing in NeMo Curator.
+
+## Import
+
+```python
+from nemo_curator.tasks import AudioBatch
+```
+
+## Class Definition
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class AudioBatch(Task[dict | list[dict]]):
+    """Task containing audio data for processing.
+
+    Attributes:
+        task_id: Unique identifier for this batch.
+        dataset_name: Name of the source dataset.
+        data: Audio manifest data (dict or list of dicts).
+    """
+
+    task_id: str
+    dataset_name: str
+    data: dict | list[dict]
+```
+
+## Audio Manifest Format
+
+Audio data follows the NeMo manifest format:
+
+```json
+{
+  "audio_filepath": "/path/to/audio.wav",
+  "duration": 5.2,
+  "text": "Transcription text...",
+  "speaker": "speaker_001",
+  "metadata": {
+    "sample_rate": 16000,
+    "channels": 1
+  }
+}
+```
+
+## Properties
+
+### `num_items`
+
+Get the number of audio samples in the batch.
+
+```python
+@property
+def num_items(self) -> int:
+    """Returns the number of audio samples."""
+```
+
+## Creating AudioBatch
+
+```python
+from nemo_curator.tasks import AudioBatch
+
+# Single manifest entry
+manifest = {
+    "audio_filepath": "/data/audio/sample.wav",
+    "duration": 5.2,
+    "text": "Hello world",
+}
+
+batch = AudioBatch(
+    task_id="audio_001",
+    dataset_name="speech_dataset",
+    data=manifest,
+)
+
+# Multiple entries
+manifests = [
+    {"audio_filepath": "/data/audio/s1.wav", "duration": 3.1},
+    {"audio_filepath": "/data/audio/s2.wav", "duration": 4.5},
+]
+
+batch = AudioBatch(
+    task_id="audio_batch_001",
+    dataset_name="speech_dataset",
+    data=manifests,
+)
+```
+
+## Usage in Stages
+
+```python
+from dataclasses import dataclass
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioBatch
+
+@dataclass
+class DurationFilterStage(ProcessingStage[AudioBatch, AudioBatch]):
+    """Filter audio by duration."""
+
+    name: str = "DurationFilter"
+    min_duration: float = 1.0
+    max_duration: float = 30.0
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
+
+    def process(self, task: AudioBatch) -> AudioBatch | None:
+        data = task.data
+
+        # Handle both single dict and list
+        if isinstance(data, dict):
+            data = [data]
+
+        filtered = [
+            item for item in data
+            if self.min_duration <= item.get("duration", 0) <= self.max_duration
+        ]
+
+        if not filtered:
+            return None
+
+        return AudioBatch(
+            task_id=f"{task.task_id}_filtered",
+            dataset_name=task.dataset_name,
+            data=filtered if len(filtered) > 1 else filtered[0],
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )
+```
+
+## Common Operations
+
+### ASR Transcription
+
+```python
+def process(self, task: AudioBatch) -> AudioBatch:
+    data = task.data if isinstance(task.data, list) else [task.data]
+
+    for item in data:
+        audio_path = item["audio_filepath"]
+        item["text"] = self.asr_model.transcribe(audio_path)
+
+    return AudioBatch(
+        task_id=f"{task.task_id}_{self.name}",
+        dataset_name=task.dataset_name,
+        data=data if len(data) > 1 else data[0],
+        _metadata=task._metadata,
+        _stage_perf=task._stage_perf,
+    )
+```
+
+### Quality Scoring
+
+```python
+def process(self, task: AudioBatch) -> AudioBatch:
+    data = task.data if isinstance(task.data, list) else [task.data]
+
+    for item in data:
+        if "text" in item and "reference_text" in item:
+            item["wer"] = compute_wer(item["reference_text"], item["text"])
+
+    return AudioBatch(
+        task_id=f"{task.task_id}_{self.name}",
+        dataset_name=task.dataset_name,
+        data=data if len(data) > 1 else data[0],
+        _metadata=task._metadata,
+        _stage_perf=task._stage_perf,
+    )
+```
+
+## Source Code
+
+[View source on GitHub](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/tasks/audio.py)
