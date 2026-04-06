@@ -43,10 +43,10 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     files_per_partition: int | None = None
         Number of files per partition.
         If both files_per_partition and blocksize are not provided,
-        then default to files_per_partition = 1 and enforce a blocksize <= 2 GiB per partition safeguard.
+        then default to files_per_partition = 1 and enforce a blocksize <= 512 MB per partition safeguard.
         Errors if both files_per_partition and blocksize are provided.
     blocksize: int | str | None = None
-        Target size of the partitions. A blocksize of 2 GiB or less is recommended.
+        Target size of the partitions. A blocksize of 512 MB or less is recommended.
         Errors if both files_per_partition and blocksize are provided.
         Note: For compressed files, the compressed size is used for blocksize estimation.
     file_extensions: list[str] | None = None
@@ -80,11 +80,11 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         if self.blocksize is not None:
             self._blocksize = parse_bytes_string_to_int(self.blocksize)
         else:
-            self._blocksize = parse_bytes_string_to_int("2GiB")
+            self._blocksize = parse_bytes_string_to_int("512MB")
 
-        if self._blocksize > parse_bytes_string_to_int("2GiB"):
+        if self._blocksize > parse_bytes_string_to_int("512MB"):
             msg = (
-                f"Blocksize is greater than 2 GiB, which is not recommended: {self.blocksize} "
+                f"Blocksize is greater than 512 MB, which is not recommended: {self.blocksize} "
                 "Consider using a smaller blocksize to avoid potential memory issues."
             )
             logger.warning(msg)
@@ -142,7 +142,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             msg = "Skipping storage limit check because some files have unknown size"
             logger.warning(msg)
         else:
-            # Verify storage size of input files is not greater than self._blocksize (2GiB by default)
+            # Verify storage size of input files is not greater than self._blocksize (512 MB by default)
             # This should be a very quick check per file, so we do it first before reading the data
             for partition in partitions:
                 total_storage_size = sum(path_to_size[path] for path in partition)
@@ -152,7 +152,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                     msg = (
                         f"File group task has exceeded the storage limit per partition: {partition}. "
                         f"Total storage size is {total_storage_size} bytes (limit {self._blocksize} bytes). "
-                        "Please increase blocksize if possible (the maximum recommended blocksize is 2 GiB). "
+                        "Please increase blocksize if possible (the maximum recommended blocksize is 512 MB). "
                         "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
                     )
                     raise ValueError(msg)
@@ -161,7 +161,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                     msg = (
                         f"File group task has exceeded the storage limit per partition: {partition}. "
                         f"Total storage size is {total_storage_size} bytes (limit {self._blocksize} bytes). "
-                        "Please reduce files_per_partition if possible, or set blocksize instead (the maximum recommended blocksize is 2 GiB). "
+                        "Please reduce files_per_partition if possible, or set blocksize instead (the maximum recommended blocksize is 512 MB). "
                         "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
                     )
                     raise ValueError(msg)

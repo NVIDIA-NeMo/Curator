@@ -212,10 +212,10 @@ class TestFilePartitioningStage:
             assert task.data[0] == test_files[i]
 
     def test_large_blocksize_warning(self, caplog: pytest.LogCaptureFixture):
-        """Test that a warning is raised if the blocksize is greater than 2 GiB."""
+        """Test that a warning is raised if the blocksize is greater than 512 MB."""
         with caplog.at_level("WARNING"):
-            FilePartitioningStage(file_paths="/test/path", blocksize="3GiB")
-        assert "Blocksize is greater than 2 GiB" in caplog.text
+            FilePartitioningStage(file_paths="/test/path", blocksize="1GiB")
+        assert "Blocksize is greater than 512 MB" in caplog.text
 
     def test_both_blocksize_and_files_per_partition_errors(self):
         """Test that specifying both blocksize and files_per_partition errors."""
