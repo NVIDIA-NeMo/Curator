@@ -55,5 +55,5 @@ def validate_and_project_source_fields(
             result[field] = None
         else:
             value = sample[field]
-            result[field] = json.dumps(value, ensure_ascii=True) if isinstance(value, (dict, list)) else value
+            result[field] = json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value
     return result
