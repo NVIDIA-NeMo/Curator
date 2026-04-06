@@ -17,7 +17,7 @@ import json
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage, WebdatasetReader
+from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage, InterleavedWebdatasetReader
 from nemo_curator.stages.interleaved.stages import InterleavedAspectRatioFilterStage
 
 
@@ -31,7 +31,7 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
 
     pipe = Pipeline(name="mint1t_mvp_multimodal", description="WebDataset MINT1T -> multimodal rows -> parquet")
     pipe.add_stage(
-        WebdatasetReader(
+        InterleavedWebdatasetReader(
             file_paths=args.input_path,
             files_per_partition=args.files_per_partition,
             blocksize=args.input_blocksize,

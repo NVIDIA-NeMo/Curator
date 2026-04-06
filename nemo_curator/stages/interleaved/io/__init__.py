@@ -12,10 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.interleaved.io.reader import WebdatasetReader
+from nemo_curator.stages.interleaved.io.reader import InterleavedParquetReader, InterleavedWebdatasetReader
 from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParquetWriterStage
+from nemo_curator.stages.interleaved.io.writers.webdataset import InterleavedWebdatasetWriterStage
 
 __all__ = [
+    "InterleavedParquetReader",
     "InterleavedParquetWriterStage",
-    "WebdatasetReader",
+    "InterleavedWebdatasetReader",
+    "InterleavedWebdatasetWriterStage",
 ]

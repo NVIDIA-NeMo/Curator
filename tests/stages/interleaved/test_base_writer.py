@@ -220,11 +220,12 @@ def test_process_no_source_files_uses_uuid(tmp_path: Path, metadata: dict) -> No
 
 
 def test_base_writer_inputs_and_outputs(tmp_path: Path) -> None:
+    """inputs() and outputs() must satisfy the ProcessingStage contract."""
     writer = _writer(tmp_path)
     task_attrs, data_attrs = writer.inputs()
     assert task_attrs == ["data"]
     assert data_attrs == []
 
-    task_attrs, data_attrs = writer.outputs()
-    assert task_attrs == ["data"]
-    assert data_attrs == []
+    out_task_attrs, out_data_attrs = writer.outputs()
+    assert out_task_attrs == ["data"]
+    assert out_data_attrs == []
