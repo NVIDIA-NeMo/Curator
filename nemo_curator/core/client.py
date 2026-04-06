@@ -430,8 +430,7 @@ class SlurmRayClient(RayClient):
             actual_port = self._read_head_port(slurm_job_id)
             self.ray_port = actual_port
             logger.info(f"SlurmRayClient worker {node_id}: connecting to head at {head_ip}:{self.ray_port}")
-            self._run_as_worker(head_ip)
-            sys.exit(0)
+            sys.exit(self._run_as_worker(head_ip))
 
     def stop(self) -> None:
         """Stop the Ray head.  Workers detect the head's death and exit on their own.
@@ -498,8 +497,12 @@ class SlurmRayClient(RayClient):
         msg = f"Timed out waiting for head port file {port_file} after {timeout_s}s"
         raise TimeoutError(msg)
 
-    def _run_as_worker(self, head_ip: str) -> None:
-        """Start a Ray worker that connects to *head_ip* and block until the cluster is torn down."""
+    def _run_as_worker(self, head_ip: str) -> int:
+        """Start a Ray worker that connects to *head_ip* and block until the cluster is torn down.
+
+        Returns the exit code of ``ray start --block`` so the caller can pass it to ``sys.exit``.
+        Exit code 0 means the cluster was torn down cleanly; non-zero indicates an error.
+        """
         ray_bin = _find_ray_binary()
         cmd = [
             ray_bin,
@@ -519,6 +522,7 @@ class SlurmRayClient(RayClient):
         logger.info(f"Ray worker starting: {' '.join(cmd)}")
         result = subprocess.run(cmd, check=False)  # noqa: S603
         logger.info(f"Ray worker exited with code {result.returncode}")
+        return result.returncode
 
     def _cleanup_local_ray(self) -> None:
         """Stop any stale Ray processes on the local node."""
