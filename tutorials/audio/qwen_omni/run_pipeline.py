@@ -15,7 +15,6 @@
 
 import argparse
 import ray
-
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.models.client import OpenAIClient
 from nemo_curator.pipeline import Pipeline
@@ -68,6 +67,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tensor-parallel-size", type=int, default=1, help="vLLM tensor parallel size (with --start-server)"
     )
+    parser.add_argument(
+        "--data-parallel-size", type=int, default=1, help="vLLM data parallel size (with --start-server)"
+    )
     return parser.parse_args()
 
 
@@ -91,6 +93,8 @@ def main() -> None:
                 "/",
                 "-tp",
                 str(args.tensor_parallel_size),
+                "--data-parallel-size",
+                str(args.data_parallel_size),
             ],
         )
         server.start()
