@@ -100,4 +100,12 @@ def enhancement_stage():
         verbose=False,
     )
     stage.setup()
-    return stage
+    yield stage
+    # Release GPU memory after module tests so subsequent tests can load models
+    import gc
+
+    import torch
+
+    del stage
+    gc.collect()
+    torch.cuda.empty_cache()
