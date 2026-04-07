@@ -31,6 +31,9 @@ import pytest
 # ---------------------------------------------------------------------------
 os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+_custom_hf = os.environ.get("CUSTOM_HF_DATASET", "")
+if _custom_hf:
+    os.environ.setdefault("HF_HOME", _custom_hf)
 
 # ---------------------------------------------------------------------------
 # Override the session-level autouse Ray cluster fixture from the root conftest.
