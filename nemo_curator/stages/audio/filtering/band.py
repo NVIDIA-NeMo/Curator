@@ -168,8 +168,6 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _process_single(self, task: AudioTask) -> AudioTask | None:
         """Run band classification on a single (non-nested) task."""
-        self._initialize_predictor()
-
         if self._predictor is None:
             logger.error("Band predictor not available")
             return None

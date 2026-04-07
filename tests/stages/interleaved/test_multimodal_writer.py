@@ -24,9 +24,17 @@ import pytest
 
 from nemo_curator.stages.interleaved.io.readers.webdataset import InterleavedWebdatasetReaderStage
 from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParquetWriterStage
+from nemo_curator.stages.interleaved.io.writers.webdataset import (
+    InterleavedWebdatasetWriterStage,
+    _escape_key,
+    _ext_from_content_type,
+    _is_null,
+)
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA, RESERVED_COLUMNS
+
+from .conftest import make_row
 
 
 def _read_batch(input_task: FileGroupTask) -> InterleavedBatch:
@@ -411,3 +419,457 @@ def test_writer_custom_compression(tmp_path: Path, compression: str) -> None:
     meta = pq.read_metadata(write_task.data[0])
     actual = meta.row_group(0).column(0).compression.lower()
     assert actual == compression
+
+
+# ---------------------------------------------------------------------------
+# Helper utilities
+# ---------------------------------------------------------------------------
+
+
+def _make_wds_batch(
+    sample_id: str = "s1",
+    text: str = "hello",
+    image_bytes: bytes | None = b"fake-img",
+    extra_cols: dict | None = None,
+    source_files: list[str] | None = None,
+) -> InterleavedBatch:
+    """Build a minimal metadata+text+image InterleavedBatch for WDS writer tests."""
+    rows: list[dict] = [
+        {
+            "sample_id": sample_id,
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+            **(extra_cols or {}),
+        },
+        {
+            "sample_id": sample_id,
+            "position": 0,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": text,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+            **(extra_cols or {}),
+        },
+    ]
+    if image_bytes is not None:
+        rows.append(
+            {
+                "sample_id": sample_id,
+                "position": 1,
+                "modality": "image",
+                "content_type": "image/png",
+                "text_content": None,
+                "binary_content": image_bytes,
+                "source_ref": None,
+                "materialize_error": None,
+                **(extra_cols or {}),
+            }
+        )
+    return InterleavedBatch(
+        task_id=f"wds_{sample_id}",
+        dataset_name="test",
+        data=pd.DataFrame(rows),
+        _metadata={"source_files": source_files or ["test.tar"]},
+    )
+
+
+def _read_wds_tar(tar_path: str) -> tuple[dict, dict[str, bytes]]:
+    """Read a WDS tar: returns (json_payload, {member_name: bytes})."""
+    payload: dict = {}
+    members: dict[str, bytes] = {}
+    with tarfile.open(tar_path, "r") as tf:
+        for m in tf.getmembers():
+            f = tf.extractfile(m)
+            if f is None:
+                continue
+            data = f.read()
+            members[m.name] = data
+            if m.name.endswith(".json"):
+                payload = json.loads(data)
+    return payload, members
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for helper functions
+# ---------------------------------------------------------------------------
+
+
+def test_escape_key_encodes_special_chars() -> None:
+    assert "/" not in _escape_key("a/b")
+    assert ":" not in _escape_key("a:b")
+    assert _escape_key("simple") == "simple"
+    assert _escape_key("a/b:c") == "a%2Fb%3Ac"
+
+
+def test_ext_from_content_type_known() -> None:
+    assert _ext_from_content_type("image/jpeg") == "jpg"
+    assert _ext_from_content_type("image/png") == "png"
+    assert _ext_from_content_type("image/tiff") == "tiff"
+
+
+def test_ext_from_content_type_fallback() -> None:
+    assert _ext_from_content_type(None) == "bin"
+    assert _ext_from_content_type("application/octet-stream") == "bin"
+
+
+# ---------------------------------------------------------------------------
+# InterleavedWebdatasetWriterStage tests
+# ---------------------------------------------------------------------------
+
+
+def test_wds_writer_roundtrip(tmp_path: Path) -> None:
+    """Write a WDS batch, read it back; text and image content are preserved."""
+    batch = _make_wds_batch(sample_id="doc1", text="roundtrip text", image_bytes=b"img-data")
+    writer = InterleavedWebdatasetWriterStage(
+        path=str(tmp_path / "wds_out"),
+        materialize_on_write=False,
+        mode="overwrite",
+    )
+    write_task = writer.process(batch)
+    tar_path = write_task.data[0]
+    assert tar_path.endswith(".tar")
+
+    read_task = FileGroupTask(task_id="rt", dataset_name="test", data=[tar_path])
+    result = InterleavedWebdatasetReaderStage(sample_id_field="sample_id").process(read_task)
+    assert isinstance(result, InterleavedBatch)
+    df = result.to_pandas()
+
+    assert "doc1" in df["sample_id"].tolist()
+    text_rows = df[df["modality"] == "text"]
+    assert text_rows["text_content"].tolist() == ["roundtrip text"]
+    image_rows = df[df["modality"] == "image"]
+    assert len(image_rows) == 1
+
+
+def test_wds_writer_text_only_sample(tmp_path: Path) -> None:
+    """No image rows → tar has JSON with all-None images list."""
+    batch = _make_wds_batch(sample_id="text_only", image_bytes=None)
+    writer = InterleavedWebdatasetWriterStage(
+        path=str(tmp_path / "text_only_out"),
+        materialize_on_write=False,
+        mode="overwrite",
+    )
+    write_task = writer.process(batch)
+    payload, members = _read_wds_tar(write_task.data[0])
+
+    assert all(v is None for v in payload["images"])
+    assert not any(k.endswith((".png", ".jpg")) for k in members)
+
+
+def test_wds_writer_unsupported_modality_raises(tmp_path: Path) -> None:
+    """A modality='video' row raises ValueError naming the bad modality."""
+    df = pd.DataFrame(
+        [
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "video",
+                "content_type": "video/mp4",
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            }
+        ]
+    )
+    task = InterleavedBatch(task_id="vid", dataset_name="t", data=df, _metadata={"source_files": ["x.tar"]})
+    writer = InterleavedWebdatasetWriterStage(
+        path=str(tmp_path / "vid_out"), materialize_on_write=False, mode="overwrite"
+    )
+    with pytest.raises(ValueError, match="video"):
+        writer.process(task)
+
+
+def test_wds_writer_key_escaping(tmp_path: Path) -> None:
+    """sample_id with special chars → tar members have safe names; roundtrip recovers original id."""
+    sample_id = "a/b:c.d"
+    batch = _make_wds_batch(sample_id=sample_id, image_bytes=None)
+    writer = InterleavedWebdatasetWriterStage(
+        path=str(tmp_path / "escape_out"), materialize_on_write=False, mode="overwrite"
+    )
+    write_task = writer.process(batch)
+    _, members = _read_wds_tar(write_task.data[0])
+
+    for name in members:
+        assert "/" not in name.split(".json")[0], f"unescaped slash in member name: {name}"
+        assert ":" not in name.split(".json")[0], f"unescaped colon in member name: {name}"
+
+    read_task = FileGroupTask(task_id="esc_rt", dataset_name="test", data=[write_task.data[0]])
+    result = InterleavedWebdatasetReaderStage(sample_id_field="sample_id").process(read_task)
+    assert isinstance(result, InterleavedBatch)
+    assert sample_id in result.to_pandas()["sample_id"].tolist()
+
+
+def test_wds_writer_passthrough_columns_in_json(tmp_path: Path) -> None:
+    """Extra 'url' col in metadata row appears in the written JSON payload."""
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+            "url": "https://example.com",
+        },
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "text",
+            "content_type": "text/plain",
+            "text_content": "hi",
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+            "url": None,
+        },
+    ]
+    task = InterleavedBatch(
+        task_id="pt", dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]}
+    )
+    writer = InterleavedWebdatasetWriterStage(
+        path=str(tmp_path / "pt_out"), materialize_on_write=False, mode="overwrite"
+    )
+    write_task = writer.process(task)
+    payload, _ = _read_wds_tar(write_task.data[0])
+    assert payload.get("url") == "https://example.com"
+
+
+def test_wds_writer_null_binary_skips_member(tmp_path: Path) -> None:
+    """null binary_content with materialize_on_write=False → no image member written."""
+    table = pa.Table.from_pylist(
+        [
+            {
+                "sample_id": "s1",
+                "position": -1,
+                "modality": "metadata",
+                "content_type": "application/json",
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "image",
+                "content_type": "image/png",
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": InterleavedBatch.build_source_ref(path="/fake/img.png", member=None),
+                "materialize_error": None,
+            },
+        ],
+        schema=INTERLEAVED_SCHEMA,
+    )
+    task = InterleavedBatch(
+        task_id="null_bin", dataset_name="t", data=table, _metadata={"source_files": ["/fake/img.png"]}
+    )
+    writer = InterleavedWebdatasetWriterStage(
+        path=str(tmp_path / "null_bin_out"), materialize_on_write=False, mode="overwrite"
+    )
+    write_task = writer.process(task)
+    payload, members = _read_wds_tar(write_task.data[0])
+
+    assert any(k.endswith(".json") for k in members)
+    assert not any(k.endswith(".png") for k in members)
+    assert any(v is not None for v in payload.get("images", []))
+
+
+def test_wds_writer_deterministic_filename(tmp_path: Path) -> None:
+    """Same source_files + task_id → same output filename across two writer instances."""
+    source = ["shard-00000.tar"]
+    task_id = "fixed_task"
+    batch = InterleavedBatch(
+        task_id=task_id,
+        dataset_name="test",
+        data=_make_wds_batch(sample_id="s1", source_files=source).to_pandas(),
+        _metadata={"source_files": source},
+    )
+
+    out1 = tmp_path / "det_out1"
+    out2 = tmp_path / "det_out2"
+    t1 = InterleavedWebdatasetWriterStage(path=str(out1), materialize_on_write=False, mode="overwrite").process(batch)
+    t2 = InterleavedWebdatasetWriterStage(path=str(out2), materialize_on_write=False, mode="overwrite").process(batch)
+    assert Path(t1.data[0]).name == Path(t2.data[0]).name
+
+
+def test_wds_writer_per_image_fields_roundtrip(tmp_path: Path) -> None:
+    """per_image_fields are written as a list in JSON and survive a write→read round-trip."""
+    fake_png = b"\x89PNG\r\n"
+    rows = [
+        # image_alt_text is null on the metadata row — it's a per-image field, not sample-level
+        make_row("s1", -1, "metadata", url="http://example.com", image_alt_text=None),
+        make_row("s1", 0, "text", text_content="intro text", url=None, image_alt_text=None),
+        make_row(
+            "s1",
+            1,
+            "image",
+            content_type="image/png",
+            binary_content=fake_png,
+            url=None,
+            image_alt_text="a cat on a chair",
+        ),
+        make_row("s1", 2, "image", content_type="image/png", binary_content=fake_png, url=None, image_alt_text=None),
+        make_row(
+            "s1",
+            3,
+            "image",
+            content_type="image/png",
+            binary_content=fake_png,
+            url=None,
+            image_alt_text="a dog in a park",
+        ),
+    ]
+    task = InterleavedBatch(
+        task_id="per_img", dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]}
+    )
+    writer = InterleavedWebdatasetWriterStage(
+        path=str(tmp_path / "per_img_out"), materialize_on_write=False, mode="overwrite"
+    )
+    write_task = writer.process(task)
+
+    payload, _ = _read_wds_tar(write_task.data[0])
+    assert "image_alt_text" in payload, "image_alt_text missing from JSON payload"
+    assert payload["image_alt_text"] == ["a cat on a chair", None, "a dog in a park"]
+    # sample-level passthrough still present
+    assert payload["url"] == "http://example.com"
+
+    reader = InterleavedWebdatasetReaderStage(
+        sample_id_field="sample_id",
+        per_image_fields=("image_alt_text",),
+    )
+    result = reader.process(FileGroupTask(task_id="rt", dataset_name="t", data=write_task.data))
+    assert isinstance(result, InterleavedBatch)
+    df = result.to_pandas()
+
+    image_rows = df[df["modality"] == "image"].sort_values("position")
+    alt_texts = [None if pd.isna(v) else v for v in image_rows["image_alt_text"]]
+    assert alt_texts == ["a cat on a chair", None, "a dog in a park"]
+
+
+def test_wds_writer_per_text_fields_roundtrip(tmp_path: Path) -> None:
+    """per_text_fields are written as a list in JSON and survive a write→read round-trip."""
+    rows = [
+        make_row("s1", -1, "metadata", text_confidence=None),
+        make_row("s1", 0, "text", text_content="first paragraph", text_confidence=0.95),
+        make_row("s1", 1, "text", text_content="second paragraph", text_confidence=None),  # gap
+        make_row("s1", 2, "text", text_content="third paragraph", text_confidence=0.72),
+    ]
+    task = InterleavedBatch(
+        task_id="per_txt", dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]}
+    )
+    writer = InterleavedWebdatasetWriterStage(
+        path=str(tmp_path / "per_txt_out"), materialize_on_write=False, mode="overwrite"
+    )
+    write_task = writer.process(task)
+
+    payload, _ = _read_wds_tar(write_task.data[0])
+    assert "text_confidence" in payload, "text_confidence missing from JSON payload"
+    assert payload["text_confidence"] == [0.95, None, 0.72]
+
+    reader = InterleavedWebdatasetReaderStage(
+        sample_id_field="sample_id",
+        per_text_fields=("text_confidence",),
+    )
+    result = reader.process(FileGroupTask(task_id="rt2", dataset_name="t", data=write_task.data))
+    assert isinstance(result, InterleavedBatch)
+    df = result.to_pandas()
+
+    text_rows = df[df["modality"] == "text"].sort_values("position")
+    confidences = [None if pd.isna(v) else v for v in text_rows["text_confidence"]]
+    assert confidences == [0.95, None, 0.72]
+
+
+def test_wds_writer_non_ascii_per_image_field_roundtrip(tmp_path: Path) -> None:
+    """Non-ASCII per_image_fields are written as raw UTF-8, not \\uXXXX escapes."""
+    alt_texts = ["北极熊", None, "الدب القطبي"]  # Chinese, gap, Arabic
+    fake_png = b"\x89PNG"
+    rows = [
+        make_row("s1", -1, "metadata", image_alt_text=None),
+        make_row("s1", 0, "image", content_type="image/png", binary_content=fake_png, image_alt_text=alt_texts[0]),
+        make_row("s1", 1, "image", content_type="image/png", binary_content=fake_png, image_alt_text=alt_texts[1]),
+        make_row("s1", 2, "image", content_type="image/png", binary_content=fake_png, image_alt_text=alt_texts[2]),
+    ]
+    task = InterleavedBatch(
+        task_id="non_ascii", dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]}
+    )
+    writer = InterleavedWebdatasetWriterStage(
+        path=str(tmp_path / "non_ascii_out"), materialize_on_write=False, mode="overwrite"
+    )
+    write_task = writer.process(task)
+
+    _, members = _read_wds_tar(write_task.data[0])
+    raw_bytes = next(v for k, v in members.items() if k.endswith(".json"))
+    assert "\\u" not in raw_bytes.decode("utf-8"), "Non-ASCII chars should not be \\u-escaped"
+    assert "北极熊".encode() in raw_bytes
+    assert "الدب القطبي".encode() in raw_bytes
+
+    reader = InterleavedWebdatasetReaderStage(
+        sample_id_field="sample_id",
+        per_image_fields=("image_alt_text",),
+    )
+    result = reader.process(FileGroupTask(task_id="rt3", dataset_name="t", data=write_task.data))
+    assert isinstance(result, InterleavedBatch)
+    df = result.to_pandas()
+    image_rows = df[df["modality"] == "image"].sort_values("position")
+    recovered = [None if pd.isna(v) else v for v in image_rows["image_alt_text"]]
+    assert recovered == alt_texts
+
+
+def test_wds_writer_mixed_modality_field_written_as_position_aligned_list(tmp_path: Path) -> None:
+    """A column with non-null values in BOTH image and text rows is written as a
+    position-aligned list (one entry per content row).  When read back without
+    per_image_fields / per_text_fields, the entire list lands on the metadata row
+    as a passthrough JSON string."""
+    fake_png = b"\x89PNG"
+    rows = [
+        make_row("s1", -1, "metadata", confidence=None),
+        make_row("s1", 0, "text", text_content="intro", confidence="text_conf_A"),
+        make_row("s1", 1, "image", content_type="image/png", binary_content=fake_png, confidence="img_conf_B"),
+        make_row("s1", 2, "text", text_content="outro", confidence=None),
+    ]
+    task = InterleavedBatch(
+        task_id="mixed", dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]}
+    )
+    write_task = InterleavedWebdatasetWriterStage(
+        path=str(tmp_path / "mixed_out"), materialize_on_write=False, mode="overwrite"
+    ).process(task)
+
+    payload, _ = _read_wds_tar(write_task.data[0])
+    assert payload["confidence"] == ["text_conf_A", "img_conf_B", None]
+
+    # Without per_image/per_text declaration, reader treats it as a sample-level passthrough
+    reader = InterleavedWebdatasetReaderStage(sample_id_field="sample_id")
+    result = reader.process(FileGroupTask(task_id="rt_mixed", dataset_name="t", data=write_task.data))
+    assert isinstance(result, InterleavedBatch)
+    df = result.to_pandas()
+    meta_row = df[df["modality"] == "metadata"].iloc[0]
+    assert json.loads(meta_row["confidence"]) == ["text_conf_A", "img_conf_B", None]
+
+
+def test_is_null_null_variants() -> None:
+    assert _is_null(None) is True
+    assert _is_null(float("nan")) is True
+    assert _is_null(pd.NA) is True
+
+
+def test_is_null_non_null_and_uncomparable() -> None:
+    class _Uncomparable:
+        __hash__ = None  # type: ignore[assignment]
+
+        def __eq__(self, other: object) -> bool:
+            msg = "cannot compare"
+            raise TypeError(msg)
+
+    for v in ("hello", 42, 0, b"bytes", _Uncomparable()):
+        assert _is_null(v) is False
