@@ -25,6 +25,8 @@ from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
     from nemo_curator.tasks import InterleavedBatch
 
@@ -37,6 +39,22 @@ def _sample_texts_list_from_df(df: pd.DataFrame, sample_id: str) -> list[str]:
     if subset.empty:
         return []
     return [s.strip() for s in subset["text_content"].dropna().astype(str).tolist() if s.strip()]
+
+
+def _indices_and_decoded_images_from_rows(
+    rows: list[tuple[int, bytes]], keep_mask: pd.Series
+) -> tuple[list[int], list[np.ndarray]]:
+    """Decode image bytes per row; clear keep_mask entries where decode fails."""
+    indices: list[int] = []
+    images: list[np.ndarray] = []
+    for idx, b in rows:
+        arr = image_bytes_to_array(b)
+        if arr is None:
+            keep_mask.loc[idx] = False
+            continue
+        indices.append(idx)
+        images.append(arr)
+    return indices, images
 
 
 @dataclass
@@ -84,14 +102,7 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
                 for idx, _ in rows:
                     keep_mask.loc[idx] = False
                 continue
-            indices, images = [], []
-            for idx, b in rows:
-                arr = image_bytes_to_array(b)
-                if arr is None:
-                    keep_mask.loc[idx] = False
-                    continue
-                indices.append(idx)
-                images.append(arr)
+            indices, images = _indices_and_decoded_images_from_rows(rows, keep_mask)
             if not images:
                 continue
             img_emb = self._model(images)
