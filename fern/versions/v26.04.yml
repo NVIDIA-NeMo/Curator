@@ -519,6 +519,9 @@ navigation:
               - page: Execution Backends
                 path: ./v26.04/pages/reference/infrastructure/execution-backends.mdx
                 slug: execution-backends
+              - page: Per-Stage Runtime Environments
+                path: ./v26.04/pages/reference/infrastructure/per-stage-runtime.mdx
+                slug: per-stage-runtime
               - page: Container Environments
                 path: ./v26.04/pages/reference/infrastructure/container-environments.mdx
                 slug: container-environments
