@@ -16,8 +16,10 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import json
+import zipfile
 from typing import TYPE_CHECKING
 
 import pytest
@@ -96,6 +98,55 @@ class TestPDFPartitioningStage:
         assert len(tasks[0].data) == 2
         assert len(tasks[2].data) == 1
 
+    def test_extra_fields_preserved_in_single_file_entry(self, tmp_path: Path):
+        """Extra fields like jsonl_file and byte_offset must be forwarded downstream."""
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text(
+            json.dumps(
+                {"file_name": "a.pdf", "url": "http://a", "jsonl_file": "x.jsonl", "byte_offset": 42}
+            )
+            + "\n"
+        )
+        stage = PDFPartitioningStage(manifest_path=str(manifest), pdfs_per_task=5)
+        tasks = stage.process(_empty_task())
+        assert len(tasks) == 1
+        entry = json.loads(tasks[0].data[0])
+        assert entry["jsonl_file"] == "x.jsonl"
+        assert entry["byte_offset"] == 42
+
+    def test_unrecognized_line_is_skipped(self, tmp_path: Path):
+        """Lines without file_name or cc_pdf_file_names should be skipped with a warning."""
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text(
+            json.dumps({"unknown_key": "value"}) + "\n" + json.dumps({"file_name": "b.pdf"}) + "\n"
+        )
+        stage = PDFPartitioningStage(manifest_path=str(manifest), pdfs_per_task=5)
+        tasks = stage.process(_empty_task())
+        total = sum(len(t.data) for t in tasks)
+        assert total == 1
+        assert json.loads(tasks[0].data[0])["file_name"] == "b.pdf"
+
+    def test_duplicate_filenames_deduplicated(self, tmp_path: Path):
+        """dict.fromkeys deduplication should collapse repeated filenames."""
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text(
+            json.dumps({"cc_pdf_file_names": ["a.pdf", "a.pdf", "b.pdf"], "url": "http://x"}) + "\n"
+        )
+        stage = PDFPartitioningStage(manifest_path=str(manifest), pdfs_per_task=5)
+        tasks = stage.process(_empty_task())
+        entries = [json.loads(e) for e in tasks[0].data]
+        assert len(entries) == 2
+        assert entries[0]["file_name"] == "a.pdf"
+        assert entries[1]["file_name"] == "b.pdf"
+
+    def test_blank_lines_ignored(self, tmp_path: Path):
+        """Blank lines in the manifest should be silently skipped."""
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text("\n" + json.dumps({"file_name": "a.pdf"}) + "\n\n")
+        stage = PDFPartitioningStage(manifest_path=str(manifest), pdfs_per_task=5)
+        tasks = stage.process(_empty_task())
+        assert sum(len(t.data) for t in tasks) == 1
+
 
 def _has_pypdfium2() -> bool:
     try:
@@ -157,6 +208,77 @@ class TestPDFPreprocessStage:
         stage = PDFPreprocessStage(pdf_dir=str(pdf_dir))
         result = stage.process(task)
         assert result is None
+
+    def test_zip_mode(self, tmp_path: Path):
+        """PDFs extracted from CC-MAIN zip archives."""
+        zip_dir = tmp_path / "0000-0999"
+        zip_dir.mkdir(parents=True)
+        pdf_bytes = self._make_minimal_pdf()
+        with zipfile.ZipFile(zip_dir / "0001.zip", "w") as zf:
+            zf.writestr("0001234.pdf", pdf_bytes)
+
+        entry = json.dumps({"file_name": "0001234.pdf", "url": "http://test"})
+        from nemo_curator.tasks import FileGroupTask
+
+        task = FileGroupTask(task_id="test_task", dataset_name="test", data=[entry])
+        stage = PDFPreprocessStage(zip_base_dir=str(tmp_path))
+        result = stage.process(task)
+        assert result is not None
+        assert len(result.to_pandas()) >= 1
+
+    def test_jsonl_mode_with_byte_offset(self, tmp_path: Path):
+        """PDFs decoded from base64 JSONL (GitHub-style) using byte_offset fast path."""
+        pdf_bytes = self._make_minimal_pdf()
+        content = base64.b64encode(pdf_bytes).decode()
+        line = json.dumps({"content": content}) + "\n"
+
+        jsonl_dir = tmp_path / "jsonl"
+        jsonl_dir.mkdir()
+        (jsonl_dir / "data.jsonl").write_bytes(line.encode())
+
+        entry = json.dumps(
+            {"file_name": "test.pdf", "url": "http://test", "jsonl_file": "data.jsonl", "byte_offset": 0}
+        )
+        from nemo_curator.tasks import FileGroupTask
+
+        task = FileGroupTask(task_id="test_task", dataset_name="test", data=[entry])
+        stage = PDFPreprocessStage(jsonl_base_dir=str(jsonl_dir))
+        result = stage.process(task)
+        assert result is not None
+        assert len(result.to_pandas()) >= 1
+
+    def test_jsonl_mode_with_line_idx(self, tmp_path: Path):
+        """PDFs decoded from base64 JSONL using legacy line_idx fallback path."""
+        pdf_bytes = self._make_minimal_pdf()
+        content = base64.b64encode(pdf_bytes).decode()
+        # Two lines; target is line 1
+        line0 = json.dumps({"content": base64.b64encode(b"other").decode()}) + "\n"
+        line1 = json.dumps({"content": content}) + "\n"
+
+        jsonl_dir = tmp_path / "jsonl"
+        jsonl_dir.mkdir()
+        (jsonl_dir / "data.jsonl").write_bytes((line0 + line1).encode())
+
+        # No byte_offset → falls back to line_idx scan
+        entry = json.dumps(
+            {"file_name": "test.pdf", "url": "http://test", "jsonl_file": "data.jsonl", "line_idx": 1}
+        )
+        from nemo_curator.tasks import FileGroupTask
+
+        task = FileGroupTask(task_id="test_task", dataset_name="test", data=[entry])
+        stage = PDFPreprocessStage(jsonl_base_dir=str(jsonl_dir))
+        result = stage.process(task)
+        assert result is not None
+
+    def test_no_mode_raises_value_error(self):
+        """When no source mode is configured, process() should raise ValueError."""
+        entry = json.dumps({"file_name": "test.pdf"})
+        from nemo_curator.tasks import FileGroupTask
+
+        task = FileGroupTask(task_id="t", dataset_name="test", data=[entry])
+        stage = PDFPreprocessStage()
+        with pytest.raises(ValueError, match="One of"):
+            stage.process(task)
 
 
 class TestNemotronParsePostprocessStage:

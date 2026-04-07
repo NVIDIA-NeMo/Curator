@@ -16,9 +16,13 @@
 
 from __future__ import annotations
 
+import base64
 import io
+import json
 import zipfile
 from typing import TYPE_CHECKING
+
+import pytest
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -29,7 +33,9 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
     build_canvas,
     build_interleaved_rows,
     crop_to_bbox,
+    extract_pdf_from_jsonl,
     extract_pdf_from_zip,
+    extract_pdfs_from_jsonl_batch,
     image_to_bytes,
     interleave_floaters,
     parse_nemotron_output,
@@ -188,4 +194,116 @@ class TestCCPDFZipHelpers:
         result = extract_pdf_from_zip("9999999.pdf", str(tmp_path))
         assert result is None
 
+
+class TestExtractPdfFromJsonl:
+    """Tests for extract_pdf_from_jsonl: byte_offset, line_idx, and neither paths."""
+
+    def _make_jsonl_file(self, tmp_path: "Path", pdf_bytes_list: list[bytes]) -> "Path":
+        lines = []
+        for pdf_bytes in pdf_bytes_list:
+            content = base64.b64encode(pdf_bytes).decode()
+            lines.append(json.dumps({"content": content}) + "\n")
+        jsonl_file = tmp_path / "data.jsonl"
+        jsonl_file.write_bytes("".join(lines).encode())
+        return jsonl_file
+
+    def test_byte_offset_path(self, tmp_path: "Path"):
+        pdf_bytes = b"%PDF-fake-content"
+        jsonl_file = self._make_jsonl_file(tmp_path, [pdf_bytes])
+        result = extract_pdf_from_jsonl(str(jsonl_file), byte_offset=0)
+        assert result == pdf_bytes
+
+    def test_line_idx_path(self, tmp_path: "Path"):
+        pdf_bytes_0 = b"%PDF-line0"
+        pdf_bytes_1 = b"%PDF-line1"
+        jsonl_file = self._make_jsonl_file(tmp_path, [pdf_bytes_0, pdf_bytes_1])
+        result = extract_pdf_from_jsonl(str(jsonl_file), line_idx=1)
+        assert result == pdf_bytes_1
+
+    def test_neither_returns_none(self, tmp_path: "Path"):
+        jsonl_file = tmp_path / "empty.jsonl"
+        jsonl_file.write_bytes(b"")
+        result = extract_pdf_from_jsonl(str(jsonl_file))
+        assert result is None
+
+    def test_bad_offset_returns_none(self, tmp_path: "Path"):
+        jsonl_file = self._make_jsonl_file(tmp_path, [b"%PDF-x"])
+        # Seeking beyond end of file returns empty line, JSON decode fails
+        result = extract_pdf_from_jsonl(str(jsonl_file), byte_offset=99999)
+        assert result is None
+
+
+class TestExtractPdfsFromJsonlBatch:
+    """Tests for extract_pdfs_from_jsonl_batch."""
+
+    def test_batch_extraction(self, tmp_path: "Path"):
+        lines = []
+        expected: dict[int, bytes] = {}
+        offset = 0
+        for i in range(3):
+            pdf_bytes = f"%PDF-{i}".encode()
+            content = base64.b64encode(pdf_bytes).decode()
+            line = json.dumps({"content": content}) + "\n"
+            expected[offset] = pdf_bytes
+            offset += len(line.encode())
+            lines.append(line)
+
+        jsonl_file = tmp_path / "batch.jsonl"
+        jsonl_file.write_bytes("".join(lines).encode())
+
+        result = extract_pdfs_from_jsonl_batch(str(jsonl_file), list(expected.keys()))
+        for off, pdf in expected.items():
+            assert result[off] == pdf
+
+    def test_missing_file_returns_none_for_all(self, tmp_path: "Path"):
+        result = extract_pdfs_from_jsonl_batch(str(tmp_path / "nonexistent.jsonl"), [0, 100])
+        assert result[0] is None
+        assert result[100] is None
+
+    def test_bad_offset_stored_as_none(self, tmp_path: "Path"):
+        """An invalid offset within an existing file should store None, not raise."""
+        pdf_bytes = b"%PDF-valid"
+        content = base64.b64encode(pdf_bytes).decode()
+        line = json.dumps({"content": content}) + "\n"
+        jsonl_file = tmp_path / "data.jsonl"
+        jsonl_file.write_bytes(line.encode())
+
+        offsets = [0, 99999]
+        result = extract_pdfs_from_jsonl_batch(str(jsonl_file), offsets)
+        assert result[0] == pdf_bytes
+        assert result[99999] is None
+
+
+class TestBuildInterleavedRowsExtended:
+    """Additional coverage for build_interleaved_rows: Table, reorder_floaters=False, Picture."""
+
+    def _make_img(self) -> Image.Image:
+        return Image.new("RGB", (100, 100), color="white")
+
+    def test_table_element(self):
+        raw = "<x_0.0><y_0.0>| A | B |<x_1.0><y_1.0><class_Table>"
+        rows = build_interleaved_rows("s1", "http://x", "t.pdf", [self._make_img()], [raw])
+        table_rows = [r for r in rows if r["modality"] == "table"]
+        assert len(table_rows) == 1
+        assert "A" in table_rows[0]["text_content"]
+
+    def test_reorder_floaters_false(self):
+        raw = "<x_0.0><y_0.0>Hello<x_1.0><y_1.0><class_Text>"
+        rows = build_interleaved_rows(
+            "s1", "http://x", "t.pdf", [self._make_img()], [raw], reorder_floaters=False
+        )
+        text_rows = [r for r in rows if r["modality"] == "text"]
+        assert len(text_rows) == 1
+        assert text_rows[0]["text_content"] == "Hello"
+
+    def test_picture_with_caption_interleaved(self):
+        # Picture followed by Caption: both should appear in output
+        raw = (
+            "<x_0.0><y_0.0>Intro text<x_1.0><y_0.1><class_Text>"
+            "<x_0.1><y_0.2><x_0.9><y_0.5><class_Picture>"
+            "<x_0.1><y_0.55>Fig. 1<x_0.9><y_0.6><class_Caption>"
+        )
+        rows = build_interleaved_rows("s1", "http://x", "t.pdf", [self._make_img()], [raw])
+        modalities = [r["modality"] for r in rows]
+        assert "image" in modalities or "text" in modalities  # at least some output
 
