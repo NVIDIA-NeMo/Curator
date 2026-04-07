@@ -277,7 +277,7 @@ constraint-dependencies = [
     "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
-    "fsspec>=2025.3.0",
+    "fsspec>=2025.3.0",  # data-designer-engine==0.5.5 requires a newer fsspec than older pins allow
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
     "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
