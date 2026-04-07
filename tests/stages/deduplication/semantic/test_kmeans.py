@@ -33,7 +33,7 @@ from sklearn.metrics import adjusted_rand_score
 
 # Suppress GPU-related import errors when running pytest -m "not gpu"
 with suppress(ImportError):
-    from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+    from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
     from nemo_curator.pipeline import Pipeline
     from nemo_curator.stages.deduplication.semantic.kmeans import KMeansReadFitWriteStage, KMeansStage
     from nemo_curator.stages.deduplication.semantic.utils import get_array_from_df

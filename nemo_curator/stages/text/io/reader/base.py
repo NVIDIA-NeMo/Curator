@@ -25,7 +25,7 @@ from loguru import logger
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
 
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 
