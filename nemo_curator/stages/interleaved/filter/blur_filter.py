@@ -19,11 +19,14 @@ from typing import TYPE_CHECKING
 
 import cv2
 import pandas as pd
+from loguru import logger
 
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 
 if TYPE_CHECKING:
+    from collections.abc import Hashable
+
     import numpy as np
 
     from nemo_curator.tasks import InterleavedBatch
@@ -31,9 +34,18 @@ if TYPE_CHECKING:
 DEFAULT_BLUR_SCORE_THRESHOLD: float = 100.0
 
 
-def _sharpness_score(image: np.ndarray) -> float:
+def _sharpness_score(image: np.ndarray, row_index: Hashable | None = None) -> float:
     """Compute Laplacian variance as sharpness score; higher is sharper."""
-    return float(cv2.Laplacian(image, cv2.CV_64F).var())
+    try:
+        return float(cv2.Laplacian(image, cv2.CV_64F).var())
+    except cv2.error as e:
+        logger.debug(
+            "cv2.Laplacian failed (row_index={} image_shape={}): {}",
+            row_index,
+            getattr(image, "shape", None),
+            e,
+        )
+        return 0.0
 
 
 @dataclass
@@ -52,10 +64,10 @@ class InterleavedBlurFilterStage(BaseInterleavedFilterStage):
             if image_bytes is None:
                 keep_mask.loc[idx] = False
                 continue
-            try:
-                image = image_bytes_to_array(image_bytes)
-                sharpness = _sharpness_score(image)
-                keep_mask.loc[idx] = sharpness >= self.score_threshold
-            except OSError:
+            image = image_bytes_to_array(image_bytes, row_index=idx)
+            if image is None:
                 keep_mask.loc[idx] = False
+                continue
+            sharpness = _sharpness_score(image, row_index=idx)
+            keep_mask.loc[idx] = sharpness >= self.score_threshold
         return keep_mask

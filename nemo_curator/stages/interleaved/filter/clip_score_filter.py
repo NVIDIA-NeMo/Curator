@@ -50,7 +50,7 @@ def _indices_and_decoded_images_from_rows(
     indices: list[int] = []
     images: list[np.ndarray] = []
     for idx, b in rows:
-        arr = image_bytes_to_array(b)
+        arr = image_bytes_to_array(b, row_index=idx)
         if arr is None:
             keep_mask.loc[idx] = False
             continue

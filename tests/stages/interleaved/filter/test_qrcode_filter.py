@@ -105,7 +105,7 @@ def test_qrcode_filter_text_only_passthrough() -> None:
 
 @patch("nemo_curator.stages.interleaved.filter.qrcode_filter.image_bytes_to_array")
 def test_qrcode_filter_image_decode_error_drops_row(mock_to_array: MagicMock) -> None:
-    mock_to_array.side_effect = OSError("invalid image bytes")
+    mock_to_array.return_value = None
     rows = [
         {
             "sample_id": "s1",

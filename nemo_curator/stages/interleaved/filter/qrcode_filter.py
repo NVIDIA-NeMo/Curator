@@ -20,35 +20,45 @@ from typing import TYPE_CHECKING
 import cv2
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 
 if TYPE_CHECKING:
+    from collections.abc import Hashable
+
     from nemo_curator.tasks import InterleavedBatch
 
 DEFAULT_QRCODE_SCORE_THRESHOLD: float = 0.05
 
 
-def _qr_code_ratio(image: np.ndarray) -> float:
+def _qr_code_ratio(image: np.ndarray, row_index: Hashable | None = None) -> float:
     """Return the ratio of image area covered by all detected QR code(s), in [0, 1]."""
-    height, width = image.shape[:2]
+    img_shape = image.shape
+    height, width = img_shape[:2]
     img_area = float(height * width)
     if img_area <= 0:
         return 0.0
-    detector = cv2.QRCodeDetector()
     try:
+        detector = cv2.QRCodeDetector()
         retval, _decoded_info, points, _ = detector.detectAndDecodeMulti(image)
-    except cv2.error:
-        retval, points = False, None
-    if not retval or points is None or points.size == 0:
+        if not retval or points is None or points.size == 0:
+            return 0.0
+        points = np.asarray(points, dtype=np.float32)
+        total_qr_area = 0.0
+        for i in range(len(points)):
+            pts = points[i].reshape(-1, 1, 2)
+            total_qr_area += cv2.contourArea(pts)
+        return total_qr_area / img_area
+    except cv2.error as e:
+        logger.debug(
+            "cv2 QR code ratio computation failed (row_index={} image_shape={}): {}",
+            row_index,
+            img_shape,
+            e,
+        )
         return 0.0
-    points = np.asarray(points, dtype=np.float32)
-    total_qr_area = 0.0
-    for i in range(len(points)):
-        pts = points[i].reshape(-1, 1, 2)
-        total_qr_area += cv2.contourArea(pts)
-    return total_qr_area / img_area
 
 
 @dataclass
@@ -67,10 +77,10 @@ class InterleavedQRCodeFilterStage(BaseInterleavedFilterStage):
             if image_bytes is None:
                 keep_mask.loc[idx] = False
                 continue
-            try:
-                image = image_bytes_to_array(image_bytes)
-                qr_ratio = _qr_code_ratio(image)
-                keep_mask.loc[idx] = qr_ratio < self.score_threshold
-            except OSError:
+            image = image_bytes_to_array(image_bytes, row_index=idx)
+            if image is None:
                 keep_mask.loc[idx] = False
+                continue
+            qr_ratio = _qr_code_ratio(image, row_index=idx)
+            keep_mask.loc[idx] = qr_ratio < self.score_threshold
         return keep_mask

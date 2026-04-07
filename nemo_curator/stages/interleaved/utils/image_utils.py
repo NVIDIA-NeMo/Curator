@@ -14,15 +14,22 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import cv2
 import numpy as np
+from loguru import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Hashable
 
 
-def image_bytes_to_array(image_bytes: bytes) -> np.ndarray:
+def image_bytes_to_array(image_bytes: bytes, *, row_index: Hashable | None = None) -> np.ndarray | None:
     """Decode image bytes to RGB numpy array for OpenCV."""
     try:
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
         image = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    except OSError:
+    except cv2.error as e:
+        logger.debug("cv2 image decode failed (row_index={}): {}", row_index, e)
         return None
