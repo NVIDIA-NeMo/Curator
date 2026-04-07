@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import shlex
-import shutil
 import subprocess
 import sys
 import threading
@@ -26,7 +25,6 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
@@ -34,32 +32,6 @@ from rich.text import Text
 # Create a translation table that maps all control characters to None for deletion in order to safely print subprocess output to the scrolling live window.
 # This includes characters in the Unicode category 'Cc' (Control).
 _control_chars = {c: None for c in range(sys.maxunicode) if unicodedata.category(chr(c)) == "Cc"}
-
-
-def run_nvidia_smi(label: str) -> None:
-    """Run nvidia-smi and log its output via the logger with a labeled header/footer.
-
-    Args:
-        label: Label for the header (e.g. "before" or "after").
-    """
-    logger.info(f"=== nvidia-smi ({label}) ===")
-
-    if shutil.which("nvidia-smi") is None:
-        logger.warning("nvidia-smi not found")
-    else:
-        try:
-            result = subprocess.run(
-                ["nvidia-smi"],  # noqa: S607
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-            logger.info(result.stdout)
-        except Exception as e:
-            logger.error(f"nvidia-smi failed: {e}")
-
-    logger.info(f"=== end nvidia-smi ({label}) ===")
 
 
 def run_command_with_timeout(  # noqa: PLR0913

@@ -43,14 +43,21 @@ from runner.datasets import DatasetResolver
 from runner.entry import Entry
 from runner.env_capture import dump_env
 from runner.path_resolver import PathResolver
-from runner.process import run_command_with_timeout, run_nvidia_smi
+from runner.process import run_command_with_timeout
 from runner.ray_cluster import (
     get_ray_cluster_data,
     setup_ray_cluster_and_env,
     teardown_ray_cluster_and_env,
 )
 from runner.session import Session
-from runner.utils import find_result, get_obj_for_json, remove_disabled_blocks, resolve_env_vars
+from runner.utils import (
+    find_result,
+    get_gpu_stats,
+    get_obj_for_json,
+    log_gpu_stats,
+    remove_disabled_blocks,
+    resolve_env_vars,
+)
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -192,9 +199,11 @@ def run_entry(
             )
         )
 
-        # Execute command with timeout, capturing nvidia-smi output before and after
+        # Execute command with timeout, capturing GPU stats before and after
         ray_cluster_data = get_ray_cluster_data()
-        run_nvidia_smi("before")
+        gpu_stats_before = get_gpu_stats()
+        logger.info("\tGPU stats (before):")
+        log_gpu_stats(gpu_stats_before, warn_if_in_use=True)
         logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
         run_data = run_command_with_timeout(
@@ -205,7 +214,8 @@ def run_entry(
             fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
         )
         ended_exec = time.time()
-        run_nvidia_smi("after")
+        logger.info("\tGPU stats (after):")
+        log_gpu_stats(get_gpu_stats())
         duration = ended_exec - started_exec
 
         # Update result_data
@@ -217,6 +227,8 @@ def run_entry(
                 "exit_code": run_data["returncode"],
                 "timed_out": run_data["timed_out"],
                 "logs_dir": logs_path,
+                "ray_cluster_data": ray_cluster_data,
+                "gpu_stats": gpu_stats_before,
             }
         )
         # script_persisted_data is a dictionary with keys "params" and "metrics"
@@ -226,7 +238,6 @@ def run_entry(
         script_persisted_data = get_entry_script_persisted_data(session_entry_path)
         result_data.update(
             {
-                "ray_cluster_data": ray_cluster_data,
                 "metrics": script_persisted_data["metrics"],
                 "params": script_persisted_data["params"],
             }

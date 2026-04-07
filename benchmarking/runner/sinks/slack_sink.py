@@ -326,7 +326,14 @@ class SlackMessage(SlackMessageBase):
     under a SlackParentMessage.
     """
 
-    def __init__(self, entry_name: str, result_dict: dict[str, Any], metrics: list[str], pings: list[str]):
+    def __init__(
+        self,
+        entry_name: str,
+        result_dict: dict[str, Any],
+        metrics: list[str],
+        pings: list[str],
+        warnings: list[str] | None = None,
+    ):
         """Initialize a SlackMessage.
 
         Args:
@@ -334,12 +341,14 @@ class SlackMessage(SlackMessageBase):
             result_dict: Dictionary containing benchmark result data.
             metrics: List of metric names to include in the message.
             pings: List of Slack user IDs (e.g. U01234567) to mention; each becomes <@ID> so the user is notified.
+            warnings: Optional list of warning strings to include in the message.
         """
         super().__init__()
         self.entry_name = entry_name
         self.result_dict = result_dict
         self.metrics = metrics
         self.pings = pings
+        self.warnings = warnings or []
 
     def _format_ping_mentions(self) -> list[str]:
         """Format ping strings as Slack @ mentions so the user gets notified.
@@ -385,6 +394,13 @@ class SlackMessage(SlackMessageBase):
             else:
                 rows.append(self._get_two_column_row("All requirements met", "❌"))
         blocks.append({"type": "table", "rows": rows})
+        if self.warnings:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": "\n".join(f"⚠️ {w}" for w in self.warnings)},
+                }
+            )
         if self.pings:
             mentions = self._format_ping_mentions()
             if mentions:
@@ -421,6 +437,11 @@ class SlackMessage(SlackMessageBase):
                     lines.append(f"  • {metric_name}: {reason}")
             else:
                 lines.append("\nAll Requirements Met ✅")
+
+        if self.warnings:
+            lines.append("\nWarnings:")
+            for w in self.warnings:
+                lines.append(f"  ⚠️ {w}")
 
         if self.pings:
             mentions = self._format_ping_mentions()
@@ -554,11 +575,22 @@ class SlackSink(Sink):
         pings = [] if result_dict["success"] else sink_data.get("ping_on_failure", [])
         status_text = "✅ success" if result_dict["success"] else "❌ FAILED"
 
+        # Warn if any GPU had memory in use before the benchmark started.
+        # TODO: This could be made into a more generic check that can be configured in the sink config.
+        warnings = []
+        for gpu_id, stats in result_dict.get("gpu_stats", {}).items():
+            if stats.get("memory_used", 0) > 0:
+                pct_used = stats["memory_used"] / stats["memory_total"] * 100
+                warnings.append(
+                    f"GPU {gpu_id} had {stats['memory_used']} bytes ({pct_used:.1f}% of total) used before benchmark started"
+                )
+
         # Create a new message for the entry to post in the thread.
         msg = self._create_benchmark_entry_message(
             benchmark_entry,
             (self.default_metrics + additional_metrics, result_dict),
             pings,
+            warnings,
         )
         self._child_messages.append(msg)
         # Update the session summary message with the new entry status.
@@ -590,7 +622,11 @@ class SlackSink(Sink):
         return msg
 
     def _create_benchmark_entry_message(
-        self, benchmark_entry: Entry, data: tuple[list[str], dict[str, Any]], pings: list[str]
+        self,
+        benchmark_entry: Entry,
+        data: tuple[list[str], dict[str, Any]],
+        pings: list[str],
+        warnings: list[str] | None = None,
     ) -> SlackMessage:
         """Create a message for an individual benchmark entry.
 
@@ -598,12 +634,19 @@ class SlackSink(Sink):
             benchmark_entry: The benchmark entry.
             data: Tuple of (metrics, result_dict).
             pings: List of user IDs to ping to make them aware of this message.
+            warnings: Optional list of warning strings to include in the message.
 
         Returns:
             SlackMessage instance for the benchmark entry.
         """
         metrics, result_dict = data
-        return SlackMessage(entry_name=benchmark_entry.name, result_dict=result_dict, metrics=metrics, pings=pings)
+        return SlackMessage(
+            entry_name=benchmark_entry.name,
+            result_dict=result_dict,
+            metrics=metrics,
+            pings=pings,
+            warnings=warnings,
+        )
 
     def _update_parent_entry(self, entry_name: str, status: str) -> None:
         """Update a single entry's status in the shared state file and post the update to Slack.
