@@ -78,10 +78,10 @@ The writer produces paired files for each input partition:
 
 ```bash
 output/
-├── {hash}.bin    # Packed token IDs (binary)
-├── {hash}.idx    # Sequence metadata (lengths, offsets, document boundaries)
-├── {hash}.bin
-├── {hash}.idx
+├── {hash_1}.bin    # Packed token IDs (binary)
+├── {hash_1}.idx    # Sequence metadata (lengths, offsets, document boundaries)
+├── {hash_2}.bin
+├── {hash_2}.idx
 ```
 
 <Accordion title="File format details">
@@ -94,7 +94,9 @@ output/
 - 1-byte dtype code
 - 8-byte sequence count
 - 8-byte document count
-- Per-sequence: 4-byte length, 8-byte byte offset, 8-byte document index
+- Per-sequence lengths: 4-byte `int32` array (one entry per sequence)
+- Per-sequence byte offsets: 8-byte `int64` array (one entry per sequence)
+- Document boundary indices: 8-byte `int64` array (sequence count + 1 entries)
 
 These files are directly compatible with Megatron-LM's `MMapIndexedDataset` data loader.
 
