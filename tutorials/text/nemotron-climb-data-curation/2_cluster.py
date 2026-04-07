@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import argparse
+import os
 
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.core.client import RayClient
@@ -25,7 +26,9 @@ def main(args: argparse.Namespace) -> None:
     ray_client.start()
 
     kmeans_executor = RayActorPoolExecutor()
-    pipeline = Pipeline(name="2_clustering")
+    pipeline = Pipeline(name="2_cluster")
+
+    os.makedirs(args.save_centroids_path, exist_ok=True)
 
     kmeans_stage = KMeansStage(
         n_clusters=args.n_clusters,
@@ -44,6 +47,7 @@ def main(args: argparse.Namespace) -> None:
         n_init=args.n_init,
         oversampling_factor=args.oversampling_factor,
         max_samples_per_batch=args.max_samples_per_batch,
+        save_centroids_path=args.centroids_path,
     )
 
     pipeline.add_stage(kmeans_stage)
@@ -62,7 +66,7 @@ def attach_args() -> argparse.ArgumentParser:
     # I/O args
     parser.add_argument("--input-path", type=str, required=True)
     parser.add_argument("--output-path", type=str, required=True)
-    parser.add_argument("--input-filetype", type=str, required=True, choices=["parquet", "jsonl"])
+    parser.add_argument("--input-filetype", type=str, default="parquet", choices=["parquet", "jsonl"])
 
     # K-means args
     parser.add_argument("--n-clusters", type=int, default=1000)
@@ -78,6 +82,7 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--n-init", type=int, default=1)
     parser.add_argument("--oversampling-factor", type=float, default=2.0)
     parser.add_argument("--max-samples-per-batch", type=int, default=1 << 15)
+    parser.add_argument("--centroids-path", type=str, required=True)
 
     return parser
 

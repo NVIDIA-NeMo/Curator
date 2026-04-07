@@ -30,23 +30,23 @@ def main(args: argparse.Namespace) -> None:
     ray_client = RayClient(num_cpus=args.num_cpus, num_gpus=args.num_gpus)
     ray_client.start()
 
-    if args.input_file_type == "jsonl":
+    if args.input_filetype == "jsonl":
         reader = JsonlReader
-    elif args.input_file_type == "parquet":
+    elif args.input_filetype == "parquet":
         reader = ParquetReader
     else:
-        msg = f"Invalid input file type: {args.input_file_type}"
+        msg = f"Invalid input file type: {args.input_filetype}"
         raise ValueError(msg)
 
-    if args.output_file_type == "jsonl":
+    if args.output_filetype == "jsonl":
         writer = JsonlWriter
-    elif args.output_file_type == "parquet":
+    elif args.output_filetype == "parquet":
         writer = ParquetWriter
     else:
-        msg = f"Invalid output file type: {args.output_file_type}"
+        msg = f"Invalid output file type: {args.output_filetype}"
         raise ValueError(msg)
 
-    pipeline = Pipeline(name="1_compute_embeddings")
+    pipeline = Pipeline(name="1_embed")
 
     pipeline.add_stage(reader(file_paths=args.input_path, files_per_partition=1))
 
@@ -78,7 +78,7 @@ def main(args: argparse.Namespace) -> None:
         )
     )
 
-    pipeline.add_stage(writer(path=args.output_path))
+    pipeline.add_stage(writer(path=args.output_path, fields=[args.id_field, args.text_field, args.embedding_field]))
 
     pipeline.run()
 
@@ -94,7 +94,7 @@ def attach_args() -> argparse.ArgumentParser:
 
     # Reader args
     parser.add_argument("--input-path", type=str, required=True)
-    parser.add_argument("--input-file-type", type=str, required=True, choices=["jsonl", "parquet"])
+    parser.add_argument("--input-filetype", type=str, required=True, choices=["jsonl", "parquet"])
 
     # ID args
     parser.add_argument("--id-field", type=str, default=None)
@@ -108,7 +108,9 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--max-chars", type=int, default=None)
     parser.add_argument("--max-seq-length", type=str, default=None)
     parser.add_argument("--padding-side", type=str, default="right")
-    parser.add_argument("--embedding-pooling", type=str, default="mean_pooling", choices=["mean_pooling", "last_token"])
+    parser.add_argument(
+        "--embedding-pooling", type=str, default="mean_pooling", choices=["mean_pooling", "last_token"]
+    )
     parser.add_argument("--model-inference-batch-size", type=int, default=1024)
     parser.add_argument("--disable-autocast", action="store_true")
     parser.add_argument("--disable-sort-by-length", action="store_true")
@@ -117,7 +119,7 @@ def attach_args() -> argparse.ArgumentParser:
 
     # Writer args
     parser.add_argument("--output-path", type=str, required=True)
-    parser.add_argument("--output-file-type", type=str, required=True, choices=["jsonl", "parquet"])
+    parser.add_argument("--output-filetype", type=str, default="parquet", choices=["jsonl", "parquet"])
 
     return parser
 
