@@ -1,7 +1,6 @@
 results_path: /tmp/curator/results/${BRANCH_NAME}
 datasets_path: /tmp/curator/datasets
 model_weights_path: /tmp/curator/datasets
-sinks: []
 datasets:
   - name: "tinystories"
     formats:
