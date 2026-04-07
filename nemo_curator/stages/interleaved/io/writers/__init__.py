@@ -13,5 +13,9 @@
 # limitations under the License.
 
 from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParquetWriterStage
+from nemo_curator.stages.interleaved.io.writers.webdataset import InterleavedWebdatasetWriterStage
 
-__all__ = ["InterleavedParquetWriterStage"]
+__all__ = [
+    "InterleavedParquetWriterStage",
+    "InterleavedWebdatasetWriterStage",
+]
