@@ -86,12 +86,14 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
                 continue
             indices, images = [], []
             for idx, b in rows:
-                indices.append(idx)
                 arr = image_bytes_to_array(b)
                 if arr is None:
                     keep_mask.loc[idx] = False
                     continue
+                indices.append(idx)
                 images.append(arr)
+            if not images:
+                continue
             img_emb = self._model(images)
             text_emb = self._model.encode_text(texts)
             scores = img_emb @ text_emb.T
