@@ -9,6 +9,22 @@
 
 </div>
 
+> **`dev` branch** — This branch is a shared workspace where all teams contribute with immediate availability after push.
+>
+> **How to contribute:**
+> 1. Open (or have) a PR to `main` — it does not need to be merged
+> 2. Cherry-pick the commit(s) into `dev`:
+>    ```bash
+>    git checkout dev
+>    git cherry-pick <commit-sha>
+>    git push origin dev
+>    ```
+> 3. Reference the PR number in your commit message (e.g., `feat: add X (#1234)`)
+>
+> **When there is no PR to main**, mark your commit with `#NO_PR`. This applies when:
+> - Your changes are to files or methods that only exist on `dev`
+> - A cherry-pick from main produced complex merge conflicts requiring a separate resolution
+
 # NVIDIA NeMo Curator
 
 **GPU-accelerated data curation for training better AI models, faster.** Scale from laptop to multi-node clusters with modular pipelines for text, images, video, and audio.
