@@ -5,7 +5,7 @@ datasets:
   - name: "tinystories"
     formats:
     - type: "parquet"
-      path: "{datasets_path}/tinystories/parquet_data"
+      path: "{datasets_path}/tinystories_train_parquet"
     - type: "jsonl"
       path: "{datasets_path}/tinystories/jsonl_data"
   - name: "commoncrawl"
