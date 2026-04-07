@@ -83,6 +83,17 @@ The data acquisition pipeline now uses a three-stage architecture instead of fou
 - **Improved Memory Efficiency**: The fused stage processes records inline instead of materializing intermediate DataFrames, reducing peak memory usage. With limited RAM (200 GB), the Common Crawl pipeline succeeds with 32 CPUs where the unfused pipeline ran out of memory even at 16 CPUs.
 - **Better Performance**: Benchmarks show faster runtimes across both the Ray Data and Xenna executors (e.g., ~6% faster with Ray Data, ~18% faster with Xenna).
 
+### Per-Stage Runtime Environments (PR #1623)
+
+Pipeline stages can now declare isolated Python dependencies using Ray's native `runtime_env` support. Each stage can specify a different set of pip or uv packages, and Ray creates a cached virtualenv per unique dependency set so that incompatible library versions coexist in the same pipeline:
+
+- **`runtime_env` class variable**: New `ClassVar[dict | None]` on `ProcessingStage` for declaring per-stage Python packages (e.g., `{"pip": ["transformers==4.40.0"]}`).
+- **`with_()` override**: The `with_()` method now accepts a `runtime_env` parameter for per-instance overrides without modifying the stage class.
+- **All backends supported**: `XennaExecutor`, `RayDataExecutor`, and `RayActorPoolExecutor` all forward `runtime_env` to their respective Ray dispatch mechanisms.
+- **Additive isolation**: Base-environment packages (NeMo Curator, loguru, etc.) remain importable in isolated workers unless explicitly overridden.
+
+Learn more in the [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) documentation.
+
 ### Pipeline Stage Metrics (PR #1385)
 
 Pipeline stages now track document-level metrics through `StagePerfStats.num_items_processed`, so you can see how each stage affects your dataset. After calling `pipeline.run()`, the returned task objects expose per-stage document counts that you can use to monitor filtering behavior and tune thresholds.

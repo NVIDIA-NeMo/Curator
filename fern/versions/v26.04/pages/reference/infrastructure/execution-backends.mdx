@@ -175,6 +175,12 @@ executor = RayDataExecutor()
 results = pipeline.run(executor)
 ```
 
+## Per-Stage Runtime Environments
+
+All three backends support per-stage runtime environments, which allow individual stages to declare isolated Python dependencies. When a stage sets a `runtime_env`, the backend forwards it to Ray so that each stage's workers run in a dedicated virtualenv. This enables pipelines where stages require incompatible library versions.
+
+See the [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) reference for configuration details and examples.
+
 ## Ray Executors in Practice
 
 Ray-based executors provide enhanced scalability and performance for large-scale data processing tasks. These executors are beneficial for:
