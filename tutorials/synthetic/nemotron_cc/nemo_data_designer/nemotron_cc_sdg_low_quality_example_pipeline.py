@@ -182,10 +182,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     try:
         from transformers import AutoTokenizer
     except ImportError as e:
-        msg = (
-            "The 'transformers' package is required for tokenizer support. "
-            "Install it with: pip install transformers"
-        )
+        msg = "The 'transformers' package is required for tokenizer support. Install it with: pip install transformers"
         raise ImportError(msg) from e
     args.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     args.hf_token = os.environ.get("HF_TOKEN", "")
@@ -314,7 +311,9 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     ### Filter low quality data
     pipeline.add_stage(
         Filter(
-            filter_fn=lambda x: x is not None and not (isinstance(x, float) and math.isnan(x)) and int(x) <= BUCKETED_RESULTS_THRESHOLD,
+            filter_fn=lambda x: x is not None
+            and not (isinstance(x, float) and math.isnan(x))
+            and int(x) <= BUCKETED_RESULTS_THRESHOLD,
             filter_field="bucketed_results",
         ),
     )

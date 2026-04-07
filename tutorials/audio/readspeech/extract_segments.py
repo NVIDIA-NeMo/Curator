@@ -56,7 +56,6 @@ SOUNDFILE_FORMATS = {
 }
 
 
-
 def load_manifest(manifest_path: str) -> list:
     """Load a single manifest.jsonl file and return list of segment entries."""
     segments = []
@@ -117,9 +116,7 @@ def load_manifests(input_path: str, output_dir: str) -> list:
     return all_segments
 
 
-def _write_segment(
-    output_path: str, segment_audio: np.ndarray, sample_rate: int, output_format: str
-) -> None:
+def _write_segment(output_path: str, segment_audio: np.ndarray, sample_rate: int, output_format: str) -> None:
     """Write a single audio segment to disk."""
     sf.write(output_path, segment_audio, sample_rate, subtype=SOUNDFILE_FORMATS[output_format])
 
@@ -177,7 +174,10 @@ def _process_file_segments(
             start_sample = int(start_ms * sample_rate / 1000)
             end_sample = int(end_ms * sample_rate / 1000)
             segment_audio, _ = sf.read(
-                original_file, start=start_sample, stop=end_sample, dtype="float32",
+                original_file,
+                start=start_sample,
+                stop=end_sample,
+                dtype="float32",
             )
             _write_segment(output_path, segment_audio, sample_rate, output_format)
             extracted += 1

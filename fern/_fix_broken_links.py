@@ -125,7 +125,10 @@ REPLACEMENTS: list[tuple[str, str]] = [
     ("../../curate-audio/process-data/audio-analysis/index.md", "/curate-audio/process-data/audio-analysis"),
     ("../../curate-audio/process-data/text-integration/index.md", "/curate-audio/process-data/text-integration"),
     ("../../curate-text/index.md", "/curate-text"),
-    ("../../curate-text/process-data/quality-assessment/distributed-classifier.md", "/curate-text/process-data/quality-assessment/distributed-classifier"),
+    (
+        "../../curate-text/process-data/quality-assessment/distributed-classifier.md",
+        "/curate-text/process-data/quality-assessment/distributed-classifier",
+    ),
     ("../../curate-text/process-data/deduplication/semdedup.md", "/curate-text/process-data/deduplication/semdedup"),
     ("../../curate-images/index.md", "/curate-images"),
     ("../../curate-images/process-data/embeddings/index.md", "/curate-images/process-data/embeddings"),

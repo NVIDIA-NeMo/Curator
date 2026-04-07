@@ -124,7 +124,7 @@ results = pipeline.run(executor)
 Executor using Ray Actor pools for custom distributed processing patterns such as deduplication.
 
 ```python
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
 
 executor = RayActorPoolExecutor()
 results = pipeline.run(executor)

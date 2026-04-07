@@ -31,6 +31,7 @@ class ImageAestheticFilterStage(BaseFilterStage):
     This class processes image batches through an aesthetic scoring model to generate
     aesthetic scores for each image. Images with scores below the threshold will be filtered out.
     """
+
     model_dir: str = None
     num_gpus_per_worker: float = 0.25
     model_inference_batch_size: int = 32  # Number of images to process through model at once
@@ -38,7 +39,9 @@ class ImageAestheticFilterStage(BaseFilterStage):
     verbose: bool = False
     name: str = "image_aesthetic_filter"
 
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         """Download aesthetic model weights from HF"""
         AestheticScorer.download_weights_on_node(self.model_dir)
 

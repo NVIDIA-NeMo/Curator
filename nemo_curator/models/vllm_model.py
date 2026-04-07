@@ -90,10 +90,7 @@ class VLLMModel(ModelInterface):
     def setup(self) -> None:
         """Set up the vLLM model and sampling parameters."""
         if not VLLM_AVAILABLE:
-            msg = (
-                "vLLM is required for VLLMModel. "
-                "Please install it: pip install vllm"
-            )
+            msg = "vLLM is required for VLLMModel. Please install it: pip install vllm"
             raise ImportError(msg)
 
         # Fetch max_model_len from user param or auto-detect from HuggingFace AutoConfig
@@ -132,11 +129,7 @@ class VLLMModel(ModelInterface):
         self._llm = LLM(**llm_kwargs)
         self._final_max_model_len = final_max_model_len
 
-        max_gen_tokens = (
-            self.max_tokens
-            if self.max_tokens is not None
-            else final_max_model_len
-        )
+        max_gen_tokens = self.max_tokens if self.max_tokens is not None else final_max_model_len
         if max_gen_tokens is None:
             logger.warning(
                 "max_tokens is None and max_model_len could not be auto-detected. "
@@ -190,10 +183,7 @@ class VLLMModel(ModelInterface):
                 sampling_params=self._sampling_params,
                 use_tqdm=False,
             )
-            return [
-                out.outputs[0].text if out.outputs else ""
-                for out in outputs
-            ]
+            return [out.outputs[0].text if out.outputs else "" for out in outputs]
         except (RuntimeError, ValueError, TypeError) as e:
             msg = f"Error generating text: {e}"
             raise RuntimeError(msg) from e

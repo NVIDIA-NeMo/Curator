@@ -189,9 +189,7 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
 
         file_path = task.data[self.filepath_key]
         sess_name = task.data.get("session_name")
-        resolved_sess_name = (
-            sess_name if sess_name is not None else os.path.splitext(os.path.basename(file_path))[0]
-        )
+        resolved_sess_name = sess_name if sess_name is not None else os.path.splitext(os.path.basename(file_path))[0]
 
         all_segments = self.diarize([file_path])
         segments = all_segments[0]

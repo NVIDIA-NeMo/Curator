@@ -94,11 +94,15 @@ class TestNemotronCCNDDStages:
         stage = _make_stage(stage_cls)
         stage.setup()
 
-        output_df = pd.DataFrame([{
-            "text": "doc",
-            _FORMATTED_PROMPT_COL: "prompt",
-            output_field: "generated",
-        }])
+        output_df = pd.DataFrame(
+            [
+                {
+                    "text": "doc",
+                    _FORMATTED_PROMPT_COL: "prompt",
+                    output_field: "generated",
+                }
+            ]
+        )
         stage.data_designer.preview = MagicMock(
             return_value=PreviewResults(config_builder=stage.config_builder, dataset=output_df)
         )
@@ -205,9 +209,7 @@ class TestNemotronCCNDDPipelineIntegration:
         assert _FORMATTED_PROMPT_COL not in out.data.columns
         assert len(out.data) == 1
 
-    def test_pipeline_e2e_reader_ndd_writer(
-        self, httpserver: pytest_httpserver.HTTPServer, tmp_path: Path
-    ) -> None:
+    def test_pipeline_e2e_reader_ndd_writer(self, httpserver: pytest_httpserver.HTTPServer, tmp_path: Path) -> None:
         """JsonlReader -> WikipediaParaphrasingStage -> JsonlWriter. Verifies files, _metadata, _stage_perf."""
         from nemo_curator.backends.xenna import XennaExecutor
 

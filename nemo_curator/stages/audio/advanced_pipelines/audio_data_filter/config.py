@@ -122,8 +122,15 @@ def _validate(cfg: dict[str, Any]) -> None:  # noqa: C901
 
     sigmos = cfg.get("sigmos", {})
     if sigmos.get("enable", True):
-        for key in ("noise_threshold", "ovrl_threshold", "sig_threshold",
-                     "col_threshold", "disc_threshold", "loud_threshold", "reverb_threshold"):
+        for key in (
+            "noise_threshold",
+            "ovrl_threshold",
+            "sig_threshold",
+            "col_threshold",
+            "disc_threshold",
+            "loud_threshold",
+            "reverb_threshold",
+        ):
             val = sigmos.get(key)
             if val is not None and not 0.0 <= val <= _MOS_MAX:
                 msg = f"sigmos.{key} must be in [0, {_MOS_MAX}] (MOS scale), got {val}"

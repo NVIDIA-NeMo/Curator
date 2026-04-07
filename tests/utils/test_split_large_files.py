@@ -57,9 +57,7 @@ def parquet_file_factory(tmp_path: pathlib.Path):
 
 def test_default_target_size(parquet_file_factory: Callable, tmp_path: pathlib.Path):
     parquet_file = parquet_file_factory()
-    args = parse_args(
-        ["--input-path", str(parquet_file), "--output-path", str(tmp_path), "--file-type", "parquet"]
-    )
+    args = parse_args(["--input-path", str(parquet_file), "--output-path", str(tmp_path), "--file-type", "parquet"])
     assert args.target_size_mb == 128
 
 
@@ -70,7 +68,9 @@ def test_split_parquet_file_by_size(parquet_file_factory: Callable, tmp_path: pa
     target_size_mb = size_original_mb / 3
     output_path = tmp_path / "out"
     output_path.mkdir(exist_ok=True)
-    split_parquet_file_by_size._function(input_file=str(parquet_file), output_path=str(output_path), target_size_mb=target_size_mb)
+    split_parquet_file_by_size._function(
+        input_file=str(parquet_file), output_path=str(output_path), target_size_mb=target_size_mb
+    )
 
     expected = pd.read_parquet(parquet_file)
     result = pd.read_parquet(output_path)
@@ -96,7 +96,9 @@ def test_split_jsonl_file_by_size(tmp_path: pathlib.Path):
     target_size_mb = max(size_original_mb / 4, 1e-6)
     output_path = tmp_path / "out"
     output_path.mkdir(exist_ok=True)
-    split_jsonl_file_by_size._function(input_file=str(jsonl_file), output_path=str(output_path), target_size_mb=target_size_mb)
+    split_jsonl_file_by_size._function(
+        input_file=str(jsonl_file), output_path=str(output_path), target_size_mb=target_size_mb
+    )
 
     files = sorted(output_path.glob("data_*.jsonl"))
     assert len(files) >= 2

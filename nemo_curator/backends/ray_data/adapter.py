@@ -20,7 +20,7 @@ from loguru import logger
 from ray.data import Dataset
 
 from nemo_curator.backends.base import BaseStageAdapter
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
+from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
 from nemo_curator.stages.base import ProcessingStage
 
 from .utils import calculate_concurrency_for_actors_for_stage, is_actor_stage

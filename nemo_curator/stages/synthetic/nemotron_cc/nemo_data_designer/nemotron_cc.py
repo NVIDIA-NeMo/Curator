@@ -72,5 +72,3 @@ class KnowledgeListStage(NDDBaseSyntheticStage):
     prompt: str = KNOWLEDGE_LIST_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "knowledge_list"
-
-

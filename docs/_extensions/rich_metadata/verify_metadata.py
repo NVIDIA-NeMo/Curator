@@ -126,9 +126,9 @@ def verify_html_file(html_path: Path) -> bool:
         print(f"❌ File not found: {html_path}")
         return False
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"Verifying: {html_path.name}")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")
 
     html_content = html_path.read_text(encoding="utf-8")
 
@@ -154,9 +154,7 @@ def verify_html_file(html_path: Path) -> bool:
 
 def main() -> None:
     """Main entry point for the verification script."""
-    parser = argparse.ArgumentParser(
-        description="Verify rich metadata injection in built HTML files"
-    )
+    parser = argparse.ArgumentParser(description="Verify rich metadata injection in built HTML files")
     parser.add_argument(
         "html_files",
         nargs="+",
@@ -177,16 +175,15 @@ def main() -> None:
         if not verify_html_file(html_file):
             all_passed = False
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     if all_passed:
         print("✅ All files verified successfully!")
     else:
         print("⚠️  Some files are missing metadata")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")
 
     sys.exit(0 if all_passed else 1)
 
 
 if __name__ == "__main__":
     main()
-

@@ -19,8 +19,7 @@ from loguru import logger
 from ray.data import DataContext, Dataset
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.experimental.utils import execute_setup_on_node
-from nemo_curator.backends.utils import register_loguru_serializer
+from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
 from .adapter import RayDataStageAdapter

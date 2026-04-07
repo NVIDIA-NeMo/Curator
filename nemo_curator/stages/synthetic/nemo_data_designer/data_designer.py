@@ -139,5 +139,6 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             _stage_perf=batch._stage_perf,
         )
 
+
 # Explicitly export the class
 __all__ = ["DataDesignerStage"]

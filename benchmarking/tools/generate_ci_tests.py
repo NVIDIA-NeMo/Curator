@@ -158,9 +158,7 @@ def generate_pipeline(curator_dir: str, scope: str, test_paths: str) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Generate GitLab CI jobs for Curator benchmarks"
-    )
+    parser = argparse.ArgumentParser(description="Generate GitLab CI jobs for Curator benchmarks")
     parser.add_argument(
         "--curator-dir",
         type=str,

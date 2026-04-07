@@ -166,8 +166,7 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
 
             if parts and sr != sample_rate:
                 logger.warning(
-                    f"[SegmentConcat] Sample rate mismatch: "
-                    f"expected {sample_rate}Hz, got {sr}Hz. Skipping segment."
+                    f"[SegmentConcat] Sample rate mismatch: expected {sample_rate}Hz, got {sr}Hz. Skipping segment."
                 )
                 continue
             sample_rate = sr

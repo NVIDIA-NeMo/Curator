@@ -74,7 +74,9 @@ def main() -> int:
         default="versions/v26.02",
         help="Path under fern/ containing MDX (e.g. versions/v25.09, versions/v26.02)",
     )
-    parser.add_argument("--version", help="Version string for version/container_version/current_release (e.g. 25.09, 26.02)")
+    parser.add_argument(
+        "--version", help="Version string for version/container_version/current_release (e.g. 25.09, 26.02)"
+    )
     parser.add_argument("--dry-run", action="store_true", help="Show what would be changed without modifying files")
     args = parser.parse_args()
 

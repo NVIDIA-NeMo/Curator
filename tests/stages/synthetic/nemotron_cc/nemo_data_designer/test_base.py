@@ -143,10 +143,12 @@ class TestNDDBaseSyntheticStage:
         stage = _make_stage()
         stage.setup()
 
-        output_df = pd.DataFrame([
-            {"text": "a", _FORMATTED_PROMPT_COL: "Rephrase: a", "result": "out_a"},
-            {"text": "b", _FORMATTED_PROMPT_COL: "Rephrase: b", "result": "out_b"},
-        ])
+        output_df = pd.DataFrame(
+            [
+                {"text": "a", _FORMATTED_PROMPT_COL: "Rephrase: a", "result": "out_a"},
+                {"text": "b", _FORMATTED_PROMPT_COL: "Rephrase: b", "result": "out_b"},
+            ]
+        )
         stage.data_designer.preview = MagicMock(
             return_value=PreviewResults(config_builder=stage.config_builder, dataset=output_df)
         )

@@ -35,9 +35,7 @@ class _FakeTensorList:
     """Minimal stand-in for a DALI TensorList returned by Pipeline.run()."""
 
     def __init__(self, batch_size: int, height: int = 8, width: int = 8) -> None:
-        self._arrays: list[np.ndarray] = [
-            np.zeros((height, width, 3), dtype=np.uint8) for _ in range(batch_size)
-        ]
+        self._arrays: list[np.ndarray] = [np.zeros((height, width, 3), dtype=np.uint8) for _ in range(batch_size)]
 
     def as_cpu(self) -> _FakeTensorList:
         return self
@@ -121,8 +119,10 @@ def _stub_dali_modules() -> None:
     sys.modules["nvidia.dali"] = dali
     sys.modules["nvidia.dali.pipeline"] = pipeline
 
+
 def test_inputs_outputs_and_name() -> None:
     from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+
     with patch("torch.cuda.is_available", return_value=True):
         stage = ImageReaderStage(dali_batch_size=3, verbose=False)
     assert stage.inputs() == ([], [])
@@ -132,6 +132,7 @@ def test_inputs_outputs_and_name() -> None:
 
 def test_init_allows_cpu_when_no_cuda() -> None:
     from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+
     # When CUDA is unavailable, the stage should initialize and use CPU DALI
     with patch("torch.cuda.is_available", return_value=False):
         stage = ImageReaderStage(dali_batch_size=2, verbose=False)
@@ -140,6 +141,7 @@ def test_init_allows_cpu_when_no_cuda() -> None:
 
 def test_process_streams_batches_from_dali() -> None:
     from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+
     # Two tar files; each has 5 total samples, emitted in batches of 2 (2,2,1)
     task = FileGroupTask(
         task_id="t1",
@@ -168,6 +170,7 @@ def test_process_streams_batches_from_dali() -> None:
 
 def test_process_raises_on_empty_task() -> None:
     from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+
     empty = FileGroupTask(task_id="e1", dataset_name="ds", data=[])
 
     with patch("torch.cuda.is_available", return_value=True):
@@ -177,9 +180,9 @@ def test_process_raises_on_empty_task() -> None:
         stage.process(empty)
 
 
-
 def test_resources_with_cuda_available() -> None:
     from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+
     # Instantiate with CUDA available so __post_init__ passes
     with patch("torch.cuda.is_available", return_value=True):
         stage = ImageReaderStage(dali_batch_size=2, verbose=False)
@@ -191,6 +194,7 @@ def test_resources_with_cuda_available() -> None:
 
 def test_resources_without_cuda() -> None:
     from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+
     # Create the stage without CUDA available
     with patch("torch.cuda.is_available", return_value=False):
         stage = ImageReaderStage(dali_batch_size=2, verbose=False)

@@ -16,7 +16,7 @@ Uses Ray Data for distributed execution.
 ### Import
 
 ```python
-from nemo_curator.backends.experimental import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 ```
 
 ### Usage
@@ -46,7 +46,7 @@ Uses Ray Actor Pool for distributed execution.
 ### Import
 
 ```python
-from nemo_curator.backends.experimental import RayActorPoolExecutor
+from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
 ```
 
 ### Usage
@@ -149,8 +149,8 @@ class MyCustomExecutor(BaseExecutor):
 | Executor | Best For | Considerations |
 |----------|----------|----------------|
 | `XennaExecutor` | Production workloads | Default choice, most stable |
-| `RayDataExecutor` | Ray-native environments | Experimental |
-| `RayActorPoolExecutor` | Fine-grained actor control | Experimental |
+| `RayDataExecutor` | Ray-native environments | Production |
+| `RayActorPoolExecutor` | Fine-grained actor control | Production |
 
 ## Source Code
 

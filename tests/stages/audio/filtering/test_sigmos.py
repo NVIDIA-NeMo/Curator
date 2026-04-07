@@ -96,15 +96,17 @@ class TestSIGMOSFilterStage:
     @patch.object(SIGMOSFilterStage, "_initialize_model")
     def test_partial_threshold_fail(self, mock_init: MagicMock) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=None)
-        stage._model = _make_mock_model({
-            "MOS_NOISE": 3.0,
-            "MOS_OVRL": 5.0,
-            "MOS_SIG": 5.0,
-            "MOS_COL": 5.0,
-            "MOS_DISC": 5.0,
-            "MOS_LOUD": 5.0,
-            "MOS_REVERB": 5.0,
-        })
+        stage._model = _make_mock_model(
+            {
+                "MOS_NOISE": 3.0,
+                "MOS_OVRL": 5.0,
+                "MOS_SIG": 5.0,
+                "MOS_COL": 5.0,
+                "MOS_DISC": 5.0,
+                "MOS_LOUD": 5.0,
+                "MOS_REVERB": 5.0,
+            }
+        )
 
         result = stage.process(_make_task())
 

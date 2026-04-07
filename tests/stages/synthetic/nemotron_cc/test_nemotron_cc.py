@@ -102,8 +102,9 @@ def test_diverseqa_post_processing_basic() -> None:
     df = pd.DataFrame([{"text": "DOC", "diverse_qa": generated_text}])
     batch = DocumentBatch(data=df, dataset_name="ds", task_id="t0")
     # Deterministic behavior: no shuffle and pick 2 pairs
-    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None), patch(
-        "nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=2
+    with (
+        patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None),
+        patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=2),
     ):
         out_batch = pp.process(batch)
     out = out_batch.data["diverse_qa"].iloc[0]
@@ -122,8 +123,9 @@ def test_diverseqa_sync_end_to_end() -> None:
     pp = DiverseQAPostProcessingStage()
     df = pd.DataFrame([{"text": "DOC"}])
     batch = DocumentBatch(data=df, dataset_name="ds", task_id="t1")
-    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None), patch(
-        "nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=1
+    with (
+        patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None),
+        patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=1),
     ):
         raw_batch = stage.process(batch)
         out_batch = pp.process(raw_batch)
@@ -144,8 +146,9 @@ def test_diverseqa_async_multiple_rows() -> None:
     pp = DiverseQAPostProcessingStage()
     df = pd.DataFrame([{"text": "D1"}, {"text": "D2"}, {"text": "D3"}])
     batch = DocumentBatch(data=df, dataset_name="ds", task_id="t2")
-    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None), patch(
-        "nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=1
+    with (
+        patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None),
+        patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=1),
     ):
         raw_batch = stage.process(batch)
         out_batch = pp.process(raw_batch)
@@ -158,12 +161,7 @@ def test_diverseqa_async_multiple_rows() -> None:
 def test_knowledge_list_process_llm_response() -> None:
     pp = KnowledgeListPostProcessingStage()
     # First line not starting with "-" should be skipped
-    generated = (
-        "Header line\n"
-        "- item one\n"
-        "  continuation\n"
-        "- item two"
-    )
+    generated = "Header line\n- item one\n  continuation\n- item two"
     df = pd.DataFrame([{"knowledge_list": generated}])
     batch = DocumentBatch(data=df, dataset_name="ds", task_id="tkl")
     out_batch = pp.process(batch)

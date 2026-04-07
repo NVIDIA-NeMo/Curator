@@ -36,54 +36,66 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline = Pipeline(name="image_curation", description="Curate images with embeddings and quality scoring")
 
     # Stage 0: Partition tar files for parallel processing
-    pipeline.add_stage(FilePartitioningStage(
-        file_paths=args.input_wds_dataset_dir,
-        files_per_partition=args.tar_files_per_partition,
-        file_extensions=[".tar"],
-    ))
+    pipeline.add_stage(
+        FilePartitioningStage(
+            file_paths=args.input_wds_dataset_dir,
+            files_per_partition=args.tar_files_per_partition,
+            file_extensions=[".tar"],
+        )
+    )
 
     # Stage 1: Read images from webdataset tar files (now runs in parallel)
-    pipeline.add_stage(ImageReaderStage(
-        dali_batch_size=args.batch_size,
-        verbose=args.verbose,  # Force verbose to see debug info
-        num_threads=16,  # More threads for I/O
-        num_gpus_per_worker=0.25,
-    ))
+    pipeline.add_stage(
+        ImageReaderStage(
+            dali_batch_size=args.batch_size,
+            verbose=args.verbose,  # Force verbose to see debug info
+            num_threads=16,  # More threads for I/O
+            num_gpus_per_worker=0.25,
+        )
+    )
 
     # Stage 2: Generate CLIP embeddings for images
-    pipeline.add_stage(ImageEmbeddingStage(
-        model_dir=args.model_dir,
-        num_gpus_per_worker=args.embedding_gpus_per_worker,
-        model_inference_batch_size=args.embedding_batch_size,
-        remove_image_data=False,
-        verbose=args.verbose,
-    ))
+    pipeline.add_stage(
+        ImageEmbeddingStage(
+            model_dir=args.model_dir,
+            num_gpus_per_worker=args.embedding_gpus_per_worker,
+            model_inference_batch_size=args.embedding_batch_size,
+            remove_image_data=False,
+            verbose=args.verbose,
+        )
+    )
 
     # Stage 3: Generate aesthetic quality scores and filter
-    pipeline.add_stage(ImageAestheticFilterStage(
-        model_dir=args.model_dir,
-        num_gpus_per_worker=args.aesthetic_gpus_per_worker,
-        model_inference_batch_size=args.aesthetic_batch_size,
-        score_threshold=args.aesthetic_threshold,
-        verbose=args.verbose,
-    ))
+    pipeline.add_stage(
+        ImageAestheticFilterStage(
+            model_dir=args.model_dir,
+            num_gpus_per_worker=args.aesthetic_gpus_per_worker,
+            model_inference_batch_size=args.aesthetic_batch_size,
+            score_threshold=args.aesthetic_threshold,
+            verbose=args.verbose,
+        )
+    )
 
     # Stage 4: Generate NSFW probability scores and filter
-    pipeline.add_stage(ImageNSFWFilterStage(
-        model_dir=args.model_dir,
-        num_gpus_per_worker=args.nsfw_gpus_per_worker,
-        model_inference_batch_size=args.nsfw_batch_size,
-        score_threshold=args.nsfw_threshold,
-        verbose=args.verbose,
-    ))
+    pipeline.add_stage(
+        ImageNSFWFilterStage(
+            model_dir=args.model_dir,
+            num_gpus_per_worker=args.nsfw_gpus_per_worker,
+            model_inference_batch_size=args.nsfw_batch_size,
+            score_threshold=args.nsfw_threshold,
+            verbose=args.verbose,
+        )
+    )
 
     # Stage 5: Write down to disk
-    pipeline.add_stage(ImageWriterStage(
-        output_dir=args.output_dataset_dir,
-        images_per_tar=args.images_per_tar,
-        remove_image_data=True,
-        verbose=args.verbose,
-    ))
+    pipeline.add_stage(
+        ImageWriterStage(
+            output_dir=args.output_dataset_dir,
+            images_per_tar=args.images_per_tar,
+            remove_image_data=True,
+            verbose=args.verbose,
+        )
+    )
 
     return pipeline
 
@@ -169,37 +181,22 @@ if __name__ == "__main__":
         type=str,
         required=False,
         default=None,
-        help="Path to input parquet file containing image URLs and metadata"
+        help="Path to input parquet file containing image URLs and metadata",
     )
     parser.add_argument(
-        "--input-wds-dataset-dir",
-        type=str,
-        required=True,
-        help="Directory to save the downloaded webdataset"
+        "--input-wds-dataset-dir", type=str, required=True, help="Directory to save the downloaded webdataset"
     )
     parser.add_argument(
-        "--output-dataset-dir",
-        type=str,
-        required=True,
-        help="Directory to save the resulting webdataset"
+        "--output-dataset-dir", type=str, required=True, help="Directory to save the resulting webdataset"
     )
     parser.add_argument(
-        "--download-processes",
-        type=int,
-        default=8,
-        help="Number of parallel processes for downloading images"
+        "--download-processes", type=int, default=8, help="Number of parallel processes for downloading images"
     )
     parser.add_argument(
-        "--entries-per-tar",
-        type=int,
-        default=1000,
-        help="Number of entries per tar shard during download"
+        "--entries-per-tar", type=int, default=1000, help="Number of entries per tar shard during download"
     )
     parser.add_argument(
-        "--skip-download",
-        action="store_true",
-        default=False,
-        help="Skip dataset download and use existing webdataset"
+        "--skip-download", action="store_true", default=False, help="Skip dataset download and use existing webdataset"
     )
 
     # Image reader arguments
@@ -207,89 +204,54 @@ if __name__ == "__main__":
         "--tar-files-per-partition",
         type=int,
         default=1,
-        help="Number of tar files to process per partition (controls parallelism) for FilePartitioningStage"
+        help="Number of tar files to process per partition (controls parallelism) for FilePartitioningStage",
     )
     parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=100,
-        help="Number of images per ImageBatch for the reader stage"
+        "--batch-size", type=int, default=100, help="Number of images per ImageBatch for the reader stage"
     )
 
     # General arguments
     parser.add_argument(
-        "--model-dir",
-        type=str,
-        required=True,
-        help="Path to model directory containing all model weights"
+        "--model-dir", type=str, required=True, help="Path to model directory containing all model weights"
     )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="Enable verbose logging for all stages"
-    )
+    parser.add_argument("--verbose", action="store_true", default=False, help="Enable verbose logging for all stages")
 
     # Embedding stage arguments
-    parser.add_argument(
-        "--embedding-batch-size",
-        type=int,
-        default=32,
-        help="Batch size for embedding generation"
-    )
+    parser.add_argument("--embedding-batch-size", type=int, default=32, help="Batch size for embedding generation")
     parser.add_argument(
         "--embedding-gpus-per-worker",
         type=float,
         default=0.25,
-        help="GPU allocation per worker for embedding generation"
+        help="GPU allocation per worker for embedding generation",
     )
 
     # Aesthetic scoring arguments
+    parser.add_argument("--aesthetic-batch-size", type=int, default=32, help="Batch size for aesthetic scoring")
     parser.add_argument(
-        "--aesthetic-batch-size",
-        type=int,
-        default=32,
-        help="Batch size for aesthetic scoring"
-    )
-    parser.add_argument(
-        "--aesthetic-gpus-per-worker",
-        type=float,
-        default=0.25,
-        help="GPU allocation per worker for aesthetic scoring"
+        "--aesthetic-gpus-per-worker", type=float, default=0.25, help="GPU allocation per worker for aesthetic scoring"
     )
     parser.add_argument(
         "--aesthetic-threshold",
         type=float,
         default=0.5,
-        help="Aesthetic score threshold for filtering (images below this score will be filtered out)"
+        help="Aesthetic score threshold for filtering (images below this score will be filtered out)",
     )
 
     # NSFW scoring arguments
+    parser.add_argument("--nsfw-batch-size", type=int, default=32, help="Batch size for NSFW scoring")
     parser.add_argument(
-        "--nsfw-batch-size",
-        type=int,
-        default=32,
-        help="Batch size for NSFW scoring"
-    )
-    parser.add_argument(
-        "--nsfw-gpus-per-worker",
-        type=float,
-        default=0.25,
-        help="GPU allocation per worker for NSFW scoring"
+        "--nsfw-gpus-per-worker", type=float, default=0.25, help="GPU allocation per worker for NSFW scoring"
     )
     parser.add_argument(
         "--nsfw-threshold",
         type=float,
         default=0.5,
-        help="NSFW score threshold for filtering (images above this score will be filtered out as NSFW)"
+        help="NSFW score threshold for filtering (images above this score will be filtered out as NSFW)",
     )
 
     # Output dataset arguments
     parser.add_argument(
-        "--images-per-tar",
-        type=int,
-        default=100,
-        help="Number of images per tar file in output dataset"
+        "--images-per-tar", type=int, default=100, help="Number of images per tar file in output dataset"
     )
 
     args = parser.parse_args()

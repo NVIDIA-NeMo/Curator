@@ -40,6 +40,7 @@ class WikipediaParaphrasingStage(BaseSyntheticStage):
     input_field: str = "text"
     output_field: str = "rephrased"
 
+
 @dataclass
 class DiverseQAStage(BaseSyntheticStage):
     system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
@@ -117,12 +118,14 @@ class DiverseQAPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBatch]
             _stage_perf=batch._stage_perf,
         )
 
+
 @dataclass
 class DistillStage(BaseSyntheticStage):
     system_prompt: str = NEMOTRON_CC_DISTILL_SYSTEM_PROMPT
     prompt: str = DISTILL_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "distill"
+
 
 @dataclass
 class ExtractKnowledgeStage(BaseSyntheticStage):
@@ -131,12 +134,14 @@ class ExtractKnowledgeStage(BaseSyntheticStage):
     input_field: str = "text"
     output_field: str = "extract_knowledge"
 
+
 @dataclass
 class KnowledgeListStage(BaseSyntheticStage):
     system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
     prompt: str = KNOWLEDGE_LIST_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "knowledge_list"
+
 
 @dataclass
 class KnowledgeListPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBatch]):

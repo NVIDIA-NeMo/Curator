@@ -87,6 +87,7 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def _process_sync(self, df: pd.DataFrame) -> list[str]:
         """Process DataFrame using synchronous sequential processing."""
+
         def generate_response(row: pd.Series) -> str:
             prompt = self._process_llm_prompt(row)
             if self.system_prompt:
@@ -95,9 +96,7 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                     {"role": "user", "content": prompt},
                 ]
             else:
-                messages = [
-                    {"role": "user", "content": prompt}
-                ]
+                messages = [{"role": "user", "content": prompt}]
             response = self.client.query_model(
                 model=self.model_name,
                 messages=messages,
@@ -142,9 +141,7 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                     {"role": "user", "content": prompt},
                 ]
             else:
-                messages = [
-                    {"role": "user", "content": prompt}
-                ]
+                messages = [{"role": "user", "content": prompt}]
             response = await self.client.query_model(
                 model=self.model_name,
                 messages=messages,
