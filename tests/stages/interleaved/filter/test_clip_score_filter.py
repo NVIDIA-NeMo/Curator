@@ -18,6 +18,7 @@ import pandas as pd
 import pytest
 import torch
 
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.interleaved.filter.clip_score_filter import (
     InterleavedCLIPScoreFilterStage,
     _sample_texts_list_from_df,
@@ -27,8 +28,9 @@ from .conftest import interleaved_task, make_jpeg_bytes
 
 
 def test_clip_score_filter_requires_model_dir() -> None:
+    stage = InterleavedCLIPScoreFilterStage(model_dir=None)
     with pytest.raises(RuntimeError, match="model_dir"):
-        InterleavedCLIPScoreFilterStage(model_dir=None)
+        stage.setup_on_node(NodeInfo(), WorkerMetadata())
 
 
 def test_sample_texts_list_from_df_missing_modality_column() -> None:
@@ -72,6 +74,8 @@ def test_clip_score_filter_empty_task_unchanged() -> None:
         mock_clip_class.return_value.return_value = torch.zeros(1, 1)
         mock_clip_class.return_value.encode_text.return_value = torch.zeros(1, 1)
         stage = InterleavedCLIPScoreFilterStage(model_dir="/fake/clip")
+        stage.setup_on_node(NodeInfo(), WorkerMetadata())
+        stage.setup()
         out = stage.process(task)
     assert out.num_items == 0
 
@@ -102,6 +106,8 @@ def test_clip_score_filter_drops_image_when_sample_has_no_text(
     ]
     task = interleaved_task(rows)
     stage = InterleavedCLIPScoreFilterStage(model_dir="/fake/clip", min_score=0.15)
+    stage.setup_on_node(NodeInfo(), WorkerMetadata())
+    stage.setup()
     out = stage.process(task)
     assert out.num_items == 0
     mock_model.encode_text.assert_not_called()
@@ -153,6 +159,8 @@ def test_clip_score_filter_passes_all_sample_texts_to_encode_text(
     ]
     task = interleaved_task(rows)
     stage = InterleavedCLIPScoreFilterStage(model_dir="/fake/clip", min_score=0.15)
+    stage.setup_on_node(NodeInfo(), WorkerMetadata())
+    stage.setup()
     stage.process(task)
     mock_model.encode_text.assert_called_once()
     texts_arg = mock_model.encode_text.call_args[0][0]
@@ -195,6 +203,8 @@ def test_clip_score_filter_process_keeps_image_when_score_above_threshold(
     ]
     task = interleaved_task(rows)
     stage = InterleavedCLIPScoreFilterStage(model_dir="/fake/clip", min_score=0.15)
+    stage.setup_on_node(NodeInfo(), WorkerMetadata())
+    stage.setup()
     out = stage.process(task)
     out_frame = out.to_pandas()
     assert len(out_frame) == 2
@@ -238,6 +248,8 @@ def test_clip_score_filter_process_drops_image_when_score_below_threshold(
     ]
     task = interleaved_task(rows)
     stage = InterleavedCLIPScoreFilterStage(model_dir="/fake/clip", min_score=0.15)
+    stage.setup_on_node(NodeInfo(), WorkerMetadata())
+    stage.setup()
     out = stage.process(task)
     out_frame = out.to_pandas()
     assert len(out_frame) == 1

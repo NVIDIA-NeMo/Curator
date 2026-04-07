@@ -57,7 +57,7 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
         self._model = CLIPImageEmbeddings(self.model_dir)
         self._model.setup()
 
-    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None: # noqa: ARG002
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Download the weights for the CLIP model on the node."""
         if self.model_dir is None:
             msg = "InterleavedCLIPScoreFilterStage requires model_dir to be set"
