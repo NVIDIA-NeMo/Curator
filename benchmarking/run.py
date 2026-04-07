@@ -195,6 +195,7 @@ def run_entry(
         # Execute command with timeout, capturing nvidia-smi output before and after
         ray_cluster_data = get_ray_cluster_data()
         run_nvidia_smi("before")
+        logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
         run_data = run_command_with_timeout(
             command=cmd,
