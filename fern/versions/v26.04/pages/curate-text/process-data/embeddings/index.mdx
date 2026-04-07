@@ -1,5 +1,5 @@
 ---
-description: "Generate text embeddings using vLLM, Sentence Transformers, or HuggingFace models for deduplication, similarity search, and downstream tasks"
+description: "Generate text embeddings using vLLM, Sentence Transformers, or Hugging Face models for deduplication, similarity search, and downstream tasks"
 categories: ["how-to-guides"]
 tags: ["embeddings", "vllm", "sentence-transformers", "gpu-accelerated", "similarity-search"]
 personas: ["data-scientist-focused", "mle-focused"]
@@ -24,7 +24,7 @@ NeMo Curator provides three embedding backends for text data, each suited to dif
 
 | Backend | Best For | GPU Utilization | Setup |
 | --- | --- | --- | --- |
-| `EmbeddingCreatorStage` (Sentence Transformers) | Small to medium models (e.g., all-MiniLM-L6-v2) | Good | Included in `text_cpu` extra |
+| `EmbeddingCreatorStage` (Sentence Transformers) | Small to medium models (e.g., all-MiniLM-L6-v2) | Good | Included in `text_cuda12` extra |
 | `VLLMEmbeddingModelStage` | Large models (e.g., `google/embeddinggemma-300m`) and semantic deduplication | Excellent | Included in `text_cuda12` extra |
 | `EmbeddingCreatorStage` (AutoModel) | Custom pooling strategies | Good | Set `use_sentence_transformer=False` |
 
@@ -34,7 +34,7 @@ Benchmarks on 5 GB of Common Crawl data show that vLLM outperforms Sentence Tran
 
 ## Quick Start
 
-### EmbeddingCreatorStage (Sentence Transformers)
+### EmbeddingCreatorStage
 
 ```python
 from nemo_curator.backends.xenna import XennaExecutor

@@ -30,7 +30,7 @@ Key features:
 
 - **Optional pretokenization**: When `pretokenize=True`, the stage tokenizes text on CPU before passing tokens to vLLM, reducing GPU idle time and improving throughput
 - **vLLM-managed batching**: Leverages vLLM's built-in request scheduling for optimal GPU utilization
-- **Model download caching**: Automatically downloads and caches models from HuggingFace Hub
+- **Model download caching**: Automatically downloads and caches models from Hugging Face Hub
 - **Character truncation**: Optional `max_chars` parameter to limit input length before tokenization
 
 ## Quick Start
@@ -68,7 +68,7 @@ pipeline.run(executor)
 | `model_identifier` | `str` | Required | Hugging Face model name or path for the embedding model |
 | `vllm_init_kwargs` | `dict` | `None` | Additional keyword arguments passed to `vllm.LLM()` for engine configuration |
 | `text_field` | `str` | `"text"` | Name of the input text column in the data |
-| `pretokenize` | `bool` | `False` | Tokenize text on CPU before passing to vLLM. Recommended for best throughput |
+| `pretokenize` | `bool` | `False` | Tokenize text on CPU before passing to vLLM. Whether this improves throughput is model-dependent |
 | `embedding_field` | `str` | `"embeddings"` | Name of the output embedding column |
 | `max_chars` | `int` | `None` | Maximum characters per document (truncates before tokenization) |
 | `cache_dir` | `str` | `None` | Directory for caching downloaded model files |
@@ -103,23 +103,23 @@ Default vLLM settings applied by the stage (can be overridden):
 
 When `pretokenize=True`, the stage:
 
-1. Loads a Hugging Face `AutoTokenizer` for the specified model
+1. Loads a Hugging Face Auto Tokenizer for the specified model
 2. Tokenizes the input text batch on CPU with truncation to `max_model_len`
 3. Passes token IDs directly to vLLM using `TokensPrompt`
 
 Whether to use pretokenization depends on the model. For `google/embeddinggemma-300m` (the default for semantic deduplication), `pretokenize=False` is recommended and is the default. For other models, benchmarks show pretokenization can provide better per-task throughput by reducing GPU idle time during tokenization.
 
 ```python
-# Pretokenize mode (recommended)
-VLLMEmbeddingModelStage(
-    model_identifier="google/embeddinggemma-300m",
-    pretokenize=True,  # Tokenize on CPU, embed on GPU
-)
-
-# Direct text mode (simpler, slightly less throughput)
+# Direct text mode (recommended for google/embeddinggemma-300m)
 VLLMEmbeddingModelStage(
     model_identifier="google/embeddinggemma-300m",
     pretokenize=False,  # vLLM handles tokenization internally
+)
+
+# Pretokenize mode (can improve throughput for other models)
+VLLMEmbeddingModelStage(
+    model_identifier="intfloat/e5-large-v2",
+    pretokenize=True,  # Tokenize on CPU, embed on GPU
 )
 ```
 
@@ -127,11 +127,3 @@ VLLMEmbeddingModelStage(
 
 The `VLLMEmbeddingModelStage` requests 1 CPU and 1 GPU per worker by default. For multi-GPU models, configure `tensor_parallel_size` in `vllm_init_kwargs`.
 
-## When to Use vLLM vs. Sentence Transformers
-
-| Scenario | Recommendation |
-| --- | --- |
-| Large embedding models (>500M params) | vLLM — better GPU utilization and memory management |
-| Small embedding models (<100M params) | Sentence Transformers — lower overhead, faster startup |
-| Semantic deduplication | vLLM with `google/embeddinggemma-300m` — the default backend |
-| Quick prototyping | `EmbeddingCreatorStage` — simpler setup |
