@@ -22,20 +22,6 @@ from pathlib import Path
 import pytest
 
 # ---------------------------------------------------------------------------
-# vLLM 0.14+ spawns its EngineCore via fork() by default.  If any prior code
-# (e.g. HF AutoProcessor) has created threads, the forked child inherits
-# their lock state and deadlocks.  Forcing spawn avoids this entirely.
-# TOKENIZERS_PARALLELISM=false prevents HF fast-tokenizer threads from being
-# created in the first place (belt-and-suspenders).
-# Both must be set before any import that might start threads.
-# ---------------------------------------------------------------------------
-os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-_custom_hf = os.environ.get("CUSTOM_HF_DATASET", "")
-if _custom_hf:
-    os.environ.setdefault("HF_HOME", _custom_hf)
-
-# ---------------------------------------------------------------------------
 # Override the session-level autouse Ray cluster fixture from the root conftest.
 # Integration tests call stages directly — no Ray pipeline needed.
 # The local fixture takes precedence over the parent conftest for all tests
@@ -87,6 +73,16 @@ def enhancement_stage():
 
     setup() loads vLLM's LLM() with Qwen2.5-14B-Instruct via HF auto-download.
     """
+    # Set env vars here (not module-level) so they don't affect other GPU tests
+    # collected in the same pytest session (e.g. tests/core/test_serve.py).
+    # vLLM 0.14+ spawns its EngineCore via fork() by default; forcing spawn
+    # avoids deadlocks when HF AutoProcessor has already created threads.
+    os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    _custom_hf = os.environ.get("CUSTOM_HF_DATASET", "")
+    if _custom_hf:
+        os.environ.setdefault("HF_HOME", _custom_hf)
+
     from nemo_curator.stages.video.caption.caption_enhancement import CaptionEnhancementStage
 
     model_dir = os.environ.get("CURATOR_TEST_MODEL_DIR", "")
