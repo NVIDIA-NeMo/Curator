@@ -18,6 +18,7 @@ Audio Splitting and Joining Stages.
 """
 
 import math
+import time
 from dataclasses import dataclass
 
 import torchaudio
@@ -83,6 +84,11 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         """Process entry to split long audio files."""
+        with self._time_metric("process_time"):
+            return self._do_split(task)
+
+    def _do_split(self, task: AudioTask) -> AudioTask:
+        """Core splitting logic, separated to keep statement count within limits."""
         data_entry = task.data
         duration = data_entry["duration"]
 
@@ -97,6 +103,7 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
             ]
             data_entry["split_offsets"] = [0.0]
             data_entry["split_timestamps"] = [0.0]
+            self._log_metrics({"input_duration": duration, "splits_produced": 1})
             return task
 
         splits = self.get_split_points(data_entry)
@@ -134,14 +141,13 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
         last_frame = len(audio[0])
         remaining_frames = last_frame - split_start
 
-        if remaining_frames > self.min_len * sr and remaining_frames < (self.suggested_max_len + 1) * sr:
+        if remaining_frames > self.min_len * sr:
             torchaudio.save(split_resolved, audio[:, split_start:], sr)
             split_filepaths.append(split_filepath)
             split_durations.append(remaining_frames / sr)
             actual_splits.append(split_start / sr)
 
-        audio_item_id = data_entry.get("audio_item_id", "unknown")
-        split_filepaths_before = bool(split_filepaths)
+        audio_item_id, split_filepaths_before = data_entry.get("audio_item_id", "unknown"), bool(split_filepaths)
 
         if not split_filepaths:
             duration = len(audio[0]) / sr
@@ -163,6 +169,7 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
         data_entry["split_filepaths"] = split_filepaths
         data_entry["split_offsets"] = actual_splits
         data_entry["split_timestamps"] = splits
+        self._log_metrics({"input_duration": duration, "splits_produced": len(split_filepaths)})
         return task
 
     @staticmethod
@@ -218,19 +225,27 @@ class JoinSplitAudioMetadataStage(ProcessingStage[AudioTask, AudioTask]):
         This stage collects all entries and processes meta-entries to join
         split audio files back together.
         """
+        t0 = time.perf_counter()
         data_entry = task.data
+        splits_joined = 0
+        words_aligned = 0
+
         # Check if this is a meta-entry with split information
         if "split_filepaths" in data_entry:
             if data_entry["split_filepaths"] is None:
-                # No splitting occurred, pass through
                 del data_entry["split_filepaths"]
-                return task
             else:
-                # This is a meta-entry, process joining
+                splits_joined = len(data_entry.get("split_metadata", []))
                 self._join_split_metadata(data_entry)
-                return task
+                words_aligned = len(data_entry.get("alignment", []))
 
-        # Regular entry without split info
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "splits_joined": splits_joined,
+                "words_aligned": words_aligned,
+            }
+        )
         return task
 
     def _join_split_metadata(self, meta_entry: dict) -> None:

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -111,6 +112,7 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         if len(tasks) == 0:
             return []
+        t0 = time.perf_counter()
         for task in tasks:
             if not self.validate_input(task):
                 msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
@@ -119,4 +121,10 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
         texts = self.transcribe(files)
         for task, text in zip(tasks, texts, strict=True):
             task.data[self.pred_text_key] = text
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "files_transcribed": len(files),
+            }
+        )
         return tasks

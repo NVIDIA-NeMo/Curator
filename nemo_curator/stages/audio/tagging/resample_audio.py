@@ -24,6 +24,7 @@ https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/audio/commo
 import hashlib
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 
 from fsspec.core import url_to_fs
@@ -88,6 +89,7 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         Returns:
             AudioTask with updated metadata
         """
+        t0 = time.perf_counter()
         data_entry = task.data
 
         if self.audio_filepath_key not in data_entry:
@@ -109,7 +111,8 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
 
         # Convert audio file if not already done
         fs, output_path = url_to_fs(output_audio_path)
-        if not fs.exists(output_path):
+        skipped_conversion = fs.exists(output_path)
+        if not skipped_conversion:
             if input_audio_path.lower().endswith(".wav"):
                 cmd = [
                     "sox",
@@ -149,6 +152,14 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         # Update metadata — preserve original URL for cloud paths
         data_entry[self.audio_filepath_key] = original_audio_filepath
         data_entry[self.resampled_audio_filepath_key] = output_audio_path
-        data_entry[self.duration_key] = get_audio_duration(output_audio_path)
+        duration = get_audio_duration(output_audio_path)
+        data_entry[self.duration_key] = duration
 
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "duration": max(duration, 0.0),
+                "skipped_conversion": float(skipped_conversion),
+            }
+        )
         return task

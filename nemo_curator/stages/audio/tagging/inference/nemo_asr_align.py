@@ -23,6 +23,7 @@ tagging manifest keys like ``split_filepaths``, ``split_metadata``,
 and ``segments``.
 """
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -320,10 +321,16 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         """Process a batch of AudioTasks for ASR alignment."""
         if len(tasks) == 0:
             return []
-        if self.infer_segment_only:
-            return self.process_segments(tasks)
-        else:
-            return self.process_full_audio(tasks)
+        t0 = time.perf_counter()
+        results = self.process_segments(tasks) if self.infer_segment_only else self.process_full_audio(tasks)
+
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "entries_processed": len(tasks),
+            }
+        )
+        return results
 
     def process_full_audio(self, tasks: list[AudioTask]) -> list[AudioTask]:  # noqa: C901, PLR0912, PLR0915
         """Process entries as full audio (or meta-entries with split_filepaths)."""

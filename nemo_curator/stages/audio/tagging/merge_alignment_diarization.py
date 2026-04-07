@@ -16,6 +16,7 @@
 Merge Alignment and Diarization Stage.
 """
 
+import time
 from dataclasses import dataclass
 
 from loguru import logger
@@ -180,6 +181,7 @@ class MergeAlignmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         """Process entry to merge alignment and diarization."""
+        t0 = time.perf_counter()
         data_entry = task.data
         alignment = data_entry.get("alignment", [])
         segments = data_entry.get("segments", [])
@@ -187,4 +189,11 @@ class MergeAlignmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         if alignment and segments:
             self.align_words_to_segments(alignment, segments, self.text_key, self.words_key)
 
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "segments_merged": len(segments),
+                "words_aligned": len(alignment),
+            }
+        )
         return task

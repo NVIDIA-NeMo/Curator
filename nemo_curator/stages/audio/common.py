@@ -14,6 +14,7 @@
 
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
 from typing import Any
@@ -60,9 +61,11 @@ class GetAudioDurationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.duration_key]
 
     def process(self, task: AudioTask) -> AudioTask:
+        t0 = time.perf_counter()
         audio_filepath = task.data[self.audio_filepath_key]
         duration = get_audio_duration(audio_filepath)
         task.data[self.duration_key] = duration
+        self._log_metrics({"process_time": time.perf_counter() - t0, "duration": max(duration, 0.0)})
         return task
 
 
@@ -105,6 +108,7 @@ class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
         raise NotImplementedError(msg)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        t0 = time.perf_counter()
         results = []
         for task in tasks:
             if not self.validate_input(task):
@@ -112,6 +116,14 @@ class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
                 raise ValueError(msg)
             if self.operator(task.data[self.input_value_key], self.target_value):
                 results.append(task)
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "input_count": len(tasks),
+                "output_count": len(results),
+                "filtered_count": len(tasks) - len(results),
+            }
+        )
         return results
 
 
@@ -126,6 +138,7 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     name: str = "manifest_reader_stage"
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
+        t0 = time.perf_counter()
         paths = task.data
         results: list[AudioTask] = []
         for manifest in paths:
@@ -145,6 +158,13 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                         )
                         count += 1
             logger.info(f"ManifestReaderStage: loaded {count} entries from {manifest}")
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "manifests_read": len(paths),
+                "entries_read": len(results),
+            }
+        )
         return results
 
     def ray_stage_spec(self) -> dict[str, Any]:

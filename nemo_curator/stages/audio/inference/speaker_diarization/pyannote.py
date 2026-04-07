@@ -18,6 +18,7 @@ PyAnnote Diarization and Overlap Detection Stage.
 
 import os
 import random
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -206,6 +207,7 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         """Process a single entry for diarization and overlap detection."""
+        t0 = time.perf_counter()
         data_entry = task.data
         file_path = data_entry.get(self.audio_filepath_key)
         if not file_path:
@@ -278,4 +280,15 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         # Update entry
         data_entry[self.segments_key] = segments
         data_entry[self.overlap_segments_key] = overlap_segments
+
+        speakers = {seg["speaker"] for seg in segments if seg.get("speaker") != "no-speaker"}
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "segments_detected": len(segments),
+                "overlap_segments_detected": len(overlap_segments),
+                "speakers_detected": len(speakers),
+                "audio_duration": audio_duration,
+            }
+        )
         return task
