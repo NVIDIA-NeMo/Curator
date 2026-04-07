@@ -86,8 +86,9 @@ def enhancement_stage():
     """
     from nemo_curator.stages.video.caption.caption_enhancement import CaptionEnhancementStage
 
+    model_dir = os.environ.get("CURATOR_TEST_MODEL_DIR", "")
     stage = CaptionEnhancementStage(
-        model_dir="",
+        model_dir=model_dir,
         model_variant="qwen",
         model_batch_size=1,
         fp8=False,

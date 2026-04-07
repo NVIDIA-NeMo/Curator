@@ -12,4 +12,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-CUDA_VISIBLE_DEVICES="0,1" coverage run -a --data-file=/workspace/.coverage --source=/workspace/nemo_curator -m pytest -m gpu --rootdir /workspace tests
+export CURATOR_TEST_MODEL_DIR=/home/TestData/models
+CUDA_VISIBLE_DEVICES="0,1" coverage run -a --data-file=/workspace/.coverage --source=/workspace/nemo_curator -m pytest -m gpu --rootdir /workspace --basetemp=/tmp/pytest-gpu tests

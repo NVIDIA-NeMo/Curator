@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
@@ -450,8 +451,9 @@ def preparation_stage() -> CaptionPreparationStage:
 @pytest.fixture(scope="class")
 def generation_stage():
     """Instantiate and set up CaptionGenerationStage once per class."""
+    model_dir = os.environ.get("CURATOR_TEST_MODEL_DIR", "")
     stage = CaptionGenerationStage(
-        model_dir="",
+        model_dir=model_dir,
         model_variant="qwen",
         caption_batch_size=1,
         fp8=False,
@@ -504,7 +506,7 @@ class TestQwenCaptionPipelineIntegration:
         clip = task.data.clips[0]
         request.cls.prep_clip = clip
         # Capture raw vLLM inputs before generation clears them
-        request.cls.raw_inputs = [w.qwen_llm_input for w in clip.windows if w.qwen_llm_input is not None]
+        request.cls.raw_inputs = [w.llm_inputs["qwen"] for w in clip.windows if "qwen" in w.llm_inputs]
 
         # --- generation stage ---
         task = generation_stage.process(task)
@@ -538,4 +540,4 @@ class TestQwenCaptionPipelineIntegration:
             assert len(caption.strip()) > 0, f"Window {i}: caption is blank"
 
         for i, window in enumerate(clip.windows):
-            assert window.qwen_llm_input is None, f"Window {i}: qwen_llm_input not cleared after generation"
+            assert "qwen" not in window.llm_inputs, f"Window {i}: qwen_llm_input not cleared after generation"
