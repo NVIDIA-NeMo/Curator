@@ -52,9 +52,9 @@ Use `with_()` to change the runtime environment for a specific pipeline without 
 stage = MyStage().with_(runtime_env={"pip": ["transformers==4.45.0"]})
 ```
 
-### Use `uv` instead of `pip`
+### Use `uv` as the package installer
 
-If your environment uses `uv` for faster package installation, specify packages with the `"uv"` key:
+Ray also supports `uv` as the package installer inside worker virtualenvs. Use the `"uv"` key instead of `"pip"` for faster installs:
 
 ```python
 class FastInstallStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -62,6 +62,8 @@ class FastInstallStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     runtime_env = {"uv": ["transformers==4.40.0"]}
     ...
 ```
+
+Both `"pip"` and `"uv"` keys work regardless of which package manager your local environment uses. The key only controls which installer Ray uses inside the worker virtualenv.
 
 ## Backend Support
 
@@ -92,27 +94,58 @@ uv sync --locked
 
 ## Example: Multi-Version Pipeline
 
-This example runs three stages in a single pipeline, each seeing a different version of the `packaging` library:
+This example runs three stages in a single pipeline, each seeing a different version of the `packaging` library. It uses `RecordPackagingVersionStage`, a test stage from PR #1623 that records the `packaging` library version visible to each worker:
 
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import DocumentBatch
+
+
+class RecordPackagingVersionStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Records the packaging library version visible to this worker."""
+
+    name = "record_packaging_version"
+    resources = Resources(cpus=0.5)
+    batch_size = 1
+
+    def inputs(self):
+        return ["data"], []
+
+    def outputs(self):
+        return ["data"], []
+
+    def process(self, task):
+        import packaging
+
+        batch = task.to_pandas().copy()
+        batch[f"{self.name}_version"] = packaging.__version__
+        return DocumentBatch(
+            task_id=task.task_id,
+            dataset_name=task.dataset_name,
+            data=batch,
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )
+
 
 pipeline = Pipeline(name="multi_version_demo")
 
 # Stage 1: uses the base environment (no runtime_env)
-pipeline.add_stage(BaseStage())
+pipeline.add_stage(RecordPackagingVersionStage().with_(name="base_env"))
 
-# Stage 2: needs packaging 23.2
+# Stage 2: needs packaging 23.2 (installed via pip)
 pipeline.add_stage(
-    VersionedStage()
-    .with_(name="packaging_23", runtime_env={"pip": ["packaging==23.2"]})
+    RecordPackagingVersionStage()
+    .with_(name="pinned_v232", runtime_env={"pip": ["packaging==23.2"]})
 )
 
-# Stage 3: needs packaging 24.0
+# Stage 3: needs packaging 24.0 (installed via uv)
 pipeline.add_stage(
-    VersionedStage()
-    .with_(name="packaging_24", runtime_env={"pip": ["packaging==24.0"]})
+    RecordPackagingVersionStage()
+    .with_(name="pinned_v240", runtime_env={"uv": ["packaging==24.0"]})
 )
 
 executor = XennaExecutor(config={"execution_mode": "streaming"})
