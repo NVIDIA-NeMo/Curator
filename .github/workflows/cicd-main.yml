@@ -95,6 +95,7 @@ jobs:
       - name: Run tests ${{ matrix.folder }} (CPU)
         timeout-minutes: 40
         run: |
+          uv venv --seed
           uv sync --link-mode copy --locked --extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu --group test
           source .venv/bin/activate
           FOLDER="${{ matrix.folder }}"

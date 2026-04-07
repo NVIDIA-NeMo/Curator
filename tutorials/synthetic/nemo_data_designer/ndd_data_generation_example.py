@@ -294,7 +294,7 @@ def main() -> None:  # noqa: PLR0915
 
     # If no remote provider specified, start a local InferenceServer
     if args.provider is None:
-        from nemo_curator.backends.experimental.utils import get_available_cpu_gpu_resources
+        from nemo_curator.backends.utils import get_available_cpu_gpu_resources
         from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
 
         _, num_gpus = get_available_cpu_gpu_resources()

@@ -101,6 +101,9 @@ audio_common = [
     "torchaudio",
     "onnx>=1.19.0",
     "silero-vad",
+    "librosa",
+    "scipy",
+    "pydub>=0.25.1",
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",
@@ -110,7 +113,7 @@ audio_cuda12 = [
     "nemo_curator[audio_common]",
     "nemo_curator[cuda12]",
     "nvidia-cudnn-cu12",
-    "onnxruntime-gpu>=1.20.1,<1.24",
+    "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
     "torchcodec",
 ]
 

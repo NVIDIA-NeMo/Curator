@@ -23,8 +23,7 @@ from ray.util.actor_pool import ActorPool
 from tqdm import tqdm
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys, execute_setup_on_node
-from nemo_curator.backends.utils import register_loguru_serializer
+from nemo_curator.backends.utils import RayStageSpecKeys, execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
 from .adapter import RayActorPoolStageAdapter
@@ -156,7 +155,7 @@ class RayActorPoolExecutor(BaseExecutor):
             raise
         else:
             # Return final results directly - no need for ray.get()
-            final_results = current_tasks if current_tasks else []
+            final_results = current_tasks or []
             logger.info(f"\nPipeline completed. Final results: {len(final_results)} tasks")
 
             return final_results
@@ -168,14 +167,16 @@ class RayActorPoolExecutor(BaseExecutor):
     def _create_actor_pool(self, stage: "ProcessingStage", num_actors: int) -> ActorPool:
         """Create an ActorPool for a specific stage."""
         actors = []
+        actor_options: dict = {
+            "num_cpus": stage.resources.cpus,
+            "num_gpus": stage.resources.gpus,
+        }
+        if stage.runtime_env:
+            actor_options["runtime_env"] = stage.runtime_env
         for i in range(num_actors):
             actor = (
                 create_named_ray_actor_pool_stage_adapter(stage, RayActorPoolStageAdapter)
-                .options(
-                    num_cpus=stage.resources.cpus,
-                    num_gpus=stage.resources.gpus,
-                    name=f"{stage.name}-{i}",
-                )
+                .options(**actor_options, name=f"{stage.name}-{i}")
                 .remote(stage)
             )
             actors.append(actor)
