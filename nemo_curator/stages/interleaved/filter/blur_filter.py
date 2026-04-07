@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
     from nemo_curator.tasks import InterleavedBatch
 
+DEFAULT_BLUR_SCORE_THRESHOLD: float = 100.0
+
 
 def _sharpness_score(image: np.ndarray) -> float:
     """Compute Laplacian variance as sharpness score; higher is sharper."""
@@ -38,7 +40,7 @@ def _sharpness_score(image: np.ndarray) -> float:
 class InterleavedBlurFilterStage(BaseInterleavedFilterStage):
     """Filter interleaved image rows by sharpness (Laplacian variance); drop blurry images."""
 
-    score_threshold: float = 100.0
+    score_threshold: float = DEFAULT_BLUR_SCORE_THRESHOLD
     name: str = "interleaved_blur_filter"
 
     def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:

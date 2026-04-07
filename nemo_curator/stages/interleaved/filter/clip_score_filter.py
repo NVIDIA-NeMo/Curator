@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
     from nemo_curator.tasks import InterleavedBatch
 
+DEFAULT_CLIP_MIN_SCORE: float = 0.15
+
 
 def _sample_texts_list_from_df(df: pd.DataFrame, sample_id: str) -> list[str]:
     """Return list of text_content from all text rows for the given sample_id (non-empty)."""
@@ -67,7 +69,7 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
     """
 
     model_dir: str | None = None
-    min_score: float = 0.15
+    min_score: float = DEFAULT_CLIP_MIN_SCORE
     name: str = "interleaved_clip_score_filter"
     resources: Resources = field(default_factory=lambda: Resources(gpu_memory_gb=20.0))
 

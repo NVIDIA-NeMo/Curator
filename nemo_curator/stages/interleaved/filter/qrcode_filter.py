@@ -27,6 +27,8 @@ from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 if TYPE_CHECKING:
     from nemo_curator.tasks import InterleavedBatch
 
+DEFAULT_QRCODE_SCORE_THRESHOLD: float = 0.05
+
 
 def _qr_code_ratio(image: np.ndarray) -> float:
     """Return the ratio of image area covered by all detected QR code(s), in [0, 1]."""
@@ -53,7 +55,7 @@ def _qr_code_ratio(image: np.ndarray) -> float:
 class InterleavedQRCodeFilterStage(BaseInterleavedFilterStage):
     """Filter interleaved image rows by QR code area ratio; drop images with high QR coverage."""
 
-    score_threshold: float = 0.05
+    score_threshold: float = DEFAULT_QRCODE_SCORE_THRESHOLD
     name: str = "interleaved_qrcode_filter"
 
     def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:

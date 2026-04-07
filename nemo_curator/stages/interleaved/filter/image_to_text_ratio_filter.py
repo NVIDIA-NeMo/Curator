@@ -24,6 +24,9 @@ from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 if TYPE_CHECKING:
     from nemo_curator.tasks import InterleavedBatch
 
+DEFAULT_IMAGE_TO_TEXT_MIN_RATIO: float = 0.0
+DEFAULT_IMAGE_TO_TEXT_MAX_RATIO: float = float("inf")
+
 
 def _text_word_count(text: str | None) -> int:
     """Count words in text by splitting on whitespace."""
@@ -44,8 +47,8 @@ class InterleavedImageToTextRatioFilterStage(BaseInterleavedFilterStage):
     Samples with ratio outside [min_ratio, max_ratio] are dropped (all their rows).
     """
 
-    min_ratio: float = 0.0
-    max_ratio: float = float("inf")
+    min_ratio: float = DEFAULT_IMAGE_TO_TEXT_MIN_RATIO
+    max_ratio: float = DEFAULT_IMAGE_TO_TEXT_MAX_RATIO
     name: str = "interleaved_image_to_text_ratio_filter"
 
     def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:  # noqa: ARG002
