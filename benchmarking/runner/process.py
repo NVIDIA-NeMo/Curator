@@ -25,6 +25,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
