@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import ray
 from loguru import logger
 
-from nemo_curator.backends.experimental.utils import get_available_cpu_gpu_resources
+from nemo_curator.backends.utils import get_available_cpu_gpu_resources
 
 if TYPE_CHECKING:
     from ray.actor import ActorClass

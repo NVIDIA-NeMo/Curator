@@ -431,7 +431,7 @@ class TextSemanticDeduplicationWorkflow:
             embedding_executor = pairwise_executor = removal_executor = streaming_executor
 
         if batch_executor is None:
-            from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+            from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
 
             batch_executor = RayActorPoolExecutor()
 
