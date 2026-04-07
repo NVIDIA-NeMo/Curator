@@ -44,14 +44,13 @@ class TestExpandSlurmNodelist:
         assert result == ["compute-001"]
 
     def test_expands_with_scontrol(self, monkeypatch: pytest.MonkeyPatch):
+        import nemo_curator.core.client as _client
+
         fake_result = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="node-001\nnode-002\nnode-003\n"
         )
         monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/scontrol")
-        monkeypatch.setattr(
-            "nemo_curator.core.client.subprocess.run",
-            lambda *_args, **_kw: fake_result,
-        )
+        monkeypatch.setattr(_client.subprocess, "run", lambda *_args, **_kw: fake_result)
         result = _expand_slurm_nodelist("node-[001-003]")
         assert result == ["node-001", "node-002", "node-003"]
 
