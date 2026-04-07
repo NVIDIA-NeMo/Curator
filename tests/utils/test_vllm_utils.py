@@ -70,25 +70,26 @@ class TestResolveLocalModelPath:
 class TestCreateVllmLlm:
     """Tests for create_vllm_llm: port-collision retry and error propagation."""
 
-    def _inject_fake_vllm(self, monkeypatch: pytest.MonkeyPatch, LLMClass: type) -> None:
+    def _inject_fake_vllm(self, monkeypatch: pytest.MonkeyPatch, llm_class: type) -> None:
         """Insert a fake vllm module so the local `from vllm import LLM` import succeeds."""
         import sys
         import types
 
         fake_vllm = types.ModuleType("vllm")
-        fake_vllm.LLM = LLMClass
+        fake_vllm.LLM = llm_class
         monkeypatch.setitem(sys.modules, "vllm", fake_vllm)
 
     def test_eaddrinuse_retries_then_succeeds(self, monkeypatch: pytest.MonkeyPatch):
         """On EADDRINUSE the helper should retry and return the LLM on success."""
         call_count = 0
+        err_msg = "EADDRINUSE: port already in use"
 
         class FakeLLM:
             def __init__(self, **_kw):
                 nonlocal call_count
                 call_count += 1
                 if call_count < 2:
-                    raise RuntimeError("EADDRINUSE: port already in use")
+                    raise RuntimeError(err_msg)
 
         self._inject_fake_vllm(monkeypatch, FakeLLM)
         monkeypatch.setattr(_vllm_utils, "pick_free_port", lambda: 12345)
@@ -100,10 +101,11 @@ class TestCreateVllmLlm:
 
     def test_eaddrinuse_exhausted_reraises(self, monkeypatch: pytest.MonkeyPatch):
         """After max_port_retries all fail with EADDRINUSE, the error is re-raised."""
+        err_msg = "address already in use"
 
         class FakeLLM:
             def __init__(self, **_kw):
-                raise RuntimeError("address already in use")
+                raise RuntimeError(err_msg)
 
         self._inject_fake_vllm(monkeypatch, FakeLLM)
         monkeypatch.setattr(_vllm_utils, "pick_free_port", lambda: 12345)
@@ -115,12 +117,13 @@ class TestCreateVllmLlm:
     def test_non_eaddrinuse_raises_immediately(self, monkeypatch: pytest.MonkeyPatch):
         """A non-port-collision RuntimeError should propagate without retry."""
         call_count = 0
+        err_msg = "CUDA out of memory"
 
         class FakeLLM:
             def __init__(self, **_kw):
                 nonlocal call_count
                 call_count += 1
-                raise RuntimeError("CUDA out of memory")
+                raise RuntimeError(err_msg)
 
         self._inject_fake_vllm(monkeypatch, FakeLLM)
         monkeypatch.setattr(_vllm_utils, "pick_free_port", lambda: 12345)

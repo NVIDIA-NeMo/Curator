@@ -102,10 +102,7 @@ class TestPDFPartitioningStage:
         """Extra fields like jsonl_file and byte_offset must be forwarded downstream."""
         manifest = tmp_path / "manifest.jsonl"
         manifest.write_text(
-            json.dumps(
-                {"file_name": "a.pdf", "url": "http://a", "jsonl_file": "x.jsonl", "byte_offset": 42}
-            )
-            + "\n"
+            json.dumps({"file_name": "a.pdf", "url": "http://a", "jsonl_file": "x.jsonl", "byte_offset": 42}) + "\n"
         )
         stage = PDFPartitioningStage(manifest_path=str(manifest), pdfs_per_task=5)
         tasks = stage.process(_empty_task())
@@ -117,9 +114,7 @@ class TestPDFPartitioningStage:
     def test_unrecognized_line_is_skipped(self, tmp_path: Path):
         """Lines without file_name or cc_pdf_file_names should be skipped with a warning."""
         manifest = tmp_path / "manifest.jsonl"
-        manifest.write_text(
-            json.dumps({"unknown_key": "value"}) + "\n" + json.dumps({"file_name": "b.pdf"}) + "\n"
-        )
+        manifest.write_text(json.dumps({"unknown_key": "value"}) + "\n" + json.dumps({"file_name": "b.pdf"}) + "\n")
         stage = PDFPartitioningStage(manifest_path=str(manifest), pdfs_per_task=5)
         tasks = stage.process(_empty_task())
         total = sum(len(t.data) for t in tasks)
@@ -129,9 +124,7 @@ class TestPDFPartitioningStage:
     def test_duplicate_filenames_deduplicated(self, tmp_path: Path):
         """dict.fromkeys deduplication should collapse repeated filenames."""
         manifest = tmp_path / "manifest.jsonl"
-        manifest.write_text(
-            json.dumps({"cc_pdf_file_names": ["a.pdf", "a.pdf", "b.pdf"], "url": "http://x"}) + "\n"
-        )
+        manifest.write_text(json.dumps({"cc_pdf_file_names": ["a.pdf", "a.pdf", "b.pdf"], "url": "http://x"}) + "\n")
         stage = PDFPartitioningStage(manifest_path=str(manifest), pdfs_per_task=5)
         tasks = stage.process(_empty_task())
         entries = [json.loads(e) for e in tasks[0].data]
@@ -260,9 +253,7 @@ class TestPDFPreprocessStage:
         (jsonl_dir / "data.jsonl").write_bytes((line0 + line1).encode())
 
         # No byte_offset → falls back to line_idx scan
-        entry = json.dumps(
-            {"file_name": "test.pdf", "url": "http://test", "jsonl_file": "data.jsonl", "line_idx": 1}
-        )
+        entry = json.dumps({"file_name": "test.pdf", "url": "http://test", "jsonl_file": "data.jsonl", "line_idx": 1})
         from nemo_curator.tasks import FileGroupTask
 
         task = FileGroupTask(task_id="test_task", dataset_name="test", data=[entry])

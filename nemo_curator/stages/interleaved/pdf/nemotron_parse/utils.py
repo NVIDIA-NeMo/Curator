@@ -520,4 +520,3 @@ def extract_pdfs_from_jsonl_batch(
         for offset in offsets:
             results[offset] = None
     return results
-

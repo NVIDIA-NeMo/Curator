@@ -162,8 +162,8 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
         "--enforce-eager",
         action="store_true",
         help="Disable vLLM CUDA graph capture (enforce_eager=True). Eliminates ~35min compilation "
-             "idle at startup; slight throughput reduction. Recommended on clusters with GPU "
-             "utilization enforcement.",
+        "idle at startup; slight throughput reduction. Recommended on clusters with GPU "
+        "utilization enforcement.",
     )
 
     # Executor
@@ -176,7 +176,9 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
 
     # Manifest field names
     parser.add_argument("--file-name-field", default="file_name", help="JSONL field for single PDF filename")
-    parser.add_argument("--file-names-field", default="cc_pdf_file_names", help="JSONL field for list of PDF filenames")
+    parser.add_argument(
+        "--file-names-field", default="cc_pdf_file_names", help="JSONL field for list of PDF filenames"
+    )
     parser.add_argument("--url-field", default="url", help="JSONL field for source URL")
 
     return parser
@@ -253,7 +255,7 @@ def _write_perf_summary(results: list, output_dir: str, wall_time: float) -> Non
     logger.info(f"Wrote {len(df)} perf records ({len(valid_results)} tasks) to {perf_path}")
 
     n_tasks = len(valid_results)
-    logger.info(f"\n{'='*70}\n  PERFORMANCE SUMMARY  (wall_time={wall_time:.1f}s, tasks={n_tasks})\n{'='*70}")
+    logger.info(f"\n{'=' * 70}\n  PERFORMANCE SUMMARY  (wall_time={wall_time:.1f}s, tasks={n_tasks})\n{'=' * 70}")
     for stage_name, group in df.groupby("stage_name", sort=False):
         avg_t = group["process_time_s"].mean()
         sum_t = group["process_time_s"].sum()
@@ -264,7 +266,7 @@ def _write_perf_summary(results: list, output_dir: str, wall_time: float) -> Non
             f"  {stage_name:40s}  avg={avg_t:8.2f}s  p50={p50:8.2f}s  p95={p95:8.2f}s  "
             f"sum={sum_t:10.1f}s  items={total_items}"
         )
-    logger.info(f"{'='*70}\n")
+    logger.info(f"{'=' * 70}\n")
 
 
 def main() -> None:
@@ -276,6 +278,7 @@ def main() -> None:
 
     if os.environ.get("SLURM_JOB_ID"):
         from nemo_curator.core.client import SlurmRayClient
+
         ray_client = SlurmRayClient()
     else:
         ray_client = RayClient()

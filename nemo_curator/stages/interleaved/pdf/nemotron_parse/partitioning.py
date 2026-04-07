@@ -102,8 +102,11 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 elif self.file_name_field in record:
                     # Single file per line — preserve extra fields (e.g. jsonl_file, byte_offset)
                     file_names = [record[self.file_name_field]]
-                    extra = {k: v for k, v in record.items()
-                             if k not in (self.file_name_field, self.url_field, self.file_names_field)}
+                    extra = {
+                        k: v
+                        for k, v in record.items()
+                        if k not in (self.file_name_field, self.url_field, self.file_names_field)
+                    }
                 else:
                     logger.warning(f"Skipping manifest line: no '{self.file_name_field}' or '{self.file_names_field}'")
                     continue
