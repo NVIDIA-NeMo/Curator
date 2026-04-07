@@ -57,6 +57,14 @@ Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and i
 - **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
 - **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
 
+### FastText Filter Benchmarking (PR #1452)
+
+Added nightly benchmarking coverage for FastText-based document filters:
+
+- **FastText filter benchmarks**: New `fasttext_filter_raydata` and `fasttext_filter_xenna` entries in the nightly benchmark suite, testing language identification and quality filtering pipelines.
+- **Dedicated benchmark script**: `fasttext_filter_benchmark.py` follows the same Hydra-configured pattern as existing filter benchmarks, reporting `num_kept_documents` and `throughput_docs_per_sec`.
+- **Consistent model path naming**: Renamed `--fasttext-model-path` to `--fasttext-langid-model-path` across benchmark scripts for clarity, and introduced `--fasttext-quality-model-path` for the new [FastText quality filter model](https://huggingface.co/mlfoundations/fasttext-oh-eli5). The [FastText language identification model](https://fasttext.cc/docs/en/language-identification.html) uses the renamed `--fasttext-langid-model-path` argument.
+
 ### Filter and Modifier Directory Reorganization (PR #1472)
 
 Reorganized the `DocumentFilter` and `DocumentModifier` directory structures to avoid eagerly importing heavy dependencies:
