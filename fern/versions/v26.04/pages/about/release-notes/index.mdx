@@ -83,6 +83,10 @@ The data acquisition pipeline now uses a three-stage architecture instead of fou
 - **Improved Memory Efficiency**: The fused stage processes records inline instead of materializing intermediate DataFrames, reducing peak memory usage. With limited RAM (200 GB), the Common Crawl pipeline succeeds with 32 CPUs where the unfused pipeline ran out of memory even at 16 CPUs.
 - **Better Performance**: Benchmarks show faster runtimes across both the Ray Data and Xenna executors (e.g., ~6% faster with Ray Data, ~18% faster with Xenna).
 
+### Worker Recycling for JusText Extraction (PR #1534)
+
+Added `max_calls_per_worker` support to mitigate out-of-memory errors caused by lxml/libxml2 memory fragmentation in long-running jusText extraction jobs. `CommonCrawlDownloadExtractStage` now defaults to `extractor_max_calls_per_worker=2` for `JusTextExtractor`, automatically recycling workers to reclaim fragmented memory.
+
 ### Per-Stage Runtime Environments (PR #1623)
 
 Pipeline stages can now declare isolated Python dependencies using Ray's native `runtime_env` support. Each stage can specify a different set of pip or uv packages, and Ray creates a cached virtualenv per unique dependency set so that incompatible library versions coexist in the same pipeline:
@@ -167,6 +171,10 @@ workflow = ExactDeduplicationWorkflow(
 Confirmed full GPU utilization for the AEGIS safety classifier when running on multi-GPU setups. The AEGIS classifier, which uses the LlamaGuard-7b generative model, properly distributes inference across all available GPUs. Added a performance note to the [classifier documentation](/curate-text/process-data/quality-assessment/distributed-classifier) to set expectations for processing times relative to encoder-based classifiers.
 
 ## Bug Fixes
+
+### JusText Extraction OOM (PR #1534)
+
+Fixed out-of-memory errors during long-running jusText extraction jobs caused by lxml/libxml2 C-heap memory fragmentation. Worker recycling through `max_calls_per_worker` now prevents unbounded RSS growth by restarting worker processes periodically.
 
 ### CUDA Fork Error with vLLM and RayDataExecutor (PR #1606)
 
