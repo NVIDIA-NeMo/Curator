@@ -11,10 +11,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import fcntl
 import json
 import os
 import random
+import time
 from collections.abc import Generator
+from pathlib import Path
 from typing import Any, ClassVar
 
 from loguru import logger
@@ -24,6 +27,9 @@ from runner.sinks.sink import Sink
 from runner.utils import find_result, human_readable_bytes_repr
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+
+_SLACK_STATE_POLL_INTERVAL_S: float = 0.5
+_SLACK_STATE_POLL_TIMEOUT_S: float = 120.0
 
 
 class SlackMessageBase:
@@ -454,15 +460,74 @@ class SlackSink(Sink):
             msg = "SlackSink: SLACK_BOT_TOKEN environment variable is not set"
             raise ValueError(msg)
 
+        # Parallel-run coordination state
+        self._state_path: Path | None = None  # Set in initialize()
+        self._is_winner: bool = False
+
+    def _get_state_path(self) -> Path:
+        return Path(self.session.results_path) / self.session_name / ".slack_state.json"
+
+    def _wait_for_session_state(self, state_path: Path) -> dict[str, Any]:
+        deadline = time.monotonic() + _SLACK_STATE_POLL_TIMEOUT_S
+        while time.monotonic() < deadline:
+            try:
+                with open(state_path) as f:
+                    data = json.load(f)
+                if data.get("ts"):
+                    return data
+            except (OSError, json.JSONDecodeError):
+                pass
+            time.sleep(_SLACK_STATE_POLL_INTERVAL_S)
+        msg = f"SlackSink follower: timed out waiting for session state at {state_path}"
+        raise TimeoutError(msg)
+
     def initialize(self, session_name: str, session: Session, env_dict: dict[str, Any]) -> None:
-        # Initializes the sink for the session.
         self.session_name = session_name
         self.env_dict = env_dict
         self.session = session
-        self._parent_message = self._create_session_summary_message(env_dict)
         self._child_messages = []
-        if self.live_updates:
-            self._post_updates()
+        self._state_path = self._get_state_path()
+        self._state_path.parent.mkdir(parents=True, exist_ok=True)
+
+        fd: int | None = None
+        try:
+            try:
+                # Open the state file for writing with the following flags:
+                # - os.O_CREAT: create the file if it does not exist
+                # - os.O_EXCL: fail if the file already exists (ensures "winner" for the current process)
+                # - os.O_WRONLY: open for write-only access
+                # This lets us atomically determine which process was first to create the session state file,
+                # coordinating parallel benchmarking runs.
+                fd = os.open(str(self._state_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                self._is_winner = True
+            except FileExistsError:
+                self._is_winner = False
+
+            if self._is_winner:
+                self._parent_message = self._create_session_summary_message(env_dict)
+                self._post_message(self._parent_message)
+                initial_state = {
+                    "ts": self._parent_message.get_timestamp(),
+                    "channel": self._parent_message.get_channel_id(),
+                    "entries": dict(self._parent_message.entries),
+                }
+                # NOTE: This is the only time the state file is created.
+                # If the benchmark session is re-run using the same session name
+                # (resulting in the same state file path), the file will already exist and
+                # all benchmarking info will be added to the previous Slack parent message.
+                # This is by design. New benchmark runs are assumed to use new session names,
+                # and therefore will generate new/unique state file paths.
+                payload = json.dumps(initial_state).encode()
+                os.write(fd, payload)
+            else:
+                state = self._wait_for_session_state(self._state_path)
+                self._parent_message = SlackParentMessage(session_name=session_name, env_dict=env_dict)
+                self._parent_message.set_response({"ts": state["ts"], "channel": state["channel"], "ok": True})
+                for entry_name, entry_status in state["entries"].items():
+                    self._parent_message.entries[entry_name] = entry_status
+        finally:
+            if fd is not None:
+                os.close(fd)
 
     def register_benchmark_entry_starting(self, result_dict: dict[str, Any], benchmark_entry: Entry) -> None:  # noqa: ARG002
         # Register that a benchmark entry is starting.
@@ -474,8 +539,7 @@ class SlackSink(Sink):
                     "SlackSink: Warning: Ignoring attempt to post an entry starting message without a session summary message. Was initialize() called?"
                 )
                 return
-            self._parent_message.update_entry(benchmark_entry.name, "▶️ running")
-            self._post_updates()
+            self._update_parent_entry(benchmark_entry.name, "▶️ running")
 
     def register_benchmark_entry_finished(self, result_dict: dict[str, Any], benchmark_entry: Entry) -> None:
         if self._parent_message is None:
@@ -498,7 +562,7 @@ class SlackSink(Sink):
         )
         self._child_messages.append(msg)
         # Update the session summary message with the new entry status.
-        self._parent_message.update_entry(benchmark_entry.name, status_text)
+        self._update_parent_entry(benchmark_entry.name, status_text)
 
         if self.live_updates:
             self._post_updates()
@@ -509,10 +573,6 @@ class SlackSink(Sink):
                 "SlackSink: Warning: Ignoring attempt to finalize without a session summary message. Was initialize() called?"
             )
             return
-        # Unconditionally posts all unposted messages.
-        # This will be a no-op if self.live_mode is True, otherwise this will post all
-        # unposted messages from the entire benchmark run at once.
-        self._finalize_session_summary_message()
         self._post_updates()
 
     def _create_session_summary_message(self, env_dict: dict[str, Any]) -> SlackParentMessage:
@@ -545,22 +605,45 @@ class SlackSink(Sink):
         metrics, result_dict = data
         return SlackMessage(entry_name=benchmark_entry.name, result_dict=result_dict, metrics=metrics, pings=pings)
 
-    def _finalize_session_summary_message(self) -> None:
-        """Finalize the session summary message with overall status."""
-        # Check if any entries are still in "running" or "waiting to start" status and mark them as errored
-        for entry_name, status in self._parent_message.entries.items():
-            if "⏳" in status or "▶️" in status:
-                self._parent_message.update_entry(entry_name, "❌ ERROR")
+    def _update_parent_entry(self, entry_name: str, status: str) -> None:
+        """Update a single entry's status in the shared state file and post the update to Slack.
+
+        Acquires an exclusive file lock for the duration of the read-modify-write cycle and
+        the Slack API call so that concurrent processes do not overwrite each other's updates.
+
+        Args:
+            entry_name: Name of the benchmark entry to update.
+            status: New status string for the entry.
+        """
+        if self._state_path is None:
+            logger.error("SlackSink: Cannot update parent entry — state path not set. Was initialize() called?")
+            return
+        try:
+            f = open(self._state_path, "r+")  # noqa: SIM115
+        except OSError:
+            logger.error(f"SlackSink: Cannot open state file {self._state_path} for update")
+            return
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            state = json.load(f)
+            state["entries"][entry_name] = status
+            for name, st in state["entries"].items():
+                self._parent_message.update_entry(name, st)
+            try:
+                self._update_message(self._parent_message)
+            finally:
+                # Always persist state after attempting Slack update (even if _update_message raises SlackApiError).
+                f.seek(0)
+                json.dump(state, f)
+                f.truncate()
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            f.close()
 
     def _post_updates(self) -> None:
-        if not self._parent_message.was_posted():
-            self._post_message(self._parent_message)
-        elif self._parent_message.has_updates():
-            self._update_message(self._parent_message)
         for msg in self._child_messages:
             if not msg.was_posted():
                 self._post_message(msg)
-            # Future enhancement: support updating child messages
 
     def _post_message(self, message: SlackMessageBase) -> None:
         """Post a message to Slack.
@@ -635,9 +718,6 @@ class SlackSink(Sink):
 # Run SlackSink from the command line to post a report for existing results.
 if __name__ == "__main__":
     import argparse
-    import os
-    import time
-    from pathlib import Path
 
     parser = argparse.ArgumentParser(description="Post benchmark results to Slack.")
     parser.add_argument(

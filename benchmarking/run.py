@@ -193,7 +193,6 @@ def run_entry(
         )
 
         # Execute command with timeout
-        logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
         ray_cluster_data = get_ray_cluster_data()
         run_data = run_command_with_timeout(
