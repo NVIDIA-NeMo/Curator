@@ -23,8 +23,7 @@ from ray.util.actor_pool import ActorPool
 from tqdm import tqdm
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.utils import RayStageSpecKeys, execute_setup_on_node
-from nemo_curator.backends.utils import register_loguru_serializer
+from nemo_curator.backends.utils import RayStageSpecKeys, execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
 from .adapter import RayActorPoolStageAdapter
@@ -156,7 +155,7 @@ class RayActorPoolExecutor(BaseExecutor):
             raise
         else:
             # Return final results directly - no need for ray.get()
-            final_results = current_tasks if current_tasks else []
+            final_results = current_tasks or []
             logger.info(f"\nPipeline completed. Final results: {len(final_results)} tasks")
 
             return final_results
