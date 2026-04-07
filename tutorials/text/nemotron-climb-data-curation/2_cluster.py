@@ -15,7 +15,7 @@
 import argparse
 import os
 
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.deduplication.semantic.kmeans import KMeansStage
