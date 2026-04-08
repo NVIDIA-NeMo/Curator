@@ -19,6 +19,7 @@ from loguru import logger
 from nemo_curator.stages.text.download import DocumentExtractor
 from nemo_curator.stages.text.download.html_extractors import HTMLExtractorAlgorithm
 from nemo_curator.stages.text.download.html_extractors.justext import JusTextExtractor
+from nemo_curator.stages.text.download.html_extractors.model_based import ModelBasedHTMLExtractionStage
 from nemo_curator.stages.text.download.html_extractors.resiliparse import ResiliparseExtractor
 from nemo_curator.stages.text.download.html_extractors.trafilatura import TrafilaturaExtractor
 from nemo_curator.stages.text.download.html_extractors.utils import get_stop_list_dict
@@ -44,6 +45,8 @@ class CommonCrawlHTMLExtractor(DocumentExtractor):
                 algorithm = ResiliparseExtractor(**algorithm_kwargs)
             elif algorithm == "trafilatura":
                 algorithm = TrafilaturaExtractor(**algorithm_kwargs)
+            elif algorithm in {"model", "model_based"}:
+                algorithm = ModelBasedHTMLExtractionStage(**algorithm_kwargs)
             else:
                 msg = f"Invalid algorithm: {algorithm}"
                 raise ValueError(msg)
