@@ -196,8 +196,19 @@ math_cuda12 = [
 
 # Multimodal / Interleaved Dependencies
 interleaved_cpu = [
+    "albumentations",
+    "open_clip_torch",
+    "opencv-python",
     "Pillow",
+    "pypdfium2",
     "s3fs>=2024.12.0",
+    "timm",
+]
+
+interleaved_cuda12 = [
+    "nemo_curator[interleaved_cpu]",
+    "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
 ]
 
 # Synthetic Data Generation (SDG) Dependencies
@@ -216,7 +227,7 @@ all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
-    "nemo_curator[interleaved_cpu]",
+    "nemo_curator[interleaved_cuda12]",
     "nemo_curator[math_cuda12]",
     "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
