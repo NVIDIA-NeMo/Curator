@@ -16,7 +16,7 @@
 import argparse
 import ray
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-from nemo_curator.models.client import OpenAIClient
+from nemo_curator.models.client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.request.omni_llm_request import OmniLLMRequestStage
 from nemo_curator.stages.audio.request.prepare_omni_request import PrepareOmniRequestStage
@@ -104,7 +104,7 @@ def main() -> None:
             ray.init(address="local", ignore_reinit_error=True)
 
         base_url = f"http://{args.host}:{args.port}/v1"
-        llm_client = OpenAIClient(base_url=base_url, api_key=args.api_key)
+        llm_client = AsyncOpenAIClient(base_url=base_url, api_key=args.api_key)
         generation_config = {
             "max_tokens": args.max_tokens,
             "temperature": args.temperature,

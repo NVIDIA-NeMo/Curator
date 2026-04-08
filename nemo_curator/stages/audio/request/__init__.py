@@ -13,11 +13,17 @@
 # limitations under the License.
 
 from nemo_curator.stages.audio.request.omni_llm_request import OmniLLMRequestStage
-from nemo_curator.stages.audio.request.prepare_omni_lhotse import PrepareOmniLhotseStage
+from nemo_curator.stages.audio.request.prepare_omni_lhotse import (
+    EmitLhotseShardRefsStage,
+    PrepareOmniLhotseStage,
+    ProcessLhotseShardStage,
+)
 from nemo_curator.stages.audio.request.prepare_omni_request import PrepareOmniRequestStage
 
 __all__ = [
+    "EmitLhotseShardRefsStage",
     "OmniLLMRequestStage",
     "PrepareOmniLhotseStage",
     "PrepareOmniRequestStage",
+    "ProcessLhotseShardStage",
 ]
