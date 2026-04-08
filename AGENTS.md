@@ -83,7 +83,7 @@ ruff format .
 ```
 
 Notable ruff config (from `pyproject.toml`):
-- Docstrings are **required** for all public classes and methods.
+- Docstrings are **not enforced by ruff** — the entire `D` (pydocstyle) rule group is in the ignore list. However, CONTRIBUTING.md asks contributors to include docstrings for every public class and method as a code-quality convention; ruff just won't fail the CI for missing them.
 - Use `loguru.logger`, not `print()`.
 - Full type annotations required on all functions.
 - `tests/` has relaxed rules (asserts, magic values allowed).
