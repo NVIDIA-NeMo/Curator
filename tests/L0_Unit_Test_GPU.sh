@@ -12,8 +12,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Custom HF model cache for video caption integration tests.
-# Points to the shared HF cache in TestData; read in tests/stages/video/caption/conftest.py.
-# Global HF_HOME is intentionally left unset to avoid affecting other GPU tests.
 export CUSTOM_HF_DATASET=/home/TestData/HF_HOME
 CUDA_VISIBLE_DEVICES="0,1" coverage run -a --data-file=/workspace/.coverage --source=/workspace/nemo_curator -m pytest -m gpu --rootdir /workspace tests
