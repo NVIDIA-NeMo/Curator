@@ -130,14 +130,20 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
         if self.model_path is not None:
             return
         try:
-            repo_dir = snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
-            nemo_files = [f for f in os.listdir(repo_dir) if f.endswith(".nemo")]
-            if nemo_files:
-                self.model_path = os.path.join(repo_dir, nemo_files[0])
-            else:
-                logger.warning(f"No .nemo file found in {repo_dir}; setup() will fail")
+            snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
         except Exception:  # noqa: BLE001
-            logger.info(f"Could not pre-cache {self.model_name}; actors will download on first use")
+            logger.info(f"Could not pre-cache {self.model_name}; workers will download on first use")
+
+    def _resolve_model_path(self) -> str:
+        """Resolve the path to the .nemo checkpoint, downloading if needed."""
+        if self.model_path is not None:
+            return self.model_path
+        repo_dir = snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
+        nemo_files = [f for f in os.listdir(repo_dir) if f.endswith(".nemo")]
+        if not nemo_files:
+            msg = f"No .nemo file found in {repo_dir} for model {self.model_name}"
+            raise FileNotFoundError(msg)
+        return os.path.join(repo_dir, nemo_files[0])
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Load Sortformer model from Hugging Face or a local .nemo file."""
@@ -146,8 +152,9 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
             self._configure_streaming()
             return
 
+        resolved_path = self._resolve_model_path()
         self.diar_model = SortformerEncLabelModel.restore_from(
-            restore_path=self.model_path,
+            restore_path=resolved_path,
             map_location="cuda",
             strict=False,
         )
@@ -189,9 +196,7 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
 
         file_path = task.data[self.filepath_key]
         sess_name = task.data.get("session_name")
-        resolved_sess_name = (
-            sess_name if sess_name is not None else os.path.splitext(os.path.basename(file_path))[0]
-        )
+        resolved_sess_name = sess_name if sess_name is not None else os.path.splitext(os.path.basename(file_path))[0]
 
         all_segments = self.diarize([file_path])
         segments = all_segments[0]
