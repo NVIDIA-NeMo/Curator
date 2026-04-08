@@ -39,6 +39,7 @@ class WikipediaParaphrasingStage(BaseSyntheticStage):
     prompt: str = WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "rephrased"
+    name: str = "WikipediaParaphrasing"
 
 @dataclass
 class DiverseQAStage(BaseSyntheticStage):
@@ -49,6 +50,7 @@ class DiverseQAStage(BaseSyntheticStage):
     tokenizer: AutoTokenizer = None
     prefix: str = "Here are the questions and answers based on the provided text:"
     max_num_pairs: int = 10
+    name: str = "DiverseQA"
 
 
 @dataclass
@@ -123,6 +125,7 @@ class DistillStage(BaseSyntheticStage):
     prompt: str = DISTILL_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "distill"
+    name: str = "Distill"
 
 @dataclass
 class ExtractKnowledgeStage(BaseSyntheticStage):
@@ -130,6 +133,7 @@ class ExtractKnowledgeStage(BaseSyntheticStage):
     prompt: str = EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "extract_knowledge"
+    name: str = "ExtractKnowledge"
 
 @dataclass
 class KnowledgeListStage(BaseSyntheticStage):
@@ -137,6 +141,7 @@ class KnowledgeListStage(BaseSyntheticStage):
     prompt: str = KNOWLEDGE_LIST_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "knowledge_list"
+    name: str = "KnowledgeList"
 
 @dataclass
 class KnowledgeListPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
