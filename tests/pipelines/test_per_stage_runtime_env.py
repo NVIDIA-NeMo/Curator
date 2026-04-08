@@ -81,6 +81,11 @@ def _make_initial_task() -> DocumentBatch:
     )
 
 
+# TODO: Remove @pytest.mark.gpu once CPU CI disk space is resolved.
+# These tests trigger Ray's venv-clone mechanism: for each unique runtime_env spec,
+# Ray copies the full .venv into /tmp. With 3 unique specs this exhausts /tmp on
+# GitHub-hosted CPU runners ([Errno 28] No space left on device).
+# GPU runners have more disk headroom.
 @pytest.mark.gpu
 @pytest.mark.parametrize(
     "backend_config",
