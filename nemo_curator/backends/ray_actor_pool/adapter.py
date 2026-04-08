@@ -15,7 +15,7 @@
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter
-from nemo_curator.backends.experimental.utils import get_worker_metadata_and_node_id
+from nemo_curator.backends.utils import get_worker_metadata_and_node_id
 from nemo_curator.stages.base import ProcessingStage
 
 

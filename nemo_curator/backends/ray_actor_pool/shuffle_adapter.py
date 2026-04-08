@@ -19,7 +19,7 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
+from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
 from nemo_curator.tasks import FileGroupTask
 
 if TYPE_CHECKING:

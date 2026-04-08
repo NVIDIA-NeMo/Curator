@@ -19,7 +19,7 @@ from unittest import mock
 
 import pytest
 
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage, DocumentIterator
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
