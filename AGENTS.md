@@ -177,9 +177,10 @@ pipeline.build()   # decomposes CompositeStages into execution stages
 
 ### 5. Executors (`nemo_curator/backends/`)
 
-Executors run pipelines on a backend. Two backends exist:
-- `RayDataExecutor` — Ray Data streaming pipeline (text/image/audio/video)
+Executors run pipelines on a backend. Three backends exist:
+- `RayDataExecutor` — Ray Data streaming pipeline; the default choice for most text/image/audio/video pipelines
 - `XennaExecutor` — Cosmos Xenna backend for production deployments
+- `RayActorPoolExecutor` — Ray actor pool backend; use only for workflows that require stateful actors or fine-grained scheduling, such as deduplication. Most pipelines should use `RayDataExecutor` or `XennaExecutor` instead.
 
 See `tutorials/quickstart.py` for a complete working example.
 
