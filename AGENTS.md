@@ -36,8 +36,8 @@ Available extras: `text_cpu`, `text_cuda12`, `audio_cpu`, `audio_cuda12`, `image
 **Set up pre-commit hooks (required before committing):**
 
 ```bash
-pip install pre-commit
-pre-commit install --install-hooks
+uv sync --extra all          # pre-commit is included via the dev dependency group
+uv run pre-commit install --install-hooks
 ```
 
 ---
