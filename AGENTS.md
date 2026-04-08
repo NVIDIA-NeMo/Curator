@@ -31,7 +31,7 @@ uv sync --extra text_cuda12
 uv sync --extra audio_cpu --extra video_cpu
 ```
 
-Available extras: `text_cpu`, `text_cuda12`, `audio_cpu`, `audio_cuda12`, `image_cpu`, `image_cuda12`, `video_cpu`, `video_cuda12`, `deduplication_cuda12`, `sdg_cpu`, `sdg_cuda12`, `interleaved_cpu`, `interleaved_cuda12`, `all`.
+Available extras: `text_cpu`, `text_cuda12`, `audio_cpu`, `audio_cuda12`, `image_cpu`, `image_cuda12`, `video_cpu`, `video_cuda12`, `deduplication_cuda12`, `sdg_cpu`, `sdg_cuda12`, `interleaved_cpu`, `interleaved_cuda12`, `math_cpu`, `math_cuda12`, `all`.
 
 **Set up pre-commit hooks (required before committing):**
 
@@ -128,14 +128,21 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
     @abstractmethod
     def process(self, task: X) -> Y | list[Y] | None:
-        """1-to-1, 1-to-many, or filter (return None to drop task)."""
+        """1-to-1, 1-to-many, or filter (return None to drop task).
+        Always propagate task_id, dataset_name, _stage_perf, and _metadata
+        from the input task to the output task.
+        """
+
+    # Expected overrides (every stage should implement these):
+    def inputs(self)  -> tuple[list[str], list[str]]: ...     # declare required task attrs/data columns
+    def outputs(self) -> tuple[list[str], list[str]]: ...     # declare produced task attrs/data columns
 
     # Optional overrides:
     def process_batch(self, tasks: list[X]) -> list[Y]: ...   # vectorized processing
-    def inputs(self)  -> tuple[list[str], list[str]]: ...     # declare required attrs/columns
-    def outputs(self) -> tuple[list[str], list[str]]: ...     # declare produced attrs/columns
-    def setup(self, worker_metadata) -> None: ...             # called once per worker
-    def setup_on_node(self, node_info, worker_metadata) -> None: ...  # called once per node
+    def setup_on_node(self, node_info, worker_metadata) -> None: ...
+        # called once per node — use to download models or verify they exist on disk
+    def setup(self, worker_metadata) -> None: ...
+        # called once per worker — use to load models into memory
     def teardown(self) -> None: ...                           # cleanup after processing
 ```
 
@@ -177,9 +184,9 @@ pipeline.build()   # decomposes CompositeStages into execution stages
 ### 5. Executors (`nemo_curator/backends/`)
 
 Executors run pipelines on a backend. Three backends exist:
-- `RayDataExecutor` — Ray Data streaming pipeline; the default choice for most text/image/audio/video pipelines
-- `XennaExecutor` — Cosmos Xenna backend for production deployments
-- `RayActorPoolExecutor` — Ray actor pool backend; use only for workflows that require stateful actors or fine-grained scheduling, such as deduplication. Most pipelines should use `RayDataExecutor` or `XennaExecutor` instead.
+- `XennaExecutor` — Cosmos Xenna backend; the current default for production deployments
+- `RayDataExecutor` — Ray Data streaming pipeline; common for text/image/audio/video pipelines
+- `RayActorPoolExecutor` — Ray actor pool backend; use only for specific workflows that require stateful actors or fine-grained scheduling, such as deduplication. Most pipelines should use `XennaExecutor` or `RayDataExecutor` instead.
 
 See `tutorials/quickstart.py` for a complete working example.
 
@@ -221,6 +228,8 @@ class MyFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=filtered,
+            _stage_perf=task._stage_perf,   # always propagate
+            _metadata=task._metadata,        # always propagate
         )
 ```
 
