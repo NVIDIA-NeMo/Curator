@@ -67,14 +67,26 @@ raw_data_dir/
 
 ## Pipeline Architecture
 
+The pipeline supports four topologies based on which features are enabled:
+
+| Topology | Flags | Output (per input file) |
+|----------|-------|------------------------|
+| Combo 1 | *(none)* | 1 row with whole-file scores |
+| Combo 2 | `--enable-vad` | N rows, one per speech segment |
+| Combo 3 | `--enable-speaker-separation` | K rows, one per speaker with diarization timestamps |
+| Combo 4 | `--enable-vad --enable-speaker-separation` | K*M rows, one per speaker-segment |
+
 ```
 CreateInitialManifestReadSpeechStage
-  Downloads and scans read_speech directory, parses filenames, creates AudioTask
+  Downloads and scans read_speech directory, parses filenames
       |
       v
-AudioDataFilterStage
-  Mono conversion -> VAD -> Band Filter -> UTMOS -> SIGMOS
-  -> Speaker Separation -> Timestamp Tracking
+AudioDataFilterStage (auto-selects topology)
+  Combo 1: MonoConversion -> Filters -> TimestampMapper
+  Combo 2: MonoConversion -> VAD(fan-out) -> Filters -> TimestampMapper
+  Combo 3: MonoConversion -> Filters -> SpeakerSep(fan-out) -> Filters -> TimestampMapper
+  Combo 4: MonoConversion -> VAD(nested) -> Filters -> SegmentConcat
+            -> SpeakerSep -> VAD_Speaker(fan-out) -> Filters -> TimestampMapper
       |
       v
 AudioToDocumentStage -> JsonlWriter
@@ -171,48 +183,114 @@ python run.py \
 
 ## Output Format
 
-Results saved to `{output_dir}/*.jsonl`:
+Results saved to `{output_dir}/*.jsonl`. The output schema depends on the topology:
 
+### Core fields (always present)
+
+| Field | Description |
+|-------|-------------|
+| `original_file` | Path to the source audio file |
+| `original_start_ms` | Start position in original file (ms) |
+| `original_end_ms` | End position in original file (ms) |
+| `duration_ms` | Duration in milliseconds |
+| `duration` | Duration in seconds |
+
+### Combo 3 additional fields (speaker-only)
+
+| Field | Description |
+|-------|-------------|
+| `diar_segments` | List of `[start_sec, end_sec]` pairs for when the speaker talks |
+| `speaking_duration` | Total speaking time in seconds (sum of diar_segments) |
+
+### Passthrough fields (controlled by `passthrough_keys`)
+
+These fields are copied from the pipeline stages to the output.
+By default, all built-in filter scores are included:
+
+| Field | Source | Default |
+|-------|--------|---------|
+| `speaker_id` | SpeakerSeparation | included |
+| `num_speakers` | SpeakerSeparation | included |
+| `sample_rate` | MonoConversion | included |
+| `utmos_mos` | UTMOSFilter | included |
+| `sigmos_noise`, `sigmos_ovrl`, ... | SIGMOSFilter | included |
+| `band_prediction` | BandFilter | included |
+
+To customize which fields appear in output, set `passthrough_keys` in the config:
+
+```python
+AudioDataFilterStage(config={
+    "timestamp_mapper": {
+        "passthrough_keys": ["utmos_mos", "sigmos_ovrl"],  # only these
+    },
+})
+```
+
+**Safety**: Non-serializable fields (`waveform`, `audio`, `segments`, etc.)
+are always blocked, even if added to `passthrough_keys`.
+A warning is logged if blocked keys are detected in the configuration.
+
+### Example outputs
+
+**Combo 1** (no VAD, no speaker):
 ```json
-{
-  "audio_filepath": "/path/to/read_speech/book_00000_chp_0009_reader_06709_0_seg_1_seg1.wav",
-  "sample_rate": 48000,
-  "book_id": "00000",
-  "reader_id": "06709",
-  "original_start_ms": 1500,
-  "original_end_ms": 5200,
-  "duration_ms": 3700,
-  "duration_sec": 3.7,
-  "speaker_id": "speaker_0",
-  "utmos_mos": 3.9,
-  "sigmos_noise": 4.2,
-  "band_prediction": "full_band"
-}
+{"original_file": "/path/to/file.wav", "original_start_ms": 0, "original_end_ms": 10500, "duration_ms": 10500, "duration": 10.5, "utmos_mos": 3.9, "sigmos_ovrl": 3.5}
+```
+
+**Combo 2** (VAD only):
+```json
+{"original_file": "/path/to/file.wav", "original_start_ms": 5200, "original_end_ms": 13200, "duration_ms": 8000, "duration": 8.0, "utmos_mos": 4.1, "sigmos_ovrl": 3.7}
+```
+
+**Combo 3** (speaker only):
+```json
+{"original_file": "/path/to/file.wav", "original_start_ms": 5200, "original_end_ms": 120500, "duration_ms": 115300, "duration": 115.3, "speaking_duration": 43.4, "diar_segments": [[5.2, 15.4], [30.1, 42.8], [100.0, 120.5]], "speaker_id": "speaker_0", "num_speakers": 3}
+```
+
+**Combo 4** (VAD + speaker):
+```json
+{"original_file": "/path/to/file.wav", "original_start_ms": 7200, "original_end_ms": 11200, "duration_ms": 4000, "duration": 4.0, "speaker_id": "speaker_0", "num_speakers": 3, "utmos_mos": 4.2}
 ```
 
 ## Extracting Audio Segments
 
-After the pipeline produces a `manifest.jsonl`, use `extract_segments.py` to extract the actual audio segments from the original files based on the timestamps in the manifest.
+After the pipeline produces a `manifest.jsonl`, use `extract_segments.py` to extract the actual audio segments from the original files. The script auto-detects the pipeline topology from the manifest schema.
 
 ### Basic Usage
 
 ```bash
-# Extract segments from a single manifest file
-python extract_segments.py \
-    --manifest ./dns_data/result/manifest.jsonl \
-    --output-dir ./extracted_segments
+# Extract from a single manifest file
+python extract_segments.py -m ./dns_data/result/manifest.jsonl -o ./extracted/
 
 # Extract from a directory of jsonl files (auto-combines them)
-python extract_segments.py \
-    --manifest ./dns_data/result/ \
-    --output-dir ./extracted_segments
+python extract_segments.py -m ./dns_data/result/ -o ./extracted/
 
-# Output as FLAC instead of WAV
-python extract_segments.py \
-    --manifest ./dns_data/result/manifest.jsonl \
-    --output-dir ./extracted_segments \
-    --output-format flac
+# Output as FLAC
+python extract_segments.py -m ./dns_data/result/ -o ./extracted/ -f flac
 ```
+
+### Extraction per topology
+
+| Topology | What it extracts | File naming |
+|----------|-----------------|-------------|
+| Combo 1 | Full file copy | `{name}.wav` |
+| Combo 2 | Each VAD segment | `{name}_segment_000.wav` |
+| Combo 3 | Each speaking interval per speaker | `{name}_speaker_0_segment_000.wav` |
+| Combo 4 | Each speaker-segment | `{name}_speaker_0_segment_000.wav` |
+
+### Output files
+
+```
+extracted/
+├── {name}_speaker_0_segment_000.wav  # Audio segments
+├── {name}_speaker_0_segment_001.wav
+├── metadata.csv                      # Per-segment metadata with quality scores
+├── manifest.jsonl                    # Combined manifest (when input is a directory)
+└── extraction_summary.json           # Statistics summary
+```
+
+The `metadata.csv` contains one row per extracted segment with columns:
+`filename`, `original_file`, `start_sec`, `end_sec`, `duration`, and all quality scores from the manifest.
 
 ### Options
 
@@ -220,25 +298,8 @@ python extract_segments.py \
 |--------|---------|-------------|
 | `--manifest, -m` | required | Path to manifest.jsonl or directory of .jsonl files |
 | `--output-dir, -o` | required | Directory for extracted audio segments |
-| `--output-format, -f` | `wav` | Output format: `wav`, `flac`, or `ogg` (via soundfile) |
+| `--output-format, -f` | `wav` | Output format: `wav`, `flac`, or `ogg` |
 | `--verbose, -v` | `false` | Enable verbose (DEBUG) logging |
-
-### Output
-
-Extracted files are named based on the original filename with speaker and segment info:
-
-```
-extracted_segments/
-├── book_00025_chp_0019_reader_04069_speaker_0_segment_000.wav
-├── book_00025_chp_0019_reader_04069_speaker_0_segment_001.wav
-├── book_00025_chp_0019_reader_04069_speaker_1_segment_000.wav
-├── manifest.jsonl              # Combined manifest (when input is a directory)
-└── extraction_summary.json     # Statistics summary
-```
-
-Without speaker separation, files are named `{original_name}_segment_{num}.wav`.
-
-The script also generates an `extraction_summary.json` with statistics including total segments extracted, total duration, and per-speaker segment counts.
 
 > **Note**: Supported output formats are `wav`, `flac`, and `ogg` via `soundfile`.
 

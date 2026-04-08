@@ -21,10 +21,30 @@ the AudioDataFilterStage for quality filtering and analysis.
 Dataset: Microsoft DNS Challenge 5 - Read Speech (Track 1 Headset)
 Source: https://github.com/microsoft/DNS-Challenge
 
-The pipeline:
-1. Creates initial manifest from read_speech WAV files (14,279 files at 48kHz)
-2. Applies AudioDataFilterStage (VAD, quality filters, speaker separation)
-3. Outputs filtered manifest with quality scores and timestamps
+Pipeline supports four topologies depending on which features are enabled:
+
+  Combo 1 (default, no flags):
+    MonoConversion -> Filters -> TimestampMapper -> JsonlWriter
+    Output: 1 row per file with whole-file quality scores.
+
+  Combo 2 (--enable-vad):
+    MonoConversion -> VAD(fan-out) -> Filters -> TimestampMapper -> JsonlWriter
+    Output: 1 row per speech segment with per-segment scores and timestamps.
+
+  Combo 3 (--enable-speaker-separation):
+    MonoConversion -> Filters -> SpeakerSep(fan-out) -> Filters -> TimestampMapper
+    Output: 1 row per speaker with diarization timestamps and per-speaker scores.
+
+  Combo 4 (--enable-vad --enable-speaker-separation):
+    Full pipeline with SegmentConcat + TimestampMapper remapping.
+    Output: 1 row per speaker-segment with precise timestamps.
+
+Output control:
+  TimestampMapper uses a whitelist (passthrough_keys) to control which
+  fields appear in the JSONL output.  The default includes all built-in
+  filter scores (UTMOS, SIGMOS, BandFilter) and speaker metadata.
+  Non-serializable fields (waveform, segments) are always blocked.
+  To customize, set "passthrough_keys" in the timestamp_mapper config.
 
 Example:
     python pipeline.py --raw_data_dir /path/to/read_speech --enable-utmos --enable-vad
@@ -102,16 +122,7 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
                     "exclude_overlaps": args.speaker_exclude_overlaps,
                     "min_duration": args.speaker_min_duration,
                 },
-                "timestamp_mapper": {
-                    "passthrough_keys": [
-                        "band_prediction",
-                        "utmos_mos",
-                        "sigmos_noise",
-                        "sigmos_ovrl",
-                        "speaker_id",
-                        "num_speakers",
-                    ],
-                },
+                "timestamp_mapper": {},
             }
         )
     )
@@ -181,6 +192,13 @@ Examples:
         choices=["xenna", "ray_data"],
         default="xenna",
         help="Execution backend: 'xenna' (default) or 'ray_data'",
+    )
+    parser.add_argument(
+        "--execution-mode",
+        type=str,
+        choices=["streaming", "batch"],
+        default="streaming",
+        help="Xenna execution mode: 'streaming' (default) or 'batch'",
     )
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
     parser.add_argument("--enable-vad", action="store_true", help="Enable VAD segmentation")
@@ -260,7 +278,11 @@ def main() -> None:
     logger.info("Starting pipeline execution...")
 
     try:
-        executor = RayDataExecutor() if args.backend == "ray_data" else XennaExecutor(config={"execution_mode": "streaming"})
+        executor = (
+            RayDataExecutor()
+            if args.backend == "ray_data"
+            else XennaExecutor(config={"execution_mode": args.execution_mode})
+        )
         pipeline.run(executor)
 
         logger.info(f"Results written to {args.output_dir}/*.jsonl")

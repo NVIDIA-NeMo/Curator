@@ -456,7 +456,7 @@ class SpeakerSeparator:
         exclude_overlaps: bool | None = None,
         min_duration: float | None = None,
         buffer_time: float | None = None,
-    ) -> dict[str, tuple[AudioSegment, float]]:
+    ) -> dict[str, tuple[AudioSegment, float, list[tuple[float, float]]]]:
         """
         Process an audio file or waveform and return AudioSegment objects for each speaker.
         """
@@ -521,7 +521,7 @@ class SpeakerSeparator:
             if silent_audio.rms < 1:
                 continue
 
-            speaker_audio[speaker] = (silent_audio, total_duration)
+            speaker_audio[speaker] = (silent_audio, total_duration, segments)
 
         # Free the original audio to release memory before returning
         del original_audio

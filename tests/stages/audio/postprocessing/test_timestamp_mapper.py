@@ -12,293 +12,218 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for TimestampMapperStage."""
-
 import torch
 
 from nemo_curator.stages.audio.postprocessing.timestamp_mapper import (
+    _NEVER_PASS_KEYS,
     TimestampMapperStage,
-    _translate_to_original,
 )
 from nemo_curator.tasks import AudioTask
 
-SAMPLE_MAPPINGS = [
-    {
-        "original_file": "/data/audio.wav",
-        "original_start_ms": 2000,
-        "original_end_ms": 5000,
-        "concat_start_ms": 0,
-        "concat_end_ms": 3000,
-        "segment_index": 0,
-    },
-    {
-        "original_file": "/data/audio.wav",
-        "original_start_ms": 12000,
-        "original_end_ms": 17000,
-        "concat_start_ms": 3500,
-        "concat_end_ms": 8500,
-        "segment_index": 1,
-    },
-    {
-        "original_file": "/data/audio.wav",
-        "original_start_ms": 45000,
-        "original_end_ms": 49000,
-        "concat_start_ms": 9000,
-        "concat_end_ms": 13000,
-        "segment_index": 2,
-    },
-]
+
+def _make_task(data: dict, task_id: str = "test", metadata: dict | None = None) -> AudioTask:
+    t = AudioTask(data=data, task_id=task_id, dataset_name="test_ds")
+    if metadata:
+        t._metadata = metadata
+    return t
 
 
-def _make_task(item: dict, mappings: list | None = None, task_id: str = "test") -> AudioTask:
-    metadata = {}
-    if mappings is not None:
-        metadata["segment_mappings"] = mappings
-    task = AudioTask(
-        data=item,
-        task_id=task_id,
-        dataset_name="test",
+def test_combo4_with_segment_mappings() -> None:
+    """Full pipeline: remaps concat-space timestamps to original file positions."""
+    mappings = [
+        {
+            "concat_start_ms": 0,
+            "concat_end_ms": 2000,
+            "original_file": "test.wav",
+            "original_start_ms": 5000,
+            "original_end_ms": 7000,
+        },
+    ]
+    task = _make_task(
+        {"waveform": torch.randn(1, 48000), "sample_rate": 48000, "start_ms": 100, "end_ms": 1500, "utmos_mos": 4.2},
+        metadata={"segment_mappings": mappings},
     )
-    task._metadata = metadata
-    return task
+    stage = TimestampMapperStage()
+    result = stage.process(task)
+
+    assert result.data["original_file"] == "test.wav"
+    assert result.data["original_start_ms"] == 5100
+    assert result.data["original_end_ms"] == 6500
+    assert result.data["duration_ms"] == 1400
+    assert result.data["utmos_mos"] == 4.2
+    assert result.data["sample_rate"] == 48000
+    assert "waveform" not in result.data
+    assert "start_ms" not in result.data
 
 
-class TestTranslateToOriginal:
-    def test_segment_within_single_mapping(self):
-        results = _translate_to_original(SAMPLE_MAPPINGS, 500, 2500)
-        assert len(results) == 1
-        assert results[0]["original_file"] == "/data/audio.wav"
-        assert results[0]["original_start_ms"] == 2500
-        assert results[0]["original_end_ms"] == 4500
-        assert results[0]["duration_ms"] == 2000
+def test_combo2_vad_fanout_start_end() -> None:
+    """VAD fan-out: uses start_ms/end_ms directly."""
+    task = _make_task(
+        {
+            "waveform": torch.randn(1, 48000),
+            "sample_rate": 48000,
+            "start_ms": 5200,
+            "end_ms": 15400,
+            "segment_num": 0,
+            "duration": 10.2,
+            "original_file": "/a.wav",
+            "utmos_mos": 4.2,
+        }
+    )
+    stage = TimestampMapperStage()
+    result = stage.process(task)
 
-    def test_segment_spans_two_mappings(self):
-        results = _translate_to_original(SAMPLE_MAPPINGS, 2000, 5000)
-        assert len(results) == 2
-        assert results[0]["original_start_ms"] == 4000
-        assert results[0]["original_end_ms"] == 5000
-        assert results[1]["original_start_ms"] == 12000
-        assert results[1]["original_end_ms"] == 13500
-
-    def test_segment_in_silence_gap(self):
-        results = _translate_to_original(SAMPLE_MAPPINGS, 3000, 3500)
-        assert len(results) == 0
-
-    def test_segment_no_overlap(self):
-        results = _translate_to_original(SAMPLE_MAPPINGS, 14000, 15000)
-        assert len(results) == 0
-
-    def test_segment_covers_entire_mapping(self):
-        results = _translate_to_original(SAMPLE_MAPPINGS, 0, 3000)
-        assert len(results) == 1
-        assert results[0]["original_start_ms"] == 2000
-        assert results[0]["original_end_ms"] == 5000
-        assert results[0]["duration_ms"] == 3000
-
-    def test_malformed_mapping_skipped(self):
-        bad_mappings = [{"concat_start_ms": 0, "concat_end_ms": 1000}]
-        results = _translate_to_original(bad_mappings, 0, 500)
-        assert len(results) == 0
-
-    def test_empty_mappings(self):
-        results = _translate_to_original([], 0, 1000)
-        assert len(results) == 0
+    assert result.data["original_file"] == "/a.wav"
+    assert result.data["original_start_ms"] == 5200
+    assert result.data["original_end_ms"] == 15400
+    assert result.data["duration_ms"] == 10200
+    assert abs(result.data["duration"] - 10.2) < 0.01
+    assert result.data["utmos_mos"] == 4.2
+    assert "waveform" not in result.data
+    assert "start_ms" not in result.data
+    assert "segment_num" not in result.data
 
 
-class TestTimestampMapperWithMappings:
-    def test_single_segment_maps_correctly(self):
-        stage = TimestampMapperStage()
-        task = _make_task(
-            {"start_ms": 500, "end_ms": 2500, "speaker_id": "speaker_0", "utmos_mos": 4.2},
-            mappings=SAMPLE_MAPPINGS,
-        )
+def test_combo3_diar_segments() -> None:
+    """Speaker-only: computes span from diar_segments."""
+    task = _make_task(
+        {
+            "waveform": torch.randn(1, 48000),
+            "sample_rate": 48000,
+            "speaker_id": "speaker_0",
+            "num_speakers": 3,
+            "duration": 42.6,
+            "diar_segments": [(5.2, 15.4), (30.1, 42.8), (100.0, 120.5)],
+            "audio_filepath": "/a.wav",
+            "sigmos_noise": 4.5,
+        }
+    )
+    stage = TimestampMapperStage()
+    result = stage.process(task)
 
-        result = stage.process(task)
-
-        assert isinstance(result, AudioTask)
-        assert result.data["original_file"] == "/data/audio.wav"
-        assert result.data["original_start_ms"] == 2500
-        assert result.data["original_end_ms"] == 4500
-        assert result.data["duration_ms"] == 2000
-        assert result.data["duration_sec"] == 2.0
-        assert result.data["speaker_id"] == "speaker_0"
-        assert result.data["utmos_mos"] == 4.2
-
-    def test_cross_boundary_segment_rejected(self):
-        stage = TimestampMapperStage()
-        task = _make_task({"start_ms": 2000, "end_ms": 5000}, mappings=SAMPLE_MAPPINGS)
-
-        result = stage.process(task)
-
-        assert result == []
-
-    def test_segment_in_silence_gap_produces_no_output(self):
-        stage = TimestampMapperStage()
-        task = _make_task({"start_ms": 3000, "end_ms": 3500}, mappings=SAMPLE_MAPPINGS)
-
-        result = stage.process(task)
-
-        assert result == []
-
-    def test_invalid_range_skipped(self):
-        stage = TimestampMapperStage()
-        task = _make_task({"start_ms": 5000, "end_ms": 2000}, mappings=SAMPLE_MAPPINGS)
-
-        result = stage.process(task)
-
-        assert result == []
-
-    def test_waveform_stripped_from_output(self):
-        stage = TimestampMapperStage()
-        task = _make_task(
-            {
-                "start_ms": 0,
-                "end_ms": 3000,
-                "waveform": torch.randn(1, 48000),
-                "audio": b"fake",
-                "audio_filepath": "/data/audio.wav",
-                "segment_num": 0,
-                "speaker_id": "speaker_0",
-            },
-            mappings=SAMPLE_MAPPINGS,
-        )
-
-        result = stage.process(task)
-
-        assert isinstance(result, AudioTask)
-        assert "waveform" not in result.data
-        assert "audio" not in result.data
-        assert "audio_filepath" not in result.data
-        assert "segment_num" not in result.data
-        assert "speaker_id" in result.data
+    assert result.data["original_file"] == "/a.wav"
+    assert result.data["original_start_ms"] == 5200
+    assert result.data["original_end_ms"] == 120500
+    assert result.data["duration_ms"] == 115300
+    assert abs(result.data["speaking_duration"] - 43.4) < 0.01
+    assert len(result.data["diar_segments"]) == 3
+    assert result.data["speaker_id"] == "speaker_0"
+    assert result.data["num_speakers"] == 3
+    assert result.data["sigmos_noise"] == 4.5
+    assert "waveform" not in result.data
 
 
-class TestTimestampMapperNoMappings:
-    def test_no_mapping_uses_start_end_directly(self):
-        stage = TimestampMapperStage()
-        task = _make_task(
-            {"start_ms": 1000, "end_ms": 4000, "original_file": "/data/audio.wav", "speaker_id": "speaker_0"},
-            mappings=None,
-        )
+def test_combo1_duration_fallback() -> None:
+    """Filters-only: uses duration from MonoConversion."""
+    task = _make_task(
+        {
+            "audio_filepath": "/a.wav",
+            "waveform": torch.randn(1, 48000),
+            "sample_rate": 48000,
+            "duration": 10.5,
+            "is_mono": True,
+            "num_samples": 504000,
+            "sigmos_ovrl": 3.5,
+        }
+    )
+    stage = TimestampMapperStage()
+    result = stage.process(task)
 
-        result = stage.process(task)
-
-        assert isinstance(result, AudioTask)
-        assert result.data["original_file"] == "/data/audio.wav"
-        assert result.data["original_start_ms"] == 1000
-        assert result.data["original_end_ms"] == 4000
-        assert result.data["duration_ms"] == 3000
-        assert result.data["duration_sec"] == 3.0
-
-    def test_no_mapping_falls_back_to_duration_sec(self):
-        stage = TimestampMapperStage()
-        task = _make_task({"original_file": "/data/audio.wav", "duration_sec": 5.0}, mappings=None)
-
-        result = stage.process(task)
-
-        assert isinstance(result, AudioTask)
-        assert result.data["duration_ms"] == 5000
-
-    def test_no_mapping_falls_back_to_waveform_length(self):
-        stage = TimestampMapperStage()
-        task = _make_task(
-            {"original_file": "/data/audio.wav", "waveform": torch.randn(1, 96000), "sample_rate": 48000},
-            mappings=None,
-        )
-
-        result = stage.process(task)
-
-        assert isinstance(result, AudioTask)
-        assert result.data["duration_ms"] == 2000
-        assert "waveform" not in result.data
-
-    def test_no_mapping_uses_audio_filepath_as_fallback(self):
-        stage = TimestampMapperStage()
-        task = _make_task({"audio_filepath": "/data/fallback.wav", "start_ms": 0, "end_ms": 1000}, mappings=None)
-
-        result = stage.process(task)
-
-        assert result.data["original_file"] == "/data/fallback.wav"
+    assert result.data["original_file"] == "/a.wav"
+    assert result.data["original_start_ms"] == 0
+    assert result.data["original_end_ms"] == 10500
+    assert result.data["duration"] == 10.5
+    assert result.data["sigmos_ovrl"] == 3.5
+    assert result.data["sample_rate"] == 48000
+    assert "waveform" not in result.data
+    assert "is_mono" not in result.data
+    assert "num_samples" not in result.data
 
 
-class TestPassthroughKeys:
-    def test_default_passes_all_non_stripped_keys(self):
-        stage = TimestampMapperStage()
-        task = _make_task(
-            {
-                "start_ms": 0,
-                "end_ms": 3000,
-                "speaker_id": "speaker_0",
-                "utmos_mos": 4.2,
-                "band_prediction": "full_band",
-                "sample_rate": 48000,
-                "is_mono": True,
-            },
-            mappings=SAMPLE_MAPPINGS,
-        )
+def test_never_pass_keys_blocked() -> None:
+    """Non-serializable keys are blocked even if in passthrough_keys."""
+    task = _make_task(
+        {
+            "audio_filepath": "/a.wav",
+            "waveform": torch.randn(1, 48000),
+            "segments": [{"waveform": torch.randn(1, 100)}],
+            "duration": 1.0,
+            "sigmos_ovrl": 3.0,
+        }
+    )
+    stage = TimestampMapperStage(passthrough_keys=["waveform", "segments", "sigmos_ovrl"])
+    result = stage.process(task)
 
-        result = stage.process(task)
-
-        assert result.data["speaker_id"] == "speaker_0"
-        assert result.data["utmos_mos"] == 4.2
-        assert result.data["band_prediction"] == "full_band"
-        assert result.data["sample_rate"] == 48000
-        assert result.data["is_mono"] is True
-
-    def test_explicit_passthrough_keys_filters_output(self):
-        stage = TimestampMapperStage(passthrough_keys=["speaker_id", "utmos_mos"])
-        task = _make_task(
-            {
-                "start_ms": 0,
-                "end_ms": 3000,
-                "speaker_id": "speaker_0",
-                "utmos_mos": 4.2,
-                "band_prediction": "full_band",
-                "sample_rate": 48000,
-                "is_mono": True,
-            },
-            mappings=SAMPLE_MAPPINGS,
-        )
-
-        result = stage.process(task)
-
-        assert result.data["speaker_id"] == "speaker_0"
-        assert result.data["utmos_mos"] == 4.2
-        assert "band_prediction" not in result.data
-        assert "sample_rate" not in result.data
-        assert "is_mono" not in result.data
-        assert "original_file" in result.data
-        assert "duration_ms" in result.data
-
-    def test_passthrough_keys_missing_key_ignored(self):
-        stage = TimestampMapperStage(passthrough_keys=["speaker_id", "nonexistent_key"])
-        task = _make_task({"start_ms": 0, "end_ms": 3000, "speaker_id": "speaker_0"}, mappings=SAMPLE_MAPPINGS)
-
-        result = stage.process(task)
-
-        assert result.data["speaker_id"] == "speaker_0"
-        assert "nonexistent_key" not in result.data
+    for key in _NEVER_PASS_KEYS:
+        assert key not in result.data, f"{key!r} must never pass through"
+    assert result.data["sigmos_ovrl"] == 3.0
 
 
-class TestTimestampMapperParams:
-    def test_default_passthrough_keys(self):
-        stage = TimestampMapperStage()
-        assert stage.passthrough_keys is None
+def test_default_passthrough_covers_all_filters() -> None:
+    """Default passthrough_keys includes all built-in filter scores."""
+    task = _make_task(
+        {
+            "audio_filepath": "/a.wav",
+            "duration": 1.0,
+            "utmos_mos": 4.2,
+            "sigmos_noise": 4.0,
+            "sigmos_ovrl": 3.5,
+            "sigmos_sig": 3.8,
+            "sigmos_col": 4.0,
+            "sigmos_disc": 4.2,
+            "sigmos_loud": 3.7,
+            "sigmos_reverb": 4.9,
+            "band_prediction": "full_band",
+            "sample_rate": 48000,
+        }
+    )
+    stage = TimestampMapperStage()
+    result = stage.process(task)
 
-    def test_custom_passthrough_keys(self):
-        stage = TimestampMapperStage(passthrough_keys=["a", "b"])
-        assert stage.passthrough_keys == ["a", "b"]
+    assert result.data["utmos_mos"] == 4.2
+    assert result.data["sigmos_noise"] == 4.0
+    assert result.data["sigmos_ovrl"] == 3.5
+    assert result.data["band_prediction"] == "full_band"
+    assert result.data["sample_rate"] == 48000
 
 
-class TestEdgeCases:
-    def test_none_values_not_passed_through(self):
-        stage = TimestampMapperStage()
-        task = _make_task(
-            {"start_ms": 0, "end_ms": 3000, "speaker_id": None, "utmos_mos": 4.0},
-            mappings=SAMPLE_MAPPINGS,
-        )
+def test_custom_passthrough_keys() -> None:
+    """User can restrict output to only specific keys."""
+    task = _make_task(
+        {
+            "audio_filepath": "/a.wav",
+            "duration": 1.0,
+            "sigmos_ovrl": 3.0,
+            "sigmos_noise": 4.0,
+            "utmos_mos": 4.2,
+            "book_id": "123",
+        }
+    )
+    stage = TimestampMapperStage(passthrough_keys=["sigmos_ovrl", "book_id"])
+    result = stage.process(task)
 
-        result = stage.process(task)
+    assert result.data["sigmos_ovrl"] == 3.0
+    assert result.data["book_id"] == "123"
+    assert "sigmos_noise" not in result.data
+    assert "utmos_mos" not in result.data
 
-        assert "speaker_id" not in result.data
-        assert result.data["utmos_mos"] == 4.0
+
+def test_dataset_metadata_not_in_default_output() -> None:
+    """Dataset-specific keys (text, book_id) are excluded by default passthrough."""
+    task = _make_task(
+        {
+            "audio_filepath": "/a.wav",
+            "duration": 1.0,
+            "text": "hello world",
+            "book_id": "123",
+            "reader_id": "456",
+            "sigmos_ovrl": 3.0,
+        }
+    )
+    stage = TimestampMapperStage()
+    result = stage.process(task)
+
+    assert result.data["sigmos_ovrl"] == 3.0
+    assert "text" not in result.data
+    assert "book_id" not in result.data
+    assert "reader_id" not in result.data
