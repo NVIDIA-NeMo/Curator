@@ -206,6 +206,8 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
             row = {
                 "cut_id": cut.id,
                 "messages": self._cut_to_messages(cut),
+                "duration": cut.duration,
+                "text": cut.supervisions[0].text if cut.supervisions else None,
             }
             if self.user_prompt_key and cut.supervisions and cut.supervisions[0].text is not None:
                 row[self.user_prompt_key] = cut.supervisions[0].text
