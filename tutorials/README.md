@@ -15,6 +15,14 @@ Hands-on tutorials for curating data across all modalities with NeMo Curator. Co
 | **[Video](video/)** | Video processing and analysis | Clipping, Frame Extraction, Filtering |
 | **[Audio](audio/)** | Speech and audio data curation | FLEURS Dataset Processing |
 
+## Production Recipes
+
+Complete, production-grade pipelines built on NeMo Curator:
+
+| Recipe | Description | Key Components |
+|--------|-------------|----------------|
+| [Nemotron-CC](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/data_curation/nemotron-cc) | Curate Common Crawl snapshots into an LLM-ready dataset, reproducing the [Nemotron-CC datasets](https://huggingface.co/datasets/nvidia/Nemotron-CC-v2) | `CommonCrawlDownloadExtractStage` • Exact/Fuzzy/Substring Dedup • `FineWebNemotronEduClassifier` • Synthetic Data Generation |
+
 ## Core Concepts Example
 
 The [`quickstart.py`](quickstart.py) demonstrates NeMo Curator's foundational architecture:
