@@ -1,27 +1,25 @@
 results_path: /tmp/curator/results/${BRANCH_NAME}
 datasets_path: /tmp/curator/datasets
-model_weights_path: /tmp/curator/datasets
+model_weights_path: /tmp/curator/model_weights
 datasets:
   - name: "tinystories"
     formats:
     - type: "parquet"
       path: "{datasets_path}/tinystories_train_parquet"
-    - type: "jsonl"
-      path: "{datasets_path}/tinystories/jsonl_data"
   - name: "commoncrawl"
     formats:
     - type: "jsonl"
-      path: "{datasets_path}/commoncrawl/jsonl_data"
+      path: "{datasets_path}/cleaned_exact_dedup_all_cc"
     - type: "parquet_gemma_embeddings"
       path: "{datasets_path}/cleaned_exact_dedup_all_cc_gemma_embeddings"
   - name: "commoncrawl_id_map"
     formats:
     - type: "json"
-      path: "{datasets_path}/commoncrawl/id_generator.json"
+      path: "{datasets_path}/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/fuzzy_id_generator.json"
   - name: "commoncrawl_ids"
     formats:
     - type: "parquet"
-      path: "{datasets_path}/commoncrawl/IDs/parquet_data"
+      path: "{datasets_path}/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/FuzzyDuplicateIds"
   - name: "mscoco"
     formats:
     - type: "wds"
@@ -33,11 +31,11 @@ datasets:
   - name: "videos"
     formats:
     - type: "mp4"
-      path: "{datasets_path}/videos"
+      path: "{datasets_path}/openvid-1m/video"
   - name: "videos_model_weights"
     formats:
     - type: "files"
-      path: "{datasets_path}/video_model_weights"
+      path: "{model_weights_path}/video_model_weights"
   - name: "rpv2-2023-14-en"
     formats:
     - type: "parquet"
@@ -49,21 +47,19 @@ datasets:
   - name: "fasttext_langid_model"
     formats:
     - type: "bin"
-      path: "{model_weights_path}/fasttext/lid.176.bin"
-    - type: "ftz"
-      path: "{model_weights_path}/fasttext/lid.176.ftz"
+      path: "{model_weights_path}/text_model_weights/lid.176.bin"
   - name: "fasttext_quality_model"
     formats:
     - type: "bin"
-      path: "{model_weights_path}/fasttext/model.bin"
+      path: "{model_weights_path}/text_model_weights/fasttext-oh-eli5/openhermes_reddit_eli5_vs_rw_v2_bigram_200k_train.bin"
   - name: "ndd_gretel_symptoms"
     formats:
     - type: "jsonl"
-      path: "{datasets_path}/gretel_symptoms"
+      path: "{datasets_path}/ndd_gretel_symptoms"
   - name: "text_models_hf_cache"
     formats:
     - type: "files"
-      path: "{model_weights_path}/text_models_hf_cache"
+      path: "{model_weights_path}/text_model_weights/hf_cache"
   - name: "multimodal_mint1t"
     formats:
     - type: "wds_tar_dir"
