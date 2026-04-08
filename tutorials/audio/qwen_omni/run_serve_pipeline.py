@@ -16,7 +16,8 @@ import argparse
 from nemo_curator.core.client import RayClient
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.request.omni_llm import OpenAiRequestStage
+from nemo_curator.models.client import AsyncOpenAIClient
+from nemo_curator.stages.audio.request.omni_llm_request import OmniLLMRequestStage
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.stages.audio.request.prepare_omni_lhotse import PrepareOmniLhotseStage
 from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
@@ -102,6 +103,13 @@ def main(args: argparse.Namespace) -> None:
         server.start()
 
     base_url = f"http://{args.host}:{args.port}/v1"
+    llm_client = AsyncOpenAIClient(base_url=base_url, api_key=args.api_key)
+    generation_config = {
+        "max_tokens": args.max_tokens,
+        "temperature": args.temperature,
+        "top_p": args.top_p,
+    }
+
     pipeline = Pipeline(name="qwen3_omni")
     pipeline.add_stage(
         PrepareOmniLhotseStage(
@@ -114,12 +122,10 @@ def main(args: argparse.Namespace) -> None:
         )
     )
     pipeline.add_stage(
-        OpenAiRequestStage(
+        OmniLLMRequestStage(
+            client=llm_client,
             model_name=args.model_name,
-            server_endpoint=base_url,
-            api_key=args.api_key,
-            predicted_text_key="predicted_text",
-            fields_to_drop=["messages"],
+            generation_config=generation_config,
         )
     )
     pipeline.add_stage(JsonlWriter(path=args.output_path, write_kwargs={"force_ascii": False}).with_(batch_size=1))
