@@ -110,49 +110,52 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
             msg = "Install lhotse (e.g. pip install lhotse) to use PrepareOmniLhotseStage."
             raise RuntimeError(msg) from exc
 
-        if self.lhotse_mode in ("nemo_tarred", "nemo_raw"):
-            try:
-                from nemo.collections.common.data.lhotse.nemo_adapters import (
-                    LazyNeMoIterator,
-                    LazyNeMoTarredIterator,
-                )
-            except ModuleNotFoundError as exc:
-                msg = (
-                    "NeMo is required for lhotse_mode='nemo_tarred' or 'nemo_raw'. "
-                    "Install nemo_toolkit (e.g. pip install nemo_toolkit[asr])."
-                )
-                raise RuntimeError(msg) from exc
+        if self.lhotse_mode in ("nemo_raw", "nemo_tarred"):
+            return self._build_nemo_cutset(CutSet)
 
-        if self.lhotse_mode == "nemo_raw":
-            if not self.input_manifest.strip():
-                msg = "nemo_raw requires non-empty input_manifest (NeMo JSONL: audio_filepath, duration, text, ...)."
-                raise ValueError(msg)
-            return CutSet(LazyNeMoIterator(self.input_manifest.strip()))
-
-        if self.lhotse_mode == "nemo_tarred":
-            if not self.input_manifest.strip() or not self.input_tar.strip():
-                msg = "nemo_tarred requires non-empty input_manifest and input_tar."
-                raise ValueError(msg)
-            return CutSet(
-                LazyNeMoTarredIterator(
-                    manifest_path=self.input_manifest.strip(),
-                    tar_paths=self.input_tar.strip(),
-                )
-            )
         if self.lhotse_mode == "lhotse_shar":
             if not self.input_manifest.strip() or not self.input_tar.strip():
                 if not self.shar_in_dir.strip():
                     msg = "lhotse_shar requires non-empty input_manifest and input_tar or shar_in_dir."
                     raise ValueError(msg)
-                else:
-                    return CutSet.from_shar(in_dir=self.shar_in_dir.strip())
-            else:
-                return CutSet.from_shar(
-                    fields={"cuts": [self.input_manifest.strip()], "recording": [self.input_tar.strip()]}
-                )
+                return CutSet.from_shar(in_dir=self.shar_in_dir.strip())
+            return CutSet.from_shar(
+                fields={"cuts": [self.input_manifest.strip()], "recording": [self.input_tar.strip()]}
+            )
 
         msg = f"Unknown lhotse_mode: {self.lhotse_mode!r}"
         raise ValueError(msg)
+
+    def _build_nemo_cutset(self, cutset_cls: type) -> CutSet:
+        """Build a CutSet using NeMo adapters (nemo_raw or nemo_tarred)."""
+        try:
+            from nemo.collections.common.data.lhotse.nemo_adapters import (
+                LazyNeMoIterator,
+                LazyNeMoTarredIterator,
+            )
+        except ModuleNotFoundError as exc:
+            msg = (
+                "NeMo is required for lhotse_mode='nemo_tarred' or 'nemo_raw'. "
+                "Install nemo_toolkit (e.g. pip install nemo_toolkit[asr])."
+            )
+            raise RuntimeError(msg) from exc
+
+        if self.lhotse_mode == "nemo_raw":
+            if not self.input_manifest.strip():
+                msg = "nemo_raw requires non-empty input_manifest (NeMo JSONL: audio_filepath, duration, text, ...)."
+                raise ValueError(msg)
+            return cutset_cls(LazyNeMoIterator(self.input_manifest.strip()))
+
+        # nemo_tarred
+        if not self.input_manifest.strip() or not self.input_tar.strip():
+            msg = "nemo_tarred requires non-empty input_manifest and input_tar."
+            raise ValueError(msg)
+        return cutset_cls(
+            LazyNeMoTarredIterator(
+                manifest_path=self.input_manifest.strip(),
+                tar_paths=self.input_tar.strip(),
+            )
+        )
 
     def _user_content_format(self, *, image: bool) -> str:
         """Map stage ``format`` to API content part type.
