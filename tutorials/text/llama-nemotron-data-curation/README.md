@@ -139,14 +139,14 @@ After filtering, it sorts all samples by completion (output response) length, th
 ## System Requirements
 
 - **Memory**: This tutorial can be CPU-only but is memory-intensive. For smaller memory systems, use `--filename-filter` to select a subset of the data.
-- **CPU allocation**: The `--num-cpus` parameter controls parallelism. Each CPU worker processes data in parallel, so more CPUs means more memory usage. Start with a conservative value and increase gradually.
+- **CPU allocation**: The `--num-cpus` parameter controls parallelism. Each CPU worker processes data in parallel, so more CPUs means more memory usage. Start with a conservative value and increase gradually. At least 12.5 CPUs are needed to run the pipeline.
 
 ## Debugging Out-of-Memory Errors
 
 If you encounter out-of-memory (OOM) errors:
 
 1. **Reduce partition size**: Lower the blocksize to reduce per-partition memory. Set `--jsonl-blocksize-mb 50` (default is 100 MB).
-2. **Reduce CPU count**: Lower `--num-cpus` to reduce parallel memory pressure rather than using all available cores.
+2. **Reduce CPU count**: Lower `--num-cpus` to reduce parallel memory pressure rather than using all available cores. At least 12.5 CPUs are needed to run the pipeline.
 3. **Subset the data**: Use `--filename-filter` to process only specific subsets relevant to your use case (such as `--filename-filter "chat"`).
 
 ## Next Steps
