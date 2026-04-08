@@ -31,7 +31,7 @@ uv pip install --force-reinstall pynvml
 
 ### AWS Credentials (for Common Crawl S3 Access)
 
-Downloading the CC Index (Option 1) and fetching WARC content via S3 both require AWS credentials. Common Crawl data is in a requester-pays bucket, so you need an AWS account:
+Downloading the CC Index (Option 1) and fetching WARC content via S3 both require AWS credentials. Common Crawl data is part of the [AWS Open Data Sponsorship Program](https://aws.amazon.com/opendata/open-data-sponsorship-program/) and is free to download — but you still need an AWS account and credentials to authenticate with the `aws s3 cp` command:
 
 ```bash
 # Option 1: Environment variables
@@ -566,6 +566,7 @@ python tutorials/math/5_deduplication.py \
 | `--char_ngrams` | 24 | Character n-gram size for MinHash. Values below 20 may produce ~5% false positives. |
 | `--num_bands` | 20 | Number of LSH bands. More bands = higher recall but slower. |
 | `--minhashes_per_band` | 13 | Hashes per band. More hashes = higher precision but lower recall. |
+| `--bands_per_iteration` | 5 | Number of bands to shuffle concurrently. Reduce if you hit OOM errors. |
 | `--use_64_bit_hash` | False | Use 64-bit hash for fewer collisions on very large datasets. |
 | `--seed` | 42 | Seed for MinHash permutations (for reproducibility). |
 
@@ -587,7 +588,7 @@ Use these for extracting and cleaning text from raw HTML/web content:
 ```bash
 # Example: cleaning code-heavy math content
 python tutorials/math/3_llm_cleanup.py \
-  --input $MATH_DATA_DIR/deduplicated \
+  --input $MATH_DATA_DIR/preprocessed \
   --output $MATH_DATA_DIR/cleaned_code \
   --model microsoft/phi-4 \
   --prompt HTML_TO_TEXT_PROMPT_CODE \
