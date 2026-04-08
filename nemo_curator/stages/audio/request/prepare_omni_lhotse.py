@@ -30,27 +30,14 @@ from nemo_curator.tasks import DocumentBatch, _EmptyTask
 if TYPE_CHECKING:
     from lhotse import Cut, CutSet
 
-try:
-    import soundfile as sf
-except ModuleNotFoundError as exc:
-    msg = "Install soundfile (e.g. pip install soundfile) to encode audio for Omni messages."
-    raise RuntimeError(msg) from exc
-
-try:
-    from nemo.collections.common.data.lhotse.nemo_adapters import (
-        LazyNeMoIterator,
-        LazyNeMoTarredIterator,
-    )
-except ModuleNotFoundError as exc:
-    msg = (
-        "NeMo is required for lhotse_mode='nemo_tarred' or 'nemo_raw'. "
-        "Install nemo_toolkit (e.g. pip install nemo_toolkit[asr])."
-    )
-    raise RuntimeError(msg) from exc
-
 
 def _audio_to_wav_bytes(audio: np.ndarray, sampling_rate: int) -> bytes:
     """Encode float audio array to WAV bytes (PCM16)."""
+    try:
+        import soundfile as sf
+    except ModuleNotFoundError as exc:
+        msg = "Install soundfile (e.g. pip install soundfile) to encode audio for Omni messages."
+        raise RuntimeError(msg) from exc
 
     buf = io.BytesIO()
     to_write = audio[:, np.newaxis] if audio.ndim == 1 else audio.T
@@ -87,8 +74,11 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
             NeMo lhotse adapters).
         input_tar: NeMo tarred audio path(s) for ``nemo_tarred`` (paired with manifest shards).
         shar_in_dir: Directory in Lhotse Shar format for ``lhotse_shar``.
-        format: ``\"data_url\"`` for OpenAI-style ``audio_url`` / ``image_url`` payloads, or
-            ``\"input_data\"`` for ``input_audio`` / ``input_image`` payloads.
+        format: Media encoding strategy.
+            ``\"data_url\"`` — audio uses ``audio_url`` with ``data:`` URI (vLLM).
+            ``\"input_data\"`` — audio uses ``input_audio`` with raw base64 + format (OpenAI / NIM).
+            Images always use ``image_url`` regardless of this setting (no ``input_image``
+            type exists in current APIs). This stage currently handles audio only.
         system_prompt: Optional fixed system message prepended to every sample.
         text_field: Supervision text field name (default ``text``).
         max_cuts: Optional cap on number of cuts (debugging).
@@ -119,6 +109,20 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
         except ModuleNotFoundError as exc:
             msg = "Install lhotse (e.g. pip install lhotse) to use PrepareOmniLhotseStage."
             raise RuntimeError(msg) from exc
+
+        if self.lhotse_mode in ("nemo_tarred", "nemo_raw"):
+            try:
+                from nemo.collections.common.data.lhotse.nemo_adapters import (
+                    LazyNeMoIterator,
+                    LazyNeMoTarredIterator,
+                )
+            except ModuleNotFoundError as exc:
+                msg = (
+                    "NeMo is required for lhotse_mode='nemo_tarred' or 'nemo_raw'. "
+                    "Install nemo_toolkit (e.g. pip install nemo_toolkit[asr])."
+                )
+                raise RuntimeError(msg) from exc
+
         if self.lhotse_mode == "nemo_raw":
             if not self.input_manifest.strip():
                 msg = "nemo_raw requires non-empty input_manifest (NeMo JSONL: audio_filepath, duration, text, ...)."
@@ -151,15 +155,14 @@ class PrepareOmniLhotseStage(ProcessingStage[_EmptyTask, DocumentBatch]):
         raise ValueError(msg)
 
     def _user_content_format(self, *, image: bool) -> str:
-        """Images always use ``image_url``; audio depends on ``format`` setting."""
-        if image:
-            return "image_url"
-        if self.format == "data_url":
-            return "audio_url"
-        if self.format == "input_data":
-            return "input_audio"
-        msg = f"Invalid format: {self.format!r}. Supported: 'data_url', 'input_data'."
-        raise ValueError(msg)
+        """Map stage ``format`` to API content part type.
+
+        Delegates to :func:`~nemo_curator.stages.audio.request.prepare_omni_request.resolve_media_content_type`.
+        NOTE: image=True path is currently unused; Lhotse cuts carry only audio.
+        """
+        from nemo_curator.stages.audio.request.prepare_omni_request import resolve_media_content_type
+
+        return resolve_media_content_type(self.format, image=image)
 
     def _cut_to_messages(self, cut: Cut) -> list[dict]:
         """Build OpenAI-style messages with one user turn: optional system, audio, text."""

@@ -15,6 +15,31 @@ from nemo_curator.tasks import DocumentBatch
 _ais_client = None
 
 
+def resolve_media_content_type(format_value: str, *, image: bool) -> str:
+    """Map a stage ``format`` setting to the OpenAI content part type.
+
+    The ``format`` parameter controls the media encoding strategy:
+
+    - Audio: ``"data_url"`` produces ``audio_url`` (data URI, vLLM);
+      ``"input_data"`` produces ``input_audio`` (raw base64 + format, OpenAI / NIM).
+    - Images: always ``image_url`` regardless of format — there is no
+      ``input_image`` content type in current APIs (OpenAI, vLLM, NIM).
+      Images can be provided as URL, data URI, or file ID, all via ``image_url``.
+
+    Args:
+        format_value: ``"data_url"`` or ``"input_data"``.
+        image: If True, returns ``"image_url"`` regardless of format_value.
+    """
+    if image:
+        return "image_url"
+    if format_value == "data_url":
+        return "audio_url"
+    if format_value == "input_data":
+        return "input_audio"
+    msg = f"Invalid format: {format_value!r}. Supported: 'data_url', 'input_data'."
+    raise ValueError(msg)
+
+
 def _is_valid_value(value: str | None) -> bool:
     """Return False if value is missing, NaN, or empty string."""
     if value is None:
@@ -164,10 +189,13 @@ class PrepareOmniRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     and return a DocumentBatch with the LLM messages.
 
     Args:
-        format: How to encode audio content parts.
-            ``"data_url"`` (default) — ``audio_url`` with ``data:`` URI (vLLM).
-            ``"input_data"`` — ``input_audio`` with raw base64 + format (OpenAI / NIM).
-            Images always use ``image_url`` regardless of this setting.
+        format: Media encoding strategy.
+            ``"data_url"`` (default) — audio uses ``audio_url`` with ``data:`` URI (vLLM).
+            ``"input_data"`` — audio uses ``input_audio`` with raw base64 + format (OpenAI / NIM).
+            Images always use ``image_url`` (URL, data URI, or file ID) regardless of
+            this setting — there is no ``input_image`` content type in current APIs.
+            HTTP URLs are passed through as-is with ``"data_url"``; ``"input_data"``
+            requires local/S3 file paths for audio (base64 encoding needed).
         input_tar: Path to a tar archive. When set, ``audio_filepath_key`` /
             ``image_filepath_key`` values are **member names** inside the tar
             (as in ``tar tf``). With ``input_index``, bytes are read via the DALI
@@ -357,6 +385,13 @@ class PrepareOmniRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 ``"image_url"``   — ``data:`` URL (universal).
         """
         if not _is_local_path(value) and not _is_remote_storage_path(value):
+            if content_format == "input_audio":
+                msg = (
+                    f"Cannot pass HTTP URL {value!r} with format='input_data'. "
+                    "The input_audio content type requires base64-encoded data, not a URL. "
+                    "Use format='data_url' for URL passthrough (vLLM), or provide a local/S3 file path."
+                )
+                raise ValueError(msg)
             return {"type": content_format, content_format: {"url": value}}
 
         if content_format == "input_audio":
@@ -371,18 +406,9 @@ class PrepareOmniRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _user_content_format_for_media(self, *, image: bool) -> str:
         """Map stage ``format`` to API content part type.
 
-        Images always use ``image_url`` (accepted by both vLLM and OpenAI).
-        Audio uses ``audio_url`` (vLLM) or ``input_audio`` (OpenAI / NIM)
-        depending on the ``format`` setting.
+        Delegates to :func:`resolve_media_content_type`.
         """
-        if image:
-            return "image_url"
-        if self.format == "data_url":
-            return "audio_url"
-        if self.format == "input_data":
-            return "input_audio"
-        msg = f"Invalid format: {self.format!r}. Supported: 'data_url', 'input_data'."
-        raise ValueError(msg)
+        return resolve_media_content_type(self.format, image=image)
 
     def _row_to_messages(self, row: dict) -> list[dict]:
         """Build LLM messages from a row with optional system_text, text, image_url, audio_url.
