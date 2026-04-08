@@ -17,13 +17,32 @@ uv pip install --force-reinstall pynvml
 
 ## Prerequisites
 
+### Platform Requirements
+
+> **Important:** Step 3 (LLM Cleanup) uses [vLLM](https://docs.vllm.ai/), which **only supports x86_64 Linux**. macOS, Windows, and ARM architectures are not supported by vLLM. If you are on a different platform, you can still run Steps 0–2 and 4–5 locally, but Step 3 must run on an x86_64 Linux machine with a supported GPU.
+
 ### System Dependencies
-- A100 or above GPU(s) with CUDA for the Hugging Face model and vLLM
-- Python environment with `nemo-curator[math_cuda12]` installed (uv sync above)
-- Lynx system dependency for HTML rendering to text:
+- **GPU**: NVIDIA GPU with ≥20 GB VRAM and CUDA support. Compatible GPUs include A100, A40, L40, L40S, and H100.
+- **Python**: Environment with `nemo-curator[math_cuda12]` installed (uv sync above)
+- **Lynx**: System dependency for HTML rendering to text:
   - Ubuntu/Debian: `sudo apt-get update && sudo apt-get install -y lynx`
   - RHEL/Fedora: `sudo dnf install -y lynx` (or `sudo yum install -y lynx`)
   - Conda: `conda install -c conda-forge lynx`
+
+### AWS Credentials (for Common Crawl S3 Access)
+
+Downloading the CC Index (Option 1) and fetching WARC content via S3 both require AWS credentials. Common Crawl data is in a requester-pays bucket, so you need an AWS account:
+
+```bash
+# Option 1: Environment variables
+export AWS_ACCESS_KEY_ID=your_access_key
+export AWS_SECRET_ACCESS_KEY=your_secret_key
+
+# Option 2: AWS CLI configuration
+aws configure
+```
+
+See the [AWS CLI documentation](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html) for more details. If you don't have AWS credentials, you can use the CDX Index via HTTPS as a fallback (see [CC Index Requirements](#common-crawl-cc-index-requirements)).
 
 ### Common Crawl (CC) Index Requirements
 
@@ -168,6 +187,19 @@ For datasets with WARC metadata already included, set `"needs_cc_lookup": false`
 
 ## Complete Pipeline Flow
 
+**Quick overview:**
+
+```
+HuggingFace ──► 0_download ──► Raw Data ──► 1_cc_index_lookup* ──► 2_text_preprocess ──► 3_llm_cleanup ──► 4_quality_classifier ──► 5_deduplication ──► Final Data
+                                                   ▲                        ▲
+                                              CC Index (S3)          Common Crawl (S3)
+
+* Step 1 only needed for datasets without WARC metadata (OpenWebMath, MegaMath, etc.)
+```
+
+<details>
+<summary>Detailed pipeline diagram (click to expand)</summary>
+
 ```mermaid
 flowchart TD
     subgraph download["Download (Optional)"]
@@ -276,6 +308,8 @@ flowchart TD
     linkStyle default stroke:#76b900,stroke-width:2px
 ```
 
+</details>
+
 ### Pipeline Summary
 
 | Step | Script | Input | Output | Required For |
@@ -301,12 +335,16 @@ mkdir -p $MATH_DATA_DIR/{raw,enriched,preprocessed,cleaned,classified,dedup_cach
 
 The `0_download.py` script downloads math datasets from HuggingFace Hub. It reads dataset configurations from `datasets.json` and downloads parquet files to `$MATH_DATA_DIR/raw/<dataset_name>/`.
 
-### Authentication (Optional)
+### HuggingFace Authentication
 
-For gated datasets or higher download rate limits, authenticate with HuggingFace:
+Several steps in this pipeline require a HuggingFace token:
+- **Step 0**: Downloading gated datasets (e.g., some FineMath splits)
+- **Step 4**: The FineMath quality classifier model (`HuggingFaceTB/finemath-classifier`)
+
+**Set up your token before starting the pipeline:**
 
 ```bash
-# Option 1: Environment variable
+# Option 1: Environment variable (recommended)
 export HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # Option 2: CLI login (saves token to ~/.cache/huggingface/token)
@@ -314,6 +352,8 @@ huggingface-cli login
 ```
 
 Get your token at: https://huggingface.co/settings/tokens
+
+> **Note:** A missing or invalid token typically produces a "repository not found" error rather than an explicit authentication error. If you see this error, verify your `HF_TOKEN` is set and valid.
 
 ### Download Commands
 
@@ -457,7 +497,8 @@ python tutorials/math/3_llm_cleanup.py \
 **Output**: JSONL files with `cleaned_text` (LLM-processed text). When chunking is enabled, chunks are automatically merged back into one row per document.
 
 **Key flags**:
-- `--chunk_data` / `--chunk_length`: Enable token-based chunking before LLM processing
+- `--chunk_data` / `--chunk_length`: Enable token-based chunking before LLM processing. **These flags must be used together** — `--chunk_length` is required when `--chunk_data` is set, and `--max_model_len` is also required for chunking.
+- `--prompt`: Name of the prompt to use. See [Available Prompts](#available-prompts) for the full list and selection guidance.
 - `--groupby`: Columns to group by for chunk merging (default: `url`)
 - `--max_text_length`: Maximum merged text length in chars (default: 900,000)
 - `--classification`: Output classification labels instead of cleaned text
@@ -473,11 +514,24 @@ python tutorials/math/4_quality_classifier.py \
   --output $MATH_DATA_DIR/classified
 ```
 
-**Input**: JSONL files from Step 3
+**Input**: JSONL files from Step 3. The classifier reads from the `text` field by default; use `--text-field cleaned_text` if your data was processed by the LLM cleanup step.
 
 **Output**: JSONL files with additional columns:
-- `finemath_scores`: float scores (0..5)
-- `finemath_int_scores`: integer scores (0..5)
+- `finemath_scores`: float scores (0.0–5.0)
+- `finemath_int_scores`: integer scores (0–5)
+
+**Interpreting quality scores:**
+
+| Score | Interpretation |
+|-------|----------------|
+| 0 | No mathematical content |
+| 1 | Minimal or tangential math content |
+| 2 | Some math content but low quality (e.g., poorly formatted, incomplete) |
+| 3 | Moderate quality math content — usable for general training |
+| 4 | High quality math content — well-structured and educational |
+| 5 | Excellent math content — textbook-quality, clear explanations |
+
+As a guideline, the pre-configured FineMath datasets use score thresholds of ≥3 (`FINEMATH_3PLUS`) and ≥4 (`FINEMATH_4PLUS`). A threshold of ≥3 is a reasonable starting point; use ≥4 for higher-quality, smaller datasets.
 
 ## Step 5: Deduplication
 
@@ -500,19 +554,38 @@ python tutorials/math/5_deduplication.py \
 1. First stage: Duplicate IDs are identified and saved to `duplicate_ids_dir`
 2. Second stage: Duplicates are removed from the dataset
 
-**Note**: The `cache_dir` must be empty between runs.
+> **Important:** The `cache_dir` **must be manually cleared between runs**. Stale cache files from a previous run will cause incorrect results. Delete or empty the cache directory before re-running:
+> ```bash
+> rm -rf $MATH_DATA_DIR/dedup_cache/*
+> ```
 
-## Alternative Prompts and Use Cases
+**LSH parameters** (tunable via command-line flags):
 
-The LLM cleanup step supports various specialized prompts for different mathematical content processing needs:
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--char_ngrams` | 24 | Character n-gram size for MinHash. Values below 20 may produce ~5% false positives. |
+| `--num_bands` | 20 | Number of LSH bands. More bands = higher recall but slower. |
+| `--minhashes_per_band` | 13 | Hashes per band. More hashes = higher precision but lower recall. |
+| `--use_64_bit_hash` | False | Use 64-bit hash for fewer collisions on very large datasets. |
+| `--seed` | 42 | Seed for MinHash permutations (for reproducibility). |
+
+The similarity threshold is implicitly controlled by `num_bands` and `minhashes_per_band`. The approximate threshold is `(1/num_bands)^(1/minhashes_per_band)`. With the defaults (20 bands, 13 hashes/band), this is approximately 0.72. To detect more similar pairs (stricter dedup), increase `num_bands`; to be more lenient, decrease it.
+
+## Available Prompts
+
+The LLM cleanup step (`3_llm_cleanup.py`) supports 12 prompts via the `--prompt` flag. The prompt is loaded by name from `nemo_curator.utils.prompts`.
 
 ### Content Cleaning Prompts
 
-**`HTML_TO_TEXT_PROMPT`** (default): Extract main content, preserve math, standardize equations to LaTeX `$...$`, remove boilerplate
+Use these for extracting and cleaning text from raw HTML/web content:
 
-**`HTML_TO_TEXT_PROMPT_CODE`**: For pages mixing math and significant code (e.g., computational math tutorials)
+| Prompt | Use Case | When to Choose |
+|--------|----------|----------------|
+| **`HTML_TO_TEXT_PROMPT`** (default) | Extract main content, preserve math, standardize equations to LaTeX `$...$`, remove boilerplate | General-purpose math content extraction |
+| **`HTML_TO_TEXT_PROMPT_CODE`** | Same as above but also preserves code blocks | Pages mixing math and significant code (e.g., computational math tutorials, Jupyter-style content) |
 
 ```bash
+# Example: cleaning code-heavy math content
 python tutorials/math/3_llm_cleanup.py \
   --input $MATH_DATA_DIR/deduplicated \
   --output $MATH_DATA_DIR/cleaned_code \
@@ -523,3 +596,87 @@ python tutorials/math/3_llm_cleanup.py \
   --max_model_len 16384 \
   --input_filetype jsonl
 ```
+
+### Classification Prompts
+
+Use these with `--classification` to label content rather than clean it:
+
+| Prompt | Use Case |
+|--------|----------|
+| **`MATH_TOPIC_CLASSIFICATION_PROMPT`** | Classifies content into topics: Math, CS, Physics, Statistics, Chemistry, Economics, or Other |
+| **`CODE_QUALITY_PROMPT`** | Rates code quality on a 0–5 scale with detailed criteria |
+| **`CODE_QUALITY_PROMPT_SIMPLIFIED`** | Rates code quality on a 0–2 scale (simpler/faster) |
+
+```bash
+# Example: classify math topics
+python tutorials/math/3_llm_cleanup.py \
+  --input $MATH_DATA_DIR/preprocessed \
+  --output $MATH_DATA_DIR/classified_topics \
+  --model microsoft/phi-4 \
+  --prompt MATH_TOPIC_CLASSIFICATION_PROMPT \
+  --classification \
+  --max_model_len 16384 \
+  --input_filetype jsonl
+```
+
+### Synthetic Dialogue Prompts (MIND Dataset)
+
+These prompts convert source text into multi-turn dialogue formats, based on the [MIND paper](https://arxiv.org/pdf/2410.12881). Useful for generating conversational training data from math content:
+
+| Prompt | Format |
+|--------|--------|
+| **`mind_two_profs`** | Discussion between two professors |
+| **`mind_teacher_student`** | Teacher-student Q&A |
+| **`mind_two_students`** | Two students discussing an assignment |
+| **`mind_interview`** | Interview with an expert |
+| **`mind_problem_solving`** | Problem-solving conversation |
+| **`mind_layman_knowall`** | Expert explaining to a layperson |
+| **`mind_debate`** | Debate-style discussion |
+
+## Troubleshooting
+
+### No GPUs Detected
+
+If `nvidia-smi` shows GPUs but the pipeline logs "No gpus found":
+```bash
+uv pip install --force-reinstall pynvml
+```
+Also verify CUDA is available: `python -c "import torch; print(torch.cuda.is_available())"`.
+
+### 0 URLs Matched in CC Index Lookup (Step 1)
+
+- Verify your CC Index parquet files follow the required hive-partitioned directory structure: `<base_path>/crawl=CC-MAIN-YYYY-WW/subset=warc/*.parquet`
+- Check that the crawl ID(s) you downloaded actually contain your URLs. Not all URLs appear in every crawl — try multiple crawls.
+- Confirm the `url_col` in `datasets.json` matches the actual column name in your dataset.
+
+### "Repository Not Found" Error
+
+This usually means your HuggingFace token is missing or invalid, not that the repository doesn't exist. Set `HF_TOKEN` before running the pipeline — see [HuggingFace Authentication](#huggingface-authentication).
+
+### Empty LLM Output (Step 3)
+
+- Check that `--max_model_len` is large enough for your input chunks. The script filters out chunks that exceed 80% of `max_model_len`.
+- Verify the model downloaded successfully and you have sufficient VRAM (~20 GB for Phi-4).
+- Try a smaller `--chunk_length` value if documents are being dropped.
+
+### All Classifier Scores Are 0 (Step 4)
+
+- Ensure you're using the correct `--text-field`. After LLM cleanup, the text is in `cleaned_text`, not `text`:
+  ```bash
+  python tutorials/math/4_quality_classifier.py \
+    --input "$MATH_DATA_DIR/cleaned/*.jsonl" \
+    --output $MATH_DATA_DIR/classified \
+    --text-field cleaned_text
+  ```
+- Verify the input files are not empty and contain the expected text field.
+
+### Common Crawl S3 Fetch Failures (Step 2)
+
+- If using S3 (`CC_USE_S3=1`), ensure your AWS credentials are configured — see [AWS Credentials](#aws-credentials-for-common-crawl-s3-access).
+- HTTPS fetching (the default) does not require AWS credentials but may be slower.
+- Malformed WARC records are skipped silently. Use `--report-stats` to see extraction statistics and identify how many records failed.
+
+### Deduplication Errors (Step 5)
+
+- If results seem incorrect, ensure you cleared `cache_dir` from any previous run: `rm -rf $MATH_DATA_DIR/dedup_cache/*`
+- Out-of-memory errors: try reducing `--bands_per_iteration` (default: 5) to process fewer bands concurrently.
