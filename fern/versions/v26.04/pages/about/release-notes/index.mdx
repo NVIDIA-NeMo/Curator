@@ -129,6 +129,16 @@ Standardized return type for all deduplication workflows:
 
 Added tqdm progress bars to `RayActorPoolExecutor` for real-time visibility into task completion during stage processing and shuffle inserts. Progress bars are enabled by default and can be configured with `show_progress` and `progress_interval` parameters. This is particularly useful for long-running deduplication jobs where progress is not otherwise apparent.
 
+### S3 Transport for CommonCrawlWARCReader (PR #1604)
+
+Added S3 as an alternative transport for `CommonCrawlWARCReader`, which fetches individual WARC records using byte-range requests:
+
+- **S3 transport via boto3**: Activate with `use_s3=True` or the `CC_USE_S3` environment variable. Addresses latency and throttling issues when fetching WARC records at scale over HTTPS.
+- **Environment variable configuration**: `CC_USE_S3`, `CC_S3_BUCKET`, and `CC_S3_KEY_PREFIX` environment variables provide runtime configuration without code changes.
+- **Thread-safe lazy initialization**: Both the `requests.Session` and boto3 S3 client use double-checked locking for safe concurrent use with `ThreadPoolExecutor`.
+
+Learn more in the [Common Crawl](/curate-text/load-data/common-crawl) documentation.
+
 ## Improvements
 
 ### Batched Shuffle Insertion for Exact Deduplication (PR #1369)
@@ -167,6 +177,7 @@ Resolved four HIGH-severity vulnerabilities affecting Curator dependencies:
 - **uv**: Added minimum required version (>=0.7.0) to prevent lockfile revision drift
 - **nemo-toolkit**: Bumped `nemo_toolkit[asr]` from `==2.4.0` to `>=2.7.2` to address deserialization CVEs. Only affects `audio_cpu` and `audio_cuda12` extras.
 - **xgrammar**: Moved from `constraint-dependencies` (`>=0.1.21`) to `override-dependencies` (`>=0.1.32`) to override vLLM's pinned version and address CVE-2026-25048.
+- **boto3**: Added `boto3>=1.35` to the `math_cpu` install extra for S3 range requests in `CommonCrawlWARCReader` (PR #1604)
 
 ## Enhancements
 
@@ -217,6 +228,14 @@ Fixed audio pipeline stage names not propagating in `StagePerfStats`, making ben
 ### Video vLLM Setup Race Condition (PR #1590)
 
 Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage` where multiple workers simultaneously initializing vLLM would race on the shared `torch.compile` cache directory, causing `FileNotFoundError`. Model initialization now runs once per node in `setup_on_node()` instead of per-worker in `setup()`, matching the pattern used by text vLLM stages.
+
+### MathContentExtractor Serialization Crash (PR #1604)
+
+Fixed a `deepcopy`/pickle crash in `MathContentExtractor` caused by unpickleable `threading.Lock` and `magic.Magic` objects. Added `__getstate__`/`__setstate__` methods that strip these objects before serialization and reinitialize them on deserialization. This fixes failures triggered by `ProcessingStage.with_()` and Ray executors.
+
+### CommonCrawlWARCReader Serialization for Ray (PR #1604)
+
+Added `__getstate__`/`__setstate__` to `CommonCrawlWARCReader` for pickle compatibility with Ray executors. The `threading.Lock`, `requests.Session`, and boto3 S3 client are stripped during serialization and lazily reinitialized after deserialization.
 
 ## Breaking Changes
 
