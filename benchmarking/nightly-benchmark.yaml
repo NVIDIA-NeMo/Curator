@@ -300,7 +300,8 @@ entries:
         # 59,226,133 is expected, ensure +/- 1%
         min_value: 58633871
         max_value: 59818394
-
+      - metric: exec_time_s
+        max_value: 750  # benchmark should finish in under 750s, 800s hard timeout to prevent hangs
   - name: semdedup_identification_xenna
     enabled: true
     script: semdedup_identification_benchmark.py
