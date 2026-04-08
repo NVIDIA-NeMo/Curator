@@ -90,8 +90,7 @@ Notable ruff config (from `pyproject.toml`):
 ## Architecture Overview
 
 NeMo Curator is built around four core abstractions. Understand these before writing any stage or pipeline code.
-- Docstrings are **required** for all public classes and methods.
-+ Docstrings are encouraged for all public classes and methods but are not enforced by `ruff` (the `D` pydocstyle ruleset is disabled in `pyproject.toml`).
+
 ### 1. Task (`nemo_curator/tasks/`)
 
 A **Task** is the unit of data flowing through a pipeline — a typed batch of data for a single processing step.
