@@ -81,6 +81,7 @@ def _make_initial_task() -> DocumentBatch:
     )
 
 
+@pytest.mark.gpu
 @pytest.mark.parametrize(
     "backend_config",
     [
