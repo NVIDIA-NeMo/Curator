@@ -40,11 +40,8 @@ uv sync --extra all          # pre-commit is included via the dev dependency gro
 uv run pre-commit install --install-hooks
 ```
 
-**Set up pre-commit hooks (required before committing):**
+---
 
-```bash
-uv tool install pre-commit
-pre-commit install --install-hooks
 ## Running Tests
 
 ```bash
