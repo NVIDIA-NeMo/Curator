@@ -12,7 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Iterator
+from typing import Any
+from unittest.mock import patch
+
 import numpy as np
+import pandas as pd
 
 from nemo_curator.stages.interleaved.filter.blur_filter import (
     InterleavedBlurFilterStage,
@@ -109,6 +114,38 @@ def test_blur_filter_image_with_binary_content_blurry_dropped() -> None:
     task = interleaved_task(rows)
     stage = InterleavedBlurFilterStage(score_threshold=1e6)
     out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 0
+
+
+def test_blur_filter_image_bytes_none_drops_row() -> None:
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": b"unused",
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+
+    def iter_materialized_bytes_none(
+        self: object,
+        task: object,
+        df: pd.DataFrame,
+        row_mask: pd.Series,
+    ) -> Iterator[tuple[Any, None]]:
+        del self, task
+        for idx in df[row_mask].index:
+            yield idx, None
+
+    with patch.object(InterleavedBlurFilterStage, "iter_materialized_bytes", iter_materialized_bytes_none):
+        stage = InterleavedBlurFilterStage(score_threshold=0.0)
+        out = stage.process(task)
     out_frame = out.to_pandas()
     assert len(out_frame) == 0
 

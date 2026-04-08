@@ -12,10 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Iterator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import cv2
 import numpy as np
+import pandas as pd
 
 from nemo_curator.stages.interleaved.filter.qrcode_filter import (
     InterleavedQRCodeFilterStage,
@@ -125,6 +128,38 @@ def test_qrcode_filter_image_decode_error_drops_row(mock_to_array: MagicMock) ->
     assert len(out_frame) == 0
 
 
+def test_qrcode_filter_image_bytes_none_drops_row() -> None:
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": b"unused",
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+
+    def iter_materialized_bytes_none(
+        self: object,
+        task: object,
+        df: pd.DataFrame,
+        row_mask: pd.Series,
+    ) -> Iterator[tuple[Any, None]]:
+        del self, task
+        for idx in df[row_mask].index:
+            yield idx, None
+
+    with patch.object(InterleavedQRCodeFilterStage, "iter_materialized_bytes", iter_materialized_bytes_none):
+        stage = InterleavedQRCodeFilterStage(score_threshold=0.05)
+        out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 0
+
+
 def test_qrcode_filter_image_below_threshold_kept() -> None:
     jpeg = make_jpeg_bytes()
     rows = [
@@ -144,3 +179,27 @@ def test_qrcode_filter_image_below_threshold_kept() -> None:
     out = stage.process(task)
     out_frame = out.to_pandas()
     assert len(out_frame) == 1
+
+
+@patch("nemo_curator.stages.interleaved.filter.qrcode_filter._qr_code_ratio")
+def test_qrcode_filter_image_above_threshold_dropped(mock_qr_ratio: MagicMock) -> None:
+    mock_qr_ratio.return_value = 0.5
+    jpeg = make_jpeg_bytes()
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": jpeg,
+            "source_ref": None,
+            "materialize_error": None,
+        },
+    ]
+    task = interleaved_task(rows)
+    stage = InterleavedQRCodeFilterStage(score_threshold=0.05)
+    out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 0
+    mock_qr_ratio.assert_called()
