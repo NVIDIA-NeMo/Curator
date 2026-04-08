@@ -1,0 +1,4 @@
+lhotse
+nemo_toolkit[asr]
+soundfile
+librosa
