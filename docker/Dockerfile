@@ -65,14 +65,6 @@ COPY docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
 
-ARG INTERN_VIDEO_COMMIT=09d872e5093296c6f36b8b3a91fc511b76433bf7
-COPY external/intern_video2_multimodal.patch .
-# Clone InternVideo (Video curation dependency)
-RUN git clone https://github.com/OpenGVLab/InternVideo.git && \
-    cd InternVideo && \
-    git checkout ${INTERN_VIDEO_COMMIT} && \
-    patch -p1 < /opt/intern_video2_multimodal.patch && \
-    rm /opt/intern_video2_multimodal.patch
 
 FROM nemo_curator_dep AS nemo_curator
 
