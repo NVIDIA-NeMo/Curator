@@ -128,7 +128,7 @@ class TestTarredAudioManifestReader:
 
         stage = TarredAudioManifestReaderStage(tar_paths=str(tar_path), skip_missing_entries=False)
 
-        with pytest.raises(RuntimeError, match="Cannot locate tar member 'missing.wav'"):
+        with pytest.raises(RuntimeError, match=r"Cannot locate tar member 'missing\.wav'"):
             stage.process(_make_file_group_task([str(manifest)]))
 
     def test_reader_skips_missing_entries_when_enabled(self, tmp_path: Path) -> None:
@@ -244,11 +244,11 @@ class TestTarredAudioMaterialization:
         _write_tar(tar_path, {"sample.wav": b"pipe-bytes"})
 
         manifest_cmd = (
-            f"pipe:python3 -c \"from pathlib import Path; import sys; "
+            f'pipe:python3 -c "from pathlib import Path; import sys; '
             f"sys.stdout.buffer.write(Path(r'{manifest}').read_bytes())\""
         )
         tar_cmd = (
-            f"pipe:python3 -c \"from pathlib import Path; import sys; "
+            f'pipe:python3 -c "from pathlib import Path; import sys; '
             f"sys.stdout.buffer.write(Path(r'{tar_path}').read_bytes())\""
         )
 

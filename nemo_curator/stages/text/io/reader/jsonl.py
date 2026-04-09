@@ -167,9 +167,7 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         open_kwargs.setdefault("encoding", "utf-8")
 
         if read_kwargs:
-            logger.warning(
-                "Ignoring unsupported read_kwargs for audio JSONL reader: " f"{sorted(read_kwargs.keys())}"
-            )
+            logger.warning(f"Ignoring unsupported read_kwargs for audio JSONL reader: {sorted(read_kwargs.keys())}")
 
         results: list[AudioTask] = []
         for file_path in task.data:

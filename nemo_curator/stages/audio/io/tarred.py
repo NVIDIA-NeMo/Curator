@@ -21,11 +21,12 @@ import re
 import subprocess
 import tarfile
 import tempfile
+from collections.abc import Iterator
 from collections import defaultdict
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Any, Iterator, Literal
+from typing import IO, Any, Literal
 
 import fsspec
 import soundfile
@@ -182,11 +183,13 @@ def _iter_tar_member_names(
     storage_options: dict[str, Any] | None,
     transport: Literal["auto", "fsspec", "pipe"],
 ) -> Iterator[str]:
-    with _open_binary_stream(tar_path, storage_options=storage_options, transport=transport) as stream:
-        with tarfile.open(fileobj=stream, mode="r|*") as tar:
-            for member in tar:
-                if member.isfile():
-                    yield member.name
+    with (
+        _open_binary_stream(tar_path, storage_options=storage_options, transport=transport) as stream,
+        tarfile.open(fileobj=stream, mode="r|*") as tar,
+    ):
+        for member in tar:
+            if member.isfile():
+                yield member.name
 
 
 def _partition_paths(paths: list[str], files_per_partition: int) -> list[list[str]]:
@@ -438,24 +441,26 @@ class MaterializeTarredAudioStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _materialize_from_tar(self, tar_path: str, member_tasks: dict[str, list[AudioTask]]) -> None:
         remaining = set(member_tasks)
-        with _open_binary_stream(
-            tar_path,
-            storage_options=self.storage_options,
-            transport=self.transport,
-        ) as stream:
-            with tarfile.open(fileobj=stream, mode="r|*") as tar:
-                for tar_info in tar:
-                    if not tar_info.isfile() or tar_info.name not in member_tasks:
-                        continue
-                    extracted = tar.extractfile(tar_info)
-                    if extracted is None:
-                        continue
-                    raw_audio = extracted.read()
-                    for task in member_tasks[tar_info.name]:
-                        self._materialize_task(task, raw_audio, tar_info.name)
-                    remaining.discard(tar_info.name)
-                    if not remaining:
-                        break
+        with (
+            _open_binary_stream(
+                tar_path,
+                storage_options=self.storage_options,
+                transport=self.transport,
+            ) as stream,
+            tarfile.open(fileobj=stream, mode="r|*") as tar,
+        ):
+            for tar_info in tar:
+                if not tar_info.isfile() or tar_info.name not in member_tasks:
+                    continue
+                extracted = tar.extractfile(tar_info)
+                if extracted is None:
+                    continue
+                raw_audio = extracted.read()
+                for task in member_tasks[tar_info.name]:
+                    self._materialize_task(task, raw_audio, tar_info.name)
+                remaining.discard(tar_info.name)
+                if not remaining:
+                    break
 
         if remaining:
             msg = f"Failed to materialize tar members {sorted(remaining)} from tar shard '{tar_path}'"
@@ -496,10 +501,10 @@ class MaterializeTarredAudioStage(ProcessingStage[AudioTask, AudioTask]):
         offset = float(task.data.get(self.offset_key, 0.0) or 0.0)
         duration = task.data.get(self.duration_key)
         waveform, sample_rate = soundfile.read(io.BytesIO(raw_audio), dtype="float32")
-        start = max(int(round(offset * sample_rate)), 0)
+        start = max(round(offset * sample_rate), 0)
         end = waveform.shape[0]
         if duration is not None:
-            end = min(start + int(round(float(duration) * sample_rate)), waveform.shape[0])
+            end = min(start + round(float(duration) * sample_rate), waveform.shape[0])
         soundfile.write(output_path.as_posix(), waveform[start:end], sample_rate)
 
 
