@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,18 +15,17 @@
 import pandas as pd
 import pytest
 
-from nemo_curator.stages.text.modifiers import (
-    DocumentModifier,
+from nemo_curator.stages.text.modifiers import DocumentModifier, Modify
+from nemo_curator.stages.text.modifiers.modifier import _normalize_input_fields, _normalize_output_fields
+from nemo_curator.stages.text.modifiers.string import (
     LineRemover,
     MarkdownRemover,
     NewlineNormalizer,
     QuotationRemover,
     Slicer,
-    UnicodeReformatter,
     UrlRemover,
 )
-from nemo_curator.stages.text.modules import Modify
-from nemo_curator.stages.text.modules.modifier import _normalize_input_fields, _normalize_output_fields
+from nemo_curator.stages.text.modifiers.unicode import UnicodeReformatter
 from nemo_curator.tasks import DocumentBatch
 
 

@@ -34,7 +34,7 @@ def extract_raw_markdown(env: BuildEnvironment, docname: str) -> str | None:
 
         return content.strip()
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug(f"Could not extract raw markdown from {docname}: {e}")
         return None
 

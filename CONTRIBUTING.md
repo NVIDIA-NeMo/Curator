@@ -1,6 +1,7 @@
 # Checklist
 
 We are glad you are contributing to NeMo Curator! Before you make a PR, be sure to read over this guide in detail.
+This project will only accept contributions under the project's Apache2 license.
 This checklist ensures that NeMo Curator stays easy-to-use by both users and developers.
 Not all steps are necessary for some contributions, so read the linked sections for more information about each item.
 

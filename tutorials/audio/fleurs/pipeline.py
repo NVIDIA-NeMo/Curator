@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import sys
 
 from loguru import logger
 
+from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
@@ -43,9 +44,7 @@ def create_audio_pipeline(args: argparse.Namespace) -> Pipeline:
             raw_data_dir=args.raw_data_dir,
         ).with_(batch_size=4)
     )
-    pipeline.add_stage(
-        InferenceAsrNemoStage(model_name=args.model_name).with_(resources=Resources(gpus=args.gpus))
-    )
+    pipeline.add_stage(InferenceAsrNemoStage(model_name=args.model_name).with_(resources=Resources(gpus=args.gpus)))
     pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer"))
     pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
     pipeline.add_stage(PreserveByValueStage(input_value_key="wer", target_value=args.wer_threshold, operator="le"))
@@ -80,7 +79,7 @@ def main(args: argparse.Namespace) -> None:
     logger.info("\n" + "=" * 50 + "\n")
 
     # Create executor
-    executor = XennaExecutor()
+    executor = RayDataExecutor() if args.backend == "ray_data" else XennaExecutor()
 
     # Execute pipeline
     logger.info("Starting pipeline execution...")
@@ -115,6 +114,13 @@ if __name__ == "__main__":
         "--clean",
         action="store_true",
         help="Delete existing result directory before writing outputs",
+    )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        choices=["xenna", "ray_data"],
+        default="xenna",
+        help="Execution backend: 'xenna' (default) or 'ray_data'",
     )
     parser.add_argument(
         "--verbose",

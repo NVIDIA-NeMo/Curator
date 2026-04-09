@@ -75,7 +75,7 @@ class HierarchyBuilder:
                 try:
                     child_data = self.json_formatter.build_child_json_data(child_docname, include_content=False)
                     data["children"].append(child_data)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     logger.warning(f"Failed to build child metadata for {child_docname}: {e}")
 
         logger.info(f"Generated metadata-only search index with {len(data['children'])} documents")
@@ -99,7 +99,7 @@ class HierarchyBuilder:
                 try:
                     child_data = self.json_formatter.build_child_json_data(child_docname)
                     data["children"].append(child_data)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     logger.warning(f"Failed to build child data for {child_docname}: {e}")
 
         logger.info(f"Generated comprehensive search index with {len(data['children'])} documents")
@@ -113,7 +113,7 @@ class HierarchyBuilder:
             try:
                 child_data = self.json_formatter.build_child_json_data(child_docname)
                 data["children"].append(child_data)
-            except Exception as e:  # noqa: BLE001, PERF203
+            except Exception as e:  # noqa: PERF203
                 logger.warning(f"Failed to build child data for {child_docname}: {e}")
 
         logger.debug(f"Included {len(data['children'])} child documents for {docname}")

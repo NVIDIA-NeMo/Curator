@@ -42,7 +42,7 @@ class WikipediaParaphrasingStage(BaseSyntheticStage):
 
 @dataclass
 class DiverseQAStage(BaseSyntheticStage):
-    system_prompt: str = None
+    system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
     prompt: str = DIVERSE_QA_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "diverse_qa"
@@ -64,10 +64,7 @@ class DiverseQAPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBatch]
     tokenizer: AutoTokenizer | None = None
     prefix: str = "Here are the questions and answers based on the provided text:"
     max_num_pairs: int = 10
-
-    @property
-    def name(self) -> str:
-        return "DiverseQAPostProcessing"
+    name: str = "DiverseQAPostProcessing"
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
@@ -129,14 +126,14 @@ class DistillStage(BaseSyntheticStage):
 
 @dataclass
 class ExtractKnowledgeStage(BaseSyntheticStage):
-    system_prompt: str = None
+    system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
     prompt: str = EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "extract_knowledge"
 
 @dataclass
 class KnowledgeListStage(BaseSyntheticStage):
-    system_prompt: str = None
+    system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
     prompt: str = KNOWLEDGE_LIST_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "knowledge_list"
@@ -149,10 +146,7 @@ class KnowledgeListPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBa
     """
 
     input_field: str = "knowledge_list"
-
-    @property
-    def name(self) -> str:
-        return "KnowledgeListPostProcessing"
+    name: str = "KnowledgeListPostProcessing"
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()

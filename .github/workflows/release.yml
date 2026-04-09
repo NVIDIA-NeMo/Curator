@@ -26,13 +26,18 @@ on:
         required: true
         default: true
         type: boolean
+      generate-changelog:
+        description: Generate changelog
+        required: false
+        default: true
+        type: boolean
       version-bump-branch:
         type: string
         required: true
         description: Branch to target for version bump
 jobs:
   release:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_release_library.yml@v0.40.0
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_release_library.yml@v0.73.0
     with:
       release-ref: ${{ inputs.release-ref }}
       python-package: nemo_curator
@@ -40,6 +45,8 @@ jobs:
       library-name: NeMo Curator
       dry-run: ${{ inputs.dry-run }}
       version-bump-branch: ${{ inputs.version-bump-branch }}
+      gh-release-use-changelog-builder: ${{ inputs.generate-changelog }}
+      publish-docs: false
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}

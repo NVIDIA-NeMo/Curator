@@ -20,7 +20,7 @@ from typing import Any, Literal
 import pandas as pd
 import pytest
 
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.deduplication.id_generator import (
@@ -44,8 +44,7 @@ FILE_FORMAT_CONFIGS = {
 def _write_jsonl_file(file_path: Path, file_data: list[dict[str, Any]]) -> None:
     """Write data to a JSONL file."""
     with open(file_path, "w") as f:
-        for record in file_data:
-            f.write(json.dumps(record) + "\n")
+        f.writelines(json.dumps(record) + "\n" for record in file_data)
 
 
 def _write_parquet_file(file_path: Path, file_data: list[dict[str, Any]]) -> None:

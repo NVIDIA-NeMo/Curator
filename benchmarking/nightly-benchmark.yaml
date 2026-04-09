@@ -8,6 +8,7 @@
 # appropriate path at runtime.
 results_path: /path/where/results/are/stored
 datasets_path: /path/to/datasets
+model_weights_path: /path/to/model_weights
 
 datasets:
   - name: "tinystories"
@@ -50,7 +51,44 @@ datasets:
     formats:
     - type: "parquet"
       path: "{datasets_path}/rpv2_2023-14_en"
-
+  - name: "arxiv_downloads"
+    formats:
+    - type: "tar"
+      path: "{datasets_path}/arxiv_downloads"
+  - name: "fasttext_langid_model"
+    formats:
+    - type: "bin"
+      path: "{model_weights_path}/fasttext/lid.176.bin"
+    - type: "ftz"
+      path: "{model_weights_path}/fasttext/lid.176.ftz"
+  - name: "fasttext_quality_model"
+    formats:
+    - type: "bin"
+      path: "{model_weights_path}/fasttext/model.bin"
+  - name: "gretel_symptoms"
+    formats:
+    - type: "jsonl"
+      path: "{datasets_path}/gretel_symptoms"
+  - name: "text_models_hf_cache"
+    formats:
+    - type: "files"
+      path: "{model_weights_path}/text_models_hf_cache"
+  - name: "multimodal_mint1t"
+    formats:
+    - type: "wds_tar_dir"
+      path: "{datasets_path}/multimodal/mint1t"
+  - name: "finemath4plus"
+    formats:
+    - type: "parquet"
+      path: "{datasets_path}/finemath4plus/enriched"
+  - name: "cc_index_query_dataset"
+    formats:
+    - type: "parquet"
+      path: "{datasets_path}/cc_index_benchmark/dataset/megamath_web/megamath-web"
+  - name: "cc_index_partitions"
+    formats:
+    - type: "parquet"
+      path: "{datasets_path}/cc_index_benchmark/cc_index"
 default_timeout_s: 7200
 
 # Optional sinks
@@ -61,7 +99,8 @@ sinks:
 #    experiment: ray-curator-common-crawl
   - name: slack
     enabled: true
-    webhook_url: ${SLACK_WEBHOOK_URL}
+    live_updates: true
+    channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
 #  - name: gdrive
 #    enabled: false
@@ -94,6 +133,8 @@ entries:
         additional_metrics:
           - throughput_docs_per_sec
           - number_of_domains_predicted
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -126,6 +167,12 @@ entries:
         additional_metrics:
           - throughput_docs_per_sec
           - number_of_domains_predicted
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
     requirements:
       # Observed throughput of 2900 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
@@ -147,21 +194,26 @@ entries:
       --executor=ray_data
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
-      --model-identifier=sentence-transformers/all-MiniLM-L6-v2
-      --model-inference-batch-size=1024
-    timeout_s: 350
+      --model-identifier=google/embeddinggemma-300m
+      --model-variation=vllm_text
+      --cache-dir={dataset:text_models_hf_cache,files}
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+          - U07JL5K0L10  # Praateek Mahajan
     ray:
       num_cpus: 64
       num_gpus: 4
       enable_object_spilling: false
     requirements:
-      # observed throughput of 7200 docs/sec so we allow a 5% buffer to account for variability
+      # Observed throughput of 3945 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
-        min_value: 6840
+        min_value: 3747
+
   - name: embedding_generation_xenna
     enabled: true
     script: embedding_generation_benchmark.py
@@ -171,18 +223,26 @@ entries:
       --executor=xenna
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
-      --model-identifier=sentence-transformers/all-MiniLM-L6-v2
-      --model-inference-batch-size=1024
-    timeout_s: 350
+      --model-identifier=google/embeddinggemma-300m
+      --model-variation=vllm_text
+      --cache-dir={dataset:text_models_hf_cache,files}
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
           - num_documents_processed
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+          - U07JL5K0L10  # Praateek Mahajan
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
     requirements:
-      # Observed throughput of 8600 docs/sec so we allow a 5% buffer to account for variability
+      # Observed throughput of 4923 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
-        min_value: 8170
+        min_value: 4676
 
   - name: exact_dedup_identification
     enabled: true
@@ -199,6 +259,8 @@ entries:
       - name: slack
         additional_metrics:
           - "num_duplicates"
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -219,7 +281,7 @@ entries:
       --bands-per-iteration=20
       --text-field=text
       --input-blocksize=1.5GiB
-    timeout_s: 700
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
@@ -227,6 +289,8 @@ entries:
           - minhash_percent_time
           - lsh_percent_time
           - connected_components_percent_time
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -266,6 +330,8 @@ entries:
           - kmeans_write_percent_time
           - kmeans_fit_predict_percent_time
           - pairwise_percent_time
+        ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -298,6 +364,9 @@ entries:
       - name: slack
         additional_metrics:
           - num_duplicates_removed
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+          - U07JL5K0L10  # Praateek Mahajan
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -321,12 +390,15 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1000
+    timeout_s: 1500
     sink_data:
       - name: slack
         additional_metrics:
           - num_duplicates_removed
           - io_percentage
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+          - U07JL5K0L10  # Praateek Mahajan
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -335,7 +407,7 @@ entries:
       - metric: num_duplicates_removed
         exact_value: 59226133
       - metric: io_percentage
-        min_value: 97
+        min_value: 90
 
   - name: score_filter_raydata
     enabled: true
@@ -353,6 +425,8 @@ entries:
         additional_metrics:
           - num_kept_documents
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -361,7 +435,7 @@ entries:
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
         exact_value: 2119489
-    # account for stochastic filters
+      # account for stochastic filters
       - metric: num_kept_documents
         min_value: 2090470
         max_value: 2090490
@@ -384,6 +458,8 @@ entries:
         additional_metrics:
           - num_kept_documents
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -392,12 +468,62 @@ entries:
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
         exact_value: 2119489
-    # account for stochastic filters
+      # account for stochastic filters
       - metric: num_kept_documents
         min_value: 2090470
         max_value: 2090490
       - metric: throughput_docs_per_sec
         min_value: 8500
+
+  - name: fasttext_filter_raydata
+    enabled: true
+    script: fasttext_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --input-path={dataset:tinystories,parquet}
+      --yaml-config={curator_repo_dir}/nemo_curator/config/text/fasttext_filter_pipeline.yaml
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --fasttext-quality-model-path={dataset:fasttext_quality_model,bin}
+      --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
+    timeout_s: 200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_kept_documents
+          - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+
+  - name: fasttext_filter_xenna
+    enabled: true
+    script: fasttext_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --input-path={dataset:tinystories,parquet}
+      --yaml-config={curator_repo_dir}/nemo_curator/config/text/fasttext_filter_pipeline.yaml
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --fasttext-quality-model-path={dataset:fasttext_quality_model,bin}
+      --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
+    timeout_s: 100
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_kept_documents
+          - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
 
   - name: modifier_raydata
     enabled: true
@@ -412,6 +538,8 @@ entries:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -430,29 +558,80 @@ entries:
       - name: slack
         additional_metrics:
           - throughput_docs_per_sec
+        ping_on_failure:
+          - U022P8CDX40  # Sarah Yurick
     ray:
       num_cpus: 64
       num_gpus: 0
       enable_object_spilling: false
 
-  - name: image_curation
+  - name: image_curation_raydata
     enabled: true
-    script: "{curator_repo_dir}/tutorials/image/getting-started/image_curation_example.py"
+    script: image_pipeline_benchmark.py
     args: >-
-      --input-wds-dataset-dir {dataset:mscoco,wds}
-      --output-dataset-dir {session_entry_dir}/scratch/output
-      --model-dir {dataset:mscoco_model_weights,files}
-      --batch-size 100
-      --embedding-batch-size 100
-      --aesthetic-batch-size 100
-      --nsfw-batch-size 100
-      --tar-files-per-partition 10
-      --aesthetic-threshold 0.9
-      --nsfw-threshold 0.9
-      --skip-download
+      --benchmark-results-path={session_entry_dir}
+      --input-wds-dataset-dir={dataset:mscoco,wds}
+      --output-dataset-dir={session_entry_dir}/scratch/output
+      --model-dir={dataset:mscoco_model_weights,files}
+      --executor=ray_data
+      --tar-files-per-partition=1
+      --batch-size=1000
+      --embedding-batch-size=500
+      --aesthetic-batch-size=500
+      --aesthetic-threshold=0.9
       --verbose
+    timeout_s: 1500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_images_per_sec
+        ping_on_failure:
+          - U020C9VC05N  # Ao Tang
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_images_processed
+        exact_value: 3800
+      - metric: throughput_images_per_sec
+        min_value: 3.0
 
-  - name: audio_fleurs
+  - name: image_curation_xenna
+    enabled: true
+    script: image_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-wds-dataset-dir={dataset:mscoco,wds}
+      --output-dataset-dir={session_entry_dir}/scratch/output
+      --model-dir={dataset:mscoco_model_weights,files}
+      --executor=xenna
+      --tar-files-per-partition=1
+      --batch-size=1000
+      --embedding-batch-size=500
+      --aesthetic-batch-size=500
+      --aesthetic-threshold=0.9
+      --verbose
+    timeout_s: 1500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_images_per_sec
+        ping_on_failure:
+          - U020C9VC05N  # Ao Tang
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_images_processed
+        exact_value: 3800
+      - metric: throughput_images_per_sec
+        min_value: 3.0
+
+  - name: audio_fleurs_xenna
     enabled: true
     script: audio_fleurs_benchmark.py
     args: >-
@@ -460,9 +639,118 @@ entries:
       --scratch-output-path={session_entry_dir}/scratch
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
-      --split=dev
+      --split=train
       --wer-threshold=5.5
       --gpus=1
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    sink_data:
+      - name: slack
+        # time_taken_s intentionally omitted: FLEURS includes dataset download
+        # whose wall-clock varies with network conditions, making it unreliable
+        # as a Slack regression metric. Only throughput/count are reported.
+        additional_metrics:
+          - throughput_tasks_per_sec
+          - num_tasks_processed
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: is_success
+        exact_value: true
+
+  - name: audio_fleurs_raydata
+    enabled: true
+    script: audio_fleurs_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --scratch-output-path={session_entry_dir}/scratch
+      --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
+      --lang=hy_am
+      --split=train
+      --wer-threshold=5.5
+      --gpus=1
+      --executor=ray_data
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    sink_data:
+      - name: slack
+        # time_taken_s intentionally omitted: FLEURS includes dataset download
+        # whose wall-clock varies with network conditions, making it unreliable
+        # as a Slack regression metric. Only throughput/count are reported.
+        additional_metrics:
+          - throughput_tasks_per_sec
+          - num_tasks_processed
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: is_success
+        exact_value: true
+
+  - name: arxiv_e2e_pipeline_raydata
+    enabled: true
+    script: arxiv_e2e_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --tar-input-path={dataset:arxiv_downloads,tar}
+      --output-path={session_entry_dir}/scratch/output
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --executor=ray_data
+    timeout_s: 3600
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+          - num_input_documents
+          - num_output_documents
+        ping_on_failure:
+          - UGFRT88RE  # Vibhu Jawa
+    ray:
+      num_cpus: 16
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      # Data integrity checks
+      - metric: num_tar_files
+        exact_value: 45
+      - metric: num_input_documents
+        exact_value: 90922
+      - metric: num_output_documents
+        exact_value: 61474
+
+  - name: arxiv_e2e_pipeline_xenna
+    enabled: true
+    script: arxiv_e2e_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --tar-input-path={dataset:arxiv_downloads,tar}
+      --output-path={session_entry_dir}/scratch/output
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --executor=xenna
+    timeout_s: 3600
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+          - num_input_documents
+          - num_output_documents
+        ping_on_failure:
+          - UGFRT88RE  # Vibhu Jawa
+    ray:
+      num_cpus: 16
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      # Data integrity checks
+      - metric: num_tar_files
+        exact_value: 45
+      - metric: num_input_documents
+        exact_value: 90922
+      - metric: num_output_documents
+        exact_value: 61474
 
   - name: video_embedding
     enabled: true
@@ -475,6 +763,10 @@ entries:
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
     timeout_s: 400
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -485,7 +777,7 @@ entries:
         exact_value: 1400
       - metric: throughput_clips_per_sec
         min_value: 4.0
-  
+
   - name: video_transcoding
     enabled: true
     script: video_pipeline_benchmark.py
@@ -497,6 +789,10 @@ entries:
       --video-dir={dataset:videos,mp4}
       --video-limit=1000
     timeout_s: 400
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -522,6 +818,10 @@ entries:
       --enhance-captions
       --video-limit=256
     timeout_s: 1800
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -529,9 +829,39 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 300 # TODO: update this value after benchmarking
+        exact_value: 377
       - metric: throughput_clips_per_sec
         min_value: 0.25
+
+  - name: ndd_ray_serve_dp4
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:ndd_gretel_symptoms,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=ray-serve
+      --model-id=openai/gpt-oss-20b
+      --executor=ray_data
+      --engine-kwargs='{"tensor_parallel_size": 1}'
+      --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
+    timeout_s: 700
+    ray:
+      num_cpus: 16
+      num_gpus: 4
+      enable_object_spilling: false
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - throughput_rows_per_sec
+          - serve_startup_s
+        ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
+    requirements:
+      - metric: output_row_count
+        exact_value: 853
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings
     enabled: true
@@ -548,6 +878,10 @@ entries:
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=1000
     timeout_s: 500
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
     ray:
       num_cpus: 64
       num_gpus: 4
@@ -558,3 +892,305 @@ entries:
         exact_value: 113
       - metric: throughput_clips_per_sec
         min_value: 0.25
+
+  - name: multimodal_mint1t_xenna
+    enabled: false
+    script: multimodal_mint1t_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=xenna
+      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --files-per-partition=2
+      --mode=overwrite
+      --no-materialize-on-write
+      --output-max-batch-bytes=2000000
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_rows_per_sec
+          - num_rows
+          - num_output_files
+          - materialize_error_count
+        ping_on_failure:
+          - UGFRT88RE  # Vibhu Jawa
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+
+  - name: multimodal_mint1t_xenna_materialize
+    enabled: false
+    script: multimodal_mint1t_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=xenna
+      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --files-per-partition=2
+      --mode=overwrite
+      --materialize-on-write
+      --output-max-batch-bytes=2000000
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_rows_per_sec
+          - num_rows
+          - num_output_files
+          - materialize_error_count
+        ping_on_failure:
+          - UGFRT88RE  # Vibhu Jawa
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+
+  - name: interleaved_filter_xenna
+    enabled: false
+    script: interleaved_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=xenna
+      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --clip-model-dir={dataset:mscoco_model_weights,files}
+      --files-per-partition=2
+      --mode=overwrite
+      --no-materialize-on-write
+      --output-max-batch-bytes=2000000
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_rows_per_sec
+          - num_rows
+          - num_output_files
+          - materialize_error_count
+        ping_on_failure:
+          - UGFRT88RE
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+
+  - name: interleaved_filter_xenna_materialize
+    enabled: false
+    script: interleaved_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=xenna
+      --input-path={dataset:multimodal_mint1t,wds_tar_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --clip-model-dir={dataset:mscoco_model_weights,files}
+      --files-per-partition=2
+      --mode=overwrite
+      --materialize-on-write
+      --output-max-batch-bytes=2000000
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_rows_per_sec
+          - num_rows
+          - num_output_files
+          - materialize_error_count
+        ping_on_failure:
+          - UGFRT88RE
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+
+  - name: alm_pipeline_xenna
+    enabled: true
+    script: alm_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={curator_repo_dir}/tests/fixtures/audio/alm/sample_input.jsonl
+      --executor=xenna
+      --target-window-duration=120.0
+      --tolerance=0.1
+      --min-sample-rate=16000
+      --min-bandwidth=8000
+      --min-speakers=2
+      --max-speakers=5
+      --overlap-percentage=50
+      --repeat-factor=2000
+    timeout_s: 600
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_entries_per_sec
+          - throughput_windows_per_sec
+          - time_taken_s
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    ray:
+      num_cpus: 8
+      num_gpus: 0
+      enable_object_spilling: false
+    requirements:
+      - metric: is_success
+        exact_value: true
+      - metric: total_builder_windows
+        min_value: 1
+      - metric: total_filtered_windows
+        min_value: 1
+
+  - name: alm_pipeline_ray_data
+    enabled: true
+    script: alm_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={curator_repo_dir}/tests/fixtures/audio/alm/sample_input.jsonl
+      --executor=ray_data
+      --target-window-duration=120.0
+      --tolerance=0.1
+      --min-sample-rate=16000
+      --min-bandwidth=8000
+      --min-speakers=2
+      --max-speakers=5
+      --overlap-percentage=50
+      --repeat-factor=2000
+    timeout_s: 600
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_entries_per_sec
+          - throughput_windows_per_sec
+          - time_taken_s
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    ray:
+      num_cpus: 8
+      num_gpus: 0
+      enable_object_spilling: false
+    requirements:
+      - metric: is_success
+        exact_value: true
+      - metric: total_builder_windows
+        min_value: 1
+      - metric: total_filtered_windows
+        min_value: 1
+
+  - name: math_preprocess
+    enabled: true
+    script: math_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:finemath4plus,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+    timeout_s: 600
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+          - type_html_count
+          - extraction_success_rate
+        ping_on_failure:
+          - U07AZ1HPL1X  # Ranjit Rajan
+          - U0849HBGCLD  # Sukrit Rao
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+    requirements:
+      - metric: num_input_documents
+        exact_value: 1300
+      - metric: extraction_success_rate
+        min_value: 1.0
+
+  - name: math_preprocess_classifier
+    enabled: true
+    script: math_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:finemath4plus,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --run-classifier
+    timeout_s: 900
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+          - mean_finemath_score
+          - classifier_percent_time
+        ping_on_failure:
+          - U07AZ1HPL1X  # Ranjit Rajan
+          - U0849HBGCLD  # Sukrit Rao
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      - metric: num_input_documents
+        exact_value: 1300
+      - metric: docs_score_ge_3
+        exact_value: 1057
+
+  - name: math_preprocess_llm_cleanup
+    enabled: true
+    script: math_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:finemath4plus,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --run-llm-cleanup
+      --model=microsoft/phi-4
+      --prompt=HTML_TO_TEXT_PROMPT
+      --chunk-data
+      --chunk-length=4096
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+          - num_output_documents_post_merge
+          - llm_cleanup_percent_time
+        ping_on_failure:
+          - U07AZ1HPL1X  # Ranjit Rajan
+          - U0849HBGCLD  # Sukrit Rao
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      - metric: num_input_documents
+        exact_value: 1300
+      - metric: num_output_documents_post_merge
+        exact_value: 1300
+
+  - name: math_cc_index_lookup
+    enabled: true
+    script: cc_index_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --query-dataset-path={dataset:cc_index_query_dataset,parquet}
+      --cc-index-path={dataset:cc_index_partitions,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_gb_per_sec
+          - total_cc_index_rows_scanned
+          - total_matched_rows
+          - match_rate
+        ping_on_failure:
+          - U07AZ1HPL1X  # Ranjit Rajan
+          - U0849HBGCLD  # Sukrit Rao
+    ray:
+      num_cpus: 64
+      num_gpus: 8
+      enable_object_spilling: false
+    requirements:
+      - metric: total_matched_rows
+        exact_value: 2384
+      - metric: num_cc_index_files
+        exact_value: 50

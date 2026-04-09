@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,8 +14,12 @@
 
 from __future__ import annotations
 
+import contextlib
+import copy
+import time
 from abc import ABC, ABCMeta, abstractmethod
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
+from inspect import isabstract
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, final
 
 from loguru import logger
 
@@ -48,8 +52,6 @@ class StageMeta(ABCMeta):
 
         # Only register subclasses that ultimately derive from ProcessingStage
         # but are not abstract.
-        from inspect import isabstract  # local import to avoid cycle during class creation
-
         if "ProcessingStage" in [base.__name__ for base in cls.mro()[1:]] and not isabstract(cls):
             # Ensure no duplicate class names (helps when reloading in notebooks)
             _STAGE_REGISTRY[cls.__name__] = cls  # type: ignore[assignment]
@@ -83,6 +85,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     name = "ProcessingStage"
     resources = Resources(cpus=1.0)
     batch_size = 1
+    runtime_env: ClassVar[dict[str, Any] | None] = None
 
     @property
     @final
@@ -111,6 +114,15 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         if "_batch_size" in cls.__dict__:
             msg = f"{cls.__name__} must not override '_batch_size'"
             raise TypeError(msg)
+
+        for attr in ("name", "resources", "batch_size", "runtime_env"):
+            if isinstance(cls.__dict__.get(attr), property):
+                msg = (
+                    f"{cls.__name__} must not define '{attr}' as a @property. "
+                    f"Use a plain class attribute or dataclass field instead, "
+                    f"so that ProcessingStage.with_() can override it."
+                )
+                raise TypeError(msg)
 
     def num_workers(self) -> int | None:
         """Number of workers required. If None, then executor will determine the number of workers."""
@@ -248,7 +260,11 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         return {}
 
     def with_(
-        self, name: str | None = None, resources: Resources | None = None, batch_size: int | None = None
+        self,
+        name: str | None = None,
+        resources: Resources | None = None,
+        batch_size: int | None = None,
+        runtime_env: dict[str, Any] | None = None,
     ) -> ProcessingStage:
         """Apply configuration changes to this stage with overridden properties.
 
@@ -258,10 +274,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             name: Override the name property
             resources: Override the resources property
             batch_size: Override the batch_size property
+            runtime_env: Override the runtime_env (Ray runtime environment dict)
         """
-        # Create a copy of the current instance
-        import copy
-
         new_instance = copy.deepcopy(self)
 
         # Override the instance attributes directly
@@ -271,6 +285,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             new_instance.resources = resources
         if batch_size is not None:
             new_instance.batch_size = batch_size
+        if runtime_env is not None:
+            new_instance.runtime_env = runtime_env
 
         return new_instance
 
@@ -288,8 +304,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
     def ray_stage_spec(self) -> dict[str, Any]:
         """Get Ray configuration for this stage.
-        Note : This is only used for Ray Data which is an experimental backend.
-        The keys are defined in RayStageSpecKeys in backends/experimental/ray_data/utils.py
+        Note : This is only used for Ray Data backend.
+        The keys are defined in RayStageSpecKeys in backends/ray_data/utils.py
 
         Returns (dict[str, Any]):
             Dictionary containing Ray-specific configuration
@@ -310,6 +326,15 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
     def _log_metric(self, name: str, value: float) -> None:
         return self._log_metrics({name: value})
+
+    @contextlib.contextmanager
+    def _time_metric(self, name: str) -> contextlib.AbstractContextManager[None]:
+        """Record elapsed time for a code block as a custom stage metric."""
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
+            self._log_metric(name, time.perf_counter() - start)
 
     def _consume_custom_metrics(self) -> dict[str, float]:
         """Return and clear metrics recorded during the last process call."""

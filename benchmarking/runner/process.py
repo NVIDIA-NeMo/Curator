@@ -25,6 +25,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
@@ -109,6 +110,9 @@ def display_simple_subprocess(
 
     with open(stdouterr_path, "w") as outfile:
         start_time = time.time()
+        logger.info(
+            f"\tRunning command (output to stdout/err): {' '.join(cmd_list) if isinstance(cmd_list, list) else cmd_list}"
+        )
         try:
             process = subprocess.Popen(  # noqa: S603
                 cmd_list,
@@ -157,7 +161,7 @@ def display_simple_subprocess(
                 else:
                     msg = f"\n--- Subprocess failed (Exit Code: {return_code}){run_id_msg} ---\n"
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             tb = traceback.format_exc()
             msg = f"\n--- An error occurred:\n{e}\n{tb}{run_id_msg} ---\n"
 
@@ -166,6 +170,8 @@ def display_simple_subprocess(
             outfile.flush()
             sys.stdout.write(msg)
             sys.stdout.flush()
+
+        logger.info(f"\tSubprocess completed with return code {return_code} in {time.time() - start_time:.2f}s")
 
     return {"returncode": return_code, "timed_out": timed_out}
 
@@ -214,6 +220,9 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
     ):
         start_time = time.time()
         final_panel = None
+        logger.info(
+            f"\tRunning command in subprocess (output to scrolling window): {' '.join(cmd_list) if isinstance(cmd_list, list) else cmd_list}"
+        )
         try:
             process = subprocess.Popen(  # noqa: S603
                 cmd_list,
@@ -302,7 +311,7 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
                         height=window_height + 2,
                     )
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             tb = traceback.format_exc()
             msg = f"An error occurred:\n{e}\n{tb}{run_id_msg}"
             final_panel = Panel(f"[bold red]{msg}[/]", title="[bold red]Error[/]")
@@ -312,5 +321,7 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
             live.refresh()
             outfile.write(f"\n--- {msg} ---\n")
             outfile.flush()
+
+        logger.info(f"\tSubprocess completed with return code {return_code} in {time.time() - start_time:.2f}s")
 
     return {"returncode": return_code, "timed_out": timed_out}

@@ -2,13 +2,12 @@
 
 ## 📁 Structure Overview
 
-The framework follows a **4-step pipeline pattern** where each step is implemented as an abstract base class with corresponding stages:
+The framework follows a **3-step pipeline pattern** where each step is implemented as an abstract base class with corresponding stages:
 
 ```
 1. URLGenerator → URLGenerationStage    (URLs from config/input)
 2. DocumentDownloader → DocumentDownloadStage    (local files from URLs)
-3. DocumentIterator → DocumentIterateStage    (raw records from files)
-4. DocumentExtractor → DocumentExtractStage    (structured data from records)
+3. DocumentIterator and DocumentExtractor → DocumentIterateExtractStage    (structured data from files)
 ```
 
 ## 🛠️ Implementation Steps

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -113,28 +112,36 @@ class TestVLLMEmbeddingModelStage:
             cache_dir: str | None = None,
             token: str | None = None,
             local_files_only: bool | None = None,
-        ) -> None:
-            captured["snapshot_download"] = {
-                "model_identifier": model_identifier,
-                "cache_dir": cache_dir,
-                "token": token,
-                "local_files_only": local_files_only,
-            }
+        ) -> str:
+            captured.setdefault("snapshot_download_calls", []).append(
+                {
+                    "model_identifier": model_identifier,
+                    "cache_dir": cache_dir,
+                    "token": token,
+                    "local_files_only": local_files_only,
+                }
+            )
+            return f"/resolved/snapshots/{model_identifier}"
 
         class _FakeLLM:
             def __init__(self, model: str, **kwargs: Any) -> None:  # noqa: ANN401
                 captured["llm"] = {"model": model, "kwargs": kwargs}
 
-        monkeypatch.setattr("nemo_curator.stages.text.embedders.vllm.snapshot_download", _fake_snapshot_download)
-        monkeypatch.setattr("nemo_curator.stages.text.embedders.vllm.LLM", _FakeLLM)
+        import nemo_curator.stages.text.embedders.vllm as _vllm_mod
+
+        monkeypatch.setattr(_vllm_mod, "snapshot_download", _fake_snapshot_download)
+        monkeypatch.setattr(_vllm_mod, "LLM", _FakeLLM)
 
         stage.setup_on_node()
 
-        assert captured["snapshot_download"]["cache_dir"] == str(cache_dir)
-        assert captured["snapshot_download"]["token"] == hf_token
-        assert captured["snapshot_download"]["local_files_only"] is False
+        # setup_on_node calls snapshot_download(local_files_only=False) to download
+        download_call = captured["snapshot_download_calls"][0]
+        assert download_call["cache_dir"] == str(cache_dir)
+        assert download_call["token"] == hf_token
+        assert download_call["local_files_only"] is False
 
-        assert captured["llm"]["model"] == TEST_MODEL
+        # vLLM receives the resolved snapshot path (not the repo ID)
+        assert captured["llm"]["model"] == f"/resolved/snapshots/{TEST_MODEL}"
         assert captured["llm"]["kwargs"]["download_dir"] == str(cache_dir)
 
     @pytest.mark.parametrize("pretokenize", [True, False])

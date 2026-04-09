@@ -20,7 +20,7 @@ The distributed data classification in NeMo Curator works by:
 
 1. **Parallel Processing**: Chunking datasets across multiple computing nodes and GPUs to accelerate classification
 2. **Pre-trained Models**: Using specialized models for different classification tasks
-3. **Batched Inference**: Optimizing throughput with intelligent batching via CrossFit integration
+3. **Batched Inference**: Optimizing throughput with intelligent batching
 4. **Consistent API**: Providing a unified interface through the `DistributedDataClassifier` base class
 
 The `DistributedDataClassifier` is designed to run on GPU clusters with minimal code changes regardless of which specific classifier you're using. All classifiers support filtering based on classification results and storing prediction scores as metadata.
@@ -28,6 +28,16 @@ The `DistributedDataClassifier` is designed to run on GPU clusters with minimal 
 :::{note}
 Distributed classification requires GPU acceleration and is not supported for CPU-only processing. As long as GPU resources are available and NeMo Curator is correctly installed, GPU acceleration is handled automatically.
 :::
+
+```{tip}
+**Running the tutorial notebooks**: The classification tutorial notebooks require the `text_cuda12` or `all` installation extra to include all relevant dependencies. If you encounter `ModuleNotFoundError`, reinstall with the appropriate extra:
+
+    uv pip install "nemo-curator[text_cuda12]"
+
+When using classifiers that download from Hugging Face (such as Aegis and InstructionDataGuard), set your `HF_TOKEN` environment variable to avoid rate limiting:
+
+    export HF_TOKEN="your_token_here"
+```
 
 ---
 
@@ -39,16 +49,16 @@ NVIDIA NeMo Curator provides a base class `DistributedDataClassifier` that can b
 
 | Classifier | Purpose | Model Location | Key Parameters | Requirements |
 |---|---|---|---|---|
-| DomainClassifier | Categorize English text by domain | [nvidia/domain-classifier](https://huggingface.co/nvidia/domain-classifier) | `filter_by`, `text_field` | None |
-| MultilingualDomainClassifier | Categorize text in 52 languages by domain | [nvidia/multilingual-domain-classifier](https://huggingface.co/nvidia/multilingual-domain-classifier) | `filter_by`, `text_field` | None |
-| QualityClassifier | Assess document quality | [nvidia/quality-classifier-deberta](https://huggingface.co/nvidia/quality-classifier-deberta) | `filter_by`, `text_field` | None |
-| AegisClassifier | Detect unsafe content | [nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0) | `aegis_variant`, `filter_by` | HuggingFace token |
-| InstructionDataGuardClassifier | Detect poisoning attacks | [nvidia/instruction-data-guard](https://huggingface.co/nvidia/instruction-data-guard) | `text_field`, `label_field` | HuggingFace token |
-| FineWebEduClassifier | Score educational value | [HuggingFaceFW/fineweb-edu-classifier](https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier) | `label_field`, `int_field` | None |
-| FineWebMixtralEduClassifier | Score educational value (Mixtral annotations) | [nvidia/nemocurator-fineweb-mixtral-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier) | `label_field`, `int_field`, `model_inference_batch_size=1024` | None |
-| FineWebNemotronEduClassifier | Score educational value (Nemotron annotations) | [nvidia/nemocurator-fineweb-nemotron-4-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier) | `label_field`, `int_field`, `model_inference_batch_size=1024` | None |
-| ContentTypeClassifier | Categorize by speech type | [nvidia/content-type-classifier-deberta](https://huggingface.co/nvidia/content-type-classifier-deberta) | `filter_by`, `text_field` | None |
-| PromptTaskComplexityClassifier | Classify prompt tasks and complexity | [nvidia/prompt-task-and-complexity-classifier](https://huggingface.co/nvidia/prompt-task-and-complexity-classifier) | `text_field` | None |
+| DomainClassifier | Assigns one of 26 domain labels (such as "Sports," "Science," "News") to English text | [nvidia/domain-classifier](https://huggingface.co/nvidia/domain-classifier) | `filter_by`, `text_field` | None |
+| MultilingualDomainClassifier | Assigns domain labels to text in 52 languages; same labels as DomainClassifier | [nvidia/multilingual-domain-classifier](https://huggingface.co/nvidia/multilingual-domain-classifier) | `filter_by`, `text_field` | None |
+| QualityClassifier | Rates document quality as "Low," "Medium," or "High" using a DeBERTa model | [nvidia/quality-classifier-deberta](https://huggingface.co/nvidia/quality-classifier-deberta) | `filter_by`, `text_field` | None |
+| AegisClassifier | Detects unsafe content across 13 risk categories (violence, hate speech, and others) using LlamaGuard | [nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0) | `aegis_variant`, `filter_by` | HuggingFace token |
+| InstructionDataGuardClassifier | Identifies LLM poisoning attacks in instruction-response pairs | [nvidia/instruction-data-guard](https://huggingface.co/nvidia/instruction-data-guard) | `text_field`, `label_field` | HuggingFace token |
+| FineWebEduClassifier | Scores educational value from 0 to 5 (0=spam, 5=scholarly) for training data selection | [HuggingFaceFW/fineweb-edu-classifier](https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier) | `label_field`, `int_field` | None |
+| FineWebMixtralEduClassifier | Scores educational value from 0 to 5 using Mixtral 8x22B annotation data | [nvidia/nemocurator-fineweb-mixtral-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier) | `label_field`, `int_field`, `model_inference_batch_size=1024` | None |
+| FineWebNemotronEduClassifier | Scores educational value from 0 to 5 using Nemotron-4-340B annotation data | [nvidia/nemocurator-fineweb-nemotron-4-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier) | `label_field`, `int_field`, `model_inference_batch_size=1024` | None |
+| ContentTypeClassifier | Categorizes text into 11 speech types (such as "Blogs," "News," "Academic") | [nvidia/content-type-classifier-deberta](https://huggingface.co/nvidia/content-type-classifier-deberta) | `filter_by`, `text_field` | None |
+| PromptTaskComplexityClassifier | Labels prompts by task type (such as QA and summarization) and complexity dimensions | [nvidia/prompt-task-and-complexity-classifier](https://huggingface.co/nvidia/prompt-task-and-complexity-classifier) | `text_field` | None |
 
 ### Domain Classifier
 
@@ -365,9 +375,33 @@ pipeline.add_stage(writer)
 results = pipeline.run()  # Uses XennaExecutor by default
 ```
 
+## Custom Model Integration
+
+You can integrate your own classification models by extending `DistributedDataClassifier`. Refer to the [Text Classifiers README](https://github.com/NVIDIA-NeMo/Curator/tree/main/nemo_curator/stages/text/classifiers#text-classifiers) for implementation details and examples.
+
 ## Performance Optimization
 
 NVIDIA NeMo Curator's distributed classifiers are optimized for high-throughput processing through several key features:
+
+### CPU-based tokenization and GPU-based model inference
+
+Each classifier is broken down under the hood into a tokenizer stage and a model inference stage. Tokenization is run on the CPU while model inference is run on the GPU. For example, this means that behind the scenes, the `DomainClassifier` stage is actually being broken down into 2 stages (some parameters and details omitted to avoid complexity):
+
+```python
+class TokenizerStage:
+    self.resources = Resources(cpus=1)
+    self.model_identifier = "nvidia/domain-classifier"
+    self.text_field = "text"
+    self.padding_side = "right"
+    ...
+class ModelStage:
+    self.resources = Resources(cpus=1, gpus=1)
+    self.model_identifier = "nvidia/domain-classifier"
+    self.model_inference_batch_size = 256
+    ...
+```
+
+Pipelines take care of resource allocation and autoscaling to achieve enhanced performance and minimize GPU idleness. This means that we are able to achieve speedups by ensuring that model inference is run in parallel across all available GPUs, while other stages such as I/O, tokenization, and filtering are run across all available CPUs. This is possible because Curator pipelines are composable, which allows each stage in a pipeline to run independently and with its own specified hardware resources.
 
 ### Intelligent Batching and Sequence Handling
 
@@ -376,3 +410,69 @@ The classifiers optimize throughput through:
 - **Length-based sorting**: Input sequences are sorted by length when `sort_by_length=True` (default)
 - **Efficient batching**: Similar-length sequences are grouped together to minimize padding overhead
 - **GPU memory optimization**: Batches are sized to maximize GPU utilization based on available memory
+
+### Avoid Unnecessary Re-Tokenization
+
+Several of the text classifiers use the same tokenizer before running the model forward pass. To avoid unnecessary re-tokenization, the `keep_tokens` and `use_existing_tokens` parameters can be used.
+
+**Important: Not every text classifier uses the same tokenizer, so it is important to confirm that classifiers' tokenizers are compatible with each other. Curator will not verify this for you.**
+
+The `ContentTypeClassifier`, `QualityClassifier`, `DomainClassifier`, and `PromptTaskComplexityClassifier` all use a DeBERTa tokenizer, which means that we only need to tokenize once. To avoid unnecessary re-tokenization, you can do:
+
+```python
+# Since this is the first classifier in the pipeline, there are no existing tokens to use,
+# but we can make sure to keep the computed tokens for the next classifier
+content_type_classifier = ContentTypeClassifier(use_existing_tokens=False, keep_tokens=True, ...)
+pipeline.add_stage(content_type_classifier)
+
+# Use tokens from the previous classifier and keep tokens for the next classifier
+quality_classifier = QualityClassifier(use_existing_tokens=True, keep_tokens=True, ...)
+pipeline.add_stage(quality_classifier)
+
+# Use tokens from the previous classifier and keep tokens for the next classifier
+domain_classifier = DomainClassifier(use_existing_tokens=True, keep_tokens=True, ...)
+pipeline.add_stage(domain_classifier)
+
+# Use tokens from the previous classifier
+# Since this is the final classifier in the pipeline, we drop the computed tokens
+prompt_task_complexity_classifier = PromptTaskComplexityClassifier(use_existing_tokens=True, keep_tokens=False, ...)
+pipeline.add_stage(prompt_task_complexity_classifier)
+```
+
+In addition to the above example, the `FineWebEduClassifier`, `FineWebMixtralEduClassifier`, and `FineWebNemotronEduClassifier` are all compatible with each other:
+
+```python
+fineweb_classifier = FineWebEduClassifier(use_existing_tokens=False, keep_tokens=True, ...)
+pipeline.add_stage(fineweb_classifier)
+
+fineweb_mixtral_classifier = FineWebMixtralEduClassifier(use_existing_tokens=True, keep_tokens=True, ...)
+pipeline.add_stage(fineweb_mixtral_classifier)
+
+fineweb_nemotron_classifier = FineWebNemotronEduClassifier(use_existing_tokens=True, keep_tokens=False, ...)
+pipeline.add_stage(fineweb_nemotron_classifier)
+```
+
+The `AegisClassifier` variants ([nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0) and [nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0)) are compatible with each other as well. This example is a bit more complex because it also involves keeping the formatted Aegis prompt field. See the `AegisClassifier` implementation for more details.
+
+```python
+aegis_defensive_classifier = AegisClassifier(
+    aegis_variant="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
+    label_field="aegis_defensive_pred",
+    use_existing_tokens=False,
+    keep_tokens=True,
+    keep_aegis_prompt_field=True,
+    ...
+)
+pipeline.add_stage(aegis_defensive_classifier)
+
+aegis_permissive_classifier = AegisClassifier(
+    aegis_variant="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
+    label_field="aegis_permissive_pred",
+    use_existing_tokens=True,
+    aegis_prompt_field="_curator_hidden_text",  # created by aegis_defensive_classifier
+    keep_tokens=False,
+    keep_aegis_prompt_field=False,
+    ...
+)
+pipeline.add_stage(aegis_permissive_classifier)
+```

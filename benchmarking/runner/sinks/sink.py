@@ -33,24 +33,33 @@ class Sink(ABC):
     def initialize(
         self,
         session_name: str,
-        matrix_config: Session,
+        session: Session,
         env_dict: dict[str, Any],
     ) -> None:
         """Initialize the sink for a benchmark session.
 
         Args:
             session_name: Name of the benchmark session.
-            matrix_config: Session configuration for the session.
+            session: Session configuration for the session.
             env_dict: Environment dictionary for the session.
         """
 
     @abstractmethod
-    def process_result(self, result_dict: dict[str, Any], matrix_entry: Entry) -> None:
-        """Process an individual benchmark result.
+    def register_benchmark_entry_starting(self, result_dict: dict[str, Any], benchmark_entry: Entry) -> None:
+        """Register that a benchmark entry is starting.
+
+        Args:
+            result_dict: Dictionary containing benchmark entry data.
+            benchmark_entry: Entry configuration.
+        """
+
+    @abstractmethod
+    def register_benchmark_entry_finished(self, result_dict: dict[str, Any], benchmark_entry: Entry) -> None:
+        """Register that a benchmark entry has finished.
 
         Args:
             result_dict: Dictionary containing benchmark result data.
-            matrix_entry: Entry configuration.
+            benchmark_entry: Entry configuration.
         """
 
     @abstractmethod

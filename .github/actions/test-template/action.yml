@@ -48,6 +48,9 @@ inputs:
     description: "Has Azure credentials"
     required: false
     default: "false"
+  HF_TOKEN:
+    description: "Hugging Face Token"
+    required: true
   PAT:
     description: "GitHub Personal Access Token"
     required: true
@@ -94,9 +97,10 @@ runs:
         apt-get update
         apt-get install -y uuid-runtime
 
-
     - name: Start container
       shell: bash
+      env:
+        HF_TOKEN: ${{ inputs.HF_TOKEN }}
       run: |
         MNT_PATH=${{ steps.azure-fileshare.outputs.mnt_path }}
 
@@ -113,6 +117,7 @@ runs:
           -d \
           --name nemo_container_${{ github.run_id }} ${ARG[@]} \
           --shm-size=64g \
+          --env HF_TOKEN=${HF_TOKEN} \
           --env RUN_ID=${{ github.run_id }} \
           --workdir /opt/Curator \
           --volume ${{ inputs.test-data-path }}:/home/TestData \
@@ -191,7 +196,7 @@ runs:
         docker exec -t nemo_container_${{ github.run_id }} bash -c 'cd /opt/Curator && coverage report -i'
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       if: ${{ steps.check.outputs.coverage_report != 'none' }}
       with:
         name: ${{ steps.check.outputs.coverage_report }}

@@ -25,6 +25,7 @@ CONTAINER_CURATOR_DIR = "/opt/Curator"
 CONTAINER_CONFIG_DIR_ROOT = "/MOUNT"
 CONTAINER_RESULTS_DIR_ROOT = "/MOUNT"
 CONTAINER_DATASETS_DIR_ROOT = "/MOUNT"
+CONTAINER_MODEL_WEIGHTS_DIR_ROOT = "/MOUNT"
 
 
 class PathResolver:
@@ -34,15 +35,16 @@ class PathResolver:
 
     def __init__(self, data: dict) -> None:
         """
-        data is a dictionary containing the paths for results and datasets
+        data is a dictionary containing the paths for results, datasets, and model weights.
         Resolved paths for a container are simply a root dir (see above) prepended to the host path.
         """
         # TODO: Is this the best way to determine if running inside a Docker container?
         in_docker = Path("/.dockerenv").exists()
-        (rp, dp) = (Path(data["results_path"]), Path(data["datasets_path"]))
+        (rp, dp, mwp) = (Path(data["results_path"]), Path(data["datasets_path"]), Path(data["model_weights_path"]))
         self.path_map = {
             "results_path": Path(f"{CONTAINER_RESULTS_DIR_ROOT}/{rp}") if in_docker else rp,
             "datasets_path": Path(f"{CONTAINER_DATASETS_DIR_ROOT}/{dp}") if in_docker else dp,
+            "model_weights_path": Path(f"{CONTAINER_MODEL_WEIGHTS_DIR_ROOT}/{mwp}") if in_docker else mwp,
         }
 
     def resolve(self, dir_type: str) -> Path:
