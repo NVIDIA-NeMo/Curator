@@ -24,9 +24,6 @@ done
 
 uv sync --link-mode copy --locked $EXTRA_FLAGS --group test
 
-# Custom HF model cache for video caption integration tests.
-# Points to the shared HF cache in TestData; read in tests/stages/video/caption/conftest.py.
-# Global HF_HOME is intentionally left unset to avoid affecting other GPU tests.
 export CUSTOM_HF_DATASET=/home/TestData/HF_HOME
 
 CUDA_VISIBLE_DEVICES="0,1" coverage run -a --source=nemo_curator -m pytest -m gpu $GPU_TEST_PATHS
