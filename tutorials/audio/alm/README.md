@@ -76,7 +76,7 @@ Expected output:
 PIPELINE COMPLETE
 ==================================================
   Output entries: 5
-  [alm_manifest_reader]
+  [manifest_reader]
     process_time: mean=0.0030s, total=0.01s
     items_processed: 0
   [alm_data_builder]
@@ -88,7 +88,7 @@ PIPELINE COMPLETE
     items_processed: 5
     output_windows (after overlap): 25
     filtered_audio_duration: 3035.5s
-  [alm_manifest_writer]
+  [manifest_writer]
     process_time: mean=0.0001s, total=0.00s
     items_processed: 5
 ```
@@ -366,14 +366,14 @@ PIPELINE COMPLETE
 ==================================================
   [file_partitioning]
     items_processed: 0
-  [alm_manifest_reader]
+  [manifest_reader]
     items_processed: 20
   [alm_data_builder]
     windows_created: 724
   [alm_data_overlap]
     output_windows (after overlap): 100
     filtered_audio_duration: 12142.0s
-  [alm_manifest_writer]
+  [manifest_writer]
     items_processed: 20
 ```
 

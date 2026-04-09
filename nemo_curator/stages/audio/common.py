@@ -146,8 +146,8 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         t0 = time.perf_counter()
         paths = task.data
         results: list[AudioTask] = []
+        count = 0
         for manifest in paths:
-            count = 0
             fs, resolved = url_to_fs(manifest)
             with fs.open(resolved, "r", encoding="utf-8") as f:
                 for line in f:
@@ -195,8 +195,8 @@ class ManifestReader(CompositeStage[_EmptyTask, AudioTask]):
         storage_options: Storage options for cloud paths (S3, GCS credentials, endpoints).
     """
 
+    manifest_path: str | list[str]
     name: str = "manifest_reader"
-    manifest_path: str | list[str] = ""
     files_per_partition: int | None = 1
     blocksize: int | str | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
@@ -249,8 +249,8 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         output_path: Destination JSONL path (local or cloud).
     """
 
+    output_path: str
     name: str = "manifest_writer"
-    output_path: str = ""
 
     def __post_init__(self) -> None:
         if not self.output_path:

@@ -47,8 +47,8 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     # Processing parameters
+    resampled_audio_dir: str
     input_format: str = "wav"
-    resampled_audio_dir: str = "/local/resampled"
     target_sample_rate: int = 16000
     target_format: str = "wav"
     target_nchannels: int = 1
