@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,14 +14,13 @@
 
 set -euo pipefail
 
-: "${GPU_TEST_EXTRAS:?GPU_TEST_EXTRAS is required (e.g. deduplication_cuda12 text_cpu)}"
-: "${GPU_TEST_PATHS:?GPU_TEST_PATHS is required (e.g. tests/stages/text)}"
+FOLDER="${1:?Usage: $0 <folder> <python-version>}"
+PY_VERSION="${2:?Usage: $0 <folder> <python-version>}"
 
-EXTRA_FLAGS=""
-for extra in $GPU_TEST_EXTRAS; do
-  EXTRA_FLAGS="$EXTRA_FLAGS --extra $extra"
-done
+FOLDER="${FOLDER/stages-/stages/}"
 
-uv sync --link-mode copy --locked $EXTRA_FLAGS --group test
-
-CUDA_VISIBLE_DEVICES="0,1" coverage run -a --source=nemo_curator -m pytest -m gpu $GPU_TEST_PATHS
+rm -rf .venv
+uv venv --seed --python "${PY_VERSION}"
+uv sync --link-mode copy --locked --extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu --group test
+source .venv/bin/activate
+coverage run -a --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu"
