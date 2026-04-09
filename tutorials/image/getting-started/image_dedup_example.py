@@ -99,7 +99,7 @@ def create_image_deduplication_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline.add_stage(ImageReaderStage(
         dali_batch_size=args.batch_size,
         verbose=args.verbose,
-        num_threads=16,  # More threads for I/O
+        num_threads=4,
         num_gpus_per_worker=0.25,
     ))
 
@@ -175,6 +175,12 @@ def main(args: argparse.Namespace) -> None:
     pipeline = create_embedding_deduplication_workflow(args)
     print("\n" + "=" * 50 + "\n")
     pipeline.run()
+
+    # Restart Ray between steps 2.2 and 2.3 to evict idle CLIP embedding actors
+    # (~17 GB each) left over from step 2.1.
+    ray_client.stop()
+    ray_client = RayClient()
+    ray_client.start()
 
     # Step 2.3: Create image deduplication pipeline
     print("Step 2.3: Running image deduplication pipeline...")
