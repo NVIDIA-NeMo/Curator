@@ -60,6 +60,17 @@ inputs:
   runner:
     description: "Runner to use"
     required: true
+  container-image:
+    description: "Container image to use for test"
+    required: true
+  gpu-test-extras:
+    description: "Space-separated UV extras to install for GPU tests (e.g. deduplication_cuda12 text_cpu)"
+    required: false
+    default: ""
+  gpu-test-paths:
+    description: "Space-separated test paths for GPU tests"
+    required: false
+    default: ""
 runs:
   using: "composite"
   steps:
@@ -77,25 +88,18 @@ runs:
         tenant-id: ${{ inputs.azure-tenant-id }}
         subscription-id: ${{ inputs.azure-subscription-id }}
 
+    - name: Azure ACR Login
+      if: ${{ inputs.has-azure-credentials == 'true' }}
+      shell: bash
+      run: |
+        az acr login --name nemoci
+
     - name: Install uuidgen
       shell: bash -x -e -u -o pipefail {0}
       if: ${{ contains(inputs.runner, 'aws') }}
       run: |
         apt-get update
         apt-get install -y uuid-runtime
-
-    - name: Checkout repository
-      uses: actions/checkout@v6
-      with:
-        path: NeMo-Curator
-        submodules: recursive
-
-    - name: Build container
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.PAT }}
-      run: |
-        docker build -f docker/Dockerfile -t ray-curator .
 
     - name: Start container
       shell: bash
@@ -119,10 +123,9 @@ runs:
           --shm-size=64g \
           --env HF_TOKEN=${HF_TOKEN} \
           --env RUN_ID=${{ github.run_id }} \
-          --volume $(pwd)/NeMo-Curator:/workspace \
-          --workdir /workspace \
+          --workdir /opt/Curator \
           --volume ${{ inputs.test-data-path }}:/home/TestData \
-          ray-curator \
+          ${{ inputs.container-image }} \
           bash -c "sleep $(( ${{ inputs.timeout }} * 60 + 60 ))"
         RUN_TEST_EOF
         )
@@ -144,6 +147,8 @@ runs:
           set -e
 
           . /opt/venv/env.sh
+          GPU_TEST_EXTRAS="${{ inputs.gpu-test-extras }}" \
+          GPU_TEST_PATHS="${{ inputs.gpu-test-paths }}" \
           bash tests/${{ inputs.script }}.sh
         '
 
@@ -168,10 +173,10 @@ runs:
       id: check
       shell: bash
       run: |
-        docker exec nemo_container_${{ github.run_id }} coverage combine || true
-        docker exec nemo_container_${{ github.run_id }} coverage xml || true
-        docker cp nemo_container_${{ github.run_id }}:/workspace/.coverage .coverage
-        docker cp nemo_container_${{ github.run_id }}:/workspace/coverage.xml coverage.xml
+        docker exec nemo_container_${{ github.run_id }} bash -c 'cd /opt/Curator && coverage combine' || true
+        docker exec nemo_container_${{ github.run_id }} bash -c 'cd /opt/Curator && coverage xml' || true
+        docker cp nemo_container_${{ github.run_id }}:/opt/Curator/.coverage .coverage
+        docker cp nemo_container_${{ github.run_id }}:/opt/Curator/coverage.xml coverage.xml
 
         coverage_report=coverage-${{ steps.create.outputs.coverage-prefix }}-${{ github.run_id }}-$(uuidgen)
         echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
@@ -194,7 +199,7 @@ runs:
     - name: Test coverage
       shell: bash -x -e -u -o pipefail {0}
       run: |
-        docker exec -t nemo_container_${{ github.run_id }} coverage report -i
+        docker exec -t nemo_container_${{ github.run_id }} bash -c 'cd /opt/Curator && coverage report -i'
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v6
