@@ -125,7 +125,7 @@ jobs:
         || needs.pre-flight.outputs.force_run_all == 'true'
       )
       && !cancelled()
-    runs-on: self-hosted-nemo
+    runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
     environment: nemo-ci
     steps:
       - name: Checkout
