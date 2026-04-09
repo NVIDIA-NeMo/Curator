@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
@@ -50,6 +50,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
     prompt_text: str | None = None
     model_batch_size: int = 128
     fp8: bool = False
+    vllm_kwargs: dict[str, Any] = field(default_factory=dict)
     max_output_tokens: int = 512
     verbose: bool = False
     model_id: str | None = None
@@ -78,6 +79,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
                 max_output_tokens=self.max_output_tokens,
                 model_id=self.model_id,
                 model_revision=self.model_revision,
+                **self.vllm_kwargs,
             )
         else:
             msg = f"Unsupported model variant: {self.model_variant}"
