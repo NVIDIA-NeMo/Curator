@@ -40,10 +40,6 @@ from nemo_curator.models.base import ModelInterface
 from nemo_curator.utils import grouping
 
 
-def _is_local_path(model_id: str) -> bool:
-    return Path(model_id).is_absolute() or model_id.startswith(("./", "../"))
-
-
 class QwenVL(ModelInterface):
     def __init__(  # noqa: PLR0913
         self,
@@ -59,7 +55,9 @@ class QwenVL(ModelInterface):
         model_id: str = "Qwen/Qwen3-VL-8B-Instruct",
         model_revision: str = "0c351dd",
     ):
-        if not _is_local_path(model_id) and not model_id.startswith("Qwen/"):
+        if not (Path(model_id).is_absolute() or model_id.startswith(("./", "../"))) and not model_id.startswith(
+            "Qwen/"
+        ):
             msg = f"model_id '{model_id}' is not a Qwen model. For a local path use an absolute path or './' prefix."
             raise ValueError(msg)
         self.model_dir = model_dir
