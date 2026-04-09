@@ -138,5 +138,5 @@ runs:
         tags: |
           ${{ env.container-registry }}/${{ env.REPO_LOWER }}:${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').number || 0 }}
           ${{ env.container-registry }}/${{ env.REPO_LOWER }}:${{ github.sha }}
-        secrets: |
+        secrets: |  # pragma: allowlist secret
           GH_TOKEN=${{ inputs.PAT }}
