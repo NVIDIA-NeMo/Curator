@@ -12,15 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import pandas as pd
+import ray
+from fsspec.core import url_to_fs
 from loguru import logger
 
-from nemo_curator.stages.base import CompositeStage
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import DocumentBatch, _EmptyTask
+from nemo_curator.tasks import AudioTask, DocumentBatch, FileGroupTask, _EmptyTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, pandas_select_columns
 
 from .base import BaseReader
@@ -81,12 +84,132 @@ class JsonlReaderStage(BaseReader):
 
 
 @dataclass
+class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
+    """Stage that streams JSONL manifests and emits one ``AudioTask`` per line.
+
+    Unlike ``JsonlReaderStage``, this stage avoids Pandas and fans out each JSONL
+    entry into an ``AudioTask``. This keeps audio manifests compatible with
+    downstream audio stages and avoids materializing nested metadata as a
+    ``DocumentBatch``.
+    """
+
+    fields: list[str] | None = None
+    read_kwargs: dict[str, Any] = field(default_factory=dict)
+    _generate_ids: bool = False
+    _assign_ids: bool = False
+    name: str = "jsonl_audio_reader"
+
+    def __post_init__(self) -> None:
+        if self._generate_ids and self._assign_ids:
+            msg = "Cannot generate and assign IDs at the same time"
+            raise ValueError(msg)
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        output_fields = list(self.fields or [])
+        if self._generate_ids or self._assign_ids:
+            from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+
+            output_fields.append(CURATOR_DEDUP_ID_STR)
+        return [], output_fields
+
+    def setup(self, _: Any = None) -> None:  # noqa: ANN401
+        if self._generate_ids or self._assign_ids:
+            from nemo_curator.stages.deduplication.id_generator import get_id_generator_actor
+
+            try:
+                self.id_generator = get_id_generator_actor()
+            except ValueError:
+                msg = (
+                    "ID generator is required when self._generate_ids or self._assign_ids is True, "
+                    "and the actor 'id_generator' does not exist. Please start the id_generator actor."
+                )
+                raise RuntimeError(msg) from None
+
+    def _apply_generated_ids(self, file_paths: list[str], tasks: list[AudioTask]) -> None:
+        from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+
+        if any(CURATOR_DEDUP_ID_STR in task.data for task in tasks):
+            logger.warning(f"Column {CURATOR_DEDUP_ID_STR} already exists in {file_paths}, not generating new IDs")
+            return
+
+        min_id = ray.get(self.id_generator.register_batch.remote(file_paths, len(tasks)))
+        for offset, task in enumerate(tasks):
+            task.data[CURATOR_DEDUP_ID_STR] = min_id + offset
+
+    def _apply_assigned_ids(self, file_paths: list[str], tasks: list[AudioTask]) -> None:
+        from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+
+        if any(CURATOR_DEDUP_ID_STR in task.data for task in tasks):
+            logger.warning(f"Column {CURATOR_DEDUP_ID_STR} already exists in {file_paths}, not re-assigning IDs")
+            return
+
+        min_id, max_id = ray.get(self.id_generator.get_batch_range.remote(file_paths, None))
+        for next_id, task in zip(range(min_id, max_id + 1), tasks, strict=True):
+            task.data[CURATOR_DEDUP_ID_STR] = next_id
+
+    def process(self, task: FileGroupTask) -> list[AudioTask]:
+        """Read JSONL files line-by-line and return one ``AudioTask`` per entry."""
+        read_kwargs = {} if self.read_kwargs is None else dict(self.read_kwargs)
+        if "lines" in read_kwargs and read_kwargs["lines"] is False:
+            msg = "lines=False is not supported for JSONL reader"
+            raise ValueError(msg)
+        read_kwargs.pop("lines", None)
+
+        storage_options = read_kwargs.pop("storage_options", None) or {}
+        open_kwargs = {
+            key: read_kwargs.pop(key)
+            for key in ("compression", "encoding", "errors", "newline")
+            if key in read_kwargs
+        }
+        open_kwargs.setdefault("encoding", "utf-8")
+
+        if read_kwargs:
+            logger.warning(
+                "Ignoring unsupported read_kwargs for audio JSONL reader: " f"{sorted(read_kwargs.keys())}"
+            )
+
+        results: list[AudioTask] = []
+        for file_path in task.data:
+            fs, resolved = url_to_fs(file_path, **storage_options)
+            with fs.open(resolved, "r", **open_kwargs) as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    entry = json.loads(line)
+                    if self.fields is not None:
+                        entry = {field: entry[field] for field in self.fields if field in entry}
+                    results.append(
+                        AudioTask(
+                            task_id=task.task_id,
+                            dataset_name=task.dataset_name,
+                            data=entry,
+                            _metadata=task._metadata,
+                            _stage_perf=list(task._stage_perf),
+                        )
+                    )
+
+        if results:
+            if self._generate_ids:
+                self._apply_generated_ids(task.data, results)
+            elif self._assign_ids:
+                self._apply_assigned_ids(task.data, results)
+
+        return results
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_fanout_stage": True}
+
+
+@dataclass
 class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
     """Composite stage for reading JSONL files.
 
-    This high-level stage decomposes into:
-    1. FilePartitioningStage - partitions files into groups
-    2. JsonlReaderStage - reads file groups into DocumentBatches
+    The output type depends on ``task_type``:
+    1. ``document`` -> ``FilePartitioningStage`` + ``JsonlReaderStage`` -> ``DocumentBatch``
+    2. ``audio`` -> ``FilePartitioningStage`` + ``JsonlAudioReaderStage`` -> ``AudioTask``
     """
 
     file_paths: str | list[str]
@@ -106,13 +229,13 @@ class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
         if self.read_kwargs is not None:
             self.storage_options = self.read_kwargs.get("storage_options", {})
 
-    def decompose(self) -> list[JsonlReaderStage]:
+    def decompose(self) -> list[ProcessingStage]:
         """Decompose into file partitioning and processing stages."""
-        if self.task_type != "document":
+        if self.task_type not in {"document", "audio"}:
             msg = f"Converting DocumentBatch to {self.task_type} is not supported yet."
             raise NotImplementedError(msg)
 
-        return [
+        stages: list[ProcessingStage] = [
             FilePartitioningStage(
                 file_paths=self.file_paths,
                 files_per_partition=self.files_per_partition,
@@ -121,14 +244,29 @@ class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
                 storage_options=self.read_kwargs.get("storage_options", None)
                 if self.read_kwargs is not None
                 else None,
-            ),
-            JsonlReaderStage(
-                fields=self.fields,
-                read_kwargs=(self.read_kwargs or {}),
-                _generate_ids=self._generate_ids,
-                _assign_ids=self._assign_ids,
-            ),
+            )
         ]
+
+        if self.task_type == "audio":
+            stages.append(
+                JsonlAudioReaderStage(
+                    fields=self.fields,
+                    read_kwargs=(self.read_kwargs or {}),
+                    _generate_ids=self._generate_ids,
+                    _assign_ids=self._assign_ids,
+                )
+            )
+        else:
+            stages.append(
+                JsonlReaderStage(
+                    fields=self.fields,
+                    read_kwargs=(self.read_kwargs or {}),
+                    _generate_ids=self._generate_ids,
+                    _assign_ids=self._assign_ids,
+                )
+            )
+
+        return stages
 
     def get_description(self) -> str:
         """Get a description of this composite stage."""

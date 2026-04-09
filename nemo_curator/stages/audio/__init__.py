@@ -34,6 +34,12 @@ from nemo_curator.stages.audio.filtering import (
     SIGMOSFilterStage,
     UTMOSFilterStage,
 )
+from nemo_curator.stages.audio.io import (
+    AudioToDocumentStage,
+    CleanupTemporaryAudioStage,
+    MaterializeTarredAudioStage,
+    TarredAudioManifestReader,
+)
 from nemo_curator.stages.audio.postprocessing import (
     TimestampMapperStage,
 )
@@ -50,13 +56,17 @@ __all__ = [
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
     "AudioDataFilterStage",
+    "AudioToDocumentStage",
     "BandFilterStage",
+    "CleanupTemporaryAudioStage",
     "GetAudioDurationStage",
+    "MaterializeTarredAudioStage",
     "MonoConversionStage",
     "PreserveByValueStage",
     "SIGMOSFilterStage",
     "SegmentConcatenationStage",
     "SpeakerSeparationStage",
+    "TarredAudioManifestReader",
     "TimestampMapperStage",
     "UTMOSFilterStage",
     "VADSegmentationStage",
