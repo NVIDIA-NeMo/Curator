@@ -170,10 +170,23 @@ jobs:
       matrix:
         include:
           - script: L0_Unit_Test_GPU
+            gpu-test-group: dedup
+            runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
+          - script: L0_Unit_Test_GPU
+            gpu-test-group: text
+            runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
+          - script: L0_Unit_Test_GPU
+            gpu-test-group: image
+            runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
+          - script: L0_Unit_Test_GPU
+            gpu-test-group: audio
+            runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
+          - script: L0_Unit_Test_GPU
+            gpu-test-group: sdg
             runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
     needs: [pre-flight, cicd-wait-in-queue, cicd-container-build]
     runs-on: ${{ matrix.runner }}
-    name: ${{ matrix.script }}
+    name: ${{ matrix.script }}-${{ matrix.gpu-test-group }}
     environment: nemo-ci
     if: |
       (
@@ -201,6 +214,7 @@ jobs:
           test-data-path: ${{ needs.pre-flight.outputs.test_data_path }}
           runner: ${{ matrix.runner }}
           container-image: ${{ env.container-registry }}/curator:${{ github.sha }}
+          gpu-test-group: ${{ matrix.gpu-test-group }}
 
   Nemo_CICD_Test:
     needs:

@@ -1,0 +1,22 @@
+{
+  "dedup": {
+    "extra": "deduplication_cuda12",
+    "paths": ["tests/stages/deduplication", "tests/core/test_cudf_placeholder.py"]
+  },
+  "text": {
+    "extra": "text_cuda12",
+    "paths": ["tests/stages/text", "tests/pipelines/test_per_stage_runtime_env.py"]
+  },
+  "image": {
+    "extra": "image_cuda12",
+    "paths": ["tests/stages/image"]
+  },
+  "audio": {
+    "extra": "audio_cuda12",
+    "paths": ["tests/stages/audio"]
+  },
+  "sdg": {
+    "extra": "sdg_cuda12",
+    "paths": ["tests/stages/synthetic", "tests/core/test_serve.py"]
+  }
+}

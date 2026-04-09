@@ -79,10 +79,14 @@ COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
 # Install Curator
+ARG CURATOR_EXTRA=""
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    uv sync --link-mode copy --locked --extra all --all-groups --no-cache && \
-    uv add /opt/InternVideo/InternVideo2/multi_modality
+    if [ -n "$CURATOR_EXTRA" ]; then \
+        uv sync --link-mode copy --locked --extra $CURATOR_EXTRA --all-groups --no-cache; \
+    else \
+        uv sync --link-mode copy --locked --all-groups --no-cache; \
+    fi
 
 COPY . /opt/Curator
 

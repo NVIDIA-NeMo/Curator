@@ -12,4 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-CUDA_VISIBLE_DEVICES="0,1" coverage run -a --data-file=/workspace/.coverage --source=/workspace/nemo_curator -m pytest -m gpu --rootdir /workspace tests
+GROUP="${1:?Usage: $0 <group> (e.g. dedup, text, image, audio, sdg)}"
+CONFIG="tests/gpu_test_groups.json"
+
+EXTRA=$(jq -r --arg g "$GROUP" '.[$g].extra // empty' "$CONFIG")
+PATHS=$(jq -r --arg g "$GROUP" '.[$g].paths // [] | .[]' "$CONFIG")
+
+if [ -z "$EXTRA" ] || [ -z "$PATHS" ]; then
+  echo "Unknown group: $GROUP"
+  echo "Available: $(jq -r 'keys | join(", ")' "$CONFIG")"
+  exit 1
+fi
+
+uv sync --link-mode copy --locked --extra "$EXTRA" --group test
+
+CUDA_VISIBLE_DEVICES="0,1" coverage run -a --source=nemo_curator -m pytest -m gpu $PATHS
