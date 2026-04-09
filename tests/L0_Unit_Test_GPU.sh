@@ -12,18 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-GROUP="${1:?Usage: $0 <group> (e.g. dedup, text, image, audio, sdg)}"
-CONFIG="tests/gpu_test_groups.json"
+set -euo pipefail
 
-EXTRA=$(jq -r --arg g "$GROUP" '.[$g].extra // empty' "$CONFIG")
-PATHS=$(jq -r --arg g "$GROUP" '.[$g].paths // [] | .[]' "$CONFIG")
+: "${GPU_TEST_EXTRA:?GPU_TEST_EXTRA is required (e.g. text_cuda12)}"
+: "${GPU_TEST_PATHS:?GPU_TEST_PATHS is required (e.g. tests/stages/text)}"
 
-if [ -z "$EXTRA" ] || [ -z "$PATHS" ]; then
-  echo "Unknown group: $GROUP"
-  echo "Available: $(jq -r 'keys | join(", ")' "$CONFIG")"
-  exit 1
-fi
+uv sync --link-mode copy --locked --extra "$GPU_TEST_EXTRA" --group test
 
-uv sync --link-mode copy --locked --extra "$EXTRA" --group test
-
-CUDA_VISIBLE_DEVICES="0,1" coverage run -a --source=nemo_curator -m pytest -m gpu $PATHS
+CUDA_VISIBLE_DEVICES="0,1" coverage run -a --source=nemo_curator -m pytest -m gpu $GPU_TEST_PATHS

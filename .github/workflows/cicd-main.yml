@@ -141,29 +141,31 @@ jobs:
           PAT: ${{ secrets.PAT }}
           repo-name: "Curator"
 
+  cicd-gpu-test-matrix:
+    needs: [pre-flight, cicd-wait-in-queue]
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Generate GPU test matrix from config
+        id: set-matrix
+        run: |
+          matrix=$(python3 -c "
+          import json
+          cfg = json.load(open('tests/gpu_test_groups.json'))
+          include = [{'gpu-test-group': g, 'extra': v['extra'], 'test-paths': ' '.join(v['paths'])} for g, v in cfg.items()]
+          print(json.dumps({'include': include}))
+          ")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   cicd-gpu-tests:
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - script: L0_Unit_Test_GPU
-            gpu-test-group: dedup
-            runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
-          - script: L0_Unit_Test_GPU
-            gpu-test-group: text
-            runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
-          - script: L0_Unit_Test_GPU
-            gpu-test-group: image
-            runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
-          - script: L0_Unit_Test_GPU
-            gpu-test-group: audio
-            runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
-          - script: L0_Unit_Test_GPU
-            gpu-test-group: sdg
-            runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
-    needs: [pre-flight, cicd-wait-in-queue, cicd-container-build]
-    runs-on: ${{ matrix.runner }}
-    name: ${{ matrix.script }}-${{ matrix.gpu-test-group }}
+      matrix: ${{ fromJSON(needs.cicd-gpu-test-matrix.outputs.matrix) }}
+    needs: [pre-flight, cicd-wait-in-queue, cicd-container-build, cicd-gpu-test-matrix]
+    runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
+    name: L0_Unit_Test_GPU-${{ matrix.gpu-test-group }}
     environment: nemo-ci
     if: |
       (
@@ -180,7 +182,7 @@ jobs:
       - name: main
         uses: ./.github/actions/test-template
         with:
-          script: ${{ matrix.script }}
+          script: L0_Unit_Test_GPU
           is_unit_test: "false"
           has-azure-credentials: "true"
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -190,9 +192,10 @@ jobs:
           PAT: ${{ secrets.PAT }}
           timeout: 30
           test-data-path: ${{ needs.pre-flight.outputs.test_data_path }}
-          runner: ${{ matrix.runner }}
+          runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
           container-image: ${{ env.container-registry }}/curator:${{ github.sha }}
-          gpu-test-group: ${{ matrix.gpu-test-group }}
+          gpu-test-extra: ${{ matrix.extra }}
+          gpu-test-paths: ${{ matrix.test-paths }}
 
   Nemo_CICD_Test:
     needs:

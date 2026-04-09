@@ -63,8 +63,12 @@ inputs:
   container-image:
     description: "Container image to use for test"
     required: true
-  gpu-test-group:
-    description: "GPU test group name (maps to tests/gpu_test_groups.json)"
+  gpu-test-extra:
+    description: "UV extra to install for GPU tests (e.g. text_cuda12)"
+    required: false
+    default: ""
+  gpu-test-paths:
+    description: "Space-separated test paths for GPU tests"
     required: false
     default: ""
 runs:
@@ -143,7 +147,9 @@ runs:
           set -e
 
           . /opt/venv/env.sh
-          bash tests/${{ inputs.script }}.sh ${{ inputs.gpu-test-group }}
+          GPU_TEST_EXTRA="${{ inputs.gpu-test-extra }}" \
+          GPU_TEST_PATHS="${{ inputs.gpu-test-paths }}" \
+          bash tests/${{ inputs.script }}.sh
         '
 
         RUN_TEST_EOF
