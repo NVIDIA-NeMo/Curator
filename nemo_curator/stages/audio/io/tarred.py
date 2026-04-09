@@ -21,12 +21,14 @@ import re
 import subprocess
 import tarfile
 import tempfile
-from collections.abc import Iterator
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Any, Literal
+from typing import TYPE_CHECKING, IO, Any, Literal
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 import fsspec
 import soundfile
