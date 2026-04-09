@@ -28,7 +28,7 @@ def main(args: argparse.Namespace) -> None:
     kmeans_executor = RayActorPoolExecutor()
     pipeline = Pipeline(name="2_cluster")
 
-    os.makedirs(args.save_centroids_path, exist_ok=True)
+    os.makedirs(args.centroids_path, exist_ok=True)
 
     kmeans_stage = KMeansStage(
         n_clusters=args.n_clusters,
