@@ -52,6 +52,8 @@ class TestCaptionGenerationStage:
         assert stage.verbose is False
         assert stage.generate_stage2_caption is False
         assert stage.stage2_prompt_text is None
+        assert stage.model_id is None
+        assert stage.model_revision is None
         assert stage._name == "caption_generation"
 
     def test_inputs(self):
@@ -80,6 +82,8 @@ class TestCaptionGenerationStage:
             max_output_tokens=256,
             model_does_preprocess=True,
             disable_mmcache=True,
+            model_id=None,
+            model_revision=None,
         )
         mock_model.setup.assert_called_once()
         assert self.stage.model == mock_model

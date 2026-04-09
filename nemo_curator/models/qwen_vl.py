@@ -39,12 +39,9 @@ except ImportError:
 from nemo_curator.models.base import ModelInterface
 from nemo_curator.utils import grouping
 
-_QWEN2_5_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
-_QWEN2_5_VL_MODEL_REVISION = "cc59489"
 
-_QWEN_VARIANTS_INFO = {
-    "qwen": _QWEN2_5_VL_MODEL_ID,
-}
+def _is_local_path(model_id: str) -> bool:
+    return Path(model_id).is_absolute() or model_id.startswith(("./", "../"))
 
 
 class QwenVL(ModelInterface):
@@ -59,7 +56,12 @@ class QwenVL(ModelInterface):
         disable_mmcache: bool = False,
         stage2_prompt_text: str | None = None,
         verbose: bool = False,
+        model_id: str = "Qwen/Qwen3-VL-8B-Instruct",
+        model_revision: str = "0c351dd",
     ):
+        if not _is_local_path(model_id) and not model_id.startswith("Qwen/"):
+            msg = f"model_id '{model_id}' is not a Qwen model. For a local path use an absolute path or './' prefix."
+            raise ValueError(msg)
         self.model_dir = model_dir
         self.model_variant = model_variant
         self.caption_batch_size = caption_batch_size
@@ -67,15 +69,17 @@ class QwenVL(ModelInterface):
         self.max_output_tokens = max_output_tokens
         self.model_does_preprocess = model_does_preprocess
         self.disable_mmcache = disable_mmcache
-        self.stage2_prompt = stage2_prompt_text if stage2_prompt_text else "Please refine this caption: "
+        self.stage2_prompt = stage2_prompt_text or "Please refine this caption: "
         self.verbose = verbose
-        self.weight_file = str(pathlib.Path(model_dir) / _QWEN_VARIANTS_INFO[model_variant])
+        self.model_id = model_id
+        self.model_revision = model_revision
+        self.weight_file = str(pathlib.Path(model_dir) / self.model_id)
         # Default pattern for stage2 caption generation - matches (.*)(user_prompt)(.*)
         self.pattern = r"(.*)(user_prompt)(.*)"
 
     @property
     def model_id_names(self) -> list[str]:
-        return [_QWEN_VARIANTS_INFO[self.model_variant]]
+        return [self.model_id]
 
     def setup(self) -> None:
         if not VLLM_AVAILABLE:
@@ -143,15 +147,20 @@ class QwenVL(ModelInterface):
         return generated_text
 
     @classmethod
-    def download_weights_on_node(cls, model_dir: str) -> None:
+    def download_weights_on_node(
+        cls,
+        model_dir: str,
+        model_id: str = "Qwen/Qwen3-VL-8B-Instruct",
+        model_revision: str = "0c351dd",
+    ) -> None:
         """Download the weights for the QwenVL model on the node."""
-        model_dir_path = Path(model_dir) / _QWEN2_5_VL_MODEL_ID
+        model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
             return
         download_model_from_hf(
-            model_id=_QWEN2_5_VL_MODEL_ID,
+            model_id=model_id,
             local_dir=model_dir_path,
-            revision=_QWEN2_5_VL_MODEL_REVISION,
+            revision=model_revision,
         )
         logger.info(f"QwenVL weights downloaded to: {model_dir_path}")

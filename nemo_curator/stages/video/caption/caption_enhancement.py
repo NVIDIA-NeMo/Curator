@@ -52,6 +52,8 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
     fp8: bool = False
     max_output_tokens: int = 512
     verbose: bool = False
+    model_id: str | None = None
+    model_revision: str | None = None
     name: str = "caption_enhancement"
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -74,6 +76,8 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
                 caption_batch_size=self.model_batch_size,
                 fp8=self.fp8,
                 max_output_tokens=self.max_output_tokens,
+                model_id=self.model_id,
+                model_revision=self.model_revision,
             )
         else:
             msg = f"Unsupported model variant: {self.model_variant}"
@@ -82,7 +86,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
-        QwenLM.download_weights_on_node(self.model_dir)
+        QwenLM.download_weights_on_node(self.model_dir, model_id=self.model_id, model_revision=self.model_revision)
         self._initialize_model()
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002

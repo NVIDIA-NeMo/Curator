@@ -37,28 +37,43 @@ except ImportError:
 
 from nemo_curator.models.base import ModelInterface
 
-_QWEN_LM_MODEL_ID = "Qwen/Qwen2.5-14B-Instruct"
-_QWEN_LM_MODEL_REVISION = "cf98f3b"
+
+def _is_local_path(model_id: str) -> bool:
+    return Path(model_id).is_absolute() or model_id.startswith(("./", "../"))
 
 
 class QwenLM(ModelInterface):
     """Qwen language model."""
 
+    @property
     def model_id_names(self) -> list[str]:
-        return [_QWEN_LM_MODEL_ID]
+        return [self.model_id]
 
-    def __init__(self, model_dir: str, caption_batch_size: int, fp8: bool, max_output_tokens: int):
+    def __init__(  # noqa: PLR0913
+        self,
+        model_dir: str,
+        caption_batch_size: int,
+        fp8: bool,
+        max_output_tokens: int,
+        model_id: str = "Qwen/Qwen3-14B",
+        model_revision: str = "8268fe3",
+    ):
+        if not _is_local_path(model_id) and not model_id.startswith("Qwen/"):
+            msg = f"model_id '{model_id}' is not a Qwen model. For a local path use an absolute path or './' prefix."
+            raise ValueError(msg)
         self.model_dir = model_dir
         self.caption_batch_size = caption_batch_size
         self.fp8 = fp8
         self.max_output_tokens = max_output_tokens
+        self.model_id = model_id
+        self.model_revision = model_revision
 
     def setup(self) -> None:
         if not VLLM_AVAILABLE:
             msg = "vllm is required for QwenLM model but is not installed. Please install vllm: pip install vllm"
             raise ImportError(msg)
 
-        self.weight_file = str(Path(self.model_dir) / _QWEN_LM_MODEL_ID)
+        self.weight_file = str(Path(self.model_dir) / self.model_id)
         self.llm = LLM(
             model=self.weight_file,
             quantization="fp8" if self.fp8 else None,
@@ -79,15 +94,20 @@ class QwenLM(ModelInterface):
         return [result.outputs[0].text for result in results]
 
     @classmethod
-    def download_weights_on_node(cls, model_dir: str) -> None:
+    def download_weights_on_node(
+        cls,
+        model_dir: str,
+        model_id: str = "Qwen/Qwen3-14B",
+        model_revision: str = "8268fe3",
+    ) -> None:
         """Download the weights for the QwenLM model on the node."""
-        model_dir_path = Path(model_dir) / _QWEN_LM_MODEL_ID
+        model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
             return
         download_model_from_hf(
-            model_id=_QWEN_LM_MODEL_ID,
+            model_id=model_id,
             local_dir=model_dir_path,
-            revision=_QWEN_LM_MODEL_REVISION,
+            revision=model_revision,
         )
         logger.info(f"QwenLM weights downloaded to: {model_dir_path}")

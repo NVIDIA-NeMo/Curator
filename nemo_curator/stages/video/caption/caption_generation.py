@@ -44,6 +44,8 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     verbose: bool = False
     generate_stage2_caption: bool = False
     stage2_prompt_text: str | None = None
+    model_id: str | None = None
+    model_revision: str | None = None
     name: str = "caption_generation"
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -62,6 +64,8 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 max_output_tokens=self.max_output_tokens,
                 model_does_preprocess=self.model_does_preprocess,
                 disable_mmcache=self.disable_mmcache,
+                model_id=self.model_id,
+                model_revision=self.model_revision,
             )
         elif self.model_variant.startswith("nemotron"):
             self.model = NemotronHVL(
@@ -80,7 +84,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
         if self.model_variant == "qwen":
-            QwenVL.download_weights_on_node(self.model_dir)
+            QwenVL.download_weights_on_node(self.model_dir, model_id=self.model_id, model_revision=self.model_revision)
         elif self.model_variant.startswith("nemotron"):
             NemotronHVL.download_weights_on_node(self.model_dir, variant=self.model_variant)
         self._initialize_model()

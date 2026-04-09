@@ -272,7 +272,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
             "Required models depend on selected algorithms:\n"
             "  - TransNetV2: For scene detection (--splitting-algorithm transnetv2)\n"
             "  - Cosmos-Embed1: For embeddings (--embedding-algorithm cosmos-embed1-*)\n"
-            "  - Qwen2.5-VL: For captioning (--captioning-algorithm qwen)\n"
+            "  - Qwen3-VL: For captioning (--captioning-algorithm qwen)\n"
             "  - Nemotron Nano VL: For captioning (--captioning-algorithm nemotron[-bf16|-fp8|-nvfp4])\n"
             "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
             "Default: ./models\n"
@@ -560,7 +560,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         choices=["qwen", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"],
         help=(
             "Captioning algorithm to use. Options:\n"
-            "  - qwen: Qwen2.5-VL-7B-Instruct (default)\n"
+            "  - qwen: Qwen3-VL-8B-Instruct (default)\n"
             "  - nemotron / nemotron-bf16: Nemotron Nano 12B v2 VL BF16 (auto-downloaded from HF)\n"
             "  - nemotron-fp8: Nemotron Nano 12B v2 VL FP8 quantized\n"
             "  - nemotron-nvfp4: Nemotron Nano 12B v2 VL NVFP4-QAD quantized"

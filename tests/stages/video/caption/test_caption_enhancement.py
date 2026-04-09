@@ -52,6 +52,8 @@ class TestCaptionEnhancementStage:
         assert stage.fp8 is False
         assert stage.max_output_tokens == 512
         assert stage.verbose is False
+        assert stage.model_id is None
+        assert stage.model_revision is None
         assert stage._name == "caption_enhancement"
 
     def test_init_custom_values(self):
@@ -112,6 +114,8 @@ class TestCaptionEnhancementStage:
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
+            model_id=None,
+            model_revision=None,
         )
         mock_model.setup.assert_called_once()
         assert self.stage.model == mock_model

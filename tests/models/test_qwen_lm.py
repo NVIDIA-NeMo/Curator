@@ -16,7 +16,7 @@
 
 from unittest.mock import Mock, patch
 
-from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM
+from nemo_curator.models.qwen_lm import QwenLM
 
 
 class TestQwenLM:
@@ -38,9 +38,6 @@ class TestQwenLM:
             max_output_tokens=self.max_output_tokens,
         )
 
-    def test_constants(self) -> None:
-        assert _QWEN_LM_MODEL_ID == "Qwen/Qwen2.5-14B-Instruct"
-
     def test_initialization(self) -> None:
         assert self.qwen_lm.model_dir == self.model_dir
         assert self.qwen_lm.caption_batch_size == self.caption_batch_size
@@ -48,10 +45,10 @@ class TestQwenLM:
         assert self.qwen_lm.max_output_tokens == self.max_output_tokens
 
     def test_model_id_names(self) -> None:
-        model_ids = self.qwen_lm.model_id_names()
+        model_ids = self.qwen_lm.model_id_names
         assert isinstance(model_ids, list)
         assert len(model_ids) == 1
-        assert model_ids[0] == _QWEN_LM_MODEL_ID
+        assert model_ids[0] == "Qwen/Qwen3-14B"
 
     @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
     @patch("nemo_curator.models.qwen_lm.SamplingParams")
@@ -62,7 +59,7 @@ class TestQwenLM:
     ) -> None:
         # Mock Path behavior
         mock_path_instance = Mock()
-        mock_path_instance.__truediv__ = Mock(return_value="/test/model/dir/Qwen/Qwen2.5-14B-Instruct")
+        mock_path_instance.__truediv__ = Mock(return_value="/test/model/dir/Qwen/Qwen3-14B")
         mock_path.return_value = mock_path_instance
 
         # Mock LLM
@@ -81,7 +78,7 @@ class TestQwenLM:
 
         # Verify LLM initialization
         mock_llm_class.assert_called_once_with(
-            model="/test/model/dir/Qwen/Qwen2.5-14B-Instruct",
+            model="/test/model/dir/Qwen/Qwen3-14B",
             quantization="fp8",
             enforce_eager=False,
         )
@@ -96,10 +93,10 @@ class TestQwenLM:
         )
 
         # Verify tokenizer initialization
-        mock_tokenizer_class.from_pretrained.assert_called_once_with("/test/model/dir/Qwen/Qwen2.5-14B-Instruct")
+        mock_tokenizer_class.from_pretrained.assert_called_once_with("/test/model/dir/Qwen/Qwen3-14B")
 
         # Verify attributes are set
-        assert self.qwen_lm.weight_file == "/test/model/dir/Qwen/Qwen2.5-14B-Instruct"
+        assert self.qwen_lm.weight_file == "/test/model/dir/Qwen/Qwen3-14B"
         assert self.qwen_lm.llm == mock_llm
         assert self.qwen_lm.sampling_params == mock_sampling_params
         assert self.qwen_lm.tokenizer == mock_tokenizer
@@ -121,7 +118,7 @@ class TestQwenLM:
 
         # Mock Path behavior
         mock_path_instance = Mock()
-        mock_path_instance.__truediv__ = Mock(return_value="/test/model/dir/Qwen/Qwen2.5-14B-Instruct")
+        mock_path_instance.__truediv__ = Mock(return_value="/test/model/dir/Qwen/Qwen3-14B")
         mock_path.return_value = mock_path_instance
 
         # Mock LLM
@@ -140,7 +137,7 @@ class TestQwenLM:
 
         # Verify LLM initialization without fp8
         mock_llm_class.assert_called_once_with(
-            model="/test/model/dir/Qwen/Qwen2.5-14B-Instruct",
+            model="/test/model/dir/Qwen/Qwen3-14B",
             quantization=None,
             enforce_eager=False,
         )
@@ -300,7 +297,7 @@ class TestQwenLM:
     def test_weight_file_path_construction(self) -> None:
         with patch("nemo_curator.models.qwen_lm.Path") as mock_path:
             mock_path_instance = Mock()
-            expected_path = "/test/model/dir/Qwen/Qwen2.5-14B-Instruct"
+            expected_path = "/test/model/dir/Qwen/Qwen3-14B"
             mock_path_instance.__truediv__ = Mock(return_value=expected_path)
             mock_path.return_value = mock_path_instance
 
@@ -313,7 +310,7 @@ class TestQwenLM:
 
                 # Verify Path was called correctly
                 mock_path.assert_called_once_with(self.model_dir)
-                mock_path_instance.__truediv__.assert_called_once_with(_QWEN_LM_MODEL_ID)
+                mock_path_instance.__truediv__.assert_called_once_with("Qwen/Qwen3-14B")
                 assert self.qwen_lm.weight_file == expected_path
 
     def test_sampling_params_configuration(self) -> None:
