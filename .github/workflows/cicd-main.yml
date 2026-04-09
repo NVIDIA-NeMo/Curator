@@ -63,7 +63,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.10", "3.12"]
-        folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-math_stages", "stages-synthetic", "stages-text", "stages-video", "tasks", "utils"]
+        folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-interleaved", "stages-math_stages", "stages-synthetic", "stages-text", "stages-video", "tasks", "utils"]
     needs: [pre-flight, cicd-wait-in-queue]
     runs-on: ${{ matrix.os }}
     name: Unit_Test_${{ matrix.folder}}_CPU_python-${{ matrix.python-version }}
@@ -95,6 +95,7 @@ jobs:
       - name: Run tests ${{ matrix.folder }} (CPU)
         timeout-minutes: 40
         run: |
+          uv venv --seed
           uv sync --link-mode copy --locked --extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu --group test
           source .venv/bin/activate
           FOLDER="${{ matrix.folder }}"

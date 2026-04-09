@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from loguru import logger
 
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.backends.utils import merge_executor_configs, warn_on_env_var_override
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult

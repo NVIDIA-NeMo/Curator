@@ -14,7 +14,7 @@
 
 from unittest import mock
 
-from nemo_curator.backends.experimental.ray_actor_pool.executor import _parse_runtime_env
+from nemo_curator.backends.ray_actor_pool.executor import _parse_runtime_env
 
 
 class TestRayActorPoolExecutor:
