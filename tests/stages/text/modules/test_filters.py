@@ -558,7 +558,7 @@ class TestHeuristicFilters:
 
     def test_urls_accepts_custom_regex(self) -> None:
         dataset = list_to_dataset(["visit https://docs.nvidia.com", "plain text"])
-        filters = ScoreFilter(UrlsFilter(regex_url_pattern=re.compile(r"https://docs\\.nvidia\\.com")))
+        filters = ScoreFilter(UrlsFilter(regex_url_pattern=re.compile(r"https://docs\.nvidia\.com")))
 
         filtered_data = filters.process(dataset)
 
