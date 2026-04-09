@@ -118,9 +118,25 @@ class TestJsonlWriter:
         result = writer.process(batch)
 
         file_path = result.data[0]
-        payload = open(file_path, encoding="utf-8").read()
+        with open(file_path, encoding="utf-8") as f:
+            payload = f.read()
         assert "你好, 世界" in payload
         assert "\\u4f60" not in payload
+
+    def test_jsonl_writer_allows_force_ascii_override(self, tmpdir: str):
+        """JsonlWriter should still honor user-provided force_ascii=True."""
+        output_dir = os.path.join(tmpdir, "jsonl_ascii")
+        writer = JsonlWriter(path=output_dir, write_kwargs={"force_ascii": True})
+        batch = DocumentBatch(pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), task_id="ascii")
+
+        writer.setup()
+        result = writer.process(batch)
+
+        file_path = result.data[0]
+        with open(file_path, encoding="utf-8") as f:
+            payload = f.read()
+        assert "你好, 世界" not in payload
+        assert "\u4f60" in payload
 
     def test_jsonl_writer_with_custom_options(self, pandas_document_batch: DocumentBatch, tmpdir: str):
         """Test JsonlWriter with custom formatting options."""
