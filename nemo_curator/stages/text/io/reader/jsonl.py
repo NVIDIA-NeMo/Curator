@@ -21,6 +21,7 @@ import ray
 from fsspec.core import url_to_fs
 from loguru import logger
 
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, DocumentBatch, FileGroupTask, _EmptyTask
@@ -181,7 +182,7 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                         entry = {field: entry[field] for field in self.fields if field in entry}
                     results.append(
                         AudioTask(
-                            task_id=task.task_id,
+                            task_id=f"{task.task_id}_{len(results)}",
                             dataset_name=task.dataset_name,
                             data=entry,
                             _metadata=task._metadata,
@@ -198,7 +199,7 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return results
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        return {"is_fanout_stage": True}
+        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
 
 @dataclass

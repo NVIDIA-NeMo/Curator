@@ -504,6 +504,10 @@ class MaterializeTarredAudioStage(ProcessingStage[AudioTask, AudioTask]):
         duration = task.data.get(self.duration_key)
         waveform, sample_rate = soundfile.read(io.BytesIO(raw_audio), dtype="float32")
         start = max(round(offset * sample_rate), 0)
+        member_name = task.data.get(self.tar_member_key, task.data.get(self.audio_filepath_key, "unknown"))
+        if start >= waveform.shape[0]:
+            msg = f"Offset {offset}s exceeds audio length for tar member '{member_name}'"
+            raise RuntimeError(msg)
         end = waveform.shape[0]
         if duration is not None:
             end = min(start + round(float(duration) * sample_rate), waveform.shape[0])
@@ -542,5 +546,6 @@ class CleanupTemporaryAudioStage(ProcessingStage[AudioTask, AudioTask]):
         if self.drop_temporary_metadata:
             task.data.pop(self.temporary_audio_key, None)
             task.data.pop(self.materialization_mode_key, None)
+            task.data.pop(self.manifest_audio_filepath_key, None)
 
         return task
