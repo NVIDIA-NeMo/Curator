@@ -62,12 +62,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
         python-version: ["3.10", "3.12"]
         folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-interleaved", "stages-math_stages", "stages-synthetic", "stages-text", "stages-video", "tasks", "utils"]
     needs: [pre-flight, cicd-wait-in-queue]
-    runs-on: ${{ matrix.os }}
-    name: Unit_Test_${{ matrix.folder}}_CPU_python-${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    name: Unit_Test_${{ matrix.folder }}_CPU_python-${{ matrix.python-version }}
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
     environment: nemo-ci
@@ -93,7 +92,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: false
-      - name: Run tests ${{ matrix.folder }} (CPU)
+      - name: Run CPU tests
         timeout-minutes: 40
         run: |
           uv venv --seed
