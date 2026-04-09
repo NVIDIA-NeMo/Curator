@@ -582,7 +582,7 @@ class SlackSink(Sink):
             if stats.get("memory_used", 0) > 0:
                 pct_used = stats["memory_used"] / stats["memory_total"] * 100
                 warnings.append(
-                    f"GPU {gpu_id} had {stats['memory_used']} bytes ({pct_used:.1f}% of total) used before benchmark started"
+                    f"GPU {gpu_id} had {stats['memory_used']} MiB ({pct_used:.1f}% of total) used before benchmark started"
                 )
 
         # Create a new message for the entry to post in the thread.

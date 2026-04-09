@@ -209,5 +209,5 @@ def log_gpu_stats(gpu_stats: dict, warn_if_in_use: bool = False) -> None:
         logger.info(f"GPU {gpu_id} : {pct_used:.1f}%")
         if warn_if_in_use and stats["memory_used"] > 0:
             logger.warning(
-                f"GPU {gpu_id} has {stats['memory_used']} bytes ({pct_used:.1f}% of total) used before benchmark started"
+                f"GPU {gpu_id} has {stats['memory_used']} MiB ({pct_used:.1f}% of total) used before benchmark started"
             )
