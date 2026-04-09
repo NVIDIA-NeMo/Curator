@@ -63,8 +63,8 @@ inputs:
   container-image:
     description: "Container image to use for test"
     required: true
-  gpu-test-extra:
-    description: "UV extra to install for GPU tests (e.g. text_cuda12)"
+  gpu-test-extras:
+    description: "Space-separated UV extras to install for GPU tests (e.g. deduplication_cuda12 text_cpu)"
     required: false
     default: ""
   gpu-test-paths:
@@ -147,7 +147,7 @@ runs:
           set -e
 
           . /opt/venv/env.sh
-          GPU_TEST_EXTRA="${{ inputs.gpu-test-extra }}" \
+          GPU_TEST_EXTRAS="${{ inputs.gpu-test-extras }}" \
           GPU_TEST_PATHS="${{ inputs.gpu-test-paths }}" \
           bash tests/${{ inputs.script }}.sh
         '

@@ -154,7 +154,7 @@ jobs:
           matrix=$(python3 -c "
           import json
           cfg = json.load(open('tests/gpu_test_groups.json'))
-          include = [{'gpu-test-group': g, 'extra': v['extra'], 'test-paths': ' '.join(v['paths'])} for g, v in cfg.items()]
+          include = [{'gpu-test-group': g, 'extras': ' '.join(v['extras']), 'test-paths': ' '.join(v['paths'])} for g, v in cfg.items()]
           print(json.dumps({'include': include}))
           ")
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
@@ -194,7 +194,7 @@ jobs:
           test-data-path: ${{ needs.pre-flight.outputs.test_data_path }}
           runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
           container-image: ${{ env.container-registry }}/curator:${{ github.sha }}
-          gpu-test-extra: ${{ matrix.extra }}
+          gpu-test-extras: ${{ matrix.extras }}
           gpu-test-paths: ${{ matrix.test-paths }}
 
   Nemo_CICD_Test:
