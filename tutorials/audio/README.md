@@ -6,6 +6,18 @@ Hands-on tutorials for curating audio data with NeMo Curator. Complete working e
 
 **New to audio curation?** Start with the [Audio Getting Started Guide](https://docs.nvidia.com/nemo/curator/latest/get-started/audio.html) for setup and basic concepts.
 
+### System Dependencies
+
+Audio pipelines require `ffmpeg` and `sox` for resampling and format conversion. Install them before running any audio tutorial:
+
+```bash
+# Ubuntu / Debian
+sudo apt-get install -y ffmpeg sox libsox-fmt-all
+
+# macOS
+brew install ffmpeg sox
+```
+
 ## Available Tutorials
 
 | Tutorial | Description | Files |

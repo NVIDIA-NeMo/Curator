@@ -87,6 +87,11 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+      - name: Install system dependencies for audio tests
+        if: matrix.folder == 'stages-audio'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg sox libsox-fmt-all
       - name: Set up uv with Python ${{ matrix.python-version }}
         uses: astral-sh/setup-uv@v6
         with:

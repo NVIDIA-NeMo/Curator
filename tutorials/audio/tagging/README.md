@@ -44,6 +44,14 @@ source .venv/bin/activate
 
 ### Prerequisites
 
+- **System packages**: `ffmpeg` and `sox` must be installed for audio resampling and format conversion:
+  ```bash
+  # Ubuntu / Debian
+  sudo apt-get install -y ffmpeg sox libsox-fmt-all
+
+  # macOS
+  brew install ffmpeg sox
+  ```
 - **GPU**: Required for diarization (PyAnnote), VAD (Pyannote), ASR alignment (NeMo)
 - **HuggingFace Token**: Required for PyAnnote model access. Request access at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1), [pyannote/voice-activity-detection](https://huggingface.co/pyannote/voice-activity-detection)
 
