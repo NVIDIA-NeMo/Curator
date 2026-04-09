@@ -20,11 +20,11 @@ Automatically detects the pipeline combo from the manifest schema and applies
 the appropriate extraction strategy:
 
   Combo 1 (no VAD, no speaker):
-    Copies the full original file as-is.
-    Output: {original_filename}.{format}
+    Extracts the full file as a single segment (start=0, end=file duration).
+    Output: {original_filename}_segment_000.{format}
 
   Combo 2 (VAD only):
-    Extracts each VAD segment by original_start_ms / original_end_ms.
+    Extracts each VAD speech segment by original_start_ms / original_end_ms.
     Output: {original_filename}_segment_{NNN}.{format}
     Segments are numbered in ascending order of start time.
 
@@ -55,7 +55,6 @@ import csv
 import glob
 import json
 import os
-import shutil
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -152,23 +151,27 @@ def load_manifests(input_path: str, output_dir: str) -> list:
 def detect_combo(entries: list) -> int:
     """Detect which pipeline combo produced the manifest.
 
-    Returns 1, 2, 3, or 4.
+    Returns 2, 3, or 4.  Since TimestampMapper always emits
+    ``original_start_ms``/``original_end_ms``, combos 1 and 2 are
+    indistinguishable and both use timestamp-based extraction.
+
+    Returns:
+        2: segments by timestamps (combos 1 and 2)
+        3: speaker diarization segments
+        4: speaker-segments by timestamps
     """
     if not entries:
-        return 1
+        return 2
 
     first = entries[0]
     has_speaker = "speaker_id" in first
     has_diar = "diar_segments" in first
-    has_timestamps = "original_start_ms" in first and "original_end_ms" in first
 
     if has_speaker and has_diar:
         return 3
-    if has_speaker and has_timestamps:
+    if has_speaker:
         return 4
-    if has_timestamps and not has_speaker:
-        return 2
-    return 1
+    return 2
 
 
 def _write_segment(output_path: str, audio: np.ndarray, sample_rate: int, output_format: str) -> None:
@@ -185,63 +188,14 @@ def _read_segment(filepath: str, start_ms: int, end_ms: int, sample_rate: int) -
 
 
 # ------------------------------------------------------------------
-# Combo 1: no VAD, no speaker -- copy full file
+# Combos 1 & 2: extract segments by timestamps
 # ------------------------------------------------------------------
 
 
-def extract_combo1(
+def extract_segments_by_timestamps(
     entries: list, output_dir: str, output_format: str
 ) -> tuple[int, float, dict[str, int], list[dict]]:
-    """Copy the full original file(s) as-is."""
-    extracted = 0
-    total_dur = 0.0
-    metadata_rows: list[dict] = []
-    speaker_counts: dict[str, int] = {}
-
-    for entry in entries:
-        original_file = entry.get("original_file") or entry.get("audio_filepath")
-        if not original_file or not os.path.exists(original_file):
-            logger.error(f"Original file not found: {original_file}")
-            continue
-
-        original_name = Path(original_file).stem
-        out_filename = f"{original_name}.{output_format}"
-        output_path = os.path.join(output_dir, out_filename)
-
-        if output_format == "wav" and original_file.endswith(".wav"):
-            shutil.copy2(original_file, output_path)
-        else:
-            audio, sr = sf.read(original_file, dtype="float32")
-            _write_segment(output_path, audio, sr, output_format)
-
-        dur = entry.get("duration", 0)
-        total_dur += dur
-        extracted += 1
-        logger.info(f"  Copied: {output_path} ({dur:.1f}s)")
-
-        metadata_rows.append(
-            {
-                "filename": out_filename,
-                "original_file": original_file,
-                "start_sec": 0.0,
-                "end_sec": round(dur, 3),
-                "duration": round(dur, 3),
-                **_extract_scores(entry),
-            }
-        )
-
-    return extracted, total_dur, speaker_counts, metadata_rows
-
-
-# ------------------------------------------------------------------
-# Combo 2: VAD only -- extract each segment by timestamps
-# ------------------------------------------------------------------
-
-
-def extract_combo2(
-    entries: list, output_dir: str, output_format: str
-) -> tuple[int, float, dict[str, int], list[dict]]:
-    """Extract VAD segments sorted by start time."""
+    """Extract segments by original_start_ms / original_end_ms, sorted by start time."""
     by_file = defaultdict(list)
     for entry in entries:
         original_file = entry.get("original_file", "")
@@ -300,7 +254,7 @@ def extract_combo2(
 # ------------------------------------------------------------------
 
 
-def extract_combo3(entries: list, output_dir: str, output_format: str) -> tuple[int, float, dict, list[dict]]:
+def extract_speaker_diar_segments(entries: list, output_dir: str, output_format: str) -> tuple[int, float, dict, list[dict]]:
     """Extract individual speaking intervals from diar_segments per speaker."""
     by_file = defaultdict(list)
     for entry in entries:
@@ -379,7 +333,7 @@ def extract_combo3(entries: list, output_dir: str, output_format: str) -> tuple[
 # ------------------------------------------------------------------
 
 
-def extract_combo4(entries: list, output_dir: str, output_format: str) -> tuple[int, float, dict, list[dict]]:
+def extract_speaker_segments_by_timestamps(entries: list, output_dir: str, output_format: str) -> tuple[int, float, dict, list[dict]]:
     """Extract speaker-segments using original_start_ms / original_end_ms."""
     by_file = defaultdict(list)
     for entry in entries:
@@ -486,18 +440,16 @@ def extract_segments(input_path: str, output_dir: str, output_format: str = DEFA
 
     combo = detect_combo(entries)
     combo_names = {
-        1: "Combo 1 (no VAD, no speaker) -- copy full files",
-        2: "Combo 2 (VAD only) -- extract VAD segments",
-        3: "Combo 3 (speaker only) -- extract diar_segments per speaker",
-        4: "Combo 4 (VAD + speaker) -- extract speaker-segments by timestamps",
+        2: "Segments by timestamps",
+        3: "Speaker diarization segments",
+        4: "Speaker-segments by timestamps",
     }
     logger.info(f"Detected: {combo_names[combo]}")
 
     extractors = {
-        1: extract_combo1,
-        2: extract_combo2,
-        3: extract_combo3,
-        4: extract_combo4,
+        2: extract_segments_by_timestamps,
+        3: extract_speaker_diar_segments,
+        4: extract_speaker_segments_by_timestamps,
     }
     total_extracted, total_dur, speaker_counts, metadata_rows = extractors[combo](entries, output_dir, output_format)
 

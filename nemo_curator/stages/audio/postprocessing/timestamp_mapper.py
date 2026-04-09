@@ -106,9 +106,15 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Normalize task data at the pipeline output boundary.
 
-    Constructs core output fields (``original_file``, timestamps,
-    duration) from available timing sources, then copies only the
-    keys listed in ``passthrough_keys`` from the input.
+    Constructs core output fields from available timing sources,
+    then copies only the keys listed in ``passthrough_keys`` from
+    the input.
+
+    Core fields (always present, not controlled by passthrough_keys):
+        ``original_file``, ``original_start_ms``, ``original_end_ms``,
+        ``duration_ms``, ``duration``.
+        When diarization segments are available: ``diar_segments``,
+        ``speaking_duration`` are also set as core fields.
 
     Args:
         passthrough_keys: Keys to copy from input to output.
@@ -213,6 +219,7 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
 
         diar_segments = item.get("diar_segments")
         if diar_segments and len(diar_segments) > 0:
+            diar_segments = sorted(diar_segments, key=lambda x: x[0])
             first_start = diar_segments[0][0]
             last_end = diar_segments[-1][1]
             result["original_start_ms"] = int(first_start * 1000)
