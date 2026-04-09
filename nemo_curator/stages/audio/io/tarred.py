@@ -358,6 +358,7 @@ class TarredAudioManifestReader(CompositeStage[_EmptyTask, AudioTask]):
     manifest_paths: str | list[str]
     tar_paths: str | list[str]
     files_per_partition: int = 1
+    limit: int | None = None
     storage_options: dict[str, Any] | None = None
     transport: Literal["auto", "fsspec", "pipe"] = "auto"
     skip_missing_entries: bool = False
@@ -377,6 +378,7 @@ class TarredAudioManifestReader(CompositeStage[_EmptyTask, AudioTask]):
             TarredAudioManifestPartitionStage(
                 manifest_paths=self.manifest_paths,
                 files_per_partition=self.files_per_partition,
+                limit=self.limit,
             ),
             TarredAudioManifestReaderStage(
                 tar_paths=self.tar_paths,
@@ -458,8 +460,18 @@ class MaterializeTarredAudioStage(ProcessingStage[AudioTask, AudioTask]):
                 if extracted is None:
                     continue
                 raw_audio = extracted.read()
-                for task in member_tasks[tar_info.name]:
+                tasks_for_member = member_tasks[tar_info.name]
+                segment_tasks = [task for task in tasks_for_member if self._should_segment(task, tar_info.name)]
+                member_tasks_only = [task for task in tasks_for_member if task not in segment_tasks]
+
+                decoded_audio: tuple[Any, int] | None = None
+                if segment_tasks:
+                    decoded_audio = soundfile.read(io.BytesIO(raw_audio), dtype="float32")
+
+                for task in member_tasks_only:
                     self._materialize_task(task, raw_audio, tar_info.name)
+                for task in segment_tasks:
+                    self._materialize_task(task, raw_audio, tar_info.name, decoded_audio=decoded_audio)
                 remaining.discard(tar_info.name)
                 if not remaining:
                     break
@@ -468,13 +480,20 @@ class MaterializeTarredAudioStage(ProcessingStage[AudioTask, AudioTask]):
             msg = f"Failed to materialize tar members {sorted(remaining)} from tar shard '{tar_path}'"
             raise RuntimeError(msg)
 
-    def _materialize_task(self, task: AudioTask, raw_audio: bytes, member_name: str) -> None:
+    def _materialize_task(
+        self,
+        task: AudioTask,
+        raw_audio: bytes,
+        member_name: str,
+        *,
+        decoded_audio: tuple[Any, int] | None = None,
+    ) -> None:
         should_segment = self._should_segment(task, member_name)
         temp_path = self._create_temp_path(
             suffix=".wav" if should_segment else _tar_member_suffix(member_name),
         )
         if should_segment:
-            self._write_segmented_audio(task, raw_audio, temp_path)
+            self._write_segmented_audio(task, raw_audio, temp_path, decoded_audio=decoded_audio)
             materialization_mode = "segment"
         else:
             temp_path.write_bytes(raw_audio)
@@ -490,7 +509,7 @@ class MaterializeTarredAudioStage(ProcessingStage[AudioTask, AudioTask]):
             return False
         original_path = task.data.get(self.audio_filepath_key, "")
         offset = float(task.data.get(self.offset_key, 0.0) or 0.0)
-        return member_name != original_path or offset > 0.0
+        return member_name != original_path or offset > 0.0 or task.data.get(self.duration_key) is not None
 
     def _create_temp_path(self, *, suffix: str) -> Path:
         target_dir = Path(self.temp_dir) if self.temp_dir is not None else Path(tempfile.gettempdir())
@@ -499,10 +518,20 @@ class MaterializeTarredAudioStage(ProcessingStage[AudioTask, AudioTask]):
         os.close(fd)
         return Path(path)
 
-    def _write_segmented_audio(self, task: AudioTask, raw_audio: bytes, output_path: Path) -> None:
+    def _write_segmented_audio(
+        self,
+        task: AudioTask,
+        raw_audio: bytes,
+        output_path: Path,
+        *,
+        decoded_audio: tuple[Any, int] | None = None,
+    ) -> None:
         offset = float(task.data.get(self.offset_key, 0.0) or 0.0)
         duration = task.data.get(self.duration_key)
-        waveform, sample_rate = soundfile.read(io.BytesIO(raw_audio), dtype="float32")
+        if decoded_audio is None:
+            waveform, sample_rate = soundfile.read(io.BytesIO(raw_audio), dtype="float32")
+        else:
+            waveform, sample_rate = decoded_audio
         start = max(round(offset * sample_rate), 0)
         member_name = task.data.get(self.tar_member_key, task.data.get(self.audio_filepath_key, "unknown"))
         if start >= waveform.shape[0]:

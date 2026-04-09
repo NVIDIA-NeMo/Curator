@@ -175,6 +175,24 @@ class TestTarredAudioManifestReader:
         assert len(results) == 1
         assert results[0].data["_tar_path"] == str(tar_0)
 
+    def test_composite_propagates_limit_to_partition_stage(self, tmp_path: Path) -> None:
+        for shard_id in range(2):
+            (tmp_path / f"manifest_{shard_id}.json").write_text(
+                json.dumps({"audio_filepath": f"{shard_id}.wav", "text": f"text-{shard_id}"}) + "\n"
+            )
+            _write_tar(tmp_path / f"audio_{shard_id}.tar", {f"{shard_id}.wav": b"bytes"})
+
+        reader = TarredAudioManifestReader(
+            manifest_paths=str(tmp_path / "manifest__OP_0..1_CL_.json"),
+            tar_paths=str(tmp_path / "audio__OP_0..1_CL_.tar"),
+            files_per_partition=1,
+            limit=1,
+        )
+        partition_stage, _reader_stage = reader.decompose()
+        file_tasks = partition_stage.process(_EmptyTask)
+
+        assert len(file_tasks) == 1
+
 
 class TestTarredAudioMaterialization:
     def test_materialize_and_cleanup_roundtrip(self, tmp_path: Path) -> None:
@@ -238,6 +256,32 @@ class TestTarredAudioMaterialization:
             assert wav_file.getframerate() == 16000
             assert wav_file.getnframes() == 8000  # 0.5 sec at 16kHz
 
+    def test_materialize_segment_for_duration_only_entries(self, tmp_path: Path) -> None:
+        tar_path = tmp_path / "audio_0.tar"
+        _write_tar(tar_path, {"sample.wav": _make_wav_bytes(duration_sec=1.0)})
+
+        task = AudioTask(
+            task_id="t1",
+            dataset_name="ds",
+            data={
+                "audio_filepath": "sample.wav",
+                "offset": 0.0,
+                "duration": 0.5,
+                "_tar_path": str(tar_path),
+                "_tar_member": "sample.wav",
+            },
+        )
+
+        materialize = MaterializeTarredAudioStage(temp_dir=str(tmp_path / "tmp"))
+        [materialized] = materialize.process_batch([task])
+
+        temp_path = Path(materialized.data["_temporary_audio_path"])
+        assert temp_path.exists()
+        assert materialized.data["_materialization_mode"] == "segment"
+
+        with wave.open(temp_path.as_posix(), "rb") as wav_file:
+            assert wav_file.getnframes() == 8000  # 0.5 sec at 16kHz
+
     def test_materialize_segment_raises_for_offset_past_audio_end(self, tmp_path: Path) -> None:
         tar_path = tmp_path / "audio_0.tar"
         _write_tar(tar_path, {"sample.wav": _make_wav_bytes(duration_sec=0.25)})
@@ -283,6 +327,54 @@ class TestTarredAudioMaterialization:
         temp_path = Path(materialized.data["_temporary_audio_path"])
         assert temp_path.exists()
         assert temp_path.read_bytes() == b"pipe-bytes"
+
+    def test_materialize_decodes_shared_member_once_for_segment_tasks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import nemo_curator.stages.audio.io.tarred as tarred_module
+
+        tar_path = tmp_path / "audio_0.tar"
+        _write_tar(tar_path, {"sample.wav": _make_wav_bytes(duration_sec=1.0)})
+
+        tasks = [
+            AudioTask(
+                task_id="t1",
+                dataset_name="ds",
+                data={
+                    "audio_filepath": "sample.wav-sub1",
+                    "offset": 0.0,
+                    "duration": 0.25,
+                    "_tar_path": str(tar_path),
+                    "_tar_member": "sample.wav",
+                },
+            ),
+            AudioTask(
+                task_id="t2",
+                dataset_name="ds",
+                data={
+                    "audio_filepath": "sample.wav-sub2",
+                    "offset": 0.25,
+                    "duration": 0.25,
+                    "_tar_path": str(tar_path),
+                    "_tar_member": "sample.wav",
+                },
+            ),
+        ]
+
+        read_calls = 0
+        original_read = tarred_module.soundfile.read
+
+        def counting_read(*args, **kwargs):
+            nonlocal read_calls
+            read_calls += 1
+            return original_read(*args, **kwargs)
+
+        monkeypatch.setattr(tarred_module.soundfile, "read", counting_read)
+
+        materialize = MaterializeTarredAudioStage(temp_dir=str(tmp_path / "tmp"))
+        materialize.process_batch(tasks)
+
+        assert read_calls == 1
 
     def test_manual_end_to_end_reader_materialize_consume_cleanup(self, tmp_path: Path) -> None:
         manifest = tmp_path / "manifest_0.json"

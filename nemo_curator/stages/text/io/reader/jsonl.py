@@ -203,7 +203,7 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
 
 @dataclass
-class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
+class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch | AudioTask]):
     """Composite stage for reading JSONL files.
 
     The output type depends on ``task_type``:
