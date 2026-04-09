@@ -157,6 +157,7 @@ class QwenVL(ModelInterface):
         model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
+            logger.info(f"QwenVL weights already exist at: {model_dir_path}")
             return
         download_model_from_hf(
             model_id=model_id,
