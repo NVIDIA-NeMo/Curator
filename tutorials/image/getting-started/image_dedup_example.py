@@ -120,6 +120,27 @@ def create_image_deduplication_pipeline(args: argparse.Namespace) -> Pipeline:
     return pipeline
 
 
+def _download_step(args: argparse.Namespace) -> None:
+    """Step 1: Download and prepare webdataset from parquet file."""
+    if not args.skip_download:
+        print("Step 1: Downloading webdataset from parquet file...")
+        download_start = time.time()
+        os.makedirs(args.input_wds_dataset_dir, exist_ok=True)
+        download_webdataset(
+            parquet_path=args.input_parquet,
+            output_dir=args.input_wds_dataset_dir,
+            num_processes=args.download_processes,
+            entries_per_tar=args.entries_per_tar,
+        )
+        download_time = time.time() - download_start
+        print(f"✓ Dataset download completed in {download_time:.2f} seconds")
+        print(f"✓ Webdataset saved to: {args.input_wds_dataset_dir}")
+    else:
+        print("Step 1: Skipping download (using existing dataset)")
+        print(f"Using existing dataset at: {args.input_wds_dataset_dir}")
+    print("\n" + "=" * 50 + "\n")
+
+
 def main(args: argparse.Namespace) -> None:
     """Main execution function for image curation pipeline."""
 
@@ -135,30 +156,7 @@ def main(args: argparse.Namespace) -> None:
     print(f"Task batch size: {args.batch_size}")
     print("\n" + "=" * 50 + "\n")
 
-    # Step 1: Download and prepare webdataset from parquet file
-    if not args.skip_download:
-        print("Step 1: Downloading webdataset from parquet file...")
-        download_start = time.time()
-
-        # Create output directory if it doesn't exist
-        os.makedirs(args.input_wds_dataset_dir, exist_ok=True)
-
-        # Download webdataset using helper function
-        download_webdataset(
-            parquet_path=args.input_parquet,
-            output_dir=args.input_wds_dataset_dir,
-            num_processes=args.download_processes,
-            entries_per_tar=args.entries_per_tar,
-        )
-
-        download_time = time.time() - download_start
-        print(f"✓ Dataset download completed in {download_time:.2f} seconds")
-        print(f"✓ Webdataset saved to: {args.input_wds_dataset_dir}")
-        print("\n" + "=" * 50 + "\n")
-    else:
-        print("Step 1: Skipping download (using existing dataset)")
-        print(f"Using existing dataset at: {args.input_wds_dataset_dir}")
-        print("\n" + "=" * 50 + "\n")
+    _download_step(args)
 
     # Step 2: Create and run curation pipelines
     # Step 2.1: Create image embedding pipeline
