@@ -54,6 +54,7 @@ class QwenVL(ModelInterface):
         verbose: bool = False,
         model_id: str = "Qwen/Qwen3-VL-8B-Instruct",
         model_revision: str = "0c351dd",
+        **vllm_kwargs,
     ):
         if not (Path(model_id).is_absolute() or model_id.startswith(("./", "../"))) and not model_id.startswith(
             "Qwen/"
@@ -67,7 +68,8 @@ class QwenVL(ModelInterface):
         self.max_output_tokens = max_output_tokens
         self.model_does_preprocess = model_does_preprocess
         self.disable_mmcache = disable_mmcache
-        self.stage2_prompt = stage2_prompt_text or "Please refine this caption: "
+        self.vllm_kwargs = vllm_kwargs
+        self.stage2_prompt = stage2_prompt_text if stage2_prompt_text else "Please refine this caption: "
         self.verbose = verbose
         self.model_id = model_id
         self.model_revision = model_revision
@@ -98,6 +100,7 @@ class QwenVL(ModelInterface):
             mm_processor_kwargs=mm_processor_kwargs,
             mm_processor_cache_gb=0 if self.disable_mmcache else 4,
             max_num_batched_tokens=32768,
+            **self.vllm_kwargs,
         )
         self.sampling_params = SamplingParams(
             temperature=0.1,

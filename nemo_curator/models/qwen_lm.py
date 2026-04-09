@@ -65,6 +65,7 @@ class QwenLM(ModelInterface):
         self.max_output_tokens = max_output_tokens
         self.model_id = model_id
         self.model_revision = model_revision
+        self.vllm_kwargs = vllm_kwargs
 
     def setup(self) -> None:
         if not VLLM_AVAILABLE:
@@ -75,7 +76,7 @@ class QwenLM(ModelInterface):
         self.llm = LLM(
             model=self.weight_file,
             quantization="fp8" if self.fp8 else None,
-            enforce_eager=False,
+            **self.vllm_kwargs,
         )
         self.sampling_params = SamplingParams(
             temperature=0.1,

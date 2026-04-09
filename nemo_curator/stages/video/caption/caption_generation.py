@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
@@ -41,6 +41,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     max_output_tokens: int = 512
     model_does_preprocess: bool = False
     disable_mmcache: bool = False
+    vllm_kwargs: dict[str, Any] = field(default_factory=dict)
     verbose: bool = False
     generate_stage2_caption: bool = False
     stage2_prompt_text: str | None = None
@@ -66,6 +67,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 disable_mmcache=self.disable_mmcache,
                 model_id=self.model_id,
                 model_revision=self.model_revision,
+                **self.vllm_kwargs,
             )
         elif self.model_variant.startswith("nemotron"):
             self.model = NemotronHVL(
