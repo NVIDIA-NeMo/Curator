@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@ import types
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 
 def _import_stage_module() -> tuple[Any, Any]:
     # Inject a stub for optional dependency 'wget' to avoid import errors
@@ -32,7 +34,7 @@ def _import_stage_module() -> tuple[Any, Any]:
 
 
 def test_ray_stage_spec(tmp_path: Path) -> None:
-    from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+    from nemo_curator.backends.utils import RayStageSpecKeys
 
     stage_cls, _ = _import_stage_module()
     stage = stage_cls(lang="hy_am", split="dev", raw_data_dir=str(tmp_path / "fleurs"))
@@ -45,6 +47,72 @@ def test_get_fleurs_url_list_builds_urls() -> None:
     urls = get_fleurs_url_list("hy_am", "dev")
     assert urls[0].endswith("/hy_am/dev.tsv")
     assert urls[1].endswith("/hy_am/audio/dev.tar.gz")
+
+
+def test_post_init_requires_lang(tmp_path: Path) -> None:
+    stage_cls, _ = _import_stage_module()
+    with pytest.raises(ValueError, match="lang is required"):
+        stage_cls(lang="", split="dev", raw_data_dir=str(tmp_path))
+
+
+def test_post_init_requires_split(tmp_path: Path) -> None:
+    stage_cls, _ = _import_stage_module()
+    with pytest.raises(ValueError, match="split is required"):
+        stage_cls(lang="en_us", split="", raw_data_dir=str(tmp_path))
+
+
+def test_post_init_requires_raw_data_dir() -> None:
+    stage_cls, _ = _import_stage_module()
+    with pytest.raises(ValueError, match="raw_data_dir is required"):
+        stage_cls(lang="en_us", split="dev", raw_data_dir="")
+
+
+def test_inputs_outputs(tmp_path: Path) -> None:
+    stage_cls, _ = _import_stage_module()
+    stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(tmp_path))
+    assert stage.inputs() == ([], [])
+    assert stage.outputs() == ([], ["audio_filepath", "text"])
+
+
+def test_download_extract_files(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    stage_cls, _ = _import_stage_module()
+    stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(tmp_path / "fleurs"))
+
+    with (
+        patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.download_file") as mock_dl,
+        patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.extract_archive") as mock_ext,
+    ):
+        stage.download_extract_files(str(tmp_path / "fleurs"))
+        assert mock_dl.call_count == 2
+        mock_ext.assert_called_once()
+
+
+def test_process_end_to_end(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    stage_cls, _ = _import_stage_module()
+    raw_dir = tmp_path / "fleurs"
+    raw_dir.mkdir()
+    tsv_path = raw_dir / "dev.tsv"
+    tsv_path.write_text("0\tfile1.wav\thello\n1\tfile2.wav\tworld\n", encoding="utf-8")
+    audio_dir = raw_dir / "dev"
+    audio_dir.mkdir()
+    (audio_dir / "file1.wav").write_bytes(b"")
+    (audio_dir / "file2.wav").write_bytes(b"")
+
+    stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(raw_dir))
+    from nemo_curator.tasks import _EmptyTask
+
+    with (
+        patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.download_file"),
+        patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.extract_archive"),
+    ):
+        results = stage.process(_EmptyTask(task_id="empty", dataset_name="test", data=None))
+    assert len(results) == 2
+    assert results[0].data["text"] == "hello"
+    assert results[1].data["text"] == "world"
 
 
 def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
@@ -74,12 +142,10 @@ def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
     # Act
     batches = stage.process_transcript(tsv_path.as_posix())
 
-    # Assert batching behavior and content (default batch_size is 1, so expect 2 batches)
+    # Each valid TSV line produces one AudioTask
     assert len(batches) == 2
     b0, b1 = batches
-    assert len(b0.data) == 1
-    assert len(b1.data) == 1
-    assert b0.data[0][stage.filepath_key].endswith(os.path.join(split, "file1.wav"))
-    assert b0.data[0][stage.text_key] == "hello world"
-    assert b1.data[0][stage.filepath_key].endswith(os.path.join(split, "file2.wav"))
-    assert b1.data[0][stage.text_key] == "second"
+    assert b0.data[stage.filepath_key].endswith(os.path.join(split, "file1.wav"))
+    assert b0.data[stage.text_key] == "hello world"
+    assert b1.data[stage.filepath_key].endswith(os.path.join(split, "file2.wav"))
+    assert b1.data[stage.text_key] == "second"

@@ -35,12 +35,13 @@ env:
 
 jobs:
   pre-flight:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v0.69.1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v0.80.1
     with:
       default_runner_prefix: ${{ vars.DEFAULT_RUNNER_PREFIX }}
       non_nvidia_runner_prefix: ${{ vars.NON_NVIDIA_RUNNER_PREFIX }}
       default_test_data_path: ${{ vars.DEFAULT_TEST_DATA_PATH }}
       non_nvidia_test_data_path: ${{ vars.NON_NVIDIA_TEST_DATA_PATH }}
+      sso_users_filename: ${{ vars.SSO_USERS_FILENAME }}
     secrets:
       NVIDIA_MANAGEMENT_ORG_PAT: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
 
@@ -62,7 +63,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.10", "3.12"]
-        folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-math_stages", "stages-synthetic", "stages-text", "stages-video", "tasks", "utils"]
+        folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-interleaved", "stages-math_stages", "stages-synthetic", "stages-text", "stages-video", "tasks", "utils"]
     needs: [pre-flight, cicd-wait-in-queue]
     runs-on: ${{ matrix.os }}
     name: Unit_Test_${{ matrix.folder}}_CPU_python-${{ matrix.python-version }}
@@ -77,7 +78,7 @@ jobs:
       )
       && !cancelled()
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Free up disk space on Ubuntu
@@ -94,6 +95,7 @@ jobs:
       - name: Run tests ${{ matrix.folder }} (CPU)
         timeout-minutes: 40
         run: |
+          uv venv --seed
           uv sync --link-mode copy --locked --extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu --group test
           source .venv/bin/activate
           FOLDER="${{ matrix.folder }}"
@@ -110,7 +112,7 @@ jobs:
           echo "$coverage_report"
           echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: ${{ steps.check.outputs.coverage_report != 'none' }}
         with:
           name: ${{ steps.check.outputs.coverage_report }}
@@ -139,7 +141,7 @@ jobs:
       && !cancelled()
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: main
@@ -153,7 +155,7 @@ jobs:
           azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           PAT: ${{ secrets.PAT }}
-          timeout: 20
+          timeout: 30
           test-data-path: ${{ needs.pre-flight.outputs.test_data_path }}
           runner: ${{ matrix.runner }}
 
@@ -172,7 +174,7 @@ jobs:
     permissions: write-all
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Get workflow result
         id: result
@@ -194,7 +196,7 @@ jobs:
           # Output the final status
           echo "code=$RESULT" | tee -a $GITHUB_OUTPUT
       - name: Checkout for GH CLI
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Remove label if not cancelled
         if: |
@@ -262,16 +264,18 @@ jobs:
       )
       && !cancelled()
     strategy:
+      fail-fast: false
       matrix:
         flag: [unit-test, e2e]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download coverage reports of current branch
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: coverage-${{ matrix.flag }}-*
+          path: coverage-downloads
 
       - name: Get total coverage of current branch
         shell: bash -x -e -u -o pipefail {0}
@@ -279,10 +283,14 @@ jobs:
         run: |
           pip install coverage[toml]
           ls -al .
-          ls -al coverage-*/
-          coverage combine --keep $(ls coverage-*/.coverage)
+          if ! [ -d coverage-downloads ] || [ -z "$(ls -A coverage-downloads)" ]; then
+            echo "No coverage artifacts found for ${{ matrix.flag }}, skipping."
+            exit 0
+          fi
+          ls -al coverage-downloads/
+          coverage combine --keep $(find coverage-downloads -name '.coverage')
           coverage report -i
-          rm -rf coverage-*
+          rm -rf coverage-downloads
           ls -al
 
       - name: Upload coverage reports to Codecov
@@ -293,7 +301,7 @@ jobs:
           flags: ${{ matrix.flag }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-${{ matrix.flag }}-aggregated
           path: |
