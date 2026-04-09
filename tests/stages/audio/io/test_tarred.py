@@ -18,6 +18,7 @@ import tarfile
 import wave
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -364,7 +365,7 @@ class TestTarredAudioMaterialization:
         read_calls = 0
         original_read = tarred_module.soundfile.read
 
-        def counting_read(*args, **kwargs):
+        def counting_read(*args: Any, **kwargs: Any) -> Any:
             nonlocal read_calls
             read_calls += 1
             return original_read(*args, **kwargs)
