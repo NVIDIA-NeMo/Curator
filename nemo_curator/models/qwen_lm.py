@@ -53,6 +53,7 @@ class QwenLM(ModelInterface):
         max_output_tokens: int,
         model_id: str = "Qwen/Qwen3-14B",
         model_revision: str = "8268fe3",
+        **vllm_kwargs,
     ):
         if not (Path(model_id).is_absolute() or model_id.startswith(("./", "../"))) and not model_id.startswith(
             "Qwen/"
