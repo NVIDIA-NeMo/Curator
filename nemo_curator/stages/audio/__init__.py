@@ -22,26 +22,7 @@ audio preprocessing (mono conversion, segment concatenation, timestamp mapping),
 audio quality filtering (UTMOS), and speaker diarization/separation.
 """
 
-from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
-from nemo_curator.stages.audio.common import (
-    GetAudioDurationStage,
-    PreserveByValueStage,
-)
-from nemo_curator.stages.audio.filtering import (
-    BandFilterStage,
-    UTMOSFilterStage,
-)
-from nemo_curator.stages.audio.postprocessing import (
-    TimestampMapperStage,
-)
-from nemo_curator.stages.audio.preprocessing import (
-    MonoConversionStage,
-    SegmentConcatenationStage,
-)
-from nemo_curator.stages.audio.segmentation import (
-    SpeakerSeparationStage,
-    VADSegmentationStage,
-)
+import importlib as _importlib
 
 __all__ = [
     "ALMDataBuilderStage",
@@ -56,3 +37,25 @@ __all__ = [
     "UTMOSFilterStage",
     "VADSegmentationStage",
 ]
+
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "ALMDataBuilderStage": ("nemo_curator.stages.audio.alm", "ALMDataBuilderStage"),
+    "ALMDataOverlapStage": ("nemo_curator.stages.audio.alm", "ALMDataOverlapStage"),
+    "BandFilterStage": ("nemo_curator.stages.audio.filtering", "BandFilterStage"),
+    "UTMOSFilterStage": ("nemo_curator.stages.audio.filtering", "UTMOSFilterStage"),
+    "GetAudioDurationStage": ("nemo_curator.stages.audio.common", "GetAudioDurationStage"),
+    "PreserveByValueStage": ("nemo_curator.stages.audio.common", "PreserveByValueStage"),
+    "MonoConversionStage": ("nemo_curator.stages.audio.preprocessing", "MonoConversionStage"),
+    "SegmentConcatenationStage": ("nemo_curator.stages.audio.preprocessing", "SegmentConcatenationStage"),
+    "SpeakerSeparationStage": ("nemo_curator.stages.audio.segmentation", "SpeakerSeparationStage"),
+    "VADSegmentationStage": ("nemo_curator.stages.audio.segmentation", "VADSegmentationStage"),
+    "TimestampMapperStage": ("nemo_curator.stages.audio.postprocessing", "TimestampMapperStage"),
+}
+
+
+def __getattr__(name: str):
+    if name in _LAZY_IMPORTS:
+        module_path, attr = _LAZY_IMPORTS[name]
+        module = _importlib.import_module(module_path)
+        return getattr(module, attr)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
