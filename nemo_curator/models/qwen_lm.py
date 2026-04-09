@@ -47,10 +47,10 @@ class QwenLM(ModelInterface):
 
     def __init__(  # noqa: PLR0913
         self,
-        model_dir: str,
-        caption_batch_size: int,
-        fp8: bool,
-        max_output_tokens: int,
+        model_dir: str = "",
+        caption_batch_size: int = 1,
+        fp8: bool = False,
+        max_output_tokens: int = 512,
         model_id: str = "Qwen/Qwen3-14B",
         model_revision: str = "8268fe3",
         **vllm_kwargs,
