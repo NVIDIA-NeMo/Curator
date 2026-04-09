@@ -93,21 +93,25 @@ RUN if [ -n "${CURATOR_EXTRA}" ]; then \
 
 # Patch wandb-core: bump google.golang.org/grpc from 1.79.2 to 1.79.3 (CVE fix)
 ARG TARGETARCH
-RUN GRPC_VERSION=1.79.3 && \
-    GO_VERSION=1.26.1 && \
-    WANDB_VERSION=$(python3 -c "import wandb; print(wandb.__version__)") && \
-    WANDB_CORE_BIN=/opt/venv/lib/python3.12/site-packages/wandb/bin/wandb-core && \
-    curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /tmp -xz && \
-    export PATH="/tmp/go/bin:$PATH" && \
-    export GOPATH=/tmp/gopath && \
-    git clone --depth 1 --branch "v${WANDB_VERSION}" https://github.com/wandb/wandb.git /tmp/wandb-src && \
-    cd /tmp/wandb-src/core && \
-    go get google.golang.org/grpc@v${GRPC_VERSION} && \
-    go mod tidy && \
-    go mod vendor && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" \
-        -o "${WANDB_CORE_BIN}" ./cmd/wandb-core/ && \
-    rm -rf /tmp/wandb-src /tmp/go /tmp/gopath
+RUN if python3 -c "import wandb" 2>/dev/null; then \
+        GRPC_VERSION=1.79.3 && \
+        GO_VERSION=1.26.1 && \
+        WANDB_VERSION=$(python3 -c "import wandb; print(wandb.__version__)") && \
+        WANDB_CORE_BIN=/opt/venv/lib/python3.12/site-packages/wandb/bin/wandb-core && \
+        curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /tmp -xz && \
+        export PATH="/tmp/go/bin:$PATH" && \
+        export GOPATH=/tmp/gopath && \
+        git clone --depth 1 --branch "v${WANDB_VERSION}" https://github.com/wandb/wandb.git /tmp/wandb-src && \
+        cd /tmp/wandb-src/core && \
+        go get google.golang.org/grpc@v${GRPC_VERSION} && \
+        go mod tidy && \
+        go mod vendor && \
+        CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" \
+            -o "${WANDB_CORE_BIN}" ./cmd/wandb-core/ && \
+        rm -rf /tmp/wandb-src /tmp/go /tmp/gopath; \
+    else \
+        echo "wandb not installed, skipping CVE patch"; \
+    fi
 
 COPY . /opt/Curator
 
