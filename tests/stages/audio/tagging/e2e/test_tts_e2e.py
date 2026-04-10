@@ -55,10 +55,13 @@ def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     cfg.stages[4].is_fastconformer = True
     cfg.stages[4].decoder_type = "ctc"
     cfg.stages[4].transcribe_batch_size = 1
-    cfg.stages[4].num_workers = 0
 
     pipeline = create_pipeline_from_yaml(cfg)
-    executor = XennaExecutor({"cpu_allocation_percentage": 0.55})
+    executor = XennaExecutor(
+        {
+            "execution_mode": "batch",
+        }
+    )
     pipeline.run(executor)
 
     check_output(cfg.final_manifest, reference_manifest, text_key="text")

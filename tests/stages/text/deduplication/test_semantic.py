@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -24,10 +23,7 @@ from huggingface_hub import snapshot_download
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline.workflow import WorkflowRunResult
-
-# Suppress GPU-related import errors when running pytest -m "not gpu"
-with suppress(ImportError):
-    from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
+from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
 
 MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
 

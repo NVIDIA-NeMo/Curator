@@ -109,7 +109,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     config._collected_items = items  # Store in config instead of global
 
 
-def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:  # noqa: C901, PLR0912
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:  # noqa: C901, PLR0911, PLR0912
     m_opts = config.invocation_params.args
     m_count = sum(arg == "-m" for arg in m_opts)
 
@@ -121,6 +121,16 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
         raise pytest.UsageError(msg)
 
     selected = config.getoption("-m") or ""
+
+    # CPU jobs use -m "not gpu" with text_cpu only; these modules import vLLM / RAPIDS at load time.
+    # Skip collecting them so import never runs (GPU matrix uses -m gpu + text_cuda12 and still collects them).
+    if re.search(r"\bnot\s+gpu\b", selected) and collection_path.is_file() and collection_path.suffix == ".py":
+        path_str = str(collection_path).replace("\\", "/")
+        if "/tests/stages/text/" in path_str or path_str.endswith("/tests/stages/text"):
+            if collection_path.name == "test_vllm.py" and collection_path.parent.name == "embedders":
+                return True
+            if collection_path.name == "test_semantic.py" and collection_path.parent.name == "deduplication":
+                return True
 
     # No -m expression → collect everything
     if selected.strip() == "":

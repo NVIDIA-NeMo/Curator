@@ -12,21 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-import pytest
-
-with suppress(ImportError):
-    from sentence_transformers import SentenceTransformer
-
-    from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
-
 import numpy as np
 import pandas as pd
+import pytest
 import torch
+from sentence_transformers import SentenceTransformer
 
+from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
 from nemo_curator.tasks import DocumentBatch
 
 # Test model that works with both VLLM and SentenceTransformer
