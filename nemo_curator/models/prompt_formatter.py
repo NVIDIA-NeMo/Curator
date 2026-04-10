@@ -104,7 +104,11 @@ class PromptFormatter:
             num_frames = video_np.shape[0]
             video_with_metadata = (
                 video_np,
-                {"fps": fps, "frames_indices": list(range(num_frames))},
+                {
+                    "fps": fps,
+                    "total_num_frames": num_frames,
+                    "frames_indices": list(range(num_frames)),
+                },
             )
 
         return {
