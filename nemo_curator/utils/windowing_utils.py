@@ -174,9 +174,9 @@ def split_video_into_windows(  # noqa: PLR0913
         return mp4_bytes_list, video_frames, windows
 
 
-IMAGE_FACTOR = 28
-MIN_PIXELS = 4 * 28 * 28
-MAX_PIXELS = 16384 * 28 * 28
+IMAGE_FACTOR = 32
+MIN_PIXELS = 4 * 32 * 32
+MAX_PIXELS = 16384 * 32 * 32
 MAX_RATIO = 200
 
 VIDEO_MIN_PIXELS = 128 * 28 * 28
