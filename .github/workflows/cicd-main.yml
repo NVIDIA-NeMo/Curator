@@ -148,6 +148,8 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
+      - name: Verify all GPU tests are in gpu_test_groups.json
+        run: python3 tests/check_gpu_test_coverage.py
       - name: Generate GPU test matrix from config
         id: set-matrix
         run: |
@@ -328,6 +330,7 @@ jobs:
           ls -al coverage-downloads/
           coverage combine --keep $(find coverage-downloads -name '.coverage')
           coverage report -i
+          coverage xml
           rm -rf coverage-downloads
           ls -al
 
@@ -337,6 +340,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
           flags: ${{ matrix.flag }}
+          fail_ci_if_error: true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
