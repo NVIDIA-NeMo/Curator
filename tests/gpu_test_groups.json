@@ -18,5 +18,9 @@
   "sdg": {
     "extras": ["sdg_cuda12"],
     "paths": ["tests/stages/synthetic", "tests/core/test_serve.py"]
+  },
+  "video": {
+    "extras": ["video_cuda12"],
+    "paths": ["tests/stages/video"]
   }
 }
