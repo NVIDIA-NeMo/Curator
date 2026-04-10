@@ -104,10 +104,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         }
 
     def xenna_stage_spec(self) -> dict[str, Any]:
-        return {
-            "num_workers": 1,
-            "num_workers_per_node": 1,
-        }
+        return {"num_workers": 1}
 
     def process(self, _: _EmptyTask) -> list[FileGroupTask]:
         """Process the initial task to create file group tasks.
