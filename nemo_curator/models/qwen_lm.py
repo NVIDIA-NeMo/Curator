@@ -98,6 +98,14 @@ class QwenLM(ModelInterface):
         results = self.llm.generate(formatted_inputs, sampling_params=self.sampling_params)
         return [result.outputs[0].text for result in results]
 
+    @property
+    def model_id(self) -> str:
+        return self.model_id
+    
+    @property
+    def model_revision(self) -> str:
+        return self.model_revision
+
     @classmethod
     def download_weights_on_node(cls, model_dir: str) -> None:
         """Download the weights for the QwenLM model on the node."""

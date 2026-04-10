@@ -85,6 +85,14 @@ class QwenVL(ModelInterface):
     @property
     def model_id_names(self) -> list[str]:
         return [self.model_id]
+    
+    @property
+    def model_id(self) -> str:
+        return self.model_id
+    
+    @property
+    def model_revision(self) -> str:
+        return self.model_revision
 
     def setup(self) -> None:
         if not VLLM_AVAILABLE:
