@@ -27,13 +27,18 @@ from nemo_curator.tasks import AudioTask
 
 @dataclass
 class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
-    """Audio inference using Qwen3-Omni via vLLM (thinker-only).
+    """Audio inference using Qwen3-Omni via in-process vLLM (thinker-only).
 
-    Loads ``Qwen/Qwen3-Omni-30B-A3B-Instruct`` (or a custom model id)
-    through vLLM with ``Qwen3OmniMoeProcessor`` for prompt formatting
-    and ``qwen_omni_utils.process_mm_info`` for multimodal input
-    preparation — the same path used by the standalone
-    ``infer_granary.py`` script.
+    Expects each ``AudioTask.data`` to carry:
+
+    - ``waveform``: 1-D mono numpy float32 array (any sample rate)
+    - ``sample_rate``: int
+
+    These are produced by ``NemoTarShardReaderStage`` which decodes audio
+    in memory from NeMo tarred datasets via lhotse/soundfile.
+
+    The stage resamples to 16 kHz internally and passes numpy arrays
+    directly to ``qwen_omni_utils`` — no temporary files are created.
 
     Overrides ``process_batch`` for batched GPU inference with
     thread-pool-parallel preprocessing.
@@ -42,8 +47,8 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         model_id: HuggingFace model identifier.
         prompt_text: User prompt sent alongside the audio.
         system_prompt: Optional system prompt.
-        filepath_key: Key in the ``AudioTask.data`` dict pointing to the
-            audio file path.
+        waveform_key: Key in ``AudioTask.data`` for the waveform array.
+        sample_rate_key: Key in ``AudioTask.data`` for the sample rate.
         pred_text_key: Key where the predicted text is stored.
         max_model_len: Maximum context length passed to vLLM.
         max_num_seqs: Maximum concurrent sequences in vLLM.
@@ -60,7 +65,8 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     model_id: str = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
     prompt_text: str = "Transcribe the audio."
     system_prompt: str | None = None
-    filepath_key: str = "audio_filepath"
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sample_rate"
     pred_text_key: str = "pred_text"
     max_model_len: int = 32768
     max_num_seqs: int = 32
@@ -117,15 +123,20 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
             self._model = self._create_model()
             self._model.setup()
 
+    def teardown(self) -> None:
+        if self._model is not None:
+            self._model.teardown()
+            self._model = None
+
     # ------------------------------------------------------------------
     # I/O contract
     # ------------------------------------------------------------------
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.filepath_key]
+        return [], [self.waveform_key, self.sample_rate_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.filepath_key, self.pred_text_key]
+        return [], [self.pred_text_key]
 
     # ------------------------------------------------------------------
     # Processing
@@ -143,16 +154,16 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "Model not initialized — setup() was not called"
             raise RuntimeError(msg)
 
-        for task in tasks:
-            if not self.validate_input(task):
-                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
-                raise ValueError(msg)
+        waveforms = [t.data[self.waveform_key] for t in tasks]
+        sample_rates = [t.data[self.sample_rate_key] for t in tasks]
 
-        audio_paths = [t.data[self.filepath_key] for t in tasks]
-        texts = self._model.generate(audio_paths)
+        texts = self._model.generate(waveforms, sample_rates)
 
         for task, text in zip(tasks, texts, strict=True):
             task.data[self.pred_text_key] = text
+            # Drop waveform from output to free memory — downstream stages
+            # only need the predicted text and manifest metadata.
+            task.data.pop(self.waveform_key, None)
 
         logger.info("QwenOmni: generated %d predictions", len(texts))
         return tasks
