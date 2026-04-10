@@ -176,7 +176,7 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return {"is_fanout_stage": True}
 
     def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers_per_node": 1}
+        return {"num_workers": 1, "num_workers_per_node": 1}
 
 
 @dataclass

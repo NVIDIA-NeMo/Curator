@@ -22,8 +22,16 @@ for extra in $GPU_TEST_EXTRAS; do
   EXTRA_FLAGS="$EXTRA_FLAGS --extra $extra"
 done
 
-uv sync --link-mode copy --locked $EXTRA_FLAGS --group test
+# The Docker image is built with `uv sync --extra all`. A plain sync for a subset extra would
+# uninstall packages not in that extra's dependency closure and can break GPU text/vllm/ray tests.
+uv sync --link-mode copy --locked $EXTRA_FLAGS --group test --inexact
 
 export CUSTOM_HF_DATASET=/home/TestData/HF_HOME
+
+# Same stability knobs as CPU coverage (native stacks + tracing); GPU image uses Python 3.12.
+export COVERAGE_CORE=sysmon
+export TOKENIZERS_PARALLELISM=false
+export MALLOC_ARENA_MAX=2
+export PYTHONFAULTHANDLER=1
 
 CUDA_VISIBLE_DEVICES="0,1" coverage run -a --source=nemo_curator -m pytest -m gpu $GPU_TEST_PATHS

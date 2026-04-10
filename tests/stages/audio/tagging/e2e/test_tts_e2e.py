@@ -56,7 +56,8 @@ def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     cfg.stages[4].decoder_type = "ctc"
 
     pipeline = create_pipeline_from_yaml(cfg)
-    executor = XennaExecutor()
+    # Leave RAM headroom on ~16GB CI nodes (coverage + Ray + NeMo + PyAnnote).
+    executor = XennaExecutor({"cpu_allocation_percentage": 0.82})
     pipeline.run(executor)
 
     check_output(cfg.final_manifest, reference_manifest, text_key="text")

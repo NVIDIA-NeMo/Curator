@@ -24,6 +24,10 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+# Under pytest+coverage, the parent process holds several GB; Ray's default 0.95 RAM threshold
+# can kill Xenna workers during setup. Allow slightly more headroom unless already overridden.
+os.environ.setdefault("RAY_memory_usage_threshold", "0.98")
+
 import pytest
 import ray
 from loguru import logger

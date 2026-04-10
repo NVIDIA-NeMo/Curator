@@ -85,6 +85,8 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         embedding_batch_size: Batch size for speaker embeddings
         min_length: Minimum segment length in seconds
         max_length: Maximum segment length in seconds
+        xenna_num_workers: If set, caps total Xenna/Ray workers for this stage (cluster-wide).
+        xenna_num_workers_per_node: If set, caps workers per node. Omitted keys use Xenna defaults (autoscaling).
     """
 
     hf_token: str
@@ -108,6 +110,10 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "PyAnnoteDiarization"
     resources: Resources = field(default_factory=lambda: Resources(gpus=1))
 
+    # Xenna executor (optional; unset = default autoscaling)
+    xenna_num_workers: int | None = None
+    xenna_num_workers_per_node: int | None = None
+
     # Internal state (not serialized, initialized in setup() to allow deepcopy)
     _pipeline: Any = field(default=None, repr=False)
     _vad_model: Any = field(default=None, repr=False)  # WhisperXVADModel
@@ -118,6 +124,14 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, self.segments_key, self.overlap_segments_key]
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        spec: dict[str, Any] = {}
+        if self.xenna_num_workers is not None:
+            spec["num_workers"] = self.xenna_num_workers
+        if self.xenna_num_workers_per_node is not None:
+            spec["num_workers_per_node"] = self.xenna_num_workers_per_node
+        return spec
 
     @property
     def _device(self) -> str:
