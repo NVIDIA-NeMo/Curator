@@ -144,6 +144,13 @@ jobs:
   cicd-gpu-test-matrix:
     needs: [pre-flight, cicd-wait-in-queue]
     runs-on: ubuntu-latest
+    if: |
+      (
+        success()
+        || needs.pre-flight.outputs.is_ci_workload == 'true'
+        || needs.pre-flight.outputs.force_run_all == 'true'
+      )
+      && !cancelled()
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
