@@ -88,27 +88,27 @@ class RayDataStageAdapter(BaseStageAdapter):
 
         if is_actor_stage_:
             map_batches_fn = create_actor_from_stage(self.stage)
-            concurrency_kwargs = {
-                "concurrency": calculate_concurrency_for_actors_for_stage(
+            map_batches_kwargs = {
+                "compute": calculate_concurrency_for_actors_for_stage(
                     self.stage, ignore_head_node=ignore_head_node
                 ),
             }
         else:
             map_batches_fn = create_task_from_stage(self.stage)
-            concurrency_kwargs = {"concurrency": None}
+            map_batches_kwargs = {}
             max_calls = self.stage.ray_stage_spec().get(RayStageSpecKeys.MAX_CALLS_PER_WORKER, None)
             if max_calls is not None:
-                concurrency_kwargs["max_calls"] = max_calls
+                map_batches_kwargs["max_calls"] = max_calls
 
         if self.stage.resources.cpus > 0:
-            concurrency_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
+            map_batches_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
         if self.stage.resources.gpus > 0:
-            concurrency_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
+            map_batches_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
 
         # Calculate concurrency based on available resources
-        logger.info(f"{self.stage.__class__.__name__} {is_actor_stage_=} with {concurrency_kwargs=}")
+        logger.info(f"{self.stage.__class__.__name__} {is_actor_stage_=} with {map_batches_kwargs=}")
 
-        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **concurrency_kwargs)  # type: ignore[reportArgumentType]
+        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **map_batches_kwargs)  # type: ignore[reportArgumentType]
 
         if self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
             processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
