@@ -22,7 +22,7 @@ from nemo_curator.models.nemotron_h_vl import _NEMOTRON_VARIANTS_INFO
 
 # Mapping of variants to their HuggingFace model IDs
 VARIANT_MAPPING: dict[str, str] = {
-    "qwen": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "qwen": "Qwen/Qwen3-VL-8B-Instruct",
     **_NEMOTRON_VARIANTS_INFO,
 }
 
@@ -74,7 +74,7 @@ class PromptFormatter:
 
         """
         if self.prompt_variant == "qwen":
-            return self._generate_qwen_inputs(prompt, video_inputs, override_text_prompt)
+            return self._generate_qwen_inputs(prompt, video_inputs, override_text_prompt, fps)
 
         if self.prompt_variant.startswith("nemotron"):
             return self._generate_nemotron_inputs(prompt, video_inputs, fps)
@@ -85,8 +85,9 @@ class PromptFormatter:
     def _generate_qwen_inputs(
         self,
         prompt: str,
-        video_inputs: torch.Tensor | None,
+        video_inputs: torch.Tensor | np.ndarray | None,
         override_text_prompt: bool,
+        fps: float,
     ) -> dict[str, Any]:
         """Generate inputs for Qwen models."""
         message = self._create_qwen_message(prompt)
@@ -96,9 +97,19 @@ class PromptFormatter:
                 tokenize=False,
                 add_generation_prompt=True,
             )
+
+        video_with_metadata = None
+        if video_inputs is not None:
+            video_np = self._convert_to_numpy(video_inputs)
+            num_frames = video_np.shape[0]
+            video_with_metadata = (
+                video_np,
+                {"fps": fps, "frames_indices": list(range(num_frames))},
+            )
+
         return {
             "prompt": self.text_prompt,
-            "multi_modal_data": {"video": video_inputs},
+            "multi_modal_data": {"video": video_with_metadata},
         }
 
     def _generate_nemotron_inputs(
