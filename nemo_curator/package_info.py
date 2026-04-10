@@ -31,18 +31,18 @@ if VERSION[3] != "":
 if VERSION[4] != "":
     __version__ = __version__ + "." + ".".join(VERSION[4:])
 
-import os as _os  # noqa: I001
-import subprocess as _subprocess
+import os as _os  # noqa: E402, I001
+import subprocess as _subprocess  # noqa: E402
 
 
 if not int(_os.getenv("NO_VCS_VERSION", "0")):
     try:
         _git = _subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
+            ["git", "rev-parse", "--short", "HEAD"],  # noqa: S607
             capture_output=True,
             cwd=_os.path.dirname(_os.path.abspath(__file__)),
             check=True,
-            universal_newlines=True,
+            text=True,
         )
     except (_subprocess.CalledProcessError, OSError):
         pass
