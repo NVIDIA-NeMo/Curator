@@ -31,7 +31,7 @@ output_dir: ${raw_data_dir}/result
 
 # 'batch' runs stages sequentially (works with any GPU/CPU count)
 # 'streaming' runs stages concurrently (requires enough resources for all stages simultaneously)
-execution_mode: streaming
+execution_mode: batch
 
 max_samples: -1 # set to -1 to process all 14,279 files
 auto_download: true

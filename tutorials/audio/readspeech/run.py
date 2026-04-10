@@ -73,7 +73,7 @@ def main(cfg: DictConfig) -> None:
     if backend == "ray_data":
         executor = RayDataExecutor()
     else:
-        execution_mode = cfg.get("execution_mode", "streaming")
+        execution_mode = cfg.get("execution_mode", "batch")
         executor = XennaExecutor(config={"execution_mode": execution_mode})
     logger.info(f"Starting pipeline execution (mode: {execution_mode})...")
     pipeline.run(executor)
