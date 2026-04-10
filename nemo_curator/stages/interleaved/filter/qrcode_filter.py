@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
+from nemo_curator.stages.interleaved.stages import BaseInterleavedScoreFilterStage
 from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 
 if TYPE_CHECKING:
@@ -62,25 +62,25 @@ def _qr_code_ratio(image: np.ndarray, row_index: Hashable | None = None) -> floa
 
 
 @dataclass
-class InterleavedQRCodeFilterStage(BaseInterleavedFilterStage):
-    """Filter interleaved image rows by QR code area ratio; drop images with high QR coverage."""
+class InterleavedQRCodeFilterStage(BaseInterleavedScoreFilterStage):
+    """Add QR code area ratio per image row as ``{name}_qr_area_ratio`` (``<NA>`` on non-images)."""
 
     score_threshold: float = DEFAULT_QRCODE_SCORE_THRESHOLD
     name: str = "interleaved_qrcode_filter"
 
-    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
-        keep_mask = pd.Series(True, index=df.index, dtype=bool)
+    def _qr_ratio_series(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+        ratios = pd.Series(pd.NA, index=df.index, dtype="Float64")
         image_mask = df["modality"] == "image"
         if not image_mask.any():
-            return keep_mask
+            return ratios
         for idx, image_bytes in self.iter_materialized_bytes(task=task, df=df, row_mask=image_mask):
             if image_bytes is None:
-                keep_mask.loc[idx] = False
                 continue
             image = image_bytes_to_array(image_bytes, row_index=idx)
             if image is None:
-                keep_mask.loc[idx] = False
                 continue
-            qr_ratio = _qr_code_ratio(image, row_index=idx)
-            keep_mask.loc[idx] = qr_ratio < self.score_threshold
-        return keep_mask
+            ratios.loc[idx] = _qr_code_ratio(image, row_index=idx)
+        return ratios
+
+    def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
+        return {"qr_ratio": self._qr_ratio_series(task, df)}

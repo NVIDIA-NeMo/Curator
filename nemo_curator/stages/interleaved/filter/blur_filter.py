@@ -21,7 +21,7 @@ import cv2
 import pandas as pd
 from loguru import logger
 
-from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
+from nemo_curator.stages.interleaved.stages import BaseInterleavedScoreFilterStage
 from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 
 if TYPE_CHECKING:
@@ -49,25 +49,25 @@ def _sharpness_score(image: np.ndarray, row_index: Hashable | None = None) -> fl
 
 
 @dataclass
-class InterleavedBlurFilterStage(BaseInterleavedFilterStage):
-    """Filter interleaved image rows by sharpness (Laplacian variance); drop blurry images."""
+class InterleavedBlurFilterStage(BaseInterleavedScoreFilterStage):
+    """Add Laplacian sharpness per image row as ``{name}_sharpness`` (``<NA>`` on non-images / failures)."""
 
     score_threshold: float = DEFAULT_BLUR_SCORE_THRESHOLD
     name: str = "interleaved_blur_filter"
 
-    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
-        keep_mask = pd.Series(True, index=df.index, dtype=bool)
+    def _sharpness_series(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+        sharp = pd.Series(pd.NA, index=df.index, dtype="Float64")
         image_mask = df["modality"] == "image"
         if not image_mask.any():
-            return keep_mask
+            return sharp
         for idx, image_bytes in self.iter_materialized_bytes(task=task, df=df, row_mask=image_mask):
             if image_bytes is None:
-                keep_mask.loc[idx] = False
                 continue
             image = image_bytes_to_array(image_bytes, row_index=idx)
             if image is None:
-                keep_mask.loc[idx] = False
                 continue
-            sharpness = _sharpness_score(image, row_index=idx)
-            keep_mask.loc[idx] = sharpness >= self.score_threshold
-        return keep_mask
+            sharp.loc[idx] = _sharpness_score(image, row_index=idx)
+        return sharp
+
+    def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
+        return {"sharpness": self._sharpness_series(task, df)}

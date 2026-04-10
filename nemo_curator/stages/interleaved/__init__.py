@@ -15,7 +15,13 @@
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
     BaseInterleavedFilterStage,
+    BaseInterleavedScoreFilterStage,
     InterleavedAspectRatioFilterStage,
 )
 
-__all__ = ["BaseInterleavedAnnotatorStage", "BaseInterleavedFilterStage", "InterleavedAspectRatioFilterStage"]
+__all__ = [
+    "BaseInterleavedAnnotatorStage",
+    "BaseInterleavedFilterStage",
+    "BaseInterleavedScoreFilterStage",
+    "InterleavedAspectRatioFilterStage",
+]

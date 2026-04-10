@@ -23,6 +23,7 @@ from nemo_curator.stages.interleaved.filter.blur_filter import (
     InterleavedBlurFilterStage,
     _sharpness_score,
 )
+from nemo_curator.stages.interleaved.filter.pass_mask import interleaved_score_pass_mask
 from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 
 from .conftest import interleaved_task, make_jpeg_bytes
@@ -95,6 +96,8 @@ def test_blur_filter_image_with_binary_content_sharp_kept() -> None:
     out = stage.process(task)
     out_frame = out.to_pandas()
     assert len(out_frame) == 1
+    assert "interleaved_blur_filter_sharpness" in out_frame.columns
+    assert out_frame.iloc[0]["interleaved_blur_filter_sharpness"] > 0
 
 
 def test_blur_filter_image_with_binary_content_blurry_dropped() -> None:
@@ -115,7 +118,8 @@ def test_blur_filter_image_with_binary_content_blurry_dropped() -> None:
     stage = InterleavedBlurFilterStage(score_threshold=1e6)
     out = stage.process(task)
     out_frame = out.to_pandas()
-    assert len(out_frame) == 0
+    assert len(out_frame) == 1
+    assert out_frame.iloc[0]["interleaved_blur_filter_sharpness"] < 1e6
 
 
 def test_blur_filter_image_bytes_none_drops_row() -> None:
@@ -147,7 +151,8 @@ def test_blur_filter_image_bytes_none_drops_row() -> None:
         stage = InterleavedBlurFilterStage(score_threshold=0.0)
         out = stage.process(task)
     out_frame = out.to_pandas()
-    assert len(out_frame) == 0
+    assert len(out_frame) == 1
+    assert pd.isna(out_frame.iloc[0]["interleaved_blur_filter_sharpness"])
 
 
 def test_blur_filter_empty_task_unchanged() -> None:
@@ -217,12 +222,13 @@ def test_blur_filter_mixed_images_one_dropped_one_kept() -> None:
     stage = InterleavedBlurFilterStage(score_threshold=100.0)
     out = stage.process(task)
     out_frame = out.to_pandas()
-    assert len(out_frame) == 1
-    assert out_frame.iloc[0]["modality"] == "image"
-    assert out_frame.iloc[0]["position"] == 0
+    assert len(out_frame) == 2
+    sharp = out_frame.set_index("position")["interleaved_blur_filter_sharpness"]
+    assert sharp.loc[0] > 0
+    assert sharp.loc[1] < 100.0
 
 
-def test_blur_filter_invalid_modality_dropped_when_drop_invalid_rows() -> None:
+def test_blur_filter_invalid_modality_fails_pass_mask_when_drop_invalid_rows() -> None:
     jpeg = make_jpeg_bytes(sharp=True)
     rows = [
         {
@@ -247,14 +253,20 @@ def test_blur_filter_invalid_modality_dropped_when_drop_invalid_rows() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedBlurFilterStage(score_threshold=0.0, drop_invalid_rows=True)
+    stage = InterleavedBlurFilterStage(score_threshold=0.0)
     out = stage.process(task)
     out_frame = out.to_pandas()
-    assert len(out_frame) == 1
-    assert out_frame.iloc[0]["modality"] == "image"
+    assert len(out_frame) == 2
+    assert set(out_frame["modality"].tolist()) == {"audio", "image"}
+    assert out_frame[out_frame["modality"] == "image"]["interleaved_blur_filter_sharpness"].iloc[0] > 0
+    df0 = task.to_pandas()
+    km = interleaved_score_pass_mask(stage, task, df0, drop_invalid_rows=True)
+    assert km.sum() == 1
+    assert not bool(km.loc[df0["modality"] == "audio"].iloc[0])
+    assert bool(km.loc[df0["modality"] == "image"].iloc[0])
 
 
-def test_blur_filter_invalid_modality_kept_when_not_drop_invalid_rows() -> None:
+def test_blur_pass_mask_ignores_basic_validity_when_drop_invalid_rows_false() -> None:
     rows = [
         {
             "sample_id": "s1",
@@ -268,7 +280,9 @@ def test_blur_filter_invalid_modality_kept_when_not_drop_invalid_rows() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedBlurFilterStage(score_threshold=100.0, drop_invalid_rows=False)
+    stage = InterleavedBlurFilterStage(score_threshold=100.0)
     out = stage.process(task)
     out_frame = out.to_pandas()
     assert len(out_frame) == 1
+    km = interleaved_score_pass_mask(stage, task, task.to_pandas(), drop_invalid_rows=False)
+    assert km.all()
