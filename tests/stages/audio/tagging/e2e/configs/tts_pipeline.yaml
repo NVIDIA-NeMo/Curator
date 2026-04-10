@@ -38,7 +38,6 @@ stages:
     segmentation_batch_size: 2
     embedding_batch_size: 2
     xenna_num_workers: 1
-    xenna_num_workers_per_node: 1
     resources: ${resources}
 
   # 3. Split long audio segments

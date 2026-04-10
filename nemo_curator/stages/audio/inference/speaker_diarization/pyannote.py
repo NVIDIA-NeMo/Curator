@@ -112,7 +112,6 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Xenna executor (optional; unset = default autoscaling)
     xenna_num_workers: int | None = None
-    xenna_num_workers_per_node: int | None = None
 
     # Internal state (not serialized, initialized in setup() to allow deepcopy)
     _pipeline: Any = field(default=None, repr=False)
@@ -129,8 +128,6 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         spec: dict[str, Any] = {}
         if self.xenna_num_workers is not None:
             spec["num_workers"] = self.xenna_num_workers
-        if self.xenna_num_workers_per_node is not None:
-            spec["num_workers_per_node"] = self.xenna_num_workers_per_node
         return spec
 
     @property
