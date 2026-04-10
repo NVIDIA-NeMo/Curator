@@ -31,16 +31,18 @@ permissions:
   actions: write  # Required for gh run cancel
 
 env:
+  container-registry: nemoci.azurecr.io
   UV_HTTP_TIMEOUT: 60
 
 jobs:
   pre-flight:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v0.69.1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v0.80.1
     with:
       default_runner_prefix: ${{ vars.DEFAULT_RUNNER_PREFIX }}
       non_nvidia_runner_prefix: ${{ vars.NON_NVIDIA_RUNNER_PREFIX }}
       default_test_data_path: ${{ vars.DEFAULT_TEST_DATA_PATH }}
       non_nvidia_test_data_path: ${{ vars.NON_NVIDIA_TEST_DATA_PATH }}
+      sso_users_filename: ${{ vars.SSO_USERS_FILENAME }}
     secrets:
       NVIDIA_MANAGEMENT_ORG_PAT: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
 
@@ -60,12 +62,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        python-version: ["3.10", "3.12"]
-        folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-math_stages", "stages-synthetic", "stages-text", "stages-video", "tasks", "utils"]
+        folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-interleaved", "stages-math_stages", "stages-synthetic", "stages-text", "stages-video", "tasks", "utils"]
     needs: [pre-flight, cicd-wait-in-queue]
-    runs-on: ${{ matrix.os }}
-    name: Unit_Test_${{ matrix.folder}}_CPU_python-${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    name: Unit_Test_${{ matrix.folder }}_CPU
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
     environment: nemo-ci
@@ -77,7 +77,7 @@ jobs:
       )
       && !cancelled()
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Free up disk space on Ubuntu
@@ -86,19 +86,16 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-      - name: Set up uv with Python ${{ matrix.python-version }}
+      - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
-          python-version: ${{ matrix.python-version }}
           enable-cache: false
-      - name: Run tests ${{ matrix.folder }} (CPU)
+      - name: Run CPU tests (Python 3.10)
         timeout-minutes: 40
-        run: |
-          uv sync --link-mode copy --locked --extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu --group test
-          source .venv/bin/activate
-          FOLDER="${{ matrix.folder }}"
-          FOLDER="${FOLDER/stages-/stages/}"
-          coverage run --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu"
+        run: bash tests/L0_Unit_Test_CPU.sh "${{ matrix.folder }}" 3.10
+      - name: Run CPU tests (Python 3.12)
+        timeout-minutes: 40
+        run: bash tests/L0_Unit_Test_CPU.sh "${{ matrix.folder }}" 3.12
 
       - name: Generate report
         id: check
@@ -110,7 +107,7 @@ jobs:
           echo "$coverage_report"
           echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: ${{ steps.check.outputs.coverage_report != 'none' }}
         with:
           name: ${{ steps.check.outputs.coverage_report }}
@@ -119,16 +116,56 @@ jobs:
             ./.coverage
           include-hidden-files: true
 
+  cicd-container-build:
+    needs: [pre-flight, cicd-wait-in-queue]
+    if: |
+      (
+        success()
+        || needs.pre-flight.outputs.is_ci_workload == 'true'
+        || needs.pre-flight.outputs.force_run_all == 'true'
+      )
+      && !cancelled()
+    runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
+    environment: nemo-ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: main
+        uses: ./.github/actions/build-container
+        with:
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          dockerfile-path: "./docker/Dockerfile"
+          has-azure-credentials: "true"
+          PAT: ${{ secrets.PAT }}
+          repo-name: "Curator"
+
+  cicd-gpu-test-matrix:
+    needs: [pre-flight, cicd-wait-in-queue]
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Generate GPU test matrix from config
+        id: set-matrix
+        run: |
+          matrix=$(python3 -c "
+          import json
+          cfg = json.load(open('tests/gpu_test_groups.json'))
+          include = [{'gpu-test-group': g, 'extras': ' '.join(v['extras']), 'test-paths': ' '.join(v['paths'])} for g, v in cfg.items()]
+          print(json.dumps({'include': include}))
+          ")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   cicd-gpu-tests:
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - script: L0_Unit_Test_GPU
-            runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
-    needs: [pre-flight, cicd-wait-in-queue]
-    runs-on: ${{ matrix.runner }}
-    name: ${{ matrix.script }}
+      matrix: ${{ fromJSON(needs.cicd-gpu-test-matrix.outputs.matrix) }}
+    needs: [pre-flight, cicd-wait-in-queue, cicd-container-build, cicd-gpu-test-matrix]
+    runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
+    name: L0_Unit_Test_GPU-${{ matrix.gpu-test-group }}
     environment: nemo-ci
     if: |
       (
@@ -139,13 +176,13 @@ jobs:
       && !cancelled()
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: main
         uses: ./.github/actions/test-template
         with:
-          script: ${{ matrix.script }}
+          script: L0_Unit_Test_GPU
           is_unit_test: "false"
           has-azure-credentials: "true"
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -153,9 +190,12 @@ jobs:
           azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           PAT: ${{ secrets.PAT }}
-          timeout: 20
+          timeout: 40
           test-data-path: ${{ needs.pre-flight.outputs.test_data_path }}
-          runner: ${{ matrix.runner }}
+          runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
+          container-image: ${{ env.container-registry }}/curator:${{ github.sha }}
+          gpu-test-extras: ${{ matrix.extras }}
+          gpu-test-paths: ${{ matrix.test-paths }}
 
   Nemo_CICD_Test:
     needs:
@@ -172,7 +212,7 @@ jobs:
     permissions: write-all
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Get workflow result
         id: result
@@ -194,7 +234,7 @@ jobs:
           # Output the final status
           echo "code=$RESULT" | tee -a $GITHUB_OUTPUT
       - name: Checkout for GH CLI
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Remove label if not cancelled
         if: |
@@ -262,16 +302,18 @@ jobs:
       )
       && !cancelled()
     strategy:
+      fail-fast: false
       matrix:
         flag: [unit-test, e2e]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download coverage reports of current branch
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: coverage-${{ matrix.flag }}-*
+          path: coverage-downloads
 
       - name: Get total coverage of current branch
         shell: bash -x -e -u -o pipefail {0}
@@ -279,10 +321,14 @@ jobs:
         run: |
           pip install coverage[toml]
           ls -al .
-          ls -al coverage-*/
-          coverage combine --keep $(ls coverage-*/.coverage)
+          if ! [ -d coverage-downloads ] || [ -z "$(ls -A coverage-downloads)" ]; then
+            echo "No coverage artifacts found for ${{ matrix.flag }}, skipping."
+            exit 0
+          fi
+          ls -al coverage-downloads/
+          coverage combine --keep $(find coverage-downloads -name '.coverage')
           coverage report -i
-          rm -rf coverage-*
+          rm -rf coverage-downloads
           ls -al
 
       - name: Upload coverage reports to Codecov
@@ -293,7 +339,7 @@ jobs:
           flags: ${{ matrix.flag }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-${{ matrix.flag }}-aggregated
           path: |

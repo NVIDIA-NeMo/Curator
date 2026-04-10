@@ -37,12 +37,13 @@ env:
 
 jobs:
   pre-flight:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v0.69.1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v0.80.1
     with:
       default_runner_prefix: ${{ vars.DEFAULT_RUNNER_PREFIX }}
       non_nvidia_runner_prefix: ${{ vars.NON_NVIDIA_RUNNER_PREFIX }}
       default_test_data_path: ${{ vars.DEFAULT_TEST_DATA_PATH }}
       non_nvidia_test_data_path: ${{ vars.NON_NVIDIA_TEST_DATA_PATH }}
+      sso_users_filename: ${{ vars.SSO_USERS_FILENAME }}
     secrets:
       NVIDIA_MANAGEMENT_ORG_PAT: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
 
@@ -51,7 +52,7 @@ jobs:
     outputs:
       cuda_base_image: ${{ steps.cuda_config.outputs.base_image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Extract CUDA config
@@ -74,7 +75,7 @@ jobs:
       matrix:
         installer: [pip, uv]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -82,7 +83,7 @@ jobs:
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -98,7 +99,7 @@ jobs:
         run: |
           set -o pipefail
           INSTALLER="${{ matrix.installer }}"
-          CPU_EXTRAS=("audio_cpu" "image_cpu" "text_cpu" "video_cpu")
+          CPU_EXTRAS=("audio_cpu" "image_cpu" "sdg_cpu" "text_cpu" "video_cpu")
           RESULTS=""
           FAILED=0
 
@@ -190,7 +191,7 @@ jobs:
 
       - name: Upload status artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cpu-status-${{ matrix.installer }}
           path: cpu-status/
@@ -214,11 +215,11 @@ jobs:
       - name: Install dependencies for setup-python
         run: apt-get update && apt-get install -y --no-install-recommends git curl
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -235,7 +236,7 @@ jobs:
         run: |
           set -o pipefail
           INSTALLER="${{ matrix.installer }}"
-          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12")
+          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "inference_server" "text_cuda12" "inference_server")
           RESULTS=""
           FAILED=0
 
@@ -312,7 +313,7 @@ jobs:
 
       - name: Upload status artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gpu-status-${{ matrix.installer }}
           path: gpu-status/
@@ -340,11 +341,11 @@ jobs:
   #     - name: Install dependencies for setup-python
   #       run: apt-get update && apt-get install -y --no-install-recommends git curl
 
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v6
   #       with:
   #         submodules: recursive
 
-  #     - uses: actions/setup-python@v5
+  #     - uses: actions/setup-python@v6
   #       with:
   #         python-version: "${{ matrix.python-version }}"
 
@@ -412,7 +413,7 @@ jobs:
     runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
     name: "ALL Extras - Install + Import (uv) - Py3.12"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -470,7 +471,7 @@ jobs:
     steps:
       - name: Download CPU status artifacts
         continue-on-error: true  # May not exist if job was skipped
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: cpu-status-*
           merge-multiple: true
@@ -478,7 +479,7 @@ jobs:
 
       - name: Download GPU status artifacts
         continue-on-error: true  # May not exist if job was skipped
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: gpu-status-*
           merge-multiple: true
@@ -517,4 +518,3 @@ jobs:
           else
             echo "❌ Core installation tests failed"; exit 1
           fi
-
