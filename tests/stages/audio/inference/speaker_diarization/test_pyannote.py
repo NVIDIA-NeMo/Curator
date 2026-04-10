@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage, has_overlap
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 hf_token = os.getenv("HF_TOKEN")
@@ -88,7 +89,7 @@ class TestPyAnnoteDiarizationStage:
     @pytest.mark.skipif(not hf_token, reason="HF_TOKEN not set")
     def test_process(self, wav_filepath: Path) -> None:
         """Process a single entry for diarization."""
-        stage = PyAnnoteDiarizationStage(hf_token=hf_token)
+        stage = PyAnnoteDiarizationStage(hf_token=hf_token, resources=Resources())
         stage.setup_on_node()
         stage.setup()
         data_entry = {
@@ -100,8 +101,8 @@ class TestPyAnnoteDiarizationStage:
         result = stage.process(task)
         assert result.data["resampled_audio_filepath"] == str(wav_filepath)
         segments = result.data["segments"]
-        assert len(segments) > 0, "Should produce at least one segment"
-        assert len(segments) < 100, "Sanity check: too many segments suggests an issue"
+        assert len(segments) == 33
+        # assert len(segments) < 100, "Sanity check: too many segments suggests an issue"
         for segment in segments:
             assert "start" in segment, "Segment should have start time"
             assert "end" in segment, "Segment should have end time"

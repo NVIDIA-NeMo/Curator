@@ -35,6 +35,8 @@ stages:
     name: "PyAnnoteDiarization"
     hf_token: ${hf_token}
     max_length: ${max_segment_length}
+    segmentation_batch_size: 16
+    embedding_batch_size: 16
     resources: ${resources}
 
   # 3. Split long audio segments
@@ -49,7 +51,9 @@ stages:
     name: "ASRAlignment"
     is_fastconformer: true
     decoder_type: ctc
-    batch_size: 32
+    batch_size: 2
+    transcribe_batch_size: 2
+    num_workers: 1
     resources: ${resources}
 
   # 5. Join split audio metadata

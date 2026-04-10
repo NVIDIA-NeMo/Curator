@@ -53,7 +53,7 @@ source .venv/bin/activate
   brew install ffmpeg sox
   ```
 - **GPU**: Required for diarization (PyAnnote), VAD (Pyannote), ASR alignment (NeMo)
-- **HuggingFace Token**: Required for PyAnnote model access. Request access at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1), [pyannote/voice-activity-detection](https://huggingface.co/pyannote/voice-activity-detection)
+- **HuggingFace Token**: Required for PyAnnote model access. Request access at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1), [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0), [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1), [pyannote/voice-activity-detection](https://huggingface.co/pyannote/voice-activity-detection)
 
 ## Quick Start
 
