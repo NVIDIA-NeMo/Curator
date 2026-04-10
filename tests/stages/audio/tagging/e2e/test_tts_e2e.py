@@ -60,6 +60,7 @@ def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     executor = XennaExecutor(
         {
             "execution_mode": "batch",
+            "cpu_allocation_percentage": 0.8,
         }
     )
     pipeline.run(executor)

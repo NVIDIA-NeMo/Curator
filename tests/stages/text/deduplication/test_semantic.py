@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -20,12 +21,13 @@ import pandas as pd
 import pytest
 from huggingface_hub import snapshot_download
 
-from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline.workflow import WorkflowRunResult
-from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
 
-MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -33,13 +35,13 @@ def ensure_semantic_model_downloaded() -> None:
     """Pre-download the model once per session to avoid rate limiting in CI."""
     try:
         snapshot_download(
-            repo_id=MODEL_ID,
+            repo_id="sentence-transformers/all-MiniLM-L6-v2",
             cache_dir=None,
             token=None,
             local_files_only=False,
         )
     except Exception as e:  # noqa: BLE001
-        msg = f"Failed to download {MODEL_ID} due to {e}"
+        msg = f"Failed to download sentence-transformers/all-MiniLM-L6-v2 due to {e}"
         pytest.skip(msg)
 
 
@@ -116,8 +118,7 @@ class TestTextSemanticDeduplicationWorkflow:
             output_path=str(request.cls.output_dir),
             cache_path=str(request.cls.cache_dir),
             perform_removal=True,
-            model_identifier=MODEL_ID,
-            embedding_vllm_init_kwargs={"enforce_eager": True},
+            model_identifier="sentence-transformers/all-MiniLM-L6-v2",
             n_clusters=3,  # Use fewer clusters to group similar documents
             eps=0.1,  # Set epsilon to identify duplicates
             which_to_keep="hard",  # Keep harder examples (less similar to others)

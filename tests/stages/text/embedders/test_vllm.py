@@ -12,16 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+with suppress(ImportError):
+    from sentence_transformers import SentenceTransformer
+
+    from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
+
 import numpy as np
 import pandas as pd
-import pytest
 import torch
-from sentence_transformers import SentenceTransformer
 
-from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
 from nemo_curator.tasks import DocumentBatch
 
 # Test model that works with both VLLM and SentenceTransformer
@@ -38,8 +43,8 @@ def sample_data() -> DocumentBatch:
 
 @pytest.fixture(scope="module")
 def reference_model() -> "SentenceTransformer":
-    """Load reference on CPU so this test does not hold two full models on one GPU."""
-    return SentenceTransformer(TEST_MODEL)
+    """Load SentenceTransformer model once for the module."""
+    return SentenceTransformer(TEST_MODEL).to("cuda")
 
 
 @pytest.mark.gpu
@@ -107,16 +112,13 @@ class TestVLLMEmbeddingModelStage:
             cache_dir: str | None = None,
             token: str | None = None,
             local_files_only: bool | None = None,
-        ) -> str:
-            captured.setdefault("snapshot_download_calls", []).append(
-                {
-                    "model_identifier": model_identifier,
-                    "cache_dir": cache_dir,
-                    "token": token,
-                    "local_files_only": local_files_only,
-                }
-            )
-            return f"/resolved/snapshots/{model_identifier}"
+        ) -> None:
+            captured["snapshot_download"] = {
+                "model_identifier": model_identifier,
+                "cache_dir": cache_dir,
+                "token": token,
+                "local_files_only": local_files_only,
+            }
 
         class _FakeLLM:
             def __init__(self, model: str, **kwargs: Any) -> None:  # noqa: ANN401
@@ -129,14 +131,11 @@ class TestVLLMEmbeddingModelStage:
 
         stage.setup_on_node()
 
-        # setup_on_node calls snapshot_download(local_files_only=False) to download
-        download_call = captured["snapshot_download_calls"][0]
-        assert download_call["cache_dir"] == str(cache_dir)
-        assert download_call["token"] == hf_token
-        assert download_call["local_files_only"] is False
+        assert captured["snapshot_download"]["cache_dir"] == str(cache_dir)
+        assert captured["snapshot_download"]["token"] == hf_token
+        assert captured["snapshot_download"]["local_files_only"] is False
 
-        # vLLM receives the resolved snapshot path (not the repo ID)
-        assert captured["llm"]["model"] == f"/resolved/snapshots/{TEST_MODEL}"
+        assert captured["llm"]["model"] == TEST_MODEL
         assert captured["llm"]["kwargs"]["download_dir"] == str(cache_dir)
 
     @pytest.mark.parametrize("pretokenize", [True, False])
@@ -150,28 +149,22 @@ class TestVLLMEmbeddingModelStage:
             verbose=False,
         )
         try:
-            try:
-                vllm_stage.setup_on_node()
-            except Exception:  # noqa: BLE001
-                pytest.skip("Skipping test due to model download failure")
-            vllm_stage.setup()
-            result = vllm_stage.process(sample_data)
+            vllm_stage.setup_on_node()
+        except Exception:  # noqa: BLE001
+            pytest.skip("Skipping test due to model download failure")
+        vllm_stage.setup()
+        result = vllm_stage.process(sample_data)
 
-            assert isinstance(result, DocumentBatch)
-            result_df = result.to_pandas()
-            assert "embeddings" in result_df.columns
-            assert len(result_df) == 3
+        assert isinstance(result, DocumentBatch)
+        result_df = result.to_pandas()
+        assert "embeddings" in result_df.columns
+        assert len(result_df) == 3
 
-            reference_embeddings = reference_model.encode(sample_data.to_pandas()["text"].tolist())
-            vllm_embeddings = np.array(result_df["embeddings"].tolist())
+        reference_embeddings = reference_model.encode(sample_data.to_pandas()["text"].tolist())
+        vllm_embeddings = np.array(result_df["embeddings"].tolist())
 
-            vllm_embeddings_torch = torch.tensor(vllm_embeddings)
-            reference_embeddings_torch = torch.tensor(reference_embeddings)
+        vllm_embeddings_torch = torch.tensor(vllm_embeddings)
+        reference_embeddings_torch = torch.tensor(reference_embeddings)
 
-            cosine_sim = torch.nn.functional.cosine_similarity(
-                vllm_embeddings_torch, reference_embeddings_torch, dim=1
-            )
-            # vLLM pooling/kernels differ from SentenceTransformers; require strong alignment, not bit-identical.
-            assert torch.all(cosine_sim >= 0.999), f"per-row cosine vs reference too low: {cosine_sim}"
-        finally:
-            vllm_stage.teardown()
+        cosine_sim = torch.nn.functional.cosine_similarity(vllm_embeddings_torch, reference_embeddings_torch, dim=1)
+        assert torch.allclose(cosine_sim, torch.ones_like(cosine_sim), atol=1e-5)
