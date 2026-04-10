@@ -149,7 +149,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Verify all GPU tests are in gpu_test_groups.json
-        run: python3 tests/check_gpu_test_coverage.py
+        run: python3 .github/scripts/check_gpu_test_coverage.py
       - name: Generate GPU test matrix from config
         id: set-matrix
         run: |
