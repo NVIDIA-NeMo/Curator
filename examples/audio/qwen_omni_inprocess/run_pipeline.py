@@ -18,16 +18,17 @@ Runs Qwen3-Omni-30B-A3B-Instruct directly inside the Curator pipeline
 (no external HTTP server). Each GPU worker loads its own vLLM engine
 for maximum throughput with zero network overhead.
 
+Audio is read from NeMo-tarred datasets via lhotse/soundfile and
+decoded entirely in memory — no temporary files are written to disk.
+
 Architecture:
     NemoTarredAudioReader (CPU, parallel)
-        → streams NeMo-tarred shards from S3/local
+        → streams NeMo-tarred shards from S3/local via lhotse
+        → decodes audio in memory, emits AudioTask with waveform arrays
     InferenceQwenOmniStage (GPU, TP=2 → 4 workers on 8 GPUs)
-        → batched vLLM inference with thread-parallel preprocessing
+        → resamples to 16 kHz, batched vLLM inference
     ALMManifestWriterStage (CPU, single)
         → writes JSONL output
-
-Performance (8x H100, YODAS dataset):
-    ~493x realtime with max_num_seqs=16, gpu_memory_utilization=0.95
 
 Usage:
     python run_pipeline.py \\
@@ -66,8 +67,6 @@ def main():
     ap.add_argument("--data_config", type=str, required=True, help="Granary YAML data config.")
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
     ap.add_argument("--output", type=str, required=True, help="Output JSONL path.")
-    ap.add_argument("--audio_cache_dir", type=str, default=None,
-                    help="Shared dir for extracted audio. Defaults to $TMPDIR/nemo_tar_audio_cache.")
     ap.add_argument("--model_id", type=str, default="Qwen/Qwen3-Omni-30B-A3B-Instruct")
     ap.add_argument("--prompt", type=str, default="Transcribe the audio.")
     ap.add_argument("--prompt_file", type=str, default=None, help="Read prompt from file.")
@@ -97,17 +96,12 @@ def main():
         else:
             system_prompt = args.system_prompt
 
-    audio_cache_dir = args.audio_cache_dir or os.path.join(
-        os.environ.get("TMPDIR", "/tmp"), "nemo_tar_audio_cache"
-    )
-
     pipeline = Pipeline(
         name="qwen_omni_inference",
         stages=[
             NemoTarredAudioReader(
                 yaml_path=args.data_config,
                 corpus_filter=args.corpus,
-                audio_cache_dir=audio_cache_dir,
                 s3_endpoint_url=args.s3_endpoint_url,
             ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=4.0)}}),
             InferenceQwenOmniStage(

@@ -14,9 +14,11 @@
 
 from __future__ import annotations
 
+import gc
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+import numpy as np
 from loguru import logger
 
 from nemo_curator.models.base import ModelInterface
@@ -37,15 +39,18 @@ except ImportError:
 
 
 _QWEN3_OMNI_MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+_QWEN_SAMPLE_RATE = 16000
 
 
 class QwenOmni(ModelInterface):
     """Qwen3-Omni multimodal model via vLLM for audio-conditioned text generation.
 
     Uses the *thinker-only* path: audio waveforms go in, text comes out.
-    Input preparation mirrors ``qwen_omni_utils.process_mm_info`` and
-    ``Qwen3OmniMoeProcessor.apply_chat_template`` from the reference
-    inference script.
+
+    Audio is accepted as in-memory numpy arrays (mono, any sample rate).
+    Arrays are resampled to 16 kHz before being passed to
+    ``qwen_omni_utils.process_mm_info`` which natively accepts
+    ``np.ndarray`` inputs — no temporary files are created.
     """
 
     def __init__(  # noqa: PLR0913
@@ -124,11 +129,37 @@ class QwenOmni(ModelInterface):
 
         logger.info("QwenOmni model loaded")
 
+    def teardown(self) -> None:
+        if self._prep_pool is not None:
+            self._prep_pool.shutdown(wait=False)
+            self._prep_pool = None
+        del self._llm
+        self._llm = None
+        self._processor = None
+        self._sampling_params = None
+        gc.collect()
+        try:
+            import torch
+
+            torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001
+            pass
+
     # ------------------------------------------------------------------
-    # Input preparation (mirrors infer_granary.py)
+    # Input preparation
     # ------------------------------------------------------------------
 
-    def _build_messages(self, audio_path: str) -> list[dict[str, Any]]:
+    @staticmethod
+    def _resample(waveform: np.ndarray, orig_sr: int, target_sr: int = _QWEN_SAMPLE_RATE) -> np.ndarray:
+        """Resample waveform to target sample rate if needed."""
+        if orig_sr == target_sr:
+            return waveform
+        import librosa
+
+        return librosa.resample(waveform, orig_sr=orig_sr, target_sr=target_sr)
+
+    def _build_messages(self, waveform: np.ndarray) -> list[dict[str, Any]]:
+        """Build chat messages with an in-memory waveform (numpy array at 16 kHz)."""
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
             messages.append({"role": "system", "content": [{"type": "text", "text": self.system_prompt}]})
@@ -136,20 +167,21 @@ class QwenOmni(ModelInterface):
             "role": "user",
             "content": [
                 {"type": "text", "text": self.prompt_text},
-                {"type": "audio", "audio": audio_path},
+                {"type": "audio", "audio": waveform},
             ],
         })
         return messages
 
-    def _prepare_single(self, audio_path: str) -> dict[str, Any] | None:
+    def _prepare_single(self, waveform: np.ndarray, sample_rate: int) -> dict[str, Any] | None:
         from qwen_omni_utils import process_mm_info
 
         try:
-            messages = self._build_messages(audio_path)
+            waveform_16k = self._resample(waveform, sample_rate)
+            messages = self._build_messages(waveform_16k)
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
         except Exception:
-            logger.warning("Failed to preprocess audio file, skipping: %s", audio_path)
+            logger.warning("Failed to preprocess audio, skipping (waveform shape=%s, sr=%d)", waveform.shape, sample_rate)
             return None
 
         inputs: dict[str, Any] = {
@@ -165,40 +197,53 @@ class QwenOmni(ModelInterface):
             inputs["multi_modal_data"]["video"] = videos
         return inputs
 
-    def _prepare_batch(self, audio_paths: list[str]) -> list[dict[str, Any] | None]:
+    def _prepare_batch(
+        self,
+        waveforms: list[np.ndarray],
+        sample_rates: list[int],
+    ) -> list[dict[str, Any] | None]:
         if self._prep_pool is None:
-            return [self._prepare_single(p) for p in audio_paths]
-        return list(self._prep_pool.map(self._prepare_single, audio_paths))
+            return [self._prepare_single(w, sr) for w, sr in zip(waveforms, sample_rates)]
+        return list(self._prep_pool.map(self._prepare_single, waveforms, sample_rates))
 
     # ------------------------------------------------------------------
     # Generation
     # ------------------------------------------------------------------
 
-    def generate(self, audio_paths: list[str]) -> list[str]:
-        """Run batched inference on a list of audio file paths.
+    def generate(
+        self,
+        waveforms: list[np.ndarray],
+        sample_rates: list[int],
+    ) -> list[str]:
+        """Run batched inference on in-memory audio waveforms.
 
-        Returns one predicted text string per input path.
-        Files that fail preprocessing get an empty string.
+        Args:
+            waveforms: List of 1-D mono numpy float32 arrays.
+            sample_rates: Corresponding sample rates for each waveform.
+
+        Returns:
+            One predicted text string per input.  Entries that fail
+            preprocessing get an empty string.
         """
         if self._llm is None or self._sampling_params is None:
             msg = "Model not initialized. Call setup() first."
             raise RuntimeError(msg)
 
-        prepared = self._prepare_batch(audio_paths)
+        prepared = self._prepare_batch(waveforms, sample_rates)
 
         valid_indices = [i for i, p in enumerate(prepared) if p is not None]
         valid_inputs = [prepared[i] for i in valid_indices]
 
         if not valid_inputs:
-            logger.warning("All %d audio files in batch failed preprocessing", len(audio_paths))
-            return ["<PREPROCESSING_ERROR>"] * len(audio_paths)
+            logger.warning("All %d audio samples in batch failed preprocessing", len(waveforms))
+            return [""] * len(waveforms)
 
-        if len(valid_inputs) < len(audio_paths):
-            logger.warning("Skipped %d/%d corrupt audio files", len(audio_paths) - len(valid_inputs), len(audio_paths))
+        if len(valid_inputs) < len(waveforms):
+            logger.warning("Skipped %d/%d corrupt audio samples", len(waveforms) - len(valid_inputs), len(waveforms))
 
         outputs = self._llm.generate(valid_inputs, sampling_params=self._sampling_params, use_tqdm=False)
 
-        results = ["<PREPROCESSING_ERROR>"] * len(audio_paths)
+        results = [""] * len(waveforms)
         for idx, out in zip(valid_indices, outputs):
             results[idx] = out.outputs[0].text.strip()
         return results
