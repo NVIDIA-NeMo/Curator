@@ -25,7 +25,7 @@ GPU_GROUPS_FILE = TESTS_DIR / "gpu_test_groups.json"
 GPU_MARKER = re.compile(r"@pytest\.mark\.gpu|\.gpu\b.*pytest\.mark")
 
 
-def get_gpu_test_files():
+def get_gpu_test_files() -> list[Path]:
     """Find all test files containing @pytest.mark.gpu."""
     gpu_files = []
     for py_file in TESTS_DIR.rglob("*.py"):
@@ -36,7 +36,7 @@ def get_gpu_test_files():
     return sorted(gpu_files)
 
 
-def get_covered_paths():
+def get_covered_paths() -> list[Path]:
     """Load paths from gpu_test_groups.json and resolve them."""
     with open(GPU_GROUPS_FILE) as f:
         groups = json.load(f)
@@ -48,12 +48,12 @@ def get_covered_paths():
     return covered
 
 
-def is_covered(test_file, covered_paths):
+def is_covered(test_file: Path, covered_paths: list[Path]) -> bool:
     """Check if a test file falls under any covered path."""
     return any(test_file == cp or cp in test_file.parents for cp in covered_paths)
 
 
-def main():
+def main() -> int:
     gpu_files = get_gpu_test_files()
     covered_paths = get_covered_paths()
     uncovered = [f for f in gpu_files if not is_covered(f, covered_paths)]
