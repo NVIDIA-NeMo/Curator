@@ -314,8 +314,8 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         return alignments, text
 
     def process(self, task: AudioTask) -> AudioTask:
-        msg = "NeMoASRAlignerStage only supports process_batch"
-        raise NotImplementedError(msg)
+        results = self.process_batch([task])
+        return results[0] if results else task
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Process a batch of AudioTasks for ASR alignment."""

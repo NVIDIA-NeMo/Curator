@@ -12,7 +12,7 @@ hf_token: ""
 sample_rate: 16000
 max_segment_length: 40
 resources:
-  cpus: 1
+  cpus: 2
 
 stages:
   # 0. Read input manifest
