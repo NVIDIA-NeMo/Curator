@@ -85,14 +85,6 @@ class QwenVL(ModelInterface):
     @property
     def model_id_names(self) -> list[str]:
         return [self.model_id]
-    
-    @property
-    def model_id(self) -> str:
-        return self.model_id
-    
-    @property
-    def model_revision(self) -> str:
-        return self.model_revision
 
     def setup(self) -> None:
         if not VLLM_AVAILABLE:
@@ -161,16 +153,20 @@ class QwenVL(ModelInterface):
         return generated_text
 
     @classmethod
-    def download_weights_on_node(cls, model_dir: str) -> None:
+    def download_weights_on_node(
+        cls, model_dir: str, model_id: str | None = None, model_revision: str | None = None
+    ) -> None:
         """Download the weights for the QwenVL model on the node."""
-        model_dir_path = Path(model_dir) / cls.model_id
+        model_id = model_id or cls.DEFAULT_MODEL_ID
+        model_revision = model_revision or cls.DEFAULT_MODEL_REVISION
+        model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
             logger.info(f"QwenVL weights already exist at: {model_dir_path}")
             return
         download_model_from_hf(
-            model_id=cls.model_id,
+            model_id=model_id,
             local_dir=model_dir_path,
-            revision=cls.model_revision,
+            revision=model_revision,
         )
         logger.info(f"QwenVL weights downloaded to: {model_dir_path}")
