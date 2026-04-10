@@ -510,7 +510,10 @@ class TestSlurmRayClientStartBranches:
         monkeypatch.setenv("SLURM_NODEID", "1")
         monkeypatch.delenv("RAY_ADDRESS", raising=False)
 
+        import nemo_curator.core.client as _client
+
         monkeypatch.setattr(SlurmRayClient, "_cleanup_local_ray", lambda _self: None)
+        monkeypatch.setattr(_client.socket, "gethostbyname", lambda _: "10.0.0.1")
         monkeypatch.setattr(SlurmRayClient, "_read_head_port", lambda _self, _jid, **_kw: 6379)
         monkeypatch.setattr(SlurmRayClient, "_run_as_worker", lambda _self, _ip: 0)
 
