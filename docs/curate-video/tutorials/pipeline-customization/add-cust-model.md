@@ -20,9 +20,9 @@ The NeMo Curator container includes a robust set of default models, but you can 
 
 Before you begin adding a custom model, make sure that you have:
 
-* Reviewed the [pipeline concepts and diagrams](about-concepts-video).  
-* A working NeMo Curator development environment.  
-* Optionally prepared a container image that includes your model dependencies.  
+* Reviewed the [pipeline concepts and diagrams](about-concepts-video).
+* A working NeMo Curator development environment.
+* Optionally prepared a container image that includes your model dependencies.
 * Optionally [created a custom environment](video-tutorials-pipeline-cust-env) to support your new custom model.
 
 ---
@@ -131,7 +131,7 @@ The setup method initializes the underlying `MyCore` class that performs the mod
 
 The `model_id_names` property returns a list of weight IDs. These typically correspond to model repository names but do not have to.
 
-If your stage requires a specific environment, manage that in the stage's `resources` (for example, `gpu_memory_gb`, `entire_gpu`, or `gpus`) and container image, rather than on the model. GPU allocation is managed at the stage level using `Resources`, not on the model.
+If your stage requires a specific environment, manage that in the stage's `resources` (for example, `gpu_memory_gb` or `gpus`) and container image, rather than on the model. GPU allocation is managed at the stage level using `Resources`, not on the model.
 
 ### Manage model weights
 

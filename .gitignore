@@ -157,3 +157,11 @@ data/
 .DS_Store
 AGENTS.md
 alm_output/
+benchmark_results/
+
+# Fern: generated API reference from `libraries` in docs.yml (`fern docs md generate`).
+# Regenerated in CI (fern-docs-ci.yml, publish-fern-docs.yml); do not commit.
+fern/product-docs/
+
+# PDF parsing data (symlinked to external storage)
+pdf_parsing/
