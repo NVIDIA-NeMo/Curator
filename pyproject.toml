@@ -321,7 +321,7 @@ nixl = { index = "pypi" }
 nixl-cu12 = { index = "pypi" }
 
 [tool.coverage.paths]
-source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]
+source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curator/Curator/nemo_curator"]
 
 [tool.ruff]
 line-length = 119

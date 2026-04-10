@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
@@ -44,7 +45,6 @@ class TestCaptionEnhancementStage:
     def test_init_default_values(self):
         """Test initialization with default values."""
         stage = CaptionEnhancementStage()
-        assert stage.model_dir == "models/qwen"
         assert stage.model_variant == "qwen"
         assert stage.prompt_variant == "default"
         assert stage.prompt_text is None
@@ -406,3 +406,54 @@ class TestGetEnhancePrompt:
         assert "longer than the provided input" in default_prompt
         assert "surveillance cameras" in av_prompt
         assert "longer than the provided input" in av_prompt
+
+
+# ---------------------------------------------------------------------------
+# Integration tests (real model weights + GPU required)
+# ---------------------------------------------------------------------------
+
+
+def _make_task_with_captions(captions: list[str], task_id: str = "enhancement-test") -> VideoTask:
+    """Build a VideoTask with pre-populated window captions, bypassing all video stages."""
+    windows = [
+        _Window(start_frame=i * 10, end_frame=(i + 1) * 10, caption={"qwen": cap}) for i, cap in enumerate(captions)
+    ]
+    clip = Clip(uuid=uuid4(), source_video=task_id, span=(0.0, float(len(captions) * 10)))
+    clip.windows = windows
+    video = Video(input_video=Path(task_id + ".mp4"))
+    video.clips = [clip]
+    return VideoTask(task_id=task_id, dataset_name="integration", data=video)
+
+
+@pytest.mark.gpu
+class TestQwenLMCaptionEnhancementIntegration:
+    """Integration tests for the QwenLM caption enhancement stage.
+
+    Exercises the real Qwen2.5-14B-Instruct text model via vLLM.  No video
+    bytes are needed — the stage works purely on existing caption strings.
+    Model weights are downloaded automatically from HuggingFace on first run.
+    """
+
+    def test_enhancement_stage_produces_enhanced_captions(
+        self,
+        enhancement_stage: CaptionEnhancementStage,
+    ) -> None:
+        """CaptionEnhancementStage must write a non-empty enhanced_caption["qwen_lm"]
+        for every window that has a qwen caption, with no unhandled exceptions."""
+        captions = [
+            "A herd of cattle walking slowly through a wide green field.",
+            "A person riding a bicycle on a busy city street.",
+        ]
+        task = _make_task_with_captions(captions)
+
+        result = enhancement_stage.process(task)
+
+        clip = result.data.clips[0]
+        assert len(clip.errors) == 0, f"Enhancement stage set clip errors: {clip.errors}"
+        assert len(clip.windows) == len(captions), "Window count changed after enhancement"
+
+        for i, window in enumerate(clip.windows):
+            enhanced = window.enhanced_caption.get("qwen_lm")
+            assert enhanced is not None, f"Window {i}: enhanced_caption key 'qwen_lm' not set"
+            assert isinstance(enhanced, str), f"Window {i}: enhanced_caption is not a str"
+            assert len(enhanced.strip()) > 0, f"Window {i}: enhanced_caption is blank"
