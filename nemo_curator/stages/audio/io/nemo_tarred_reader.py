@@ -15,8 +15,9 @@
 """Reader for NeMo-style tarred audio datasets (e.g. Granary YAML configs).
 
 Decomposes into a shard-discovery stage that parses the YAML config and a
-shard-reader stage that streams each tar (local or S3/AIS), extracts audio
-to a shared cache directory, and emits one ``AudioTask`` per utterance.
+shard-reader stage that streams each tar (local or S3/AIS), decodes audio
+in memory via lhotse/soundfile, and emits one ``AudioTask`` per utterance
+with the waveform as a numpy array — no files are written to disk.
 """
 
 from __future__ import annotations
@@ -26,8 +27,11 @@ import os
 import re
 import tarfile
 from dataclasses import dataclass, field
+from io import BytesIO
 from typing import Any
 
+import numpy as np
+import soundfile as sf
 from loguru import logger
 
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
@@ -68,7 +72,11 @@ def _s3_to_pipe(tar_path: str, s3_endpoint_url: str | None = None) -> str:
 
 
 def _open_tar(tar_path: str, s3_endpoint_url: str | None = None) -> tarfile.TarFile:
-    """Open a tar file from local disk or S3/AIS via lhotse's ``open_best``."""
+    """Open a tar file from local disk or S3/AIS via lhotse's ``open_best``.
+
+    Uses streaming mode (``r|*``) so the tar is read sequentially without
+    seeking — works with pipes and cloud storage.
+    """
     from lhotse.serialization import open_best
 
     if tar_path.startswith("s3://"):
@@ -77,7 +85,7 @@ def _open_tar(tar_path: str, s3_endpoint_url: str | None = None) -> tarfile.TarF
     else:
         if not os.path.exists(tar_path):
             raise FileNotFoundError(f"Tar file not found: {tar_path}")
-        fileobj = open(tar_path, "rb")  # noqa: SIM115
+        fileobj = open_best(tar_path, mode="rb")
     return tarfile.open(fileobj=fileobj, mode="r|*")
 
 
@@ -153,7 +161,7 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
 
 # ---------------------------------------------------------------------------
-# Stage 2: Shard reader
+# Stage 2: Shard reader (in-memory via lhotse/soundfile)
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -163,18 +171,20 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     Expects ``task.data = [manifest_path, tar_path]`` as produced by
     ``NemoTarShardDiscoveryStage``.
 
-    Audio files are extracted to ``audio_cache_dir/<corpus>_<shard_idx>/``
-    so that downstream GPU stages can access them on the shared filesystem.
+    Audio is decoded entirely in memory using lhotse's ``open_best`` for
+    tar streaming and ``soundfile`` for audio decoding.  No files are
+    written to disk.  Each emitted ``AudioTask`` carries the waveform as
+    a 1-D numpy float32 array (mono) in ``task.data["waveform"]`` and the
+    native sample rate in ``task.data["sample_rate"]``.
 
     Args:
-        audio_cache_dir: Shared directory for extracted audio files.
-        filepath_key: Key used for the audio path in each ``AudioTask``.
+        filepath_key: Manifest key that identifies the audio filename
+            inside the tar archive.
         s3_endpoint_url: Override for the AIS/S3 endpoint.  Falls back to
             the ``AIS_ENDPOINT`` environment variable.
     """
 
     name: str = "nemo_tar_shard_reader"
-    audio_cache_dir: str = "/tmp/nemo_tar_audio_cache"  # noqa: S108
     filepath_key: str = "audio_filepath"
     s3_endpoint_url: str | None = None
 
@@ -182,7 +192,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.filepath_key]
+        return ["data"], ["waveform", "sample_rate"]
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
@@ -205,9 +215,6 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
         manifest = self._read_manifest(manifest_path)
 
-        shard_dir = os.path.join(self.audio_cache_dir, shard_key)
-        os.makedirs(shard_dir, exist_ok=True)
-
         logger.info("Reading shard %s: %s (%d manifest entries)", shard_key, tar_path, len(manifest))
 
         tar = _open_tar(tar_path, self.s3_endpoint_url)
@@ -217,20 +224,27 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             if not tar_info.isfile() or tar_info.name not in manifest:
                 continue
 
-            audio_path = os.path.join(shard_dir, tar_info.name)
-            os.makedirs(os.path.dirname(audio_path), exist_ok=True)
-            with open(audio_path, "wb") as af:
-                af.write(tar.extractfile(tar_info).read())
+            # Decode audio in memory — no disk writes
+            raw_audio = tar.extractfile(tar_info).read()
+            try:
+                audio, sample_rate = sf.read(BytesIO(raw_audio), dtype="float32")
+            except Exception:
+                logger.warning("Skipping corrupt audio %s in %s", tar_info.name, tar_path)
+                continue
 
-            entry = manifest[tar_info.name]
-            entry[self.filepath_key] = audio_path
+            # Convert to mono 1-D array
+            if audio.ndim > 1:
+                audio = audio.mean(axis=1)
+
+            entry = dict(manifest[tar_info.name])
+            entry["waveform"] = audio
+            entry["sample_rate"] = sample_rate
 
             results.append(
                 AudioTask(
                     task_id=f"{shard_key}_{tar_info.name}",
                     dataset_name=corpus,
                     data=entry,
-                    filepath_key=self.filepath_key,
                     _metadata={**task._metadata, "_shard_key": shard_key},
                     _stage_perf=list(task._stage_perf),
                 )
@@ -253,21 +267,19 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
 
     1. ``NemoTarShardDiscoveryStage`` — parses the YAML, emits one
        ``FileGroupTask`` per shard.
-    2. ``NemoTarShardReaderStage`` — streams each tar, extracts audio,
-       emits ``AudioTask`` objects.
+    2. ``NemoTarShardReaderStage`` — streams each tar via lhotse, decodes
+       audio in memory, emits ``AudioTask`` objects with waveform arrays.
 
     Args:
         yaml_path: Path to the Granary YAML data config.
         corpus_filter: Only process shards whose ``corpus`` matches.
-        audio_cache_dir: Shared directory for extracted audio.
-        filepath_key: Key for audio paths in emitted tasks.
+        filepath_key: Manifest key for audio filenames inside tar archives.
         s3_endpoint_url: Override for AIS/S3 endpoint.
     """
 
     name: str = "nemo_tarred_audio_reader"
     yaml_path: str = ""
     corpus_filter: list[str] | None = None
-    audio_cache_dir: str = "/tmp/nemo_tar_audio_cache"  # noqa: S108
     filepath_key: str = "audio_filepath"
     s3_endpoint_url: str | None = None
 
@@ -283,7 +295,6 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
                 corpus_filter=self.corpus_filter,
             ),
             NemoTarShardReaderStage(
-                audio_cache_dir=self.audio_cache_dir,
                 filepath_key=self.filepath_key,
                 s3_endpoint_url=self.s3_endpoint_url,
             ),
