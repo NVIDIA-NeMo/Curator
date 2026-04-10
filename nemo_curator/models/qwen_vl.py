@@ -155,14 +155,14 @@ class QwenVL(ModelInterface):
     @classmethod
     def download_weights_on_node(cls, model_dir: str) -> None:
         """Download the weights for the QwenVL model on the node."""
-        model_dir_path = Path(model_dir) / cls.DEFAULT_MODEL_ID
+        model_dir_path = Path(model_dir) / cls.model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
             logger.info(f"QwenVL weights already exist at: {model_dir_path}")
             return
         download_model_from_hf(
-            model_id=cls.DEFAULT_MODEL_ID,
+            model_id=cls.model_id,
             local_dir=model_dir_path,
-            revision=cls.DEFAULT_MODEL_REVISION,
+            revision=cls.model_revision,
         )
         logger.info(f"QwenVL weights downloaded to: {model_dir_path}")
