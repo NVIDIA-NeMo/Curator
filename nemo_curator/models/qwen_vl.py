@@ -41,6 +41,9 @@ from nemo_curator.utils import grouping
 
 
 class QwenVL(ModelInterface):
+    DEFAULT_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
+    DEFAULT_MODEL_REVISION = "0c351dd"
+
     def __init__(  # noqa: PLR0913
         self,
         model_dir: str,
@@ -52,10 +55,12 @@ class QwenVL(ModelInterface):
         disable_mmcache: bool = False,
         stage2_prompt_text: str | None = None,
         verbose: bool = False,
-        model_id: str = "Qwen/Qwen3-VL-8B-Instruct",
-        model_revision: str = "0c351dd",
+        model_id: str | None = None,
+        model_revision: str | None = None,
         **vllm_kwargs,
     ):
+        model_id = model_id or self.DEFAULT_MODEL_ID
+        model_revision = model_revision or self.DEFAULT_MODEL_REVISION
         if not (Path(model_id).is_absolute() or model_id.startswith(("./", "../"))) and not model_id.startswith(
             "Qwen/"
         ):
@@ -69,7 +74,7 @@ class QwenVL(ModelInterface):
         self.model_does_preprocess = model_does_preprocess
         self.disable_mmcache = disable_mmcache
         self.vllm_kwargs = vllm_kwargs
-        self.stage2_prompt = stage2_prompt_text if stage2_prompt_text else "Please refine this caption: "
+        self.stage2_prompt = stage2_prompt_text or "Please refine this caption: "
         self.verbose = verbose
         self.model_id = model_id
         self.model_revision = model_revision
@@ -148,21 +153,16 @@ class QwenVL(ModelInterface):
         return generated_text
 
     @classmethod
-    def download_weights_on_node(
-        cls,
-        model_dir: str,
-        model_id: str = "Qwen/Qwen3-VL-8B-Instruct",
-        model_revision: str = "0c351dd",
-    ) -> None:
+    def download_weights_on_node(cls, model_dir: str) -> None:
         """Download the weights for the QwenVL model on the node."""
-        model_dir_path = Path(model_dir) / model_id
+        model_dir_path = Path(model_dir) / cls.DEFAULT_MODEL_ID
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
             logger.info(f"QwenVL weights already exist at: {model_dir_path}")
             return
         download_model_from_hf(
-            model_id=model_id,
+            model_id=cls.DEFAULT_MODEL_ID,
             local_dir=model_dir_path,
-            revision=model_revision,
+            revision=cls.DEFAULT_MODEL_REVISION,
         )
         logger.info(f"QwenVL weights downloaded to: {model_dir_path}")

@@ -88,7 +88,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
-        QwenLM.download_weights_on_node(self.model_dir, model_id=self.model_id, model_revision=self.model_revision)
+        QwenLM.download_weights_on_node(self.model_dir)
         self._initialize_model()
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
