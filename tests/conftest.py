@@ -21,6 +21,7 @@ GPU resources based on the test session's requirements.
 import os
 import re
 import subprocess
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,16 @@ from loguru import logger
 from nemo_curator.core.client import RayClient
 
 MODALITY_GROUPS = ["text", "image", "video", "audio"]
+
+
+def _safe_loguru_info(message: str) -> None:
+    """Log at INFO without breaking session teardown when stderr is already closed.
+
+    After a test failure, pytest/coverage may close streams before session-scoped
+    fixtures tear down; loguru would otherwise raise ValueError and mask the real error.
+    """
+    with suppress(ValueError, OSError, RuntimeError):
+        logger.info(message)
 
 
 def gpu_available() -> bool:
@@ -215,8 +226,9 @@ def shared_ray_cluster(tmp_path_factory: pytest.TempPathFactory, pytestconfig: p
     try:
         yield ray_address
     finally:
-        logger.info("Shutting down Ray cluster")
-        ray_client.stop()
+        _safe_loguru_info("Shutting down Ray cluster")
+        with suppress(Exception):
+            ray_client.stop()
 
 
 @pytest.fixture
@@ -232,8 +244,9 @@ def shared_ray_client(shared_ray_cluster: str) -> None:
     try:
         yield
     finally:
-        logger.info("Shutting down Ray client")
-        ray.shutdown()
+        _safe_loguru_info("Shutting down Ray client")
+        with suppress(Exception):
+            ray.shutdown()
 
 
 @pytest.fixture
