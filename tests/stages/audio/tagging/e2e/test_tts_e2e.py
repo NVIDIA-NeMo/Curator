@@ -54,6 +54,8 @@ def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     cfg.stages[4].model_name = "nvidia/stt_en_fastconformer_ctc_large"
     cfg.stages[4].is_fastconformer = True
     cfg.stages[4].decoder_type = "ctc"
+    cfg.stages[4].transcribe_batch_size = 1
+    cfg.stages[4].num_workers = 0
 
     pipeline = create_pipeline_from_yaml(cfg)
     # Leave RAM headroom on ~16GB CI nodes (coverage + Ray + NeMo + PyAnnote).
