@@ -133,6 +133,8 @@ class TestVLLMEmbeddingModelStage:
         monkeypatch.setattr(_vllm_mod, "LLM", _FakeLLM)
 
         stage.setup_on_node()
+
+        # setup_on_node calls snapshot_download(local_files_only=False) to download the model
         download_call = captured["snapshot_download_calls"][0]
         assert download_call["cache_dir"] == str(cache_dir)
         assert download_call["token"] == hf_token
