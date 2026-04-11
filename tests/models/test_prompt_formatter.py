@@ -33,7 +33,7 @@ class TestPromptFormatterVariantMapping:
 
     def test_variant_mapping_qwen_hf_id(self) -> None:
         """Test that Qwen variant has correct HuggingFace ID."""
-        assert VARIANT_MAPPING["qwen"] == "Qwen/Qwen2.5-VL-7B-Instruct"
+        assert VARIANT_MAPPING["qwen"] == "Qwen/Qwen3-VL-8B-Instruct"
 
     def test_variant_mapping_nemotron_hf_ids(self) -> None:
         """Test that Nemotron variants have correct HuggingFace IDs."""
@@ -89,7 +89,9 @@ class TestPromptFormatterQwen:
         assert "prompt" in result
         assert "multi_modal_data" in result
         assert result["prompt"] == "formatted_prompt"
-        assert result["multi_modal_data"]["video"] is video_tensor
+        video_data = result["multi_modal_data"]["video"]
+        assert isinstance(video_data, tuple)
+        assert video_data[0] is video_tensor
 
         # Verify processor was called correctly
         expected_message = [{"role": "user", "content": [{"type": "video"}, {"type": "text", "text": "Test prompt"}]}]
@@ -114,7 +116,9 @@ class TestPromptFormatterQwen:
         result = formatter.generate_inputs(prompt="Test prompt", video_inputs=video_tensor)
 
         assert result["prompt"] == "cached_prompt"
-        assert result["multi_modal_data"]["video"] is video_tensor
+        video_data = result["multi_modal_data"]["video"]
+        assert isinstance(video_data, tuple)
+        assert video_data[0] is video_tensor
         mock_processor_instance.apply_chat_template.assert_not_called()
 
     @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
