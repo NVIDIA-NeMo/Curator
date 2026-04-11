@@ -98,7 +98,12 @@ jobs:
           source .venv/bin/activate
           FOLDER="${{ matrix.folder }}"
           FOLDER="${FOLDER/stages-/stages/}"
-          coverage run --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu"
+          if [ "$FOLDER" = "pipelines" ]; then
+            mkdir -p "$GITHUB_WORKSPACE/pytest-tmp"
+            coverage run --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu" --basetemp="$GITHUB_WORKSPACE/pytest-tmp"
+          else
+            coverage run --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu"
+          fi
 
       - name: Generate report
         id: check
