@@ -100,10 +100,9 @@ class PromptFormatter:
 
         video_with_metadata = None
         if video_inputs is not None:
-            video_np = self._convert_to_numpy(video_inputs)
-            num_frames = video_np.shape[0]
+            num_frames = video_inputs.shape[0]
             video_with_metadata = (
-                video_np,
+                video_inputs,
                 {
                     "fps": fps,
                     "total_num_frames": num_frames,
