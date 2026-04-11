@@ -20,7 +20,7 @@ FLEURS contains spoken utterances across 100+ languages. This pipeline downloads
 
 - Python 3.10+
 - NeMo Curator installed (see [installation guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
-- **GPU**: Recommended (ASR inference). Pass `--gpus 0` for CPU fallback.
+- **GPU**: Recommended for ASR inference. Minimum ~4 GB VRAM for FastConformer/Parakeet models. Pass `--gpus 0` for CPU fallback (10–50x slower).
 - **System packages**: None
 
 ```bash
@@ -201,6 +201,30 @@ Results are written as JSONL to `${raw_data_dir}/result/`. Each line contains:
 | `pred_text` | string | ASR model's predicted transcription |
 | `wer` | float | Word Error Rate (0–100) between `text` and `pred_text` |
 | `duration` | float | Audio duration in seconds |
+
+## Performance
+
+### Timing estimates
+
+| Dataset | Samples | Wall-clock time | Hardware |
+|---|---|---|---|
+| `hy_am` dev split | ~200 | ~2–5 minutes | 1x A100 GPU |
+| `en_us` dev split | ~400 | ~5–10 minutes | 1x A100 GPU |
+| Any split (CPU fallback) | ~200 | ~30–60 minutes | 8-core CPU |
+
+Most time is spent in ASR inference (Stage 2). Download, WER, and duration stages are near-instant.
+
+### Expected filtering ratios
+
+With default `--wer_threshold 75` (very permissive):
+- Most language+model pairs: **>90% pass rate** (very few samples have WER above 75%)
+- Mismatched language/model: **0–30% pass rate** (model can't transcribe the language)
+
+With a stricter `--wer_threshold 25`:
+- Well-matched model: **50–80% pass rate**
+- Poorly-matched model: **<10% pass rate**
+
+If your output is empty, the model likely does not support the target language.
 
 ## Composability
 
