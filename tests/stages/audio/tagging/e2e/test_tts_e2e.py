@@ -59,7 +59,7 @@ def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     pipeline = create_pipeline_from_yaml(cfg)
     executor = XennaExecutor(
         {
-            "cpu_allocation_percentage": 0.8,
+            "cpu_allocation_percentage": 0.9,
         }
     )
     pipeline.run(executor)

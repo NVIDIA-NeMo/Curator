@@ -23,5 +23,4 @@ rm -rf .venv
 uv venv --seed --python "${PY_VERSION}"
 uv sync --link-mode copy --locked --extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu --group test
 source .venv/bin/activate
-
 coverage run -a --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu"

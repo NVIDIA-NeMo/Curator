@@ -396,6 +396,9 @@ fixable = ["ALL"]
 "fern/**/*.py" = [
     "INP001", # Fern CLI helper scripts; not an installable package
 ]
+".github/scripts/**" = [
+    "INP001", # CI scripts; not an installable package
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
