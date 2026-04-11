@@ -170,7 +170,7 @@ math_cuda12 = [
 
 # Synthetic Data Generation (SDG) Dependencies
 sdg_cpu = [
-    "data-designer==0.4.0",
+    "data-designer==0.5.0",
 ]
 
 # All dependencies
