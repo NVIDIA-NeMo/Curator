@@ -112,7 +112,7 @@ class TestJsonlWriter:
         """JsonlWriter should preserve non-ASCII characters by default."""
         output_dir = os.path.join(tmpdir, "jsonl_utf8")
         writer = JsonlWriter(path=output_dir)
-        batch = DocumentBatch(pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), task_id="utf8")
+        batch = DocumentBatch(data=pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), task_id="utf8", dataset_name="test")
 
         writer.setup()
         result = writer.process(batch)
@@ -127,7 +127,7 @@ class TestJsonlWriter:
         """JsonlWriter should still honor user-provided force_ascii=True."""
         output_dir = os.path.join(tmpdir, "jsonl_ascii")
         writer = JsonlWriter(path=output_dir, write_kwargs={"force_ascii": True})
-        batch = DocumentBatch(pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), task_id="ascii")
+        batch = DocumentBatch(data=pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), task_id="ascii", dataset_name="test")
 
         writer.setup()
         result = writer.process(batch)
@@ -136,7 +136,7 @@ class TestJsonlWriter:
         with open(file_path, encoding="utf-8") as f:
             payload = f.read()
         assert "你好, 世界" not in payload
-        assert "\u4f60" in payload
+        assert "\\u4f60" in payload
 
     def test_jsonl_writer_with_custom_options(self, pandas_document_batch: DocumentBatch, tmpdir: str):
         """Test JsonlWriter with custom formatting options."""
