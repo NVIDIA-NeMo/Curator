@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -69,13 +70,16 @@ class URLGenerationStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
         return [
             FileGroupTask(
-                task_id=f"{task.task_id}_{i}",
+                task_id=f"url_{hashlib.sha256(url.encode()).hexdigest()[:16]}",
                 dataset_name=task.dataset_name,
                 data=[url],
-                _metadata={"source_url": url},
+                _metadata={"source_url": url, "source_files": [url]},
             )
-            for i, url in enumerate(urls)
+            for url in urls
         ]
+
+    def is_source_stage(self) -> bool:
+        return True
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {

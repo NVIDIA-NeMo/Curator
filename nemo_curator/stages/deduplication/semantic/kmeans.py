@@ -24,7 +24,8 @@ from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.stages.text.io.writer.utils import get_deterministic_hash
+from nemo_curator.tasks import FileGroupTask, Task, _EmptyTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, check_disallowed_kwargs
 
 from .utils import break_parquet_partition_into_groups, get_array_from_df
@@ -114,6 +115,36 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
 
         self.name = "KMeansStage"
         self.resources = Resources(cpus=1.0, gpus=1.0)
+
+    def get_cached_output(self, input_tasks: list[Task]) -> list[Task] | None:
+        """Return a dummy _EmptyTask if the output_path already contains KMeans output.
+
+        KMeans writes to centroid={k}/ subdirectories. We check if ANY centroid
+        directory exists in output_path as a proxy for completion.
+        """
+        import os
+
+        from nemo_curator.utils.file_utils import get_fs
+
+        try:
+            storage_options = getattr(self, "output_storage_options", None) or {}
+            fs = get_fs(self.output_path, storage_options)
+            if fs.exists(self.output_path) and fs.ls(self.output_path):
+                logger.info(
+                    f"KMeansReadFitWriteStage: output directory {self.output_path} "
+                    "already populated, skipping."
+                )
+                return [
+                    _EmptyTask(
+                        task_id="kmeans_cached",
+                        dataset_name=input_tasks[0].dataset_name if input_tasks else "kmeans",
+                        data=None,
+                        _metadata=input_tasks[0]._metadata if input_tasks else {},
+                    )
+                ]
+        except Exception:  # noqa: BLE001
+            pass
+        return None
 
     def process(self, task: FileGroupTask) -> _EmptyTask:
         msg = "KMeansReadFitWriteStage does not support single-task processing"
@@ -207,7 +238,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             # Assign distances using the fitted cluster centers
             df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)  # noqa: PLW2901
 
-            output_filename = f"{tasks[0]._uuid}_{i}"
+            _all_input_files = [str(f) for task in tasks for f in task.data]
+            output_filename = f"{get_deterministic_hash(_all_input_files, str(i))}_{i}"
             # Write results for this subgroup
             self.write_parquet(
                 df,

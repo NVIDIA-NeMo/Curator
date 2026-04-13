@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import glob
+import hashlib
 import os
 import subprocess
 from dataclasses import dataclass
@@ -67,6 +68,9 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioTask
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.filepath_key, self.text_key]
+
+    def is_source_stage(self) -> bool:
+        return True
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
@@ -340,13 +344,16 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioTask
         logger.info(f"Creating manifest with {len(selected_entries)} total samples")
 
         audio_tasks = []
-        for i, entry in enumerate(selected_entries):
+        for entry in selected_entries:
+            filepath = entry.get(self.filepath_key, "")
+            task_id = f"readspeech_{hashlib.sha256(filepath.encode()).hexdigest()[:16]}"
             audio_tasks.append(
                 AudioTask(
                     data=entry,
-                    task_id=f"readspeech_{i}",
+                    task_id=task_id,
                     dataset_name="DNS-ReadSpeech",
                     filepath_key=self.filepath_key,
+                    _metadata={"source_files": [filepath]} if filepath else {},
                 )
             )
 

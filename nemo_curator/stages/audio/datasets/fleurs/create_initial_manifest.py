@@ -100,6 +100,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
                         task_id=f"task_id_{abs_wav}",
                         dataset_name=f"Fleurs_{self.lang}_{self.split}_{self.raw_data_dir}",
                         filepath_key=self.filepath_key,
+                        _metadata={"source_files": [abs_wav]},
                     )
                 )
         return entries
@@ -111,6 +112,9 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
             download_file(file_url, str(dst_folder))
 
         extract_archive(f"{dst_folder}/{self.split}.tar.gz", str(dst_folder), force_extract=True)
+
+    def is_source_stage(self) -> bool:
+        return True
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}

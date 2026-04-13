@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,6 +28,16 @@ from nemo_curator.utils.file_utils import (
     infer_dataset_name_from_path,
     parse_bytes_string_to_int,
 )
+
+
+def _compute_partition_id(files: list) -> str:
+    """Return a stable 16-char hex ID for a partition based on its sorted file paths.
+
+    Uses the sorted string representations so the ID is independent of enumeration
+    order and stable across runs even when the overall file set changes.
+    """
+    content = "|".join(sorted(str(f) for f in files)).encode()
+    return hashlib.sha256(content).hexdigest()[:16]
 
 
 @dataclass
@@ -96,6 +107,9 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+    def is_source_stage(self) -> bool:
+        return True
 
     def ray_stage_spec(self) -> dict[str, Any]:
         """Ray stage specification for this stage."""
@@ -177,7 +191,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 logger.info(f"Reached limit of {self.limit} file groups")
                 break
             file_task = FileGroupTask(
-                task_id=f"file_group_{i}",
+                task_id=f"file_group_{_compute_partition_id(file_group)}",
                 dataset_name=dataset_name,
                 data=file_group,
                 _metadata={

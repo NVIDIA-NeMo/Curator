@@ -64,6 +64,8 @@ class BaseStageAdapter:
 
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
+        # Lazily initialised in setup() if stage._checkpoint_path is set.
+        self._write_checkpoint_mgr: Any = None
 
     def process_batch(self, tasks: list[Task]) -> list[Task]:
         """Process a batch of tasks.
@@ -78,6 +80,16 @@ class BaseStageAdapter:
         if not hasattr(self, "_timer") or self._timer is None:
             self._timer = StageTimer(self.stage)
 
+        # If the stage has deterministic cached output (file-writing fan-in), use it.
+        cached = self.stage.get_cached_output(tasks)
+        if cached is not None:
+            from loguru import logger as _logger
+            _logger.info(
+                f"Stage '{self.stage.name}': skipping — cached output found "
+                f"({len(cached)} tasks)"
+            )
+            return cached
+
         # Calculate input data size for timer
         input_size = sum(task.num_items for task in tasks)
         # Initialize performance timer for this batch
@@ -86,6 +98,40 @@ class BaseStageAdapter:
         with self._timer.time_process(input_size):
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
+
+        # ------------------------------------------------------------------
+        # source_files propagation (safety net)
+        # ------------------------------------------------------------------
+        # Guarantee every output task carries source_files, handling:
+        #   - 1:1 transforms that forgot to copy _metadata
+        #   - Fan-out (e.g. ImageReaderStage) — each child inherits parent's source_files
+        #   - Fan-in (N→M) — output gets the union of all inputs' source_files
+        input_source_files: set[str] = set()
+        for task in tasks:
+            input_source_files.update(task._metadata.get("source_files", []))
+
+        if input_source_files:
+            for result in results:
+                existing = set(result._metadata.get("source_files", []))
+                result._metadata["source_files"] = sorted(existing | input_source_files)
+
+        # ------------------------------------------------------------------
+        # Fan-out detection: write expected-count increment for checkpointing
+        # ------------------------------------------------------------------
+        # When a single input task (already tracking source_files) produces N > 1
+        # outputs, this is a secondary fan-out. We write one increment file per
+        # triggering input task so CheckpointManager can compute the total expected
+        # leaf count for that source partition (handles chained fan-outs correctly).
+        if self._write_checkpoint_mgr is not None and len(results) > 1:
+            for input_task in tasks:
+                src: list[str] = input_task._metadata.get("source_files", [])
+                if src:
+                    source_key = "|".join(sorted(src))
+                    self._write_checkpoint_mgr.write_expected_increment(
+                        source_key=source_key,
+                        triggering_task_id=input_task.task_id,
+                        increment=len(results) - 1,
+                    )
 
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
@@ -116,6 +162,16 @@ class BaseStageAdapter:
             worker_metadata (WorkerMetadata, optional): Information about the worker
         """
         self.stage.setup(worker_metadata)
+        # If the pipeline was started with checkpoint_path, initialise a write-only
+        # CheckpointManager for fan-out increment tracking.
+        checkpoint_path: str | None = getattr(self.stage, "_checkpoint_path", None)
+        if checkpoint_path:
+            from nemo_curator.utils.checkpoint import CheckpointManager
+
+            storage_options: dict[str, Any] = getattr(
+                self.stage, "_checkpoint_storage_options", {}
+            ) or {}
+            self._write_checkpoint_mgr = CheckpointManager(checkpoint_path, storage_options)
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""

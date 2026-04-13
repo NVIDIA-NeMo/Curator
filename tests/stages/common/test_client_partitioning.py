@@ -18,6 +18,7 @@ import pytest
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.client_partitioning import ClientPartitioningStage, _read_list_json_rel
+from nemo_curator.stages.file_partitioning import _compute_partition_id
 from nemo_curator.tasks import FileGroupTask, _EmptyTask
 
 
@@ -109,7 +110,9 @@ class TestClientPartitioningStage:
         assert len(result) == 3
         assert isinstance(result[0], FileGroupTask)
         assert str(result[0].data[0]).endswith("file1.jsonl")
-        assert result[0].task_id == "file_group_0"
+        # task_id is now a content-hash based ID — check format, not exact value
+        assert result[0].task_id.startswith("file_group_")
+        assert len(result[0].task_id) == len("file_group_") + 16  # 16-char hex hash
         assert result[0]._metadata["partition_index"] == 0
         assert result[0]._metadata["total_partitions"] == 3
 

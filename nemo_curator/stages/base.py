@@ -302,6 +302,28 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             "supports_batch_processing": self.supports_batch_processing(),
         }
 
+    def is_source_stage(self) -> bool:
+        """Whether this stage generates the initial resumable tasks from nothing.
+
+        Override to return ``True`` in stages that start lineage from an
+        ``_EmptyTask`` (e.g. ``FilePartitioningStage``).  When
+        ``Pipeline.run(checkpoint_path=...)`` is used, a
+        ``_CheckpointFilterStage`` is automatically injected *after* every
+        stage that returns ``True`` here.
+        """
+        return False
+
+    def get_cached_output(self, input_tasks: list[Task]) -> list[Task] | None:  # noqa: ARG002
+        """Return pre-existing output tasks if they are already on disk, else None.
+
+        Override in **file-writing fan-in** stages (e.g. dedup stages that
+        write parquet output) to skip re-computation when their deterministic
+        output files already exist from a previous run.
+
+        The default implementation returns ``None`` (always re-compute).
+        """
+        return None
+
     def ray_stage_spec(self) -> dict[str, Any]:
         """Get Ray configuration for this stage.
         Note : This is only used for Ray Data backend.

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.file_partitioning import FilePartitioningStage, _compute_partition_id
 from nemo_curator.tasks import FileGroupTask, _EmptyTask
 
 
@@ -135,7 +135,7 @@ class TestFilePartitioningStage:
         assert isinstance(result[0], FileGroupTask)
         assert result[0].data == [test_files[0]]
         assert result[0].dataset_name == "path"
-        assert result[0].task_id == "file_group_0"
+        assert result[0].task_id == f"file_group_{_compute_partition_id([test_files[0]])}"
 
     def test_process_with_files_per_partition(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test processing with files_per_partition setting."""
@@ -167,7 +167,7 @@ class TestFilePartitioningStage:
 
         # Verify metadata
         for i, task in enumerate(result):
-            assert task.task_id == f"file_group_{i}"
+            assert task.task_id == f"file_group_{_compute_partition_id(task.data)}"
             assert task._metadata["partition_index"] == i
             assert task._metadata["total_partitions"] == 5  # Total partitions before limit
 

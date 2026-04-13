@@ -1,0 +1,499 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Unit tests for CheckpointManager and checkpoint stages.
+
+Tests cover:
+- Basic load/read/write lifecycle
+- Single fan-out: 1 source → N leaves; all must complete
+- Partial fan-out: 1 source → N leaves; M < N complete → not done
+- Chained fan-outs: 1 source → Stage1: 10 batches → Stage2: each 3 sub-batches → 30 leaves
+- _CheckpointFilterStage: skips completed, passes incomplete
+- _CheckpointRecorderStage: writes shard, passes task through
+- FilePartitioningStage: hash-based task IDs are stable across runs
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import pytest
+
+from nemo_curator.utils.checkpoint import CheckpointManager, _path_join
+
+if TYPE_CHECKING:
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _source_key(source_files: list[str]) -> str:
+    return "|".join(sorted(source_files))
+
+
+# ---------------------------------------------------------------------------
+# _path_join
+# ---------------------------------------------------------------------------
+
+class TestPathJoin:
+    def test_local_path(self):
+        assert _path_join("/a/b", "c", "d.json") == "/a/b/c/d.json"
+
+    def test_remote_path(self):
+        result = _path_join("s3://bucket/prefix", "sub", "file.json")
+        assert result == "s3://bucket/prefix/sub/file.json"
+
+    def test_trailing_slash_stripped(self):
+        assert _path_join("s3://bucket/prefix/", "file.json") == "s3://bucket/prefix/file.json"
+
+
+# ---------------------------------------------------------------------------
+# CheckpointManager — basic write/read cycle
+# ---------------------------------------------------------------------------
+
+class TestCheckpointManagerBasic:
+    def test_exists_returns_false_for_nonexistent(self, tmp_path: Path):
+        assert not CheckpointManager.exists(str(tmp_path / "nonexistent"))
+
+    def test_exists_returns_true_after_creation(self, tmp_path: Path):
+        ckpt_dir = tmp_path / "ckpt"
+        ckpt_dir.mkdir()
+        assert CheckpointManager.exists(str(ckpt_dir))
+
+    def test_load_empty_directory(self, tmp_path: Path):
+        mgr = CheckpointManager(str(tmp_path / "ckpt")).load()
+        assert mgr._expected == {}
+        assert dict(mgr._completed_counts) == {}
+
+    def test_is_task_completed_returns_false_when_nothing_recorded(self, tmp_path: Path):
+        mgr = CheckpointManager(str(tmp_path / "ckpt")).load()
+        assert not mgr.is_task_completed(["file_a.tar"])
+
+    def test_is_task_completed_returns_false_for_empty_source_files(self, tmp_path: Path):
+        mgr = CheckpointManager(str(tmp_path / "ckpt")).load()
+        assert not mgr.is_task_completed([])
+
+    def test_mark_completed_then_load(self, tmp_path: Path):
+        ckpt_path = str(tmp_path / "ckpt")
+        mgr = CheckpointManager(ckpt_path)
+        mgr.mark_completed("task_001", ["file_a.tar"])
+
+        mgr2 = CheckpointManager(ckpt_path).load()
+        assert mgr2.is_task_completed(["file_a.tar"])
+
+    def test_mark_completed_multiple_sources(self, tmp_path: Path):
+        ckpt_path = str(tmp_path / "ckpt")
+        mgr = CheckpointManager(ckpt_path)
+        mgr.mark_completed("task_a", ["file_a.tar"])
+        mgr.mark_completed("task_b", ["file_b.tar"])
+
+        mgr2 = CheckpointManager(ckpt_path).load()
+        assert mgr2.is_task_completed(["file_a.tar"])
+        assert mgr2.is_task_completed(["file_b.tar"])
+        assert not mgr2.is_task_completed(["file_c.tar"])
+
+    def test_source_key_ordering_is_stable(self, tmp_path: Path):
+        """source_key uses sorted order so ["b","a"] == ["a","b"]."""
+        ckpt_path = str(tmp_path / "ckpt")
+        mgr = CheckpointManager(ckpt_path)
+        mgr.mark_completed("task_x", ["b.tar", "a.tar"])
+
+        mgr2 = CheckpointManager(ckpt_path).load()
+        # Both orderings should match
+        assert mgr2.is_task_completed(["a.tar", "b.tar"])
+        assert mgr2.is_task_completed(["b.tar", "a.tar"])
+
+
+# ---------------------------------------------------------------------------
+# CheckpointManager — single fan-out (1 source → N leaves)
+# ---------------------------------------------------------------------------
+
+class TestCheckpointManagerSingleFanOut:
+    def test_single_fanout_not_complete_until_all_leaves_recorded(self, tmp_path: Path):
+        """1 source → 5 leaves; after 4 completions, not done; after 5th, done."""
+        ckpt_path = str(tmp_path / "ckpt")
+        source = ["a.tar"]
+        N = 5
+
+        # Write increment: source → N leaves
+        mgr_write = CheckpointManager(ckpt_path)
+        mgr_write.write_expected_increment(
+            source_key=_source_key(source),
+            triggering_task_id="file_group_abc123",
+            increment=N - 1,  # 4
+        )
+
+        # Write N-1 completions
+        for i in range(N - 1):
+            mgr_write.mark_completed(f"leaf_task_{i}", source)
+
+        mgr_read = CheckpointManager(ckpt_path).load()
+        # expected = 1 + (N-1) = N = 5; completed = 4 → not done
+        assert not mgr_read.is_task_completed(source)
+
+        # Write the last completion
+        mgr_write.mark_completed(f"leaf_task_{N - 1}", source)
+        mgr_read2 = CheckpointManager(ckpt_path).load()
+        assert mgr_read2.is_task_completed(source)
+
+    def test_no_increment_written_means_expected_is_1(self, tmp_path: Path):
+        """Without secondary fan-out, 1 completion is enough."""
+        ckpt_path = str(tmp_path / "ckpt")
+        source = ["b.tar"]
+        mgr = CheckpointManager(ckpt_path)
+        mgr.mark_completed("single_leaf", source)
+
+        mgr2 = CheckpointManager(ckpt_path).load()
+        assert mgr2.is_task_completed(source)
+
+    def test_partial_fanout_not_complete(self, tmp_path: Path):
+        """7 out of 10 completed — should NOT be marked done."""
+        ckpt_path = str(tmp_path / "ckpt")
+        source = ["c.tar"]
+        N = 10
+
+        mgr = CheckpointManager(ckpt_path)
+        mgr.write_expected_increment(_source_key(source), "trig_task_xyz", N - 1)
+        for i in range(7):
+            mgr.mark_completed(f"leaf_{i}", source)
+
+        mgr2 = CheckpointManager(ckpt_path).load()
+        assert not mgr2.is_task_completed(source)
+
+
+# ---------------------------------------------------------------------------
+# CheckpointManager — chained fan-outs
+# ---------------------------------------------------------------------------
+
+class TestCheckpointManagerChainedFanOut:
+    def test_chained_fanout_correct_expected_count(self, tmp_path: Path):
+        """1 source → Stage1: 10 batches → Stage2: each 3 sub-batches → 30 leaves.
+
+        Stage1 fan-out: 1 FileGroupTask triggers N=10 → increment written once: +9
+        Stage2 fan-out: each of 10 batches triggers N=3 → increment written 10 times: +2 each
+
+        expected = 1 + 9 + 10*2 = 30
+        """
+        ckpt_path = str(tmp_path / "ckpt")
+        source = ["d.tar"]
+        key = _source_key(source)
+
+        mgr = CheckpointManager(ckpt_path)
+
+        # Stage1 fan-out: 1 input → 10 batches
+        mgr.write_expected_increment(key, "file_group_d", increment=9)
+
+        # Stage2 fan-out: each of 10 batches → 3 sub-batches
+        for batch_i in range(10):
+            mgr.write_expected_increment(key, f"batch_{batch_i}", increment=2)
+
+        # Complete 29 out of 30 leaves
+        for leaf_i in range(29):
+            mgr.mark_completed(f"sub_batch_{leaf_i}", source)
+
+        mgr2 = CheckpointManager(ckpt_path).load()
+        assert not mgr2.is_task_completed(source)  # 29 < 30
+
+        # Complete the 30th
+        mgr.mark_completed("sub_batch_29", source)
+        mgr3 = CheckpointManager(ckpt_path).load()
+        assert mgr3.is_task_completed(source)  # 30 >= 30
+
+    def test_chained_fanout_partial_second_stage(self, tmp_path: Path):
+        """Same chained setup but only Stage1 completes partially — not done."""
+        ckpt_path = str(tmp_path / "ckpt")
+        source = ["e.tar"]
+        key = _source_key(source)
+
+        mgr = CheckpointManager(ckpt_path)
+
+        # Only the Stage1 increment (no Stage2 increments yet, only 5 Stage2 batches written)
+        mgr.write_expected_increment(key, "fg_e", increment=9)  # expected so far: 10
+        for batch_i in range(5):
+            mgr.write_expected_increment(key, f"batch_e_{batch_i}", increment=2)
+        # expected now: 1+9+5*2 = 20 (Stage2 only ran for 5 of 10 batches before crash)
+
+        # 15 completions
+        for leaf_i in range(15):
+            mgr.mark_completed(f"leaf_e_{leaf_i}", source)
+
+        mgr2 = CheckpointManager(ckpt_path).load()
+        # 15 < 20 — not complete
+        assert not mgr2.is_task_completed(source)
+
+
+# ---------------------------------------------------------------------------
+# CheckpointManager — get_completed_source_keys
+# ---------------------------------------------------------------------------
+
+class TestCheckpointManagerCompletedKeys:
+    def test_completed_keys_returns_only_fully_done(self, tmp_path: Path):
+        ckpt_path = str(tmp_path / "ckpt")
+        source_a = ["a.tar"]
+        source_b = ["b.tar"]
+
+        mgr = CheckpointManager(ckpt_path)
+
+        # source_a: 1 completion (no fan-out) — done
+        mgr.mark_completed("task_a", source_a)
+
+        # source_b: fan-out=3, only 2 completed — not done
+        mgr.write_expected_increment(_source_key(source_b), "trig_b", increment=2)
+        mgr.mark_completed("task_b1", source_b)
+        mgr.mark_completed("task_b2", source_b)
+
+        mgr2 = CheckpointManager(ckpt_path).load()
+        completed_keys = mgr2.get_completed_source_keys()
+        assert _source_key(source_a) in completed_keys
+        assert _source_key(source_b) not in completed_keys
+
+
+# ---------------------------------------------------------------------------
+# _CheckpointFilterStage
+# ---------------------------------------------------------------------------
+
+class TestCheckpointFilterStage:
+    def _make_task(self, task_id: str, source_files: list[str]):
+        """Create a minimal FileGroupTask-like object for testing."""
+        from nemo_curator.tasks import FileGroupTask
+        return FileGroupTask(
+            task_id=task_id,
+            dataset_name="test_ds",
+            data=source_files,
+            _metadata={"source_files": source_files},
+        )
+
+    def test_filter_passes_incomplete_task(self, tmp_path: Path):
+        from nemo_curator.stages.checkpoint import _CheckpointFilterStage
+
+        ckpt_path = str(tmp_path / "ckpt")
+        stage = _CheckpointFilterStage(checkpoint_path=ckpt_path)
+        stage.setup()
+
+        task = self._make_task("task_a", ["file_a.tar"])
+        result = stage.process(task)
+        assert result == [task]
+
+    def test_filter_skips_completed_task(self, tmp_path: Path):
+        from nemo_curator.stages.checkpoint import _CheckpointFilterStage
+
+        ckpt_path = str(tmp_path / "ckpt")
+        # Pre-record completion
+        mgr = CheckpointManager(ckpt_path)
+        mgr.mark_completed("task_a_leaf", ["file_a.tar"])
+
+        stage = _CheckpointFilterStage(checkpoint_path=ckpt_path)
+        stage.setup()
+
+        task = self._make_task("task_a", ["file_a.tar"])
+        result = stage.process(task)
+        assert result == []
+
+    def test_filter_passes_task_with_no_source_files(self, tmp_path: Path):
+        from nemo_curator.stages.checkpoint import _CheckpointFilterStage
+
+        ckpt_path = str(tmp_path / "ckpt")
+        stage = _CheckpointFilterStage(checkpoint_path=ckpt_path)
+        stage.setup()
+
+        from nemo_curator.tasks import FileGroupTask
+        task = FileGroupTask(
+            task_id="no_src",
+            dataset_name="ds",
+            data=[],
+            _metadata={},  # no source_files
+        )
+        result = stage.process(task)
+        assert result == [task]
+
+    def test_filter_partial_fanout_not_skipped(self, tmp_path: Path):
+        """If only 3 of 5 sub-tasks are complete, the source partition is NOT skipped."""
+        from nemo_curator.stages.checkpoint import _CheckpointFilterStage
+
+        ckpt_path = str(tmp_path / "ckpt")
+        source = ["multi.tar"]
+        key = _source_key(source)
+
+        mgr = CheckpointManager(ckpt_path)
+        mgr.write_expected_increment(key, "trig", increment=4)  # expect 5
+        for i in range(3):
+            mgr.mark_completed(f"leaf_{i}", source)
+
+        stage = _CheckpointFilterStage(checkpoint_path=ckpt_path)
+        stage.setup()
+
+        task = self._make_task("source_task", source)
+        result = stage.process(task)
+        assert result == [task]
+
+
+# ---------------------------------------------------------------------------
+# _CheckpointRecorderStage
+# ---------------------------------------------------------------------------
+
+class TestCheckpointRecorderStage:
+    def _make_task(self, task_id: str, source_files: list[str]):
+        from nemo_curator.tasks import FileGroupTask
+        return FileGroupTask(
+            task_id=task_id,
+            dataset_name="test_ds",
+            data=source_files,
+            _metadata={"source_files": source_files},
+        )
+
+    def test_recorder_passes_task_through(self, tmp_path: Path):
+        from nemo_curator.stages.checkpoint import _CheckpointRecorderStage
+
+        ckpt_path = str(tmp_path / "ckpt")
+        stage = _CheckpointRecorderStage(checkpoint_path=ckpt_path)
+        stage.setup()
+
+        task = self._make_task("task_z", ["z.tar"])
+        result = stage.process(task)
+        assert result is task
+
+    def test_recorder_writes_completed_shard(self, tmp_path: Path):
+        from nemo_curator.stages.checkpoint import _CheckpointRecorderStage
+
+        ckpt_path = str(tmp_path / "ckpt")
+        stage = _CheckpointRecorderStage(checkpoint_path=ckpt_path)
+        stage.setup()
+
+        task = self._make_task("task_z", ["z.tar"])
+        stage.process(task)
+
+        # Reload and verify
+        mgr = CheckpointManager(ckpt_path).load()
+        assert mgr.is_task_completed(["z.tar"])
+
+    def test_recorder_no_shard_when_no_source_files(self, tmp_path: Path):
+        from nemo_curator.stages.checkpoint import _CheckpointRecorderStage
+
+        ckpt_path = str(tmp_path / "ckpt")
+        stage = _CheckpointRecorderStage(checkpoint_path=ckpt_path)
+        stage.setup()
+
+        from nemo_curator.tasks import FileGroupTask
+        task = FileGroupTask(
+            task_id="no_src",
+            dataset_name="ds",
+            data=[],
+            _metadata={},
+        )
+        stage.process(task)
+
+        completed_dir = Path(ckpt_path) / "completed"
+        assert not completed_dir.exists() or len(list(completed_dir.glob("*.json"))) == 0
+
+    def test_recorder_multiple_tasks_writes_multiple_shards(self, tmp_path: Path):
+        from nemo_curator.stages.checkpoint import _CheckpointRecorderStage
+
+        ckpt_path = str(tmp_path / "ckpt")
+        stage = _CheckpointRecorderStage(checkpoint_path=ckpt_path)
+        stage.setup()
+
+        source = ["shared.tar"]
+        for i in range(5):
+            task = self._make_task(f"leaf_{i}", source)
+            stage.process(task)
+
+        # 5 separate shard files written
+        completed_dir = Path(ckpt_path) / "completed"
+        shards = list(completed_dir.glob("*.json"))
+        assert len(shards) == 5
+
+        # All point to the same source_key
+        for shard in shards:
+            data = json.loads(shard.read_text())
+            assert data["source_key"] == _source_key(source)
+
+
+# ---------------------------------------------------------------------------
+# FilePartitioningStage — hash-based task ID stability
+# ---------------------------------------------------------------------------
+
+class TestFilePartitioningHashTaskId:
+    def test_task_id_stable_across_runs(self, tmp_path: Path):
+        """Same file set → same task IDs regardless of invocation order."""
+        files = [str(tmp_path / f"f{i}.jsonl") for i in range(5)]
+        for f in files:
+            Path(f).write_text("{}\n")
+
+        from nemo_curator.stages.file_partitioning import FilePartitioningStage
+        from nemo_curator.tasks import _EmptyTask
+
+        empty = _EmptyTask(task_id="empty", dataset_name="ds", data=None, _metadata={})
+
+        stage1 = FilePartitioningStage(file_paths=files, files_per_partition=1)
+        stage2 = FilePartitioningStage(file_paths=files, files_per_partition=1)
+
+        result1 = stage1.process(empty)
+        result2 = stage2.process(empty)
+
+        ids1 = {t.task_id for t in result1}
+        ids2 = {t.task_id for t in result2}
+        assert ids1 == ids2
+
+    def test_task_id_independent_of_other_partitions(self, tmp_path: Path):
+        """Adding a new file doesn't change the task IDs of existing partitions."""
+        files_a = [str(tmp_path / f"a{i}.jsonl") for i in range(3)]
+        for f in files_a:
+            Path(f).write_text("{}\n")
+        file_new = str(tmp_path / "new.jsonl")
+        Path(file_new).write_text("{}\n")
+
+        from nemo_curator.stages.file_partitioning import FilePartitioningStage
+        from nemo_curator.tasks import _EmptyTask
+
+        empty = _EmptyTask(task_id="empty", dataset_name="ds", data=None, _metadata={})
+
+        stage_orig = FilePartitioningStage(file_paths=files_a, files_per_partition=1)
+        stage_extended = FilePartitioningStage(file_paths=files_a + [file_new], files_per_partition=1)
+
+        result_orig = stage_orig.process(empty)
+        result_extended = stage_extended.process(empty)
+
+        orig_ids = {t.task_id for t in result_orig}
+        extended_ids = {t.task_id for t in result_extended}
+
+        # All original IDs must appear in the extended run
+        assert orig_ids.issubset(extended_ids)
+        # Extended has one more (the new file)
+        assert len(extended_ids) == len(orig_ids) + 1
+
+    def test_source_files_in_metadata(self, tmp_path: Path):
+        """Every FileGroupTask must have source_files set in _metadata."""
+        files = [str(tmp_path / f"f{i}.jsonl") for i in range(3)]
+        for f in files:
+            Path(f).write_text("{}\n")
+
+        from nemo_curator.stages.file_partitioning import FilePartitioningStage
+        from nemo_curator.tasks import _EmptyTask
+
+        empty = _EmptyTask(task_id="empty", dataset_name="ds", data=None, _metadata={})
+        stage = FilePartitioningStage(file_paths=files, files_per_partition=1)
+        result = stage.process(empty)
+
+        for task in result:
+            assert "source_files" in task._metadata
+            assert len(task._metadata["source_files"]) > 0
+
+    def test_is_source_stage(self):
+        from nemo_curator.stages.file_partitioning import FilePartitioningStage
+        stage = FilePartitioningStage(file_paths=[])
+        assert stage.is_source_stage() is True
