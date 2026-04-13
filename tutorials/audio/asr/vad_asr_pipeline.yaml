@@ -1,0 +1,132 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+###############################################################################
+# VAD + ASR pipeline (ASR tutorial)
+###############################################################################
+#
+# Resample → WhisperX VAD → NeMo ASR (RNNT + CTC) → normalized WER metrics → manifest.
+#
+# Pipeline stages:
+#   0. ManifestReader              - Read input JSONL manifest
+#   1. ResampleAudioStage          - Resample to 16 kHz mono WAV
+#   2. WhisperXVADStage            - Voice activity detection (segments)
+#   3. NeMoASRAlignerStage         - First pass alignment (FastConformer RNNT, text)
+#   4. NeMoASRAlignerStage         - Second pass (FastConformer CTC, text2)
+#   5. ComputeNormalizedWERMetricsStage - WER/CER per segment (text vs text2)
+#   6. ManifestWriterStage         - Write output JSONL manifest
+#
+# Usage (from Curator repo root):
+#   python tutorials/audio/asr/main.py \
+#     --config-path tutorials/audio/asr \
+#     --config-name vad_asr_pipeline \
+#     input_manifest=/data/input.jsonl \
+#     final_manifest=/data/vad_asr_output.jsonl \
+#     hf_token=<your_hf_token>
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  VAD + ASR Pipeline
+  ##########################
+
+  Processes raw audio through VAD, ASR alignment, text
+  normalization, and quality metrics to produce labelled segments
+  suitable for ASR training.
+
+# =============================================================================
+# CORE CONFIGURATION
+# =============================================================================
+
+input_manifest: ???
+final_manifest: ???
+workspace_dir: /tmp/tagging_workspace
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+language_short: en
+hf_token: ""
+sample_rate: 16000
+max_segment_length: 40
+batch_size: 4
+resources:
+  cpus: 2
+
+# =============================================================================
+# PIPELINE STAGES
+# =============================================================================
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: "ResampleAudio"
+    resampled_audio_dir: ${resampled_audio_dir}
+    input_format: "wav"
+    target_sample_rate: ${sample_rate}
+    target_format: "wav"
+    target_nchannels: 1
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.inference.vad.WhisperXVADStage
+    name: "VAD"
+    max_length: ${max_segment_length}
+    segments_key: "segments"
+    audio_filepath_key: "resampled_audio_filepath"
+    resources: ${resources}
+    random_max_length: true # draw merge_max_length uniformly from [0, merge_max_length]
+
+  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+    name: "ASRAlignment"
+    is_fastconformer: true
+    decoder_type: rnnt
+    batch_size: 32
+    segments_key: "segments"
+    infer_segment_only: true
+    text_key: "text"
+
+  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+    name: "ASRAlignment"
+    is_fastconformer: true
+    decoder_type: ctc
+    batch_size: 32
+    segments_key: "segments"
+    infer_segment_only: true
+    model_name: "stt_en_fastconformer_hybrid_large_pc"
+    text_key: "text2"
+
+  - _target_: nemo_curator.stages.audio.metrics.get_wer.ComputeNormalizedWERMetricsStage
+    name: "ComputeNormalizedWERMetrics"
+    language: ${language_short}
+    hypothesis_text_key: "text"
+    reference_text_key: "text2"
+    compute_pnc_wer: true
+    pnc_chars: ".?,"
+
+  # - _target_: nemo_curator.stages.audio.metrics.get_wer.GetPairwiseWerStage
+  #   name: "GetPairwiseWer"
+  #   text_key: "text"
+  #   pred_text_key: "text2"
+  #   wer_key: "wer"
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${final_manifest}

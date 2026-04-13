@@ -20,6 +20,7 @@ and WhisperXVADStage (ProcessingStage for VAD-only pipeline use).
 """
 
 import os
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -42,7 +43,7 @@ class WhisperXVADModel:
     """Shared VAD model and get_vad_segments logic for PyAnnote and standalone VAD.
 
     Used by PyAnnoteDiarizationStage for sub-segment VAD and by WhisperXVADStage
-    for VAD-only processing.
+    for VAD-only processing. If random_max_length is True, the merge_max_length is drawn uniformly from [0, merge_max_length].
     """
 
     def __init__(
@@ -51,6 +52,7 @@ class WhisperXVADModel:
         vad_onset: float = 0.5,
         vad_offset: float = 0.363,
         use_auth_token: str | None = None,
+        random_max_length: bool = False,
     ):
         if device == "cuda" and not torch.cuda.is_available():
             msg = "CUDA device requested but not available. Set device='cpu' to run without GPU."
@@ -58,6 +60,7 @@ class WhisperXVADModel:
         self._device = device
         self._vad_onset = vad_onset
         self._vad_offset = vad_offset
+        self._random_max_length = random_max_length
         default_vad_options = {
             "vad_onset": vad_onset,
             "vad_offset": vad_offset,
@@ -87,7 +90,10 @@ class WhisperXVADModel:
 
         Args:
             audio: NumPy array of shape (C, N).
-            merge_max_length: Maximum length for merging chunks in seconds.
+            merge_max_length: Maximum length for merging chunks in seconds. When
+                ``random_max_length`` is set on the model, the merge cap is drawn
+                uniformly from ``[lo, merge_max_length]`` where ``lo`` is
+                ``merge_max_length * min(U, V)`` for independent ``U, V ~ Uniform(0, 1)``.
             sample_rate: Sample rate of the audio.
 
         Returns:
@@ -99,6 +105,8 @@ class WhisperXVADModel:
                 "sample_rate": sample_rate,
             }
         )
+        if self._random_max_length and (hi := float(merge_max_length)) > 0:
+            merge_max_length = hi * ((m := min(random.random(), random.random())) + (1 - m) * random.random())  # noqa: S311
         return Pyannote.merge_chunks(vad_segments, merge_max_length, onset=self._vad_onset)
 
 
@@ -117,6 +125,7 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
     vad_offset: float = 0.363
     segments_key: str = "vad_segments"
     audio_filepath_key: str = "resampled_audio_filepath"
+    random_max_length: bool = False
 
     name: str = "WhisperXVAD"
     resources: Resources = field(default_factory=lambda: Resources(gpus=1))
@@ -143,6 +152,7 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
                 device="cpu",
                 vad_onset=self.vad_onset,
                 vad_offset=self.vad_offset,
+                random_max_length=self.random_max_length,
             )
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
@@ -151,6 +161,7 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
                 device=self._device,
                 vad_onset=self.vad_onset,
                 vad_offset=self.vad_offset,
+                random_max_length=self.random_max_length,
             )
         self._vad_model.to(self._device)
         logger.info(f"[{self.name}] Initialized WhisperX VAD on {self._device}")
@@ -177,6 +188,9 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
         audio = np.expand_dims(data, axis=0) if data.ndim == 1 else data.T
         vad_segments = self._vad_model.get_vad_segments(audio, self.max_length, sample_rate=sr)
         data_entry[self.segments_key] = vad_segments
+
+        print(f"VAD segments length: {len(vad_segments)}")
+
         self._log_metrics(
             {
                 "process_time": time.perf_counter() - t0,

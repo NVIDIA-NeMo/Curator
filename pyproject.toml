@@ -110,6 +110,7 @@ audio_common = [
     "torch>=2.8.0,<=2.9.1",
     "torchaudio>=2.8.0,<=2.9.1",
     "torchcodec>=0.9,<0.10",
+    "nemo_text_processing",
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",

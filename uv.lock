@@ -817,6 +817,17 @@ wheels = [
 ]
 
 [[package]]
+name = "cdifflib"
+version = "1.2.9"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/52/aa/daefb1236e47561ca53f469f4832f625b38ad6db4e5c68e589dd72928d61/cdifflib-1.2.9.tar.gz", hash = "sha256:6286da08f72b7ddb5b40145dcb8f214ad913a86d72b1f62cc8d6cf7a92029590", size = 12323, upload-time = "2025-01-13T22:18:04.625Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/2a/12cc95269e666ac40a20662c865677e24363fdca4d5c72566ad36b14d24a/cdifflib-1.2.9-cp310-cp310-macosx_15_0_arm64.whl", hash = "sha256:24219193d1d298ead211d4b628ad2124ffa1c0676890cea8fbacdeaf66a2369b", size = 11044, upload-time = "2025-01-13T22:17:55.548Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/35/161f137709a77ae861dfdebb478a7dad323b3a7fd3c24b97799ccf48a2b7/cdifflib-1.2.9-cp311-cp311-macosx_15_0_arm64.whl", hash = "sha256:32c56f7895253b0734f42ba023a9c181b52d72f3d51afacc29d5ea8ee72e4643", size = 11046, upload-time = "2025-01-13T22:17:58.077Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/94/caf01d3efe4aa31086217d20538ad9a8ef8a925b49771d34d4dab0295de8/cdifflib-1.2.9-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:75a81d8a5e2b0ca055d3f7850fd0a29b488b086c91445841fa3113ac328410e0", size = 11028, upload-time = "2025-01-13T22:17:59.168Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.2.25"
 source = { registry = "https://pypi.org/simple" }
@@ -4985,6 +4996,7 @@ all = [
     { name = "librosa" },
     { name = "lxml" },
     { name = "mwparserfromhell" },
+    { name = "nemo-text-processing" },
     { name = "nemo-toolkit", extra = ["asr"] },
     { name = "nixl-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "nvidia-cudnn-cu12", version = "9.10.2.21", source = { registry = "https://pypi.nvidia.com/" }, marker = "(python_full_version < '3.11' and platform_machine == 'x86_64' and sys_platform == 'emscripten') or (python_full_version < '3.11' and platform_machine == 'x86_64' and sys_platform == 'win32') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')" },
@@ -5035,6 +5047,7 @@ all = [
 audio-common = [
     { name = "accelerate" },
     { name = "librosa" },
+    { name = "nemo-text-processing" },
     { name = "nemo-toolkit", extra = ["asr"] },
     { name = "onnx" },
     { name = "pyannote-audio" },
@@ -5054,6 +5067,7 @@ audio-common = [
 audio-cpu = [
     { name = "accelerate" },
     { name = "librosa" },
+    { name = "nemo-text-processing" },
     { name = "nemo-toolkit", extra = ["asr"] },
     { name = "onnx" },
     { name = "onnxruntime" },
@@ -5076,6 +5090,7 @@ audio-cuda12 = [
     { name = "cuda-python" },
     { name = "gpustat" },
     { name = "librosa" },
+    { name = "nemo-text-processing" },
     { name = "nemo-toolkit", extra = ["asr"] },
     { name = "nvidia-cudnn-cu12", version = "9.10.2.21", source = { registry = "https://pypi.nvidia.com/" }, marker = "(python_full_version < '3.11' and platform_machine == 'x86_64' and sys_platform == 'emscripten') or (python_full_version < '3.11' and platform_machine == 'x86_64' and sys_platform == 'win32') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32')" },
     { name = "nvidia-cudnn-cu12", version = "9.20.0.48", source = { registry = "https://pypi.nvidia.com/" }, marker = "(python_full_version >= '3.11' and sys_platform == 'emscripten') or (python_full_version >= '3.11' and sys_platform == 'win32') or platform_machine != 'x86_64' or sys_platform == 'darwin'" },
@@ -5384,6 +5399,7 @@ requires-dist = [
     { name = "nemo-curator", extras = ["vllm"], marker = "extra == 'interleaved-cuda12'" },
     { name = "nemo-curator", extras = ["vllm"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["vllm"], marker = "extra == 'video-cuda12'" },
+    { name = "nemo-text-processing", marker = "extra == 'audio-common'" },
     { name = "nemo-toolkit", extras = ["asr"], marker = "extra == 'audio-common'", specifier = ">=2.7.2" },
     { name = "nixl-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'inference-server'", specifier = ">=0.10.0", index = "https://pypi.org/simple" },
     { name = "nvidia-cudnn-cu12", marker = "extra == 'audio-cuda12'" },
@@ -5478,6 +5494,30 @@ test = [
     { name = "s3fs", specifier = ">=2024.12.0" },
     { name = "scikit-learn", specifier = "<1.8.0" },
     { name = "slack-sdk" },
+]
+
+[[package]]
+name = "nemo-text-processing"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cdifflib" },
+    { name = "editdistance" },
+    { name = "inflect" },
+    { name = "joblib" },
+    { name = "pandas" },
+    { name = "pynini" },
+    { name = "regex" },
+    { name = "sacremoses" },
+    { name = "setuptools" },
+    { name = "tqdm" },
+    { name = "transformers" },
+    { name = "wget" },
+    { name = "wrapt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bb/f4/7e8cd790557d12954358e034330267a51121fd9e0c9bfc97874551fc2540/nemo_text_processing-1.1.0.tar.gz", hash = "sha256:c1597bce52e74204a462095e90311e2ba6c7293654b7a3c5adccca011a1a6518", size = 1670208, upload-time = "2024-08-21T17:30:05.518Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/09/6d/f066481b52b3c8c7826454e54b4ca085c5fdbe8f090e56257140e020d662/nemo_text_processing-1.1.0-py3-none-any.whl", hash = "sha256:6bc16b13ec77632056460e6a1ce135a582cf41683ed85f6ace505af20785767d", size = 2677692, upload-time = "2024-08-21T17:30:02.969Z" },
 ]
 
 [[package]]
@@ -8012,6 +8052,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/23/00/f915eaa75326f4209941179c2b93ac477f2040e4aeff5bb21d16eb8058f9/pyloudnorm-0.2.0.tar.gz", hash = "sha256:8bf597658ea4e1975c275adf490f6deb5369ea409f2901f939915efa4b681b16", size = 14037, upload-time = "2026-01-04T11:43:35.265Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/aa/b6/65a49a05614b2548edbba3aab118f2ebe7441dfd778accdcdce9f6567f20/pyloudnorm-0.2.0-py3-none-any.whl", hash = "sha256:9bb69afb904f59d007a7f9ba3d75d16fb8aeef35c44d6df822a9f192d69cf13f", size = 10879, upload-time = "2026-01-04T11:43:34.534Z" },
+]
+
+[[package]]
+name = "pynini"
+version = "2.1.6.post1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b8/79/06049a733359a2da244c21a88df90828cf27eb0f7947ebb8b00653c7e93c/pynini-2.1.6.post1.tar.gz", hash = "sha256:d831ab53abb22c862fb56471b12edf26e77d2b02d1956f45f0259e6402493084", size = 790361, upload-time = "2024-07-18T22:05:13.037Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ad/3a/bf7d70e896d3099999c0350c5deb4c7d404738f34b422ddb1481321009b2/pynini-2.1.6.post1-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:10f0717fc6bf09330c41978e4d958a000b790b9b344cbc1117d33b008edf4fde", size = 154542089, upload-time = "2024-07-18T22:05:38.811Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/59/5c2499971384041aa9a2ad16c02c5d70f6802d49cac08e234f265cd1bc67/pynini-2.1.6.post1-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:957a8b0d7b27a6c7ac15aae1e0e384d92e3ea2ef4e673188a8ccb92a3224e895", size = 154760801, upload-time = "2024-07-18T22:05:47.569Z" },
+    { url = "https://files.pythonhosted.org/packages/62/cf/67f560932cbb12a0d7d69e14ed08e83e0ee1ca0ea1c019e486b21048e9b7/pynini-2.1.6.post1-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:ca567a454fefa7c9bf5180d4d9b4cb5d62f9f99fa326554076fe2a945dc2f776", size = 154687038, upload-time = "2024-07-18T22:05:56.311Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/23/6a487e8de16b151f5b9bfbd15d5b7969976d8bc5e79eaba8a33513dda6d8/pynini-2.1.6.post1-pp310-pypy310_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:a5a38e074b9eaf7aa08c1cd286d5b7990ef9ccc28f4e5e8d31f09ba10729431d", size = 98750903, upload-time = "2024-07-18T22:06:25.975Z" },
 ]
 
 [[package]]

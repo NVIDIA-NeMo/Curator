@@ -13,42 +13,29 @@
 # limitations under the License.
 
 """
-Audio Tagging Pipeline for NeMo Curator.
+ASR Pipeline for NeMo Curator.
 
-Processes raw audio data through diarization, ASR alignment, text
-normalization, quality metrics, and segment preparation to produce
-labelled training manifests for TTS or ASR.
-
-The pipeline is YAML-driven via Hydra and supports both TTS and ASR
-modalities by switching the configuration file.
+Processes raw audio data through VAD, and then two passes of ASR alignment to produce a manifest with ASR hypotheses using VAD segments.
 
 Usage:
-    # TTS pipeline (from Curator repo root)
-    python tutorials/audio/tagging/main.py \\
+    # ASR pipeline (from Curator repo root)
+    python tutorials/audio/asr/main.py \\
         --config-path . \\
-        --config-name tts_pipeline \\
-        input_manifest=/data/input.jsonl \\
-        final_manifest=/data/tts_output.jsonl \\
-        hf_token=<your_hf_token>
-
-    # ASR pipeline
-    python tutorials/audio/tagging/main.py \\
-        --config-path . \\
-        --config-name asr_pipeline \\
+        --config-name vad_asr_pipeline \\
         input_manifest=/data/input.jsonl \\
         final_manifest=/data/asr_output.jsonl \\
         hf_token=<your_hf_token>
 
     # Override parameters
-    python tutorials/audio/tagging/main.py \\
+    python tutorials/audio/asr/main.py \\
         --config-path . \\
-        --config-name tts_pipeline \\
+        --config-name vad_asr_pipeline \\
         input_manifest=/data/input.jsonl \\
-        final_manifest=/data/output.jsonl \\
+        final_manifest=/data/asr_alignment_output.jsonl \\
         hf_token=<your_hf_token> \\
         device=cpu \\
         max_segment_length=30 \\
-        stages.10.min_duration=3
+        stages.3.min_len=2.0
 """
 
 import hydra
@@ -62,7 +49,7 @@ from nemo_curator.tasks.utils import TaskPerfUtils
 
 @hydra.main(version_base=None)
 def main(cfg: DictConfig) -> None:
-    """Run audio tagging pipeline using Hydra configuration."""
+    """Run VAD + ASR pipeline using Hydra configuration."""
     pipeline = create_pipeline_from_yaml(cfg)
 
     logger.info(pipeline.describe())
@@ -71,7 +58,7 @@ def main(cfg: DictConfig) -> None:
     config = {"execution_mode": "batch"}
     executor = XennaExecutor(config=config)
 
-    logger.info("Starting audio tagging pipeline...")
+    logger.info("Starting VAD + ASR pipeline...")
     results = pipeline.run(executor)
 
     output_files = []
