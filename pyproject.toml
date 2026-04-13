@@ -321,7 +321,7 @@ nixl = { index = "pypi" }
 nixl-cu12 = { index = "pypi" }
 
 [tool.coverage.paths]
-source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]
+source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curator/Curator/nemo_curator"]
 
 [tool.ruff]
 line-length = 119
@@ -378,6 +378,9 @@ fixable = ["ALL"]
 ]
 "fern/**/*.py" = [
     "INP001", # Fern CLI helper scripts; not an installable package
+]
+".github/scripts/**" = [
+    "INP001", # CI scripts; not an installable package
 ]
 
 [tool.pytest.ini_options]
