@@ -103,24 +103,45 @@ python -c "import nemo_curator; print('NeMo Curator', nemo_curator.__version__)"
 
 Expected: `NeMo Curator 1.x.x` — if you see an import error, check the [FAQ](#frequently-asked-questions).
 
-**Step 3 — Run your first pipeline** (text filtering + deduplication):
+**Step 3 — Run the quickstart tutorial:**
+
+```bash
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
+python tutorials/quickstart.py
+```
+
+This runs a three-stage sentiment-analysis pipeline (task creation → word count → GPU inference) using the core `Pipeline` / `ProcessingStage` / `Task` API. Expected output:
+
+```
+Pipeline: sentiment_analysis
+  Stage 1: TaskCreationStage
+  Stage 2: WordCountStage
+  Stage 3: SentimentStage
+...
+Pipeline completed!
+Total output tasks: 200
+```
+
+**Building a text curation pipeline** — all pipelines follow the same pattern:
 
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
+from nemo_curator.core.client import RayClient
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.resources import Resources
 
-# Load a JSONL corpus
-dataset = DocumentDataset.read_json("data/raw/*.jsonl", add_filename=True)
+ray_client = RayClient()
+ray_client.start()
 
-# Compose a pipeline: quality filter → exact deduplication
-pipeline = nc.Sequential([
-    nc.ScoreFilter(nc.HeuristicFilter(), score_field="quality_score", min_score=0.5),
-    nc.ExactDuplicates(hash_method="md5"),
-])
+pipeline = Pipeline(name="text_curation", description="Read → filter → write")
+pipeline.add_stage(JsonlReader(file_paths="data/raw/*.jsonl"))
+# add filter and processing stages here — see tutorials/math/ for examples
+pipeline.add_stage(JsonlWriter(path="data/curated/"))
 
-result = pipeline(dataset)
-result.to_json("data/curated/", write_to_filename=True)
-print(f"Curated dataset: {len(result)} documents")
+pipeline.run()
+ray_client.stop()
 ```
 
 **Full setup options:** [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html) · [Docker / NGC](#installation-options) · [All Tutorials](tutorials/)
