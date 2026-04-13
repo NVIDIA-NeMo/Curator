@@ -202,6 +202,19 @@ class Pipeline:
 
             executor = XennaExecutor()
 
+        # Resolve relative checkpoint paths to absolute NOW (in the driver process)
+        # so that Ray workers — which may have a different working directory — all
+        # write to the same location.  Cloud paths (s3://, gs://, …) are left as-is.
+        if checkpoint_path and "://" not in checkpoint_path:
+            import os
+
+            abs_path = os.path.abspath(checkpoint_path)
+            if abs_path != checkpoint_path:
+                logger.info(
+                    f"Checkpoint path {checkpoint_path!r} resolved to absolute path {abs_path!r}"
+                )
+            checkpoint_path = abs_path
+
         from nemo_curator.core.serve import is_ray_serve_active
 
         if is_ray_serve_active():

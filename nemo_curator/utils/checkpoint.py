@@ -212,7 +212,17 @@ class CheckpointManager:
         parent = path.rsplit("/", 1)[0] if "/" in path else path
         try:
             fs.makedirs(parent, exist_ok=True)
-        except Exception:  # noqa: BLE001
-            pass  # S3 / GCS don't need explicit directory creation
-        with fsspec.open(path, "w", **self.storage_options) as f:
-            json.dump(data, f)
+        except Exception as e:  # noqa: BLE001
+            # S3 / GCS don't need explicit directory creation; log for local paths
+            logger.debug(f"Checkpoint: makedirs({parent!r}) skipped: {e}")
+        try:
+            with fsspec.open(path, "w", **self.storage_options) as f:
+                json.dump(data, f)
+        except Exception as exc:
+            logger.error(
+                f"Checkpoint: failed to write {path!r} — checkpoint shard lost. "
+                f"Error: {exc!r}. "
+                "Check filesystem permissions and that the checkpoint path is on a "
+                "shared filesystem accessible to all Ray workers. "
+                "The pipeline will continue but this task will be re-processed on resume."
+            )

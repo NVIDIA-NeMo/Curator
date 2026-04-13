@@ -56,6 +56,14 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
         self._checkpoint_mgr = CheckpointManager(
             self.checkpoint_path, self.storage_options
         ).load()
+        completed_keys = self._checkpoint_mgr.get_completed_source_keys()
+        if completed_keys:
+            logger.info(
+                f"Checkpoint filter: {len(completed_keys)} source partition(s) already "
+                "complete — those tasks will be skipped this run."
+            )
+        else:
+            logger.info("Checkpoint filter: no previously completed partitions found — running fresh.")
 
     def process(self, task: Task) -> list[Task]:
         source_files: list[str] = task._metadata.get("source_files", [])
@@ -98,11 +106,17 @@ class _CheckpointRecorderStage(ProcessingStage[Task, Task]):
     def process(self, task: Task) -> Task:
         source_files: list[str] = task._metadata.get("source_files", [])
         if source_files:
+            logger.debug(
+                f"Checkpoint recorder: writing shard for task {task.task_id!r} "
+                f"(source_files={source_files[:2]}{'...' if len(source_files) > 2 else ''})"
+            )
             self._checkpoint_mgr.mark_completed(task.task_id, source_files)
         else:
             logger.warning(
-                f"Checkpoint recorder: task {task.task_id} has no source_files in "
+                f"Checkpoint recorder: task {task.task_id!r} has no source_files in "
                 "_metadata — cannot record completion. This task will be re-processed "
-                "on the next resume."
+                "on the next resume. If this happens for every task, ensure the source "
+                "stage sets _metadata['source_files'] and BaseStageAdapter propagation "
+                "is running (all stages must go through XennaExecutor/RayActorPoolExecutor)."
             )
         return task
