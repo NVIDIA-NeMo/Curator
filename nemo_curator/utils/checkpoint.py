@@ -145,14 +145,21 @@ class CheckpointManager:
     def mark_completed(self, task_id: str, source_files: list[str]) -> None:
         """Write a completed shard for the given task.
 
-        Each call writes a unique file (keyed by task_id), so concurrent writers
-        never clobber each other.
+        The filename is ``{source_key_hash}_{task_id}.json`` — keyed on BOTH the
+        source partition and the task ID.  This prevents collisions when multiple
+        source partitions produce leaf tasks with the same ``task_id`` (e.g.
+        ``ImageReaderStage`` always produces ``image_batch_0``, ``image_batch_1``,
+        … starting from 0 for every input tar file).  The source_key prefix makes
+        each (source_partition, task_id) pair map to a distinct file while keeping
+        writes idempotent for retries.
         """
         if not source_files:
             return
         source_key = "|".join(sorted(source_files))
+        source_key_hash = hashlib.sha256(source_key.encode()).hexdigest()[:16]
         safe_task_id = task_id.replace("/", "_").replace(" ", "_").replace(":", "_")
-        path = _path_join(self._completed_path, f"{safe_task_id}.json")
+        filename = f"{source_key_hash}_{safe_task_id}.json"
+        path = _path_join(self._completed_path, filename)
         self._write_json(
             path,
             {

@@ -422,6 +422,42 @@ class TestCheckpointRecorderStage:
             data = json.loads(shard.read_text())
             assert data["source_key"] == _source_key(source)
 
+    def test_recorder_no_collision_across_sources(self, tmp_path: Path):
+        """Regression test: tasks with the SAME task_id from DIFFERENT source partitions
+        must NOT overwrite each other's checkpoint files.
+
+        This is the image pipeline bug: ImageReaderStage produces ``image_batch_0``,
+        ``image_batch_1``, ... starting from 0 for EVERY input tar file.  Without
+        source_key prefixing, tar2's ``image_batch_0.json`` overwrites tar1's, so
+        tar1 ends up with 0 completions recorded and is never skipped on re-run.
+        """
+        from nemo_curator.stages.checkpoint import _CheckpointRecorderStage
+
+        ckpt_path = str(tmp_path / "ckpt")
+        stage = _CheckpointRecorderStage(checkpoint_path=ckpt_path)
+        stage.setup()
+
+        # Simulate: 2 tar files, each producing 2 image batches
+        # Both tar files produce tasks with identical task_ids (image_batch_0, image_batch_1)
+        source_a = ["tar_a.tar"]
+        source_b = ["tar_b.tar"]
+        for batch_id in range(2):
+            stage.process(self._make_task(f"image_batch_{batch_id}", source_a))
+            stage.process(self._make_task(f"image_batch_{batch_id}", source_b))
+
+        # 4 distinct files must exist (not 2)
+        completed_dir = Path(ckpt_path) / "completed"
+        shards = list(completed_dir.glob("*.json"))
+        assert len(shards) == 4, (
+            f"Expected 4 shard files but got {len(shards)}. "
+            "Likely collision: tasks from different source partitions overwrote each other."
+        )
+
+        # Each source has exactly 2 completions
+        mgr = CheckpointManager(ckpt_path).load()
+        assert mgr._completed_counts[_source_key(source_a)] == 2
+        assert mgr._completed_counts[_source_key(source_b)] == 2
+
 
 # ---------------------------------------------------------------------------
 # FilePartitioningStage — hash-based task ID stability
