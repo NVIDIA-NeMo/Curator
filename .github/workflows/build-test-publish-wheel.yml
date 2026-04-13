@@ -32,7 +32,6 @@ jobs:
       dry-run: true
       python-package: nemo_curator
       python-version: "3.10"
-      packaging: uv
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
