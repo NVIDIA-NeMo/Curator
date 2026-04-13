@@ -113,6 +113,10 @@ class _TransformersHTMLElementClassifier:
         if self._model is not None and self._tokenizer is not None:
             return
 
+        if self.device == "cuda" and not torch.cuda.is_available():
+            msg = "CUDA requested for model-based HTML extraction, but CUDA is unavailable."
+            raise RuntimeError(msg)
+
         self._tokenizer = AutoTokenizer.from_pretrained(
             self.model_identifier,
             cache_dir=self.cache_dir,
@@ -125,9 +129,6 @@ class _TransformersHTMLElementClassifier:
             local_files_only=self.local_files_only,
             **self.transformers_init_kwargs,
         )
-        if self.device == "cuda" and not torch.cuda.is_available():
-            msg = "CUDA requested for model-based HTML extraction, but CUDA is unavailable."
-            raise RuntimeError(msg)
         self._model.to(self.device)
         self._model.eval()
 
