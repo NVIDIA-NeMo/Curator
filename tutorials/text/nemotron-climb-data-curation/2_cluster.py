@@ -47,7 +47,7 @@ def main(args: argparse.Namespace) -> None:
         n_init=args.n_init,
         oversampling_factor=args.oversampling_factor,
         max_samples_per_batch=args.max_samples_per_batch,
-        save_centroids_path=args.centroids_path,
+        cache_path=args.centroids_path,
     )
 
     pipeline.add_stage(kmeans_stage)

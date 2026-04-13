@@ -64,7 +64,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         oversampling_factor: float = 2.0,
         max_samples_per_batch: int = 1 << 15,
         # I/O args
-        save_centroids_path: str | None = None,
+        cache_path: str | None = None,
         read_kwargs: dict[dict] | None = None,
         write_kwargs: dict[dict] | None = None,
     ):
@@ -85,7 +85,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
             oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
             max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-            save_centroids_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
+            cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
             read_kwargs (dict[dict]): Keyword arguments for the read stage.
             write_kwargs (dict[dict]): Keyword arguments for the write stage.
         """
@@ -105,7 +105,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         self.oversampling_factor = oversampling_factor
         self.max_samples_per_batch = max_samples_per_batch
 
-        self.save_centroids_path = save_centroids_path
+        self.cache_path = cache_path
         self.read_kwargs = read_kwargs.copy() if read_kwargs is not None else {}
         self.write_kwargs = write_kwargs.copy() if write_kwargs is not None else {}
 
@@ -195,9 +195,9 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         concatenated_embeddings = cp.concatenate(embeddings_arrays, axis=0)
         self.kmeans._fit(concatenated_embeddings, sample_weight=None, convert_dtype=False, multigpu=True)
 
-        if self.save_centroids_path is not None:
+        if self.cache_path is not None:
             centroids = self.kmeans.cluster_centers_
-            centroid_file = f"{self.save_centroids_path}/kmeans_centroids.npy"
+            centroid_file = f"{self.cache_path}/kmeans_centroids.npy"
             cp.save(centroid_file, centroids)
             logger.info(f"Saved {self.n_clusters} KMeans centroids to {centroid_file}")
 
@@ -325,7 +325,7 @@ class KMeansStage(CompositeStage[_EmptyTask, _EmptyTask]):
     n_init: int | Literal["auto"] = 1
     oversampling_factor: float = 2.0
     max_samples_per_batch: int = 1 << 15
-    save_centroids_path: str | None = None
+    cache_path: str | None = None
     """KMeans clustering stage that requires RAFT for distributed processing.
 
     Args:
@@ -347,7 +347,7 @@ class KMeansStage(CompositeStage[_EmptyTask, _EmptyTask]):
         n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
         oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
         max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-        save_centroids_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
+        cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
     """
 
     def __post_init__(self):
@@ -386,6 +386,6 @@ class KMeansStage(CompositeStage[_EmptyTask, _EmptyTask]):
                 max_samples_per_batch=self.max_samples_per_batch,
                 read_kwargs=self.read_kwargs,
                 write_kwargs=self.write_kwargs,
-                save_centroids_path=self.save_centroids_path,
+                cache_path=self.cache_path,
             ),
         ]

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -21,7 +22,6 @@ from dataclasses import dataclass
 import fasttext
 import networkx as nx
 import numpy as np
-import pandas as pd
 import ray
 from loguru import logger
 
@@ -30,7 +30,7 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline.pipeline import Pipeline
 from nemo_curator.stages.text.filters import DocumentFilter, Score
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
-from nemo_curator.stages.text.io.writer.base import BaseWriter
+from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.client_utils import is_remote_url
 
@@ -91,13 +91,8 @@ class FastTextQualityLabeler(DocumentFilter):
 
 
 @dataclass
-class ParquetClusterWriter(BaseWriter):
-    file_extension: str = "parquet"
-    name: str = "parquet_cluster_writer"
-
-    def write_data(self, task: DocumentBatch, file_path: str) -> None:
-        df = task.to_pandas()
-        df.to_parquet(file_path, index=None)
+class JsonlClusterWriter(JsonlWriter):
+    name: str = "jsonl_cluster_writer"
 
     def process(self, task: DocumentBatch) -> FileGroupTask:
         # Get source files from metadata for deterministic naming
@@ -140,21 +135,30 @@ class ParquetClusterWriter(BaseWriter):
 
 @ray.remote
 def compute_average_score_per_cluster(cluster_path: str, score_field: str, threshold: float = 1.0) -> str | None:
-    # Compute average score per cluster
-    scores = []
-    for file_path in os.listdir(cluster_path):
-        if file_path.endswith(".parquet"):
-            df = pd.read_parquet(
-                os.path.join(cluster_path, file_path), columns=[score_field], engine="pyarrow", dtype_backend="pyarrow"
-            )
-            scores.extend(df[score_field].to_numpy().tolist())
+    total = 0.0
+    count = 0
+
+    for fname in os.listdir(cluster_path):
+        if not fname.endswith(".jsonl"):
+            continue
+
+        file_path = os.path.join(cluster_path, fname)
+
+        with open(file_path, "r") as f:
+            for line in f:
+                obj = json.loads(line)
+                total += obj[score_field]
+                count += 1
+
+    if count == 0:
+        # Cluster is empty for some reason, return the path to delete it later
+        logger.warning(f"Cluster {cluster_path} is empty, removing it")
+        return cluster_path
+
+    avg = total / count
 
     # Return paths to remove
-    avg_score = sum(scores) / len(scores)
-    if avg_score >= threshold:
-        return None
-    else:
-        return cluster_path
+    return None if avg >= threshold else cluster_path
 
 
 def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
@@ -191,7 +195,8 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
             )
         )
 
-    pipeline.add_stage(ParquetClusterWriter(path=args.output_path))
+    # Always write to JSONL, which is compatible with Megatron-LM's bin/idx conversion script
+    pipeline.add_stage(JsonlClusterWriter(path=args.output_path))
 
     pipeline.run()
 
@@ -271,7 +276,7 @@ def attach_args() -> argparse.ArgumentParser:
 
     # Cluster merging args
     parser.add_argument("--centroids-path", type=str, required=True)
-    parser.add_argument("--merge-threshold", type=float, default=1.5)
+    parser.add_argument("--merge-threshold", type=float, required=True)
 
     return parser
 
