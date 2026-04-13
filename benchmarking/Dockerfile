@@ -19,6 +19,7 @@ FROM ${CURATOR_IMAGE} AS nemo_curator_benchmarking
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
     less \
+    lynx \
     openssh-client \
     vim \
     wget \
@@ -26,17 +27,10 @@ RUN apt-get update \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-# Add dependencies for benchmarking to the Curator Python environment
+# Ensure all extras and dependency groups (including test) are synced
 RUN cd /opt/Curator \
- && uv sync --extra all \
- && uv add \
-    GitPython \
-    oauth2client \
-    pydrive2 \
-    pynvml \
-    pyyaml \
-    rich \
-  && uv cache prune
+ && uv sync --extra all --all-groups \
+ && uv cache prune
 
 # Add the Curator repo to the safe.directory list to avoid GitPython warnings
 RUN git config --global --add safe.directory /opt/Curator

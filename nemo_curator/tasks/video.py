@@ -21,6 +21,7 @@ from uuid import UUID
 
 import numpy as np
 import numpy.typing as npt
+from loguru import logger
 
 from nemo_curator.utils.decoder_utils import extract_video_metadata
 
@@ -41,8 +42,7 @@ class _Window:
     end_frame: int
     # MP4 bytes for this window
     mp4_bytes: bytes | None = None
-    # Qwen LLM input for this window
-    qwen_llm_input: dict[str, Any] | None = None
+    llm_inputs: dict[str, dict[str, Any]] = field(default_factory=dict)
     # X1 model input for this window
     x1_input: Any | None = None
     # `caption: {model_name: caption}`
@@ -61,7 +61,7 @@ class _Window:
         total_size = 0
         total_size += len(self.mp4_bytes) if self.mp4_bytes else 0
         # TODO: this is probably inaccurate
-        total_size += sys.getsizeof(self.qwen_llm_input) if self.qwen_llm_input else 0
+        total_size += sum(sys.getsizeof(v) for v in self.llm_inputs.values())
         total_size += sys.getsizeof(self.caption)
         total_size += sys.getsizeof(self.enhanced_caption)
         total_size += len(self.webp_bytes) if self.webp_bytes else 0
@@ -90,15 +90,12 @@ class Clip:
     # embedding
     cosmos_embed1_frames: npt.NDArray[np.float32] | None = None
     cosmos_embed1_embedding: npt.NDArray[np.float32] | None = None
-    intern_video_2_frames: npt.NDArray[np.float32] | None = None
-    intern_video_2_embedding: npt.NDArray[np.float32] | None = None
     # captioning
     windows: list[_Window] = field(default_factory=list)
     # egomotion
     egomotion: dict[str, bytes] = field(default_factory=dict)
     # for testing
     cosmos_embed1_text_match: tuple[str, float] | None = None
-    intern_video_2_text_match: tuple[str, float] | None = None
     # for debugging
     errors: dict[str, str] = field(default_factory=dict)
 
@@ -152,10 +149,10 @@ class Clip:
                 total_size += x.nbytes
         if self.decoded_motion_data is not None:
             total_size += self.decoded_motion_data.get_major_size()
-        if self.intern_video_2_frames is not None:
-            total_size += self.intern_video_2_frames.nbytes
-        if self.intern_video_2_embedding is not None:
-            total_size += self.intern_video_2_embedding.nbytes
+        if self.cosmos_embed1_frames is not None:
+            total_size += self.cosmos_embed1_frames.nbytes
+        if self.cosmos_embed1_embedding is not None:
+            total_size += self.cosmos_embed1_embedding.nbytes
         for window in self.windows:
             total_size += window.get_major_size()
         return total_size
@@ -369,7 +366,7 @@ class VideoTask(Task[Video]):
     def validate(self) -> bool:
         """Validate the task data."""
         if isinstance(self.data.input_video, pathlib.Path) and not os.path.exists(self.data.input_video):
-            print(f"Video {self.data.input_video} does not exist")
+            logger.warning(f"Video {self.data.input_video} does not exist")
             return False
         return True
 

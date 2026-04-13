@@ -15,17 +15,23 @@ For more information about the classifiers, refer to our [Distributed Data Class
 
 <div align="center">
 
-| NeMo Curator Classifier | Hugging Face Page |
-| --- | --- |
-| `AegisClassifier` | [nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0) and [nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0) |
-| `ContentTypeClassifier` | [nvidia/content-type-classifier-deberta](https://huggingface.co/nvidia/content-type-classifier-deberta) |
-| `DomainClassifier` | [nvidia/domain-classifier](https://huggingface.co/nvidia/domain-classifier) |
-| `FineWebEduClassifier` | [HuggingFaceFW/fineweb-edu-classifier](https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier) |
-| `FineWebMixtralEduClassifier` | [nvidia/nemocurator-fineweb-mixtral-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier) |
-| `FineWebNemotronEduClassifier` | [nvidia/nemocurator-fineweb-nemotron-4-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier) |
-| `InstructionDataGuardClassifier` | [nvidia/instruction-data-guard](https://huggingface.co/nvidia/instruction-data-guard) |
-| `MultilingualDomainClassifier` | [nvidia/multilingual-domain-classifier](https://huggingface.co/nvidia/multilingual-domain-classifier) |
-| `PromptTaskComplexityClassifier` | [nvidia/prompt-task-and-complexity-classifier](https://huggingface.co/nvidia/prompt-task-and-complexity-classifier) |
-| `QualityClassifier` | [quality-classifier-deberta](https://huggingface.co/nvidia/quality-classifier-deberta) |
+| NeMo Curator Classifier | Description | Hugging Face Page |
+| --- | --- | --- |
+| `AegisClassifier` | Identify and categorize unsafe content per document | [nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0) and [nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0) |
+| `ContentTypeClassifier` | Categorize the type-of-speech per document | [nvidia/content-type-classifier-deberta](https://huggingface.co/nvidia/content-type-classifier-deberta) |
+| `DomainClassifier` | Categorize the domain per document | [nvidia/domain-classifier](https://huggingface.co/nvidia/domain-classifier) |
+| `FineWebEduClassifier` | Determine the educational value per document; this model was trained using annotations from Llama 3 70B-Instruct | [HuggingFaceFW/fineweb-edu-classifier](https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier) |
+| `FineWebMixtralEduClassifier` | Determine the educational value per document; this model was trained using annotations from Mixtral 8x22B-Instruct | [nvidia/nemocurator-fineweb-mixtral-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier) |
+| `FineWebNemotronEduClassifier` | Determine the educational value per document; this model was trained using annotations from Nemotron-4-340B-Instruct | [nvidia/nemocurator-fineweb-nemotron-4-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier) |
+| `InstructionDataGuardClassifier` | Identify LLM poisoning attacks per document | [nvidia/instruction-data-guard](https://huggingface.co/nvidia/instruction-data-guard) |
+| `MultilingualDomainClassifier` | Categorize the domain per document; supports classification in 52 languages | [nvidia/multilingual-domain-classifier](https://huggingface.co/nvidia/multilingual-domain-classifier) |
+| `PromptTaskComplexityClassifier` | Classifies text prompts across task types and complexity dimensions | [nvidia/prompt-task-and-complexity-classifier](https://huggingface.co/nvidia/prompt-task-and-complexity-classifier) |
+| `QualityClassifier` | Categorize documents as high, medium, or low quality | [quality-classifier-deberta](https://huggingface.co/nvidia/quality-classifier-deberta) |
 
 </div>
+
+Note that all classifiers support English text classification only, except the `MultilingualDomainClassifier`.
+
+## Bring Your Own Classifier
+
+Advanced users may want to integrate their own Hugging Face classifier(s) into NeMo Curator. Broadly, this requires creating a `CompositeStage` consisting of a CPU-based tokenizer stage and a GPU-based model inference stage. Refer to the [Text Classifiers README](https://github.com/NVIDIA-NeMo/Curator/tree/main/nemo_curator/stages/text/classifiers#text-classifiers) for details about how to do this.

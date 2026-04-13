@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,13 +23,13 @@ import torch
 from transformers import AutoModelForSequenceClassification
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.text.filters import Filter
 from nemo_curator.stages.text.models.model import ModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD, format_name_with_suffix
-from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks import DocumentBatch
 
-from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
+from .utils import DEBERTA_TOKENIZER_PADDING_SIDE, SortByLengthStage
 
 FINEWEB_EDU_MODEL_IDENTIFIER = "HuggingFaceFW/fineweb-edu-classifier"
 FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER = "nvidia/nemocurator-fineweb-mixtral-edu-classifier"
@@ -52,6 +52,7 @@ class FineWebModelStage(ModelStage):
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
 
     """
 
@@ -65,6 +66,7 @@ class FineWebModelStage(ModelStage):
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         autocast: bool = True,
+        keep_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -73,12 +75,13 @@ class FineWebModelStage(ModelStage):
             model_inference_batch_size=model_inference_batch_size,
             padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
             unpack_inference_batch=True,
+            autocast=autocast,
         )
 
         self.label_field = label_field
         self.float_score_field = float_score_field
         self.int_score_field = int_score_field
-        self.autocast = autocast
+        self.keep_tokens = keep_tokens
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.label_field, self.float_score_field, self.int_score_field]
@@ -121,7 +124,8 @@ class FineWebModelStage(ModelStage):
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+        if not self.keep_tokens:
+            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         df_cpu[self.float_score_field] = collected_output[self.float_score_field]
         df_cpu[self.int_score_field] = collected_output[self.int_score_field]
@@ -153,6 +157,10 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            Defaults to False.
 
     """
 
@@ -168,12 +176,16 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     sort_by_length: bool = True
     model_inference_batch_size: int = 256
     autocast: bool = True
+    keep_tokens: bool = False
+    use_existing_tokens: bool = False
 
     def __post_init__(self) -> None:
         super().__init__()
 
-        self.stages = [
-            TokenizerStage(
+        self.stages = []
+
+        if not self.use_existing_tokens:
+            tokenizer_stage = TokenizerStage(
                 model_identifier=self.model_identifier,
                 cache_dir=self.cache_dir,
                 text_field=self.text_field,
@@ -181,18 +193,26 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 max_seq_length=self.max_seq_length,
                 padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
-            ),
-            FineWebModelStage(
-                model_identifier=self.model_identifier,
-                cache_dir=self.cache_dir,
-                label_field=self.label_field,
-                float_score_field=self.float_score_field,
-                int_score_field=self.int_score_field,
-                model_inference_batch_size=self.model_inference_batch_size,
-                has_seq_order=self.sort_by_length,
-                autocast=self.autocast,
-            ),
-        ]
+            )
+            self.stages.append(tokenizer_stage)
+
+        # Ensure that the data is sorted by length if the tokens are already present and sort_by_length is True
+        if self.use_existing_tokens and self.sort_by_length:
+            sort_by_length_stage = SortByLengthStage()
+            self.stages.append(sort_by_length_stage)
+
+        model_stage = FineWebModelStage(
+            model_identifier=self.model_identifier,
+            cache_dir=self.cache_dir,
+            label_field=self.label_field,
+            float_score_field=self.float_score_field,
+            int_score_field=self.int_score_field,
+            model_inference_batch_size=self.model_inference_batch_size,
+            has_seq_order=self.sort_by_length,
+            autocast=self.autocast,
+            keep_tokens=self.keep_tokens,
+        )
+        self.stages.append(model_stage)
 
         if self.filter_by is not None and len(self.filter_by) > 0:
             self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.label_field))
@@ -201,7 +221,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         return self.stages[0].inputs()
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return self.stages[1].outputs()
+        return self.stages[-1].outputs()
 
     def filter_by_category(self, value: str) -> bool:
         return value in self.filter_by
@@ -230,6 +250,10 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            Defaults to False.
 
     """
 
@@ -245,6 +269,8 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 256,
         autocast: bool = True,
+        keep_tokens: bool = False,
+        use_existing_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=FINEWEB_EDU_MODEL_IDENTIFIER,
@@ -259,6 +285,8 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
+            keep_tokens=keep_tokens,
+            use_existing_tokens=use_existing_tokens,
         )
 
         self.name = format_name_with_suffix(FINEWEB_EDU_MODEL_IDENTIFIER)
@@ -285,6 +313,10 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 1024.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            Defaults to False.
 
     """
 
@@ -300,6 +332,8 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 1024,
         autocast: bool = True,
+        keep_tokens: bool = False,
+        use_existing_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER,
@@ -314,6 +348,8 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
+            keep_tokens=keep_tokens,
+            use_existing_tokens=use_existing_tokens,
         )
 
         self.name = format_name_with_suffix(FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER)
@@ -340,6 +376,10 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 1024.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            Defaults to False.
 
     """
 
@@ -355,6 +395,8 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         sort_by_length: bool = True,
         model_inference_batch_size: int = 1024,
         autocast: bool = True,
+        keep_tokens: bool = False,
+        use_existing_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER,
@@ -369,6 +411,8 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
             sort_by_length=sort_by_length,
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
+            keep_tokens=keep_tokens,
+            use_existing_tokens=use_existing_tokens,
         )
 
         self.name = format_name_with_suffix(FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER)

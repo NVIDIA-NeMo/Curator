@@ -91,3 +91,53 @@ class TestTaskPerfUtils:
         assert "pipe_b_StageB_process_time_sum" in metrics
         assert metrics["pipe_a_StageA_process_time_sum"] == 1.0
         assert metrics["pipe_b_StageB_process_time_sum"] == 2.0
+
+    def test_get_aggregated_stage_stat_from_task_list(self) -> None:
+        """Test getting aggregated stats from a list of tasks."""
+        tasks = [
+            make_dummy_task("extract_text", 1.0),
+            make_dummy_task("extract_text", 2.0),
+            make_dummy_task("filter_stage", 0.5),
+        ]
+
+        result = TaskPerfUtils.get_aggregated_stage_stat(tasks, "extract_", "process_time")
+        assert result == 3.0
+
+        result = TaskPerfUtils.get_aggregated_stage_stat(tasks, "extract_", "num_items_processed")
+        assert result == 0  # num_items_processed is 0 in make_dummy_task
+
+    def test_get_aggregated_stage_stat_from_pipeline_mapping(self) -> None:
+        """Test getting aggregated stats from a pipeline tasks mapping."""
+        pipeline_tasks = {
+            "pipe_a": [make_dummy_task("writer_stage", 1.5)],
+            "pipe_b": [make_dummy_task("writer_stage", 2.5)],
+        }
+
+        result = TaskPerfUtils.get_aggregated_stage_stat(pipeline_tasks, "writer_", "process_time")
+        assert result == 4.0
+
+    def test_get_aggregated_stage_stat_no_match(self) -> None:
+        """Test getting aggregated stats when no stages match the prefix."""
+        tasks = [make_dummy_task("StageA", 1.0)]
+
+        result = TaskPerfUtils.get_aggregated_stage_stat(tasks, "nonexistent_", "process_time")
+        assert result == 0
+
+    def test_get_aggregated_stage_stat_none_input(self) -> None:
+        """Test getting aggregated stats with None input."""
+        result = TaskPerfUtils.get_aggregated_stage_stat(None, "extract_", "process_time")
+        assert result == 0
+
+    def test_get_aggregated_stage_stat_empty_list(self) -> None:
+        """Test getting aggregated stats with empty list."""
+        result = TaskPerfUtils.get_aggregated_stage_stat([], "extract_", "process_time")
+        assert result == 0
+
+    def test_get_aggregated_stage_stat_from_workflow_result(self) -> None:
+        """Test getting aggregated stats from WorkflowRunResult."""
+        workflow_result = WorkflowRunResult(workflow_name="unit")
+        workflow_result.add_pipeline_tasks("pipe_a", [make_dummy_task("writer_stage", 1.5)])
+        workflow_result.add_pipeline_tasks("pipe_b", [make_dummy_task("writer_stage", 2.5)])
+
+        result = TaskPerfUtils.get_aggregated_stage_stat(workflow_result, "writer_", "process_time")
+        assert result == 4.0

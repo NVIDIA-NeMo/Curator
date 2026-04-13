@@ -35,7 +35,7 @@ NeMo Curator now supports comprehensive [video data curation](https://docs.nvidi
 - **Video splitting**: [Fixed-stride](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/clipping.html) and [scene-change detection (TransNetV2)](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/clipping.html) for clip extraction
 - **Semantic deduplication**: [K-means clustering and pairwise similarity](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/dedup.html) for near-duplicate clip removal
 - **Content filtering**: [Motion-based filtering](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/filtering.html) and [aesthetic filtering](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/filtering.html) for quality improvement
-- **Embedding generation**: InternVideo2 and Cosmos-Embed1 models for clip-level embeddings
+- **Embedding generation**: Cosmos-Embed1 models for clip-level embeddings
 - **Ray-based distributed architecture**: Scalable video processing with autoscaling support
 
 #### Audio
@@ -150,7 +150,7 @@ The next release will focus on completing the refactor of Generation, PII, and B
 
 - New How-to Data Recipes (Tutorials)
   - Multimodal DAPT Curation w/ PDF Extraction
-  - Llama Nemotron Data Curation 
+  - Llama Nemotron Data Curation
   - LLM NIM - PII Redaction
 - Performance and Code Optimizations
   - Simplified Clustering Logic: Significantly improved semantic deduplication clustering performance

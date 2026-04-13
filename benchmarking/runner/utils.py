@@ -14,7 +14,7 @@
 
 import os
 import re
-import subprocess
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -138,39 +138,35 @@ def get_total_memory_bytes() -> int:
     return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
 
 
-def run_shm_size_check(human_readable: bool = False) -> tuple[int | None, str | None]:
+def get_shm_usage() -> dict[str, int | str | None]:
     """
-    Run the appropriate "df" command to check the size of the system shared memory space.
-    """
-    command = ["df", "-h", "/dev/shm"] if human_readable else ["df", "--block-size=1", "/dev/shm"]  # noqa: S108
-    command_str = " ".join(command)
-    result = None
-    try:
-        result = subprocess.run(  # noqa: S603
-            command,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        logger.debug(f"`{command_str}` output:\n{result.stdout}")
-    except subprocess.CalledProcessError as df_exc:
-        logger.warning(f"Could not run `{command_str}`: {df_exc}")
+    Get structured /dev/shm usage data using shutil.disk_usage.
 
-    # Extract the size from the last line of the output
-    if result is not None:
-        output = result.stdout
-        line = output.strip().split("\n")[-1]
-        try:
-            size = line.split()[1]  # Size is the second column
-            # Convert to a real number if not meant for simply reading by humans
-            if not human_readable:
-                size = int(size)
-        except (ValueError, IndexError):
-            logger.warning(f"Could not parse size from `{command_str}` output line: {line}")
-            size = None
-        return (size, output)
-    else:
-        return (None, None)
+    Returns a dict with keys:
+        total_bytes, used_bytes, available_bytes: int or None
+        summary: human-readable string summarizing usage
+    """
+    result_dict: dict[str, int | str | None] = {
+        "total_bytes": None,
+        "used_bytes": None,
+        "available_bytes": None,
+        "summary": None,
+    }
+    try:
+        usage = shutil.disk_usage("/dev/shm")  # noqa: S108
+    except OSError as exc:
+        logger.warning(f"Could not get /dev/shm usage: {exc}")
+        return result_dict
+
+    result_dict["total_bytes"] = usage.total
+    result_dict["used_bytes"] = usage.used
+    result_dict["available_bytes"] = usage.free
+    result_dict["summary"] = (
+        f"/dev/shm: {human_readable_bytes_repr(usage.used)} used / "  # noqa: S108
+        f"{human_readable_bytes_repr(usage.total)} total "
+        f"({human_readable_bytes_repr(usage.free)} available)"
+    )
+    return result_dict
 
 
 def human_readable_bytes_repr(size: int) -> str:
@@ -187,3 +183,31 @@ def human_readable_bytes_repr(size: int) -> str:
                 return f"{int(size)} {suffix}"
             return f"{value:.2f} {suffix}"
     return "0 B"
+
+
+def get_gpu_stats() -> dict:
+    """Query GPU stats using gpustat and return memory info for each available GPU.
+
+    Returns:
+        dict: Keys are GPU indices; values are dicts with "memory_total" and "memory_used".
+    """
+    import gpustat
+
+    query = gpustat.new_query()
+    return {gpu.index: {"memory_total": gpu.memory_total, "memory_used": gpu.memory_used} for gpu in query}
+
+
+def log_gpu_stats(gpu_stats: dict, warn_if_in_use: bool = False) -> None:
+    """Log GPU memory usage for each GPU as a percentage of total memory.
+
+    Args:
+        gpu_stats: Dictionary as returned by get_gpu_stats().
+        warn_if_in_use: If True, emit a warning for any GPU with memory_used > 0.
+    """
+    for gpu_id, stats in gpu_stats.items():
+        pct_used = stats["memory_used"] / stats["memory_total"] * 100
+        logger.info(f"GPU {gpu_id} : {pct_used:.1f}%")
+        if warn_if_in_use and stats["memory_used"] > 0:
+            logger.warning(
+                f"GPU {gpu_id} has {stats['memory_used']} MiB ({pct_used:.1f}% of total) used before benchmark started"
+            )

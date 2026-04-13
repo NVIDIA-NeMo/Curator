@@ -32,6 +32,7 @@ ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 # Install base dependency
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV DEBIAN_FRONTEND=noninteractive
+# gnupg upgrade Address CVE-2025-68973
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12-dev \
     python3 \
@@ -41,6 +42,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     vim && \
+    apt-get install -y --only-upgrade gnupg && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
@@ -53,7 +56,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_CACHE_DIR=/opt/uv_cache
 ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
-RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
+RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages --seed
 
 FROM build AS nemo_curator_dep
 
@@ -62,24 +65,55 @@ COPY docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
 
+
 FROM nemo_curator_dep AS nemo_curator
 
-ARG INTERN_VIDEO_COMMIT=09d872e5093296c6f36b8b3a91fc511b76433bf7
-COPY external/intern_video2_multimodal.patch .
-# Clone InternVideo (Video curation dependency)
-RUN git clone https://github.com/OpenGVLab/InternVideo.git && \
-    cd InternVideo && \
-    git checkout ${INTERN_VIDEO_COMMIT} && \
-    patch -p1 < /opt/intern_video2_multimodal.patch && \
-    rm /opt/intern_video2_multimodal.patch
+ARG CURATOR_EXTRA=all
+ARG CURATOR_GROUPS="--all-groups"
+WORKDIR /opt/Curator
+
+# Selective file copying before dependency installation for better layer caching
+COPY pyproject.toml uv.lock /opt/Curator/
+COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
 # Install Curator
+RUN if [ -n "${CURATOR_EXTRA}" ]; then \
+        uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \
+    else \
+        uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
+    fi && \
+    find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
+    # Address GHSA-72hv-8253-57qq: jackson-core bundled in ray_dist.jar (jackson-core 2.16.1 < 2.18.6)
+    # Ray's Java support is not used; deleting the JAR removes the vulnerable jackson-core classes.
+    # TODO: Remove once Ray upgrades bundled jackson-core to >=2.18.6 (https://github.com/ray-project/ray/issues/35949)
+    find /opt/venv -name "ray_dist.jar" -delete && \
+    if find /opt/venv -name "ray_dist.jar" | grep -q .; then \
+        echo "ERROR: GHSA-72hv-8253-57qq not fixed — ray_dist.jar still present after deletion" && exit 1; \
+    fi
+
+# Patch wandb-core: bump google.golang.org/grpc from 1.79.2 to 1.79.3 (CVE fix)
+ARG TARGETARCH
+RUN if python3 -c "import wandb" 2>/dev/null; then \
+        GRPC_VERSION=1.79.3 && \
+        GO_VERSION=1.26.1 && \
+        WANDB_VERSION=$(python3 -c "import wandb; print(wandb.__version__)") && \
+        WANDB_CORE_BIN=/opt/venv/lib/python3.12/site-packages/wandb/bin/wandb-core && \
+        curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /tmp -xz && \
+        export PATH="/tmp/go/bin:$PATH" && \
+        export GOPATH=/tmp/gopath && \
+        git clone --depth 1 --branch "v${WANDB_VERSION}" https://github.com/wandb/wandb.git /tmp/wandb-src && \
+        cd /tmp/wandb-src/core && \
+        go get google.golang.org/grpc@v${GRPC_VERSION} && \
+        go mod tidy && \
+        go mod vendor && \
+        CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" \
+            -o "${WANDB_CORE_BIN}" ./cmd/wandb-core/ && \
+        rm -rf /tmp/wandb-src /tmp/go /tmp/gopath; \
+    else \
+        echo "wandb not installed, skipping CVE patch"; \
+    fi
+
 COPY . /opt/Curator
-RUN cd /opt/Curator && \
-  uv sync --link-mode copy --locked --extra all --all-groups && \
-  uv add /opt/InternVideo/InternVideo2/multi_modality && \
-  uv cache prune && \
-  uv cache clean distance
 
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -69,12 +69,11 @@ class TestFilePartitioningStage:
         assert stage.limit is None
         assert stage.name == "file_partitioning"
 
-    def test_initialization_custom_values(self):
-        """Test initialization with custom parameter values."""
+    def test_initialization_custom_values_with_files_per_partition(self):
+        """Test initialization with custom parameter values using files_per_partition."""
         stage = FilePartitioningStage(
             file_paths="/custom/path",
             files_per_partition=5,
-            blocksize="128MB",
             file_extensions=[".txt", ".json"],
             storage_options={"key": "value"},
             limit=3,
@@ -82,6 +81,23 @@ class TestFilePartitioningStage:
 
         assert stage.file_paths == "/custom/path"
         assert stage.files_per_partition == 5
+        assert stage.blocksize is None
+        assert stage.file_extensions == [".txt", ".json"]
+        assert stage.storage_options == {"key": "value"}
+        assert stage.limit == 3
+
+    def test_initialization_custom_values_with_blocksize(self):
+        """Test initialization with custom parameter values using blocksize."""
+        stage = FilePartitioningStage(
+            file_paths="/custom/path",
+            blocksize="128MB",
+            file_extensions=[".txt", ".json"],
+            storage_options={"key": "value"},
+            limit=3,
+        )
+
+        assert stage.file_paths == "/custom/path"
+        assert stage.files_per_partition is None
         assert stage.blocksize == "128MB"
         assert stage.file_extensions == [".txt", ".json"]
         assert stage.storage_options == {"key": "value"}
@@ -183,7 +199,8 @@ class TestFilePartitioningStage:
     def test_process_with_blocksize(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test processing with blocksize setting."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=6)
-        stage = FilePartitioningStage(file_paths=test_files, blocksize="1B")
+        # Test files are 3 bytes each, so blocksize of 3B should create 6 partitions
+        stage = FilePartitioningStage(file_paths=test_files, blocksize="3B")
 
         result = stage.process(empty_task)
 
@@ -193,6 +210,21 @@ class TestFilePartitioningStage:
         for i, task in enumerate(result):
             assert len(task.data) == 1
             assert task.data[0] == test_files[i]
+
+    def test_large_blocksize_warning(self, caplog: pytest.LogCaptureFixture):
+        """Test that a warning is raised if the blocksize is greater than 512 MB."""
+        with caplog.at_level("WARNING"):
+            FilePartitioningStage(file_paths="/test/path", blocksize="1GiB")
+        assert "Blocksize is greater than 512 MB" in caplog.text
+
+    def test_both_blocksize_and_files_per_partition_errors(self):
+        """Test that specifying both blocksize and files_per_partition errors."""
+        with pytest.raises(ValueError, match="only one is allowed"):
+            FilePartitioningStage(
+                file_paths="/test/path",
+                files_per_partition=2,
+                blocksize="128MB",
+            )
 
     def test_process_empty_file_list(self, empty_task: _EmptyTask):
         """Test processing with empty file list."""
@@ -226,21 +258,6 @@ class TestFilePartitioningStage:
         assert partitions[0] == ["file1", "file2"]
         assert partitions[1] == ["file3", "file4"]
         assert partitions[2] == ["file5"]
-
-    def test_parse_size(self):
-        """Test _parse_size method."""
-        stage = FilePartitioningStage(file_paths=[])
-
-        assert stage._parse_size("100B") == 100
-        assert stage._parse_size("1KB") == 1000
-        assert stage._parse_size("1KiB") == 1024
-        assert stage._parse_size("1MB") == 1000 * 1000
-        assert stage._parse_size("1MiB") == 1024 * 1024
-        assert stage._parse_size("1GB") == 1000 * 1000 * 1000
-        assert stage._parse_size("1GiB") == 1024 * 1024 * 1024
-        assert stage._parse_size("2TB") == 2 * 1000 * 1000 * 1000 * 1000
-        assert stage._parse_size("2TiB") == 2 * 1024 * 1024 * 1024 * 1024
-        assert stage._parse_size("100") == 100  # No unit defaults to bytes
 
     def test_task_metadata(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test that created tasks have proper metadata."""

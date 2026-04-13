@@ -30,7 +30,7 @@ pipeline.add_stage(
         generate_embeddings=True,
         generate_previews=False,
         generate_captions=False,
-        embedding_algorithm="cosmos-embed1",  # or "internvideo2"
+        embedding_algorithm="cosmos-embed1-224p",
         caption_models=["qwen"],
         enhanced_caption_models=["qwen_lm"],
         verbose=True,
@@ -69,7 +69,7 @@ pipeline.add_stage(
   - The stage includes captions in metadata when upstream stages provide them.
 * - `embedding_algorithm`
   - `str`
-  - Accepted: `cosmos-embed1` or `internvideo2`. Default: `cosmos-embed1`.
+  - Accepted: `cosmos-embed1-224p`, `cosmos-embed1-336p`, or `cosmos-embed1-448p`. Default: `cosmos-embed1-224p`.
 * - `caption_models`
   - `list[str] | None`
   - Ordered caption models to emit. Use `[]` when not using captions.
@@ -95,8 +95,8 @@ The writer produces these directories under `output_path`:
 - `filtered_clips/`: Media for filtered-out clips.
 - `previews/`: Preview images (`.webp`).
 - `metas/v0/`: Per-clip metadata (`.json`).
-- `iv2_embd/`, `ce1_embd/`: Per-clip embeddings (`.pickle`).
-- `iv2_embd_parquet/`, `ce1_embd_parquet/`: Parquet batches with columns `id` and `embedding`.
+- `ce1_embd/`: Per-clip embeddings (`.pickle`).
+- `ce1_embd_parquet/`: Parquet batches with columns `id` and `embedding`.
 - `processed_videos/`, `processed_clip_chunks/`: Video-level metadata and per-chunk statistics.
 
 ### Per-Clip Metadata
@@ -132,8 +132,8 @@ Each clip writes a JSON file under `metas/v0/` with clip- and window-level field
 
 ### Embeddings and Parquet outputs
 
-- When embeddings exist, the stage writes per-clip `.pickle` files under `iv2_embd/` or `ce1_embd/`.
-- The stage also batches embeddings per clip chunk into Parquet files under `iv2_embd_parquet/` or `ce1_embd_parquet/` with columns `id` and `embedding` and writes those files to disk.
+- When embeddings exist, the stage writes per-clip `.pickle` files under `ce1_embd/`.
+- The stage also batches embeddings per clip chunk into Parquet files under `ce1_embd_parquet/` with columns `id` and `embedding` and writes those files to disk.
 
 ## Helpers
 
@@ -150,7 +150,6 @@ clips_dir = ClipWriterStage.get_output_path_clips(OUT)
 filtered_clips_dir = ClipWriterStage.get_output_path_clips(OUT, filtered=True)
 previews_dir = ClipWriterStage.get_output_path_previews(OUT)
 metas_dir = ClipWriterStage.get_output_path_metas(OUT, "v0")
-iv2_parquet_dir = ClipWriterStage.get_output_path_iv2_embd_parquet(OUT)
 ce1_parquet_dir = ClipWriterStage.get_output_path_ce1_embd_parquet(OUT)
 processed_videos_dir = ClipWriterStage.get_output_path_processed_videos(OUT)
 processed_chunks_dir = ClipWriterStage.get_output_path_processed_clip_chunks(OUT)

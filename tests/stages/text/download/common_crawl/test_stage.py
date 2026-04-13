@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,8 +18,7 @@ from typing import Literal
 import pytest
 
 from nemo_curator.stages.text.download.base.download import DocumentDownloadStage
-from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
-from nemo_curator.stages.text.download.base.iterator import DocumentIterateStage
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
 from nemo_curator.stages.text.download.common_crawl.download import CommonCrawlWARCDownloader
 from nemo_curator.stages.text.download.common_crawl.extract import CommonCrawlHTMLExtractor
@@ -59,14 +58,13 @@ class TestCommonCrawlDownloadExtractStage:
         # Decompose the stage
         stages = stage.decompose()
 
-        # Should have 4 stages: URL generation, download, iterate, extract
-        assert len(stages) == 4
+        # Should have 3 stages: URL generation, download, iterate-extract
+        assert len(stages) == 3
 
         # Check stage types
         assert isinstance(stages[0], URLGenerationStage)
         assert isinstance(stages[1], DocumentDownloadStage)
-        assert isinstance(stages[2], DocumentIterateStage)
-        assert isinstance(stages[3], DocumentExtractStage)
+        assert isinstance(stages[2], DocumentIterateExtractStage)
 
         # Verify the correct URL generator is used based on crawl_type
         url_gen_stage = stages[0]
@@ -80,12 +78,9 @@ class TestCommonCrawlDownloadExtractStage:
         assert isinstance(download_stage.downloader, CommonCrawlWARCDownloader)
 
         # Verify iterator stage
-        iterate_stage = stages[2]
-        assert isinstance(iterate_stage.iterator, CommonCrawlWarcIterator)
-
-        # Verify extractor stage
-        extract_stage = stages[3]
-        assert isinstance(extract_stage.extractor, CommonCrawlHTMLExtractor)
+        iterate_extract_stage = stages[2]
+        assert isinstance(iterate_extract_stage.iterator, CommonCrawlWarcIterator)
+        assert isinstance(iterate_extract_stage.extractor, CommonCrawlHTMLExtractor)
 
     def test_common_crawl_stage_name(self, tmp_path: Path) -> None:
         """Test that stage name is as expected."""
@@ -142,12 +137,12 @@ class TestCommonCrawlDownloadExtractStage:
             start_snapshot="2021-04", end_snapshot="2021-10", download_dir=download_dir, html_extraction="justext"
         )
 
-        # Get the HTML extractor stage (4th stage)
+        # Get the HTML iterate-extract stage (3th stage)
         stages = stage_justext.decompose()
-        extract_stage = stages[3]
-        assert isinstance(extract_stage, DocumentExtractStage)
-        assert isinstance(extract_stage.extractor, CommonCrawlHTMLExtractor)
-        assert isinstance(extract_stage.extractor.algorithm, JusTextExtractor)
+        iterate_extract_stage = stages[2]
+        assert isinstance(iterate_extract_stage, DocumentIterateExtractStage)
+        assert isinstance(iterate_extract_stage.extractor, CommonCrawlHTMLExtractor)
+        assert isinstance(iterate_extract_stage.extractor.algorithm, JusTextExtractor)
 
         # Test with algorithm object and custom stop lists
         custom_stop_lists = {"en": frozenset(["the", "and", "or"])}
@@ -160,14 +155,14 @@ class TestCommonCrawlDownloadExtractStage:
         )
 
         stages = stage_resiliparse.decompose()
-        extract_stage = stages[3]
-        assert isinstance(extract_stage, DocumentExtractStage)
-        assert isinstance(extract_stage.extractor, CommonCrawlHTMLExtractor)
-        assert isinstance(extract_stage.extractor.algorithm, ResiliparseExtractor)
-        assert extract_stage.extractor._stop_lists == custom_stop_lists
+        iterate_extract_stage = stages[2]
+        assert isinstance(iterate_extract_stage, DocumentIterateExtractStage)
+        assert isinstance(iterate_extract_stage.extractor, CommonCrawlHTMLExtractor)
+        assert isinstance(iterate_extract_stage.extractor.algorithm, ResiliparseExtractor)
+        assert iterate_extract_stage.extractor._stop_lists == custom_stop_lists
 
     def test_common_crawl_stage_without_extractor(self, tmp_path: Path) -> None:
-        """Test stage creation without an extractor (should still have 4 stages with default extractor)."""
+        """Test stage creation without an extractor (should still have 3 stages with default extractor)."""
         download_dir = str(tmp_path / "downloads")
 
         stage = CommonCrawlDownloadExtractStage(
@@ -178,15 +173,15 @@ class TestCommonCrawlDownloadExtractStage:
             html_extraction=None,  # No extractor specified
         )
 
-        # Should still have 4 stages as extractor is created with default algorithm
+        # Should still have 3 stages as extractor is created with default algorithm
         stages = stage.decompose()
-        assert len(stages) == 4
+        assert len(stages) == 3
 
         # The extractor should be created with default algorithm
-        extract_stage = stages[3]
-        assert isinstance(extract_stage, DocumentExtractStage)
-        assert isinstance(extract_stage.extractor, CommonCrawlHTMLExtractor)
-        assert isinstance(extract_stage.extractor.algorithm, JusTextExtractor)
+        iterate_extract_stage = stages[2]
+        assert isinstance(iterate_extract_stage, DocumentIterateExtractStage)
+        assert isinstance(iterate_extract_stage.extractor, CommonCrawlHTMLExtractor)
+        assert isinstance(iterate_extract_stage.extractor.algorithm, JusTextExtractor)
 
     def test_common_crawl_stage_parameters_propagation(self, tmp_path: Path) -> None:
         """Test that parameters are properly propagated to constituent stages."""
@@ -219,16 +214,11 @@ class TestCommonCrawlDownloadExtractStage:
         assert download_stage.downloader.use_aws_to_download is False
         assert download_stage.downloader._verbose is True
 
-        # Check iterate stage
-        iterate_stage = stages[2]
-        assert isinstance(iterate_stage, DocumentIterateStage)
-        assert iterate_stage.record_limit == 100
-        assert iterate_stage.filename_col == "custom_filename"
-
-        # Check extract stage
-        extract_stage = stages[3]
-        assert isinstance(extract_stage, DocumentExtractStage)
-        assert extract_stage.filename_col == "custom_filename"
+        # Check iterate-extract stage
+        iterate_extract_stage = stages[2]
+        assert isinstance(iterate_extract_stage, DocumentIterateExtractStage)
+        assert iterate_extract_stage.record_limit == 100
+        assert iterate_extract_stage.filename_col == "custom_filename"
 
     def test_common_crawl_stage_inputs_outputs(self, tmp_path: Path) -> None:
         """Test stage inputs and outputs specification."""

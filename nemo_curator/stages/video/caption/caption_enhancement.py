@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
@@ -50,6 +50,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
     prompt_text: str | None = None
     model_batch_size: int = 128
     fp8: bool = False
+    vllm_kwargs: dict[str, Any] = field(default_factory=dict)
     max_output_tokens: int = 512
     verbose: bool = False
     name: str = "caption_enhancement"
@@ -67,13 +68,14 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
             self.prompt_text,
         )
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+    def _initialize_model(self) -> None:
         if self.model_variant == "qwen":
             self.model = QwenLM(
                 model_dir=self.model_dir,
                 caption_batch_size=self.model_batch_size,
                 fp8=self.fp8,
                 max_output_tokens=self.max_output_tokens,
+                **self.vllm_kwargs,
             )
         else:
             msg = f"Unsupported model variant: {self.model_variant}"
@@ -81,8 +83,13 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
         self.model.setup()
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
-        """Download the weights for the QwenLM model on the node."""
+        """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
         QwenLM.download_weights_on_node(self.model_dir)
+        self._initialize_model()
+
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        if not hasattr(self, "model") or self.model is None:
+            self._initialize_model()
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data

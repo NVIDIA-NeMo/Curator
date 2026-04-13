@@ -13,11 +13,9 @@
 # limitations under the License.
 
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
-from nemo_curator.stages.text.io.writer.megatron_tokenizer import MegatronTokenizerWriter
 from nemo_curator.stages.text.io.writer.parquet import ParquetWriter
 
 __all__ = [
     "JsonlWriter",
-    "MegatronTokenizerWriter",
     "ParquetWriter",
 ]

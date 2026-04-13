@@ -47,7 +47,7 @@ flowchart LR
 - **Common choices**:
   - **Splitting**: fixed stride vs. scene-change (TransNetV2)
   - **Encoding**: `libopenh264`, `h264_nvenc`, or `libx264`
-  - **Embeddings**: InternVideo2 or Cosmos-Embed1
+  - **Embeddings**: Cosmos-Embed1
 - **Outputs**: Clips (mp4), previews (optional), and parquet embeddings for downstream tasks (such as semantic duplicate removal).
 
 For more information, refer to the [Video Concepts](about-concepts-video) section.
@@ -230,10 +230,10 @@ pipeline.add_stage(
 When using the example pipeline module, configure the writer-related flags:
 
 ```bash
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   --video-dir "$VIDEO_DIR" \
   --model-dir "$MODEL_DIR" \
-  --output-clip-path "$OUT_DIR" \
+  --output-path "$OUT_DIR" \
   --no-upload-clips          # optional: do not write mp4s
   --dry-run                   # optional: write nothing, validate only
   --generate-embeddings      # optional: enable embedding outputs

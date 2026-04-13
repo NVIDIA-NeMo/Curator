@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,8 +15,7 @@
 from pathlib import Path
 
 from nemo_curator.stages.text.download.base.download import DocumentDownloadStage
-from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
-from nemo_curator.stages.text.download.base.iterator import DocumentIterateStage
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
 from nemo_curator.stages.text.download.wikipedia.download import WikipediaDownloader
 from nemo_curator.stages.text.download.wikipedia.extract import WikipediaExtractor
@@ -41,14 +40,13 @@ class TestWikipediaDownloadExtractStage:
         # Decompose the stage
         stages = stage.decompose()
 
-        # Should have 4 stages: URL generation, download, iterate, extract
-        assert len(stages) == 4
+        # Should have 3 stages: URL generation, download, iterate-extract
+        assert len(stages) == 3
 
         # Check stage types
         assert isinstance(stages[0], URLGenerationStage)
         assert isinstance(stages[1], DocumentDownloadStage)
-        assert isinstance(stages[2], DocumentIterateStage)
-        assert isinstance(stages[3], DocumentExtractStage)
+        assert isinstance(stages[2], DocumentIterateExtractStage)
 
         # Verify URL generator
         url_gen_stage = stages[0]
@@ -59,12 +57,9 @@ class TestWikipediaDownloadExtractStage:
         assert isinstance(download_stage.downloader, WikipediaDownloader)
 
         # Verify iterator stage
-        iterate_stage = stages[2]
-        assert isinstance(iterate_stage.iterator, WikipediaIterator)
-
-        # Verify extractor stage
-        extract_stage = stages[3]
-        assert isinstance(extract_stage.extractor, WikipediaExtractor)
+        iterate_extract_stage = stages[2]
+        assert isinstance(iterate_extract_stage.iterator, WikipediaIterator)
+        assert isinstance(iterate_extract_stage.extractor, WikipediaExtractor)
 
     def test_wikipedia_stage_name_default(self, tmp_path: Path):
         """Test that stage name is as expected for default language."""
@@ -183,21 +178,15 @@ class TestWikipediaDownloadExtractStage:
         assert download_stage.downloader._download_dir == download_dir
         assert download_stage.downloader._verbose is True
 
-        # Check iterate stage
-        iterate_stage = stages[2]
-        assert isinstance(iterate_stage, DocumentIterateStage)
-        assert isinstance(iterate_stage.iterator, WikipediaIterator)
-        assert iterate_stage.iterator._language == "de"
-        assert iterate_stage.iterator._log_frequency == 250
-        assert iterate_stage.record_limit == 200
-        assert iterate_stage.filename_col == "source_file"
-
-        # Check extract stage
-        extract_stage = stages[3]
-        assert isinstance(extract_stage, DocumentExtractStage)
-        assert isinstance(extract_stage.extractor, WikipediaExtractor)
-        assert extract_stage.extractor._language == "de"
-        assert extract_stage.filename_col == "source_file"
+        # Check iterate-extract stage
+        iterate_extract_stage = stages[2]
+        assert isinstance(iterate_extract_stage, DocumentIterateExtractStage)
+        assert isinstance(iterate_extract_stage.iterator, WikipediaIterator)
+        assert isinstance(iterate_extract_stage.extractor, WikipediaExtractor)
+        assert iterate_extract_stage.iterator._language == "de"
+        assert iterate_extract_stage.iterator._log_frequency == 250
+        assert iterate_extract_stage.record_limit == 200
+        assert iterate_extract_stage.filename_col == "source_file"
 
     def test_wikipedia_stage_inputs_outputs(self, tmp_path: Path):
         """Test stage inputs and outputs specification."""
@@ -324,8 +313,8 @@ class TestWikipediaDownloadExtractStage:
         )
 
         stages = stage.decompose()
-        iterate_stage = stages[2]
-        assert iterate_stage.record_limit == 50
+        iterate_extract_stage = stages[2]
+        assert iterate_extract_stage.record_limit == 50
 
     def test_wikipedia_stage_verbose_propagation(self, tmp_path: Path):
         """Test that verbose setting is properly propagated."""
@@ -352,8 +341,8 @@ class TestWikipediaDownloadExtractStage:
         )
 
         stages = stage.decompose()
-        iterate_stage = stages[2]
-        assert iterate_stage.iterator._log_frequency == 50
+        iterate_extract_stage = stages[2]
+        assert iterate_extract_stage.iterator._log_frequency == 50
 
     def test_wikipedia_stage_inheritance(self, tmp_path: Path):
         """Test that WikipediaDownloadExtractStage properly inherits from DocumentDownloadExtractStage."""
@@ -385,11 +374,10 @@ class TestWikipediaDownloadExtractStage:
 
         # Should have access to stages property from parent
         stages = stage.stages
-        assert len(stages) == 4
+        assert len(stages) == 3
         assert isinstance(stages[0], URLGenerationStage)
         assert isinstance(stages[1], DocumentDownloadStage)
-        assert isinstance(stages[2], DocumentIterateStage)
-        assert isinstance(stages[3], DocumentExtractStage)
+        assert isinstance(stages[2], DocumentIterateExtractStage)
 
 
 class TestWikipediaDownloadExtractStageIntegration:
@@ -421,7 +409,7 @@ class TestWikipediaDownloadExtractStageIntegration:
 
         # Verify decomposition works correctly
         stages = stage.decompose()
-        assert len(stages) == 4
+        assert len(stages) == 3
 
         # Verify that each stage has correct configuration
         url_gen_stage = stages[0]
@@ -433,15 +421,11 @@ class TestWikipediaDownloadExtractStageIntegration:
         assert download_stage.downloader._download_dir == download_dir
         assert download_stage.downloader._verbose is True
 
-        iterate_stage = stages[2]
-        assert iterate_stage.iterator._language == "es"
-        assert iterate_stage.iterator._log_frequency == 5
-        assert iterate_stage.record_limit == 10
-        assert iterate_stage.filename_col == "wiki_source"
-
-        extract_stage = stages[3]
-        assert extract_stage.extractor._language == "es"
-        assert extract_stage.filename_col == "wiki_source"
+        iterate_extract_stage = stages[2]
+        assert iterate_extract_stage.iterator._language == "es"
+        assert iterate_extract_stage.iterator._log_frequency == 5
+        assert iterate_extract_stage.record_limit == 10
+        assert iterate_extract_stage.filename_col == "wiki_source"
 
         # Verify inputs/outputs
         inputs = stage.inputs()
@@ -504,15 +488,15 @@ class TestWikipediaDownloadExtractStageIntegration:
 
         # Verify decomposition
         stages = stage.decompose()
-        assert len(stages) == 4
+        assert len(stages) == 3
 
         # Verify realistic limits
         url_gen_stage = stages[0]
         assert url_gen_stage.limit == 5
 
-        iterate_stage = stages[2]
-        assert iterate_stage.record_limit == 1000
-        assert iterate_stage.iterator._log_frequency == 100
+        iterate_extract_stage = stages[2]
+        assert iterate_extract_stage.record_limit == 1000
+        assert iterate_extract_stage.iterator._log_frequency == 100
 
         # Verify outputs include filename
         outputs = stage.outputs()

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,8 +20,8 @@ import pyarrow as pa
 import pytest
 
 from nemo_curator.stages.text.io.reader.parquet import ParquetReader, ParquetReaderStage
+from nemo_curator.tasks import FileGroupTask, _EmptyTask
 from nemo_curator.tasks.document import DocumentBatch
-from nemo_curator.tasks.file_group import FileGroupTask
 
 
 @pytest.fixture
@@ -276,3 +276,20 @@ def test_parquet_reader_with_file_group_tasks_fixture(parquet_file_group_tasks: 
         expected_texts = [f"doc_{i * 2}", f"doc_{i * 2 + 1}"]
         actual_texts = df["text"].tolist()
         assert actual_texts == expected_texts
+
+
+def test_parquet_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+    # Storage size is larger than 10_000 bytes
+    # In-memory size is larger than 1 billion bytes
+    size = 1000
+    df = pd.DataFrame({"id": list(range(size)), "text": ["a" * 4000] * size, "other_field": ["b" * 1_000_000] * size})
+    df.to_parquet(tmp_path / "test.parquet")
+
+    stage = ParquetReader(file_paths=str(tmp_path), blocksize=10_000)
+    assert len(stage.decompose()) == 2
+
+    # Since the storage size is larger than 10_000 bytes, the FilePartitioningStage should warn
+    file_partitioning_stage = stage.decompose()[0]
+    with caplog.at_level("WARNING"):
+        file_partitioning_stage.process(_EmptyTask)
+    assert "File group task has exceeded the storage limit per partition" in caplog.text

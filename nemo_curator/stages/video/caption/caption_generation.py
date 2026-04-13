@@ -13,12 +13,13 @@
 # limitations under the License.
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.models.nemotron_h_vl import NemotronHVL
 from nemo_curator.models.qwen_vl import QwenVL
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -40,6 +41,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     max_output_tokens: int = 512
     model_does_preprocess: bool = False
     disable_mmcache: bool = False
+    vllm_kwargs: dict[str, Any] = field(default_factory=dict)
     verbose: bool = False
     generate_stage2_caption: bool = False
     stage2_prompt_text: str | None = None
@@ -51,7 +53,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+    def _initialize_model(self) -> None:
         if self.model_variant == "qwen":
             self.model = QwenVL(
                 model_dir=self.model_dir,
@@ -61,6 +63,16 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 max_output_tokens=self.max_output_tokens,
                 model_does_preprocess=self.model_does_preprocess,
                 disable_mmcache=self.disable_mmcache,
+                **self.vllm_kwargs,
+            )
+        elif self.model_variant.startswith("nemotron"):
+            self.model = NemotronHVL(
+                model_dir=self.model_dir,
+                model_variant=self.model_variant,
+                caption_batch_size=self.caption_batch_size,
+                max_output_tokens=self.max_output_tokens,
+                stage2_prompt_text=self.stage2_prompt_text,
+                verbose=self.verbose,
             )
         else:
             msg = f"Unsupported model variant: {self.model_variant}"
@@ -68,8 +80,16 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
         self.model.setup()
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
-        """Download the weights for the QwenVL model on the node."""
-        QwenVL.download_weights_on_node(self.model_dir)
+        """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
+        if self.model_variant == "qwen":
+            QwenVL.download_weights_on_node(self.model_dir)
+        elif self.model_variant.startswith("nemotron"):
+            NemotronHVL.download_weights_on_node(self.model_dir, variant=self.model_variant)
+        self._initialize_model()
+
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        if not hasattr(self, "model") or self.model is None:
+            self._initialize_model()
 
     def __post_init__(self) -> None:
         self.resources = Resources(gpus=1)
@@ -84,12 +104,17 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 logger.warning(f"Clip {clip.uuid} has no windows")
                 clip.errors["windows"] = "empty"
             for window_idx, window in enumerate(clip.windows):
-                if window.qwen_llm_input is None:
-                    logger.error(f"Clip {clip.uuid} window {window_idx} has no prepared inputs.")
-                    clip.errors[f"window-{window_idx}"] = "empty"
+                llm_input = window.llm_inputs.get(self.model_variant)
+
+                if llm_input is None:
+                    logger.error(
+                        f"Clip {clip.uuid} window {window_idx} has no prepared inputs for {self.model_variant}."
+                    )
+                    clip.errors[f"window-{window_idx}"] = f"no_{self.model_variant}_input"
                     continue
+
                 mapping[idx] = (clip_idx, window_idx)
-                inputs.append(window.qwen_llm_input)
+                inputs.append(llm_input)
                 idx += 1
 
         captions = self.model.generate(
@@ -123,5 +148,6 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
         # Clear caption inputs
         for clip in video.clips:
             for window in clip.windows:
-                window.qwen_llm_input = None
+                if self.model_variant in window.llm_inputs:
+                    del window.llm_inputs[self.model_variant]
                 window.mp4_bytes = None

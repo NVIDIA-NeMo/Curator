@@ -23,7 +23,7 @@ import pytest
 
 # Suppress GPU-related import errors when running pytest -m "not gpu"
 with suppress(ImportError):
-    from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+    from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
     from nemo_curator.pipeline import Pipeline
     from nemo_curator.stages.deduplication.fuzzy.connected_components import ConnectedComponentsStage
     from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR

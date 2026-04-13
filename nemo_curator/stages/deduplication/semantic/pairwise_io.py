@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask, _EmptyTask
@@ -69,6 +69,11 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
         """Ray stage specification for this stage."""
         return {
             RayStageSpecKeys.IS_FANOUT_STAGE: True,
+        }
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {
+            "num_workers_per_node": 1,
         }
 
     def process(self, _: _EmptyTask) -> list[FileGroupTask]:

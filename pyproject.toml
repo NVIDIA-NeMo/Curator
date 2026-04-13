@@ -53,7 +53,7 @@ classifiers = [
 dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
-    "cosmos-xenna==0.1.2",
+    "cosmos-xenna==0.2.0",
     "fsspec",
     "hydra-core",
     "jieba==0.42.1",
@@ -63,14 +63,26 @@ dependencies = [
     "openai>=1.0.0",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data]>=2.50",
+    "ray[default,data]>=2.54",
     "torch",
     "transformers",
 ]
 
 [project.optional-dependencies]
-cuda12 = ["gpustat", "nvidia-ml-py"]
-vllm = ["vllm>=0.14.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
+cuda12 = [
+    "gpustat",
+    "nvidia-ml-py",
+]
+vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
+
+# Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
+inference_server = [
+    "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
+    "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
+    "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "ray[serve,llm]>=2.54",
+]
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
@@ -83,15 +95,30 @@ deduplication_cuda12 = [
     "rapidsmpf-cu12==25.10.*",
 ]
 
+audio_common = [
+    "nemo_toolkit[asr]>=2.7.2",
+    "soundfile>=0.12.0",
+    "torchaudio",
+    "onnx>=1.19.0",
+    "silero-vad",
+    "librosa",
+    "scipy",
+    "pydub>=0.25.1",
+]
 audio_cpu = [
-    "nemo_toolkit[asr]==2.4.0",
+    "nemo_curator[audio_common]",
+    "onnxruntime>=1.20.1,<1.24",
 ]
 audio_cuda12 = [
-    "nemo_curator[audio_cpu]",
+    "nemo_curator[audio_common]",
     "nemo_curator[cuda12]",
+    "nvidia-cudnn-cu12",
+    "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
+    "torchcodec",
 ]
 
 image_cpu = [
+    "Pillow",
     "torchvision"
 ]
 
@@ -154,30 +181,83 @@ video_cuda12 = [
     "torchaudio",
 ]
 
+# Math Curation Dependencies
+math_cpu = [
+    "nemo_curator[text_cpu]",  # Math examples use text processing utilities
+    "boto3>=1.35",  # S3 range requests for Common Crawl WARC fetching
+]
+
+math_cuda12 = [
+    "nemo_curator[math_cpu]",
+    "nemo_curator[cuda12]",
+    "nemo_curator[deduplication_cuda12]",
+    "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+]
+
+# Multimodal / Interleaved Dependencies
+interleaved_cpu = [
+    "albumentations",
+    "open_clip_torch",
+    "opencv-python",
+    "Pillow",
+    "pypdfium2",
+    "s3fs>=2024.12.0",
+    "timm",
+]
+
+interleaved_cuda12 = [
+    "nemo_curator[interleaved_cpu]",
+    "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
+]
+
+# Synthetic Data Generation (SDG) Dependencies
+sdg_cpu = [
+    "data-designer==0.4.0",
+]
+
+sdg_cuda12 = [
+    "nemo_curator[cuda12]",
+    "nemo_curator[sdg_cpu]",
+    "nemo_curator[inference_server]",
+]
+
 # All dependencies
 all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
+    "nemo_curator[inference_server]",
+    "nemo_curator[interleaved_cuda12]",
+    "nemo_curator[math_cuda12]",
+    "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[video_cuda12]",
 ]
 
 [dependency-groups]
-build = ["setuptools", "torch<=2.9.1"]
+build = ["setuptools", "torch<=2.9.1", "Cython", "packaging"]
 dev = ["jupyter"]
-linting = ["pre-commit", "ruff==0.11.4"]
+linting = ["pre-commit", "ruff==0.14.10"]
 test = [
     "coverage",
     "debugpy",
+    "GitPython",
+    "oauth2client",
+    "pydrive2",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
+    "pytest-httpserver",
     "pytest-loguru",
+    "pyyaml",
+    "rich",
     "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
-    "s3fs", # added for testing cloud fs
+    "s3fs>=2024.12.0", # added for testing cloud fs
+    "slack_sdk",
 ]
 
 [tool.uv]
+required-version = ">=0.7.0"
 package = true
 managed = true
 default-groups = ["dev", "test"]
@@ -185,19 +265,28 @@ index-strategy = "unsafe-best-match"
 no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
-    "protobuf>=4.25.8", # Address CVE GHSA-8qvm-5x2c-j2w7
-    "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
+    "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
+    "nbconvert>=7.17.0", # Address CVE GHSA-xm59-rqc7-hhvf
+    "pillow>=12.1.1", # Address CVE GHSA-cfh3-3jmp-rvhc
+    "protobuf>=5.29.6", # Address CVE GHSA-8qvm-5x2c-j2w7
+    "pyasn1>=0.6.2", # Address CVE GHSA-63vm-454h-vhhq
+    "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
-    "ray[default,data]>=2.52", # Address CVE GHSA-q279-jhrf-cc6v
-    "urllib3>=2.6.3", #Address CVE GHSA-38jv-5279-wg99
+    "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
+    "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
+    "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
+    "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
-    "transformers>=4.55.2",
+    "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
+    "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
+    "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
+    "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
 
 
@@ -228,9 +317,11 @@ torchvision = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
+nixl = { index = "pypi" }
+nixl-cu12 = { index = "pypi" }
 
 [tool.coverage.paths]
-source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]
+source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curator/Curator/nemo_curator"]
 
 [tool.ruff]
 line-length = 119
@@ -250,7 +341,7 @@ ignore = [
     "PERF401",  # don't enforce list comprehension
     "RET505", "RET506", "RET507", "RET508",  # allow branching (if else after return)
     "PGH004",  # allow generic noqa
-    "PD901",  # allow naming dataframes df
+
     "TD002",  # allow TODO without author
     "TD003",  # allow TODO without link
     "TRY003", # allow long exception messages rather than creating a new exception class
@@ -258,6 +349,7 @@ ignore = [
     "EXE002", # don't require for a shebang to be present if it's executable
     "COM812", # disable the trailing comma in linter, because ruff formatter ensures it
     "SLF001", # allow accessing private attributes
+    "PLC0415", # allow imports inside functions (lazy imports for optional/heavy deps)
 ]
 fixable = ["ALL"]
 
@@ -270,12 +362,25 @@ fixable = ["ALL"]
 "tests/**/*.py" = [
     "S101", # asserts allowed in tests
     "ANN201", # allow methods to not return something
+    "ARG002", # allow unused method args (mock.patch decorator injects args not always referenced)
     "PLR2004", # magic value used in comparison
     "ERA001", # allow commented-out code
+]
+"benchmarking/**" = [
+    "BLE001", # allow catching blind exceptions (benchmark runners need catch-all error handling)
+]
+"docs/**" = [
+    "BLE001", # allow catching blind exceptions (Sphinx extensions need robust error handling)
 ]
 "tutorials/**" = [
     "INP001", # no __init__.py is required
     "PLE2515", # ignore \u200b complaint
+]
+"fern/**/*.py" = [
+    "INP001", # Fern CLI helper scripts; not an installable package
+]
+".github/scripts/**" = [
+    "INP001", # CI scripts; not an installable package
 ]
 
 [tool.pytest.ini_options]

@@ -37,7 +37,7 @@ NeMo Curator provides official Docker containers with all dependencies pre-insta
 
 The primary container includes comprehensive support for all curation modalities:
 
-**Container registry:** `nvcr.io/nvidia/nemo-curator:25.09`
+**Container registry:** `nvcr.io/nvidia/nemo-curator:{{ container_version }}`
 
 **Supported modalities:**
 - ✅ Text curation (CPU/GPU)
@@ -76,7 +76,7 @@ The primary container includes comprehensive support for all curation modalities
 * - Installation
   - NeMo Curator installed with all optional dependencies (`[all]` extras) using uv with NVIDIA index
 * - Environment Path
-  - Virtual environment activated by default: `/opt/venv/bin:$PATH`
+  - Virtual environment at `/opt/venv`. Activate with `source /opt/venv/env.sh` after entering the container.
 ```
 
 ---
@@ -92,7 +92,6 @@ The main container accepts these build-time arguments for environment customizat
 | `CUDA_VER` | `12.8.1` | CUDA version |
 | `LINUX_VER` | `ubuntu24.04` | Base OS version |
 | `CURATOR_ENV` | `ci` | Curator environment type |
-| `INTERN_VIDEO_COMMIT` | `09d872e5...` | InternVideo commit hash for video curation |
 | `NVIDIA_BUILD_ID` | `<unknown>` | NVIDIA build identifier |
 | `NVIDIA_BUILD_REF` | - | NVIDIA build reference |
 
