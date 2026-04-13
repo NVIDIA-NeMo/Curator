@@ -71,9 +71,9 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
             # Can't make a checkpoint decision without source_files — pass through
             return [task]
         if self._checkpoint_mgr.is_task_completed(source_files):
-            logger.debug(
-                f"Checkpoint: skipping completed task {task.task_id} "
-                f"(source_files={source_files[:3]}{'...' if len(source_files) > 3 else ''})"
+            logger.info(
+                f"Checkpoint: skipping completed partition (task_id={task.task_id!r}, "
+                f"files={source_files[:3]}{'...' if len(source_files) > 3 else ''})"
             )
             return []
         return [task]
