@@ -20,7 +20,8 @@ from typing import Any, Literal, Protocol
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
-from loguru import logger
+import torch
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from .base import HTMLExtractorAlgorithm
 from .trafilatura import TrafilaturaExtractor
@@ -58,6 +59,7 @@ SKIP_TAGS = frozenset({"script", "style", "noscript", "template", "svg"})
 HEADING_TAG_NAME_LENGTH = 2
 MAX_HEADING_LEVEL = 6
 MIN_MARKDOWN_FENCE_LENGTH = 3
+MIN_FENCED_BLOCK_LINES = 2
 
 
 @dataclass(frozen=True)
@@ -111,9 +113,6 @@ class _TransformersHTMLElementClassifier:
         if self._model is not None and self._tokenizer is not None:
             return
 
-        import torch
-        from transformers import AutoModelForSequenceClassification, AutoTokenizer
-
         self._tokenizer = AutoTokenizer.from_pretrained(
             self.model_identifier,
             cache_dir=self.cache_dir,
@@ -127,15 +126,13 @@ class _TransformersHTMLElementClassifier:
             **self.transformers_init_kwargs,
         )
         if self.device == "cuda" and not torch.cuda.is_available():
-            logger.warning("CUDA requested for model-based HTML extraction, but CUDA is unavailable. Using CPU.")
-            self.device = "cpu"
+            msg = "CUDA requested for model-based HTML extraction, but CUDA is unavailable."
+            raise RuntimeError(msg)
         self._model.to(self.device)
         self._model.eval()
 
     def predict(self, elements: list[HTMLElement]) -> list[HTMLElementPrediction]:
         self._setup()
-
-        import torch
 
         if self._model is None or self._tokenizer is None:
             msg = "Model-based HTML classifier was not initialized"
@@ -383,7 +380,8 @@ class ModelBasedHTMLExtractionStage(HTMLExtractorAlgorithm):
     @staticmethod
     def _markdown_block_to_plain_text(block: str) -> str:
         if block.startswith("```"):
-            text = "\n".join(line for line in block.splitlines() if not line.startswith("```")).strip()
+            lines = block.splitlines()
+            text = "\n".join(lines[1:-1]).strip() if len(lines) >= MIN_FENCED_BLOCK_LINES else ""
         elif block.startswith("$$"):
             text = "\n".join(line for line in block.splitlines() if line != "$$").strip()
         elif block.startswith("#"):

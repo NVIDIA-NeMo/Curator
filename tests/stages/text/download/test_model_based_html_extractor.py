@@ -135,3 +135,26 @@ def test_model_based_extractor_plain_text_table_drops_alignment_separator() -> N
     )
 
     assert plain_text == ["Name\tValue\nalpha\t1"]
+
+
+def test_model_based_extractor_plain_text_code_preserves_backtick_lines() -> None:
+    classifier = FakeElementClassifier(
+        {
+            "pre": HTMLElementPrediction(label="code_block", confidence=0.99),
+        }
+    )
+    extractor = ModelBasedHTMLExtractionStage(classifier=classifier, output_format="plain_text")
+
+    plain_text = extractor.extract_text(
+        """
+        <html><body>
+          <pre><code>first line
+```literal
+last line</code></pre>
+        </body></html>
+        """,
+        frozenset(),
+        "ENGLISH",
+    )
+
+    assert plain_text == ["first line\n```literal\nlast line"]
