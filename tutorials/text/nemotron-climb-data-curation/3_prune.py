@@ -144,7 +144,7 @@ def compute_average_score_per_cluster(cluster_path: str, score_field: str, thres
 
         file_path = os.path.join(cluster_path, fname)
 
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             for line in f:
                 obj = json.loads(line)
                 total += obj[score_field]
