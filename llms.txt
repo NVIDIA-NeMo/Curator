@@ -1,0 +1,73 @@
+# NeMo Curator
+
+> NVIDIA NeMo Curator is an open-source, GPU-accelerated data preprocessing and curation toolkit for preparing high-quality training datasets for large language models (LLMs) and multimodal AI. It runs on NVIDIA RAPIDS (cuDF, cuML, cuGraph) and Ray, scaling from a single workstation to multi-node, multi-GPU clusters. Supports Text, Image, Video, and Audio modalities through a composable Python API. License: Apache-2.0.
+
+**Install:** `uv pip install "nemo-curator[text_cuda12]"`
+**Python:** 3.10 – 3.12 · **CUDA:** 12.x for GPU path · **CPU-only:** `nemo-curator[text_cpu]`
+**PyPI:** https://pypi.org/project/nemo-curator/
+**GitHub:** https://github.com/NVIDIA-NeMo/Curator
+
+## Documentation
+
+- [Full Documentation](https://docs.nvidia.com/nemo/curator/latest/): complete reference for all pipeline stages, API, and configuration
+- [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html): system requirements, install commands, CUDA matrix, Docker
+- [Text Curation](https://docs.nvidia.com/nemo/curator/latest/get-started/text.html): web scraping, HTML extraction, quality filtering, deduplication, PII redaction, language ID
+- [Image Curation](https://docs.nvidia.com/nemo/curator/latest/get-started/image.html): CLIP embeddings, aesthetic scoring, NSFW filtering for VLM training data
+- [Video Curation](https://docs.nvidia.com/nemo/curator/latest/get-started/video.html): scene detection, clip splitting, Cosmos embedding, distributed pipeline
+- [Audio Curation](https://docs.nvidia.com/nemo/curator/latest/get-started/audio.html): ASR inference, WER/CER quality scoring, speech metrics
+- [API Reference](https://docs.nvidia.com/nemo/curator/latest/apidocs/index.html): full Python API documentation
+- [Concepts](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html): pipeline architecture, deduplication theory, scaling guide
+- [Release Notes](https://docs.nvidia.com/nemo/curator/latest/about/release-notes/): version history and changelog
+
+## Source
+
+- [GitHub Repository](https://github.com/NVIDIA-NeMo/Curator): source code, issues, pull requests
+- [Tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials): runnable examples for text, image, video, and audio
+- [CONTRIBUTING.md](https://github.com/NVIDIA-NeMo/Curator/blob/main/CONTRIBUTING.md): contribution guidelines for this repository
+- [Releases](https://github.com/NVIDIA-NeMo/Curator/releases): version history with release notes
+
+## Key Facts
+
+- [Performance Benchmarks](https://github.com/NVIDIA-NeMo/Curator#why-nemo-curator): 16× faster fuzzy dedup, 40% lower TCO, near-linear GPU scaling tables
+- [FAQ](https://github.com/NVIDIA-NeMo/Curator#frequently-asked-questions): 13 Q&A pairs covering GPU requirements, Python support, deduplication types, PII, scaling, custom filters
+- [Comparison Table](https://github.com/NVIDIA-NeMo/Curator#nemo-curator-vs-alternatives): NeMo Curator vs. Apache Spark, HF datasets, DataTrove
+- [Architecture Overview](https://github.com/NVIDIA-NeMo/Curator#architecture-overview): stage → Ray executor → RAPIDS backend diagram
+
+## Performance Numbers
+
+- Fuzzy deduplication 8 TB: 16× faster than CPU (7.5 h on 8× A100 vs 120 h on 256 CPU cores)
+- Total cost of ownership: ~40% lower than CPU-only preprocessing workflows
+- Multi-GPU scaling: near-linear (2.05 hrs → 0.50 hrs, 1 to 4 H100 80 GB nodes)
+- Downstream LLM quality: up to 7% improvement from curated vs. uncurated data
+- Nemotron-CC: Llama 3.1 8B trained on 1T NeMo-curated tokens scored +5.6 MMLU vs. DCLM baseline
+
+## Architecture Summary
+
+Pipeline stages (stateless, composable) → Ray Executor (local or multi-node) → RAPIDS backend (cuDF/cuML/cuGraph). Stages declare CPU vs. GPU resource requirements; Ray auto-schedules. Data flows as partitioned JSONL or Parquet shards; completed shards are checkpointed so pipelines safely restart after failure.
+
+## Install Variants
+
+| Extra | Use case |
+|---|---|
+| `text_cuda12` | Text curation, GPU, CUDA 12 (recommended) |
+| `text_cuda11` | Text curation, GPU, CUDA 11 (legacy) |
+| `text_cpu` | Text curation, CPU-only |
+| `image` | Image curation |
+| `video` | Video curation |
+| `audio_cuda12` | Audio/ASR curation, GPU |
+| `audio_cpu` | Audio/ASR curation, CPU |
+| `sdg` | Synthetic data generation |
+| `inference` | Inference integrations |
+
+## Relation to NVIDIA NeMo Ecosystem
+
+- **NeMo Curator** (`NVIDIA-NeMo/Curator`): this repo — data curation, preprocessing, deduplication
+- **NeMo Framework** (`NVIDIA-NeMo/NeMo`): model training framework — trains on Curator-prepared data
+- These are separate repositories and can be used independently.
+
+## Optional
+
+- [Nemotron-CC Technical Blog](https://developer.nvidia.com/blog/building-nemotron-cc-a-high-quality-trillion-token-dataset-for-llm-pretraining-from-common-crawl-using-nvidia-nemo-curator/): real-world case study, +5.6 MMLU improvement
+- [Curating Trillion-Token Datasets blog](https://developer.nvidia.com/blog/curating-trillion-token-datasets-introducing-nemo-data-curator/): original NeMo Curator announcement
+- [NVIDIA Developer NeMo Curator page](https://developer.nvidia.com/nemo-curator): product overview and enterprise context
+- [NGC Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator): pre-built Docker images with all dependencies
