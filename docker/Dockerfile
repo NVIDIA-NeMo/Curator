@@ -104,6 +104,17 @@ RUN GRPC_VERSION=1.79.3 && \
         -o "${WANDB_CORE_BIN}" ./cmd/wandb-core/ && \
     rm -rf /tmp/wandb-src /tmp/go /tmp/gopath
 
+# Install nemotron-ocr (C++/CUDA extension — requires no-build-isolation)
+# GIT_LFS_SKIP_SMUDGE=1: clone source only, model weights are mounted at runtime
+# TORCH_CUDA_ARCH_LIST: compile for SM 8.0/8.6/8.9/9.0 to cover A100, A10, RTX Ada, H100
+RUN uv pip install hatchling ninja editables && \
+    GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/nvidia/nemotron-ocr-v2 /tmp/nemotron-ocr-src && \
+    TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0" uv pip install --no-build-isolation /tmp/nemotron-ocr-src/nemotron-ocr && \
+    PIPELINE_PY=$(python3 -c "import nemotron_ocr.inference.pipeline as m; import inspect; print(inspect.getfile(m))") && \
+    sed -i "s/weights_only=True/weights_only=False/g" "$PIPELINE_PY" && \
+    rm -f "${PIPELINE_PY%.py}".cpython-*.pyc && \
+    rm -rf /tmp/nemotron-ocr-src
+
 COPY . /opt/Curator
 
 COPY <<EOF /opt/venv/env.sh

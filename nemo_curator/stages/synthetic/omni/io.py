@@ -13,7 +13,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Generic, Type, TypeVar
 
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.utils import RayStageSpecKeys
 import pyarrow.parquet as pq
 from loguru import logger
 from PIL import Image
