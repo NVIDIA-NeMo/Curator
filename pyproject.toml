@@ -73,7 +73,7 @@ cuda12 = [
     "gpustat",
     "nvidia-ml-py",
 ]
-vllm = ["vllm>=0.14.1,<0.16; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
+vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
 inference_server = [
@@ -198,7 +198,7 @@ math_cuda12 = [
     "nemo_curator[math_cpu]",
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
-    "vllm>=0.13,<0.16; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # Multimodal / Interleaved Dependencies
@@ -269,15 +269,8 @@ package = true
 managed = true
 default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
-no-build-isolation-package = ["flash-attn", "transformer-engine", "transformer-engine-torch"]
+no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
-    # Keep data-designer, data-designer-engine, and data-designer-config on the same release line.
-    # Unpinned engine pulled 0.5.3 while metapackage stayed 0.4.0 → broken imports; engine 0.5.0 + config
-    # 0.5.0 still mismatched the 0.4.0 UI in edge cases. The 0.4.0 trio is the consistent stack.
-    "data-designer-engine==0.4.0",
-    "data-designer-config==0.4.0",
-    # DuckDB 1.5+ breaks data_designer batch reads ("relation does not contain column 'record_batch'").
-    "duckdb>=1.1.3,<1.5",
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
     "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
     "nbconvert>=7.17.0", # Address CVE GHSA-xm59-rqc7-hhvf
