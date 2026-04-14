@@ -335,7 +335,7 @@ class TestManifestReaderIntegration:
         )
         pipeline.add_stage(ALMDataOverlapStage(overlap_percentage=50, target_duration=120.0))
 
-        executor = XennaExecutor()
+        executor = XennaExecutor({"cpu_allocation_percentage": 0.8})
         results = pipeline.run(executor)
 
         output_entries = []
