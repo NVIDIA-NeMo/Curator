@@ -125,12 +125,12 @@ asr_stage.setup()  # Downloads and loads model
 ### Stage 3: Transcription Generation
 
 ```python
-# ASR stage processes AudioTask objects automatically
-# The stage extracts file paths and calls transcribe() internally
-processed_batch = asr_stage.process(audio_task)
+# Don't call process() directly — the Pipeline/Executor handles dispatch:
+pipeline.add_stage(asr_stage)
+results = pipeline.run(executor)
 
-# Output: AudioTask with added "pred_text" field
-# Each item now contains both original data and predictions
+# Output: AudioTask objects with added "pred_text" field
+# Each task now contains both original data and predictions
 ```
 
 ### Stage 4: Quality Assessment Integration
@@ -219,8 +219,8 @@ asr_stage = InferenceAsrNemoStage(
 # Validate and filter invalid file paths
 audio_task = AudioTask(data=audio_data, filepath_key="audio_filepath")
 
-# Filter out entries that do not exist on disk
-valid_samples = [item for item in audio_task.data if audio_task.validate_item(item)]
+# Validate the audio file exists on disk
+is_valid = audio_task.validate()
 ```
 
 ### Pipeline Recovery

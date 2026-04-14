@@ -40,10 +40,10 @@ duration_stage = GetAudioDurationStage(
 # Process audio data
 audio_data = {"audio_filepath": "/path/to/audio.wav", "text": "transcription"}
 audio_task = AudioTask(data=audio_data)
-result_batch = duration_stage.process(audio_task)
+result = duration_stage.process(audio_task)
 
 # Access duration information
-duration = result_batch[0].data["duration"]
+duration = result.data["duration"]
 print(f"Audio duration: {duration:.3f} seconds")
 ```
 
@@ -102,11 +102,10 @@ duration_stage = GetAudioDurationStage(
 # Process each sample
 for sample in audio_samples:
     audio_task = AudioTask(data=sample)
-    result_batch = duration_stage.process(audio_task)
+    result = duration_stage.process(audio_task)
 
-    processed_sample = result_batch[0].data
-    print(f"File: {processed_sample['audio_filepath']}")
-    print(f"Duration: {processed_sample['duration']:.3f} seconds")
+    print(f"File: {result.data['audio_filepath']}")
+    print(f"Duration: {result.data['duration']:.3f} seconds")
 ```
 
 ### Pipeline Integration
@@ -160,12 +159,11 @@ duration_stage = GetAudioDurationStage(
     duration_key="duration"
 )
 
-# Process returns list of AudioTask objects
+# Process each task individually
 for audio_task in audio_tasks:
-    result_batches = duration_stage.process(audio_task)
-    for result in result_batches:
-        print(f"File: {result.data['audio_filepath']}")
-        print(f"Duration: {result.data['duration']:.3f} seconds")
+    result = duration_stage.process(audio_task)
+    print(f"File: {result.data['audio_filepath']}")
+    print(f"Duration: {result.data['duration']:.3f} seconds")
 ```
 
 ## Output Format
@@ -201,7 +199,7 @@ The stage handles various error conditions:
 sample = {"audio_filepath": "/nonexistent/file.wav", "text": "test"}
 audio_task = AudioTask(data=sample)
 result = duration_stage.process(audio_task)
-# result[0].data["duration"] == -1.0
+# result.data["duration"] == -1.0
 ```
 
 ### Corrupted Audio Files

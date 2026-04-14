@@ -102,9 +102,9 @@ asr_stage = asr_stage.with_(
 ```
 
 <Note>
-`batch_size` controls the number of tasks the executor groups per call. The ASR stage does not define `process_batch()`; the executor batches tasks.
+`batch_size` controls the number of tasks the executor groups per call. The ASR stage defines `process_batch()` as its canonical method — the executor groups tasks by `batch_size` before calling it.
 
-Within a single `AudioTask`, `process()` transcribes the file paths together.
+Within a single `AudioTask`, `process_batch()` transcribes the audio file path.
 </Note>
 
 ## Input Requirements
