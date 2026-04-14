@@ -456,9 +456,11 @@ def main() -> None:
     args = parser.parse_args()
     root = Path(args.export_dir)
     if not root.is_dir():
-        raise SystemExit(f"Not a directory: {root}")
+        msg = f"Not a directory: {root}"
+        raise SystemExit(msg)
     if not (root / "distribution.json").is_file():
-        raise SystemExit(f"Missing distribution.json under: {root.resolve()}")
+        msg = f"Missing distribution.json under: {root.resolve()}"
+        raise SystemExit(msg)
 
     handler = _handler_class(root)
     server = ThreadingHTTPServer((args.host, args.port), handler)

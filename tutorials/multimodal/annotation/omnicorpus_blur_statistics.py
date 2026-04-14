@@ -49,10 +49,14 @@ Each positional input may be a Parquet file, a remote URI to one file, or a **di
 are walked recursively for ``*.parquet`` (case-insensitive suffix). Multiple files are read in
 parallel using thread workers (``--read-workers``).
 
-By default (unless ``--read-all-columns``), the first read omits ``binary_content``. With
-``--export-dir``, sampled rows load ``binary_content`` (and ``content_type`` if present) in a
-second pass via row-group reads, so full frames stay smaller. Use ``--read-workers 1`` to lower
-peak memory when reading many files in parallel.
+By default (unless ``--read-all-columns``), the first read omits ``binary_content`` and
+``text_content``. With ``--export-dir``, a second pass loads those columns (plus ``content_type``
+when present) only for rows that need export: sampled image rows, and all text rows in the same
+``sample_id`` as a sampled CLIP image (for ``*_pair.json``). Row-group reads keep memory lower
+than loading full columns for the whole dataset. The loader adds internal columns with each row's
+source file index and offset in that file so export reload maps rows to Parquet files without
+opening every file only to read row-count metadata. Use ``--read-workers 1`` to lower peak memory when
+reading many files in parallel.
 
 Requires the same environment as NeMo Curator (pandas, pyarrow, fsspec).
 """
@@ -119,6 +123,16 @@ RATIO_BIN_LABELS = [
     "0.08-0.09",
     "0.09-0.1",
 ]
+
+# Set by :func:`load_scored_parquet_frames` so export reload can open only the right Parquet files.
+_CURATOR_SOURCE_FILE_IDX_COL = "_curator_source_file_idx"
+_CURATOR_ROW_IN_FILE_COL = "_curator_row_in_file"
+
+
+def _attach_curator_parquet_provenance(frame: pd.DataFrame, file_idx: int) -> None:
+    m = len(frame)
+    frame[_CURATOR_SOURCE_FILE_IDX_COL] = np.full(m, file_idx, dtype=np.int32)
+    frame[_CURATOR_ROW_IN_FILE_COL] = np.arange(m, dtype=np.int64)
 
 
 def absolute_bin_edges_and_labels(*, bin_width: float = 10.0, n_bins: int = 11) -> tuple[np.ndarray, list[str]]:
@@ -640,6 +654,7 @@ def export_distribution_with_samples(
     export_overwrite: bool = False,
     parquet_paths: list[str] | None = None,
     read_kwargs: dict[str, Any] | None = None,
+    reload_max_workers: int = 1,
 ) -> None:
     export_dir = Path(export_dir).resolve()
     if export_overwrite and export_dir.exists():
@@ -647,8 +662,8 @@ def export_distribution_with_samples(
     export_dir.mkdir(parents=True, exist_ok=True)
     out_payload = dict(payload)
     _, blur_labs = absolute_bin_edges_and_labels(bin_width=bin_width, n_bins=n_bins)
-    blur_order = list(blur_labs) + [MISSING_BIN_LABEL_BLUR]
-    clip_order = list(CLIP_BIN_LABELS) + [MISSING_BIN_LABEL_CLIP]
+    blur_order = [*list(blur_labs), MISSING_BIN_LABEL_BLUR]
+    clip_order = [*list(CLIP_BIN_LABELS), MISSING_BIN_LABEL_CLIP]
     blur_order_samples = [b for b in blur_order if b != MISSING_BIN_LABEL_BLUR]
     clip_order_samples = [b for b in clip_order if b != MISSING_BIN_LABEL_CLIP]
 
@@ -666,8 +681,25 @@ def export_distribution_with_samples(
         all_g.update(int(i) for i in lst)
     for lst in clip_idx.values():
         all_g.update(int(i) for i in lst)
-    if parquet_paths is not None and all_g:
-        _merge_binary_columns_for_indices(df, parquet_paths, read_kwargs, all_g)
+    merge_indices = set(all_g)
+    if do_clip and clip_max is not None and clip_scores_column and clip_scores_column in df.columns and clip_idx:
+        sids_set: set[Any] = set()
+        for lst in clip_idx.values():
+            for idx in lst:
+                sid = df.loc[idx, "sample_id"]
+                if sid is not None and not (isinstance(sid, float) and pd.isna(sid)):
+                    sids_set.add(sid)
+        if sids_set:
+            tmask = (df["modality"] == "text") & (df["sample_id"].isin(sids_set))
+            merge_indices.update(int(i) for i in np.flatnonzero(np.asarray(tmask)))
+    if parquet_paths is not None and merge_indices:
+        _merge_export_heavy_columns_for_indices(
+            df,
+            parquet_paths,
+            read_kwargs,
+            merge_indices,
+            max_workers=reload_max_workers,
+        )
 
     if do_blur and sharp is not None:
         out_payload["blur_samples"] = _export_bin_images(
@@ -709,7 +741,8 @@ def expand_parquet_path_inputs(
             if lp.is_dir():
                 found = sorted(p.resolve() for p in lp.rglob("*") if p.is_file() and p.suffix.lower() == ".parquet")
                 if not found:
-                    raise SystemExit(f"No .parquet files under directory: {lp}")
+                    msg = f"No .parquet files under directory: {lp}"
+                    raise SystemExit(msg)
                 expanded.extend(str(p) for p in found)
             else:
                 expanded.append(str(lp))
@@ -723,7 +756,8 @@ def expand_parquet_path_inputs(
                 nested = fs.find(root, detail=False)
                 keys = sorted(k for k in nested if str(k).lower().endswith(".parquet"))
                 if not keys:
-                    raise SystemExit(f"No .parquet files under directory: {s!r}")
+                    msg = f"No .parquet files under directory: {s!r}"
+                    raise SystemExit(msg)
                 unstrip = getattr(fs, "unstrip_protocol", None)
                 for k in keys:
                     expanded.append(unstrip(k) if unstrip is not None else str(k))
@@ -755,10 +789,8 @@ def _parquet_read_column_order(
     blur_only: bool,
     clip_only: bool,
 ) -> list[str] | None:
-    """Ordered column subset for the main statistics read (never ``binary_content`` / ``content_type``)."""
+    """Ordered column subset for the main statistics read (omits heavy blob/string export columns)."""
     want: set[str] = {"sample_id", "modality", "position"}
-    if "text_content" in available:
-        want.add("text_content")
     if not clip_only and "sharpness" in available:
         want.add("sharpness")
     if not blur_only and "clip_scores" in available:
@@ -791,89 +823,195 @@ def _parquet_file_row_bounds(paths: list[str], read_kwargs: dict[str, Any] | Non
     return bounds
 
 
-def _merge_binary_one_parquet_file(
+def _iter_image_and_text_indices_for_merge(df: pd.DataFrame, indices: set[int], n: int) -> tuple[set[int], set[int]]:
+    img: set[int] = set()
+    txt: set[int] = set()
+    for g in indices:
+        if g < 0 or g >= n:
+            continue
+        m = df.iloc[g].get("modality")
+        if m == "image":
+            img.add(g)
+        elif m == "text":
+            txt.add(g)
+    return img, txt
+
+
+def _export_heavy_columns_need_merge(df: pd.DataFrame, global_indices: set[int], avail: set[str], n: int) -> bool:
+    img_idx, txt_idx = _iter_image_and_text_indices_for_merge(df, global_indices, n)
+    if "binary_content" in avail and img_idx:
+        if "binary_content" not in df.columns:
+            return True
+        ib = sorted(img_idx)
+        if not bool(df["binary_content"].iloc[ib].notna().all()):
+            return True
+    if "text_content" in avail and txt_idx:
+        if "text_content" not in df.columns:
+            return True
+        it = sorted(txt_idx)
+        if not bool(df["text_content"].iloc[it].notna().all()):
+            return True
+    return False
+
+
+def _merge_export_heavy_columns_one_file(
     path: str,
     read_kwargs: dict[str, Any] | None,
     pairs_gl: list[tuple[int, int]],
     df: pd.DataFrame,
-) -> None:
-    """Fill ``binary_content`` / ``content_type`` for global rows ``pairs_gl`` as ``(df_pos, local_row)``."""
+) -> dict[int, dict[str, Any]]:
+    """Read heavy columns for ``pairs_gl`` as ``(df_pos, local_row)``; return row patches (no ``df`` mutation)."""
+    patches: dict[int, dict[str, Any]] = {}
     if not pairs_gl:
-        return
+        return patches
     rk = {k: v for k, v in (read_kwargs or {}).items() if k != "parquet_columns"}
     storage = resolve_storage_options(io_kwargs=rk) or {}
     fs, _ = url_to_fs(path, **storage)
     pa_fs = PyFileSystem(FSSpecHandler(fs))
     pf = pq.ParquetFile(path, filesystem=pa_fs)
     names = set(pf.schema_arrow.names)
-    cols = [c for c in ("binary_content", "content_type") if c in names]
-    if "binary_content" not in cols:
-        return
     loc_to_g = {loc: g for g, loc in pairs_gl}
     needed_locals = sorted(loc_to_g)
-    bi = int(df.columns.get_loc("binary_content"))
-    has_ct = "content_type" in cols
-    if has_ct and "content_type" not in df.columns:
-        df["content_type"] = pd.Series([None] * len(df), dtype=object)
-    ct_i = int(df.columns.get_loc("content_type")) if has_ct and "content_type" in df.columns else None
     row_off = 0
     for ri in range(pf.num_row_groups):
         nr = int(pf.metadata.row_group(ri).num_rows)
         lo, hi = row_off, row_off + nr
         take_locals = [i for i in needed_locals if lo <= i < hi]
         if take_locals:
-            rel = [i - lo for i in take_locals]
-            tbl = pf.read_row_group(ri, columns=cols)
-            sub = tbl.take(pa.array(rel, type=pa.int32()))
-            bcol = sub.column("binary_content")
-            tcol = sub.column("content_type") if has_ct else None
-            for j, loc in enumerate(take_locals):
+            cols_needed: set[str] = set()
+            for loc in take_locals:
                 g = loc_to_g[loc]
-                df.iat[g, bi] = bcol[j].as_py()
-                if tcol is not None and ct_i is not None:
-                    df.iat[g, ct_i] = tcol[j].as_py()
+                mod = df.iloc[g].get("modality")
+                if mod == "image":
+                    if "binary_content" in names:
+                        cols_needed.add("binary_content")
+                    if "content_type" in names:
+                        cols_needed.add("content_type")
+                elif mod == "text" and "text_content" in names:
+                    cols_needed.add("text_content")
+            cols = sorted(cols_needed)
+            if cols:
+                rel = [i - lo for i in take_locals]
+                tbl = pf.read_row_group(ri, columns=cols)
+                sub = tbl.take(pa.array(rel, type=pa.int32()))
+                sub_names = set(sub.column_names)
+                for j, loc in enumerate(take_locals):
+                    g = loc_to_g[loc]
+                    mod = df.iloc[g].get("modality")
+                    row_patch = patches.setdefault(g, {})
+                    if mod == "image":
+                        if "binary_content" in sub_names:
+                            row_patch["binary_content"] = sub.column("binary_content")[j].as_py()
+                        if "content_type" in sub_names:
+                            row_patch["content_type"] = sub.column("content_type")[j].as_py()
+                    elif mod == "text" and "text_content" in sub_names:
+                        row_patch["text_content"] = sub.column("text_content")[j].as_py()
         row_off += nr
+    return patches
 
 
-def _merge_binary_columns_for_indices(
+def _merge_export_heavy_columns_for_indices(
     df: pd.DataFrame,
     parquet_paths: list[str],
     read_kwargs: dict[str, Any] | None,
     global_indices: set[int],
+    *,
+    max_workers: int = 1,
 ) -> None:
-    """Load ``binary_content`` (and ``content_type``) from Parquet only for ``global_indices`` (export samples)."""
+    """Load heavy export columns from Parquet only for ``global_indices`` (sampled rows + paired text).
+
+    When :func:`load_scored_parquet_frames` attached ``_curator_source_file_idx`` / ``_curator_row_in_file``,
+    rows are grouped to files without scanning every Parquet file for row counts; reload then runs
+    **sequentially** (``max_workers`` is ignored). Without those columns, row bounds are taken from file
+    metadata and ``ThreadPoolExecutor`` may run up to ``max_workers`` when several files need merges;
+    workers only read Parquet and return patches, and the main thread applies patches to ``df``.
+    """
     if not global_indices:
         return
     avail = _union_parquet_column_names(parquet_paths, read_kwargs)
-    if "binary_content" not in avail:
-        return
-    if "binary_content" in df.columns:
-        idxs = sorted(global_indices)
-        if idxs and bool(df["binary_content"].iloc[idxs].notna().all()):
-            return
-    bounds = _parquet_file_row_bounds(parquet_paths, read_kwargs)
-    total = bounds[-1][1] if bounds else 0
-    if total != len(df):
+    if "binary_content" not in avail and "text_content" not in avail:
         return
     n = len(df)
-    if "binary_content" not in df.columns:
-        df["binary_content"] = pd.Series([None] * n, dtype=object)
-    else:
-        df["binary_content"] = df["binary_content"].astype(object)
+    if not _export_heavy_columns_need_merge(df, global_indices, avail, n):
+        return
+    use_prov = (
+        _CURATOR_SOURCE_FILE_IDX_COL in df.columns
+        and _CURATOR_ROW_IN_FILE_COL in df.columns
+        and len(parquet_paths) > 0
+    )
+    if use_prov:
+        fi_ser = df[_CURATOR_SOURCE_FILE_IDX_COL]
+        if fi_ser.isna().any():
+            use_prov = False
+        else:
+            fmax = int(fi_ser.max())
+            fmin = int(fi_ser.min())
+            if fmin < 0 or fmax >= len(parquet_paths):
+                use_prov = False
+    bounds: list[tuple[int, int, str]] | None = None
+    if not use_prov:
+        bounds = _parquet_file_row_bounds(parquet_paths, read_kwargs)
+        total = bounds[-1][1] if bounds else 0
+        if total != n:
+            return
+    img_idx, txt_idx = _iter_image_and_text_indices_for_merge(df, global_indices, n)
+    if "binary_content" in avail and img_idx:
+        if "binary_content" not in df.columns:
+            df["binary_content"] = pd.Series([None] * n, dtype=object)
+        else:
+            df["binary_content"] = df["binary_content"].astype(object)
+    if "text_content" in avail and txt_idx:
+        if "text_content" not in df.columns:
+            df["text_content"] = pd.Series([None] * n, dtype=object)
+        else:
+            df["text_content"] = df["text_content"].astype(object)
+    if "content_type" in avail and img_idx:
+        if "content_type" not in df.columns:
+            df["content_type"] = pd.Series([None] * n, dtype=object)
+        else:
+            df["content_type"] = df["content_type"].astype(object)
     by_path: dict[str, list[tuple[int, int]]] = defaultdict(list)
-    for g in global_indices:
-        if g < 0 or g >= n:
-            continue
-        placed = False
-        for lo, hi, ps in bounds:
-            if lo <= g < hi:
-                by_path[ps].append((g, g - lo))
-                placed = True
-                break
-        if not placed:
-            continue
-    for ps, pairs in by_path.items():
-        _merge_binary_one_parquet_file(ps, read_kwargs, pairs, df)
+    if use_prov:
+        fi_col = int(df.columns.get_loc(_CURATOR_SOURCE_FILE_IDX_COL))
+        ri_col = int(df.columns.get_loc(_CURATOR_ROW_IN_FILE_COL))
+        for g in global_indices:
+            if g < 0 or g >= n:
+                continue
+            fi = int(df.iat[g, fi_col])
+            if fi < 0 or fi >= len(parquet_paths):
+                continue
+            loc = int(df.iat[g, ri_col])
+            by_path[parquet_paths[fi]].append((g, loc))
+    else:
+        if bounds is None:
+            return
+        for g in global_indices:
+            if g < 0 or g >= n:
+                continue
+            placed = False
+            for lo, hi, ps in bounds:
+                if lo <= g < hi:
+                    by_path[ps].append((g, g - lo))
+                    placed = True
+                    break
+            if not placed:
+                continue
+    items = list(by_path.items())
+    workers = 1 if use_prov else _effective_read_workers(max_workers, len(items))
+    if workers <= 1 or len(items) <= 1:
+        patch_maps = [_merge_export_heavy_columns_one_file(ps, read_kwargs, pr, df) for ps, pr in items]
+    else:
+
+        def _merge_one(it: tuple[str, list[tuple[int, int]]]) -> dict[int, dict[str, Any]]:
+            ps, pr = it
+            return _merge_export_heavy_columns_one_file(ps, read_kwargs, pr, df)
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            patch_maps = list(executor.map(_merge_one, items))
+    for pm in patch_maps:
+        for g, cols in pm.items():
+            for col, val in cols.items():
+                df.at[g, col] = val
 
 
 def _read_single_scored_parquet(path: str, read_kwargs: dict[str, Any] | None) -> pd.DataFrame:
@@ -909,7 +1047,11 @@ def load_scored_parquet_frames(
         msg = "paths must be non-empty"
         raise ValueError(msg)
     if len(paths) == 1 or max_workers <= 1:
-        frames = [_read_single_scored_parquet(ps, read_kwargs) for ps in paths]
+        frames = []
+        for i, ps in enumerate(paths):
+            fr = _read_single_scored_parquet(ps, read_kwargs)
+            _attach_curator_parquet_provenance(fr, i)
+            frames.append(fr)
     else:
         workers = min(max_workers, len(paths))
         frames = [None] * len(paths)
@@ -918,7 +1060,10 @@ def load_scored_parquet_frames(
                 executor.submit(_read_single_scored_parquet, ps, read_kwargs): i for i, ps in enumerate(paths)
             }
             for fut in as_completed(future_to_i):
-                frames[future_to_i[fut]] = fut.result()
+                i = future_to_i[fut]
+                fr = fut.result()
+                _attach_curator_parquet_provenance(fr, i)
+                frames[i] = fr
     out = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
     del frames
     gc.collect()
@@ -982,7 +1127,9 @@ def main() -> None:
         metavar="N",
         help=(
             "Thread workers for reading multiple Parquet files in parallel (default: 0 = "
-            "min(num_files, max(16, 4*cpu_count))). Use 1 to reduce peak RAM (no parallel reads)."
+            "min(num_files, max(16, 4*cpu_count))). Also used for export-phase reload of heavy columns "
+            "when provenance columns from the loader are missing (then multiple Parquet files may be "
+            "read in parallel). Use 1 to reduce peak RAM (no parallel reads)."
         ),
     )
     parser.add_argument(
@@ -1019,7 +1166,8 @@ def main() -> None:
         msg = "Use at most one of --blur-only and --clip-only"
         raise SystemExit(msg)
     if args.export_overwrite and not args.export_dir:
-        raise SystemExit("--export-overwrite requires --export-dir.")
+        msg = "--export-overwrite requires --export-dir."
+        raise SystemExit(msg)
 
     read_kwargs: dict[str, Any] = {}
     if args.storage_options_json:
@@ -1054,11 +1202,14 @@ def main() -> None:
     do_clip = not args.blur_only and clip_col is not None
 
     if args.blur_only and blur_col is None:
-        raise SystemExit("No blur sharpness column found for --blur-only.")
+        msg = "No blur sharpness column found for --blur-only."
+        raise SystemExit(msg)
     if args.clip_only and clip_col is None:
-        raise SystemExit("No CLIP score column found for --clip-only.")
+        msg = "No CLIP score column found for --clip-only."
+        raise SystemExit(msg)
     if not do_blur and not do_clip:
-        raise SystemExit("No blur sharpness column and no CLIP score column found.")
+        msg = "No blur sharpness column and no CLIP score column found."
+        raise SystemExit(msg)
 
     include_missing = not args.no_missing_row
     payload: dict[str, Any] = {"image_rows": total_img}
@@ -1136,6 +1287,7 @@ def main() -> None:
             export_overwrite=args.export_overwrite,
             parquet_paths=parquet_paths,
             read_kwargs=read_kw_load or None,
+            reload_max_workers=read_workers,
         )
         print(f"Wrote export: {Path(args.export_dir) / 'distribution.json'}")
 
