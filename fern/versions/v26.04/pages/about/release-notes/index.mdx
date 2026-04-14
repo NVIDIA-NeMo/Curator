@@ -115,6 +115,16 @@ Pipeline stages can now declare isolated Python dependencies using Ray's native 
 
 Learn more in the [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) documentation.
 
+### Audio Task Redesign (PR #1608)
+
+Redesigned the audio task model and stage hierarchy for consistency with other modalities:
+
+- **`AudioBatch` → `AudioTask`**: Single-dict task model (`Task[dict]`) replacing the list-of-dicts batch model. One manifest entry per task, matching `VideoTask` and `FileGroupTask` conventions.
+- **Direct `ProcessingStage` subclassing**: Removed the `AudioTaskStage` intermediate class. All audio stages now subclass `ProcessingStage[AudioTask, AudioTask]` directly.
+- **Configurable backend selection**: FLEURS and ALM tutorial runners support backend selection using Hydra config (`backend=ray_data` or `backend=xenna`).
+- **`cache_dir` parameter**: `InferenceAsrNemoStage` accepts an optional `cache_dir` for NeMo model checkpoint storage.
+- **Fan-out stage fix**: `CreateInitialManifestFleursStage` now declares `ray_stage_spec()` for correct Ray Data repartitioning.
+
 ### Pipeline Stage Metrics (PR #1385)
 
 Pipeline stages now track document-level metrics through `StagePerfStats.num_items_processed`, so you can see how each stage affects your dataset. After calling `pipeline.run()`, the returned task objects expose per-stage document counts that you can use to monitor filtering behavior and tune thresholds.
@@ -179,6 +189,7 @@ Resolved four HIGH-severity vulnerabilities affecting Curator dependencies:
 
 - **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
 - **Ray** (PR #1557): Updated minimum version from 2.50 to 2.54. This supersedes the previous constraint dependency for CVE GHSA-q279-jhrf-cc6v, which required >=2.52.
+- **pynvml**: Added to the `cuda12` optional dependency group for Xenna GPU detection
 - **sentence-transformers**: Added to the `text_cpu` optional dependency group
 - **vllm**: New vllm optional dependency group
 - **uv**: Added minimum required version (>=0.7.0) to prevent lockfile revision drift
@@ -249,6 +260,7 @@ Added `__getstate__`/`__setstate__` to `CommonCrawlWARCReader` for pickle compat
 - **Minimum Ray version**: The minimum required Ray version increased from 2.50 to 2.54. Users on Ray 2.50–2.53 must upgrade before installing this release.
 - **`TextSemanticDeduplicationWorkflow` embedding backend**: The default embedding backend changed from SentenceTransformers to vLLM. The default model changed from `sentence-transformers/all-MiniLM-L6-v2` to `google/embeddinggemma-300m`. The parameters `embedding_model_inference_batch_size`, `embedding_pooling`, `embedding_padding_side`, and `embedding_max_seq_length` have been removed. Use `embedding_vllm_init_kwargs` to pass configuration to the vLLM backend instead.
 - **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
+- **`AudioBatch` removed**: Replaced by `AudioTask`. Update imports from `from nemo_curator.tasks import AudioBatch` to `from nemo_curator.tasks import AudioTask`. Data is now a single `dict` instead of `dict | list[dict]`.
 - **`RayDataExecutor` import path**: Moved from `nemo_curator.backends.experimental.ray_data` to `nemo_curator.backends.ray_data`. Update imports accordingly.
 - **`DocumentExtractStage` Removed**: The standalone `DocumentExtractStage` class has been removed. Use `DocumentIterateExtractStage` with an optional `extractor` parameter instead. The `DocumentExtractor` abstract base class is unchanged.
 - **`DocumentIterateStage` Renamed**: `DocumentIterateStage` has been replaced by `DocumentIterateExtractStage`. Update imports from `nemo_curator.stages.text.download.base.iterator`.

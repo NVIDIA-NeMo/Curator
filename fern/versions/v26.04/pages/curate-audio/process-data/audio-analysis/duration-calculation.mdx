@@ -29,7 +29,7 @@ The duration calculation stage reads audio samples and sample rate to determine 
 
 ```python
 from nemo_curator.stages.audio.common import GetAudioDurationStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 # Initialize duration calculator
 duration_stage = GetAudioDurationStage(
@@ -39,11 +39,11 @@ duration_stage = GetAudioDurationStage(
 
 # Process audio data
 audio_data = {"audio_filepath": "/path/to/audio.wav", "text": "transcription"}
-audio_batch = AudioBatch(data=[audio_data])
-result_batch = duration_stage.process(audio_batch)
+audio_task = AudioTask(data=audio_data)
+result = duration_stage.process(audio_task)
 
 # Access duration information
-duration = result_batch[0].data[0]["duration"]
+duration = result.data["duration"]
 print(f"Audio duration: {duration:.3f} seconds")
 ```
 
@@ -84,7 +84,7 @@ duration_stage = GetAudioDurationStage(
 
 ```python
 from nemo_curator.stages.audio.common import GetAudioDurationStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 # Sample audio data
 audio_samples = [
@@ -101,12 +101,11 @@ duration_stage = GetAudioDurationStage(
 
 # Process each sample
 for sample in audio_samples:
-    audio_batch = AudioBatch(data=[sample])
-    result_batch = duration_stage.process(audio_batch)
+    audio_task = AudioTask(data=sample)
+    result = duration_stage.process(audio_task)
 
-    processed_sample = result_batch[0].data[0]
-    print(f"File: {processed_sample['audio_filepath']}")
-    print(f"Duration: {processed_sample['duration']:.3f} seconds")
+    print(f"File: {result.data['audio_filepath']}")
+    print(f"Duration: {result.data['duration']:.3f} seconds")
 ```
 
 ### Pipeline Integration
@@ -142,32 +141,29 @@ pipeline.add_stage(PreserveByValueStage(
 
 ```python
 from nemo_curator.stages.audio.common import GetAudioDurationStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
-# Process multiple samples in a batch
+# Process multiple samples
 audio_data_list = [
     {"audio_filepath": "/path/to/file1.wav", "text": "Sample 1"},
     {"audio_filepath": "/path/to/file2.wav", "text": "Sample 2"},
     {"audio_filepath": "/path/to/file3.wav", "text": "Sample 3"}
 ]
 
-# Create batch
-audio_batch = AudioBatch(data=audio_data_list)
+# Create tasks
+audio_tasks = [AudioTask(data=sample) for sample in audio_data_list]
 
-# Process entire batch
+# Process each task
 duration_stage = GetAudioDurationStage(
     audio_filepath_key="audio_filepath",
     duration_key="duration"
 )
 
-# Process returns list of AudioBatch objects
-result_batches = duration_stage.process(audio_batch)
-
-# Extract processed data
-for batch in result_batches:
-    for sample in batch.data:
-        print(f"File: {sample['audio_filepath']}")
-        print(f"Duration: {sample['duration']:.3f} seconds")
+# Process each task individually
+for audio_task in audio_tasks:
+    result = duration_stage.process(audio_task)
+    print(f"File: {result.data['audio_filepath']}")
+    print(f"Duration: {result.data['duration']:.3f} seconds")
 ```
 
 ## Output Format
@@ -201,9 +197,9 @@ The stage handles various error conditions:
 ```python
 # Non-existent files result in duration = -1.0
 sample = {"audio_filepath": "/nonexistent/file.wav", "text": "test"}
-audio_batch = AudioBatch(data=[sample])
-result = duration_stage.process(audio_batch)
-# result[0].data[0]["duration"] == -1.0
+audio_task = AudioTask(data=sample)
+result = duration_stage.process(audio_task)
+# result.data["duration"] == -1.0
 ```
 
 ### Corrupted Audio Files
@@ -215,7 +211,7 @@ import logging
 logging.basicConfig(level=logging.WARNING)
 
 # Process will continue with other files
-result = duration_stage.process(audio_batch)
+result = duration_stage.process(audio_task)
 ```
 
 ### Filtering Error Files

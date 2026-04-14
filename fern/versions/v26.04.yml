@@ -96,9 +96,9 @@ navigation:
                   - page: Curation Pipeline
                     path: ./v26.04/pages/about/concepts/audio/curation-pipeline.mdx
                     slug: curation-pipeline
-                  - page: Audio Batch
-                    path: ./v26.04/pages/about/concepts/audio/audio-batch.mdx
-                    slug: audio-batch
+                  - page: Audio Task
+                    path: ./v26.04/pages/about/concepts/audio/audio-task.mdx
+                    slug: audio-task
                   - page: ASR Pipeline
                     path: ./v26.04/pages/about/concepts/audio/asr-pipeline.mdx
                     slug: asr-pipeline
@@ -567,9 +567,9 @@ navigation:
               - page: VideoTask
                 path: ./v26.04/pages/api-reference/tasks/video-task.mdx
                 slug: video-task
-              - page: AudioBatch
-                path: ./v26.04/pages/api-reference/tasks/audio-batch.mdx
-                slug: audio-batch
+              - page: AudioTask
+                path: ./v26.04/pages/api-reference/tasks/audio-task.mdx
+                slug: audio-task
           - section: Executors
             slug: executors
             contents:
