@@ -49,21 +49,29 @@ Each positional input may be a Parquet file, a remote URI to one file, or a **di
 are walked recursively for ``*.parquet`` (case-insensitive suffix). Multiple files are read in
 parallel using thread workers (``--read-workers``).
 
+By default (unless ``--read-all-columns``), the first read omits ``binary_content``. With
+``--export-dir``, sampled rows load ``binary_content`` (and ``content_type`` if present) in a
+second pass via row-group reads, so full frames stay smaller. Use ``--read-workers 1`` to lower
+peak memory when reading many files in parallel.
+
 Requires the same environment as NeMo Curator (pandas, pyarrow, fsspec).
 """
 
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import os
 import shutil
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 from fsspec.core import url_to_fs
 from pyarrow.fs import FSSpecHandler, PyFileSystem
@@ -630,6 +638,8 @@ def export_distribution_with_samples(
     n_bins: int,
     samples_per_bin: int,
     export_overwrite: bool = False,
+    parquet_paths: list[str] | None = None,
+    read_kwargs: dict[str, Any] | None = None,
 ) -> None:
     export_dir = Path(export_dir).resolve()
     if export_overwrite and export_dir.exists():
@@ -642,9 +652,24 @@ def export_distribution_with_samples(
     blur_order_samples = [b for b in blur_order if b != MISSING_BIN_LABEL_BLUR]
     clip_order_samples = [b for b in clip_order if b != MISSING_BIN_LABEL_CLIP]
 
+    blur_idx: dict[str, list[Any]] = {}
+    clip_idx: dict[str, list[Any]] = {}
     if do_blur and sharp is not None:
         bl = blur_bin_labels(sharp, bin_width=bin_width, n_bins=n_bins)
         blur_idx = _sample_indices_per_bin(bl, blur_order_samples, max_per_bin=samples_per_bin)
+    if do_clip and clip_max is not None:
+        cl = clip_bin_labels(clip_max)
+        clip_idx = _sample_indices_per_bin(cl, clip_order_samples, max_per_bin=samples_per_bin)
+
+    all_g: set[int] = set()
+    for lst in blur_idx.values():
+        all_g.update(int(i) for i in lst)
+    for lst in clip_idx.values():
+        all_g.update(int(i) for i in lst)
+    if parquet_paths is not None and all_g:
+        _merge_binary_columns_for_indices(df, parquet_paths, read_kwargs, all_g)
+
+    if do_blur and sharp is not None:
         out_payload["blur_samples"] = _export_bin_images(
             df,
             blur_idx,
@@ -655,8 +680,6 @@ def export_distribution_with_samples(
             clip_scores_column=None,
         )
     if do_clip and clip_max is not None:
-        cl = clip_bin_labels(clip_max)
-        clip_idx = _sample_indices_per_bin(cl, clip_order_samples, max_per_bin=samples_per_bin)
         out_payload["clip_samples"] = _export_bin_images(
             df,
             clip_idx,
@@ -715,11 +738,157 @@ def expand_parquet_path_inputs(
     return deduped
 
 
+def _union_parquet_column_names(paths: list[str], read_kwargs: dict[str, Any] | None) -> set[str]:
+    """Column names present in any of the Parquet files (schema-only reads)."""
+    storage = resolve_storage_options(io_kwargs=read_kwargs or {}) or {}
+    names: set[str] = set()
+    for ps in paths:
+        fs, _ = url_to_fs(ps, **storage)
+        pa_fs = PyFileSystem(FSSpecHandler(fs))
+        names.update(pq.read_schema(ps, filesystem=pa_fs).names)
+    return names
+
+
+def _parquet_read_column_order(
+    available: set[str],
+    *,
+    blur_only: bool,
+    clip_only: bool,
+) -> list[str] | None:
+    """Ordered column subset for the main statistics read (never ``binary_content`` / ``content_type``)."""
+    want: set[str] = {"sample_id", "modality", "position"}
+    if "text_content" in available:
+        want.add("text_content")
+    if not clip_only and "sharpness" in available:
+        want.add("sharpness")
+    if not blur_only and "clip_scores" in available:
+        want.add("clip_scores")
+    if "image_num" in available:
+        want.add("image_num")
+    if "text_word_num" in available:
+        want.add("text_word_num")
+    got = sorted(want & available)
+    if not got:
+        return None
+    if len(got) == len(available):
+        return None
+    return got
+
+
+def _parquet_file_row_bounds(paths: list[str], read_kwargs: dict[str, Any] | None) -> list[tuple[int, int, str]]:
+    """Cumulative row ranges ``[lo, hi)`` per file, in the same order as :func:`load_scored_parquet_frames` concat."""
+    rk = {k: v for k, v in (read_kwargs or {}).items() if k != "parquet_columns"}
+    storage = resolve_storage_options(io_kwargs=rk) or {}
+    bounds: list[tuple[int, int, str]] = []
+    cur = 0
+    for ps in paths:
+        fs, _ = url_to_fs(ps, **storage)
+        pa_fs = PyFileSystem(FSSpecHandler(fs))
+        pf = pq.ParquetFile(ps, filesystem=pa_fs)
+        n = int(pf.metadata.num_rows)
+        bounds.append((cur, cur + n, ps))
+        cur += n
+    return bounds
+
+
+def _merge_binary_one_parquet_file(
+    path: str,
+    read_kwargs: dict[str, Any] | None,
+    pairs_gl: list[tuple[int, int]],
+    df: pd.DataFrame,
+) -> None:
+    """Fill ``binary_content`` / ``content_type`` for global rows ``pairs_gl`` as ``(df_pos, local_row)``."""
+    if not pairs_gl:
+        return
+    rk = {k: v for k, v in (read_kwargs or {}).items() if k != "parquet_columns"}
+    storage = resolve_storage_options(io_kwargs=rk) or {}
+    fs, _ = url_to_fs(path, **storage)
+    pa_fs = PyFileSystem(FSSpecHandler(fs))
+    pf = pq.ParquetFile(path, filesystem=pa_fs)
+    names = set(pf.schema_arrow.names)
+    cols = [c for c in ("binary_content", "content_type") if c in names]
+    if "binary_content" not in cols:
+        return
+    loc_to_g = {loc: g for g, loc in pairs_gl}
+    needed_locals = sorted(loc_to_g)
+    bi = int(df.columns.get_loc("binary_content"))
+    has_ct = "content_type" in cols
+    if has_ct and "content_type" not in df.columns:
+        df["content_type"] = pd.Series([None] * len(df), dtype=object)
+    ct_i = int(df.columns.get_loc("content_type")) if has_ct and "content_type" in df.columns else None
+    row_off = 0
+    for ri in range(pf.num_row_groups):
+        nr = int(pf.metadata.row_group(ri).num_rows)
+        lo, hi = row_off, row_off + nr
+        take_locals = [i for i in needed_locals if lo <= i < hi]
+        if take_locals:
+            rel = [i - lo for i in take_locals]
+            tbl = pf.read_row_group(ri, columns=cols)
+            sub = tbl.take(pa.array(rel, type=pa.int32()))
+            bcol = sub.column("binary_content")
+            tcol = sub.column("content_type") if has_ct else None
+            for j, loc in enumerate(take_locals):
+                g = loc_to_g[loc]
+                df.iat[g, bi] = bcol[j].as_py()
+                if tcol is not None and ct_i is not None:
+                    df.iat[g, ct_i] = tcol[j].as_py()
+        row_off += nr
+
+
+def _merge_binary_columns_for_indices(
+    df: pd.DataFrame,
+    parquet_paths: list[str],
+    read_kwargs: dict[str, Any] | None,
+    global_indices: set[int],
+) -> None:
+    """Load ``binary_content`` (and ``content_type``) from Parquet only for ``global_indices`` (export samples)."""
+    if not global_indices:
+        return
+    avail = _union_parquet_column_names(parquet_paths, read_kwargs)
+    if "binary_content" not in avail:
+        return
+    if "binary_content" in df.columns:
+        idxs = sorted(global_indices)
+        if idxs and bool(df["binary_content"].iloc[idxs].notna().all()):
+            return
+    bounds = _parquet_file_row_bounds(parquet_paths, read_kwargs)
+    total = bounds[-1][1] if bounds else 0
+    if total != len(df):
+        return
+    n = len(df)
+    if "binary_content" not in df.columns:
+        df["binary_content"] = pd.Series([None] * n, dtype=object)
+    else:
+        df["binary_content"] = df["binary_content"].astype(object)
+    by_path: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    for g in global_indices:
+        if g < 0 or g >= n:
+            continue
+        placed = False
+        for lo, hi, ps in bounds:
+            if lo <= g < hi:
+                by_path[ps].append((g, g - lo))
+                placed = True
+                break
+        if not placed:
+            continue
+    for ps, pairs in by_path.items():
+        _merge_binary_one_parquet_file(ps, read_kwargs, pairs, df)
+
+
 def _read_single_scored_parquet(path: str, read_kwargs: dict[str, Any] | None) -> pd.DataFrame:
-    storage = resolve_storage_options(io_kwargs=read_kwargs or {})
+    storage = resolve_storage_options(io_kwargs=read_kwargs or {}) or {}
     fs, _ = url_to_fs(path, **(storage or {}))
     pa_fs = PyFileSystem(FSSpecHandler(fs))
-    return pq.read_table(path, filesystem=pa_fs).to_pandas()
+    rk: dict[str, Any] = dict(read_kwargs or {})
+    desired: list[str] | None = rk.pop("parquet_columns", None)
+    if desired:
+        file_cols = set(pq.read_schema(path, filesystem=pa_fs).names)
+        cols = [c for c in desired if c in file_cols]
+        table = pq.read_table(path, filesystem=pa_fs, columns=cols or None)
+    else:
+        table = pq.read_table(path, filesystem=pa_fs)
+    return table.to_pandas()
 
 
 def _effective_read_workers(requested: int, n_paths: int) -> int:
@@ -750,7 +919,10 @@ def load_scored_parquet_frames(
             }
             for fut in as_completed(future_to_i):
                 frames[future_to_i[fut]] = fut.result()
-    return pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    out = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    del frames
+    gc.collect()
+    return out
 
 
 def main() -> None:
@@ -759,7 +931,9 @@ def main() -> None:
             "Histograms: blur sharpness (default 11 bins + no-sharpness row) and "
             "CLIP max score (10 bins on [0,0.5], width 0.05 + no-score row) on Parquet. "
             "Optional --export-dir writes distribution.json and sample images per bin; "
-            "--export-overwrite clears the directory first."
+            "--export-overwrite clears the directory first. "
+            "By default only needed Parquet columns are read (see --read-all-columns); "
+            "use --read-workers 1 if parallel reads cause OOM."
         )
     )
     parser.add_argument(
@@ -808,8 +982,13 @@ def main() -> None:
         metavar="N",
         help=(
             "Thread workers for reading multiple Parquet files in parallel (default: 0 = "
-            "min(num_files, max(8, 4*cpu_count))); 1 forces sequential read."
+            "min(num_files, max(16, 4*cpu_count))). Use 1 to reduce peak RAM (no parallel reads)."
         ),
+    )
+    parser.add_argument(
+        "--read-all-columns",
+        action="store_true",
+        help="Read every Parquet column (disables column pruning; uses more memory).",
     )
     parser.add_argument(
         "--export-dir",
@@ -851,9 +1030,19 @@ def main() -> None:
         read_kwargs=read_kwargs or None,
     )
     read_workers = _effective_read_workers(int(args.read_workers), len(parquet_paths))
+    read_kw_load: dict[str, Any] = dict(read_kwargs) if read_kwargs else {}
+    if not args.read_all_columns:
+        avail = _union_parquet_column_names(parquet_paths, read_kwargs or None)
+        col_order = _parquet_read_column_order(
+            avail,
+            blur_only=args.blur_only,
+            clip_only=args.clip_only,
+        )
+        if col_order is not None:
+            read_kw_load["parquet_columns"] = col_order
     df = load_scored_parquet_frames(
         parquet_paths,
-        read_kwargs=read_kwargs or None,
+        read_kwargs=read_kw_load or None,
         max_workers=read_workers,
     )
     images = df["modality"] == "image"
@@ -945,6 +1134,8 @@ def main() -> None:
             n_bins=args.n_bins,
             samples_per_bin=max(1, int(args.samples_per_bin)),
             export_overwrite=args.export_overwrite,
+            parquet_paths=parquet_paths,
+            read_kwargs=read_kw_load or None,
         )
         print(f"Wrote export: {Path(args.export_dir) / 'distribution.json'}")
 
