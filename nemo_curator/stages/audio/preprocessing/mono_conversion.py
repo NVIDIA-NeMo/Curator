@@ -74,7 +74,7 @@ class MonoConversionStage(ProcessingStage[AudioTask, AudioTask]):
         Convert audio to mono and verify sample rate.
 
         Mutates task.data in-place with waveform data.
-        Returns task if successful, None if doesn't meet requirements.
+        Returns task if successful, [] if doesn't meet requirements.
         """
         audio_filepath = task.data.get(self.audio_filepath_key)
 
@@ -84,6 +84,11 @@ class MonoConversionStage(ProcessingStage[AudioTask, AudioTask]):
 
         try:
             waveform, sample_rate = load_audio_file(audio_filepath, mono=False)
+
+            if sample_rate <= 0:
+                logger.error(f"Invalid sample rate ({sample_rate}) in {audio_filepath}")
+                return []
+
             num_channels = waveform.shape[0]
 
             if self.strict_sample_rate and sample_rate != self.output_sample_rate:

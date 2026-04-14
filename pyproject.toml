@@ -101,6 +101,9 @@ audio_common = [
     "torchaudio",
     "onnx>=1.19.0",
     "silero-vad",
+    "librosa",
+    "scipy",
+    "pydub>=0.25.1",
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",
@@ -110,7 +113,7 @@ audio_cuda12 = [
     "nemo_curator[audio_common]",
     "nemo_curator[cuda12]",
     "nvidia-cudnn-cu12",
-    "onnxruntime-gpu>=1.20.1,<1.24",
+    "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
     "torchcodec",
 ]
 
@@ -193,8 +196,19 @@ math_cuda12 = [
 
 # Multimodal / Interleaved Dependencies
 interleaved_cpu = [
+    "albumentations",
+    "open_clip_torch",
+    "opencv-python",
     "Pillow",
+    "pypdfium2",
     "s3fs>=2024.12.0",
+    "timm",
+]
+
+interleaved_cuda12 = [
+    "nemo_curator[interleaved_cpu]",
+    "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
 ]
 
 # Synthetic Data Generation (SDG) Dependencies
@@ -213,7 +227,7 @@ all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
-    "nemo_curator[interleaved_cpu]",
+    "nemo_curator[interleaved_cuda12]",
     "nemo_curator[math_cuda12]",
     "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
@@ -307,7 +321,7 @@ nixl = { index = "pypi" }
 nixl-cu12 = { index = "pypi" }
 
 [tool.coverage.paths]
-source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]
+source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curator/Curator/nemo_curator"]
 
 [tool.ruff]
 line-length = 119
@@ -364,6 +378,9 @@ fixable = ["ALL"]
 ]
 "fern/**/*.py" = [
     "INP001", # Fern CLI helper scripts; not an installable package
+]
+".github/scripts/**" = [
+    "INP001", # CI scripts; not an installable package
 ]
 
 [tool.pytest.ini_options]

@@ -18,8 +18,12 @@ import tempfile
 import soundfile as sf
 import torch
 from loguru import logger
-from nemo.collections.asr.models import SortformerEncLabelModel
 from pydub import AudioSegment
+
+try:
+    from nemo.collections.asr.models import SortformerEncLabelModel
+except ImportError:
+    SortformerEncLabelModel = None
 
 
 def load_audio(audio_path: str) -> tuple[torch.Tensor, int]:

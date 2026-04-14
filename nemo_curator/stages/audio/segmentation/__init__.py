@@ -15,5 +15,6 @@
 """Audio segmentation stages."""
 
 from .speaker_separation import SpeakerSeparationStage
+from .vad_segmentation import VADSegmentationStage
 
-__all__ = ["SpeakerSeparationStage"]
+__all__ = ["SpeakerSeparationStage", "VADSegmentationStage"]
