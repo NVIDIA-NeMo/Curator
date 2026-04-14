@@ -47,8 +47,8 @@ languages
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import PythonCommentToCodeFilter, NumberOfLinesOfCodeFilter
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.heuristic.code import PythonCommentToCodeFilter, NumberOfLinesOfCodeFilter
 from nemo_curator.stages.text.io.reader import JsonlReader
 
 # Filter Python code based on quality metrics

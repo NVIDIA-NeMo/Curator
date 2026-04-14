@@ -67,9 +67,13 @@ pipeline.add_stage(ImageReaderStage(
     num_gpus_per_worker=0.25,
 ))
 
-# Run the pipeline (uses XennaExecutor by default)
+# Run the pipeline
 results = pipeline.run()
 ```
+
+<Note>
+`ImageReaderStage` is compatible with both `XennaExecutor` and `RayDataExecutor`. When using `RayDataExecutor`, the stage automatically signals that it fans out (one tar file can produce multiple `ImageBatch` objects), which enables Ray Data to repartition batches across downstream workers for parallel processing.
+</Note>
 
 **Parameters:**
 

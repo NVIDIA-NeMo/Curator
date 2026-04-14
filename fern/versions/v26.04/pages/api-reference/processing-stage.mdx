@@ -188,6 +188,36 @@ class MyCustomStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return len(text) / 1000.0
 ```
 
+## Per-Stage Runtime Environments
+
+Stages can declare isolated Python dependencies using Ray's native `runtime_env`. Set `runtime_env` as a class variable to specify packages that should be installed in an isolated virtualenv for that stage's workers:
+
+```python
+from typing import Any, ClassVar
+
+class IsolatedStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    name = "isolated_stage"
+    runtime_env: ClassVar[dict[str, Any] | None] = {"pip": ["transformers==4.40.0"]}
+
+    def inputs(self):
+        return ["data"], []
+
+    def outputs(self):
+        return ["data"], []
+
+    def process(self, task):
+        import transformers  # sees 4.40.0
+        ...
+```
+
+You can also override `runtime_env` at instantiation time using `with_()`:
+
+```python
+stage = IsolatedStage().with_(runtime_env={"pip": ["transformers==4.45.0"]})
+```
+
+All three execution backends (`XennaExecutor`, `RayDataExecutor`, `RayActorPoolExecutor`) support per-stage runtime environments. See the [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) reference for details.
+
 ## Configuration with `with_()`
 
 Stages can be configured using the `with_()` method:
