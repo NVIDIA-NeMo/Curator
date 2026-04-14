@@ -84,6 +84,7 @@ def split_video_into_windows(  # noqa: PLR0913
     *,
     model_does_preprocess: bool = False,
     preprocess_dtype: str = "uint8",
+    skip_resize: bool = False,
     flip_input: bool = False,
     num_frames_to_use: int = 0,
     return_bytes: bool = False,
@@ -135,6 +136,7 @@ def split_video_into_windows(  # noqa: PLR0913
                 preprocess_dtype=preprocess_dtype,
                 num_frames_to_use=num_frames_to_use,
                 flip_input=flip_input,
+                skip_resize=skip_resize,
             )
 
             index = 0
@@ -293,7 +295,7 @@ def read_video_cpu(
     return video, frame_counts
 
 
-def fetch_video(  # noqa: C901, PLR0911, PLR0913
+def fetch_video(  # noqa: C901, PLR0911, PLR0912, PLR0913
     video_path: str,
     sampling_fps: float = 2.0,
     window_range: list[WindowFrameInfo] | None = None,
@@ -302,6 +304,7 @@ def fetch_video(  # noqa: C901, PLR0911, PLR0913
     preprocess_dtype: str = "float32",
     num_frames_to_use: int = 0,
     flip_input: bool = False,
+    skip_resize: bool = False,
 ) -> tuple[torch.Tensor, list[int]]:
     """Load and preprocess video frames from a file.
 
@@ -328,17 +331,18 @@ def fetch_video(  # noqa: C901, PLR0911, PLR0913
     )
     nframes, _, height, width = video.shape
 
-    max_pixels = max(
-        min(VIDEO_MAX_PIXELS, int(VIDEO_TOTAL_PIXELS / nframes * FRAME_FACTOR)),
-        int(VIDEO_MIN_PIXELS * 1.05),
-    )
-    resized_height, resized_width = smart_resize(
-        height,
-        width,
-        factor=IMAGE_FACTOR,
-        min_pixels=VIDEO_MIN_PIXELS,
-        max_pixels=max_pixels,
-    )
+    if do_preprocess or not skip_resize:
+        max_pixels = max(
+            min(VIDEO_MAX_PIXELS, int(VIDEO_TOTAL_PIXELS / nframes * FRAME_FACTOR)),
+            int(VIDEO_MIN_PIXELS * 1.05),
+        )
+        resized_height, resized_width = smart_resize(
+            height,
+            width,
+            factor=IMAGE_FACTOR,
+            min_pixels=VIDEO_MIN_PIXELS,
+            max_pixels=max_pixels,
+        )
 
     if do_preprocess:
         try:
@@ -368,12 +372,13 @@ def fetch_video(  # noqa: C901, PLR0911, PLR0913
         if preprocess_dtype == "uint8":
             return video.to(torch.uint8), frame_counts
         return video, frame_counts
-    video = transforms.functional.resize(
-        video,
-        [resized_height, resized_width],
-        interpolation=InterpolationMode.BICUBIC,
-        antialias=True,
-    )
+    if not skip_resize:
+        video = transforms.functional.resize(
+            video,
+            [resized_height, resized_width],
+            interpolation=InterpolationMode.BICUBIC,
+            antialias=True,
+        )
     if flip_input:
         video = [torch.flip(frame, dims=[1, 2]) for frame in video]  # type: ignore[assignment]
     if preprocess_dtype == "float32":

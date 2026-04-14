@@ -188,6 +188,30 @@ workflow = TextSemanticDeduplicationWorkflow(
 )
 ```
 
+**vLLM Embedder** (recommended for large models):
+
+For large embedding models, you can generate embeddings separately using `VLLMEmbeddingModelStage` before running the deduplication workflow. This provides better GPU utilization and throughput for models with 500M+ parameters. See [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder) for details.
+
+Generate embeddings with `VLLMEmbeddingModelStage` using the [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder) pipeline, then pass the output to `SemanticDeduplicationWorkflow`:
+
+```python
+from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
+
+# After generating embeddings to embedding_output_path using VLLMEmbeddingModelStage
+semantic_workflow = SemanticDeduplicationWorkflow(
+    input_path=embedding_output_path,
+    output_path=output_path,
+    n_clusters=100,
+    eps=0.07,
+    id_field="_curator_dedup_id",
+    embedding_field="embeddings",
+)
+semantic_workflow.run()
+
+# Step 3: Filter original text dataset using the IDs to remove
+# See TextDuplicatesRemovalWorkflow for the removal step
+```
+
 **When choosing a model**:
 
 - Use models that support vLLM pooling (embedding) mode
@@ -195,6 +219,7 @@ workflow = TextSemanticDeduplicationWorkflow(
 - Prefer models trained for sentence embeddings (for example, EmbeddingGemma, E5, BGE, or SBERT)
 - Use `embedding_pretokenize=True` for models that benefit from explicit tokenization control
 - Pass additional vLLM configuration through `embedding_vllm_init_kwargs`
+- For more control over the embedding process, consider using [VLLMEmbeddingModelStage](/curate-text/process-data/embeddings/vllm-embedder) separately
 </Accordion>
 
 <Accordion title="Advanced Configuration">
