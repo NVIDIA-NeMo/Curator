@@ -41,6 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python-is-python3\
     curl \
     git \
+    sox \
     vim && \
     apt-get install -y --only-upgrade gnupg && \
     apt-get clean && \
