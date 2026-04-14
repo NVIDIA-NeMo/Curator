@@ -86,7 +86,14 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
         if self.model_variant in ("qwen", "qwen2.5", "qwen3"):
-            QwenVL.download_weights_on_node(self.model_dir, model_id=self.model_id, model_revision=self.model_revision)
+            from nemo_curator.models.qwen_vl import _QWEN_VL_VARIANTS
+
+            variant_info = _QWEN_VL_VARIANTS.get(self.model_variant, {})
+            effective_model_id = self.model_id or variant_info.get("model_id") or QwenVL.DEFAULT_MODEL_ID
+            effective_revision = self.model_revision or variant_info.get("revision") or QwenVL.DEFAULT_MODEL_REVISION
+            QwenVL.download_weights_on_node(
+                self.model_dir, model_id=effective_model_id, model_revision=effective_revision
+            )
         elif self.model_variant.startswith("nemotron"):
             NemotronHVL.download_weights_on_node(self.model_dir, variant=self.model_variant)
         self._initialize_model()
