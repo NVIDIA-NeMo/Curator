@@ -125,63 +125,19 @@ Finally, remaining clusters with a Euclidean distance closer than `--merge-thres
 
 ## Step 4: Convert to Tokenized Files
 
-TODO: Update to use Curator instead
-
-Install Megatron-LM following the [Megatron Core Installation documentation](https://docs.nvidia.com/megatron-core/developer-guide/latest/get-started/install.html). It is recommended to install from source.
-
-This step uses Megatron-LM's [preprocess_data.py](https://github.com/NVIDIA/Megatron-LM/blob/main/tools/preprocess_data.py) script to generate tokenized files. The script can be downloaded and accessed via:
+Generate `.bin` and `.idx` files for each cluster:
 
 ```bash
-git clone https://github.com/NVIDIA/Megatron-LM.git
-cd Megatron-LM/tools
+python 4_tokenize.py \
+    --input-path /path/to/pruned_clusters \
+    --output-path /path/to/domains \
+    --hf-token "hf_XXX" \
+    --append-eod
 ```
 
-Once the `preprocess_data.py` script has been obtained, run it on each "super cluster" to generate `.bin` and `.idx` files for each cluster:
+By default, the script tokenizes the text using [https://huggingface.co/meta-llama/Llama-2-7b](https://huggingface.co/meta-llama/Llama-2-7b), which is a gated model. The user can request access to it on Hugging Face and pass the `--hf-token` argument as demonstrated above.
 
-```bash
-BASE_DIR=/path/to/pruned_clusters
-OUT_DIR=/path/to/domains
-TOKENIZER=/path/to/tokenizer.model
-
-for d in "$BASE_DIR"/*; do
-    domain=$(basename "$d")
-    echo "Processing $domain"
-
-    COMBINED_JSONL="${BASE_DIR}/cluster_${domain}.jsonl"
-
-    echo "Combining JSONL files for $domain"
-
-    # stream-safe concatenation (TB-safe)
-    find "$d" -name "*.jsonl" -type f -print0 \
-        | xargs -0 cat > "$COMBINED_JSONL"
-
-    echo "Preprocessing $domain"
-
-    python preprocess_data.py \
-        --input "$COMBINED_JSONL" \
-        --output-prefix "${OUT_DIR}/${domain}" \
-        --tokenizer-type Llama2Tokenizer \
-        --tokenizer-model "$TOKENIZER" \
-        --workers 8 \
-        --append-eod
-done
-```
-
-For this tutorial, the data can be tokenized with [https://huggingface.co/meta-llama/Llama-2-7b](https://huggingface.co/meta-llama/Llama-2-7b), which is a gated model. The user can request access to it on Hugging Face and download it with:
-
-```python
-from huggingface_hub import hf_hub_download
-
-path = hf_hub_download(
-    repo_id="meta-llama/Llama-2-7b",
-    filename="tokenizer.model",
-    token="hf_XXX",
-)
-
-print(path)
-```
-
-The pipeline generates pairs of files with identical names: one with a `.bin` extension and another with a `.idx` extension. This ensures that the input data files are compatible with Megatron-LM, which is used in step 6 to train the proxy models. Megatron-LM refers to the filename without the file extension as the "file prefix." Refer to Megatron-LM's [Data Preparation documentation](https://docs.nvidia.com/megatron-core/developer-guide/latest/user-guide/data-preparation.html) for more details.
+The pipeline generates pairs of files with identical names: one with a `.bin` extension and another with a `.idx` extension. This ensures that the input data files are compatible with Megatron-LM, which is used in step 6 to train the proxy models. Megatron-LM refers to the filename without the file extension as the "file prefix."
 
 ## Step 5: Generate Training Data Mixtures
 
