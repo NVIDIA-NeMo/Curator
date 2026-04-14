@@ -12,6 +12,16 @@ modality: "universal"
 
 ## What's New in 26.04
 
+### vLLM and Sentence Transformers Embedding Support (PR #1346)
+
+Added two new embedding backends for text curation, giving users flexibility to choose the best engine for their model size and throughput needs:
+
+- **`VLLMEmbeddingModelStage`**: A new standalone embedding stage powered by [vLLM](https://docs.vllm.ai/) for high-throughput GPU-accelerated inference. Supports optional pretokenization (`pretokenize=True`) for best per-task throughput. Ideal for large embedding models where vLLM's batching and memory management outperform Sentence Transformers.
+- **`SentenceTransformerEmbeddingModelStage`**: A new embedding stage using the `sentence-transformers` library directly, providing native support for models from the Sentence Transformers ecosystem.
+- **`EmbeddingCreatorStage` enhancements**: Added `use_sentence_transformer` flag (defaults to `True`) to select between Sentence Transformers' `SentenceTransformer` and Hugging Face's `AutoModel` classes. Added `cache_dir` parameter for controlling model download location.
+
+For usage details, see [Text Embeddings](/curate-text/process-data/embeddings) and [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder).
+
 ### Inference Server (Ray Serve)
 
 Built-in LLM serving alongside curation pipelines using Ray Serve and vLLM:
@@ -55,7 +65,7 @@ Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and i
 
 - **Simplified `Resources` API**: Removed `nvdecs`, `nvencs`, and `entire_gpu` fields. GPU allocation now uses `gpu_memory_gb` (fractional single-GPU) or `gpus` (one or more full GPUs) exclusively.
 - **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
-- **Ray 2.54**: Updated Ray dependency to version 2.54 for compatibility with Cosmos-Xenna 0.2.0.
+- **Ray 2.54** (PR #1557): Updated the minimum Ray dependency from 2.50 to 2.54 for compatibility with Cosmos-Xenna 0.2.0. Added the `RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO` environment variable to the Xenna executor to prevent Ray 2.54 from overriding accelerator environment variables when `num_gpus=0`.
 
 ### FastText Filter Benchmarking (PR #1452)
 
@@ -82,6 +92,10 @@ The data acquisition pipeline now uses a three-stage architecture instead of fou
 - **Fused `DocumentIterateExtractStage`**: Combines `DocumentIterateStage` and `DocumentExtractStage` into a single stage that iterates through downloaded files and extracts structured content in one pass.
 - **Improved Memory Efficiency**: The fused stage processes records inline instead of materializing intermediate DataFrames, reducing peak memory usage. With limited RAM (200 GB), the Common Crawl pipeline succeeds with 32 CPUs where the unfused pipeline ran out of memory even at 16 CPUs.
 - **Better Performance**: Benchmarks show faster runtimes across both the Ray Data and Xenna executors (e.g., ~6% faster with Ray Data, ~18% faster with Xenna).
+
+### Worker Recycling for JusText Extraction (PR #1534)
+
+Added `max_calls_per_worker` support to mitigate out-of-memory errors caused by lxml/libxml2 memory fragmentation in long-running jusText extraction jobs. `CommonCrawlDownloadExtractStage` now defaults to `extractor_max_calls_per_worker=2` for `JusTextExtractor`, automatically recycling workers to reclaim fragmented memory.
 
 ### Per-Stage Runtime Environments (PR #1623)
 
@@ -118,9 +132,23 @@ Added `MegatronTokenizerWriter`, a writer stage that tokenizes text documents an
 
 Learn more in the [Save and Export](/curate-text/save-export) documentation.
 
+### Image Reader Ray Data Support (PR #1610)
+
+`ImageReaderStage` now works with `RayDataExecutor` in addition to `XennaExecutor`. The stage declares itself as a fanout stage, enabling Ray Data to repartition the multiple `ImageBatch` objects produced from each tar file across downstream workers for parallel processing.
+
 ### Actor Pool Progress Bars (PR #1457)
 
 Added tqdm progress bars to `RayActorPoolExecutor` for real-time visibility into task completion during stage processing and shuffle inserts. Progress bars are enabled by default and can be configured with `show_progress` and `progress_interval` parameters. This is particularly useful for long-running deduplication jobs where progress is not otherwise apparent.
+
+### S3 Transport for CommonCrawlWARCReader (PR #1604)
+
+Added S3 as an alternative transport for `CommonCrawlWARCReader`, which fetches individual WARC records using byte-range requests:
+
+- **S3 transport via boto3**: Activate with `use_s3=True` or the `CC_USE_S3` environment variable. Addresses latency and throttling issues when fetching WARC records at scale over HTTPS.
+- **Environment variable configuration**: `CC_USE_S3`, `CC_S3_BUCKET`, and `CC_S3_KEY_PREFIX` environment variables provide runtime configuration without code changes.
+- **Thread-safe lazy initialization**: Both the `requests.Session` and boto3 S3 client use double-checked locking for safe concurrent use with `ThreadPoolExecutor`.
+
+Learn more in the [Common Crawl](/curate-text/load-data/common-crawl) documentation.
 
 ## Improvements
 
@@ -130,6 +158,16 @@ The exact deduplication identification stage now supports batched insertion into
 
 - **New `identification_batchsize` parameter** on `ExactDeduplicationWorkflow`: Controls how many input blocks are concatenated and inserted together. For example, an `input_blocksize` of `256MiB` with `identification_batchsize=4` processes ~1 GB of data per insertion call.
 - **Batch-aware shuffle adapter**: The Ray actor pool shuffle adapter now automatically uses `read_and_insert_batch` when a stage provides it, falling back to single-task processing otherwise.
+
+### LSH Memory Configuration for Fuzzy Deduplication (PR #1603)
+
+`FuzzyDeduplicationWorkflow` now exposes three parameters for controlling GPU memory and shuffle behavior during the LSH stage:
+
+- **`lsh_num_output_partitions`**: Sets the total number of output partitions for the LSH shuffle. When `None` (default), the partition count is chosen automatically.
+- **`lsh_rmm_pool_size`**: Controls the RMM GPU memory pool size in bytes. Defaults to `"auto"` (90% of free GPU memory).
+- **`lsh_spill_memory_limit`**: Controls the device memory limit for spilling to host. Defaults to `"auto"` (80% of the RMM pool size). Set to `None` to disable spilling.
+
+These parameters were previously hardcoded in the LSH stage and are now configurable at the workflow level, enabling finer-grained GPU memory tuning for large-scale fuzzy deduplication jobs.
 
 ## Security Fixes
 
@@ -144,10 +182,13 @@ Resolved four HIGH-severity vulnerabilities affecting Curator dependencies:
 ## Dependency Updates
 
 - **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
-- **Ray**: Updated to 2.54
+- **Ray** (PR #1557): Updated minimum version from 2.50 to 2.54. This supersedes the previous constraint dependency for CVE GHSA-q279-jhrf-cc6v, which required >=2.52.
+- **sentence-transformers**: Added to the `text_cpu` optional dependency group
+- **vllm**: New vllm optional dependency group
 - **uv**: Added minimum required version (>=0.7.0) to prevent lockfile revision drift
 - **nemo-toolkit**: Bumped `nemo_toolkit[asr]` from `==2.4.0` to `>=2.7.2` to address deserialization CVEs. Only affects `audio_cpu` and `audio_cuda12` extras.
 - **xgrammar**: Moved from `constraint-dependencies` (`>=0.1.21`) to `override-dependencies` (`>=0.1.32`) to override vLLM's pinned version and address CVE-2026-25048.
+- **boto3**: Added `boto3>=1.35` to the `math_cpu` install extra for S3 range requests in `CommonCrawlWARCReader` (PR #1604)
 
 ## Enhancements
 
@@ -179,9 +220,17 @@ Confirmed full GPU utilization for the AEGIS safety classifier when running on m
 
 ## Bug Fixes
 
+### JusText Extraction OOM (PR #1534)
+
+Fixed out-of-memory errors during long-running jusText extraction jobs caused by lxml/libxml2 C-heap memory fragmentation. Worker recycling through `max_calls_per_worker` now prevents unbounded RSS growth by restarting worker processes periodically.
+
 ### CUDA Fork Error with vLLM and RayDataExecutor (PR #1606)
 
 Fixed a `RuntimeError: Cannot re-initialize CUDA in forked subprocess` error that occurred when running vLLM stages with `RayDataExecutor`. The vLLM auto-detection for `spawn` versus `fork` multiprocessing only triggers inside Ray actors, not Ray tasks. The `RayDataExecutor.execute_setup_on_node` method dispatches `setup_on_node` as a remote task, so vLLM previously defaulted to `fork` and caused a CUDA reinitialization error. Fixed by setting `VLLM_WORKER_MULTIPROC_METHOD=spawn` in the remote task.
+
+### Video vLLM Setup Race Condition (PR #1590)
+
+Fixed a race condition in video captioning stages (`CaptionGenerationStage` and `CaptionEnhancementStage`) where multiple workers simultaneously initializing vLLM caused a `FileNotFoundError` from the shared `torch.compile` cache directory. vLLM initialization now runs inside `setup_on_node` so the cache directory is created once per node, matching the pattern that text vLLM stages already use.
 
 ### Audio Stage Name Propagation (PR #1470)
 
@@ -191,8 +240,17 @@ Fixed audio pipeline stage names not propagating in `StagePerfStats`, making ben
 
 Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage` where multiple workers simultaneously initializing vLLM would race on the shared `torch.compile` cache directory, causing `FileNotFoundError`. Model initialization now runs once per node in `setup_on_node()` instead of per-worker in `setup()`, matching the pattern used by text vLLM stages.
 
+### MathContentExtractor Serialization Crash (PR #1604)
+
+Fixed a `deepcopy`/pickle crash in `MathContentExtractor` caused by unpickleable `threading.Lock` and `magic.Magic` objects. Added `__getstate__`/`__setstate__` methods that strip these objects before serialization and reinitialize them on deserialization. This fixes failures triggered by `ProcessingStage.with_()` and Ray executors.
+
+### CommonCrawlWARCReader Serialization for Ray (PR #1604)
+
+Added `__getstate__`/`__setstate__` to `CommonCrawlWARCReader` for pickle compatibility with Ray executors. The `threading.Lock`, `requests.Session`, and boto3 S3 client are stripped during serialization and lazily reinitialized after deserialization.
+
 ## Breaking Changes
 
+- **Minimum Ray version**: The minimum required Ray version increased from 2.50 to 2.54. Users on Ray 2.50–2.53 must upgrade before installing this release.
 - **`TextSemanticDeduplicationWorkflow` embedding backend**: The default embedding backend changed from SentenceTransformers to vLLM. The default model changed from `sentence-transformers/all-MiniLM-L6-v2` to `google/embeddinggemma-300m`. The parameters `embedding_model_inference_batch_size`, `embedding_pooling`, `embedding_padding_side`, and `embedding_max_seq_length` have been removed. Use `embedding_vllm_init_kwargs` to pass configuration to the vLLM backend instead.
 - **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
 - **`DocumentExtractStage` Removed**: The standalone `DocumentExtractStage` class has been removed. Use `DocumentIterateExtractStage` with an optional `extractor` parameter instead. The `DocumentExtractor` abstract base class is unchanged.

@@ -94,6 +94,9 @@ Configure fuzzy deduplication using these key parameters:
 | `seed` | int | 42 | Random seed for MinHash permutations |
 | `input_filetype` | str | "parquet" | Input file format ("parquet" or "jsonl") |
 | `input_blocksize` | str \| int | "1GiB" | Size of input blocks for processing |
+| `lsh_num_output_partitions` | int \| None | None | Total number of partitions to write during the LSH shuffle. If `None`, the partition count is chosen automatically as the closest power of 2 &lt;= the number of input tasks. |
+| `lsh_rmm_pool_size` | int \| "auto" \| None | "auto" | Size of the RMM GPU memory pool in bytes for the LSH stage. `"auto"` sets the pool to 90% of free GPU memory. `None` sets the pool to 50% of free GPU memory and allows expansion. |
+| `lsh_spill_memory_limit` | int \| "auto" \| None | "auto" | Device memory limit in bytes for spilling to host during the LSH stage. `"auto"` sets the limit to 80% of the RMM pool size. `None` disables spilling. |
 | `perform_removal` | bool | False | Reserved; must remain `False`. Fuzzy removal is performed with `TextDuplicatesRemovalWorkflow`. |
 
 ### Similarity Threshold
@@ -206,6 +209,8 @@ The workflow produces these output files:
 **Performance tuning**:
 
 - **Memory**: Adjust `bands_per_iteration` (lower = less memory, more iterations)
+- **GPU memory (LSH)**: Use `lsh_rmm_pool_size` to control GPU memory allocation and `lsh_spill_memory_limit` to tune host-spilling behavior during the LSH stage. Reducing the pool size or lowering the spill threshold can prevent out-of-memory errors on smaller GPUs.
+- **Shuffle partitions**: Set `lsh_num_output_partitions` to control the number of output partitions during the LSH shuffle. More partitions reduce per-partition memory but increase I/O overhead.
 - **Accuracy**: Use `char_ngrams &gt;= 20` to reduce false positives
 - **Best practices**: Clear cache between runs, use `input_blocksize="1GiB"`
 
