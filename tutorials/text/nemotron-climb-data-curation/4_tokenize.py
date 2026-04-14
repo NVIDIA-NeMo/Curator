@@ -17,12 +17,14 @@ import json
 import os
 import shutil
 
+from merge_datasets import (
+    main as merge_tokenized_files,  # TODO: Update import path when https://github.com/NVIDIA-NeMo/Curator/pull/1427 is merged
+)
+
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer.megatron_tokenizer import MegatronTokenizerWriter
-
-from merge_datasets import main as merge_tokenized_files  # TODO: Update import path when https://github.com/NVIDIA-NeMo/Curator/pull/1427 is merged
 
 
 def main(args: argparse.Namespace) -> None:
