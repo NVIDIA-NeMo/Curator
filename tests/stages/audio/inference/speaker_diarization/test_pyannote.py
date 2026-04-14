@@ -86,10 +86,11 @@ class TestPyannoteHasOverlap:
 class TestPyAnnoteDiarizationStage:
     """Tests for PyAnnoteDiarizationStage."""
 
+    @pytest.mark.gpu
     @pytest.mark.skipif(not hf_token, reason="HF_TOKEN not set")
     def test_process(self, wav_filepath: Path) -> None:
         """Process a single entry for diarization."""
-        stage = PyAnnoteDiarizationStage(hf_token=hf_token, resources=Resources())
+        stage = PyAnnoteDiarizationStage(hf_token=hf_token, resources=Resources(gpus=1))
         stage.setup_on_node()
         stage.setup()
         data_entry = {

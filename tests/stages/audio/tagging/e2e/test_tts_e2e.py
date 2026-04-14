@@ -35,6 +35,7 @@ from .conftest import CONFIGS_DIR, REFERENCE_DIR
 from .utils import check_output
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not os.getenv("HF_TOKEN"), reason="HF_TOKEN required for PyAnnote models")
 def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     """TTS tagging pipeline e2e: Resample + Diarize + Split + ASR Align + Join + Merge + ITN + BW + SQUIM + Segments."""

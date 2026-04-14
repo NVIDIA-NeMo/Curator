@@ -14,8 +14,6 @@ Audio pipelines require `ffmpeg` and `sox` for resampling and format conversion.
 # Ubuntu / Debian
 sudo apt-get install -y ffmpeg sox libsox-fmt-all
 
-# macOS
-brew install ffmpeg sox
 ```
 
 ## Available Tutorials
