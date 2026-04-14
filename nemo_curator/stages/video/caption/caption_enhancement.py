@@ -71,12 +71,13 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
         )
 
     def _initialize_model(self) -> None:
-        if self.model_variant == "qwen":
+        if self.model_variant in ("qwen", "qwen2.5", "qwen3"):
             self.model = QwenLM(
                 model_dir=self.model_dir,
                 caption_batch_size=self.model_batch_size,
                 fp8=self.fp8,
                 max_output_tokens=self.max_output_tokens,
+                model_variant=self.model_variant,
                 model_id=self.model_id,
                 model_revision=self.model_revision,
                 **self.vllm_kwargs,
@@ -120,7 +121,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
                 if not self._is_valid_window_caption(clip, window, window_idx):
                     continue
 
-                caption = window.caption["qwen"]
+                caption = window.caption[self.model_variant]
                 if caption is None:
                     logger.error(f"Clip {clip.uuid} window {window_idx} has no caption")
                     continue
@@ -142,7 +143,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
             clip.errors[f"window-{window_idx}"] = "empty"
             return False
 
-        return "qwen" in window.caption
+        return self.model_variant in window.caption
 
     def _generate_and_assign_captions(
         self, video: Video, mapping: dict[int, tuple[int, int]], inputs: list[dict[str, Any]]
@@ -158,15 +159,15 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
 
         for idx, result in enumerate(captions):
             clip_idx, window_idx = mapping[idx]
-            original_caption = video.clips[clip_idx].windows[window_idx].caption["qwen"]
-            video.clips[clip_idx].windows[window_idx].enhanced_caption["qwen_lm"] = result
+            original_caption = video.clips[clip_idx].windows[window_idx].caption[self.model_variant]
+            video.clips[clip_idx].windows[window_idx].enhanced_caption[f"{self.model_variant}_lm"] = result
 
             if self.verbose:
                 logger.info(
                     f"Caption for clip {video.clips[clip_idx].uuid} window {window_idx}: {original_caption}",
                 )
                 logger.info(
-                    f"Enhanced QwenLM Caption for clip {video.clips[clip_idx].uuid} window {window_idx}: {result}",
+                    f"Enhanced {self.model_variant} LM Caption for clip {video.clips[clip_idx].uuid} window {window_idx}: {result}",
                 )
 
 

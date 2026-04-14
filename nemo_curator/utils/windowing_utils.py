@@ -90,6 +90,7 @@ def split_video_into_windows(  # noqa: PLR0913
     return_bytes: bool = False,
     return_video_frames: bool = True,
     num_threads: int = 1,
+    image_factor: int | None = None,
 ) -> tuple[list[bytes], list[torch.Tensor | None], list[WindowFrameInfo]]:
     """Calculate windows and return video inputs for language model from input clips.
 
@@ -109,6 +110,7 @@ def split_video_into_windows(  # noqa: PLR0913
         return_video_frames: whether to return video frames
         sampling_fps: sampling fps
         window_size: window size
+        image_factor: factor for smart_resize; defaults to IMAGE_FACTOR (32). Use 28 for Qwen2.5.
 
     Returns:
         Tuple containing:
@@ -118,6 +120,8 @@ def split_video_into_windows(  # noqa: PLR0913
 
     """
     with make_pipeline_named_temporary_file(sub_dir="windowing") as input_file:
+        if image_factor is None:
+            image_factor = IMAGE_FACTOR
         input_file.write_bytes(mp4_bytes)
         total_frames = get_frame_count(mp4_bytes)
         windows = compute_windows(total_frames, window_size, remainder_threshold)
@@ -137,6 +141,7 @@ def split_video_into_windows(  # noqa: PLR0913
                 num_frames_to_use=num_frames_to_use,
                 flip_input=flip_input,
                 skip_resize=skip_resize,
+                image_factor=image_factor,
             )
 
             index = 0
@@ -305,6 +310,7 @@ def fetch_video(  # noqa: C901, PLR0911, PLR0912, PLR0913
     num_frames_to_use: int = 0,
     flip_input: bool = False,
     skip_resize: bool = False,
+    image_factor: int = IMAGE_FACTOR,
 ) -> tuple[torch.Tensor, list[int]]:
     """Load and preprocess video frames from a file.
 
@@ -339,7 +345,7 @@ def fetch_video(  # noqa: C901, PLR0911, PLR0912, PLR0913
         resized_height, resized_width = smart_resize(
             height,
             width,
-            factor=IMAGE_FACTOR,
+            factor=image_factor,
             min_pixels=VIDEO_MIN_PIXELS,
             max_pixels=max_pixels,
         )

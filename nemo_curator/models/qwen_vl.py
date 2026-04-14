@@ -38,6 +38,18 @@ except ImportError:
 
 from nemo_curator.models.base import ModelInterface
 from nemo_curator.utils import grouping
+from nemo_curator.utils.windowing_utils import IMAGE_FACTOR
+
+_QWEN_VL_VARIANTS: dict[str, dict] = {
+    "qwen": {"model_id": "Qwen/Qwen3-VL-8B-Instruct", "revision": "0c351dd", "image_factor": 32},
+    "qwen3": {"model_id": "Qwen/Qwen3-VL-8B-Instruct", "revision": "0c351dd", "image_factor": 32},
+    "qwen2.5": {"model_id": "Qwen/Qwen2.5-VL-7B-Instruct", "revision": "cc59489", "image_factor": 28},
+}
+
+
+def get_qwen_vl_image_factor(model_variant: str) -> int:
+    """Return the IMAGE_FACTOR for the given Qwen VL model variant."""
+    return _QWEN_VL_VARIANTS.get(model_variant, {}).get("image_factor", IMAGE_FACTOR)
 
 
 class QwenVL(ModelInterface):
@@ -59,8 +71,9 @@ class QwenVL(ModelInterface):
         model_revision: str | None = None,
         **vllm_kwargs,
     ):
-        model_id = model_id or self.DEFAULT_MODEL_ID
-        model_revision = model_revision or self.DEFAULT_MODEL_REVISION
+        variant_info = _QWEN_VL_VARIANTS.get(model_variant, {})
+        model_id = model_id or variant_info.get("model_id") or self.DEFAULT_MODEL_ID
+        model_revision = model_revision or variant_info.get("revision") or self.DEFAULT_MODEL_REVISION
         if not (Path(model_id).is_absolute() or model_id.startswith(("./", "../"))) and not model_id.startswith(
             "Qwen/"
         ):

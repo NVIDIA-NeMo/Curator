@@ -19,6 +19,7 @@ from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.models.prompt_formatter import PromptFormatter
+from nemo_curator.models.qwen_vl import get_qwen_vl_image_factor
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks.video import VideoTask, _Window
 from nemo_curator.utils import windowing_utils
@@ -97,6 +98,7 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
 
     def __post_init__(self) -> None:
         self._skip_intermediate_resize = False
+        self._image_factor = get_qwen_vl_image_factor(self.model_variant)
         if self.model_variant.startswith("nemotron"):
             if not self.model_does_preprocess:
                 logger.warning(
@@ -130,6 +132,7 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     skip_resize=self._skip_intermediate_resize,
                     return_bytes=self.generate_previews,
                     num_threads=max(int(self.resources.cpus), 1),
+                    image_factor=self._image_factor,
                 ),
             ):
                 prompt = _get_prompt(
