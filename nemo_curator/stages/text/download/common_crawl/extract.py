@@ -16,6 +16,7 @@ from typing import Any
 
 from loguru import logger
 
+from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download import DocumentExtractor
 from nemo_curator.stages.text.download.html_extractors import HTMLExtractorAlgorithm
 from nemo_curator.stages.text.download.html_extractors.justext import JusTextExtractor
@@ -63,6 +64,7 @@ class CommonCrawlHTMLExtractor(DocumentExtractor):
             self._stop_lists = get_stop_list_dict()
 
         self.algorithm = algorithm
+        self.resources = getattr(self.algorithm, "resources", Resources(cpus=1.0))
 
     def extract(self, record: dict[str, Any]) -> dict[str, Any] | None:
         """Extract text from HTML content in the record.
@@ -105,3 +107,24 @@ class CommonCrawlHTMLExtractor(DocumentExtractor):
 
     def output_columns(self) -> list[str]:
         return ["url", "warc_id", "source_id", "language", "text"]
+
+    def setup_on_node(self, *args, **kwargs) -> None:
+        setup_on_node = getattr(self.algorithm, "setup_on_node", None)
+        if callable(setup_on_node):
+            setup_on_node(*args, **kwargs)
+
+    def setup(self, *args, **kwargs) -> None:
+        setup = getattr(self.algorithm, "setup", None)
+        if callable(setup):
+            setup(*args, **kwargs)
+
+    def teardown(self) -> None:
+        teardown = getattr(self.algorithm, "teardown", None)
+        if callable(teardown):
+            teardown()
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        ray_stage_spec = getattr(self.algorithm, "ray_stage_spec", None)
+        if callable(ray_stage_spec):
+            return ray_stage_spec()
+        return {}

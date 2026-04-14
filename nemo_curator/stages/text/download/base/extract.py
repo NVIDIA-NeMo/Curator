@@ -15,6 +15,8 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+from nemo_curator.stages.resources import Resources
+
 
 class DocumentExtractor(ABC):
     """Abstract base class for document extractors.
@@ -22,6 +24,8 @@ class DocumentExtractor(ABC):
     Takes a record dict and returns processed record dict or None to skip.
     Can transform any fields in the input dict.
     """
+
+    resources = Resources(cpus=1.0)
 
     @abstractmethod
     def extract(self, record: dict[str, str]) -> dict[str, Any] | None:
@@ -37,3 +41,19 @@ class DocumentExtractor(ABC):
     def output_columns(self) -> list[str]:
         """Define output columns - produces DocumentBatch with records."""
         ...
+
+    def setup_on_node(self, *_args, **_kwargs) -> None:
+        """Optional setup hook executed once per node."""
+        pass
+
+    def setup(self, *_args, **_kwargs) -> None:
+        """Optional setup hook executed once per worker."""
+        pass
+
+    def teardown(self) -> None:
+        """Optional teardown hook."""
+        pass
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        """Optional Ray configuration for iterate-extract stages."""
+        return {}

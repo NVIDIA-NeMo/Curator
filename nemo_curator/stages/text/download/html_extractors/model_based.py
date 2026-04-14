@@ -16,15 +16,22 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
+from huggingface_hub import snapshot_download
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.resources import Resources
+
 from .base import HTMLExtractorAlgorithm
 from .trafilatura import TrafilaturaExtractor
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 ModelBasedOutputFormat = Literal["markdown", "plain", "plain_text"]
 
@@ -109,7 +116,7 @@ class _TransformersHTMLElementClassifier:
         self._model: Any | None = None
         self._tokenizer: Any | None = None
 
-    def _setup(self) -> None:
+    def _setup(self, local_files_only: bool = True) -> None:
         if self._model is not None and self._tokenizer is not None:
             return
 
@@ -120,23 +127,21 @@ class _TransformersHTMLElementClassifier:
         self._tokenizer = AutoTokenizer.from_pretrained(
             self.model_identifier,
             cache_dir=self.cache_dir,
-            local_files_only=self.local_files_only,
+            local_files_only=local_files_only,
             **self.transformers_init_kwargs,
         )
         self._model = AutoModelForSequenceClassification.from_pretrained(
             self.model_identifier,
             cache_dir=self.cache_dir,
-            local_files_only=self.local_files_only,
+            local_files_only=local_files_only,
             **self.transformers_init_kwargs,
         )
         self._model.to(self.device)
         self._model.eval()
 
     def predict(self, elements: list[HTMLElement]) -> list[HTMLElementPrediction]:
-        self._setup()
-
         if self._model is None or self._tokenizer is None:
-            msg = "Model-based HTML classifier was not initialized"
+            msg = "Model-based HTML classifier was not initialized. Call setup() before inference."
             raise RuntimeError(msg)
 
         model = self._model
@@ -185,7 +190,7 @@ class ModelBasedHTMLExtractionStage(HTMLExtractorAlgorithm):
         model_identifier: str = "opendatalab/MinerU-HTML-0.6B",
         output_format: ModelBasedOutputFormat = "markdown",
         fallback_threshold: float = 0.65,
-        device: Literal["cuda", "cpu"] = "cuda",
+        device: Literal["cuda"] = "cuda",
         batch_size: int = 64,
         max_length: int = 512,
         cache_dir: str | None = None,
@@ -212,6 +217,7 @@ class ModelBasedHTMLExtractionStage(HTMLExtractorAlgorithm):
         self.classifier = classifier
         self.fallback_extractor = fallback_extractor or TrafilaturaExtractor()
         self.transformers_init_kwargs = transformers_init_kwargs or {}
+        self.resources = Resources(cpus=1.0, gpus=1.0)
 
     def extract_text(self, html: str, stop_words: frozenset[str], language: str) -> list[str] | None:
         soup = BeautifulSoup(html, "lxml")
@@ -265,6 +271,35 @@ class ModelBasedHTMLExtractionStage(HTMLExtractorAlgorithm):
                 transformers_init_kwargs=self.transformers_init_kwargs,
             )
         return self.classifier
+
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        snapshot_download(
+            repo_id=self.model_identifier,
+            cache_dir=self.cache_dir,
+            local_files_only=False,
+        )
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        classifier = self._get_classifier()
+        setup = getattr(classifier, "_setup", None)
+        if callable(setup):
+            setup(local_files_only=True)
+
+    def teardown(self) -> None:
+        classifier = self.classifier
+        if isinstance(classifier, _TransformersHTMLElementClassifier):
+            classifier._model = None
+            classifier._tokenizer = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    @staticmethod
+    def ray_stage_spec() -> dict[str, Any]:
+        return {RayStageSpecKeys.IS_ACTOR_STAGE: True}
 
     @staticmethod
     def _extract_candidate_elements(soup: BeautifulSoup) -> list[HTMLElement]:

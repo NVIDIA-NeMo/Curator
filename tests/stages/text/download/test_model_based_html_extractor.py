@@ -19,6 +19,7 @@ from nemo_curator.stages.text.download.html_extractors import (
     ModelBasedHTMLExtractionStage,
 )
 from nemo_curator.stages.text.download.html_extractors.base import HTMLExtractorAlgorithm
+from nemo_curator.stages.resources import Resources
 
 
 class FakeElementClassifier:
@@ -35,6 +36,30 @@ class FakeElementClassifier:
 class FakeFallbackExtractor(HTMLExtractorAlgorithm):
     def extract_text(self, _html: str, _stop_words: frozenset[str], _language: str) -> list[str] | None:
         return ["fallback text"]
+
+
+class LifecycleTrackingAlgorithm(HTMLExtractorAlgorithm):
+    def __init__(self) -> None:
+        self.resources = Resources(cpus=1.0, gpus=1.0)
+        self.setup_on_node_called = False
+        self.setup_called = False
+        self.teardown_called = False
+
+    def extract_text(self, html: str, stop_words: frozenset[str], language: str) -> list[str] | None:
+        return [html]
+
+    def setup_on_node(self, *args, **kwargs) -> None:
+        self.setup_on_node_called = True
+
+    def setup(self, *args, **kwargs) -> None:
+        self.setup_called = True
+
+    def teardown(self) -> None:
+        self.teardown_called = True
+
+    @staticmethod
+    def ray_stage_spec() -> dict[str, bool]:
+        return {"is_actor_stage": True}
 
 
 def test_model_based_extractor_preserves_structured_markdown() -> None:
@@ -111,6 +136,21 @@ def test_common_crawl_accepts_model_based_algorithm_string() -> None:
     )
 
     assert isinstance(extractor.algorithm, ModelBasedHTMLExtractionStage)
+
+
+def test_common_crawl_extractor_delegates_lifecycle_and_resources() -> None:
+    algorithm = LifecycleTrackingAlgorithm()
+    extractor = CommonCrawlHTMLExtractor(algorithm=algorithm)
+
+    extractor.setup_on_node()
+    extractor.setup()
+    extractor.teardown()
+
+    assert extractor.resources == algorithm.resources
+    assert extractor.ray_stage_spec() == {"is_actor_stage": True}
+    assert algorithm.setup_on_node_called
+    assert algorithm.setup_called
+    assert algorithm.teardown_called
 
 
 def test_model_based_extractor_plain_text_table_drops_alignment_separator() -> None:
