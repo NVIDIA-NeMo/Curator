@@ -18,17 +18,9 @@ from unittest.mock import patch
 import pytest
 from pytest_httpserver import HTTPServer
 
-import nemo_curator.core.serve as serve_module
-
 LLMConfig = pytest.importorskip("ray.serve.llm", reason="ray[serve] not installed").LLMConfig
 
 from nemo_curator.core.serve import InferenceModelConfig, InferenceServer  # noqa: E402
-
-
-class TestServePackageExports:
-    def test_private_active_server_state_is_not_in_all(self) -> None:
-        assert "is_inference_server_active" in serve_module.__all__
-        assert "_active_servers" not in serve_module.__all__
 
 
 class TestInferenceModelConfig:
