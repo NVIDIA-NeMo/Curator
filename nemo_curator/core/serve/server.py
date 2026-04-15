@@ -14,33 +14,27 @@
 
 import atexit
 import http
+import json
 import logging
 import time
 import urllib.request
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
-
-if TYPE_CHECKING:
-    from ray.serve.llm import LLMConfig
 
 from loguru import logger
 
-from nemo_curator.core.constants import DEFAULT_SERVE_HEALTH_TIMEOUT_S, DEFAULT_SERVE_PORT
+from nemo_curator.core.serve.config import (
+    BaseModelConfig,
+    DynamoServerConfig,
+    DynamoVLLMModelConfig,
+    RayServeModelConfig,
+    RayServeServerConfig,
+)
+from nemo_curator.core.serve.internal.base import InferenceBackend
+from nemo_curator.core.serve.internal.constants import DEFAULT_SERVE_HEALTH_TIMEOUT_S, DEFAULT_SERVE_PORT
 
 # Track which application names are currently managed by an InferenceServer in
-# this process. The public helpers below let other parts of the codebase
-# detect possible GPU contention with active model serving.
+# this process so other components can detect possible GPU contention.
 _active_servers: set[str] = set()
-
-
-class InferenceBackend(Protocol):
-    """Internal backend contract used by ``InferenceServer`` lifecycle code."""
-
-    def start(self) -> None:
-        """Start the inference backend."""
-
-    def stop(self) -> None:
-        """Stop the inference backend."""
 
 
 def is_inference_server_active() -> bool:
@@ -49,119 +43,11 @@ def is_inference_server_active() -> bool:
 
 
 @dataclass
-class InferenceModelConfig:
-    """Configuration for a single model to be served via Ray Serve.
-
-    Args:
-        model_identifier: HuggingFace model ID or local path (maps to model_source in LLMConfig).
-        model_name: API-facing model name clients use in requests. Defaults to model_identifier.
-        deployment_config: Ray Serve deployment configuration (autoscaling, replicas, etc.).
-            Passed directly to LLMConfig.deployment_config.
-        engine_kwargs: vLLM engine keyword arguments (tensor_parallel_size, etc.).
-            Passed directly to LLMConfig.engine_kwargs.
-        runtime_env: Ray runtime environment configuration (pip packages, env_vars, working_dir, etc.).
-            Merged with quiet logging overrides when ``verbose=False`` on the InferenceServer.
-    """
-
-    model_identifier: str
-    model_name: str | None = None
-    deployment_config: dict[str, Any] = field(default_factory=dict)
-    engine_kwargs: dict[str, Any] = field(default_factory=dict)
-    runtime_env: dict[str, Any] = field(default_factory=dict)
-
-    def to_llm_config(self, quiet_runtime_env: dict[str, Any] | None = None) -> "LLMConfig":
-        """Convert to a Ray Serve LLMConfig.
-
-        Args:
-            quiet_runtime_env: Optional runtime environment with quiet/logging
-                overrides. Merged on top of ``self.runtime_env`` so that quiet
-                env vars take precedence while preserving user-provided keys
-                (e.g. ``pip``, ``working_dir``).
-        """
-        from ray.serve.llm import LLMConfig
-
-        merged_env = self._merge_runtime_envs(self.runtime_env, quiet_runtime_env)
-
-        return LLMConfig(
-            model_loading_config={
-                "model_id": self.model_name or self.model_identifier,
-                "model_source": self.model_identifier,
-            },
-            deployment_config=self.deployment_config,
-            engine_kwargs=self.engine_kwargs,
-            runtime_env=merged_env or None,
-        )
-
-    @staticmethod
-    def _merge_runtime_envs(
-        base: dict[str, Any],
-        override: dict[str, Any] | None,
-    ) -> dict[str, Any]:
-        """Merge two runtime_env dicts, with special handling for ``env_vars``.
-
-        Top-level keys from *override* win, except ``env_vars`` which is
-        merged key-by-key (override env vars take precedence over base).
-        """
-        if not base and not override:
-            return {}
-        if not override:
-            return {**base}
-        if not base:
-            return {**override}
-
-        merged = {**base, **override}
-        base_env_vars = base.get("env_vars", {})
-        override_env_vars = override.get("env_vars", {})
-        if base_env_vars or override_env_vars:
-            merged["env_vars"] = {**base_env_vars, **override_env_vars}
-        return merged
-
-
-@dataclass
 class InferenceServer:
-    """Serve one or more models via Ray Serve with an OpenAI-compatible endpoint.
+    """Serve one or more models behind a typed backend config."""
 
-    Requires a running Ray cluster (e.g. via RayClient or RAY_ADDRESS env var).
-
-    Cleanup semantics:
-        ``stop()`` calls ``serve.shutdown()``, tearing down all applications,
-        the Serve controller, and HTTP proxy. This is safe because a
-        singleton guard ensures only one InferenceServer is active at a time.
-        The overhead of recreating the controller on the next ``start()``
-        is ~2-5 s — negligible compared to model loading time.
-
-    Args:
-        models: List of InferenceModelConfig instances to deploy.
-        name: Ray Serve application name (default ``"default"``).
-        port: HTTP port for the OpenAI-compatible endpoint.
-        health_check_timeout_s: Seconds to wait for models to become healthy.
-        verbose: If True, keep Ray Serve and vLLM logging at default levels.
-            If False (default), suppress per-request logs from both vLLM
-            (``VLLM_LOGGING_LEVEL=WARNING``) and Ray Serve access logs
-            (``RAY_SERVE_LOG_TO_STDERR=0``). Serve logs still go to
-            files under the Ray session log directory.
-
-    Example::
-
-        from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
-
-        config = InferenceModelConfig(
-            model_identifier="google/gemma-3-27b-it",
-            engine_kwargs={"tensor_parallel_size": 4},
-            deployment_config={
-                "autoscaling_config": {
-                    "min_replicas": 1,
-                    "max_replicas": 1,
-                },
-            },
-        )
-
-        with InferenceServer(models=[config]) as server:
-            print(server.endpoint)  # http://localhost:8000/v1
-            # Use with NeMo Curator's OpenAIClient or AsyncOpenAIClient
-    """
-
-    models: list[InferenceModelConfig]
+    models: list[BaseModelConfig]
+    backend: RayServeServerConfig | DynamoServerConfig = field(default_factory=RayServeServerConfig)
     name: str = "default"
     port: int = DEFAULT_SERVE_PORT
     health_check_timeout_s: int = DEFAULT_SERVE_HEALTH_TIMEOUT_S
@@ -169,33 +55,33 @@ class InferenceServer:
 
     _started: bool = field(init=False, default=False, repr=False)
     _backend_impl: InferenceBackend | None = field(init=False, default=None, repr=False)
+    _host: str = field(init=False, default="localhost", repr=False)
 
     def __post_init__(self) -> None:
+        self._validate_model_configs()
         if not self.verbose:
-            # Suppress driver-side Ray Serve INFO logs ("Deployment Options",
-            # "Ingress Options", "Started Serve", etc.).
             logging.getLogger("ray.serve").setLevel(logging.WARNING)
 
+    def _expected_model_config_type(self) -> type[BaseModelConfig]:
+        if isinstance(self.backend, RayServeServerConfig):
+            return RayServeModelConfig
+        if isinstance(self.backend, DynamoServerConfig):
+            return DynamoVLLMModelConfig
+        msg = f"Unknown backend config type: {type(self.backend)!r}"
+        raise TypeError(msg)
+
+    def _validate_model_configs(self) -> None:
+        expected_type = self._expected_model_config_type()
+        mismatched = sorted({type(model).__name__ for model in self.models if not isinstance(model, expected_type)})
+        if mismatched:
+            msg = (
+                f"{type(self.backend).__name__} requires {expected_type.__name__} models, "
+                f"but got {', '.join(mismatched)}."
+            )
+            raise TypeError(msg)
+
     def start(self) -> None:
-        """Deploy all models and wait for them to become healthy.
-
-        The driver connects to the Ray cluster only for the duration of
-        deployment. Once models are healthy the driver disconnects, so that
-        the next ``ray.init()`` (e.g. from a pipeline executor) becomes the
-        first driver-level init and its ``runtime_env`` takes effect on
-        workers. Serve actors are detached and survive the disconnect.
-
-        Raises:
-            RuntimeError: If another InferenceServer is already active in this
-                process. Only one InferenceServer can run at a time because
-                Ray Serve uses a single HTTP proxy per cluster, and all
-                models are deployed as a single application sharing the
-                same ``/v1`` routes. You can deploy multiple models in one
-                InferenceServer (via the ``models`` list) — clients select a
-                model by passing ``model="<model_name>"`` in the API
-                request body. Stop the existing server before starting a
-                new one.
-        """
+        """Deploy all models and wait for them to become healthy."""
         if _active_servers:
             running = ", ".join(sorted(_active_servers))
             msg = (
@@ -204,7 +90,6 @@ class InferenceServer:
             )
             raise RuntimeError(msg)
 
-        # Register atexit handler so that abnormal exits still clean up.
         atexit.register(self.stop)
         self._backend_impl = self._create_backend()
         try:
@@ -219,17 +104,19 @@ class InferenceServer:
         logger.info(f"Inference server is ready at {self.endpoint}")
 
     def _create_backend(self) -> InferenceBackend:
-        from nemo_curator.core.serve.ray_serve.backend import RayServeBackend
+        if isinstance(self.backend, RayServeServerConfig):
+            from nemo_curator.core.serve.ray_serve.backend import RayServeBackend
 
-        return RayServeBackend(self)
+            return RayServeBackend(self)
+        if isinstance(self.backend, DynamoServerConfig):
+            from nemo_curator.core.serve.internal.dynamo import DynamoBackend
+
+            return DynamoBackend(self)
+        msg = f"Unknown backend config type: {type(self.backend)!r}"
+        raise TypeError(msg)
 
     def stop(self) -> None:
-        """Shut down Ray Serve (all applications, controller, and HTTP proxy).
-
-        Reconnects to the Ray cluster to tear down Serve actors and release
-        GPU memory, then disconnects. If the cluster is already gone (e.g.
-        ``RayClient`` was stopped first), the shutdown is skipped silently.
-        """
+        """Shut down the active inference backend and release resources."""
         if not self._started:
             return
 
@@ -244,20 +131,12 @@ class InferenceServer:
 
     @property
     def endpoint(self) -> str:
-        """OpenAI-compatible base URL for the served models.
-
-        When multiple models are deployed, clients select a model by passing
-        ``model="<model_name>"`` in the request body (standard OpenAI API
-        convention). The ``/v1/models`` endpoint lists all available models.
-        """
-        return f"http://localhost:{self.port}/v1"
+        """OpenAI-compatible base URL for the served models."""
+        return f"http://{self._host}:{self.port}/v1"
 
     def _wait_for_healthy(self) -> None:
-        """Poll the /v1/models endpoint until all models are ready.
-
-        Uses wall-clock time to enforce the timeout accurately, regardless
-        of how long individual HTTP requests take.
-        """
+        """Poll ``/v1/models`` until all expected models appear in the response."""
+        expected = {model.resolved_model_name for model in self.models}
         models_url = f"{self.endpoint}/models"
         deadline = time.monotonic() + self.health_check_timeout_s
         attempt = 0
@@ -266,12 +145,16 @@ class InferenceServer:
             try:
                 resp = urllib.request.urlopen(models_url, timeout=5)  # noqa: S310
                 if resp.status == http.HTTPStatus.OK:
-                    logger.info(f"Model server ready after {attempt} health check(s)")
-                    return
+                    body = json.loads(resp.read())
+                    model_ids = {model["id"] for model in body.get("data", [])}
+                    if expected.issubset(model_ids):
+                        logger.info(f"Model server ready after {attempt} health check(s)")
+                        return
             except Exception:  # noqa: BLE001
                 if self.verbose:
                     logger.debug(f"Health check attempt {attempt} failed, retrying...")
             time.sleep(1)
+
         msg = f"Model server did not become ready within {self.health_check_timeout_s}s"
         raise TimeoutError(msg)
 

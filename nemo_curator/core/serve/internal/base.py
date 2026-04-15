@@ -12,25 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.core.serve.config import (
-    BaseModelConfig,
-    DynamoRoleConfig,
-    DynamoRouterConfig,
-    DynamoServerConfig,
-    DynamoVLLMModelConfig,
-    RayServeModelConfig,
-    RayServeServerConfig,
-)
-from nemo_curator.core.serve.server import InferenceServer, is_inference_server_active
+from abc import ABC, abstractmethod
 
-__all__ = [
-    "BaseModelConfig",
-    "DynamoRoleConfig",
-    "DynamoRouterConfig",
-    "DynamoServerConfig",
-    "DynamoVLLMModelConfig",
-    "InferenceServer",
-    "RayServeModelConfig",
-    "RayServeServerConfig",
-    "is_inference_server_active",
-]
+
+class InferenceBackend(ABC):
+    """Base class for inference server backend implementations."""
+
+    @abstractmethod
+    def start(self) -> None: ...
+
+    @abstractmethod
+    def stop(self) -> None: ...
