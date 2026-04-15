@@ -103,7 +103,7 @@ def main():
                 yaml_path=args.data_config,
                 corpus_filter=args.corpus,
                 s3_endpoint_url=args.s3_endpoint_url,
-            ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=4.0)}}),
+            ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=2.0)}}),
             InferenceQwenOmniStage(
                 model_id=args.model_id,
                 prompt_text=prompt,
