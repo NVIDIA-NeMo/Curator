@@ -34,7 +34,10 @@ import numpy as np
 import soundfile as sf
 from loguru import logger
 
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+try:
+    from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+except ModuleNotFoundError:
+    RayStageSpecKeys = None
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 
@@ -135,6 +138,9 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 corpus = cfg.get("corpus", "unknown")
                 if self.corpus_filter and corpus not in self.corpus_filter:
                     continue
+                if cfg.get("type", "nemo_tarred") != "nemo_tarred":
+                    logger.warning("Skipping non-nemo_tarred corpus %s (type=%s)", corpus, cfg.get("type"))
+                    continue
                 manifest_paths = _expand_nemo_path(cfg["manifest_filepath"])
                 tar_paths = _expand_nemo_path(cfg["tarred_audio_filepaths"])
                 if len(manifest_paths) != len(tar_paths):
@@ -195,7 +201,9 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return ["data"], ["waveform", "sample_rate"]
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+        if RayStageSpecKeys is not None:
+            return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+        return {"is_fanout_stage": True}
 
     def _read_manifest(self, path: str) -> dict[str, dict]:
         entries: dict[str, dict] = {}
