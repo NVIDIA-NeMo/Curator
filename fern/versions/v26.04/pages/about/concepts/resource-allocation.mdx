@@ -12,7 +12,7 @@ modality: "universal"
 
 NeMo Curator makes resource allocation across pipeline stages straightforward — both CPUs and GPUs. Each stage declares its own resource requirements, and the executor schedules work accordingly.
 
-This design has delivered **~5× performance improvements** on CPU-only stages in pipelines that also use GPUs, because CPU stages no longer block GPU resources.
+This design improves performance on CPU-only stages in pipelines that also use GPUs, because CPU stages no longer block GPU resources.
 
 ## How It Works
 
@@ -26,16 +26,17 @@ from nemo_curator.tasks import DocumentBatch
 
 
 class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    name: str = "TokenizerStage"
+    resources: Resources = Resources(cpus=1.0)  # CPU-only — no GPU needed
+
     def __init__(self):
         super().__init__()
-
-    @property
-    def resources(self) -> Resources:
-        return Resources(cpus=1)  # CPU-only — no GPU needed
         # ... stage logic ...
 
 
 class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    name: str = "ModelStage"
+
     def __init__(self, model_path: str):
         super().__init__()
         # ... stage logic ...
@@ -48,7 +49,7 @@ def custom_filter_stage(task: DocumentBatch) -> DocumentBatch:
     pass
 
 
-model_stage = ModelStage(model_path="path/to/model").with_resources(Resources(gpus=1))
+model_stage = ModelStage(model_path="path/to/model").with_(resources=Resources(gpus=1))
 ```
 
 When a pipeline runs, the executor reads each stage's resource declaration and schedules tasks to satisfy those constraints. Stages that need GPUs are placed on GPU-equipped nodes; CPU-only stages can run on any available worker.
@@ -68,36 +69,26 @@ def tokenizer_stage(task: DocumentBatch) -> DocumentBatch:
 
 # GPU: model inference, embeddings
 # Scheduled only on GPU-equipped nodes
-model_stage = ModelStage(model_path="path/to/model").with_resources(Resources(gpus=1))
+model_stage = ModelStage(model_path="path/to/model").with_(resources=Resources(gpus=1))
 ```
 
 ### Fractional GPU Allocation
 
-Not every GPU stage needs an entire GPU. NeMo Curator supports fractional allocation so multiple lightweight stages can share a single GPU:
+Some GPU stages don't need an entire GPU. You can use fractional allocation via `Resources(gpus=0.25)` or reserve a specific amount of GPU memory with `Resources(gpu_memory_gb=10)`:
 
 ```python
-# 4 workers share one GPU
-embedding_stage = ImageEmbeddingStage(
-    num_gpus_per_worker=0.25,
-)
+# 4 workers share one GPU via fractional allocation
+model_stage = ModelStage(model_path="path/to/model").with_(resources=Resources(gpus=0.25))
+
+# Or reserve a specific amount of GPU memory
+model_stage = ModelStage(model_path="path/to/model").with_(resources=Resources(gpu_memory_gb=10))
 ```
 
-This is useful for inference stages where the model fits in a fraction of GPU memory, allowing you to increase parallelism without requiring more hardware.
-
-### Memory Budgets
-
-For stages that load large models or accumulate state (such as deduplication hash tables), you can set memory requirements to prevent out-of-memory errors:
-
-```python
-resources = Resources(
-    cpus=2,
-    gpu_memory_gb=40,  # Reserve 40 GB of GPU memory
-)
-```
+This is useful for inference stages where the model fits in a fraction of GPU memory, allowing you to increase parallelism without requiring more hardware. Note that `gpu_memory_gb` sets GPU memory for a single GPU.
 
 ## Best Practices
 
 - **Start with defaults.** Most stages have sensible default resource declarations. Override only when you observe resource contention or underutilization.
 - **Separate CPU and GPU stages.** This is the single highest-impact optimization — it allows the executor to parallelize across heterogeneous hardware.
 - **Profile before tuning.** Use Ray Dashboard or stage performance stats to identify bottlenecks before adjusting allocations.
-- **Match hardware to workload.** If your pipeline is mostly CPU-bound (text filtering, deduplication), you may not need GPU nodes at all.
+- **Match hardware to workload.** If your pipeline is mostly CPU-bound (text filtering), you may not need GPU nodes at all.

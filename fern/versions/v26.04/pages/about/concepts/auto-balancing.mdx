@@ -42,12 +42,4 @@ The executor monitors the throughput and queue depth of each stage at runtime an
 
 ## Monitoring Stage Balance
 
-Use stage performance stats to see how the executor is balancing your pipeline:
-
-```python
-results = pipeline.run(executor)
-for stage_name, stats in results.stage_stats.items():
-    print(f"{stage_name}: {stats.throughput:.1f} items/sec, {stats.num_workers} workers")
-```
-
-If you notice a persistent bottleneck that auto-balancing can't resolve (for example, a stage that needs more GPU memory than is available), consider splitting the pipeline or scaling your cluster.
+Use the Ray Dashboard to monitor how the executor is balancing your pipeline. If you notice a persistent bottleneck that auto-balancing can't resolve (for example, a stage that needs more GPU memory than is available), consider splitting the pipeline or scaling your cluster.

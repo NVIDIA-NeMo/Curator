@@ -26,7 +26,7 @@ The [`quickstart.py`](quickstart.py) demonstrates NeMo Curator's foundational ar
 
 | Category | Links |
 |----------|-------|
-| **Getting Started** | [Installation](https://docs.nvidia.com/nemo/curator/latest/admin/installation) • [Core Concepts](https://docs.nvidia.com/nemo/curator/latest/about/concepts) |
+| **Getting Started** | [Installation](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html) • [Core Concepts](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) |
 | **Modality Guides** | [Text Curation](https://docs.nvidia.com/nemo/curator/latest/curate-text/index.html) • [Image Curation](https://docs.nvidia.com/nemo/curator/latest/curate-images/index.html) • [Video Curation](https://docs.nvidia.com/nemo/curator/latest/curate-video/index.html) |
 | **Advanced** | [Custom Pipelines](https://docs.nvidia.com/nemo/curator/latest/reference/index.html) • [Execution Backends](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/execution-backends.html) • [API Reference](https://docs.nvidia.com/nemo/curator/latest/apidocs/index.html) |
 
