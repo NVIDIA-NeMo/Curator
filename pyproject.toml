@@ -97,6 +97,7 @@ deduplication_cuda12 = [
 
 audio_common = [
     "nemo_toolkit[asr]>=2.7.2",
+    "nemo_text_processing",
     "soundfile>=0.12.0",
     "onnx>=1.19.0",
     "silero-vad",
@@ -107,6 +108,8 @@ audio_common = [
     "accelerate",
     "pyannote-audio>=4.0.0",
     "whisperx==3.8.4",
+    "opencc-python-reimplemented",
+    "pyarabic",
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",

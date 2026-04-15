@@ -54,10 +54,9 @@ def test_asr_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     cfg.hf_token = os.getenv("HF_TOKEN", "")
     cfg.language_short = "en"
 
-    # Override composite stage (index 3) to use CTC model for CPU testing
-    cfg.stages[3].model_name = "nvidia/stt_en_fastconformer_ctc_large"
-    cfg.stages[3].is_fastconformer = True
-    cfg.stages[3].decoder_type = "ctc"
+    cfg.stages[4].model_name = "nvidia/stt_en_fastconformer_ctc_large"
+    cfg.stages[4].is_fastconformer = True
+    cfg.stages[4].decoder_type = "ctc"
 
     pipeline = create_pipeline_from_yaml(cfg)
     executor = XennaExecutor(config={"execution_mode": "batch"})

@@ -953,6 +953,7 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-manifest={session_entry_dir}/input.jsonl
+      --repeat-factor=1
       --hf-token=${HF_SECRET_KEY}
       --max-segment-length=40
       --asr-batch-size=50

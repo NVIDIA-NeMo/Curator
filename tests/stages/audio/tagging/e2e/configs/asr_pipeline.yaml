@@ -37,14 +37,28 @@ stages:
     name: "PyAnnoteDiarization"
     hf_token: ${hf_token}
     max_length: ${max_segment_length}
-    resources: ${resources}
+    resources:
+      gpus: 0.75
 
-  - _target_: nemo_curator.stages.audio.tagging.SplitASRAlignJoinStage
-    name: "SplitASRAlignJoin"
+  - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
+    name: "SplitLongAudio"
     suggested_max_len: ${max_segment_length}
     min_len: 1.0
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+    name: "ASRAlignment"
     is_fastconformer: true
-    decoder_type: rnnt
+    decoder_type: ctc
+    batch_size: 1
+    transcribe_batch_size: 4
+    num_workers: 1
+    resources:
+      gpus: 0.45
+
+  - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
+    name: "JoinSplitMetadata"
+    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
     name: "MergeAlignmentDiar"
@@ -58,7 +72,8 @@ stages:
 
   - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
     name: "SquimMetrics"
-    resources: ${resources}
+    resources:
+      gpus: 0.05
 
   - _target_: nemo_curator.stages.audio.tagging.PrepareModuleSegmentsStage
     name: "PrepareModuleSegments"
@@ -72,7 +87,8 @@ stages:
     resources: ${resources}
 
   # Second pass ASR
-  - _target_: nemo_curator.stages.audio.tagging.NeMoASRAlignerStage
+  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+    name: "ASRAlignment2"
     model_name: nvidia/stt_en_conformer_ctc_large
     is_fastconformer: False
     decoder_type: ctc
@@ -81,7 +97,8 @@ stages:
     text_key: ${text_key2}
     infer_segment_only: True
     compute_timestamps: False
-    resources: ${resources}
+    resources:
+      gpus: 0.45
 
   - _target_: nemo_curator.stages.audio.tagging.ComputeWERStage
     name: "ComputeWER"
