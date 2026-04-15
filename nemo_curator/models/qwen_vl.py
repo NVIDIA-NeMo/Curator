@@ -41,7 +41,8 @@ from nemo_curator.utils import grouping
 from nemo_curator.utils.windowing_utils import IMAGE_FACTOR
 
 _QWEN_VL_VARIANTS: dict[str, dict] = {
-    "qwen": {"model_id": "Qwen/Qwen3-VL-8B-Instruct", "revision": "0c351dd", "image_factor": 32},
+    "qwen": {"model_id": "Qwen/Qwen3.5-VL-8B-Instruct", "revision": None, "image_factor": 28},
+    "qwen3.5": {"model_id": "Qwen/Qwen3.5-VL-8B-Instruct", "revision": None, "image_factor": 28},
     "qwen3": {"model_id": "Qwen/Qwen3-VL-8B-Instruct", "revision": "0c351dd", "image_factor": 32},
     "qwen2.5": {"model_id": "Qwen/Qwen2.5-VL-7B-Instruct", "revision": "cc59489", "image_factor": 28},
 }
@@ -53,8 +54,8 @@ def get_qwen_vl_image_factor(model_variant: str) -> int:
 
 
 class QwenVL(ModelInterface):
-    DEFAULT_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
-    DEFAULT_MODEL_REVISION = "0c351dd"
+    DEFAULT_MODEL_ID = "Qwen/Qwen3.5-VL-8B-Instruct"
+    DEFAULT_MODEL_REVISION = None
 
     def __init__(  # noqa: PLR0913
         self,
