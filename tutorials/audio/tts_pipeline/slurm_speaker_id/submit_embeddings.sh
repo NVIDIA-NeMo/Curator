@@ -6,31 +6,20 @@
 #
 # Submits 4 Slurm array jobs (one per corpus). Each array task processes
 # one shard: downloads tar from S3, runs TitaNet, saves embeddings_N.npz.
-#
-# Required environment variables:
-#   MANIFESTS_DIR  - base path to granary-filtered manifests
-#   WORK_DIR       - working directory for embeddings, logs, scripts
-#   CONTAINER      - path to squashfs container image
-#   ACCOUNT        - Slurm account name
-#   AIS_ENDPOINT   - AIStore endpoint URL
-#   AIS_AUTHN_TOKEN - AIStore auth JWT
 
 set -euo pipefail
 
 DRY_RUN=false
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
 
-# ---- Paths (override via env) ----
-MANIFESTS_DIR="${MANIFESTS_DIR:?Set MANIFESTS_DIR to base path of granary-filtered manifests}"
-WORK_DIR="${WORK_DIR:?Set WORK_DIR to working directory for embeddings/logs}"
+# ---- Paths ----
+MANIFESTS_DIR="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/ameister/TTS_Granary/granary_filtered"
+WORK_DIR="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/gzelenfroind/speaker_id"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXTRACT_PY="${SCRIPT_DIR}/extract_shard_embeddings.py"
-CONTAINER="${CONTAINER:?Set CONTAINER to path of squashfs container image}"
-ACCOUNT="${ACCOUNT:?Set ACCOUNT to Slurm account name}"
-PARTITION="${PARTITION:-batch_singlenode}"
-AIS_ENDPOINT="${AIS_ENDPOINT:?Set AIS_ENDPOINT}"
-AIS_AUTHN_TOKEN="${AIS_AUTHN_TOKEN:?Set AIS_AUTHN_TOKEN}"
-HF_CACHE_DIR="${HF_CACHE_DIR:-${WORK_DIR}/.cache/hf}"
+CONTAINER="/lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_speechlm/data/ytc2/nemo_dev_20240717_aistore.sqsh"
+ACCOUNT="convai_convaird_nemo-speech"
+PARTITION="batch_singlenode"
 
 mkdir -p "${WORK_DIR}/logs"
 
@@ -97,39 +86,39 @@ OUT_FILE="\${EMB_DIR}/embeddings_\${SHARD_ID}.npz"
 EXTRACT_PY="${EXTRACT_PY}"
 CONTAINER="${CONTAINER}"
 EOF_VARS
-    cat >> "${JOB_SCRIPT}" <<EOF_LOGIC
+    cat >> "${JOB_SCRIPT}" <<'EOF_LOGIC'
 
 # Skip if already done
-if [ -f "\${OUT_FILE}" ]; then
-    echo "Shard \${SHARD_ID}: embeddings already exist, skipping"
+if [ -f "${OUT_FILE}" ]; then
+    echo "Shard ${SHARD_ID}: embeddings already exist, skipping"
     exit 0
 fi
 
 # Skip if manifest doesn't exist
-if [ ! -f "\${MANIFEST_PATH}" ]; then
-    echo "Shard \${SHARD_ID}: manifest not found at \${MANIFEST_PATH}, skipping"
+if [ ! -f "${MANIFEST_PATH}" ]; then
+    echo "Shard ${SHARD_ID}: manifest not found at ${MANIFEST_PATH}, skipping"
     exit 0
 fi
 
-export TRANSFORMERS_CACHE="${HF_CACHE_DIR}"
-export HF_HOME="\${TRANSFORMERS_CACHE}"
-mkdir -p "\${TRANSFORMERS_CACHE}"
+export TRANSFORMERS_CACHE="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/gzelenfroind/.cache/hf"
+export HF_HOME="${TRANSFORMERS_CACHE}"
+mkdir -p "${TRANSFORMERS_CACHE}"
 
-export AIS_ENDPOINT="${AIS_ENDPOINT}"
-export AIS_AUTHN_TOKEN="${AIS_AUTHN_TOKEN}"
+export AIS_ENDPOINT="http://asr.iad.oci.aistore.nvidia.com:51080"
+export AIS_AUTHN_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHVzdGVycyI6bnVsbCwiYWRtaW4iOnRydWUsImlzcyI6Imh0dHBzOi8vbG9jYWxob3N0OjUyMDAxIiwic3ViIjoiYWRtaW4iLCJleHAiOjI0MDY1NzY3ODgsImlhdCI6MTc3NTg1Njc4OH0.NuwKfhdXBaOXYxx4eTataX7XWP1wEOwtopXhFGzppkw"
 
-srun --container-image="\${CONTAINER}" \
+srun --container-image="${CONTAINER}" \
      --container-mounts="/lustre/fs11:/lustre/fs11,/lustre/fsw:/lustre/fsw" \
      --container-writable \
      --export=ALL \
-     python "\${EXTRACT_PY}" \
-    --manifest_path "\${MANIFEST_PATH}" \
-    --tar_url "\${TAR_URL}" \
-    --output_dir "\${EMB_DIR}" \
-    --shard_id \${SHARD_ID} \
+     python "${EXTRACT_PY}" \
+    --manifest_path "${MANIFEST_PATH}" \
+    --tar_url "${TAR_URL}" \
+    --output_dir "${EMB_DIR}" \
+    --shard_id ${SHARD_ID} \
     --batch_size 64 \
     --skip_filtered \
-    --ais_token "\${AIS_AUTHN_TOKEN}"
+    --ais_token "${AIS_AUTHN_TOKEN}"
 EOF_LOGIC
 
     echo "=== ${NAME}: chunk ${CHUNK_IDX} (shards ${CHUNK_START}-${CHUNK_END}) ==="

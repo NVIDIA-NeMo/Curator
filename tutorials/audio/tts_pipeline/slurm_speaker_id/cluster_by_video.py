@@ -32,7 +32,7 @@ def extract_video_id(row: dict) -> str:
     if vid and vid != "None" and str(vid) != "None":
         return str(vid)
     # Parse from audio_filepath: ..._VIDEOID_offset_dur_... pattern
-    # e.g. _data0_user_converted_ru103_eZ0a2mvLOQE_181_36_0_16.wav
+    # e.g. _data0_ameister_converted_ru103_eZ0a2mvLOQE_181_36_0_16.wav
     afp = row.get("audio_filepath", "")
     # YouTube IDs are 11 chars: [A-Za-z0-9_-]
     # Pattern: after "converted_ruNNN_" comes the video ID

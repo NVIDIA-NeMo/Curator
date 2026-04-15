@@ -3,7 +3,7 @@
 #
 # Usage: bash check_status.sh
 
-WORK_DIR="${WORK_DIR:?Set WORK_DIR to speaker_id working directory}"
+WORK_DIR="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/gzelenfroind/speaker_id"
 
 CORPORA=(
     "ytc/ru|64"

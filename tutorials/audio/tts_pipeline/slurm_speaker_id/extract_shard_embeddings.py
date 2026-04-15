@@ -44,16 +44,14 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-_DEFAULT_TOKEN = os.environ.get("AIS_AUTHN_TOKEN", "")
+_DEFAULT_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbHVzdGVycyI6bnVsbCwiYWRtaW4iOnRydWUsImlzcyI6Imh0dHBzOi8vbG9jYWxob3N0OjUyMDAxIiwic3ViIjoiYWRtaW4iLCJleHAiOjI0MDY1NzY3ODgsImlhdCI6MTc3NTg1Njc4OH0.NuwKfhdXBaOXYxx4eTataX7XWP1wEOwtopXhFGzppkw"
 
 
 def init_ais_client(token_override: str = ""):
     """Initialize AIStore client with auth token injected into session."""
     from aistore.sdk import Client
 
-    endpoint = os.environ.get("AIS_ENDPOINT", "")
-    if not endpoint:
-        raise ValueError("AIS_ENDPOINT environment variable must be set")
+    endpoint = os.environ.get("AIS_ENDPOINT", "http://asr.iad.oci.aistore.nvidia.com:51080")
     token = token_override or _DEFAULT_TOKEN
     client = Client(endpoint)
     if token:

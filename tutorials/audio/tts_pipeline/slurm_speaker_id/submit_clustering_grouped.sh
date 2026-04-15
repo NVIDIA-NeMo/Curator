@@ -1,25 +1,17 @@
 #!/bin/bash
 # Submit global clustering in groups of GROUP_SIZE shards.
 # Each group runs independently with global clustering within the group.
-#
-# Required environment variables:
-#   MANIFESTS_DIR  - base path to granary-filtered manifests
-#   WORK_DIR       - working directory for embeddings, logs, output
-#   CURATOR_DIR    - path to Curator repo checkout
-#   CONTAINER      - path to squashfs container image
-#   ACCOUNT        - Slurm account name
-
 set -euo pipefail
 
 DRY_RUN=false
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
 
-MANIFESTS_DIR="${MANIFESTS_DIR:?Set MANIFESTS_DIR}"
-WORK_DIR="${WORK_DIR:?Set WORK_DIR}"
-CURATOR_DIR="${CURATOR_DIR:?Set CURATOR_DIR to Curator repo path}"
-CONTAINER="${CONTAINER:?Set CONTAINER}"
-ACCOUNT="${ACCOUNT:?Set ACCOUNT}"
-GROUP_SIZE="${GROUP_SIZE:-64}"  # ~100K utterances per group
+MANIFESTS_DIR="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/ameister/TTS_Granary/granary_filtered"
+WORK_DIR="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/gzelenfroind/speaker_id"
+CURATOR="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/gzelenfroind/Curator"
+CONTAINER="/lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_speechlm/data/ytc2/nemo_dev_20240717_aistore.sqsh"
+ACCOUNT="convai_convaird_nemo-speech"
+GROUP_SIZE=64  # ~100K utterances per group, fits in 228G
 
 # NAME|MANIFEST_SUB|NUM_SHARDS
 CORPORA=(
@@ -66,7 +58,7 @@ for corpus_def in "${CORPORA[@]}"; do
 srun --container-image=${CONTAINER} \\
      --container-mounts=/lustre/fs11:/lustre/fs11,/lustre/fsw:/lustre/fsw \\
      --container-writable \\
-     bash -c "export PYTHONPATH=${CURATOR_DIR}:\\\$PYTHONPATH && python ${CURATOR_DIR}/tutorials/audio/speaker_id/run_pipeline.py \\
+     bash -c "export PYTHONPATH=${CURATOR}:\\\$PYTHONPATH && python ${CURATOR}/tutorials/audio/speaker_id/run_pipeline.py \\
     --cluster \\
     --input_manifest '${MANIFEST_DIR}/shard_{${START}..${END}}.jsonl' \\
     --embedding_dir ${EMB_DIR} \\

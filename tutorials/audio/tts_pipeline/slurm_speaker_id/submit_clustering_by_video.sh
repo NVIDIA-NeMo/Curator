@@ -1,22 +1,15 @@
 #!/bin/bash
 # Submit per-video speaker clustering jobs.
-#
-# Required environment variables:
-#   MANIFESTS_DIR  - base path to granary-filtered manifests
-#   WORK_DIR       - working directory for embeddings, logs, output
-#   CONTAINER      - path to squashfs container image
-#   ACCOUNT        - Slurm account name
-
 set -euo pipefail
 
 DRY_RUN=false
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
 
-MANIFESTS_DIR="${MANIFESTS_DIR:?Set MANIFESTS_DIR}"
-WORK_DIR="${WORK_DIR:?Set WORK_DIR}"
-CONTAINER="${CONTAINER:?Set CONTAINER}"
-ACCOUNT="${ACCOUNT:?Set ACCOUNT}"
-CLUSTER_PY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cluster_by_video.py"
+MANIFESTS_DIR="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/ameister/TTS_Granary/granary_filtered"
+WORK_DIR="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/gzelenfroind/speaker_id"
+CLUSTER_PY="${WORK_DIR}/scripts/cluster_by_video.py"
+CONTAINER="/lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_speechlm/data/ytc2/nemo_dev_20240717_aistore.sqsh"
+ACCOUNT="convai_convaird_nemo-speech"
 
 CORPORA=(
     "ytc_ru|ytc/ru|64|cpu_short|64G|01:00:00"

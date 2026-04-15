@@ -2,7 +2,7 @@
 # Auto-submit remaining yodas_1bw chunks as queue space opens.
 # Run on login node: nohup bash auto_submit_1bw.sh &
 
-WORK="${WORK_DIR:?Set WORK_DIR to speaker_id working directory}"
+WORK="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/gzelenfroind/speaker_id"
 
 for i in 0 1 2 3 4 5 6 7 8; do
     SCRIPT="${WORK}/logs/yodas_1bw_ru_embed_${i}.sbatch"

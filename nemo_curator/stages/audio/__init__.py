@@ -45,7 +45,6 @@ def _try_import(module_path: str, names: list[str]) -> None:
         _logger.debug("Skipping %s: %s", module_path, exc)
 
 
-_try_import("nemo_curator.stages.audio.alignment", ["MFAAlignmentStage"])
 _try_import("nemo_curator.stages.audio.alm", ["ALMDataBuilderStage", "ALMDataOverlapStage"])
 _try_import("nemo_curator.stages.audio.common", ["GetAudioDurationStage", "PreserveByValueStage"])
 _try_import("nemo_curator.stages.audio.filtering", ["BandFilterStage", "UTMOSFilterStage"])

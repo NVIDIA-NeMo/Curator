@@ -5,13 +5,6 @@
 # Usage:
 #   bash submit_clustering.sh [--dry-run]
 #   bash submit_clustering.sh [--dry-run] [corpus_name]  # e.g. ytc_ru
-#
-# Required environment variables:
-#   MANIFESTS_DIR  - base path to granary-filtered manifests
-#   WORK_DIR       - working directory for embeddings, logs, output
-#   CURATOR_DIR    - path to Curator repo checkout
-#   CONTAINER      - path to squashfs container image
-#   ACCOUNT        - Slurm account name
 
 set -euo pipefail
 
@@ -22,12 +15,12 @@ for arg in "$@"; do
     [[ "$arg" != "--dry-run" ]] && FILTER="$arg"
 done
 
-MANIFESTS_DIR="${MANIFESTS_DIR:?Set MANIFESTS_DIR}"
-WORK_DIR="${WORK_DIR:?Set WORK_DIR}"
-CURATOR_DIR="${CURATOR_DIR:?Set CURATOR_DIR to Curator repo path}"
-CONTAINER="${CONTAINER:?Set CONTAINER}"
-ACCOUNT="${ACCOUNT:?Set ACCOUNT}"
-PARTITION="${PARTITION:-cpu_short}"
+MANIFESTS_DIR="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/ameister/TTS_Granary/granary_filtered"
+WORK_DIR="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/gzelenfroind/speaker_id"
+CURATOR_DIR="/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/gzelenfroind/Curator"
+CONTAINER="/lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_speechlm/data/ytc2/nemo_dev_20240717_aistore.sqsh"
+ACCOUNT="convai_convaird_nemo-speech"
+PARTITION="cpu_short"
 
 mkdir -p "${WORK_DIR}/logs"
 
