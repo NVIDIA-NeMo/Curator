@@ -22,8 +22,8 @@ from nemo_curator.models.nemotron_h_vl import _NEMOTRON_VARIANTS_INFO
 
 # Mapping of variants to their HuggingFace model IDs
 VARIANT_MAPPING: dict[str, str] = {
-    "qwen": "Qwen/Qwen3.5-VL-8B-Instruct",
-    "qwen3.5": "Qwen/Qwen3.5-VL-8B-Instruct",
+    "qwen": "Qwen/Qwen3-VL-8B-Instruct",
+    "qwen3.5": "Qwen/Qwen3.5-9B",
     "qwen3": "Qwen/Qwen3-VL-8B-Instruct",
     "qwen2.5": "Qwen/Qwen2.5-VL-7B-Instruct",
     **_NEMOTRON_VARIANTS_INFO,

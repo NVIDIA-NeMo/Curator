@@ -71,7 +71,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
         )
 
     def _initialize_model(self) -> None:
-        if self.model_variant in ("qwen", "qwen2.5", "qwen3"):
+        if self.model_variant in ("qwen", "qwen2.5", "qwen3", "qwen3.5"):
             self.model = QwenLM(
                 model_dir=self.model_dir,
                 caption_batch_size=self.model_batch_size,

@@ -68,7 +68,7 @@ class TestQwenVL:
         assert qwen_vl.stage2_prompt == "Please refine this caption: "
         assert qwen_vl.verbose is False
 
-        expected_weight_file = str(pathlib.Path(self.model_dir) / "Qwen/Qwen3.5-VL-8B-Instruct")
+        expected_weight_file = str(pathlib.Path(self.model_dir) / "Qwen/Qwen3-VL-8B-Instruct")
         assert qwen_vl.weight_file == expected_weight_file
 
     def test_initialization_custom_parameters(self) -> None:
@@ -87,7 +87,7 @@ class TestQwenVL:
         """Test initialization with different model variant."""
         qwen_vl = QwenVL(model_dir="/another/path", model_variant="qwen", caption_batch_size=8)
 
-        expected_weight_file = str(pathlib.Path("/another/path") / "Qwen/Qwen3.5-VL-8B-Instruct")
+        expected_weight_file = str(pathlib.Path("/another/path") / "Qwen/Qwen3-VL-8B-Instruct")
         assert qwen_vl.weight_file == expected_weight_file
 
     def test_model_id_names_property(self) -> None:
@@ -96,7 +96,7 @@ class TestQwenVL:
 
         assert isinstance(model_ids, list)
         assert len(model_ids) == 1
-        assert model_ids[0] == "Qwen/Qwen3.5-VL-8B-Instruct"
+        assert model_ids[0] == "Qwen/Qwen3-VL-8B-Instruct"
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
@@ -363,12 +363,12 @@ class TestQwenVL:
 
     def test_weight_file_path_construction(self) -> None:
         """Test that weight_file path is constructed correctly."""
-        expected_path = str(pathlib.Path(self.model_dir) / "Qwen/Qwen3.5-VL-8B-Instruct")
+        expected_path = str(pathlib.Path(self.model_dir) / "Qwen/Qwen3-VL-8B-Instruct")
         assert self.qwen_vl.weight_file == expected_path
 
         # Test with different paths
         qwen_vl2 = QwenVL(model_dir="/different/path", model_variant="qwen", caption_batch_size=1)
-        expected_path2 = str(pathlib.Path("/different/path") / "Qwen/Qwen3.5-VL-8B-Instruct")
+        expected_path2 = str(pathlib.Path("/different/path") / "Qwen/Qwen3-VL-8B-Instruct")
         assert qwen_vl2.weight_file == expected_path2
 
     def test_max_output_tokens_parameter(self) -> None:
