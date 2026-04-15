@@ -29,8 +29,9 @@ documentation: |
 raw_data_dir: ???
 output_dir: ${raw_data_dir}/result
 
-# 'batch' runs stages sequentially (works with any GPU/CPU count)
-# 'streaming' runs stages concurrently (requires enough resources for all stages simultaneously)
+# 'xenna' (default) or 'ray_data'
+backend: xenna
+# Xenna only: 'batch' runs stages sequentially, 'streaming' runs stages concurrently
 execution_mode: batch
 
 max_samples: -1 # set to -1 to process all 14,279 files
@@ -65,6 +66,11 @@ passthrough_keys:
   - utmos_mos
   - sigmos_noise
   - sigmos_ovrl
+  - sigmos_sig
+  - sigmos_col
+  - sigmos_disc
+  - sigmos_loud
+  - sigmos_reverb
   - speaker_id
   - num_speakers
 

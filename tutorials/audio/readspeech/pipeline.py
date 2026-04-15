@@ -31,19 +31,32 @@ Example:
 """
 
 import argparse
+import importlib
 import os
 import shutil
 import sys
 
 from loguru import logger
 
-from nemo_curator.backends.ray_data import RayDataExecutor
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import AudioDataFilterStage
 from nemo_curator.stages.audio.datasets.readspeech import CreateInitialManifestReadSpeechStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
+
+_EXECUTOR_FACTORIES = {
+    "xenna": "nemo_curator.backends.xenna:XennaExecutor",
+    "ray_data": "nemo_curator.backends.ray_data:RayDataExecutor",
+}
+
+
+def _create_executor(backend: str, **kwargs) -> object:
+    if backend not in _EXECUTOR_FACTORIES:
+        msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
+        raise ValueError(msg)
+    module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
+    mod = importlib.import_module(module_path)
+    return getattr(mod, class_name)(**kwargs)
 
 
 def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -108,6 +121,11 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
                         "utmos_mos",
                         "sigmos_noise",
                         "sigmos_ovrl",
+                        "sigmos_sig",
+                        "sigmos_col",
+                        "sigmos_disc",
+                        "sigmos_loud",
+                        "sigmos_reverb",
                         "speaker_id",
                         "num_speakers",
                     ],
@@ -182,6 +200,13 @@ Examples:
         default="xenna",
         help="Execution backend: 'xenna' (default) or 'ray_data'",
     )
+    parser.add_argument(
+        "--execution-mode",
+        type=str,
+        choices=["batch", "streaming"],
+        default="batch",
+        help="Xenna execution mode: 'batch' (sequential stages) or 'streaming' (concurrent stages)",
+    )
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
     parser.add_argument("--enable-vad", action="store_true", help="Enable VAD segmentation")
     parser.add_argument("--vad-min-duration", type=float, default=2.0, help="Min VAD segment (sec)")
@@ -236,6 +261,9 @@ def _log_config(args: argparse.Namespace) -> None:
         enabled.append("SpeakerSep")
 
     logger.info(f"Enabled Filters: {enabled or ['none']}")
+    logger.info(f"Backend:         {args.backend}")
+    if args.backend == "xenna":
+        logger.info(f"Execution Mode:  {args.execution_mode}")
     logger.info("=" * 70)
 
 
@@ -260,7 +288,10 @@ def main() -> None:
     logger.info("Starting pipeline execution...")
 
     try:
-        executor = RayDataExecutor() if args.backend == "ray_data" else XennaExecutor(config={"execution_mode": "batch"})
+        executor_kwargs = {}
+        if args.backend == "xenna":
+            executor_kwargs["config"] = {"execution_mode": args.execution_mode}
+        executor = _create_executor(args.backend, **executor_kwargs)
         pipeline.run(executor)
 
         logger.info(f"Results written to {args.output_dir}/*.jsonl")
