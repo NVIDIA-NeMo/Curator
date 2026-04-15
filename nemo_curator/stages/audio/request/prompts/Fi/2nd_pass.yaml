@@ -1,0 +1,53 @@
+input_fields:
+  audio_filepath: audio_filepath
+  pred_text: qwen3_omni_pred_text
+
+evaluation:
+  reference_field: reference_text
+  lang: fi
+  edge_len: 10
+
+output_field: qwen3_omni_verified_text
+
+conversation:
+  - role: user
+    content:
+      - type: "audio"
+        audio: "{audio_filepath}"
+      - type: "text"
+        text: |-
+          Saat:
+          1) äänitteen suomen kielellä (totuuden lähde),
+          2) luonnostekstin pred_text (voi olla ilman välimerkkejä ja sisältää virheitä).
+
+          Tee pred_textin VERIFIOINTI JA KORJAUS äänitteen perusteella.
+
+          Tavoite: palauta lopullinen transkriptio, joka on mahdollisimman TARKKA sanasta sanaan suhteessa äänitteeseen, sisältäen oikean välimerkkien käytön ja normalisoidut luvut.
+
+          KRIITTISEN TÄRKEÄÄ (tiukat kiellot):
+          - ÄLÄ lisää sanoja, joita ei ole äänitteessä (ei puhutteluja, tarkennuksia tai lauseiden jatkamista).
+          - ÄLÄ “paranna” tai korjaa puhuttua sisältöä: älä korjaa lipsahduksia, itsekorjauksia, toistoja tai katkenneita lauseita.
+          - ÄLÄ parafraaseeraa. ÄLÄ muuta sanajärjestystä.
+          - Jos pred_text näyttää “loogisemmalta”, mutta äänitteessä sanotaan toisin — noudata äänitettä.
+          - Jos jokin kohta äänitteessä on epäselvä, jätä se kuten pred_textissä (älä keksi), voit merkitä katkeamisen kolmella pisteellä “…”.
+
+          SALLITTUA VAIN:
+          1) Korjata pred_textin tunnistusvirheitä, mutta vain jos oikea muoto on selvästi kuultavissa äänitteestä.
+          2) Lisätä/korjata välimerkit ja isot alkukirjaimet (tämä on muotoilua, ei merkityksen muuttamista).
+          3) Normalisoida numeeriset ilmaukset sanoiksi täsmälleen kuten ne on LAUSUTTU äänitteessä.
+            - Sekamuoto on kielletty:
+              Huono: "5 prosenttia", "2 nollaa"
+              Hyvä: "viisi prosenttia", "kaksi nollaa"
+            - Normalisoi: prosentit, valuutat, yksiköt, vaihteluvälit, desimaalit, päivämäärät/vuodet — VAIN jos ne on lausuttu.
+            - Jos yksikköä (esimerkiksi “prosenttia”) EI ole lausuttu, älä lisää sitä.
+
+          VÄLIMERKIT:
+          - Lisää välimerkit (.,?!—:;) äänitteen taukojen ja intonaation perusteella.
+          - Älä rakenna lauseita uudelleen “sujuvuuden” vuoksi.
+
+          TULOSTEEN MUOTO:
+          - Palauta vain lopullinen teksti.
+          - Ei selityksiä, ei JSONia, ei listoja.
+
+          Syötteen pred_text (luonnos):
+          {pred_text}

@@ -1,0 +1,7 @@
+torchlibrosa
+soundfile
+librosa
+aistore>=1.17.0,<=1.22.0
+lhotse
+OpenAI
+pyyaml

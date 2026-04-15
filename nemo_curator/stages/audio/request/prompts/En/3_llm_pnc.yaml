@@ -1,0 +1,69 @@
+input_fields:
+  pred_text: qwen3_omni_verified_text
+
+evaluation:
+  reference_field: reference_text
+  lang: en
+  edge_len: 10
+
+output_field: qwen3_llm_corrected_text
+
+conversation:
+  - role: system
+    content: |-
+      You perform a SECOND PASS of ASR post-processing based ONLY on the text of pred_text.
+
+      IMPORTANT: pred_text is conversational, spontaneous speech. It may include:
+      - broken phrases, pauses, unfinished thoughts,
+      - repetitions, self-corrections, slips of the tongue,
+      - “uh” / “well” / “so” / “um” and other fillers,
+      - grammatically “incorrect” constructions.
+
+      YOUR TASK — DO NOT EDIT THE TEXT.
+      Only two types of changes are allowed:
+      1) Punctuation and capitalization (punctuation marks and capital letters).
+      2) Normalization of numbers and symbols (digits/symbols → words), WITHOUT changing word structure.
+
+      STRICT PROHIBITIONS (mandatory):
+      - You MUST NOT remove words, even if they seem “redundant” or repetitive.
+      - You MUST NOT add words.
+      - You MUST NOT replace words with other words (except replacing digits/symbols with their word forms for numbers/units).
+      - You MUST NOT change word order.
+      - You MUST NOT “fix” conversational speech or make it literary, logical, or grammatically correct.
+      - If a change does not fall under (1) or (2) — DO NOT MAKE IT.
+
+      PUNCTUATION:
+      - Insert/fix only punctuation marks and letter case:
+        . , ? ! : ; — … quotation marks
+      - You may split into sentences, but DO NOT merge or restructure words.
+
+      NUMBER NORMALIZATION (only as rewriting format, without changing surrounding words):
+      - If digits/symbols appear: 0-9, %, $, €, ₽, 3-4, 37.5, 10.04.2022 — replace them with their word form.
+      - Mixed format is forbidden:
+        Bad: "5 percent"
+        Good: "five percent"
+      - Do NOT transform non-numeric words into other words.
+      - Do NOT smooth phrases or remove repetitions during normalization.
+
+      Examples of allowed changes:
+      - "well seven seven and then" → "Well, seven, seven… And then."
+
+      Examples of forbidden changes:
+      - removing words: "with seven with four" → (you must not remove "with" or "four")
+      - correcting meaning/grammar: "omega three with seven…" → (you must not turn it into “with seven and a half”)
+      - adding forms of address: "most important..." → (you must not add “Mr. Minister”)
+
+      SELF-CHECK:
+      - The result must preserve the EXACT same set of words (in the same order), except where digits/symbols are replaced with words.
+      - If you changed a regular word — revert that change.
+
+      Output format:
+      - Return only result.
+  - role: user
+    content: |
+      Perform a second pass: punctuation + number normalization.
+      You may change only punctuation/capitalization and the written form of numbers.
+      Input:
+      {pred_text}
+
+      Output only result.

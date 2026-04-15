@@ -14,7 +14,24 @@
 
 """Audio segmentation stages."""
 
-from .speaker_separation import SpeakerSeparationStage
-from .vad_segmentation import VADSegmentationStage
+import importlib
+import logging
 
-__all__ = ["SpeakerSeparationStage", "VADSegmentationStage"]
+_logger = logging.getLogger(__name__)
+
+__all__: list[str] = []
+
+
+def _try_import(module_path: str, names: list[str]) -> None:
+    try:
+        mod = importlib.import_module(module_path)
+        for name in names:
+            globals()[name] = getattr(mod, name)
+            __all__.append(name)
+    except Exception as exc:  # noqa: BLE001
+        _logger.debug("Skipping %s: %s", module_path, exc)
+
+
+_try_import("nemo_curator.stages.audio.segmentation.speaker_separation", ["SpeakerSeparationStage"])
+_try_import("nemo_curator.stages.audio.segmentation.vad_segmentation", ["VADSegmentationStage"])
+_try_import("nemo_curator.stages.audio.segmentation.segment_extractor", ["SegmentExtractorStage"])

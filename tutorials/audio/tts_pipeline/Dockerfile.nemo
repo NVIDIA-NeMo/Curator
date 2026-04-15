@@ -1,0 +1,37 @@
+# NeMo container for diarization + speaker ID + SED stages.
+# CUDA 12.4 compatible.
+#
+# Build:
+#   docker build -t curator-nemo-stages -f tutorials/audio/tts_pipeline/Dockerfile.nemo .
+#
+# Run:
+#   docker run --gpus all --ipc=host --shm-size=8g \
+#     -v /data:/data -v /models:/models \
+#     curator-nemo-stages \
+#     --input_manifest /data/manifest.jsonl \
+#     --stages sed,sed_post,diarize,embed,cluster
+
+FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl libsndfile1 ffmpeg && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip
+
+WORKDIR /opt/Curator
+COPY pyproject.toml /opt/Curator/
+COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
+RUN pip install --no-cache-dir .
+
+COPY . /opt/Curator
+RUN pip install --no-cache-dir . && \
+    pip install --no-cache-dir \
+    'nemo_toolkit[asr]' \
+    torchlibrosa librosa soundfile pyyaml \
+    huggingface_hub openai && \
+    pip install --no-cache-dir \
+    'torch==2.6.0' 'torchaudio==2.6.0' 'torchvision==0.21.0'
+
+ENV PYTHONPATH=/opt/Curator
+ENTRYPOINT ["python", "/opt/Curator/tutorials/audio/tts_pipeline/run_pipeline.py"]

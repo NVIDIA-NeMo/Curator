@@ -12,12 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.audio.request.omni_llm_request import OmniLLMRequestStage
-from nemo_curator.stages.audio.request.prepare_omni_lhotse import PrepareOmniLhotseStage
-from nemo_curator.stages.audio.request.prepare_omni_request import PrepareOmniRequestStage
+import importlib
+import logging
 
-__all__ = [
-    "OmniLLMRequestStage",
-    "PrepareOmniLhotseStage",
-    "PrepareOmniRequestStage",
-]
+_logger = logging.getLogger(__name__)
+
+__all__: list[str] = []
+
+
+def _try_import(module_path: str, names: list[str]) -> None:
+    try:
+        mod = importlib.import_module(module_path)
+        for name in names:
+            globals()[name] = getattr(mod, name)
+            __all__.append(name)
+    except Exception as exc:  # noqa: BLE001
+        _logger.debug("Skipping %s: %s", module_path, exc)
+
+
+_try_import("nemo_curator.stages.audio.request.omni_llm_request", ["OmniLLMRequestStage"])
+_try_import("nemo_curator.stages.audio.request.prepare_omni_lhotse", ["PrepareOmniLhotseStage"])
+_try_import("nemo_curator.stages.audio.request.prepare_omni_request", ["PrepareOmniRequestStage"])
+_try_import("nemo_curator.stages.audio.request.text_only_llm_request", ["TextOnlyLLMRequestStage"])
+_try_import("nemo_curator.stages.audio.request.prompt_template", ["build_prompt_conversation", "load_prompt_config"])
+_try_import("nemo_curator.stages.audio.request.transcription_cascade", [
+    "TranscriptionCascadeConfig", "run_cascade_on_row", "get_prompt_path", "create_pnc_stage",
+])

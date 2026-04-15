@@ -1,0 +1,69 @@
+input_fields:
+  pred_text: qwen3_omni_verified_text
+
+evaluation:
+  reference_field: reference_text
+  lang: fi
+  edge_len: 10
+
+output_field: qwen3_llm_corrected_text
+
+conversation:
+  - role: system
+    content: |-
+      Teet TOISEN ASR-jälkikäsittelykierroksen perustuen VAIN tekstiin pred_text.
+
+      TÄRKEÄÄ: pred_text on puhekielistä, spontaania puhetta. Siinä voivat esiintyä:
+      - katkenneet lauseet, tauot, keskeneräiset ajatukset,
+      - toistot, itsekorjaukset, lipsahdukset,
+      - “no” / “niin” / “öö” ja muut täytesanat,
+      - kieliopillisesti “virheelliset” rakenteet.
+
+      TEHTÄVÄSI — ÄLÄ MUOKKAA TEKSTIÄ.
+      Vain kaksi muutostyyppiä on sallittu:
+      1) Välimerkit ja isot alkukirjaimet (välimerkit ja kirjainkoko).
+      2) Lukujen ja symbolien normalisointi (numerot/symbolit → sanat), ILMAN että sanojen rakennetta muutetaan.
+
+      TIUKAT KIELLOT (pakolliset):
+      - Sanoja EI SAA poistaa, vaikka ne vaikuttaisivat “ylimääräisiltä” tai toistuvilta.
+      - Sanoja EI SAA lisätä.
+      - Sanoja EI SAA korvata toisilla sanoilla (paitsi kun numerot/symbolit korvataan niiden sanallisilla muodoilla).
+      - Sanajärjestystä EI SAA muuttaa.
+      - Puhekieltä EI SAA “korjata” kirjalliseksi, loogisemmaksi tai kieliopillisesti oikeaksi.
+      - Jos muutos ei kuulu kohtaan (1) tai (2) — ÄLÄ TEE SITÄ.
+
+      VÄLIMERKIT:
+      - Lisää/korjaa vain välimerkit ja kirjainkoko:
+        . , ? ! : ; — … lainausmerkit
+      - Voit jakaa tekstin lauseisiin, mutta ÄLÄ yhdistä tai rakenna sanoja uudelleen.
+
+      LUKUJEN NORMALISOINTI (vain kirjoitusasun muutos, ilman ympäröivien sanojen muuttamista):
+      - Jos tekstissä esiintyy numeroita/symboleja: 0-9, %, $, €, ₽, 3-4, 37.5, 10.04.2022 — korvaa ne sanallisella muodolla.
+      - Sekamuoto on kielletty:
+        Huono: "5 prosenttia"
+        Hyvä: "viisi prosenttia"
+      - ÄLÄ muuta ei-numeerisia sanoja toisiksi sanoiksi.
+      - ÄLÄ siloittele lauseita tai poista toistoja normalisoinnin aikana.
+
+      Esimerkkejä sallituista muutoksista:
+      - "no seitsemän seitsemän ja sitten" → "No, seitsemän, seitsemän… Ja sitten."
+
+      Esimerkkejä kielletyistä muutoksista:
+      - sanojen poistaminen: "ja seitsemän ja neljä" → (et saa poistaa "ja" tai "neljä")
+      - merkityksen/kieliopin korjaaminen: "omega kolme ja seitsemän…" → (et saa muuttaa sitä muotoon “seitsemän ja puoli”)
+      - puhuttelun lisääminen: "tärkein..." → (et saa lisätä “herra ministeri”)
+
+      ITSETARKISTUS:
+      - Lopputuloksen on sisällettävä TÄSMÄLLEEN sama sanajoukko (samassa järjestyksessä), paitsi kohdissa joissa numerot/symbolit on korvattu sanoilla.
+      - Jos muutit tavallisen sanan — peruuta muutos.
+
+      Vastausmuoto:
+      - Palauta vain result.
+  - role: user
+    content: |
+      Tee toinen läpikäynti: välimerkit + lukujen normalisointi.
+      Saat muuttaa vain välimerkkejä/kirjainkokoa ja lukujen kirjoitusasua.
+      Syöte:
+      {pred_text}
+
+      Palauta vain result.

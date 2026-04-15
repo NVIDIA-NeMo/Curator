@@ -1,0 +1,53 @@
+input_fields:
+  audio_filepath: audio_filepath
+  pred_text: qwen3_omni_pred_text
+
+evaluation:
+  reference_field: reference_text
+  lang: en
+  edge_len: 10
+
+output_field: qwen3_omni_verified_text
+
+conversation:
+  - role: user
+    content:
+      - type: "audio"
+        audio: "{audio_filepath}"
+      - type: "text"
+        text: |-
+          You receive:
+          1) audio in English (the source of truth),
+          2) a draft text pred_text (may lack punctuation and contain errors).
+
+          Perform VERIFICATION AND CORRECTION of pred_text against the audio.
+
+          Goal: return a final transcription that is the most accurate word-for-word relative to the audio, with proper punctuation and normalized numbers.
+
+          CRITICALLY IMPORTANT (strict prohibitions):
+          - Do NOT add words that are not present in the audio (no forms of address, clarifications, or completed phrases).
+          - Do NOT “improve” or correct what was said: do not fix slips of the tongue, self-corrections, repetitions, or broken phrases.
+          - Do NOT paraphrase. Do NOT change word order.
+          - If pred_text seems “more logical” but the audio says otherwise — follow the audio.
+          - If something in the audio is unclear, leave it as in pred_text (do not invent), you may mark a cutoff with an ellipsis “…”.
+
+          ALLOWED ONLY:
+          1) Correct recognition errors in pred_text, but only if this is clearly audible in the audio.
+          2) Add/fix punctuation and capitalization (this is formatting, not a change of meaning).
+          3) Normalize numeric expressions into words exactly as they are SPOKEN in the audio.
+            - Mixed format is forbidden:
+              Bad: "5 percent", "2 zeros"
+              Good: "five percent", "two zeros"
+            - Normalize: percentages, currencies, units, ranges, decimals, dates/years — ONLY if they are spoken.
+            - If a unit (for example “percent”) is NOT spoken, do not add it.
+
+          PUNCTUATION:
+          - Add punctuation marks (.,?!—:;) according to pauses and intonation in the audio.
+          - Do not restructure phrases for “smoothness”.
+
+          OUTPUT FORMAT:
+          - Return only the final text.
+          - No explanations, no JSON, no lists.
+
+          Input pred_text (draft):
+          {pred_text}

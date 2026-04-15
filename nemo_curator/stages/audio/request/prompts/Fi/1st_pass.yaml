@@ -1,0 +1,48 @@
+input_fields:
+  audio_filepath: audio_filepath
+
+evaluation:
+  reference_field: reference_text
+  lang: fi
+  edge_len: 10
+
+output_field: qwen3_omni_pred_text
+
+conversation:
+  - role: user
+    content:
+      - type: "audio"
+        audio: "{audio_filepath}"
+      - type: "text"
+        text: |-
+          Saat äänitteen suomen kielellä. Tee YKSI läpikäynti: tarkka litterointi (ASR) + lukujen normalisointi.
+
+          PÄÄTAVOITE: mahdollisimman tarkka sanasta sanaan -transkriptio puheesta.
+          - ÄLÄ korjaa tai “paranna” sisältöä millään tavalla.
+          - ÄLÄ parafraaseeraa, ÄLÄ muokkaa kielioppia, ÄLÄ tee puheesta “sujuvampaa” tai kauniimpaa.
+          - Säilytä itsekorjaukset, lipsahdukset, toistot, katkenneet lauseet ja täytesanat (“öö”, “no”, “niin”) — täsmälleen kuten äänitteessä.
+          - Sanoja, puhutteluja, tarkennuksia tai lauseiden “täydentämistä” EI SAA lisätä. Jos et ole varma — jätä kuten kuulet tai käytä kolmea pistettä “…” ilmaisemaan katkeamista.
+
+          VÄLIMERKIT:
+          - Lisää välimerkit ja isot alkukirjaimet, mutta vain muotoiluna (tämä on ainoa sallittu “parannus”).
+          - Älä muuta sanajärjestystä välimerkkien takia.
+
+          LUKUJEN NORMALISOINTI (toissijainen tavoite sanantarkkuuden jälkeen):
+          - Normalisoi vain numeeriset ilmaukset ja symbolit (%, valuutat, yksiköt, päivämäärät, vaihteluvälit) muuttamalla numerot/symbolit sanoiksi täsmälleen kuten ne on lausuttu.
+          - Numeroita ei saa jättää numeroina, jos ne voidaan kirjoittaa sanoin äänitteen perusteella.
+          - Sekamuoto on kielletty: jos yksikkösana on mukana, myös luvun on oltava sanoin.
+            Huono: "5 prosenttia", "2 nollaa"
+            Hyvä: "viisi prosenttia", "kaksi nollaa"
+          - Jos lukua/yksikköä ei lausuta selvästi äänitteessä — ÄLÄ lisää sitä (esimerkiksi älä lisää sanaa “prosenttia”, jos sitä ei sanota).
+
+          Erityistapaukset (tee vain jos ne on lausuttu juuri näin):
+          - Prosentit: 5% → "viisi prosenttia"
+          - Valuutat: $120 → "satakaksikymmentä dollaria", €50 → "viisikymmentä euroa"
+          - Yksiköt: 2 kg → "kaksi kilogrammaa", 37.5°C → "kolmekymmentäseitsemän pilkku viisi astetta" (tai kuten lausuttu)
+          - Vaihteluvälit: 6–7 → "kuusi–seitsemän" tai "kuudesta seitsemään" — kuten lausuttu
+          - Desimaalit: 2.0 → "kaksi nolla" TAI "kaksi pilkku nolla" — kuten lausuttu
+          - Päivämäärät/vuodet — vain jos ne on lausuttu selvästi
+
+          Vastausmuoto:
+          - Palauta VAIN lopullinen transkriptioteksti.
+          - Ei selityksiä, ei JSONia, ei listoja.

@@ -346,11 +346,10 @@ def _verify_manifest_vs_embeddings(
 
     if missing:
         sample = missing[:5]
-        msg = (
+        logger.warning(
             f"{len(missing)} manifest lines in {manifest_path} have no matching "
-            f"embedding. First few: {sample}"
+            f"embedding (will be assigned speaker_label=-1). First few: {sample}"
         )
-        raise ValueError(msg)
 
     return mapping
 
@@ -378,6 +377,13 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
         linkage_method: ``"average"``, ``"complete"``, or ``"single"``.
         shard_level_clustering: If ``False`` (default), cluster all shards
             globally.  If ``True``, cluster each shard independently.
+            Ignored when ``batch_size`` is set.
+        batch_size: Number of shards to cluster together per group.
+            ``None`` (default) falls back to ``shard_level_clustering``
+            behaviour (all-global or per-shard).  ``1`` is equivalent to
+            ``shard_level_clustering=True``.  Values > 1 cluster shards in
+            groups of this size -- speaker labels are offset per group so
+            they remain globally unique across the full dataset.
         audio_filepath_key: Manifest key used as the cut ID.
         embedding_normalization: ``none`` | ``center_global`` | ``external``.
             ``center_global`` (default) subtracts the mean of the utterances being
@@ -397,6 +403,7 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
     threshold: float = DEFAULT_THRESHOLD
     linkage_method: str = "average"
     shard_level_clustering: bool = False
+    batch_size: int | None = None
     audio_filepath_key: str = "audio_filepath"
     embedding_normalization: EmbeddingNormalization = "center_global"
     external_norm_mean_npy: str = ""
@@ -459,9 +466,13 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
 
             for entry in manifest_entries:
                 afp = entry[self.audio_filepath_key]
-                emb_idx = mapping[afp]
-                entry["speaker_label"] = int(labels[emb_idx])
-                entry["confidence_score"] = round(float(scores[emb_idx]), 6)
+                emb_idx = mapping.get(afp)
+                if emb_idx is not None:
+                    entry["speaker_label"] = int(labels[emb_idx])
+                    entry["confidence_score"] = round(float(scores[emb_idx]), 6)
+                else:
+                    entry["speaker_label"] = -1
+                    entry["confidence_score"] = 0.0
 
             out_path = os.path.join(
                 self.output_manifest_dir, os.path.basename(mp)
@@ -518,9 +529,13 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
 
             for entry in manifest_entries:
                 afp = entry[self.audio_filepath_key]
-                emb_idx = mapping[afp]
-                entry["speaker_label"] = int(shard_labels[emb_idx])
-                entry["confidence_score"] = round(float(shard_scores[emb_idx]), 6)
+                emb_idx = mapping.get(afp)
+                if emb_idx is not None:
+                    entry["speaker_label"] = int(shard_labels[emb_idx])
+                    entry["confidence_score"] = round(float(shard_scores[emb_idx]), 6)
+                else:
+                    entry["speaker_label"] = -1
+                    entry["confidence_score"] = 0.0
 
             out_path = os.path.join(
                 self.output_manifest_dir, os.path.basename(mp)
@@ -531,16 +546,122 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
         return total
 
     # ------------------------------------------------------------------
+    # Grouped (batched) clustering
+    # ------------------------------------------------------------------
+
+    def _process_grouped(
+        self, manifest_paths: list[str], batch_size: int,
+    ) -> int:
+        """Cluster shards in groups of ``batch_size``.
+
+        Speaker labels are offset per group so they remain globally unique
+        across the full dataset.  Each group is clustered independently
+        using the same AHC logic as ``_process_global``.
+        """
+        os.makedirs(self.output_manifest_dir, exist_ok=True)
+        total = 0
+        label_offset = 0
+        num_groups = (len(manifest_paths) + batch_size - 1) // batch_size
+
+        for group_idx in range(num_groups):
+            start = group_idx * batch_size
+            end = min(start + batch_size, len(manifest_paths))
+            group_paths = manifest_paths[start:end]
+
+            logger.info(
+                f"Group {group_idx + 1}/{num_groups}: "
+                f"shards {start}-{end - 1} ({len(group_paths)} shards)"
+            )
+
+            shard_data: list[tuple[str, list[dict], np.ndarray, dict[str, int]]] = []
+            all_embs: list[np.ndarray] = []
+
+            for mp in group_paths:
+                try:
+                    manifest_entries, cut_ids, embeddings, mapping = (
+                        self._load_shard_pair(mp)
+                    )
+                except FileNotFoundError:
+                    logger.warning(f"Missing embeddings for {mp}, skipping")
+                    continue
+                if embeddings.shape[0] == 0:
+                    logger.warning(f"Shard {mp} has 0 embeddings, skipping")
+                    continue
+                shard_data.append((mp, manifest_entries, embeddings, mapping))
+                all_embs.append(embeddings)
+
+            if not all_embs:
+                logger.warning(f"Group {group_idx + 1}: no embeddings, skipping")
+                continue
+
+            merged_embs = np.concatenate(all_embs)
+            logger.info(
+                f"  Clustering {merged_embs.shape[0]:,} utterances "
+                f"from {len(shard_data)} shards"
+            )
+
+            merged_embs = self._normalize(merged_embs)
+            labels = cluster_embeddings(
+                merged_embs, self.threshold, self.linkage_method,
+            )
+            scores = speaker_confidence(merged_embs, labels)
+            _log_cluster_summary(labels, self.threshold)
+
+            # Offset labels so they don't collide across groups.
+            labels = labels + label_offset
+            label_offset = int(labels.max())
+
+            offset = 0
+            for mp, manifest_entries, embeddings, mapping in shard_data:
+                n = embeddings.shape[0]
+                shard_labels = labels[offset:offset + n]
+                shard_scores = scores[offset:offset + n]
+                offset += n
+
+                for entry in manifest_entries:
+                    afp = entry[self.audio_filepath_key]
+                    emb_idx = mapping.get(afp)
+                    if emb_idx is not None:
+                        entry["speaker_label"] = int(shard_labels[emb_idx])
+                        entry["confidence_score"] = round(
+                            float(shard_scores[emb_idx]), 6,
+                        )
+                    else:
+                        entry["speaker_label"] = -1
+                        entry["confidence_score"] = 0.0
+
+                out_path = os.path.join(
+                    self.output_manifest_dir, os.path.basename(mp),
+                )
+                _write_manifest(out_path, manifest_entries)
+                total += n
+
+        return total
+
+    # ------------------------------------------------------------------
     # Stage entry point
     # ------------------------------------------------------------------
 
+    def _resolve_mode(self) -> str:
+        """Return ``"shard"`` | ``"grouped"`` | ``"global"``."""
+        if self.batch_size is not None:
+            if self.batch_size < 1:
+                raise ValueError(f"batch_size must be >= 1, got {self.batch_size}")
+            if self.batch_size == 1:
+                return "shard"
+            return "grouped"
+        return "shard" if self.shard_level_clustering else "global"
+
     def process(self, _: _EmptyTask) -> _EmptyTask:
         manifest_paths = _expand_nemo_path(self.input_manifest.strip())
+        mode = self._resolve_mode()
 
-        mode = "shard-level" if self.shard_level_clustering else "global"
+        mode_desc = mode
+        if mode == "grouped":
+            mode_desc = f"grouped (batch_size={self.batch_size})"
         logger.info(
             f"SpeakerClusteringStage: {len(manifest_paths)} manifest shards, "
-            f"mode={mode}, threshold={self.threshold:.4f}, "
+            f"mode={mode_desc}, threshold={self.threshold:.4f}, "
             f"linkage={self.linkage_method}, "
             f"embedding_normalization={self.embedding_normalization!r}"
         )
@@ -550,8 +671,10 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
                 f"std: {self.external_norm_std_npy or '(none)'}"
             )
 
-        if self.shard_level_clustering:
+        if mode == "shard":
             total = self._process_shard_level(manifest_paths)
+        elif mode == "grouped":
+            total = self._process_grouped(manifest_paths, self.batch_size)
         else:
             total = self._process_global(manifest_paths)
 

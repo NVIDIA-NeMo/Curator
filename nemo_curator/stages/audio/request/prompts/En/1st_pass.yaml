@@ -1,0 +1,48 @@
+input_fields:
+  audio_filepath: audio_filepath
+
+evaluation:
+  reference_field: reference_text
+  lang: en
+  edge_len: 10
+
+output_field: qwen3_omni_pred_text
+
+conversation:
+  - role: user
+    content:
+      - type: "audio"
+        audio: "{audio_filepath}"
+      - type: "text"
+        text: |-
+          You receive audio in English. Perform ONE pass: accurate transcription (ASR) + number normalization.
+
+          MAIN GOAL: the most accurate word-for-word transcription of the speech.
+          - Do NOT correct or “improve” the content in any way.
+          - Do NOT paraphrase, do NOT edit grammar, do NOT make the speech “cleaner” or more polished.
+          - Preserve self-corrections, slips of the tongue, repetitions, broken phrases, fillers (“uh”, “um”, “well”, “so”) — exactly as in the audio.
+          - You MUST NOT add words, forms of address, clarifications, or “complete” unfinished phrases. If unsure — leave it as heard, or use an ellipsis “…” for a cutoff.
+
+          PUNCTUATION:
+          - Add punctuation and capitalization, but only as formatting (this is the only allowed “improvement”).
+          - Do not change word order for the sake of punctuation.
+
+          NUMBER NORMALIZATION (secondary goal, after word accuracy):
+          - Normalize only numeric expressions and symbols (%, currencies, units, dates, ranges), converting digits/symbols into words exactly as spoken.
+          - Do not leave digits if they can be written out in words according to the audio.
+          - Mixed format is forbidden: if a unit word is present, the number must be written in words.
+            Bad: "5 percent", "2 zeros"
+            Good: "five percent", "two zeros"
+          - If a number/unit is NOT explicitly spoken in the audio — do NOT add it (for example, do not add “percent” if it is not said).
+
+          Edge cases (apply only if spoken exactly this way):
+          - Percent: 5% → "five percent"
+          - Currencies: $120 → "one hundred twenty dollars", €50 → "fifty euros"
+          - Units: 2 kg → "two kilograms", 37.5°C → "thirty-seven point five degrees" (or as spoken)
+          - Ranges: 6–7 → "six–seven" or "from six to seven" — as spoken
+          - Decimals: 2.0 → "two zero" OR "two point zero" — as spoken
+          - Dates/years — only if explicitly spoken
+
+          Output format:
+          - Return ONLY the final transcription text.
+          - No explanations, no JSON, no lists.
