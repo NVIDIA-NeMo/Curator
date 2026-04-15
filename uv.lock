@@ -4913,6 +4913,46 @@ all = [
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "warcio" },
 ]
+audio-alignment = [
+    { name = "beautifulsoup4" },
+    { name = "cudf-cu12" },
+    { name = "cuml-cu12" },
+    { name = "fasttext" },
+    { name = "ftfy" },
+    { name = "gpustat" },
+    { name = "justext" },
+    { name = "librosa" },
+    { name = "lxml" },
+    { name = "mwparserfromhell" },
+    { name = "nemo-toolkit", extra = ["asr"] },
+    { name = "nvidia-cudnn-cu12" },
+    { name = "nvidia-ml-py" },
+    { name = "onnx" },
+    { name = "onnxruntime-gpu", marker = "platform_machine == 'x86_64'" },
+    { name = "peft" },
+    { name = "praatio" },
+    { name = "pycld2" },
+    { name = "pydub" },
+    { name = "pylibcugraph-cu12" },
+    { name = "pylibraft-cu12" },
+    { name = "raft-dask-cu12" },
+    { name = "rapidsmpf-cu12" },
+    { name = "resiliparse" },
+    { name = "s5cmd" },
+    { name = "scikit-learn" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.16.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "sentence-transformers" },
+    { name = "sentencepiece" },
+    { name = "silero-vad" },
+    { name = "soundfile" },
+    { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { name = "torchaudio", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torchcodec" },
+    { name = "trafilatura" },
+    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "warcio" },
+]
 audio-common = [
     { name = "nemo-toolkit", extra = ["asr"] },
     { name = "onnx" },
@@ -5180,6 +5220,7 @@ requires-dist = [
     { name = "nemo-curator", extras = ["audio-common"], marker = "extra == 'audio-cpu'" },
     { name = "nemo-curator", extras = ["audio-common"], marker = "extra == 'audio-cuda12'" },
     { name = "nemo-curator", extras = ["audio-cuda12"], marker = "extra == 'all'" },
+    { name = "nemo-curator", extras = ["audio-cuda12"], marker = "extra == 'audio-alignment'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'audio-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'image-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'inference-server'" },
@@ -5202,6 +5243,7 @@ requires-dist = [
     { name = "nemo-curator", extras = ["text-cpu"], marker = "extra == 'math-cpu'" },
     { name = "nemo-curator", extras = ["text-cpu"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["text-cuda12"], marker = "extra == 'all'" },
+    { name = "nemo-curator", extras = ["text-cuda12"], marker = "extra == 'audio-alignment'" },
     { name = "nemo-curator", extras = ["video-cpu"], marker = "extra == 'video-cuda12'" },
     { name = "nemo-curator", extras = ["video-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["vllm"], marker = "extra == 'inference-server'" },
@@ -5222,6 +5264,7 @@ requires-dist = [
     { name = "peft", marker = "extra == 'text-cpu'" },
     { name = "pillow", marker = "extra == 'image-cpu'" },
     { name = "pillow", marker = "extra == 'interleaved-cpu'" },
+    { name = "praatio", marker = "extra == 'audio-alignment'", specifier = ">=6.0" },
     { name = "pyarrow" },
     { name = "pycld2", marker = "extra == 'text-cpu'" },
     { name = "pycuda", marker = "extra == 'video-cuda12'" },
@@ -5239,6 +5282,7 @@ requires-dist = [
     { name = "sentence-transformers", marker = "extra == 'text-cpu'" },
     { name = "sentencepiece", marker = "extra == 'text-cpu'" },
     { name = "silero-vad", marker = "extra == 'audio-common'" },
+    { name = "soundfile", marker = "extra == 'audio-alignment'", specifier = ">=0.12.0" },
     { name = "soundfile", marker = "extra == 'audio-common'", specifier = ">=0.12.0" },
     { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'", index = "https://pypi.org/simple" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
@@ -5259,7 +5303,7 @@ requires-dist = [
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'vllm'", specifier = ">=0.14.1" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
 ]
-provides-extras = ["cuda12", "vllm", "inference-server", "deduplication-cuda12", "audio-common", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "math-cpu", "math-cuda12", "interleaved-cpu", "sdg-cpu", "sdg-cuda12", "all"]
+provides-extras = ["cuda12", "vllm", "inference-server", "deduplication-cuda12", "audio-common", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "math-cpu", "math-cuda12", "interleaved-cpu", "interleaved-cuda12", "sdg-cpu", "sdg-cuda12", "all", "audio-alignment"]
 
 [package.metadata.requires-dev]
 build = [
@@ -6623,6 +6667,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4d/d0/cda2fc582f09510c84cd6b7d7b9e22a02d4e45dbad2b2ef1c6edd7847e00/portpicker-1.6.0.tar.gz", hash = "sha256:bd507fd6f96f65ee02781f2e674e9dc6c99bbfa6e3c39992e3916204c9d431fa", size = 25676, upload-time = "2023-08-15T04:37:08.865Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/2d/440e4d7041fff89f28f483733eb617127aa866135c2dc719e05893f089e1/portpicker-1.6.0-py3-none-any.whl", hash = "sha256:b2787a41404cf7edbe29b07b9e0ed863b09f2665dcc01c1eb0c2261c1e7d0755", size = 16613, upload-time = "2023-08-15T04:37:07.327Z" },
+]
+
+[[package]]
+name = "praatio"
+version = "6.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/de/fa/be0bab2b2da04427204f84cd5e54bd3364937456adf03d98f0f2cfb8f402/praatio-6.2.2.tar.gz", hash = "sha256:ed8fdee6121bdae142817879ed9a50cc8334e72c03c110162e21ed8160180d2a", size = 2176936, upload-time = "2026-01-16T09:21:52.888Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/12/59f3928dc6583d652798758b513ab6062e4dddbbf624623d0ec02e7bbb23/praatio-6.2.2-py3-none-any.whl", hash = "sha256:d097b0e6991715559d68537c6af1baba86a0e0f9ad077e6d078e3d21c510743f", size = 82261, upload-time = "2026-01-16T09:21:50.124Z" },
 ]
 
 [[package]]

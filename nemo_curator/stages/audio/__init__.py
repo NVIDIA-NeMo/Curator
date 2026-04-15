@@ -22,6 +22,7 @@ audio preprocessing (mono conversion, segment concatenation, timestamp mapping),
 audio quality filtering (UTMOS), and speaker diarization/separation.
 """
 
+from nemo_curator.stages.audio.alignment import MFAAlignmentStage
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
@@ -46,6 +47,7 @@ from nemo_curator.stages.audio.segmentation import (
 __all__ = [
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
+    "MFAAlignmentStage",
     "BandFilterStage",
     "GetAudioDurationStage",
     "MonoConversionStage",

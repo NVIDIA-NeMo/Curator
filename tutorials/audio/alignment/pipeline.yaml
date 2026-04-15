@@ -1,0 +1,61 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  MFA Forced Alignment
+  ####################
+  This config runs Montreal Forced Aligner (MFA) on an audio manifest to
+  produce word-level TextGrid alignments, with optional RTTM and CTM output.
+
+  **Required arguments**.
+
+  * **output_dir**: Root directory for TextGrid/RTTM/CTM output and result manifest.
+
+  The pipeline reads AudioTask entries, aligns them with MFA, converts
+  TextGrids to RTTM and CTM files, then writes the enriched manifest to JSONL.
+
+  Note that you can customize any part of this config either directly or
+  from the command-line.
+
+  **Output format**
+
+  Output manifest contains the following additional keys:
+
+  * **textgrid_filepath (str)**: path to the TextGrid alignment file.
+  * **rttm_filepath (str)**: path to the RTTM speech-activity file (if enabled).
+  * **ctm_filepath (str)**: path to the CTM word-timing file (if enabled).
+
+output_dir: ???
+backend: xenna
+batch_size: 256
+
+processors:
+  - _target_: nemo_curator.stages.audio.alignment.MFAAlignmentStage
+    output_dir: ${output_dir}
+    mfa_command: "mfa"
+    acoustic_model: "english_us_arpa"
+    dictionary: "english_us_arpa"
+    g2p_model: "english_us_arpa"
+    audio_filepath_key: "audio_filepath"
+    text_key: "text"
+    speaker_key: "speaker"
+    num_jobs: 0
+    beam: 100
+    retry_beam: 400
+    create_rttm: true
+    create_ctm: true
+    batch_size: ${batch_size}
+
+  - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
+
+  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
+    path: ${output_dir}/result
+    write_kwargs:
+      "force_ascii": false
