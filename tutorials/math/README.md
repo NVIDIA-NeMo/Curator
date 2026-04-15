@@ -17,14 +17,10 @@ uv pip install --force-reinstall pynvml
 
 ## Prerequisites
 
-### Platform Requirements
-
-> **Important:** Step 3 (LLM Cleanup) uses [vLLM](https://docs.vllm.ai/), which **only supports x86_64 Linux**. macOS, Windows, and ARM architectures are not supported by vLLM. If you are on a different platform, you can still run Steps 0–2 and 4–5 locally, but Step 3 must run on an x86_64 Linux machine with a supported GPU.
-
 ### System Dependencies
-- **GPU**: NVIDIA GPU with ≥20 GB VRAM and CUDA support. Compatible GPUs include A100, A40, L40, L40S, and H100.
-- **Python**: Environment with `nemo-curator[math_cuda12]` installed (uv sync above)
-- **Lynx**: System dependency for HTML rendering to text:
+- A100 or above GPU(s) with CUDA for the Hugging Face model and vLLM
+- Python environment with `nemo-curator[math_cuda12]` installed (uv sync above)
+- Lynx system dependency for HTML rendering to text:
   - Ubuntu/Debian: `sudo apt-get update && sudo apt-get install -y lynx`
   - RHEL/Fedora: `sudo dnf install -y lynx` (or `sudo yum install -y lynx`)
   - Conda: `conda install -c conda-forge lynx`
@@ -570,7 +566,7 @@ python tutorials/math/5_deduplication.py \
 | `--use_64_bit_hash` | False | Use 64-bit hash for fewer collisions on very large datasets. |
 | `--seed` | 42 | Seed for MinHash permutations (for reproducibility). |
 
-The similarity threshold is implicitly controlled by `num_bands` and `minhashes_per_band`. The approximate threshold is `(1/num_bands)^(1/minhashes_per_band)`. With the defaults (20 bands, 13 hashes/band), this is approximately 0.72. To detect more similar pairs (stricter dedup), increase `num_bands`; to be more lenient, decrease it.
+The similarity threshold is implicitly controlled by `num_bands` and `minhashes_per_band`. The approximate threshold is `(1/num_bands)^(1/minhashes_per_band)`. With the defaults (20 bands, 13 hashes/band), this is approximately 0.79. To detect more similar pairs (stricter dedup), increase `num_bands`; to be more lenient, decrease it.
 
 ## Available Prompts
 
@@ -642,17 +638,12 @@ If `nvidia-smi` shows GPUs but the pipeline logs "No gpus found":
 ```bash
 uv pip install --force-reinstall pynvml
 ```
-Also verify CUDA is available: `python -c "import torch; print(torch.cuda.is_available())"`.
 
 ### 0 URLs Matched in CC Index Lookup (Step 1)
 
 - Verify your CC Index parquet files follow the required hive-partitioned directory structure: `<base_path>/crawl=CC-MAIN-YYYY-WW/subset=warc/*.parquet`
 - Check that the crawl ID(s) you downloaded actually contain your URLs. Not all URLs appear in every crawl — try multiple crawls.
 - Confirm the `url_col` in `datasets.json` matches the actual column name in your dataset.
-
-### "Repository Not Found" Error
-
-This usually means your HuggingFace token is missing or invalid, not that the repository doesn't exist. Set `HF_TOKEN` before running the pipeline — see [HuggingFace Authentication](#huggingface-authentication).
 
 ### Empty LLM Output (Step 3)
 
