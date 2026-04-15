@@ -12,25 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.core.serve.config import (
-    BaseModelConfig,
-    DynamoRoleConfig,
-    DynamoRouterConfig,
-    DynamoServerConfig,
-    DynamoVLLMModelConfig,
-    RayServeModelConfig,
-    RayServeServerConfig,
-)
-from nemo_curator.core.serve.server import InferenceServer, is_inference_server_active
+DEFAULT_SERVE_PORT = 8000
+DEFAULT_SERVE_HEALTH_TIMEOUT_S = 300
 
-__all__ = [
-    "BaseModelConfig",
-    "DynamoRoleConfig",
-    "DynamoRouterConfig",
-    "DynamoServerConfig",
-    "DynamoVLLMModelConfig",
-    "InferenceServer",
-    "RayServeModelConfig",
-    "RayServeServerConfig",
-    "is_inference_server_active",
-]
+DEFAULT_ETCD_PORT = 2379
+DEFAULT_NATS_PORT = 4222
+
+DEFAULT_DYNAMO_NAMESPACE = "curator"
+DEFAULT_DYNAMO_REQUEST_PLANE = "nats"
+DEFAULT_DYNAMO_EVENT_PLANE = "nats"
