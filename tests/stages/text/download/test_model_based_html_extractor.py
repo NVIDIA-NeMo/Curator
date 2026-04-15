@@ -12,17 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.common_crawl.extract import CommonCrawlHTMLExtractor
 from nemo_curator.stages.text.download.html_extractors import (
     HTMLElement,
+    HTMLElementClassifier,
     HTMLElementPrediction,
     ModelBasedHTMLExtractionStage,
 )
 from nemo_curator.stages.text.download.html_extractors.base import HTMLExtractorAlgorithm
-from nemo_curator.stages.resources import Resources
 
 
-class FakeElementClassifier:
+class FakeElementClassifier(HTMLElementClassifier):
     def __init__(self, predictions_by_tag: dict[str, HTMLElementPrediction]):
         self.predictions_by_tag = predictions_by_tag
 

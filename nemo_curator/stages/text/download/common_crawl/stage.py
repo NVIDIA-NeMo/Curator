@@ -20,9 +20,16 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.download import DocumentDownloadExtractStage
 from nemo_curator.stages.text.download.html_extractors import HTMLExtractorAlgorithm
 from nemo_curator.stages.text.download.html_extractors.justext import JusTextExtractor
+from nemo_curator.stages.text.download.html_extractors.model_based import (
+    AssembleModelBasedHTMLExtractionStage,
+    ModelBasedHTMLExtractionStage,
+    ModelBasedHTMLInferenceStage,
+)
+from nemo_curator.stages.text.models.tokenizer import TokenizerStage
+from nemo_curator.utils.column_utils import resolve_filename_column
 
 from .download import CommonCrawlWARCDownloader
-from .extract import CommonCrawlHTMLExtractor
+from .extract import CommonCrawlHTMLExtractor, CommonCrawlModelBasedCandidateExtractor
 from .url_generation import MainCommonCrawlUrlGenerator, NewsCommonCrawlUrlGenerator
 from .warc_iterator import CommonCrawlWarcIterator
 
@@ -70,28 +77,45 @@ class CommonCrawlDownloadExtractStage(DocumentDownloadExtractStage):
             download_dir=download_dir, use_aws_to_download=use_aws_to_download, verbose=verbose
         )
         self.iterator = CommonCrawlWarcIterator()
-        self.extractor = CommonCrawlHTMLExtractor(
-            algorithm=html_extraction,
-            algorithm_kwargs=html_extraction_kwargs,
-            stop_lists=stop_lists,
-        )
-        if extractor_max_calls_per_worker is None and isinstance(self.extractor.algorithm, JusTextExtractor):
-            extractor_max_calls_per_worker = 2
-            logger.info(
-                "jusText extraction can cause memory fragmentation and lead to OOM errors. "
-                "Setting extractor_max_calls_per_worker=2 for the iterate-extract stage. "
-                "Pass extractor_max_calls_per_worker explicitly to override."
+        html_extraction_kwargs = html_extraction_kwargs or {}
+        model_based_algorithm = self._resolve_model_based_algorithm(html_extraction, html_extraction_kwargs)
+        if model_based_algorithm is not None:
+            self.extractor = CommonCrawlModelBasedCandidateExtractor(
+                algorithm=model_based_algorithm,
+                stop_lists=stop_lists,
             )
-        super().__init__(
-            url_generator=self.url_generator,
-            downloader=self.downloader,
-            iterator=self.iterator,
-            extractor=self.extractor,
-            url_limit=url_limit,
-            record_limit=record_limit,
-            add_filename_column=add_filename_column,
-            extractor_max_calls_per_worker=extractor_max_calls_per_worker,
-        )
+            self.stages = self._build_model_based_stages(
+                algorithm=model_based_algorithm,
+                stop_lists=stop_lists,
+                url_limit=url_limit,
+                record_limit=record_limit,
+                add_filename_column=add_filename_column,
+                extractor_max_calls_per_worker=extractor_max_calls_per_worker,
+            )
+            self._with_operations = []
+        else:
+            self.extractor = CommonCrawlHTMLExtractor(
+                algorithm=html_extraction,
+                algorithm_kwargs=html_extraction_kwargs,
+                stop_lists=stop_lists,
+            )
+            if extractor_max_calls_per_worker is None and isinstance(self.extractor.algorithm, JusTextExtractor):
+                extractor_max_calls_per_worker = 2
+                logger.info(
+                    "jusText extraction can cause memory fragmentation and lead to OOM errors. "
+                    "Setting extractor_max_calls_per_worker=2 for the iterate-extract stage. "
+                    "Pass extractor_max_calls_per_worker explicitly to override."
+                )
+            super().__init__(
+                url_generator=self.url_generator,
+                downloader=self.downloader,
+                iterator=self.iterator,
+                extractor=self.extractor,
+                url_limit=url_limit,
+                record_limit=record_limit,
+                add_filename_column=add_filename_column,
+                extractor_max_calls_per_worker=extractor_max_calls_per_worker,
+            )
         self.name = f"common_crawl_{self.crawl_type}_pipeline"
 
     def decompose(self) -> list[ProcessingStage]:
@@ -101,3 +125,60 @@ class CommonCrawlDownloadExtractStage(DocumentDownloadExtractStage):
     def get_description(self) -> str:
         """Get a description of this composite stage."""
         return f"Common Crawl {self.crawl_type} pipeline: {self.start_snapshot} to {self.end_snapshot}"
+
+    @staticmethod
+    def _resolve_model_based_algorithm(
+        html_extraction: HTMLExtractorAlgorithm | str | None,
+        html_extraction_kwargs: dict,
+    ) -> ModelBasedHTMLExtractionStage | None:
+        if isinstance(html_extraction, ModelBasedHTMLExtractionStage):
+            return html_extraction
+        if html_extraction in {"model", "model_based"}:
+            return ModelBasedHTMLExtractionStage(**html_extraction_kwargs)
+        return None
+
+    def _build_model_based_stages(  # noqa: PLR0913
+        self,
+        algorithm: ModelBasedHTMLExtractionStage,
+        stop_lists: dict[str, frozenset[str]] | None,
+        url_limit: int | None,
+        record_limit: int | None,
+        add_filename_column: bool | str,
+        extractor_max_calls_per_worker: int | None,
+    ) -> list[ProcessingStage]:
+        filename_column = resolve_filename_column(add_filename_column) if add_filename_column else None
+
+        base_stage = DocumentDownloadExtractStage(
+            url_generator=self.url_generator,
+            downloader=self.downloader,
+            iterator=self.iterator,
+            extractor=self.extractor,
+            url_limit=url_limit,
+            record_limit=record_limit,
+            add_filename_column=add_filename_column,
+            extractor_max_calls_per_worker=extractor_max_calls_per_worker,
+        )
+        iterate_stage = base_stage.decompose()[-1]
+        tokenizer_stage = TokenizerStage(
+            model_identifier=algorithm.model_identifier,
+            cache_dir=algorithm.cache_dir,
+            text_field="candidate_model_input",
+            max_seq_length=algorithm.max_length,
+            sort_by_length=True,
+            transformers_init_kwargs=algorithm.transformers_init_kwargs,
+        )
+        inference_stage = ModelBasedHTMLInferenceStage(
+            model_identifier=algorithm.model_identifier,
+            cache_dir=algorithm.cache_dir,
+            model_inference_batch_size=algorithm.model_inference_batch_size,
+            max_seq_length=None,
+            transformers_init_kwargs=algorithm.transformers_init_kwargs,
+        )
+        assemble_stage = AssembleModelBasedHTMLExtractionStage(
+            stop_lists=stop_lists or self.extractor._stop_lists,
+            output_format=algorithm.output_format,
+            fallback_threshold=algorithm.fallback_threshold,
+            fallback_extractor=algorithm.fallback_extractor,
+            filename_column=filename_column,
+        )
+        return [base_stage.decompose()[0], base_stage.decompose()[1], iterate_stage, tokenizer_stage, inference_stage, assemble_stage]

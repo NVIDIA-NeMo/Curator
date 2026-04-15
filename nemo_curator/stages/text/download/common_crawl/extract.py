@@ -14,13 +14,25 @@
 
 from typing import Any
 
+from bs4 import BeautifulSoup
 from loguru import logger
 
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download import DocumentExtractor
 from nemo_curator.stages.text.download.html_extractors import HTMLExtractorAlgorithm
 from nemo_curator.stages.text.download.html_extractors.justext import JusTextExtractor
-from nemo_curator.stages.text.download.html_extractors.model_based import ModelBasedHTMLExtractionStage
+from nemo_curator.stages.text.download.html_extractors.model_based import (
+    CANDIDATE_ATTRIBUTES_FIELD,
+    CANDIDATE_HTML_FIELD,
+    CANDIDATE_INDEX_FIELD,
+    CANDIDATE_TAG_NAME_FIELD,
+    CANDIDATE_TEXT_FIELD,
+    HTML_FIELD,
+    MODEL_INPUT_FIELD,
+    PLACEHOLDER_CANDIDATE_INDEX,
+    ModelBasedHTMLExtractionStage,
+    serialize_html_element,
+)
 from nemo_curator.stages.text.download.html_extractors.resiliparse import ResiliparseExtractor
 from nemo_curator.stages.text.download.html_extractors.trafilatura import TrafilaturaExtractor
 from nemo_curator.stages.text.download.html_extractors.utils import get_stop_list_dict
@@ -128,3 +140,70 @@ class CommonCrawlHTMLExtractor(DocumentExtractor):
         if callable(ray_stage_spec):
             return ray_stage_spec()
         return {}
+
+
+class CommonCrawlModelBasedCandidateExtractor(DocumentExtractor):
+    def __init__(
+        self,
+        algorithm: ModelBasedHTMLExtractionStage,
+        stop_lists: dict[str, frozenset[str]] | None = None,
+    ):
+        super().__init__()
+        self.algorithm = algorithm
+        self._stop_lists = stop_lists or get_stop_list_dict()
+        self.resources = Resources(cpus=1.0)
+
+    def extract(self, record: dict[str, Any]) -> list[dict[str, Any]] | None:
+        html_content = record.get("content")
+        if not html_content:
+            return None
+
+        html = decode_html(html_content)
+        if html is None:
+            return None
+
+        language = lang_detect(html)
+        if language not in self._stop_lists:
+            return None
+
+        elements = self.algorithm._extract_candidate_elements(BeautifulSoup(html, "lxml"))
+        base_record = {
+            "url": record["url"],
+            "warc_id": record["warc_id"],
+            "source_id": record["source_id"],
+            "language": language,
+            HTML_FIELD: html,
+        }
+
+        if not elements:
+            return [
+                {
+                    **base_record,
+                    CANDIDATE_INDEX_FIELD: PLACEHOLDER_CANDIDATE_INDEX,
+                    CANDIDATE_TAG_NAME_FIELD: None,
+                    CANDIDATE_TEXT_FIELD: None,
+                    CANDIDATE_HTML_FIELD: None,
+                    CANDIDATE_ATTRIBUTES_FIELD: {},
+                    MODEL_INPUT_FIELD: "",
+                }
+            ]
+
+        return [{**base_record, **serialize_html_element(element)} for element in elements]
+
+    def input_columns(self) -> list[str]:
+        return ["url", "warc_id", "source_id", "content"]
+
+    def output_columns(self) -> list[str]:
+        return [
+            "url",
+            "warc_id",
+            "source_id",
+            "language",
+            HTML_FIELD,
+            CANDIDATE_INDEX_FIELD,
+            CANDIDATE_TAG_NAME_FIELD,
+            CANDIDATE_TEXT_FIELD,
+            CANDIDATE_HTML_FIELD,
+            CANDIDATE_ATTRIBUTES_FIELD,
+            MODEL_INPUT_FIELD,
+        ]

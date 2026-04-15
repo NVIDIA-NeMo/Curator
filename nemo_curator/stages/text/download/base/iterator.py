@@ -151,11 +151,14 @@ class DocumentIterateExtractStage(ProcessingStage[FileGroupTask, DocumentBatch])
                     if extracted is None:
                         continue
 
+                    extracted_records = extracted if isinstance(extracted, list) else [extracted]
+
                     # Ensure filename is preserved
                     if self.add_filename_column:
-                        extracted[self.filename_col] = record_dict[self.filename_col]
+                        for extracted_record in extracted_records:
+                            extracted_record[self.filename_col] = record_dict[self.filename_col]
 
-                    records.append(extracted)
+                    records.extend(extracted_records)
                     record_count += 1
 
             except Exception as e:  # noqa: BLE001

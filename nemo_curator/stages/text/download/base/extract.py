@@ -21,15 +21,15 @@ from nemo_curator.stages.resources import Resources
 class DocumentExtractor(ABC):
     """Abstract base class for document extractors.
 
-    Takes a record dict and returns processed record dict or None to skip.
+    Takes a record dict and returns one or more processed record dicts, or None to skip.
     Can transform any fields in the input dict.
     """
 
     resources = Resources(cpus=1.0)
 
     @abstractmethod
-    def extract(self, record: dict[str, str]) -> dict[str, Any] | None:
-        """Extract/transform a record dict into final record dict."""
+    def extract(self, record: dict[str, str]) -> dict[str, Any] | list[dict[str, Any]] | None:
+        """Extract/transform a record dict into one or more final record dicts."""
         ...
 
     @abstractmethod
@@ -44,15 +44,16 @@ class DocumentExtractor(ABC):
 
     def setup_on_node(self, *_args, **_kwargs) -> None:
         """Optional setup hook executed once per node."""
-        pass
+        del _args, _kwargs
 
     def setup(self, *_args, **_kwargs) -> None:
         """Optional setup hook executed once per worker."""
-        pass
+        del _args, _kwargs
 
     def teardown(self) -> None:
         """Optional teardown hook."""
-        pass
+        _teardown_completed = True
+        del _teardown_completed
 
     def ray_stage_spec(self) -> dict[str, Any]:
         """Optional Ray configuration for iterate-extract stages."""
