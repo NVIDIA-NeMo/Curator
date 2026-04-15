@@ -218,6 +218,7 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
                 # Grab the number from the path, e.g., output_path/centroid=999 grabs 999
                 removed_clusters.append(int(path_to_remove.split("/")[-1].split("=")[1]))
 
+    # TODO: Update to merge clusters greedily instead of using connected components
     centroids = np.load(os.path.join(args.centroids_path, "kmeans_centroids.npy"))
     # Compute the Euclidean distance between the centroids
     diff = centroids[:, None, :] - centroids[None, :, :]
