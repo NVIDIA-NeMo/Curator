@@ -37,7 +37,7 @@ authors = [
 ]
 description = "Scalable Data Preprocessing Tool for Training Large Language Models"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.15"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
@@ -218,6 +218,11 @@ all = [
     "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[video_cuda12]",
+]
+
+audio_alignment = [
+    "praatio>=6.0",
+    "soundfile>=0.12.0",
 ]
 
 [dependency-groups]
