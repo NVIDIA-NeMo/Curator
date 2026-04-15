@@ -12,14 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest.mock import patch
+import importlib
+from contextlib import nullcontext
+from unittest.mock import Mock, patch
 
 import pytest
 from pytest_httpserver import HTTPServer
 
 LLMConfig = pytest.importorskip("ray.serve.llm", reason="ray[serve] not installed").LLMConfig
 
-from nemo_curator.core.serve import InferenceModelConfig, InferenceServer, is_ray_serve_active  # noqa: E402
+from nemo_curator.core.serve import InferenceModelConfig, InferenceServer, is_inference_server_active  # noqa: E402
 
 INTEGRATION_TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"  # pragma: allowlist secret
 INTEGRATION_TEST_MODEL_2 = "HuggingFaceTB/SmolLM-135M-Instruct"  # pragma: allowlist secret
@@ -54,7 +56,12 @@ class TestInferenceModelConfig:
                 "env_vars": {"MY_VAR": "1", "VLLM_LOGGING_LEVEL": "DEBUG"},
             },
         )
-        quiet_env = InferenceServer._quiet_runtime_env()
+        try:
+            backend_module = importlib.import_module("nemo_curator.core.serve.ray_serve.backend")
+        except ModuleNotFoundError as exc:
+            pytest.fail(f"Ray Serve backend module should exist: {exc}")
+
+        quiet_env = backend_module.RayServeBackend._quiet_runtime_env()
         result = config.to_llm_config(quiet_runtime_env=quiet_env)
 
         assert result.runtime_env["pip"] == ["my-package"]
@@ -62,6 +69,7 @@ class TestInferenceModelConfig:
         # quiet overrides the user's DEBUG with WARNING
         assert result.runtime_env["env_vars"]["VLLM_LOGGING_LEVEL"] == "WARNING"
         assert result.runtime_env["env_vars"]["RAY_SERVE_LOG_TO_STDERR"] == "0"
+        assert not hasattr(InferenceServer, "_quiet_runtime_env")
 
         # Without quiet_env, user's runtime_env is passed through as-is
         result_verbose = config.to_llm_config()
@@ -77,6 +85,60 @@ class TestInferenceServer:
         server = InferenceServer(models=[InferenceModelConfig(model_identifier="some-model")])
         server.stop()
         assert server._started is False
+
+    def test_start_delegates_to_backend(self) -> None:
+        class StubBackend:
+            def __init__(self) -> None:
+                self.started = False
+
+            def start(self) -> None:
+                self.started = True
+
+            def stop(self) -> None:
+                pass
+
+        server = InferenceServer(models=[InferenceModelConfig(model_identifier="some-model")])
+        backend = StubBackend()
+
+        with (
+            patch("atexit.register"),
+            patch("ray.init", return_value=nullcontext()),
+            patch.object(InferenceServer, "_deploy", create=True) as deploy,
+            patch.object(InferenceServer, "_create_backend", return_value=backend, create=True),
+        ):
+            server.start()
+
+        try:
+            assert backend.started is True
+            assert getattr(server, "_backend_impl", None) is backend
+            deploy.assert_not_called()
+        finally:
+            from nemo_curator.core.serve import _active_servers
+
+            _active_servers.discard(server.name)
+            server._started = False
+            if hasattr(server, "_backend_impl"):
+                server._backend_impl = None
+
+    def test_stop_delegates_to_backend(self) -> None:
+        from nemo_curator.core.serve import _active_servers
+
+        server = InferenceServer(models=[InferenceModelConfig(model_identifier="some-model")])
+        server._started = True
+        backend = Mock()
+        server._backend_impl = backend
+        _active_servers.add(server.name)
+
+        with (
+            patch("atexit.unregister"),
+            patch("ray.init", return_value=nullcontext()),
+            patch("ray.serve.shutdown"),
+        ):
+            server.stop()
+
+        backend.stop.assert_called_once()
+        assert server._started is False
+        assert server.name not in _active_servers
 
     def test_wait_for_healthy(self, httpserver: HTTPServer) -> None:
         """Health check succeeds on 200, retries on failure, and times out on unreachable port."""
@@ -178,7 +240,7 @@ class TestInferenceServerIntegration:
         """Server is active, lists models, and responds to chat completions."""
         from openai import OpenAI
 
-        assert is_ray_serve_active()
+        assert is_inference_server_active()
         assert model_server._started is True
 
         client = OpenAI(base_url=model_server.endpoint, api_key="na")
@@ -230,7 +292,7 @@ class TestInferenceServerIntegration:
 
         # Stop the fixture's server
         model_server.stop()
-        assert not is_ray_serve_active()
+        assert not is_inference_server_active()
 
         # Start a fresh server from scratch (new controller + proxy)
         config = InferenceModelConfig(
