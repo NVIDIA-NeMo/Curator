@@ -12,6 +12,7 @@ Hands-on tutorials for curating audio data with NeMo Curator. Complete working e
 |----------|-------------|-------|
 | **[FLEURS Dataset](fleurs/)** | Complete pipeline for multilingual speech data | `pipeline.py`, `run.py`, `pipeline.yaml` |
 | **[ALM Data Pipeline](alm/)** | Create training windows for Audio Language Models | `main.py`, `pipeline.yaml` |
+| **[MFA Forced Alignment](alignment/)** | Word-level alignment with Montreal Forced Aligner | `pipeline.py`, `run.py`, `pipeline.yaml` |
 
 ## Documentation Links
 
