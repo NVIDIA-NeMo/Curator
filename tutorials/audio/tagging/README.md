@@ -4,23 +4,45 @@ This tutorial demonstrates how to process raw, unlabelled audio into labelled tr
 
 ## Overview
 
-The audio tagging pipeline is a processing framework that takes raw audio files and produces segmented, annotated manifests. It covers resampling, speaker diarization, ASR forced alignment, merge stages, text normalization, quality metrics, and WER computation.
+The audio tagging pipeline is a generic processing framework that takes raw audio files and produces segmented, annotated manifests suitable for training multiple speech modalities — **TTS**, **ASR**, **ALM**, and others. The core pipeline (stages 0–9) is shared across all modalities: resampling, speaker diarization, ASR forced alignment, merge, quality metrics, and segment preparation. The `PrepareModuleSegmentsStage` is the key stage where segments are shaped differently based on the target modality (e.g. duration constraints, utterance completeness). Optionally, a second-pass ASR transcription and WER computation can be appended to further validate transcript quality.
 
 ### Pipeline Flow
 
 ```
 ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
-│ Raw Audio  │─▶│ Resample   │─▶│ Diarize    │─▶│ Split Long │
-│ Manifest   │  │ (16kHz WAV)│  │ (PyAnnote) │  │ Audio      │
+│ Manifest   │─▶│ Resample   │─▶│ Diarize    │─▶│ Split Long │
+│ Reader     │  │ (16kHz WAV)│  │ (PyAnnote) │  │ Audio      │
 └────────────┘  └────────────┘  └────────────┘  └────────────┘
                                                       │
-┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
-│ Output     │◀─│ Merge      │◀─│ Join Split │◀─│ ASR Align  │
-│ Manifest   │  │            │  │ Metadata   │  │ (NeMo)     │
-└────────────┘  └────────────┘  └────────────┘  └────────────┘
+┌────────────┐  ┌────────────┐  ┌────────────┐       │
+│ Merge      │◀─│ Join Split │◀─│ ASR Align  │◀──────┘
+│ Align+Diar │  │ Metadata   │  │ (NeMo)     │
+└────────────┘  └────────────┘  └────────────┘
+      │
+      ▼
+┌────────────┐  ┌────────────┐  ┌────────────┐
+│ Bandwidth  │─▶│ SQUIM      │─▶│ Prepare    │─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
+│ Estimation │  │ Metrics    │  │ Module Seg │  (tts / asr / …)
+└────────────┘  └────────────┘  └────────────┘                      │
+                                      │
+                                      ▼                             │
+                                ┌────────────┐  ┌────────────┐
+                                │ ASR Align  │─▶│ Compute    │      │
+                                │ (2nd pass) │  │ WER        │  optional
+                                └────────────┘  └────────────┘      │
+                                                      │
+                                                      ▼             │
+                                                ┌────────────┐
+                                                │ Manifest   │◀ ─ ─ ┘
+                                                │ Writer     │
+                                                └────────────┘
 ```
 
+The dashed path shows that `ManifestWriter` can follow directly after `PrepareModuleSegments` (e.g. the default TTS config) or after the optional second-pass ASR + WER stages (e.g. the ASR config).
+
 ### Pipeline Stages
+
+#### Core Stages (shared by all modalities, stages 0–9)
 
 | # | Stage | Description | GPU |
 |---|-------|-------------|-----|
@@ -31,15 +53,29 @@ The audio tagging pipeline is a processing framework that takes raw audio files 
 | 4 | **NeMoASRAlignerStage** | Forced alignment via NeMo FastConformer | Yes |
 | 5 | **JoinSplitAudioMetadataStage** | Rejoin split audio metadata | No |
 | 6 | **MergeAlignmentDiarizationStage** | Merge alignment with diarization segments | No |
-| 7 | **InverseTextNormalizationStage** | Inverse text normalization (spoken → written) | No |
-| 8 | **ChineseConversionStage** | Traditional → Simplified Chinese conversion | No |
-| 9 | **ArabicRemoveDiacriticsStage** | Remove diacritics from Arabic text | No |
-| 10 | **PNCwithBERTStage** | Punctuation & capitalization via NeMo BERT | Yes |
-| 11 | **BandwidthEstimationStage** | Spectral bandwidth estimation | No |
-| 12 | **TorchSquimQualityMetricsStage** | PESQ, STOI, SI-SDR quality metrics | Yes |
-| 13 | **PrepareModuleSegmentsStage** | Merge/split segments for TTS or ASR | No |
-| 14 | **ComputeWERStage** | Word/character error rate computation | No |
-| 15 | **ManifestWriterStage** | Write output JSONL manifest | No |
+| 7 | **BandwidthEstimationStage** | Spectral bandwidth estimation per segment | No |
+| 8 | **TorchSquimQualityMetricsStage** | PESQ, STOI, SI-SDR quality metrics | Yes |
+| 9 | **PrepareModuleSegmentsStage** | Merge/split segments for the target modality by duration, pauses, and punctuation. Controlled by the `module` parameter (`tts`, `asr`, etc.) | No |
+
+#### Optional Second-Pass ASR & WER Stages
+
+These stages can be appended after `PrepareModuleSegments` in any modality config to cross-validate transcripts:
+
+| # | Stage | Description | GPU |
+|---|-------|-------------|-----|
+| 10 | **NeMoASRAlignerStage** (2nd pass) | Second-pass ASR transcription (e.g. CTC Conformer) | Yes |
+| 11 | **ComputeWERStage** | Word/character error rate between first and second ASR transcripts | No |
+
+#### Optional Text Normalization Stages
+
+These stages can be inserted after merging (stage 6) for language-specific text processing:
+
+| Stage | Description | GPU |
+|-------|-------------|-----|
+| **InverseTextNormalizationStage** | Inverse text normalization (spoken → written) | No |
+| **ChineseConversionStage** | Traditional → Simplified Chinese conversion | No |
+| **ArabicRemoveDiacriticsStage** | Remove diacritics from Arabic text | No |
+| **PNCwithBERTStage** | Punctuation & capitalization via NeMo BERT (requires `nemo_toolkit <= 2.4.1`) | Yes |
 
 ## Installation
 
@@ -65,6 +101,8 @@ source .venv/bin/activate
 
 ### TTS Pipeline
 
+The TTS config runs the core stages with `module: tts` in `PrepareModuleSegmentsStage` (`full_utterance_ratio: 1.0`). The output segments are single-speaker utterances, each annotated with quality metrics such as `bandwidth`, `stoi_squim`, `si_sdr`, and `pesq_squim`. These metrics can be used downstream to filter for high-quality audio — for example, keeping only segments where `bandwidth >= 8000 && si_sdr >= 15 && stoi_squim >= 0.9`.
+
 ```bash
 python tutorials/audio/tagging/main.py \
   --config-path . \
@@ -76,7 +114,7 @@ python tutorials/audio/tagging/main.py \
 
 ### ASR Pipeline
 
-The ASR pipeline extends the TTS pipeline with bandwidth estimation, SQUIM quality metrics, a second-pass ASR transcription, and WER computation:
+The ASR config runs the same core stages with `module: asr` (`full_utterance_ratio: 0.8` to allow partial utterances), then adds second-pass ASR and WER computation. The per-segment `wer` field can be used to filter for reliable transcripts — for example, keeping only segments where `wer <= 10%`.
 
 ```bash
 python tutorials/audio/tagging/main.py \
@@ -125,6 +163,13 @@ The output manifest is a JSONL file where each line contains the fully processed
         {"word": "Hello", "start": 1.23, "end": 1.55},
         {"word": "how", "start": 1.60, "end": 1.72} ...
       ],
+      "metrics":
+        {
+          "bandwidth": [8000, 8400, 7200, ...],
+          "pesq_squim": [3.4, 3.5, 3.6, ...],
+          "stoi_squim": [0.91, 0.92, 0.90, ...],
+          "si_sdr": [19.8, 20.4, 21.0, ...],
+        }
     }
   ],
   "overlap_segments": [],
@@ -138,14 +183,20 @@ The output manifest is a JSONL file where each line contains the fully processed
 
 ### Output Fields
 
-| Field                     | Description                                                                          |
-|---------------------------|--------------------------------------------------------------------------------------|
-| `resampled_audio_filepath`| Path to the resampled 16 kHz mono WAV                                                |
-| `duration`                | Total audio duration in seconds                                                      |
-| `segments`                | List of labelled speaker segments with text, word timestamps                         |
-| `overlap_segments`        | Speaker turns with detected overlap (excluded from `segments`)                       |
-| `text`                    | Full transcript text for the audio entry                                             |
-| `alignment`               | List of word-level alignment objects (with fields: `word`, `start`, `end`)           |
+| Field                     | Source                  | Description                                                          |
+|---------------------------|-------------------------|----------------------------------------------------------------------|
+| `resampled_audio_filepath`| Core                    | Path to the resampled 16 kHz mono WAV                                |
+| `duration`                | Core                    | Total audio duration in seconds                                      |
+| `segments`                | Core                    | List of labelled speaker segments with text, word timestamps         |
+| `overlap_segments`        | Core                    | Speaker turns with detected overlap (excluded from `segments`)       |
+| `text`                    | Core                    | Full transcript text for the audio entry                             |
+| `alignment`               | Core                    | List of word-level alignment objects (`word`, `start`, `end`)        |
+| `segments[].bandwidth`    | Core                    | Estimated spectral bandwidth                                         |
+| `segments[].pesq_squim`   | Core                    | PESQ quality score (via TorchSQUIM)                                  |
+| `segments[].stoi_squim`   | Core                    | STOI quality score (via TorchSQUIM)                                  |
+| `segments[].si_sdr`       | Core                    | SI-SDR quality score (via TorchSQUIM)                                |
+| `segments[].text_2`       | Optional (2nd-pass ASR) | Second-pass ASR transcript (e.g. CTC Conformer)                     |
+| `segments[].wer`          | Optional (ComputeWER)   | Word error rate between first and second ASR transcripts             |
 
 ## Configuration
 
@@ -180,11 +231,17 @@ python tutorials/audio/tagging/main.py \
 Override individual stage parameters using their index in the `stages` list:
 
 ```bash
-# Change diarization model
+# Change diarization model (stage 2)
 stages.2.diarization_model=pyannote/speaker-diarization-3.1
 
-# Adjust ASR batch size
+# Adjust first-pass ASR batch size (stage 4)
 stages.4.batch_size=16
+
+# Adjust PrepareModuleSegments duration limits (stage 9)
+stages.9.min_duration=3 stages.9.max_duration=25
+
+# Adjust second-pass ASR batch size (stage 10, when present)
+stages.10.batch_size=32
 ```
 
 ## File Structure
@@ -211,12 +268,18 @@ pytest tests/stages/audio/tagging/ -v
 tests/stages/audio/tagging/
 ├── conftest.py
 ├── test_merge_alignment_diarization.py
+├── test_prepare_module_segments.py
 ├── test_resample_audio.py
 ├── test_split.py
 ├── test_utils.py
-└── inference/
-    ├── test_base_asr_processor.py
-    └── test_nemo_asr_align.py
+├── inference/
+│   ├── test_base_asr_processor.py
+│   └── test_nemo_asr_align.py
+├── metrics/
+│   └── test_metrics.py
+└── text/
+    ├── test_itn.py
+    └── test_text.py
 ```
 
 ### End-to-End Pipeline Test
@@ -261,8 +324,9 @@ See the test file for detailed comments on the pipeline steps and configuration 
 
 ### GPU Out of Memory
 
-- Reduce `stages.4.batch_size` (ASR alignment)
+- Reduce `stages.4.batch_size` (first-pass ASR alignment)
 - Reduce `stages.2.segmentation_batch_size` (diarization)
+- Reduce `stages.10.batch_size` (second-pass ASR, when present)
 - Process fewer files per manifest
 
 ### Slow Processing

@@ -12,14 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Punctuation and Capitalization (PNC) with BERT stage."""
+"""Punctuation and Capitalization (PNC) with BERT stage.
+
+.. note::
+   ``PunctuationCapitalizationModel`` was removed in NeMo Toolkit >= 2.5.
+   This stage requires ``nemo_toolkit <= 2.4.1``.  When the model cannot be
+   imported the stage logs a warning at setup and becomes a pass-through
+   (every task is returned unchanged).
+"""
 
 from dataclasses import dataclass, field
 from typing import Any
 
 import torch
 from loguru import logger
-from nemo.collections.nlp.models import PunctuationCapitalizationModel
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
@@ -40,6 +46,10 @@ class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
       row as an individual segment, reconstructs text from the ``alignment``
       word list, runs PNC, and writes the punctuated words back into
       ``alignment``.
+
+    .. note::
+       Requires ``nemo_toolkit < 2.4.1``.  When the installed version is
+       2.4.1 or later the stage silently passes tasks through unchanged.
 
     Args:
         model_name:       Pretrained PNC model name.
@@ -63,6 +73,7 @@ class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
     resources: Resources = field(default_factory=lambda: Resources(gpus=1))
     # Internal state
     _pnc_model: Any = field(default=None, repr=False)
+    _skip: bool = field(default=False, repr=False)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -76,6 +87,17 @@ class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
         return "cuda" if self.resources.requires_gpu and torch.cuda.is_available() else "cpu"
 
     def load_model(self) -> None:
+        try:
+            from nemo.collections.nlp.models import PunctuationCapitalizationModel
+        except (ImportError, ModuleNotFoundError):
+            logger.warning(
+                f"[{self.name}] Could not import PunctuationCapitalizationModel. "
+                f"This model is only available in nemo_toolkit <= 2.4.1. "
+                f"Skipping PNC — tasks will pass through unchanged."
+            )
+            self._skip = True
+            return
+
         if self.model_path:
             self._pnc_model = PunctuationCapitalizationModel.restore_from(self.model_path)
         else:
@@ -85,13 +107,16 @@ class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
         """Setup stage on node."""
-        if self._pnc_model is None:
+        if self._pnc_model is None and not self._skip:
             self.load_model()
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup stage."""
-        if self._pnc_model is None:
+        if self._pnc_model is None and not self._skip:
             self.load_model()
+
+        if self._skip:
+            return
 
         self._pnc_model.to(self._device)
 
@@ -115,6 +140,9 @@ class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
                     pnc_idx += 1
 
     def process(self, task: AudioTask) -> AudioTask:
+        if self._skip:
+            return task
+
         data_entry = task.data
         if self.segments_key in data_entry:
             all_text: list[str] = []

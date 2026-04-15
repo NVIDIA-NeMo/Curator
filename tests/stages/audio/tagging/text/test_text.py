@@ -14,11 +14,20 @@
 
 from collections.abc import Callable
 
+import pytest
+
 from nemo_curator.stages.audio.tagging.text.arabic_remove_diacritics import ArabicRemoveDiacriticsStage
 from nemo_curator.stages.audio.tagging.text.chinese_conversion import ChineseConversionStage
 from nemo_curator.stages.audio.tagging.text.pnc import PNCwithBERTStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+try:
+    from nemo.collections.nlp.models import PunctuationCapitalizationModel  # noqa: F401
+
+    _pnc_available = True
+except (ImportError, ModuleNotFoundError):
+    _pnc_available = False
 
 
 class TestArabicRemoveDiacriticsStage:
@@ -60,6 +69,7 @@ class TestArabicRemoveDiacriticsStage:
         assert out["split_metadata"][1]["alignment"][0]["word"] == "الله"
 
 
+@pytest.mark.skipif(not _pnc_available, reason="PunctuationCapitalizationModel requires nemo_toolkit <= 2.4.1")
 class TestPNCwithBERTStage:
     def test_processes_segments(self, audio_task: Callable[..., AudioTask]) -> None:
         stage = PNCwithBERTStage(text_key="text", update_alignment=True, resources=Resources())

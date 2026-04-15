@@ -14,10 +14,9 @@
 
 """Audio tagging pipeline benchmarking script.
 
-Runs the audio tagging pipeline end-to-end:
+Runs the full TTS audio tagging pipeline end-to-end:
     ManifestReader -> Resample -> Diarize -> Split -> ASR Align ->
-         Join -> Merge -> Bandwidth -> Squim -> PrepareModuleSegments -> ITN ->
-         2nd-pass ASR -> ComputeWER -> Write
+    Join -> Merge -> Bandwidth -> Squim -> PrepareModuleSegments -> Second pass ASR -> Compute WER -> Write
 
 Exercises the tagging pipeline stages for regression tracking.
 """
@@ -54,7 +53,6 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     executor: str,
     cpus: int,
     gpus: float,
-    pipeline_type: str = "core",
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the full audio tagging pipeline benchmark."""
@@ -132,46 +130,50 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         ).with_(resources=Resources(cpus=cpus))
     )
 
-    if pipeline_type == "full":
-        pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=cpus)))
+    # Bandwidth estimation per segment
+    pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=cpus)))
 
-        pipeline.add_stage(
-            TorchSquimQualityMetricsStage(name="SquimMetrics").with_(resources=Resources(cpus=cpus, gpus=gpus))
-        )
+    # Audio quality metrics (PESQ, STOI, SI-SDR)
+    pipeline.add_stage(
+        TorchSquimQualityMetricsStage(name="SquimMetrics").with_(resources=Resources(cpus=cpus, gpus=gpus))
+    )
 
-        pipeline.add_stage(
-            PrepareModuleSegmentsStage(
-                name="PrepareModuleSegments",
-                module="asr",
-                min_duration=5,
-                max_duration=20,
-                full_utterance_ratio=0.8,
-            ).with_(resources=Resources(cpus=cpus))
-        )
+    # Prepare TTS segments
+    pipeline.add_stage(
+        PrepareModuleSegmentsStage(
+            name="PrepareModuleSegments",
+            module="tts",
+            min_duration=5,
+            max_duration=20,
+            full_utterance_ratio=1.0,
+        ).with_(resources=Resources(cpus=cpus))
+    )
 
-        pipeline.add_stage(
-            NeMoASRAlignerStage(
-                name="ASRAlignment2",
-                model_name="nvidia/stt_en_conformer_ctc_large",
-                is_fastconformer=False,
-                decoder_type="ctc",
-                batch_size=64,
-                split_batch_size=100,
-                text_key="text_2",
-                infer_segment_only=True,
-                compute_timestamps=False,
-            ).with_(resources=Resources(cpus=cpus, gpus=gpus))
-        )
+    # Second pass ASR
+    pipeline.add_stage(
+        NeMoASRAlignerStage(
+            name="ASRAlignment2",
+            model_name="nvidia/stt_en_conformer_ctc_large",
+            is_fastconformer=False,
+            decoder_type="ctc",
+            batch_size=64,
+            split_batch_size=100,
+            text_key="text_2",
+            infer_segment_only=True,  # to run inference only on each segment
+            compute_timestamps=False,
+        ).with_(resources=Resources(cpus=cpus, gpus=gpus))
+    )
 
-        pipeline.add_stage(
-            ComputeWERStage(
-                name="ComputeWER",
-                language="en",
-                hypothesis_text_key="text",
-                reference_text_key="text_2",
-                pnc_chars=".?,",
-            ).with_(resources=Resources(cpus=cpus))
-        )
+    # Compute WER
+    pipeline.add_stage(
+        ComputeWERStage(
+            name="ComputeWER",
+            language="en",
+            hypothesis_text_key="text",
+            reference_text_key="text_2",
+            pnc_chars=".?,",
+        ).with_(resources=Resources(cpus=cpus))
+    )
 
     # Write output manifest
     pipeline.add_stage(ManifestWriterStage(output_path=final_manifest).with_(resources=Resources(cpus=cpus)))
