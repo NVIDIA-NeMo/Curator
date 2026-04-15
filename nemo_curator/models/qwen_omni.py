@@ -247,3 +247,88 @@ class QwenOmni(ModelInterface):
         for idx, out in zip(valid_indices, outputs):
             results[idx] = out.outputs[0].text.strip()
         return results
+
+    def generate_from_messages(
+        self,
+        messages_list: list[list[dict[str, Any]]],
+        waveforms: list[np.ndarray | None] | None = None,
+        sample_rates: list[int | None] | None = None,
+    ) -> list[str]:
+        """Run inference from pre-built chat messages (supports audio and text-only).
+
+        For audio passes, the messages should contain ``{"type": "audio", "audio": ...}``
+        placeholders. The actual waveform is injected from ``waveforms``.
+
+        For text-only passes, set waveforms to None and omit audio parts in messages.
+
+        Args:
+            messages_list: List of OpenAI-style conversations, one per sample.
+            waveforms: Optional waveforms for audio passes.  If provided,
+                each waveform replaces the audio placeholder in the messages.
+            sample_rates: Corresponding sample rates (required if waveforms given).
+
+        Returns:
+            One predicted text string per input.
+        """
+        if self._llm is None or self._sampling_params is None:
+            msg = "Model not initialized. Call setup() first."
+            raise RuntimeError(msg)
+
+        from qwen_omni_utils import process_mm_info
+
+        def _prepare_one(idx: int) -> dict[str, Any] | None:
+            msgs = messages_list[idx]
+            if waveforms and waveforms[idx] is not None:
+                sr = sample_rates[idx] if sample_rates else _QWEN_SAMPLE_RATE
+                wav_16k = self._resample(waveforms[idx], sr)
+                msgs = _inject_waveform(msgs, wav_16k)
+            try:
+                text = self._processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+                audios, images, videos = process_mm_info(msgs, use_audio_in_video=False)
+            except Exception:
+                logger.warning("Failed to preprocess messages at index %d", idx)
+                return None
+            inputs: dict[str, Any] = {
+                "prompt": text,
+                "multi_modal_data": {},
+                "mm_processor_kwargs": {"use_audio_in_video": False},
+            }
+            if audios is not None:
+                inputs["multi_modal_data"]["audio"] = audios
+            if images is not None:
+                inputs["multi_modal_data"]["image"] = images
+            if videos is not None:
+                inputs["multi_modal_data"]["video"] = videos
+            return inputs
+
+        if self._prep_pool is not None:
+            prepared = list(self._prep_pool.map(_prepare_one, range(len(messages_list))))
+        else:
+            prepared = [_prepare_one(i) for i in range(len(messages_list))]
+
+        valid_indices = [i for i, p in enumerate(prepared) if p is not None]
+        valid_inputs = [prepared[i] for i in valid_indices]
+
+        if not valid_inputs:
+            return [""] * len(messages_list)
+
+        outputs = self._llm.generate(valid_inputs, sampling_params=self._sampling_params, use_tqdm=False)
+
+        results = [""] * len(messages_list)
+        for idx, out in zip(valid_indices, outputs):
+            results[idx] = out.outputs[0].text.strip()
+        return results
+
+
+def _inject_waveform(messages: list[dict[str, Any]], waveform: np.ndarray) -> list[dict[str, Any]]:
+    """Replace audio filepath placeholders with actual waveform arrays in messages."""
+    from copy import deepcopy
+
+    result = deepcopy(messages)
+    for msg in result:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if part.get("type") == "audio" and isinstance(part.get("audio"), str):
+                    part["audio"] = waveform
+    return result
