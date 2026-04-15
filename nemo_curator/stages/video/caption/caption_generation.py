@@ -90,7 +90,9 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
 
             variant_info = _QWEN_VL_VARIANTS.get(self.model_variant, {})
             effective_model_id = self.model_id or variant_info.get("model_id") or QwenVL.DEFAULT_MODEL_ID
-            effective_revision = self.model_revision or variant_info.get("revision") or QwenVL.DEFAULT_MODEL_REVISION
+            effective_revision = self.model_revision if self.model_revision is not None else (
+                variant_info.get("revision") if variant_info else QwenVL.DEFAULT_MODEL_REVISION
+            )
             QwenVL.download_weights_on_node(
                 self.model_dir, model_id=effective_model_id, model_revision=effective_revision
             )

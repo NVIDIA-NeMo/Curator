@@ -68,7 +68,8 @@ class QwenLM(ModelInterface):
     ):
         variant_info = _QWEN_LM_VARIANTS.get(model_variant, {})
         model_id = model_id or variant_info.get("model_id") or self.DEFAULT_MODEL_ID
-        model_revision = model_revision or variant_info.get("revision") or self.DEFAULT_MODEL_REVISION
+        if model_revision is None:
+            model_revision = variant_info.get("revision") if variant_info else self.DEFAULT_MODEL_REVISION
         if not (Path(model_id).is_absolute() or model_id.startswith(("./", "../"))) and not model_id.startswith(
             "Qwen/"
         ):
@@ -113,7 +114,8 @@ class QwenLM(ModelInterface):
     ) -> None:
         """Download the weights for the QwenLM model on the node."""
         model_id = model_id or cls.DEFAULT_MODEL_ID
-        model_revision = model_revision or cls.DEFAULT_MODEL_REVISION
+        if model_revision is None and model_id == cls.DEFAULT_MODEL_ID:
+            model_revision = cls.DEFAULT_MODEL_REVISION
         model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
