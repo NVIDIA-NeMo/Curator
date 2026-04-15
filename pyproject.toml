@@ -72,7 +72,6 @@ dependencies = [
 cuda12 = [
     "gpustat",
     "nvidia-ml-py",
-    "pynvml>=13.0.1",
 ]
 vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
@@ -96,28 +95,30 @@ deduplication_cuda12 = [
     "rapidsmpf-cu12==25.10.*",
 ]
 
-
-audio_cpu = [
+audio_common = [
+    "nemo_toolkit[asr]>=2.7.2",
+    "soundfile>=0.12.0",
+    "onnx>=1.19.0",
+    "silero-vad",
+    "librosa",
+    "scipy",
+    "pydub>=0.25.1",
     "transformers",
     "accelerate",
     "pyannote-audio>=4.0.0",
-    "whisperx==3.8.2",
-    "cuda-python>=12.3",
-    "soundfile>=0.12.0",
-    "torchaudio",
-    "nemo_toolkit[asr]==2.4.0",
-    "nemo_toolkit[nlp]==2.4.0",
-    "nemo-text-processing",
-    "pyarabic",
-    "opencc",
-    "librosa",
-    "jiwer",
-    "transformer-engine[pytorch]==2.4.0",
+    "whisperx==3.8.4",
+]
+audio_cpu = [
+    "nemo_curator[audio_common]",
+    "onnxruntime>=1.20.1,<1.24",
 ]
 
 audio_cuda12 = [
-    "nemo_curator[audio_cpu]",
+    "cuda-python>=12.3",
+    "nemo_curator[audio_common]",
     "nemo_curator[cuda12]",
+    "nvidia-cudnn-cu12",
+    "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
 ]
 
 image_cpu = [
@@ -187,6 +188,7 @@ video_cuda12 = [
 # Math Curation Dependencies
 math_cpu = [
     "nemo_curator[text_cpu]",  # Math examples use text processing utilities
+    "boto3>=1.35",  # S3 range requests for Common Crawl WARC fetching
 ]
 
 math_cuda12 = [
@@ -194,6 +196,23 @@ math_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
     "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+]
+
+# Multimodal / Interleaved Dependencies
+interleaved_cpu = [
+    "albumentations",
+    "open_clip_torch",
+    "opencv-python",
+    "Pillow",
+    "pypdfium2",
+    "s3fs>=2024.12.0",
+    "timm",
+]
+
+interleaved_cuda12 = [
+    "nemo_curator[interleaved_cpu]",
+    "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
 ]
 
 # Synthetic Data Generation (SDG) Dependencies
@@ -212,6 +231,7 @@ all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
+    "nemo_curator[interleaved_cuda12]",
     "nemo_curator[math_cuda12]",
     "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
@@ -219,7 +239,7 @@ all = [
 ]
 
 [dependency-groups]
-build = ["setuptools", "torch<=2.9.1"]
+build = ["setuptools", "torch<=2.9.1", "Cython", "packaging"]
 dev = ["jupyter"]
 linting = ["pre-commit", "ruff==0.14.10"]
 test = [
@@ -236,19 +256,20 @@ test = [
     "pyyaml",
     "rich",
     "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
-    "s3fs", # added for testing cloud fs
+    "s3fs>=2024.12.0", # added for testing cloud fs
     "slack_sdk",
 ]
 
 [tool.uv]
+required-version = ">=0.7.0"
 package = true
 managed = true
 default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
-no-build-isolation-package = ["flash-attn", "transformer-engine", "transformer-engine-torch"]
+no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
-    "cryptography>=46.0.5", # Address CVE GHSA-r6ph-v2qm-q3c2
+    "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
     "nbconvert>=7.17.0", # Address CVE GHSA-xm59-rqc7-hhvf
     "pillow>=12.1.1", # Address CVE GHSA-cfh3-3jmp-rvhc
     "protobuf>=5.29.6", # Address CVE GHSA-8qvm-5x2c-j2w7
@@ -257,8 +278,7 @@ constraint-dependencies = [
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
-    "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
-    "torchcodec>=0.9,<0.10", # torchcodec 0.10 requires torch 2.10; pin to 0.9.x for torch 2.9.x
+    "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
     "apex; sys_platform == 'never'",
@@ -266,16 +286,14 @@ override-dependencies = [
     "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
-    "nvidia-resiliency-ext; sys_platform == 'never'", # No manylinux_2_35 wheel available; not needed for audio tagging
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
-    "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
+    "protobuf>=5.29.5,<6.0",  # Override nemo-toolkits ~=5.29.5; cap <6 for wandb protobuf stub compat
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
-    "tiktoken>=0.8.0", # Override nemo-toolkit[nlp]'s tiktoken==0.7.0 pin; data-designer needs >=0.8.0
-    "torch>=2.8.0,<=2.9.1",
-    "torchaudio>=2.8.0,<=2.9.1",
-    "torchvision>=0.23.0,<=0.24.1",
-    "transformers>=4.51.0,<=4.55.2", # Else Cosmos Embed imports fail
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
+    "torch>=2.8.0,<=2.9.1", # Override whisperx's torch<2.9.dev0 for vllm compat
+    "torchaudio>=2.8.0,<=2.9.1", # Override whisperx's torchaudio<2.9.dev0 for vllm compat
+    "torchvision>=0.23.0,<=0.24.1", # Must match torch>=2.8.0,<=2.9.1
+    "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
 
 
@@ -310,7 +328,7 @@ nixl = { index = "pypi" }
 nixl-cu12 = { index = "pypi" }
 
 [tool.coverage.paths]
-source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]
+source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curator/Curator/nemo_curator"]
 
 [tool.ruff]
 line-length = 119
@@ -364,6 +382,12 @@ fixable = ["ALL"]
 "tutorials/**" = [
     "INP001", # no __init__.py is required
     "PLE2515", # ignore \u200b complaint
+]
+"fern/**/*.py" = [
+    "INP001", # Fern CLI helper scripts; not an installable package
+]
+".github/scripts/**" = [
+    "INP001", # CI scripts; not an installable package
 ]
 
 [tool.pytest.ini_options]

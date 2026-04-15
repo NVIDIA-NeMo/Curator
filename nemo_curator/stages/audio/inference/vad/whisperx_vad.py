@@ -20,6 +20,7 @@ and WhisperXVADStage (ProcessingStage for VAD-only pipeline use).
 """
 
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -131,7 +132,7 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
     @property
     def _device(self) -> str:
         """Derive device from resources configuration."""
-        return "cuda" if self.resources.requires_gpu and torch.cuda.is_available() else "cpu"
+        return "cuda" if self.resources.requires_gpu else "cpu"
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
@@ -139,12 +140,12 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
         """Setup stage on node."""
         if self._vad_model is None:
             self._vad_model = WhisperXVADModel(
-                device=self._device,
+                device="cpu",
                 vad_onset=self.vad_onset,
                 vad_offset=self.vad_offset,
             )
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         if self._vad_model is None:
             self._vad_model = WhisperXVADModel(
                 device=self._device,
@@ -155,16 +156,33 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
         logger.info(f"[{self.name}] Initialized WhisperX VAD on {self._device}")
 
     def process(self, task: AudioTask) -> AudioTask:
+        t0 = time.perf_counter()
         data_entry = task.data
         file_path = data_entry[self.audio_filepath_key]
         duration = data_entry.get("duration", get_audio_duration(file_path))
         if duration < self.min_length:
             logger.warning(f"Skipping {file_path} because it is less than {self.min_length} seconds")
             data_entry[self.segments_key] = []
+            self._log_metrics(
+                {
+                    "process_time": time.perf_counter() - t0,
+                    "audio_duration": duration,
+                    "vad_segments_detected": 0,
+                    "skipped_short": 1.0,
+                }
+            )
             return task
 
         data, sr = sf.read(file_path, dtype="float32")
         audio = np.expand_dims(data, axis=0) if data.ndim == 1 else data.T
         vad_segments = self._vad_model.get_vad_segments(audio, self.max_length, sample_rate=sr)
         data_entry[self.segments_key] = vad_segments
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "audio_duration": duration,
+                "vad_segments_detected": len(vad_segments),
+                "skipped_short": 0.0,
+            }
+        )
         return task

@@ -18,6 +18,7 @@ PyAnnote Diarization and Overlap Detection Stage.
 
 import os
 import random
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,11 +57,11 @@ def has_overlap(turn: Segment, overlaps: list) -> bool:
         if overlap.start > turn.end:
             # Overlap happens after turn, no need to keep looping since overlaps is sorted
             break
-        elif overlap.start >= turn.start and overlap.start <= turn.end:
+        elif overlap.start >= turn.start and overlap.start < turn.end:
             # overlap starts during turn
             turn_overlaps = True
             break
-        elif (overlap.end <= turn.end) and (overlap.end >= turn.start):
+        elif (overlap.end < turn.end) and (overlap.end > turn.start):
             # overlap ends during turn
             turn_overlaps = True
             break
@@ -84,10 +85,10 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         embedding_batch_size: Batch size for speaker embeddings
         min_length: Minimum segment length in seconds
         max_length: Maximum segment length in seconds
+        xenna_num_workers: If set, passes ``num_workers`` to Xenna (cluster-wide cap). Unset uses Xenna autoscaling.
     """
 
-    # HuggingFace token
-    hf_token: str = ""
+    hf_token: str
 
     # Diarization pipeline model ID on HuggingFace
     model_name: str = "pyannote/speaker-diarization-3.1"
@@ -108,6 +109,9 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "PyAnnoteDiarization"
     resources: Resources = field(default_factory=lambda: Resources(gpus=1))
 
+    # Xenna executor (optional; unset = default autoscaling)
+    xenna_num_workers: int | None = None
+
     # Internal state (not serialized, initialized in setup() to allow deepcopy)
     _pipeline: Any = field(default=None, repr=False)
     _vad_model: Any = field(default=None, repr=False)  # WhisperXVADModel
@@ -119,10 +123,16 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, self.segments_key, self.overlap_segments_key]
 
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        spec: dict[str, Any] = {}
+        if self.xenna_num_workers is not None:
+            spec["num_workers"] = self.xenna_num_workers
+        return spec
+
     @property
     def _device(self) -> str:
         """Derive device from resources configuration."""
-        return "cuda" if self.resources.requires_gpu and torch.cuda.is_available() else "cpu"
+        return "cuda" if self.resources.requires_gpu else "cpu"
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
@@ -137,7 +147,7 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
                 vad_offset=0.363,
             )
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         """Load models to device (called per replica before processing)."""
         if self._pipeline is None:
             self._pipeline = PyAnnotePipeline.from_pretrained(self.model_name, token=self.hf_token)
@@ -207,6 +217,7 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         """Process a single entry for diarization and overlap detection."""
+        t0 = time.perf_counter()
         data_entry = task.data
         file_path = data_entry.get(self.audio_filepath_key)
         if not file_path:
@@ -279,4 +290,15 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         # Update entry
         data_entry[self.segments_key] = segments
         data_entry[self.overlap_segments_key] = overlap_segments
+
+        speakers = {seg["speaker"] for seg in segments if seg.get("speaker") != "no-speaker"}
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "segments_detected": len(segments),
+                "overlap_segments_detected": len(overlap_segments),
+                "speakers_detected": len(speakers),
+                "audio_duration": audio_duration,
+            }
+        )
         return task

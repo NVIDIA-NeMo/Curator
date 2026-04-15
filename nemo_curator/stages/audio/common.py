@@ -13,11 +13,14 @@
 # limitations under the License.
 
 import json
+import os
+import time
 from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
 from typing import Any
 
 import soundfile
+import torch
 from fsspec.core import url_to_fs
 from loguru import logger
 
@@ -30,8 +33,8 @@ from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 def get_audio_duration(audio_filepath: str) -> float:
     """Get the duration of the audio file in seconds."""
     try:
-        raw, samplerate = soundfile.read(audio_filepath)
-        return raw.shape[0] / samplerate
+        info = soundfile.info(audio_filepath)
+        return info.frames / info.samplerate
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to get duration for audio file {audio_filepath}: {e}")
         return -1.0
@@ -51,6 +54,11 @@ class GetAudioDurationStage(ProcessingStage[AudioTask, AudioTask]):
     audio_filepath_key: str = "audio_filepath"
     duration_key: str = "duration"
 
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        import soundfile
+
+        self._soundfile = soundfile
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key]
 
@@ -58,9 +66,11 @@ class GetAudioDurationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.duration_key]
 
     def process(self, task: AudioTask) -> AudioTask:
+        t0 = time.perf_counter()
         audio_filepath = task.data[self.audio_filepath_key]
         duration = get_audio_duration(audio_filepath)
         task.data[self.duration_key] = duration
+        self._log_metrics({"process_time": time.perf_counter() - t0, "duration": max(duration, 0.0)})
         return task
 
 
@@ -103,6 +113,7 @@ class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
         raise NotImplementedError(msg)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        t0 = time.perf_counter()
         results = []
         for task in tasks:
             if not self.validate_input(task):
@@ -110,6 +121,14 @@ class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
                 raise ValueError(msg)
             if self.operator(task.data[self.input_value_key], self.target_value):
                 results.append(task)
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "input_count": len(tasks),
+                "output_count": len(results),
+                "filtered_count": len(tasks) - len(results),
+            }
+        )
         return results
 
 
@@ -124,10 +143,11 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     name: str = "manifest_reader_stage"
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
+        t0 = time.perf_counter()
         paths = task.data
         results: list[AudioTask] = []
+        count = 0
         for manifest in paths:
-            count = 0
             fs, resolved = url_to_fs(manifest)
             with fs.open(resolved, "r", encoding="utf-8") as f:
                 for line in f:
@@ -143,19 +163,29 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                         )
                         count += 1
             logger.info(f"ManifestReaderStage: loaded {count} entries from {manifest}")
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "manifests_read": len(paths),
+                "entries_read": len(results),
+            }
+        )
         return results
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {"is_fanout_stage": True}
 
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {"num_workers": 1}
+
 
 @dataclass
 class ManifestReader(CompositeStage[_EmptyTask, AudioTask]):
-    """Composite stage for reading ALM JSONL manifests.
+    """Composite stage for reading JSONL manifests.
 
     Decomposes into:
     1. FilePartitioningStage — discovers and partitions manifest files
-    2. ALMManifestReaderStage — reads each partition line-by-line (no Pandas)
+    2. ManifestReaderStage — reads each partition line-by-line (no Pandas)
 
     Args:
         manifest_path: Path or list of paths to JSONL manifests (local or cloud).
@@ -165,8 +195,8 @@ class ManifestReader(CompositeStage[_EmptyTask, AudioTask]):
         storage_options: Storage options for cloud paths (S3, GCS credentials, endpoints).
     """
 
+    manifest_path: str | list[str]
     name: str = "manifest_reader"
-    manifest_path: str | list[str] = ""
     files_per_partition: int | None = 1
     blocksize: int | str | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
@@ -219,8 +249,8 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         output_path: Destination JSONL path (local or cloud).
     """
 
+    output_path: str
     name: str = "manifest_writer"
-    output_path: str = ""
 
     def __post_init__(self) -> None:
         if not self.output_path:
@@ -265,3 +295,93 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers": 1}
+
+
+def load_audio_file(audio_path: str, mono: bool = True) -> tuple[torch.Tensor, int]:
+    """Load audio file and return waveform tensor (channels, samples) and sample rate."""
+    data, sample_rate = soundfile.read(audio_path, dtype="float32")
+    waveform = torch.from_numpy(data)
+    waveform = waveform.unsqueeze(0) if waveform.dim() == 1 else waveform.T
+    if mono and waveform.shape[0] > 1:
+        waveform = waveform.mean(dim=0, keepdim=True)
+    return waveform, sample_rate
+
+
+def ensure_waveform_2d(waveform: Any) -> torch.Tensor:  # noqa: ANN401
+    """Ensure waveform is a torch.Tensor in 2D (channels, samples) format."""
+    if not torch.is_tensor(waveform):
+        waveform = torch.as_tensor(waveform, dtype=torch.float32)
+    if waveform.dim() == 1:
+        waveform = waveform.unsqueeze(0)
+    return waveform
+
+
+def ensure_mono(waveform: torch.Tensor) -> torch.Tensor:
+    """Convert multi-channel waveform to mono. Assumes 2D (channels, samples) input."""
+    if waveform.shape[0] > 1:
+        waveform = waveform.mean(dim=0, keepdim=True)
+    return waveform
+
+
+def resolve_waveform_from_item(
+    item: dict[str, Any], task_id: str, mono: bool = True
+) -> tuple[torch.Tensor, int] | None:
+    """
+    Resolve (waveform, sample_rate) from an item dict, loading from file if needed.
+
+    Checks item['waveform'] + item['sample_rate'], falls back to loading from
+    item['audio_filepath'], resolves missing sample_rate from file header.
+    Updates item in-place when loading from file.
+    Returns None if resolution fails.
+    """
+    waveform = item.get("waveform")
+    sample_rate = item.get("sample_rate")
+
+    if waveform is None:
+        audio_filepath = item.get("audio_filepath")
+        if audio_filepath and os.path.exists(audio_filepath):
+            try:
+                waveform, sample_rate = load_audio_file(audio_filepath, mono=mono)
+                item["waveform"] = waveform
+                item["sample_rate"] = sample_rate
+            except (OSError, RuntimeError, soundfile.SoundFileError) as e:
+                logger.error(f"[{task_id}] Failed to load audio file: {e}")
+                return None
+        else:
+            logger.warning(f"[{task_id}] No waveform or valid audio_filepath found")
+            return None
+    elif sample_rate is None:
+        audio_filepath = item.get("audio_filepath")
+        if audio_filepath and os.path.exists(audio_filepath):
+            try:
+                info = soundfile.info(audio_filepath)
+                sample_rate = info.samplerate
+                item["sample_rate"] = sample_rate
+            except (OSError, RuntimeError, soundfile.SoundFileError) as e:
+                logger.error(
+                    f"[{task_id}] Waveform present but sample_rate missing "
+                    f"and could not read from '{audio_filepath}': {e}"
+                )
+                return None
+        else:
+            logger.error(f"[{task_id}] Waveform present but 'sample_rate' missing and no audio_filepath available.")
+            return None
+
+    waveform = ensure_waveform_2d(waveform)
+    if mono:
+        waveform = ensure_mono(waveform)
+
+    return waveform, sample_rate
+
+
+def resolve_model_path(model_path: str, reference_file: str, module_subdir: str) -> str:
+    """Resolve a relative model path using the reference file's directory and module subdirectory."""
+    if os.path.isabs(model_path):
+        return model_path
+    current_dir = os.path.dirname(os.path.abspath(reference_file))
+    module_dir = os.path.join(current_dir, module_subdir)
+    for base in (module_dir, current_dir):
+        resolved = os.path.join(base, model_path)
+        if os.path.exists(resolved):
+            return resolved
+    return os.path.join(module_dir, model_path)

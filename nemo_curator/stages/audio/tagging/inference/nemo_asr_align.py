@@ -23,6 +23,7 @@ tagging manifest keys like ``split_filepaths``, ``split_metadata``,
 and ``segments``.
 """
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -82,7 +83,7 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
     @property
     def _device(self) -> str:
         """Derive device from resources configuration."""
-        return "cuda" if self.resources.requires_gpu and torch.cuda.is_available() else "cpu"
+        return "cuda" if self.resources.requires_gpu else "cpu"
 
     def _prepare_segment_batch_with_metadata(
         self,
@@ -208,16 +209,24 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         if self.model_path:
             self._asr_model = nemo_asr.models.ASRModel.restore_from(restore_path=self.model_path)
         else:
-            self._asr_model = nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name)
+            self._asr_model = nemo_asr.models.ASRModel.from_pretrained(
+                model_name=self.model_name, map_location=torch.device(self._device)
+            )
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
-        """Download model weights (called once per node)."""
+        """Download model weights without loading into memory (called once per node)."""
         if self._asr_model is None:
-            self.load_model()
+            if self.model_path:
+                return
+            try:
+                nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name, return_model_file=True)
+            except Exception as e:
+                msg = f"[{self.name}] Failed to download model {self.model_name}"
+                raise RuntimeError(msg) from e
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         """Load model to device and configure decoding (called per replica)."""
         if self._asr_model is None:
             self.load_model()
@@ -305,17 +314,23 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         return alignments, text
 
     def process(self, task: AudioTask) -> AudioTask:
-        msg = "NeMoASRAlignerStage only supports process_batch"
-        raise NotImplementedError(msg)
+        results = self.process_batch([task])
+        return results[0] if results else task
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Process a batch of AudioTasks for ASR alignment."""
         if len(tasks) == 0:
             return []
-        if self.infer_segment_only:
-            return self.process_segments(tasks)
-        else:
-            return self.process_full_audio(tasks)
+        t0 = time.perf_counter()
+        results = self.process_segments(tasks) if self.infer_segment_only else self.process_full_audio(tasks)
+
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "entries_processed": len(tasks),
+            }
+        )
+        return results
 
     def process_full_audio(self, tasks: list[AudioTask]) -> list[AudioTask]:  # noqa: C901, PLR0912, PLR0915
         """Process entries as full audio (or meta-entries with split_filepaths)."""

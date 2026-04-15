@@ -183,3 +183,31 @@ def human_readable_bytes_repr(size: int) -> str:
                 return f"{int(size)} {suffix}"
             return f"{value:.2f} {suffix}"
     return "0 B"
+
+
+def get_gpu_stats() -> dict:
+    """Query GPU stats using gpustat and return memory info for each available GPU.
+
+    Returns:
+        dict: Keys are GPU indices; values are dicts with "memory_total" and "memory_used".
+    """
+    import gpustat
+
+    query = gpustat.new_query()
+    return {gpu.index: {"memory_total": gpu.memory_total, "memory_used": gpu.memory_used} for gpu in query}
+
+
+def log_gpu_stats(gpu_stats: dict, warn_if_in_use: bool = False) -> None:
+    """Log GPU memory usage for each GPU as a percentage of total memory.
+
+    Args:
+        gpu_stats: Dictionary as returned by get_gpu_stats().
+        warn_if_in_use: If True, emit a warning for any GPU with memory_used > 0.
+    """
+    for gpu_id, stats in gpu_stats.items():
+        pct_used = stats["memory_used"] / stats["memory_total"] * 100
+        logger.info(f"GPU {gpu_id} : {pct_used:.1f}%")
+        if warn_if_in_use and stats["memory_used"] > 0:
+            logger.warning(
+                f"GPU {gpu_id} has {stats['memory_used']} MiB ({pct_used:.1f}% of total) used before benchmark started"
+            )

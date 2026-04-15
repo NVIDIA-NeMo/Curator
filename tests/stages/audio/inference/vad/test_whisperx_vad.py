@@ -14,18 +14,21 @@
 
 from pathlib import Path
 
+import pytest
+
 from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
 class TestWhisperXVADStage:
+    @pytest.mark.gpu
     def test_process(self, wav_filepath: Path) -> None:
         stage = WhisperXVADStage(
             min_length=0.5,
             max_length=40.0,
-            resources=Resources(cpus=1.0),
             segments_key="vad_segments",
+            resources=Resources(gpus=1),
         )
         stage.setup()
 
@@ -38,4 +41,4 @@ class TestWhisperXVADStage:
         out = result.data
         assert "vad_segments" in out
         assert isinstance(out["vad_segments"], list)
-        assert len(out["vad_segments"]) >= 1
+        assert len(out["vad_segments"]) == 2

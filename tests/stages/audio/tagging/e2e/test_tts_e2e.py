@@ -35,6 +35,7 @@ from .conftest import CONFIGS_DIR, REFERENCE_DIR
 from .utils import check_output
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not os.getenv("HF_TOKEN"), reason="HF_TOKEN required for PyAnnote models")
 def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     """TTS tagging pipeline e2e: Resample + Diarize + Split + ASR Align + Join + Merge + ITN + BW + SQUIM + Segments."""
@@ -54,9 +55,14 @@ def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     cfg.stages[4].model_name = "nvidia/stt_en_fastconformer_ctc_large"
     cfg.stages[4].is_fastconformer = True
     cfg.stages[4].decoder_type = "ctc"
+    cfg.stages[4].transcribe_batch_size = 1
 
     pipeline = create_pipeline_from_yaml(cfg)
-    executor = XennaExecutor()
+    executor = XennaExecutor(
+        {
+            "cpu_allocation_percentage": 0.9,
+        }
+    )
     pipeline.run(executor)
 
     check_output(cfg.final_manifest, reference_manifest, text_key="text")

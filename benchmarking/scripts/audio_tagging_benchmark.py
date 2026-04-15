@@ -65,7 +65,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     final_manifest = str(results_dir / "tagging_output.jsonl")
 
     logger.info("Starting audio tagging pipeline benchmark")
-    logger.info(f"GPUs: {gpus}, CPUs: {cpus}")
+    logger.info(f"CPUs: {cpus}")
     logger.info(f"Max segment length: {max_segment_length}s")
 
     exc = setup_executor(executor, config={"execution_mode": "streaming"})
@@ -98,7 +98,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             name="PyAnnoteDiarization",
             hf_token=hf_token,
             max_length=max_segment_length,
-        ).with_(resources=Resources(cpus=cpus, gpus=gpus))
+        ).with_(resources=Resources(cpus=cpus, gpus=0.5))
     )
 
     # Split long audio segments
@@ -117,7 +117,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             is_fastconformer=True,
             decoder_type="rnnt",
             batch_size=asr_batch_size,
-        ).with_(resources=Resources(cpus=cpus, gpus=gpus))
+        ).with_(resources=Resources(cpus=cpus, gpus=0.45))
     )
 
     # Rejoin split audio metadata
@@ -191,6 +191,10 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     return {
         "metrics": {
             "is_success": True,
+            "time_taken_s": run_time_taken,
+            "num_tasks_processed": len(results),
+            "throughput_tasks_per_sec": len(results) / run_time_taken if run_time_taken > 0 else 0,
+            "total_audio_duration_hours": total_duration,
         },
         "tasks": results,
     }
@@ -204,13 +208,6 @@ def main() -> int:
     parser.add_argument("--repeat-factor", type=int, default=1, help="Repeat factor for the input manifest entries")
     parser.add_argument("--benchmark-results-path", required=True, help="Path to write benchmark results")
     parser.add_argument("--hf-token", default="", help="HuggingFace token for PyAnnote")
-    parser.add_argument("--gpus", type=float, default=0.5, help="GPU fraction per stage (0 for CPU-only)")
-    parser.add_argument(
-        "--pipeline-type",
-        default="core",
-        choices=["core", "full"],
-        help="Pipeline type: 'core' (basic tagging) or 'full' (with quality metrics, WER)",
-    )
     parser.add_argument(
         "--max-segment-length", type=float, default=40.0, help="Maximum segment duration (seconds) to infer ASR"
     )

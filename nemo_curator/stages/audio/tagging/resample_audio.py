@@ -21,13 +21,15 @@ https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/audio/commo
 
 """
 
+import hashlib
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 
 from fsspec.core import url_to_fs
 
-from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio.common import get_audio_duration
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -45,8 +47,8 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     # Processing parameters
+    resampled_audio_dir: str
     input_format: str = "wav"
-    resampled_audio_dir: str = "/local/resampled"
     target_sample_rate: int = 16000
     target_format: str = "wav"
     target_nchannels: int = 1
@@ -60,7 +62,9 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     # Stage metadata
     name: str = "ResampleAudio"
 
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         fs, path = url_to_fs(self.resampled_audio_dir)
         fs.makedirs(path, exist_ok=True)
 
@@ -85,6 +89,7 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         Returns:
             AudioTask with updated metadata
         """
+        t0 = time.perf_counter()
         data_entry = task.data
 
         if self.audio_filepath_key not in data_entry:
@@ -94,7 +99,9 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         original_audio_filepath = data_entry[self.audio_filepath_key]
         _, local_audio_path = url_to_fs(original_audio_filepath)
         if self.audio_item_id_key not in data_entry:
-            data_entry[self.audio_item_id_key] = os.path.splitext(os.path.basename(local_audio_path))[0]
+            stem = os.path.splitext(os.path.basename(local_audio_path))[0]
+            path_hash = hashlib.sha256(local_audio_path.encode()).hexdigest()[:8]
+            data_entry[self.audio_item_id_key] = f"{stem}_{path_hash}"
 
         input_audio_path = local_audio_path
         output_audio_path = os.path.join(
@@ -104,7 +111,8 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
 
         # Convert audio file if not already done
         fs, output_path = url_to_fs(output_audio_path)
-        if not fs.exists(output_path):
+        skipped_conversion = fs.exists(output_path)
+        if not skipped_conversion:
             if input_audio_path.lower().endswith(".wav"):
                 cmd = [
                     "sox",
@@ -144,6 +152,14 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         # Update metadata — preserve original URL for cloud paths
         data_entry[self.audio_filepath_key] = original_audio_filepath
         data_entry[self.resampled_audio_filepath_key] = output_audio_path
-        data_entry[self.duration_key] = get_audio_duration(output_audio_path)
+        duration = get_audio_duration(output_audio_path)
+        data_entry[self.duration_key] = duration
 
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "duration": max(duration, 0.0),
+                "skipped_conversion": float(skipped_conversion),
+            }
+        )
         return task

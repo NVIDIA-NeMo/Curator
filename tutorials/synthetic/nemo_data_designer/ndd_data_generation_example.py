@@ -100,6 +100,7 @@ SEED_CSV_URL = "https://raw.githubusercontent.com/NVIDIA/GenerativeAIExamples/re
 def download_and_convert_seed_data(
     output_dir: str | Path | None = None,
     records_per_file: int = 10,
+    number_of_records: int = 20,
 ) -> str:
     """Download seed CSV from URL, convert to JSONL (chunked), return output dir path."""
     if output_dir is None:
@@ -107,6 +108,7 @@ def download_and_convert_seed_data(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     df = pd.read_csv(SEED_CSV_URL, sep=",", encoding="utf-8")
+    df = df.head(number_of_records)
     for i, start in enumerate(range(0, len(df), records_per_file)):
         chunk = df.iloc[start : start + records_per_file]
         chunk.to_json(
@@ -292,7 +294,7 @@ def main() -> None:  # noqa: PLR0915
 
     # If no remote provider specified, start a local InferenceServer
     if args.provider is None:
-        from nemo_curator.backends.experimental.utils import get_available_cpu_gpu_resources
+        from nemo_curator.backends.utils import get_available_cpu_gpu_resources
         from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
 
         _, num_gpus = get_available_cpu_gpu_resources()

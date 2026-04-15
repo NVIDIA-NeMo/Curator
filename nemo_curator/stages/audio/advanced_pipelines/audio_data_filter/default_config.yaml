@@ -1,0 +1,63 @@
+# Audio Data Filter Pipeline Configuration
+# ------------------------------------------
+# Edit values below to customize the pipeline without changing code.
+# Pass the path to this file (or a copy) to AudioDataFilterStage(config_path=...).
+# Only values you specify override the defaults shown here.
+# Set "enable: false" on any stage section to skip it entirely.
+# Each stage has cpus/gpus resource allocation that can be tuned per deployment.
+
+mono_conversion:
+  output_sample_rate: 48000
+  strict_sample_rate: true
+  cpus: 1.0
+
+vad:
+  enable: true
+  min_duration_sec: 2.0
+  max_duration_sec: 60.0
+  threshold: 0.5
+  min_interval_ms: 500
+  speech_pad_ms: 300
+  cpus: 1.0
+  gpus: 0.3
+
+band_filter:
+  enable: true
+  band_value: full_band
+  cpus: 1.0
+  gpus: 0.0
+
+utmos:
+  enable: true
+  mos_threshold: 3.4
+  cpus: 1.0
+  gpus: 0.5
+
+sigmos:
+  enable: true
+  noise_threshold: 4.0
+  ovrl_threshold: 3.5
+  sig_threshold: null
+  col_threshold: null
+  disc_threshold: null
+  loud_threshold: null
+  reverb_threshold: null
+  cpus: 1.0
+  gpus: 0.5
+
+concatenation:
+  silence_duration_sec: 0.5
+  cpus: 1.0
+
+speaker_separation:
+  enable: true
+  exclude_overlaps: true
+  min_duration: 0.8
+  gap_threshold: 0.1
+  buffer_time: 0.5
+  cpus: 1.0
+  gpus: 1.0
+
+timestamp_mapper:
+  passthrough_keys: null
+  cpus: 1.0

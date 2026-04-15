@@ -35,7 +35,11 @@ stages:
     name: "PyAnnoteDiarization"
     hf_token: ${hf_token}
     max_length: ${max_segment_length}
-    resources: ${resources}
+    segmentation_batch_size: 2
+    embedding_batch_size: 2
+    xenna_num_workers: 1
+    resources:
+      gpus: 1
 
   # 3. Split long audio segments
   - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
@@ -49,7 +53,11 @@ stages:
     name: "ASRAlignment"
     is_fastconformer: true
     decoder_type: ctc
-    batch_size: 32
+    batch_size: 1
+    transcribe_batch_size: 4
+    num_workers: 1
+    resources:
+      gpus: 1
 
   # 5. Join split audio metadata
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage

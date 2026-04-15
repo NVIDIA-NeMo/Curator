@@ -26,7 +26,7 @@ class TestNeMoASRAlignerStage:
             model_name="nvidia/stt_en_fastconformer_ctc_large",
             is_fastconformer=True,
             decoder_type="ctc",
-            resources=Resources(cpus=1.0, gpus=0.0),
+            resources=Resources(cpus=1.0),
         )
         stage.setup()
 
