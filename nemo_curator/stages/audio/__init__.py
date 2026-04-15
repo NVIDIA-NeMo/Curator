@@ -24,6 +24,7 @@ and advanced audio processing pipelines.
 """
 
 from nemo_curator.stages.audio.advanced_pipelines import AudioDataFilterStage
+from nemo_curator.stages.audio.alignment import MFAAlignmentStage
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
@@ -56,6 +57,7 @@ __all__ = [
     "GetAudioDurationStage",
     "ManifestReader",
     "ManifestWriterStage",
+    "MFAAlignmentStage",
     "MonoConversionStage",
     "PreserveByValueStage",
     "SIGMOSFilterStage",
