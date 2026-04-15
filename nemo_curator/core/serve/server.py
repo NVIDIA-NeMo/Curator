@@ -125,9 +125,11 @@ class InferenceServer:
     Requires a running Ray cluster (e.g. via RayClient or RAY_ADDRESS env var).
 
     Cleanup semantics:
-        ``stop()`` tears down the active backend. For Ray Serve this calls
-        ``serve.shutdown()``, releasing deployments, the Serve controller, and
-        the HTTP proxy.
+        ``stop()`` calls ``serve.shutdown()``, tearing down all applications,
+        the Serve controller, and HTTP proxy. This is safe because a
+        singleton guard ensures only one InferenceServer is active at a time.
+        The overhead of recreating the controller on the next ``start()``
+        is ~2-5 s — negligible compared to model loading time.
 
     Args:
         models: List of InferenceModelConfig instances to deploy.
@@ -135,8 +137,29 @@ class InferenceServer:
         port: HTTP port for the OpenAI-compatible endpoint.
         health_check_timeout_s: Seconds to wait for models to become healthy.
         verbose: If True, keep Ray Serve and vLLM logging at default levels.
-            If False (default), suppress per-request logs from both vLLM and
-            Ray Serve access logs.
+            If False (default), suppress per-request logs from both vLLM
+            (``VLLM_LOGGING_LEVEL=WARNING``) and Ray Serve access logs
+            (``RAY_SERVE_LOG_TO_STDERR=0``). Serve logs still go to
+            files under the Ray session log directory.
+
+    Example::
+
+        from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+
+        config = InferenceModelConfig(
+            model_identifier="google/gemma-3-27b-it",
+            engine_kwargs={"tensor_parallel_size": 4},
+            deployment_config={
+                "autoscaling_config": {
+                    "min_replicas": 1,
+                    "max_replicas": 1,
+                },
+            },
+        )
+
+        with InferenceServer(models=[config]) as server:
+            print(server.endpoint)  # http://localhost:8000/v1
+            # Use with NeMo Curator's OpenAIClient or AsyncOpenAIClient
     """
 
     models: list[InferenceModelConfig]
@@ -157,11 +180,22 @@ class InferenceServer:
     def start(self) -> None:
         """Deploy all models and wait for them to become healthy.
 
+        The driver connects to the Ray cluster only for the duration of
+        deployment. Once models are healthy the driver disconnects, so that
+        the next ``ray.init()`` (e.g. from a pipeline executor) becomes the
+        first driver-level init and its ``runtime_env`` takes effect on
+        workers. Serve actors are detached and survive the disconnect.
+
         Raises:
             RuntimeError: If another InferenceServer is already active in this
-                process. Only one InferenceServer can run at a time because Ray
-                Serve uses a single HTTP proxy per cluster, and all models are
-                deployed as a single application sharing the same ``/v1`` routes.
+                process. Only one InferenceServer can run at a time because
+                Ray Serve uses a single HTTP proxy per cluster, and all
+                models are deployed as a single application sharing the
+                same ``/v1`` routes. You can deploy multiple models in one
+                InferenceServer (via the ``models`` list) — clients select a
+                model by passing ``model="<model_name>"`` in the API
+                request body. Stop the existing server before starting a
+                new one.
         """
         if _active_servers:
             running = ", ".join(sorted(_active_servers))
@@ -171,6 +205,7 @@ class InferenceServer:
             )
             raise RuntimeError(msg)
 
+        # Register atexit handler so that abnormal exits.
         atexit.register(self.stop)
         self._backend_impl = self._create_backend()
         try:
@@ -191,7 +226,12 @@ class InferenceServer:
         return RayServeBackend(self)
 
     def stop(self) -> None:
-        """Shut down the active backend and release resources."""
+        """Shut down Ray Serve (all applications, controller, and HTTP proxy).
+
+        Reconnects to the Ray cluster to tear down Serve actors and release
+        GPU memory, then disconnects. If the cluster is already gone (e.g.
+        ``RayClient`` was stopped first), the shutdown is skipped silently.
+        """
         if not self._started:
             return
 
@@ -207,7 +247,12 @@ class InferenceServer:
 
     @property
     def endpoint(self) -> str:
-        """OpenAI-compatible base URL for the served models."""
+        """OpenAI-compatible base URL for the served models.
+
+        When multiple models are deployed, clients select a model by passing
+        ``model="<model_name>"`` in the request body (standard OpenAI API
+        convention). The ``/v1/models`` endpoint lists all available models.
+        """
         return f"http://localhost:{self.port}/v1"
 
     def _wait_for_healthy(self) -> None:

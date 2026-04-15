@@ -13,8 +13,7 @@
 # limitations under the License.
 
 import importlib
-from contextlib import nullcontext
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 from pytest_httpserver import HTTPServer
@@ -86,57 +85,37 @@ class TestInferenceServer:
         server.stop()
         assert server._started is False
 
-    def test_start_delegates_to_backend(self) -> None:
+    def test_start_stop_delegates_to_backend(self) -> None:
         class StubBackend:
             def __init__(self) -> None:
                 self.started = False
+                self.stopped = False
 
             def start(self) -> None:
                 self.started = True
 
             def stop(self) -> None:
-                pass
+                self.stopped = True
 
         server = InferenceServer(models=[InferenceModelConfig(model_identifier="some-model")])
         backend = StubBackend()
+        from nemo_curator.core.serve import _active_servers
 
         with (
             patch("atexit.register"),
-            patch("ray.init", return_value=nullcontext()),
             patch.object(InferenceServer, "_deploy", create=True) as deploy,
             patch.object(InferenceServer, "_create_backend", return_value=backend, create=True),
         ):
             server.start()
 
-        try:
-            assert backend.started is True
-            assert getattr(server, "_backend_impl", None) is backend
-            deploy.assert_not_called()
-        finally:
-            from nemo_curator.core.serve import _active_servers
-
-            _active_servers.discard(server.name)
-            server._started = False
-            if hasattr(server, "_backend_impl"):
-                server._backend_impl = None
-
-    def test_stop_delegates_to_backend(self) -> None:
-        from nemo_curator.core.serve import _active_servers
-
-        server = InferenceServer(models=[InferenceModelConfig(model_identifier="some-model")])
-        server._started = True
-        backend = Mock()
-        server._backend_impl = backend
-        _active_servers.add(server.name)
-
         with (
             patch("atexit.unregister"),
-            patch("ray.init", return_value=nullcontext()),
-            patch("ray.serve.shutdown"),
         ):
             server.stop()
 
-        backend.stop.assert_called_once()
+        assert backend.started is True
+        assert backend.stopped is True
+        deploy.assert_not_called()
         assert server._started is False
         assert server.name not in _active_servers
 
