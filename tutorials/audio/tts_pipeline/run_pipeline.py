@@ -36,16 +36,7 @@ import json
 import os
 import sys
 
-import ray
-
-try:
-    from nemo_curator.backends.ray_data import RayDataExecutor
-except ImportError:
-    from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
-from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 
 
 def parse_args() -> argparse.Namespace:
@@ -73,6 +64,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--api_key", type=str, default="dummy-key")
     p.add_argument("--max_tokens", type=int, default=512)
     p.add_argument("--temperature", type=float, default=0.0)
+    p.add_argument("--data_config", type=str, default=None,
+                    help="Granary YAML config for in-process vLLM transcription.")
+    p.add_argument("--tensor_parallel_size", type=int, default=2)
 
     # Speaker ID
     p.add_argument("--speaker_model", type=str, default="nvidia/speakerverification_en_titanet_large")
@@ -259,12 +253,27 @@ def run_transcription_cascade(
     return cascade_output
 
 
+def _init_ray_pipeline():
+    """Lazily import Ray-based pipeline deps (RayDataExecutor, JsonlReader, JsonlWriter)."""
+    import ray
+    ray.init(address="local", ignore_reinit_error=True)
+    try:
+        from nemo_curator.backends.ray_data import RayDataExecutor
+    except (ImportError, ModuleNotFoundError):
+        from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+    from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
+    from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
+    return RayDataExecutor, JsonlReader, JsonlWriter
+
+
 def main() -> None:
     args = parse_args()
     stages = set(args.stages.split(","))
 
-    if not args.no_ray_local:
-        ray.init(address="local", ignore_reinit_error=True)
+    RayDataExecutor, JsonlReader, JsonlWriter = None, None, None
+    ray_stages = {"sed", "sed_post", "segment", "embed", "cluster"}
+    if ray_stages & stages:
+        RayDataExecutor, JsonlReader, JsonlWriter = _init_ray_pipeline()
 
     os.makedirs(args.output_dir, exist_ok=True)
     current_manifest = args.input_manifest
@@ -342,8 +351,40 @@ def main() -> None:
 
     # ---- Stage 5: Transcription Cascade (3-pass) ----
     if "transcribe" in stages:
-        print(f"[pipeline] Stage 5: Transcription Cascade ({args.language}, 3-pass)")
-        current_manifest = run_transcription_cascade(current_manifest, args.output_dir, args)
+        if args.data_config:
+            from nemo_curator.backends.xenna import XennaExecutor
+            from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
+            from nemo_curator.stages.audio.inference.transcription_cascade_inprocess import (
+                TranscriptionCascadeInProcessStage,
+            )
+            from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
+            from nemo_curator.stages.resources import Resources
+
+            print(f"[pipeline] Stage 5: Transcription Cascade ({args.language}, 3-pass, in-process vLLM)")
+            transcribe_out = os.path.join(args.output_dir, "transcribe_output.jsonl")
+            pipeline = Pipeline(name="transcribe_cascade")
+            pipeline.add_stage(
+                NemoTarredAudioReader(
+                    yaml_path=args.data_config,
+                ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=8.0)}})
+            )
+            pipeline.add_stage(
+                TranscriptionCascadeInProcessStage(
+                    model_id=args.omni_model,
+                    language=args.language,
+                    tensor_parallel_size=args.tensor_parallel_size,
+                    max_output_tokens=args.max_tokens,
+                    temperature=args.temperature,
+                    batch_size=args.batch_size,
+                )
+            )
+            pipeline.add_stage(ALMManifestWriterStage(output_path=transcribe_out))
+            pipeline.run(executor=XennaExecutor(config={"execution_mode": "streaming"}))
+            current_manifest = transcribe_out
+        else:
+            print(f"[pipeline] Stage 5: Transcription Cascade ({args.language}, 3-pass, server-based)")
+            current_manifest = run_transcription_cascade(current_manifest, args.output_dir, args)
+        print(f"[pipeline] Transcription cascade done -> {current_manifest}")
 
     # ---- Stage 6: Speaker Embedding ----
     if "embed" in stages:
