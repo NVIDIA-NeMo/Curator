@@ -15,13 +15,11 @@
 from nemo_curator.core.serve.server import (
     InferenceModelConfig,
     InferenceServer,
-    _active_servers,
     is_inference_server_active,
 )
 
 __all__ = [
     "InferenceModelConfig",
     "InferenceServer",
-    "_active_servers",
     "is_inference_server_active",
 ]

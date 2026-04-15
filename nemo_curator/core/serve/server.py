@@ -17,7 +17,6 @@ import http
 import logging
 import time
 import urllib.request
-from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -205,20 +204,19 @@ class InferenceServer:
             )
             raise RuntimeError(msg)
 
-        # Register atexit handler so that abnormal exits.
+        # Register atexit handler so that abnormal exits still clean up.
         atexit.register(self.stop)
         self._backend_impl = self._create_backend()
         try:
             self._backend_impl.start()
         except Exception:
             self._backend_impl = None
-            with suppress(ValueError):
-                atexit.unregister(self.stop)
+            atexit.unregister(self.stop)
             raise
 
         _active_servers.add(self.name)
         self._started = True
-        logger.info(f"Ray Serve is ready at {self.endpoint}")
+        logger.info(f"Inference server is ready at {self.endpoint}")
 
     def _create_backend(self) -> InferenceBackend:
         from nemo_curator.core.serve.ray_serve.backend import RayServeBackend
@@ -242,8 +240,7 @@ class InferenceServer:
             self._backend_impl = None
             _active_servers.discard(self.name)
             self._started = False
-            with suppress(ValueError):
-                atexit.unregister(self.stop)
+            atexit.unregister(self.stop)
 
     @property
     def endpoint(self) -> str:

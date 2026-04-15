@@ -18,9 +18,17 @@ from unittest.mock import patch
 import pytest
 from pytest_httpserver import HTTPServer
 
+import nemo_curator.core.serve as serve_module
+
 LLMConfig = pytest.importorskip("ray.serve.llm", reason="ray[serve] not installed").LLMConfig
 
 from nemo_curator.core.serve import InferenceModelConfig, InferenceServer  # noqa: E402
+
+
+class TestServePackageExports:
+    def test_private_active_server_state_is_not_in_all(self) -> None:
+        assert "is_inference_server_active" in serve_module.__all__
+        assert "_active_servers" not in serve_module.__all__
 
 
 class TestInferenceModelConfig:
@@ -96,11 +104,11 @@ class TestInferenceServer:
 
         server = InferenceServer(models=[InferenceModelConfig(model_identifier="some-model")])
         backend = StubBackend()
-        from nemo_curator.core.serve import _active_servers
+        from nemo_curator.core.serve.server import _active_servers
 
         with (
             patch("atexit.register"),
-            patch.object(InferenceServer, "_deploy", create=True) as deploy,
+            patch("nemo_curator.core.serve.server.logger.info") as info_log,
             patch.object(InferenceServer, "_create_backend", return_value=backend, create=True),
         ):
             server.start()
@@ -112,7 +120,7 @@ class TestInferenceServer:
 
         assert backend.started is True
         assert backend.stopped is True
-        deploy.assert_not_called()
+        info_log.assert_called_with(f"Inference server is ready at {server.endpoint}")
         assert server._started is False
         assert server.name not in _active_servers
 
@@ -130,7 +138,7 @@ class TestInferenceServer:
 
     def test_start_raises_when_another_server_active(self) -> None:
         """start() raises RuntimeError if another InferenceServer is already active."""
-        from nemo_curator.core.serve import _active_servers
+        from nemo_curator.core.serve.server import _active_servers
 
         server = InferenceServer(models=[InferenceModelConfig(model_identifier="some-model")])
 
@@ -145,7 +153,7 @@ class TestInferenceServer:
         """stop() calls serve.shutdown() when the server was started."""
         from ray import serve
 
-        from nemo_curator.core.serve import _active_servers
+        from nemo_curator.core.serve.server import _active_servers
 
         server = InferenceServer(models=[InferenceModelConfig(model_identifier="m")])
         server._started = True
