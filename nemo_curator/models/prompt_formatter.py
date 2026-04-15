@@ -23,7 +23,6 @@ from nemo_curator.models.nemotron_h_vl import _NEMOTRON_VARIANTS_INFO
 # Mapping of variants to their HuggingFace model IDs
 VARIANT_MAPPING: dict[str, str] = {
     "qwen": "Qwen/Qwen3-VL-8B-Instruct",
-    "qwen3.5": "Qwen/Qwen3.5-9B",
     "qwen3": "Qwen/Qwen3-VL-8B-Instruct",
     "qwen2.5": "Qwen/Qwen2.5-VL-7B-Instruct",
     **_NEMOTRON_VARIANTS_INFO,
@@ -76,7 +75,7 @@ class PromptFormatter:
                 - "multi_modal_data": Dictionary containing processed "video" inputs
 
         """
-        if self.prompt_variant in ("qwen", "qwen2.5", "qwen3", "qwen3.5"):
+        if self.prompt_variant in ("qwen", "qwen2.5", "qwen3"):
             return self._generate_qwen_inputs(prompt, video_inputs, override_text_prompt, fps)
 
         if self.prompt_variant.startswith("nemotron"):

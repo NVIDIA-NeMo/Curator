@@ -71,7 +71,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
         )
 
     def _initialize_model(self) -> None:
-        if self.model_variant in ("qwen", "qwen2.5", "qwen3", "qwen3.5"):
+        if self.model_variant in ("qwen", "qwen2.5", "qwen3"):
             self.model = QwenLM(
                 model_dir=self.model_dir,
                 caption_batch_size=self.model_batch_size,
@@ -93,8 +93,10 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
 
         variant_info = _QWEN_LM_VARIANTS.get(self.model_variant, {})
         effective_model_id = self.model_id or variant_info.get("model_id") or QwenLM.DEFAULT_MODEL_ID
-        effective_revision = self.model_revision if self.model_revision is not None else (
-            variant_info.get("revision") if variant_info else QwenLM.DEFAULT_MODEL_REVISION
+        effective_revision = (
+            self.model_revision
+            if self.model_revision is not None
+            else (variant_info.get("revision") if variant_info else QwenLM.DEFAULT_MODEL_REVISION)
         )
         QwenLM.download_weights_on_node(self.model_dir, model_id=effective_model_id, model_revision=effective_revision)
         self._initialize_model()

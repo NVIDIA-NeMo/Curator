@@ -272,7 +272,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
             "Required models depend on selected algorithms:\n"
             "  - TransNetV2: For scene detection (--splitting-algorithm transnetv2)\n"
             "  - Cosmos-Embed1: For embeddings (--embedding-algorithm cosmos-embed1-*)\n"
-            "  - Qwen3.5-VL: For captioning (--captioning-algorithm qwen)\n"
+            "  - Qwen3-VL: For captioning (--captioning-algorithm qwen)\n"
             "  - Nemotron Nano VL: For captioning (--captioning-algorithm nemotron[-bf16|-fp8|-nvfp4])\n"
             "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
             "Default: ./models\n"
@@ -557,11 +557,10 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         "--captioning-algorithm",
         type=str,
         default="qwen",
-        choices=["qwen", "qwen3.5", "qwen3", "qwen2.5", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"],
+        choices=["qwen", "qwen3", "qwen2.5", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"],
         help=(
             "Captioning algorithm to use. Options:\n"
-            "  - qwen / qwen3.5: Qwen3.5-VL-8B-Instruct (default, IMAGE_FACTOR=28)\n"
-            "  - qwen3: Qwen3-VL-8B-Instruct\n"
+            "  - qwen / qwen3: Qwen3-VL-8B-Instruct (default)\n"
             "  - qwen2.5: Qwen2.5-VL-7B-Instruct (IMAGE_FACTOR=28)\n"
             "  - nemotron / nemotron-bf16: Nemotron Nano 12B v2 VL BF16 (auto-downloaded from HF)\n"
             "  - nemotron-fp8: Nemotron Nano 12B v2 VL FP8 quantized\n"
@@ -674,11 +673,10 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         "--enhance-captions-algorithm",
         type=str,
         default="qwen",
-        choices=["qwen", "qwen3.5", "qwen3", "qwen2.5"],
+        choices=["qwen", "qwen3", "qwen2.5"],
         help=(
             "Caption enhancement algorithm to use. Options:\n"
-            "  - qwen / qwen3.5: Qwen3.5-14B (default)\n"
-            "  - qwen3: Qwen3-14B\n"
+            "  - qwen / qwen3: Qwen3-14B (default)\n"
             "  - qwen2.5: Qwen2.5-14B-Instruct"
         ),
     )
