@@ -19,6 +19,7 @@ import io
 import json
 import os
 import re
+import signal
 import subprocess
 import tarfile
 import tempfile
@@ -49,8 +50,9 @@ _OFFSET_MEMBER_PATTERN = re.compile(r"^(?P<stem>.+?)(?P<offset>-sub\d+)(?P<ext>\
 
 
 class _PipeStream:
-    def __init__(self, command: str):
+    def __init__(self, command: str, *, allow_sigpipe: bool = False):
         self.command = command
+        self.allow_sigpipe = allow_sigpipe
         self.process: subprocess.Popen[bytes] | None = None
 
     def __enter__(self) -> IO[bytes]:
@@ -76,13 +78,19 @@ class _PipeStream:
             stderr = self.process.stderr.read()
             self.process.stderr.close()
         return_code = self.process.wait()
-        if exc_type is None and return_code != 0:
+        if exc_type is None and return_code != 0 and not self._is_allowed_sigpipe_return_code(return_code):
             detail = stderr.decode("utf-8", errors="replace").strip()
             msg = f"Pipe command failed with exit code {return_code}: {self.command}"
             if detail:
                 msg += f"\n{detail}"
             raise RuntimeError(msg)
         return False
+
+    def _is_allowed_sigpipe_return_code(self, return_code: int) -> bool:
+        if not self.allow_sigpipe or not hasattr(signal, "SIGPIPE"):
+            return False
+        sigpipe_value = signal.Signals.SIGPIPE.value
+        return return_code in {128 + sigpipe_value, -sigpipe_value}
 
 
 def _expand_spec_string(spec: str) -> list[str]:
@@ -149,11 +157,12 @@ def _open_binary_stream(
     *,
     storage_options: dict[str, Any] | None = None,
     transport: Literal["auto", "fsspec", "pipe"] = "auto",
+    allow_sigpipe: bool = False,
 ) -> Iterator[IO[bytes]]:
     resolved_transport = _resolve_transport(path, transport)
     if resolved_transport == "pipe":
         command = path[len("pipe:") :].strip() if path.startswith("pipe:") else path
-        with _PipeStream(command) as stream:
+        with _PipeStream(command, allow_sigpipe=allow_sigpipe) as stream:
             yield stream
     else:
         with fsspec.open(path, mode="rb", **(storage_options or {})) as stream:
@@ -454,6 +463,7 @@ class MaterializeTarredAudioStage(ProcessingStage[AudioTask, AudioTask]):
                 tar_path,
                 storage_options=self.storage_options,
                 transport=self.transport,
+                allow_sigpipe=True,
             ) as stream,
             tarfile.open(fileobj=stream, mode="r|*") as tar,
         ):

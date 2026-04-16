@@ -27,6 +27,7 @@ from nemo_curator.stages.audio.io.tarred import (
     TarredAudioManifestPartitionStage,
     TarredAudioManifestReader,
     TarredAudioManifestReaderStage,
+    _PipeStream,
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
@@ -198,6 +199,37 @@ class TestTarredAudioManifestReader:
 
 
 class TestTarredAudioMaterialization:
+    def test_pipe_stream_allows_sigpipe_when_opted_in(self) -> None:
+        class _FakeProcess:
+            def __init__(self, return_code: int):
+                self.stdout = io.BytesIO(b"")
+                self.stderr = io.BytesIO(b"")
+                self._return_code = return_code
+
+            def wait(self) -> int:
+                return self._return_code
+
+        pipe_stream = _PipeStream("dummy", allow_sigpipe=True)
+        pipe_stream.process = _FakeProcess(return_code=141)  # type: ignore[assignment]
+
+        assert pipe_stream.__exit__(None, None, None) is False
+
+    def test_pipe_stream_raises_for_sigpipe_by_default(self) -> None:
+        class _FakeProcess:
+            def __init__(self, return_code: int):
+                self.stdout = io.BytesIO(b"")
+                self.stderr = io.BytesIO(b"")
+                self._return_code = return_code
+
+            def wait(self) -> int:
+                return self._return_code
+
+        pipe_stream = _PipeStream("dummy")
+        pipe_stream.process = _FakeProcess(return_code=141)  # type: ignore[assignment]
+
+        with pytest.raises(RuntimeError, match="Pipe command failed with exit code 141"):
+            pipe_stream.__exit__(None, None, None)
+
     def test_materialize_and_cleanup_roundtrip(self, tmp_path: Path) -> None:
         tar_path = tmp_path / "audio_0.tar"
         raw_audio = b"test-bytes"
