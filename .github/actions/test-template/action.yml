@@ -98,8 +98,11 @@ runs:
       shell: bash -x -e -u -o pipefail {0}
       if: ${{ contains(inputs.runner, 'aws') }}
       run: |
-        apt-get update
-        apt-get install -y uuid-runtime
+        for i in 1 2 3; do
+          apt-get update && apt-get install -y uuid-runtime && break
+          echo "Attempt $i failed, retrying in 10s..."
+          sleep 10
+        done
 
     - name: Start container
       shell: bash
