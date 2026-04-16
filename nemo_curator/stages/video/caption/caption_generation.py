@@ -35,7 +35,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     """
 
     model_dir: str = "models/qwen"
-    model_variant: str = "qwen"
+    model_variant: str = "qwen3"
     caption_batch_size: int = 16
     fp8: bool = False
     max_output_tokens: int = 512
@@ -56,7 +56,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], ["clips"]
 
     def _initialize_model(self) -> None:
-        if self.model_variant in ("qwen", "qwen2.5", "qwen3"):
+        if self.model_variant in ("qwen2.5", "qwen3"):
             self.model = QwenVL(
                 model_dir=self.model_dir,
                 model_variant=self.model_variant,
@@ -85,7 +85,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
-        if self.model_variant in ("qwen", "qwen2.5", "qwen3"):
+        if self.model_variant in ("qwen2.5", "qwen3"):
             from nemo_curator.models.qwen_vl import _QWEN_VL_VARIANTS
 
             variant_info = _QWEN_VL_VARIANTS.get(self.model_variant, {})

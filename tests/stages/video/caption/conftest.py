@@ -88,7 +88,7 @@ def enhancement_stage():
     model_dir = os.environ.get("CURATOR_TEST_MODEL_DIR", "")
     stage = CaptionEnhancementStage(
         model_dir=model_dir,
-        model_variant="qwen",
+        model_variant="qwen3",
         model_batch_size=1,
         fp8=False,
         max_output_tokens=128,  # short output keeps the test fast

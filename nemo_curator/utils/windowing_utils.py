@@ -76,7 +76,7 @@ def compute_windows(total_frames: int, window_size: int = 128, remainder_thresho
     return out
 
 
-def split_video_into_windows(  # noqa: PLR0913
+def split_video_into_windows(  # noqa: C901, PLR0913
     mp4_bytes: bytes,
     window_size: int = 256,
     remainder_threshold: int = 128,
@@ -91,6 +91,9 @@ def split_video_into_windows(  # noqa: PLR0913
     return_video_frames: bool = True,
     num_threads: int = 1,
     image_factor: int | None = None,
+    video_min_pixels: int | None = None,
+    video_max_pixels: int | None = None,
+    video_total_pixels: int | None = None,
 ) -> tuple[list[bytes], list[torch.Tensor | None], list[WindowFrameInfo]]:
     """Calculate windows and return video inputs for language model from input clips.
 
@@ -110,7 +113,10 @@ def split_video_into_windows(  # noqa: PLR0913
         return_video_frames: whether to return video frames
         sampling_fps: sampling fps
         window_size: window size
-        image_factor: factor for smart_resize; defaults to IMAGE_FACTOR (32). Use 28 for Qwen2.5.
+        image_factor: factor for smart_resize; defaults to Qwen3 value (32).
+        video_min_pixels: minimum pixel count for video frames; defaults to Qwen3 value.
+        video_max_pixels: hard cap on per-frame pixel count; defaults to Qwen3 value.
+        video_total_pixels: total pixel budget for video frames; defaults to Qwen3 value.
 
     Returns:
         Tuple containing:
@@ -121,7 +127,13 @@ def split_video_into_windows(  # noqa: PLR0913
     """
     with make_pipeline_named_temporary_file(sub_dir="windowing") as input_file:
         if image_factor is None:
-            image_factor = IMAGE_FACTOR
+            image_factor = _QWEN3["image_factor"]
+        if video_min_pixels is None:
+            video_min_pixels = _QWEN3["video_min_pixels"]
+        if video_max_pixels is None:
+            video_max_pixels = _QWEN3["video_max_pixels"]
+        if video_total_pixels is None:
+            video_total_pixels = _QWEN3["video_total_pixels"]
         input_file.write_bytes(mp4_bytes)
         total_frames = get_frame_count(mp4_bytes)
         windows = compute_windows(total_frames, window_size, remainder_threshold)
@@ -142,6 +154,9 @@ def split_video_into_windows(  # noqa: PLR0913
                 flip_input=flip_input,
                 skip_resize=skip_resize,
                 image_factor=image_factor,
+                video_min_pixels=video_min_pixels,
+                video_max_pixels=video_max_pixels,
+                video_total_pixels=video_total_pixels,
             )
 
             index = 0
@@ -179,14 +194,30 @@ def split_video_into_windows(  # noqa: PLR0913
         return mp4_bytes_list, video_frames, windows
 
 
-IMAGE_FACTOR = 32
-MIN_PIXELS = 4 * 32 * 32
-MAX_PIXELS = 16384 * 32 * 32
 MAX_RATIO = 200
 
-VIDEO_MIN_PIXELS = 128 * 32 * 32
-VIDEO_MAX_PIXELS = 768 * 32 * 32
-VIDEO_TOTAL_PIXELS = 24576 * 32 * 32
+# Per-model pixel configuration keyed by HuggingFace model ID.
+MODEL_PIXEL_CONFIG: dict[str, dict[str, int]] = {
+    "Qwen/Qwen3-VL-8B-Instruct": {
+        "image_factor": 32,
+        "min_pixels": 4 * 32 * 32,
+        "max_pixels": 16384 * 32 * 32,
+        "video_min_pixels": 128 * 32 * 32,
+        "video_max_pixels": 768 * 32 * 32,
+        "video_total_pixels": 24576 * 32 * 32,
+    },
+    "Qwen/Qwen2.5-VL-7B-Instruct": {
+        "image_factor": 28,
+        "min_pixels": 4 * 28 * 28,
+        "max_pixels": 16384 * 28 * 28,
+        "video_min_pixels": 128 * 28 * 28,
+        "video_max_pixels": 768 * 28 * 28,
+        "video_total_pixels": 24576 * 28 * 28,
+    },
+}
+
+# Private alias used for function-signature defaults below.
+_QWEN3 = MODEL_PIXEL_CONFIG["Qwen/Qwen3-VL-8B-Instruct"]
 FRAME_FACTOR = 2
 FPS = 2.0
 FPS_MIN_FRAMES = 4
@@ -214,9 +245,9 @@ def floor_by_factor(number: float, factor: int) -> int:
 def smart_resize(
     height: int,
     width: int,
-    factor: int = IMAGE_FACTOR,
-    min_pixels: int = MIN_PIXELS,
-    max_pixels: int = MAX_PIXELS,
+    factor: int = _QWEN3["image_factor"],
+    min_pixels: int = _QWEN3["min_pixels"],
+    max_pixels: int = _QWEN3["max_pixels"],
 ) -> tuple[int, int]:
     """Rescales the image so that the following conditions are met.
 
@@ -310,7 +341,10 @@ def fetch_video(  # noqa: C901, PLR0911, PLR0912, PLR0913
     num_frames_to_use: int = 0,
     flip_input: bool = False,
     skip_resize: bool = False,
-    image_factor: int = IMAGE_FACTOR,
+    image_factor: int = _QWEN3["image_factor"],
+    video_min_pixels: int = _QWEN3["video_min_pixels"],
+    video_max_pixels: int = _QWEN3["video_max_pixels"],
+    video_total_pixels: int = _QWEN3["video_total_pixels"],
 ) -> tuple[torch.Tensor, list[int]]:
     """Load and preprocess video frames from a file.
 
@@ -322,6 +356,9 @@ def fetch_video(  # noqa: C901, PLR0911, PLR0912, PLR0913
         preprocess_dtype: Data type for preprocessing.
         num_frames_to_use: Number of frames to extract (0 for all).
         flip_input: Whether to flip frames horizontally.
+        video_min_pixels: Minimum pixel count for video frames.
+        video_max_pixels: Hard cap on per-frame pixel count.
+        video_total_pixels: Total pixel budget used to compute per-frame max pixels.
 
     Returns:
         Tuple of (processed frames tensor, frame indices).
@@ -338,16 +375,16 @@ def fetch_video(  # noqa: C901, PLR0911, PLR0912, PLR0913
     nframes, _, height, width = video.shape
 
     if do_preprocess or not skip_resize:
-        max_pixels = max(
-            min(VIDEO_MAX_PIXELS, int(VIDEO_TOTAL_PIXELS / nframes * FRAME_FACTOR)),
-            int(VIDEO_MIN_PIXELS * 1.05),
+        effective_max_pixels = max(
+            min(video_max_pixels, int(video_total_pixels / nframes * FRAME_FACTOR)),
+            int(video_min_pixels * 1.05),
         )
         resized_height, resized_width = smart_resize(
             height,
             width,
             factor=image_factor,
-            min_pixels=VIDEO_MIN_PIXELS,
-            max_pixels=max_pixels,
+            min_pixels=video_min_pixels,
+            max_pixels=effective_max_pixels,
         )
 
     if do_preprocess:

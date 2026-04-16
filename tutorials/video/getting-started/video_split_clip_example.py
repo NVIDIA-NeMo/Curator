@@ -556,12 +556,12 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     parser.add_argument(
         "--captioning-algorithm",
         type=str,
-        default="qwen",
-        choices=["qwen", "qwen3", "qwen2.5", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"],
+        default="qwen3",
+        choices=["qwen3", "qwen2.5", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"],
         help=(
             "Captioning algorithm to use. Options:\n"
-            "  - qwen / qwen3: Qwen3-VL-8B-Instruct (default)\n"
-            "  - qwen2.5: Qwen2.5-VL-7B-Instruct (IMAGE_FACTOR=28)\n"
+            "  - qwen3: Qwen3-VL-8B-Instruct (default)\n"
+            "  - qwen2.5: Qwen2.5-VL-7B-Instruct\n"
             "  - nemotron / nemotron-bf16: Nemotron Nano 12B v2 VL BF16 (auto-downloaded from HF)\n"
             "  - nemotron-fp8: Nemotron Nano 12B v2 VL FP8 quantized\n"
             "  - nemotron-nvfp4: Nemotron Nano 12B v2 VL NVFP4-QAD quantized"
@@ -672,11 +672,11 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     parser.add_argument(
         "--enhance-captions-algorithm",
         type=str,
-        default="qwen",
-        choices=["qwen", "qwen3", "qwen2.5"],
+        default="qwen3",
+        choices=["qwen3", "qwen2.5"],
         help=(
             "Caption enhancement algorithm to use. Options:\n"
-            "  - qwen / qwen3: Qwen3-14B (default)\n"
+            "  - qwen3: Qwen3-14B (default)\n"
             "  - qwen2.5: Qwen2.5-14B-Instruct"
         ),
     )

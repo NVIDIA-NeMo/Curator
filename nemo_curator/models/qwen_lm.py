@@ -38,7 +38,6 @@ except ImportError:
 from nemo_curator.models.base import ModelInterface
 
 _QWEN_LM_VARIANTS: dict[str, dict] = {
-    "qwen": {"model_id": "Qwen/Qwen3-14B", "revision": "8268fe3"},
     "qwen3": {"model_id": "Qwen/Qwen3-14B", "revision": "8268fe3"},
     "qwen2.5": {"model_id": "Qwen/Qwen2.5-14B-Instruct", "revision": "cf98f3b"},
 }
@@ -60,7 +59,7 @@ class QwenLM(ModelInterface):
         caption_batch_size: int = 1,
         fp8: bool = False,
         max_output_tokens: int = 512,
-        model_variant: str = "qwen",
+        model_variant: str = "qwen3",
         model_id: str | None = None,
         model_revision: str | None = None,
         **vllm_kwargs,

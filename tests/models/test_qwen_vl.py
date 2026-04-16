@@ -34,7 +34,7 @@ class TestQwenVL:
         self.vllm_patcher.start()
 
         self.model_dir = "/test/model/dir"
-        self.model_variant = "qwen"
+        self.model_variant = "qwen3"
         self.caption_batch_size = 4
         self.qwen_vl = QwenVL(
             model_dir=self.model_dir,
@@ -85,7 +85,7 @@ class TestQwenVL:
 
     def test_initialization_different_variant(self) -> None:
         """Test initialization with different model variant."""
-        qwen_vl = QwenVL(model_dir="/another/path", model_variant="qwen", caption_batch_size=8)
+        qwen_vl = QwenVL(model_dir="/another/path", model_variant="qwen3", caption_batch_size=8)
 
         expected_weight_file = str(pathlib.Path("/another/path") / "Qwen/Qwen3-VL-8B-Instruct")
         assert qwen_vl.weight_file == expected_weight_file
@@ -367,7 +367,7 @@ class TestQwenVL:
         assert self.qwen_vl.weight_file == expected_path
 
         # Test with different paths
-        qwen_vl2 = QwenVL(model_dir="/different/path", model_variant="qwen", caption_batch_size=1)
+        qwen_vl2 = QwenVL(model_dir="/different/path", model_variant="qwen3", caption_batch_size=1)
         expected_path2 = str(pathlib.Path("/different/path") / "Qwen/Qwen3-VL-8B-Instruct")
         assert qwen_vl2.weight_file == expected_path2
 

@@ -38,18 +38,31 @@ except ImportError:
 
 from nemo_curator.models.base import ModelInterface
 from nemo_curator.utils import grouping
-from nemo_curator.utils.windowing_utils import IMAGE_FACTOR
+from nemo_curator.utils.windowing_utils import MODEL_PIXEL_CONFIG
 
 _QWEN_VL_VARIANTS: dict[str, dict] = {
-    "qwen": {"model_id": "Qwen/Qwen3-VL-8B-Instruct", "revision": "0c351dd", "image_factor": 32},
-    "qwen3": {"model_id": "Qwen/Qwen3-VL-8B-Instruct", "revision": "0c351dd", "image_factor": 32},
-    "qwen2.5": {"model_id": "Qwen/Qwen2.5-VL-7B-Instruct", "revision": "cc59489", "image_factor": 28},
+    "qwen3": {
+        "model_id": "Qwen/Qwen3-VL-8B-Instruct",
+        "revision": "0c351dd",
+        **MODEL_PIXEL_CONFIG["Qwen/Qwen3-VL-8B-Instruct"],
+    },
+    "qwen2.5": {
+        "model_id": "Qwen/Qwen2.5-VL-7B-Instruct",
+        "revision": "cc59489",
+        **MODEL_PIXEL_CONFIG["Qwen/Qwen2.5-VL-7B-Instruct"],
+    },
 }
 
 
-def get_qwen_vl_image_factor(model_variant: str) -> int:
-    """Return the IMAGE_FACTOR for the given Qwen VL model variant."""
-    return _QWEN_VL_VARIANTS.get(model_variant, {}).get("image_factor", IMAGE_FACTOR)
+def get_qwen_vl_pixel_config(model_variant: str) -> dict[str, int]:
+    """Return the pixel configuration for the given Qwen VL model variant.
+
+    Returns a dict with keys: image_factor, min_pixels, max_pixels,
+    video_min_pixels, video_max_pixels, video_total_pixels.
+    Falls back to Qwen3 defaults for unknown variants.
+    """
+    variant_info = _QWEN_VL_VARIANTS.get(model_variant, _QWEN_VL_VARIANTS["qwen3"])
+    return {k: variant_info[k] for k in MODEL_PIXEL_CONFIG["Qwen/Qwen3-VL-8B-Instruct"]}
 
 
 class QwenVL(ModelInterface):

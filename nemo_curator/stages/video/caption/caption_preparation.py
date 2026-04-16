@@ -19,7 +19,7 @@ from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.models.prompt_formatter import PromptFormatter
-from nemo_curator.models.qwen_vl import get_qwen_vl_image_factor
+from nemo_curator.models.qwen_vl import get_qwen_vl_pixel_config
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks.video import VideoTask, _Window
 from nemo_curator.utils import windowing_utils
@@ -78,7 +78,7 @@ def _get_prompt(
 class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that prepares captions for video processing."""
 
-    model_variant: str = "qwen"
+    model_variant: str = "qwen3"
     prompt_variant: str = "default"
     prompt_text: str | None = None
     verbose: bool = False
@@ -98,7 +98,11 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
 
     def __post_init__(self) -> None:
         self._skip_intermediate_resize = False
-        self._image_factor = get_qwen_vl_image_factor(self.model_variant)
+        pixel_config = get_qwen_vl_pixel_config(self.model_variant)
+        self._image_factor = pixel_config["image_factor"]
+        self._video_min_pixels = pixel_config["video_min_pixels"]
+        self._video_max_pixels = pixel_config["video_max_pixels"]
+        self._video_total_pixels = pixel_config["video_total_pixels"]
         if self.model_variant.startswith("nemotron"):
             if not self.model_does_preprocess:
                 logger.warning(
@@ -133,6 +137,9 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     return_bytes=self.generate_previews,
                     num_threads=max(int(self.resources.cpus), 1),
                     image_factor=self._image_factor,
+                    video_min_pixels=self._video_min_pixels,
+                    video_max_pixels=self._video_max_pixels,
+                    video_total_pixels=self._video_total_pixels,
                 ),
             ):
                 prompt = _get_prompt(
