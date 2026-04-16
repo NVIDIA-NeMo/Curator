@@ -20,13 +20,24 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from nemo_curator.stages.interleaved.annotation.blur_annotator import InterleavedBlurAnnotatorStage
-from nemo_curator.stages.interleaved.annotation.clip_score_annotator import InterleavedCLIPScoreAnnotatorStage
+from nemo_curator.stages.interleaved.annotation.blur_annotator import (
+    DEFAULT_BLUR_SCORE_THRESHOLD,
+    InterleavedBlurAnnotatorStage,
+)
+from nemo_curator.stages.interleaved.annotation.clip_score_annotator import (
+    DEFAULT_CLIP_MIN_SCORE,
+    InterleavedCLIPScoreAnnotatorStage,
+)
 from nemo_curator.stages.interleaved.annotation.image_to_text_ratio_annotator import (
+    DEFAULT_IMAGE_TO_TEXT_MAX_RATIO,
+    DEFAULT_IMAGE_TO_TEXT_MIN_RATIO,
     InterleavedImageToTextRatioAnnotatorStage,
     per_row_image_word_counts_broadcast,
 )
-from nemo_curator.stages.interleaved.annotation.qrcode_annotator import InterleavedQRCodeAnnotatorStage
+from nemo_curator.stages.interleaved.annotation.qrcode_annotator import (
+    DEFAULT_QRCODE_SCORE_THRESHOLD,
+    InterleavedQRCodeAnnotatorStage,
+)
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedFilterStage,
     BaseInterleavedScoreFilterStage,
@@ -42,19 +53,27 @@ def basic_interleaved_row_validity_mask(df: pd.DataFrame) -> pd.Series:
     return BaseInterleavedFilterStage._basic_row_validity_mask(df)
 
 
-def interleaved_score_pass_mask(
+def interleaved_score_pass_mask(  # noqa: PLR0913
     stage: BaseInterleavedScoreFilterStage,
     task: InterleavedBatch,
     df: pd.DataFrame,
     *,
     drop_invalid_rows: bool = True,
+    score_threshold: float | None = None,
+    min_score: float | None = None,
+    min_ratio: float | None = None,
+    max_ratio: float | None = None,
 ) -> pd.Series:
-    """Return a boolean mask aligned to ``df.index`` from score columns and stage thresholds.
+    """Return a boolean mask aligned to ``df.index`` from score columns and thresholds.
 
     This does not mutate ``df``. It calls :meth:`~BaseInterleavedScoreFilterStage.annotation_columns`
     once per invocation, except for :class:`~InterleavedImageToTextRatioAnnotatorStage`, which uses
     full-sample counts broadcast to every row (stored score columns are only non-null at
     ``position == 0``).
+
+    Threshold parameters default to the stage-specific defaults when ``None``:
+    ``score_threshold`` for blur (min sharpness) and qrcode (max QR area ratio),
+    ``min_score`` for CLIP, ``min_ratio`` / ``max_ratio`` for image-to-text ratio.
     """
     idx = df.index
     out = pd.Series(True, index=idx, dtype=bool)
@@ -62,28 +81,33 @@ def interleaved_score_pass_mask(
         out &= basic_interleaved_row_validity_mask(df)
 
     if isinstance(stage, InterleavedImageToTextRatioAnnotatorStage):
+        actual_min_ratio = min_ratio if min_ratio is not None else DEFAULT_IMAGE_TO_TEXT_MIN_RATIO
+        actual_max_ratio = max_ratio if max_ratio is not None else DEFAULT_IMAGE_TO_TEXT_MAX_RATIO
         img, words = per_row_image_word_counts_broadcast(df)
         img_f = img.astype("float64")
         wf = words.astype("float64").fillna(0.0)
         denom = wf.where(wf >= 1.0, 1.0)
         ratio = img_f / denom
         # NaN ratio means sample_id was absent; treat as pass
-        ok = ratio.isna() | ((ratio >= stage.min_ratio) & (ratio <= stage.max_ratio))
+        ok = ratio.isna() | ((ratio >= actual_min_ratio) & (ratio <= actual_max_ratio))
         return out & ok.astype(bool)
 
     cols = stage.annotation_columns(task, df)
 
     if isinstance(stage, InterleavedBlurAnnotatorStage):
+        threshold = score_threshold if score_threshold is not None else DEFAULT_BLUR_SCORE_THRESHOLD
         sharp = cols[f"{stage.name}_sharpness"]
         image = df["modality"] == "image"
-        out &= ~image | (sharp.notna() & (sharp >= stage.score_threshold))
+        out &= ~image | (sharp.notna() & (sharp >= threshold))
         return out
     if isinstance(stage, InterleavedQRCodeAnnotatorStage):
+        threshold = score_threshold if score_threshold is not None else DEFAULT_QRCODE_SCORE_THRESHOLD
         qr = cols[f"{stage.name}_qr_area_ratio"]
         image = df["modality"] == "image"
-        out &= ~image | (qr.notna() & (qr < stage.score_threshold))
+        out &= ~image | (qr.notna() & (qr < threshold))
         return out
     if isinstance(stage, InterleavedCLIPScoreAnnotatorStage):
+        actual_min_score = min_score if min_score is not None else DEFAULT_CLIP_MIN_SCORE
         scores = cols[f"{stage.name}_clip_scores"]
         image = df["modality"] == "image"
         for i in idx[image]:
@@ -93,7 +117,7 @@ def interleaved_score_pass_mask(
             if not isinstance(cell, dict) or not cell:
                 out.loc[i] = False
             else:
-                out.loc[i] = max(cell.values()) >= stage.min_score
+                out.loc[i] = max(cell.values()) >= actual_min_score
         return out
     if isinstance(stage, InterleavedAspectRatioFilterStage):
         ar = cols[f"{stage.name}_aspect_ratio"]

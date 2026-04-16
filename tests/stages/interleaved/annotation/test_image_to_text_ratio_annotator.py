@@ -66,7 +66,7 @@ def test_image_to_text_ratio_annotator_does_not_drop_rows() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedImageToTextRatioAnnotatorStage(min_ratio=100.0, max_ratio=200.0)
+    stage = InterleavedImageToTextRatioAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
     assert len(out_frame) == 2
 
@@ -181,8 +181,10 @@ def test_per_row_image_word_counts_broadcast_values() -> None:
     task = interleaved_task(rows)
     df = task.to_pandas()
     img, words = per_row_image_word_counts_broadcast(df)
-    assert int(img.iloc[0]) == 1 and int(img.iloc[1]) == 1
-    assert int(words.iloc[0]) == 2 and int(words.iloc[1]) == 2
+    assert int(img.iloc[0]) == 1
+    assert int(img.iloc[1]) == 1
+    assert int(words.iloc[0]) == 2
+    assert int(words.iloc[1]) == 2
 
 
 def test_image_to_text_ratio_annotator_pass_mask_ratio_in_range() -> None:
@@ -209,8 +211,8 @@ def test_image_to_text_ratio_annotator_pass_mask_ratio_in_range() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedImageToTextRatioAnnotatorStage(min_ratio=0.2, max_ratio=1.0)
-    mask = interleaved_score_pass_mask(stage, task, task.to_pandas())
+    stage = InterleavedImageToTextRatioAnnotatorStage()
+    mask = interleaved_score_pass_mask(stage, task, task.to_pandas(), min_ratio=0.2, max_ratio=1.0)
     assert mask.all()
 
 
@@ -238,8 +240,8 @@ def test_image_to_text_ratio_annotator_pass_mask_ratio_below_min_fails() -> None
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedImageToTextRatioAnnotatorStage(min_ratio=1.0, max_ratio=2.0)
-    mask = interleaved_score_pass_mask(stage, task, task.to_pandas())
+    stage = InterleavedImageToTextRatioAnnotatorStage()
+    mask = interleaved_score_pass_mask(stage, task, task.to_pandas(), min_ratio=1.0, max_ratio=2.0)
     assert not mask.any()
 
 
@@ -258,8 +260,8 @@ def test_image_to_text_ratio_annotator_pass_mask_no_sample_id_all_pass() -> None
     ]
     task = interleaved_task(rows)
     df = task.to_pandas().drop(columns=["sample_id"])
-    stage = InterleavedImageToTextRatioAnnotatorStage(min_ratio=0.0, max_ratio=1.0)
-    mask = interleaved_score_pass_mask(stage, task, df, drop_invalid_rows=False)
+    stage = InterleavedImageToTextRatioAnnotatorStage()
+    mask = interleaved_score_pass_mask(stage, task, df, drop_invalid_rows=False, min_ratio=0.0, max_ratio=1.0)
     assert mask.all()
 
 

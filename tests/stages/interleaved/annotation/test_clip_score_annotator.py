@@ -37,7 +37,8 @@ def test_clip_score_annotator_requires_model_dir() -> None:
 def test_sample_text_positions_and_texts_missing_columns() -> None:
     df = pd.DataFrame({"sample_id": ["s1"], "text_content": ["hello"]})
     positions, texts = _sample_text_positions_and_texts(df, "s1")
-    assert positions == [] and texts == []
+    assert positions == []
+    assert texts == []
 
 
 def test_sample_text_positions_and_texts_multiple_rows() -> None:
@@ -87,9 +88,7 @@ def test_clip_score_annotator_empty_task_unchanged() -> None:
     assert out.num_items == 0
 
 
-@patch(
-    "nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node"
-)
+@patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node")
 @patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings")
 def test_clip_score_annotator_does_not_drop_rows(mock_clip_class: MagicMock, mock_download: MagicMock) -> None:
     mock_download.return_value = None
@@ -122,16 +121,14 @@ def test_clip_score_annotator_does_not_drop_rows(mock_clip_class: MagicMock, moc
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedCLIPScoreAnnotatorStage(model_dir="/fake/clip", min_score=0.99)
+    stage = InterleavedCLIPScoreAnnotatorStage(model_dir="/fake/clip")
     stage.setup_on_node(NodeInfo(), WorkerMetadata())
     stage.setup()
     out_frame = stage.process(task).to_pandas()
     assert len(out_frame) == 2
 
 
-@patch(
-    "nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node"
-)
+@patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node")
 @patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings")
 def test_clip_score_annotator_no_text_image_gets_na(mock_clip_class: MagicMock, mock_download: MagicMock) -> None:
     mock_download.return_value = None
@@ -164,9 +161,7 @@ def test_clip_score_annotator_no_text_image_gets_na(mock_clip_class: MagicMock, 
     mock_model.encode_text.assert_not_called()
 
 
-@patch(
-    "nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node"
-)
+@patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node")
 @patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings")
 def test_clip_score_annotator_stores_dict_per_image_row(mock_clip_class: MagicMock, mock_download: MagicMock) -> None:
     mock_download.return_value = None
@@ -209,12 +204,11 @@ def test_clip_score_annotator_stores_dict_per_image_row(mock_clip_class: MagicMo
     assert 0 in img_row[col]
 
 
-@patch(
-    "nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node"
-)
+@patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node")
 @patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings")
 def test_clip_score_annotator_column_name_uses_stage_name(
-    mock_clip_class: MagicMock, mock_download: MagicMock
+    mock_clip_class: MagicMock,  # noqa: ARG001
+    mock_download: MagicMock,
 ) -> None:
     mock_download.return_value = None
     rows = [
@@ -237,9 +231,7 @@ def test_clip_score_annotator_column_name_uses_stage_name(
     assert f"{stage.name}_clip_scores" in out_frame.columns
 
 
-@patch(
-    "nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node"
-)
+@patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node")
 @patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings")
 def test_clip_score_annotator_pass_mask_high_score_passes(
     mock_clip_class: MagicMock, mock_download: MagicMock
@@ -274,20 +266,16 @@ def test_clip_score_annotator_pass_mask_high_score_passes(
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedCLIPScoreAnnotatorStage(model_dir="/fake/clip", min_score=0.0)
+    stage = InterleavedCLIPScoreAnnotatorStage(model_dir="/fake/clip")
     stage.setup_on_node(NodeInfo(), WorkerMetadata())
     stage.setup()
-    mask = interleaved_score_pass_mask(stage, task, task.to_pandas())
+    mask = interleaved_score_pass_mask(stage, task, task.to_pandas(), min_score=0.0)
     assert mask.all()
 
 
-@patch(
-    "nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node"
-)
+@patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node")
 @patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings")
-def test_clip_score_annotator_pass_mask_low_score_fails(
-    mock_clip_class: MagicMock, mock_download: MagicMock
-) -> None:
+def test_clip_score_annotator_pass_mask_low_score_fails(mock_clip_class: MagicMock, mock_download: MagicMock) -> None:
     mock_download.return_value = None
     dim = 512
     mock_model = mock_clip_class.return_value
@@ -318,10 +306,10 @@ def test_clip_score_annotator_pass_mask_low_score_fails(
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedCLIPScoreAnnotatorStage(model_dir="/fake/clip", min_score=0.15)
+    stage = InterleavedCLIPScoreAnnotatorStage(model_dir="/fake/clip")
     stage.setup_on_node(NodeInfo(), WorkerMetadata())
     stage.setup()
     df = task.to_pandas()
-    mask = interleaved_score_pass_mask(stage, task, df)
+    mask = interleaved_score_pass_mask(stage, task, df, min_score=0.15)
     assert not bool(mask.loc[df["modality"] == "image"].iloc[0])
     assert bool(mask.loc[df["modality"] == "text"].iloc[0])

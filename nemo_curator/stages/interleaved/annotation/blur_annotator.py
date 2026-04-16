@@ -52,7 +52,6 @@ def _sharpness_score(image: np.ndarray, row_index: Hashable | None = None) -> fl
 class InterleavedBlurAnnotatorStage(BaseInterleavedScoreFilterStage):
     """Add Laplacian sharpness per image row as ``{name}_sharpness`` (``<NA>`` on non-images / failures)."""
 
-    score_threshold: float = DEFAULT_BLUR_SCORE_THRESHOLD
     name: str = "interleaved_blur_annotator"
 
     def _sharpness_series(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:

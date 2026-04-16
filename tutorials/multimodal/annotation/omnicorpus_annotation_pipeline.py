@@ -38,11 +38,11 @@ from omni_corpus_annotation.stages.omnicorpus_reader import OmniCorpusReaderStag
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.stages.interleaved.filter import (
-    InterleavedBlurFilterStage,
-    InterleavedCLIPScoreFilterStage,
-    InterleavedImageToTextRatioFilterStage,
-    InterleavedQRCodeFilterStage,
+from nemo_curator.stages.interleaved.annotation import (
+    InterleavedBlurAnnotatorStage,
+    InterleavedCLIPScoreAnnotatorStage,
+    InterleavedImageToTextRatioAnnotatorStage,
+    InterleavedQRCodeAnnotatorStage,
 )
 from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.utils import resolve_storage_options
@@ -56,7 +56,7 @@ CLIP_MODEL_DIR = "./model_weights"
 _IMAGE_BYTE_FILTERS = frozenset({"blur", "qrcode", "clip"})
 
 
-def _annotation_dict_to_json_for_parquet(v: Any) -> Any:
+def _annotation_dict_to_json_for_parquet(v: Any) -> Any:  # noqa: ANN401
     """Serialize CLIP per-text-position scores (dict or dict-like Series) for Parquet."""
     if isinstance(v, dict):
         ordered = sorted(((int(k), float(val)) for k, val in v.items()), key=lambda kv: kv[0])
@@ -96,27 +96,13 @@ def add_score_filter_stages(pipe: Pipeline, args: argparse.Namespace) -> None:
     """Append score filter stages in ``--filters`` order."""
     for name in args.filters:
         if name == "blur":
-            score = args.score if args.score is not None else 100.0
-            pipe.add_stage(InterleavedBlurFilterStage(score_threshold=score))
+            pipe.add_stage(InterleavedBlurAnnotatorStage())
         elif name == "qrcode":
-            score = args.score if args.score is not None else 0.05
-            pipe.add_stage(InterleavedQRCodeFilterStage(score_threshold=score))
+            pipe.add_stage(InterleavedQRCodeAnnotatorStage())
         elif name == "clip":
-            score = args.score if args.score is not None else 0.15
-            pipe.add_stage(
-                InterleavedCLIPScoreFilterStage(
-                    model_dir=CLIP_MODEL_DIR,
-                    min_score=score,
-                )
-            )
+            pipe.add_stage(InterleavedCLIPScoreAnnotatorStage(model_dir=CLIP_MODEL_DIR))
         elif name == "ratio":
-            max_ratio = args.max_ratio if args.max_ratio is not None else float("inf")
-            pipe.add_stage(
-                InterleavedImageToTextRatioFilterStage(
-                    min_ratio=args.min_ratio,
-                    max_ratio=max_ratio,
-                )
-            )
+            pipe.add_stage(InterleavedImageToTextRatioAnnotatorStage())
 
 
 def build_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -204,28 +190,5 @@ if __name__ == "__main__":
         choices=list(FILTER_CHOICES),
         default=["blur"],
         help="Interleaved score filters in order (each appends its score columns to task.data). CLIP loads from ./model_weights.",
-    )
-    parser.add_argument(
-        "--score",
-        type=float,
-        default=None,
-        help=(
-            "Threshold for blur (min sharpness), qrcode (max QR area ratio), and clip (min similarity). "
-            "If omitted, each filter uses its stage default (blur 100, qrcode 0.05, clip 0.15)."
-        ),
-    )
-    parser.add_argument(
-        "--min-ratio",
-        type=float,
-        default=0.0,
-        dest="min_ratio",
-        help="Ratio filter: min image_count / max(text_word_count, 1) for pass_mask semantics on score columns.",
-    )
-    parser.add_argument(
-        "--max-ratio",
-        type=float,
-        default=None,
-        dest="max_ratio",
-        help="Ratio filter: max image_count / max(text_word_count, 1) (omit for no upper bound).",
     )
     main(parser.parse_args())

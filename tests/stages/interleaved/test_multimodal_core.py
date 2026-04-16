@@ -23,7 +23,7 @@ import pytest
 
 from nemo_curator.core.utils import split_table_by_group_max_bytes
 from nemo_curator.stages.interleaved.io.reader import InterleavedWebdatasetReader
-from nemo_curator.stages.interleaved.filter.pass_mask import basic_interleaved_row_validity_mask
+from nemo_curator.stages.interleaved.annotation.pass_mask import basic_interleaved_row_validity_mask
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
     BaseInterleavedScoreFilterStage,

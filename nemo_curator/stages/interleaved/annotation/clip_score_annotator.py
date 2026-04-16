@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pandas as pd
 from loguru import logger
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 DEFAULT_CLIP_MIN_SCORE: float = 0.15
 
 
-def _sample_text_positions_and_texts(df: pd.DataFrame, sample_id: Any) -> tuple[list[int], list[str]]:
+def _sample_text_positions_and_texts(df: pd.DataFrame, sample_id: str | int) -> tuple[list[int], list[str]]:
     """Text ``position`` and stripped non-empty ``text_content``, same row order."""
     if "text_content" not in df.columns or "modality" not in df.columns or "position" not in df.columns:
         return [], []
@@ -84,7 +84,6 @@ class InterleavedCLIPScoreAnnotatorStage(BaseInterleavedScoreFilterStage):
     """
 
     model_dir: str | None = None
-    min_score: float = DEFAULT_CLIP_MIN_SCORE
     name: str = "interleaved_clip_score_annotator"
     resources: Resources = field(default_factory=lambda: Resources(gpu_memory_gb=20.0))
 
@@ -99,12 +98,12 @@ class InterleavedCLIPScoreAnnotatorStage(BaseInterleavedScoreFilterStage):
             raise RuntimeError(msg)
         CLIPImageEmbeddings.download_weights_on_node(self.model_dir)
 
-    def _clip_score_dicts_series(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+    def _clip_score_dicts_series(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:  # noqa: C901
         out = pd.Series(pd.NA, index=df.index, dtype=object)
         image_mask = df["modality"] == "image"
         if not image_mask.any():
             return out
-        sample_id_to_rows: dict[Any, list[tuple[int, bytes]]] = {}
+        sample_id_to_rows: dict[str | int, list[tuple[int, bytes]]] = {}
         for idx, image_bytes in self.iter_materialized_bytes(task=task, df=df, row_mask=image_mask):
             if image_bytes is None:
                 continue
@@ -115,14 +114,14 @@ class InterleavedCLIPScoreAnnotatorStage(BaseInterleavedScoreFilterStage):
             text_positions, texts = _sample_text_positions_and_texts(df, sample_id)
             if not texts:
                 for idx, _ in rows:
-                    out.at[idx] = pd.NA
+                    out.at[idx] = pd.NA  # noqa: PD008
                 continue
             indices, images = _indices_and_decoded_images_from_rows(rows, decode_ok)
             if not images:
                 continue
             try:
                 img_emb = self._model(images)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(
                     "CLIP score computation failed (indices={}): {}",
                     indices,
@@ -137,7 +136,7 @@ class InterleavedCLIPScoreAnnotatorStage(BaseInterleavedScoreFilterStage):
                 for j in range(num_t):
                     cell = sim[i, j]
                     d[text_positions[j]] = float(cell.item()) if hasattr(cell, "item") else float(cell)
-                out.at[idx] = {int(k): float(v) for k, v in d.items()}
+                out.at[idx] = {int(k): float(v) for k, v in d.items()}  # noqa: PD008
         return out
 
     def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:

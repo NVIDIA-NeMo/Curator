@@ -14,7 +14,7 @@
 
 """OmniCorpus WebDataset -> parquet with CLIP max image–text score per content row.
 
-:class:`InterleavedCLIPScoreExportStage` mirrors :class:`InterleavedCLIPScoreFilterStage`
+:class:`InterleavedCLIPScoreExportStage` mirrors :class:`InterleavedCLIPScoreAnnotatorStage`
 scoring: for each image row, ``scores[i].max()`` over CLIP similarities to all text rows
 in the sample. Writes ``sample_id``, ``position``, ``clip_score`` for content rows.
 
@@ -40,7 +40,7 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.stages.interleaved.filter import InterleavedCLIPScoreFilterStage
+from nemo_curator.stages.interleaved.annotation import InterleavedCLIPScoreAnnotatorStage
 from nemo_curator.stages.interleaved.utils import image_bytes_to_array, resolve_storage_options
 from nemo_curator.tasks import InterleavedBatch
 from nemo_curator.utils.client_utils import is_remote_url
@@ -60,7 +60,7 @@ def _sample_texts_for_sample(df: pd.DataFrame, sample_id: str) -> list[str]:
 
 
 @dataclass
-class InterleavedCLIPScoreExportStage(InterleavedCLIPScoreFilterStage):
+class InterleavedCLIPScoreExportStage(InterleavedCLIPScoreAnnotatorStage):
     """CLIP setup identical to the filter stage; exposes per-image ``scores[i].max()`` (no thresholding)."""
 
     name: str = "interleaved_clip_score_export"

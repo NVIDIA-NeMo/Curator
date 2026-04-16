@@ -24,7 +24,7 @@ null / empty / unparseable. Additional **by ``sample_id``** stats: per sample, *
 over image rows in that sample; same bin layout as per-image CLIP; no image export for these.
 
 **Image / text balance per ``sample_id``**: uses ``image_num`` and ``text_word_num`` written by
-:class:`~nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter.InterleavedImageToTextRatioFilterStage`
+:class:`~nemo_curator.stages.interleaved.annotation.image_to_text_ratio_annotator.InterleavedImageToTextRatioAnnotatorStage`
 (non-null on ``position == 0`` per sample; this script takes ``groupby('sample_id').max()``). Ratio
 ``images / words`` for samples with at least one image and one word; **10** equal bins on ``[0, 0.1]``
 (width ``0.01``), values clipped to ``[0, 0.1]`` for binning (above ``0.1`` counts in the top bin).
@@ -340,7 +340,7 @@ def sample_image_word_ratio_payload(
     *,
     include_missing_row: bool = True,
 ) -> dict[str, Any] | None:
-    """Per ``sample_id``: ``image_num`` / ``text_word_num`` from InterleavedImageToTextRatioFilterStage.
+    """Per ``sample_id``: ``image_num`` / ``text_word_num`` from InterleavedImageToTextRatioAnnotatorStage.
 
     Values are expected on disk as the stage writes them (typically non-null only where ``position == 0``);
     per-sample counts are ``max`` over rows in each ``sample_id`` group.
@@ -354,7 +354,7 @@ def sample_image_word_ratio_payload(
     g = df.groupby("sample_id", dropna=False)
     ni = pd.to_numeric(g[img_col].max(), errors="coerce")
     nw = pd.to_numeric(g[word_col].max(), errors="coerce")
-    source = f"{img_col},{word_col} (InterleavedImageToTextRatioFilterStage)"
+    source = f"{img_col},{word_col} (InterleavedImageToTextRatioAnnotatorStage)"
 
     idx = ni.index.union(nw.index)
     if len(idx) == 0:

@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from nemo_curator.stages.interleaved.annotation.blur_annotator import (
+    DEFAULT_BLUR_SCORE_THRESHOLD,
     InterleavedBlurAnnotatorStage,
     _sharpness_score,
 )
@@ -76,7 +77,7 @@ def test_blur_annotator_does_not_drop_blurry_image() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedBlurAnnotatorStage(score_threshold=1e6)
+    stage = InterleavedBlurAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
     assert len(out_frame) == 1
 
@@ -96,7 +97,7 @@ def test_blur_annotator_sharp_image_has_high_sharpness_score() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedBlurAnnotatorStage(score_threshold=0.0)
+    stage = InterleavedBlurAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
     col = f"{stage.name}_sharpness"
     assert out_frame.iloc[0][col] > 0
@@ -120,7 +121,7 @@ def test_blur_annotator_blurry_image_has_low_sharpness_score() -> None:
     stage = InterleavedBlurAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
     col = f"{stage.name}_sharpness"
-    assert float(out_frame.iloc[0][col]) < stage.score_threshold
+    assert float(out_frame.iloc[0][col]) < DEFAULT_BLUR_SCORE_THRESHOLD
 
 
 def test_blur_annotator_column_name_uses_stage_name() -> None:
@@ -157,9 +158,7 @@ def test_blur_annotator_none_bytes_gives_na_sharpness() -> None:
     ]
     task = interleaved_task(rows)
 
-    def _none_bytes(
-        self: object, task: object, df: pd.DataFrame, row_mask: pd.Series
-    ) -> Iterator[tuple[Any, None]]:
+    def _none_bytes(self: object, task: object, df: pd.DataFrame, row_mask: pd.Series) -> Iterator[tuple[Any, None]]:
         del self, task
         for idx in df[row_mask].index:
             yield idx, None
@@ -192,8 +191,8 @@ def test_blur_annotator_pass_mask_sharp_image_passes() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedBlurAnnotatorStage(score_threshold=0.0)
-    mask = interleaved_score_pass_mask(stage, task, task.to_pandas())
+    stage = InterleavedBlurAnnotatorStage()
+    mask = interleaved_score_pass_mask(stage, task, task.to_pandas(), score_threshold=0.0)
     assert mask.all()
 
 
@@ -212,8 +211,8 @@ def test_blur_annotator_pass_mask_blurry_image_fails() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedBlurAnnotatorStage(score_threshold=1e6)
-    mask = interleaved_score_pass_mask(stage, task, task.to_pandas())
+    stage = InterleavedBlurAnnotatorStage()
+    mask = interleaved_score_pass_mask(stage, task, task.to_pandas(), score_threshold=1e6)
     assert not mask.any()
 
 
@@ -231,8 +230,8 @@ def test_blur_annotator_pass_mask_text_rows_always_pass() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedBlurAnnotatorStage(score_threshold=1e6)
-    mask = interleaved_score_pass_mask(stage, task, task.to_pandas())
+    stage = InterleavedBlurAnnotatorStage()
+    mask = interleaved_score_pass_mask(stage, task, task.to_pandas(), score_threshold=1e6)
     assert mask.all()
 
 
@@ -261,9 +260,9 @@ def test_blur_annotator_pass_mask_invalid_rows_excluded_when_drop_invalid_rows()
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedBlurAnnotatorStage(score_threshold=0.0)
+    stage = InterleavedBlurAnnotatorStage()
     df = task.to_pandas()
-    mask = interleaved_score_pass_mask(stage, task, df, drop_invalid_rows=True)
+    mask = interleaved_score_pass_mask(stage, task, df, drop_invalid_rows=True, score_threshold=0.0)
     assert not bool(mask.loc[df["modality"] == "audio"].iloc[0])
     assert bool(mask.loc[df["modality"] == "image"].iloc[0])
 
@@ -282,6 +281,6 @@ def test_blur_annotator_pass_mask_drop_invalid_rows_false_keeps_all() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedBlurAnnotatorStage(score_threshold=1e6)
-    mask = interleaved_score_pass_mask(stage, task, task.to_pandas(), drop_invalid_rows=False)
+    stage = InterleavedBlurAnnotatorStage()
+    mask = interleaved_score_pass_mask(stage, task, task.to_pandas(), drop_invalid_rows=False, score_threshold=1e6)
     assert mask.all()

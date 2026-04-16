@@ -36,10 +36,9 @@ from nemo_curator.stages.interleaved.filter import (
     InterleavedCLIPScoreFilterStage,
     InterleavedImageToTextRatioFilterStage,
     InterleavedQRCodeFilterStage,
-    interleaved_score_pass_mask,
 )
 from nemo_curator.stages.interleaved.io import WebdatasetReader
-from nemo_curator.stages.interleaved.stages import BaseInterleavedScoreFilterStage
+from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 from nemo_curator.tasks import InterleavedBatch
 from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import check_output_mode
@@ -98,7 +97,7 @@ class InterleavedAnnotationFilterStage(ProcessingStage[InterleavedBatch, Interle
     Uses the same resources as the wrapped filter_stage.
     """
 
-    filter_stage: BaseInterleavedScoreFilterStage
+    filter_stage: BaseInterleavedFilterStage
     name: str = "interleaved_annotation_filter"
 
     def __post_init__(self) -> None:
@@ -115,7 +114,7 @@ class InterleavedAnnotationFilterStage(ProcessingStage[InterleavedBatch, Interle
         if df.empty:
             task._metadata[ANNOTATION_METADATA_KEY] = None
             return task
-        keep_mask = interleaved_score_pass_mask(self.filter_stage, task, df, drop_invalid_rows=True)
+        keep_mask = self.filter_stage.keep_mask(task, df)
         content = (df["modality"] != "metadata") & (df["position"] >= 0)
         sub = df.loc[content]
         base = sub[["sample_id", "position"]].copy()

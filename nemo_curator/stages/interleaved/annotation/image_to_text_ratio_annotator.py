@@ -65,16 +65,14 @@ class InterleavedImageToTextRatioAnnotatorStage(BaseInterleavedScoreFilterStage)
     """Add per-sample image count and text word count only on rows with ``position == 0``.
 
     Other rows get null counts. Per-sample values are still derived from the whole sample
-    (all modalities). ``min_ratio`` / ``max_ratio`` apply to image_count / max(text_word_count, 1)
-    in :func:`~nemo_curator.stages.interleaved.annotation.pass_mask.interleaved_score_pass_mask`
-    (which uses full-sample counts on every row); that ratio is not stored as a column.
+    (all modalities). The ratio image_count / max(text_word_count, 1) is computed in
+    :func:`~nemo_curator.stages.interleaved.annotation.pass_mask.interleaved_score_pass_mask`
+    using full-sample counts; that ratio is not stored as a column.
     """
 
-    min_ratio: float = DEFAULT_IMAGE_TO_TEXT_MIN_RATIO
-    max_ratio: float = DEFAULT_IMAGE_TO_TEXT_MAX_RATIO
     name: str = "interleaved_image_to_text_ratio_annotator"
 
-    def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
+    def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:  # noqa: ARG002
         image_full, word_full = per_row_image_word_counts_broadcast(df)
         pos0 = df["position"] == 0
         return {

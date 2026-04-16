@@ -93,7 +93,7 @@ def test_qrcode_annotator_does_not_drop_high_qr_image() -> None:
     task = interleaved_task(rows)
     with patch("nemo_curator.stages.interleaved.annotation.qrcode_annotator._qr_code_ratio") as mock_ratio:
         mock_ratio.return_value = 0.9
-        stage = InterleavedQRCodeAnnotatorStage(score_threshold=0.05)
+        stage = InterleavedQRCodeAnnotatorStage()
         out_frame = stage.process(task).to_pandas()
     assert len(out_frame) == 1
 
@@ -154,9 +154,7 @@ def test_qrcode_annotator_none_bytes_gives_na_score() -> None:
     ]
     task = interleaved_task(rows)
 
-    def _none_bytes(
-        self: object, task: object, df: pd.DataFrame, row_mask: pd.Series
-    ) -> Iterator[tuple[Any, None]]:
+    def _none_bytes(self: object, task: object, df: pd.DataFrame, row_mask: pd.Series) -> Iterator[tuple[Any, None]]:
         del self, task
         for idx in df[row_mask].index:
             yield idx, None
@@ -182,8 +180,8 @@ def test_qrcode_annotator_pass_mask_low_qr_passes() -> None:
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedQRCodeAnnotatorStage(score_threshold=1.0)
-    mask = interleaved_score_pass_mask(stage, task, task.to_pandas())
+    stage = InterleavedQRCodeAnnotatorStage()
+    mask = interleaved_score_pass_mask(stage, task, task.to_pandas(), score_threshold=1.0)
     assert mask.all()
 
 
@@ -204,6 +202,6 @@ def test_qrcode_annotator_pass_mask_high_qr_fails(mock_ratio: MagicMock) -> None
         },
     ]
     task = interleaved_task(rows)
-    stage = InterleavedQRCodeAnnotatorStage(score_threshold=0.05)
-    mask = interleaved_score_pass_mask(stage, task, task.to_pandas())
+    stage = InterleavedQRCodeAnnotatorStage()
+    mask = interleaved_score_pass_mask(stage, task, task.to_pandas(), score_threshold=0.05)
     assert not mask.any()

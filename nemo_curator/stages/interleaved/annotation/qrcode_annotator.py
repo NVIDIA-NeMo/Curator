@@ -65,7 +65,6 @@ def _qr_code_ratio(image: np.ndarray, row_index: Hashable | None = None) -> floa
 class InterleavedQRCodeAnnotatorStage(BaseInterleavedScoreFilterStage):
     """Add QR code area ratio per image row as ``{name}_qr_area_ratio`` (``<NA>`` on non-images)."""
 
-    score_threshold: float = DEFAULT_QRCODE_SCORE_THRESHOLD
     name: str = "interleaved_qrcode_annotator"
 
     def _qr_ratio_series(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:

@@ -141,7 +141,7 @@ class BaseInterleavedScoreFilterStage(BaseInterleavedAnnotatorStage, ABC):
     all original columns and row order unchanged.
 
     For an optional boolean pass mask (e.g. annotation metadata), use
-    :func:`nemo_curator.stages.interleaved.filter.pass_mask.interleaved_score_pass_mask`.
+    :func:`nemo_curator.stages.interleaved.annotation.pass_mask.interleaved_score_pass_mask`.
     """
 
     name: str = "base_interleaved_score_filter"
