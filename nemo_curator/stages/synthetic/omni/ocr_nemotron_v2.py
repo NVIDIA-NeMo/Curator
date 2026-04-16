@@ -30,21 +30,19 @@ from nemo_curator.tasks.image import SingleDataTask
 from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
 
 _HF_REPO_ID = "nvidia/nemotron-ocr-v2"
-_DEFAULT_SUBDIR = "v2_english"
-
-# NemotronOCR-v2 uses a non-standard coordinate system: y=0 is at the *bottom*
-# of the image (PDF convention), so (left, upper, right, lower) with upper > lower
-# means the text is near the top of the image.  We flip the y-axis when converting
-# to the standard OCRDenseWord [x1, y1, x2, y2] schema where y=0 is at the top.
-
+_DEFAULT_SUBDIR = "v2_multilingual"
 
 def _to_ocr_dense_word(pred: dict[str, Any]) -> OCRDenseWord:
-    """Convert a NemotronOCR-v2 prediction dict to OCRDenseWord (0-1000 coords)."""
+    """Convert a NemotronOCR-v2 prediction dict to OCRDenseWord (0-1000 coords).
+
+    NemotronOCR-v2 uses screen coordinates (y=0 at top) but with inverted naming:
+    ``lower`` holds the *smaller* y value (top edge) and ``upper`` holds the
+    *larger* y value (bottom edge).  We sort to ensure y1 <= y2.
+    """
     x1 = int(pred["left"] * 1000)
     x2 = int(pred["right"] * 1000)
-    # Flip y-axis: nemotron gives y=0 at bottom; OCRDenseWord uses y=0 at top.
-    y1 = int((1.0 - pred["upper"]) * 1000)
-    y2 = int((1.0 - pred["lower"]) * 1000)
+    y1 = int(min(pred["upper"], pred["lower"]) * 1000)
+    y2 = int(max(pred["upper"], pred["lower"]) * 1000)
     return OCRDenseWord(
         bbox_2d=[x1, y1, x2, y2],
         text_content=str(pred["text"]),
@@ -54,15 +52,16 @@ def _to_ocr_dense_word(pred: dict[str, Any]) -> OCRDenseWord:
 class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
     """Word-level dense OCR using NemotronOCR-v2.
 
-    Only processes tasks routed to "rtx" by OCRLanguageRoutingStage.
-    Tasks with any other route (qwen, skip, None) are passed through unchanged.
+    By default only processes tasks routed to "rtx" by OCRLanguageRoutingStage.
+    When ``process_all=True`` (e.g. routing stage was skipped) every valid task
+    is processed regardless of ``ocr_language_route``.
 
     The ``model_dir`` parameter should point to the ``v2_english`` (or
     ``v2_multilingual``) directory inside the NemotronOCR-v2 model checkout.
     If ``model_dir`` is None the stage downloads the model from HuggingFace on
     first use (``nvidia/nemotron-ocr-v2``).
 
-    Output field ``ocr_qwen_dense`` is populated with a list of
+    Output field ``ocr_dense`` is populated with a list of
     ``{"bbox_2d": [x1, y1, x2, y2], "text_content": "..."}`` entries
     (normalized 0-1000 coordinates, y=0 at top).
 
@@ -79,6 +78,7 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
         model_dir: str | Path | None = None,
         num_workers: int | None = None,
         merge_level: str = "word",
+        process_all: bool = False,
         **kwargs: Any,
     ) -> None:
         """Initialize the NemotronOCR-v2 stage.
@@ -91,12 +91,15 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
             merge_level: NemotronOCR merge level — "word", "sentence", or
                 "paragraph".  Defaults to "word" for compatibility with the
                 Qwen OCR output schema.
+            process_all: If True, run on every valid task regardless of
+                ``ocr_language_route`` (use when routing stage is skipped).
             **kwargs: Additional arguments forwarded to VLMProcessingStage.
         """
         super().__init__(**kwargs)
         self.model_dir = Path(model_dir) if model_dir is not None else None
         self.num_workers = num_workers
         self.merge_level = merge_level
+        self.process_all = process_all
         self._model: Any = None  # NemotronOCRV2, loaded in setup()
 
     def _resolve_model_dir(self) -> str:
@@ -124,11 +127,11 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
         logger.info(f"{self.name}: model loaded")
 
     def process_batch(self, tasks: list[SingleDataTask[OCRData]]) -> list[SingleDataTask[OCRData]]:
-        """Run NemotronOCR-v2 on all "rtx"-routed tasks in the batch."""
+        """Run NemotronOCR-v2 on eligible tasks in the batch."""
         for task in tasks:
             if not task.data.is_valid:
                 continue
-            if task.data.ocr_language_route != "rtx":
+            if not self.process_all and task.data.ocr_language_route != "rtx":
                 continue  # pass through qwen/skip tasks unchanged
 
             try:
@@ -153,7 +156,7 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
         finally:
             os.unlink(tmp_path)
 
-        task.data.ocr_qwen_dense = [_to_ocr_dense_word(p) for p in preds]
+        task.data.ocr_dense = [_to_ocr_dense_word(p) for p in preds]
 
     def teardown(self) -> None:
         """Release GPU memory."""

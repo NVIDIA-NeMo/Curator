@@ -1,13 +1,14 @@
 """Validates image descriptions using a verification model."""
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Generator, Iterable
 
 from nemo_curator.stages.resources import Resources
 
 from nemo_curator.models.omni.base import InferenceConfig, NVInferenceModelConfig
 from nemo_curator.models.omni.gemini import Gemini3Pro
 from nemo_curator.stages.synthetic.omni.base import ModelProcessingStage
+from nemo_curator.tasks.image import SingleDataTask
 from nemo_curator.stages.synthetic.omni.description import ImageCaptioningData
 from nemo_curator.stages.synthetic.omni.utils.json_streamer import process_json
 from nemo_curator.tasks.image import SingleDataTask
@@ -106,11 +107,15 @@ class DescriptionValidatorStage(ModelProcessingStage[DescriptionValidatedData]):
     # work to this stage as soon as each description batch completes, improving GPU/API overlap.
     batch_size = 16
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        model_id: str = "gcp/google/gemini-3-flash-preview",
+        **kwargs: Any,
+    ) -> None:
         super().__init__(
             model=Gemini3Pro(
                 model_config=NVInferenceModelConfig(max_tokens=8 * 1024),
-                model_id="gcp/google/gemini-3-flash-preview",
+                model_id=model_id,
             ),
             inference_config=InferenceConfig(
                 temperature=1.0,

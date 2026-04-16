@@ -74,10 +74,10 @@ def _x_first_to_y_first(bbox: list[int]) -> list[int]:
 class OCRVerificationStage(ModelProcessingStage[OCRData]):
     """Verify dense OCR bounding boxes using Gemini 3 Pro via NVIDIA Inference API.
 
-    Skips tasks where ``ocr_qwen_dense`` is None (OCR stage has not run yet).
+    Skips tasks where ``ocr_dense`` is None (OCR stage has not run yet).
     Marks tasks invalid if Gemini's yes/no answers don't match expected values.
 
-    Reads:  ``ocr_qwen_dense``, ``ocr_is_word_level``, ``ocr_has_text``
+    Reads:  ``ocr_dense``, ``ocr_is_word_level``, ``ocr_has_text``
     Writes: ``ocr_verification_prompt``, ``ocr_verification_model``,
             ``ocr_verification_response_raw``, ``ocr_verification_answers``,
             ``is_valid``, ``error``
@@ -90,7 +90,7 @@ class OCRVerificationStage(ModelProcessingStage[OCRData]):
 
     def __init__(
         self,
-        model_id: str = "gcp/google/gemini-3-pro",
+        model_id: str = "gcp/google/gemini-3-flash-preview",
         temperature: float = 1.0,
         max_tokens: int = 2048,
         batch_size: int | None = None,
@@ -122,7 +122,7 @@ class OCRVerificationStage(ModelProcessingStage[OCRData]):
         return load_image_from_task(task)
 
     def build_prompt(self, task: SingleDataTask[OCRData]) -> str:
-        ocr_items = task.data.ocr_qwen_dense
+        ocr_items = task.data.ocr_dense
 
         # Skip tasks that haven't been through any OCR stage yet.
         if ocr_items is None:
@@ -137,7 +137,7 @@ class OCRVerificationStage(ModelProcessingStage[OCRData]):
                 task.data.is_valid = False
                 task.data.error = (
                     f"ocr_verification: mismatch ocr_has_text={task.data.ocr_has_text} "
-                    f"but ocr_qwen_dense={'empty' if is_empty else 'non-empty'}"
+                    f"but ocr_dense={'empty' if is_empty else 'non-empty'}"
                 )
                 raise SkipSample
 
@@ -219,7 +219,7 @@ class OCRVerificationStage(ModelProcessingStage[OCRData]):
 
         task.data.ocr_verification_answers = answers
 
-        is_empty = task.data.ocr_qwen_dense is not None and len(task.data.ocr_qwen_dense) == 0
+        is_empty = task.data.ocr_dense is not None and len(task.data.ocr_dense) == 0
         question_checks = _QUESTION_CHECKS_EMPTY if is_empty else _QUESTION_CHECKS_WORD
 
         by_question = {item["question"].strip(): item["answer"].strip().lower() for item in answers}

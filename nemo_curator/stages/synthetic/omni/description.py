@@ -170,7 +170,7 @@ class DescriptionStage(ModelProcessingStage[ImageCaptioningData]):
     """Generate dense description."""
 
     name = "description_vllm"
-    resources = Resources(cpus=8.0, gpus=1)
+    resources = Resources(cpus=0.0, gpus=1)
     batch_size = 16
 
     def __init__(

@@ -875,8 +875,6 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
         Returns:
             The same task (pass-through).
         """
-        logger.info(f"ResultWriter.process() called, task type: {type(task)}")
-
         if task.data.is_valid:
             data = task.data.to_dict()
             data["image_path"] = self._get_image_path_str(task.data.image_path)
@@ -888,7 +886,9 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
                 self._skipped_count += 1
                 return task
             else:
-                self._file.write(json.dumps({"image_path": self._get_image_path_str(task.data.image_path), "error": task.data.error}) + "\n")
+                data = task.data.to_dict()
+                data["image_path"] = self._get_image_path_str(task.data.image_path)
+                self._file.write(json.dumps({k: v for k, v in data.items() if v is not None and k != "is_valid"}) + "\n")
         self._file.flush()  # Flush after each write for safety
         self._saved_count += 1
         return task

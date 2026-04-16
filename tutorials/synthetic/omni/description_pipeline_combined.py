@@ -34,6 +34,7 @@ def create_description_pipeline(
     resume: bool = False,
     valid_only: bool = True,
     description_num_workers: int | None = None,
+    validator_model_id: str = "gcp/google/gemini-3-flash-preview",
 ) -> Pipeline:
     """Create the combined description pipeline (description → validation → output → write).
 
@@ -87,7 +88,7 @@ def create_description_pipeline(
 
     pipeline.add_stage(DescriptionStage(num_workers=description_num_workers))
 
-    pipeline.add_stage(DescriptionValidatorStage())
+    pipeline.add_stage(DescriptionValidatorStage(model_id=validator_model_id))
 
     pipeline.add_stage(DescriptionOutputStage())
 
@@ -126,6 +127,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Number of workers for description stage (e.g. 8 for 8 GPUs). If unset, Xenna autoscaler decides.",
+    )
+    parser.add_argument(
+        "--validator-model-id",
+        type=str,
+        default="gcp/google/gemini-3-flash-preview",
+        help="NVIDIA Inference API model ID for the validator stage.",
     )
     parser.add_argument(
         "--backend",
@@ -167,6 +174,7 @@ def main() -> None:
         resume=args.resume,
         valid_only=args.valid_only,
         description_num_workers=args.description_num_workers,
+        validator_model_id=args.validator_model_id,
     )
 
     # Print pipeline description

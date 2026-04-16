@@ -35,12 +35,18 @@ class OCRDenseWord:
     quad: list[tuple[int, int]] | None = None
     valid: bool = True
 
+    # Scoring verification fields (set by OCRScoringVerificationStage)
+    bbox_match: int | None = None    # Gemini bbox fit score 0-10
+    text_errors: int | None = None   # Gemini transcription error count
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "bbox_2d": list(self.bbox_2d),
             "text_content": self.text_content,
             "quad": self.quad,
             "valid": self.valid,
+            "bbox_match": self.bbox_match,
+            "text_errors": self.text_errors,
         }
 
     @classmethod
@@ -53,6 +59,8 @@ class OCRDenseWord:
             text_content=str(data.get("text_content") or ""),
             quad=data.get("quad"),
             valid=data.get("valid", True),
+            bbox_match=data.get("bbox_match"),
+            text_errors=data.get("text_errors"),
         )
 
     @staticmethod
@@ -84,7 +92,7 @@ class OCRData(ImageTaskData):
 
     Fields are populated incrementally as the task moves through pipeline stages:
     - Language routing stage: ocr_language_route and associated debug flags
-    - OCR stage (Qwen): ocr_qwen_dense
+    - OCR stage (Qwen): ocr_dense
     - Verification stage: ocr_verification_*  (future)
     - Conversationalize stage: conversation  (future)
     """
@@ -101,8 +109,8 @@ class OCRData(ImageTaskData):
 
     # --- Qwen dense OCR (OCRQwenStage) ---
     ocr_is_word_level: bool = True
-    ocr_qwen_dense_prompt: str | None = None
-    ocr_qwen_dense: list[OCRDenseWord] | None = None
+    ocr_dense_prompt: str | None = None
+    ocr_dense: list[OCRDenseWord] | None = None
 
     # --- Verification (OCRVerificationStage) ---
     ocr_verification_prompt: str | None = None
@@ -110,10 +118,35 @@ class OCRData(ImageTaskData):
     ocr_verification_response_raw: str | None = None
     ocr_verification_answers: list[dict] | None = None
 
+    # --- Scoring verification (OCRScoringVerificationStage) ---
+    ocr_scoring_prompt: str | None = None
+    ocr_scoring_model: str | None = None
+    ocr_scoring_response_raw: str | None = None
+    ocr_scoring_mode: str | None = None          # "word" or "line" as inferred by Gemini
+    ocr_scoring_missing: list[dict] | None = None  # missing text regions with bbox_2d
+
+    # --- Block/line hierarchy (from RTX OCR or future geometric grouping) ---
+    # blocks → lines → indices into ocr_dense
+    ocr_rtx_blocks_lines_idx: list[list[list[int]]] | None = None
+    ocr_rtx_invalid_count: int | None = None
+
+    @property
+    def ocr_rtx_blocks_lines(self) -> list[list[list[OCRDenseWord]]] | None:
+        """Resolve ocr_rtx_blocks_lines_idx into word objects from ocr_dense."""
+        idx = self.ocr_rtx_blocks_lines_idx
+        dense = self.ocr_dense
+        if not idx or not dense:
+            return None
+        n = len(dense)
+        return [
+            [[dense[i] for i in line if 0 <= i < n] for line in block]
+            for block in idx
+        ]
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "OCRData":
         """Deserialize from a JSONL record (produced by ResultWriterStage)."""
-        qwen_raw = data.get("ocr_qwen_dense")
+        qwen_raw = data.get("ocr_dense")
         if isinstance(qwen_raw, list):
             qwen_items: list[OCRDenseWord] | None = [
                 OCRDenseWord.from_dict(x) if isinstance(x, dict) else x
@@ -140,10 +173,17 @@ class OCRData(ImageTaskData):
             ocr_has_english=data.get("ocr_has_english"),
             ocr_has_other_language=data.get("ocr_has_other_language"),
             ocr_is_word_level=is_word_level,
-            ocr_qwen_dense_prompt=data.get("ocr_qwen_dense_prompt"),
-            ocr_qwen_dense=qwen_items,
+            ocr_dense_prompt=data.get("ocr_dense_prompt"),
+            ocr_dense=qwen_items,
             ocr_verification_prompt=data.get("ocr_verification_prompt"),
             ocr_verification_model=data.get("ocr_verification_model"),
             ocr_verification_response_raw=data.get("ocr_verification_response_raw"),
             ocr_verification_answers=data.get("ocr_verification_answers"),
+            ocr_scoring_prompt=data.get("ocr_scoring_prompt"),
+            ocr_scoring_model=data.get("ocr_scoring_model"),
+            ocr_scoring_response_raw=data.get("ocr_scoring_response_raw"),
+            ocr_scoring_mode=data.get("ocr_scoring_mode"),
+            ocr_scoring_missing=data.get("ocr_scoring_missing"),
+            ocr_rtx_blocks_lines_idx=data.get("ocr_rtx_blocks_lines_idx"),
+            ocr_rtx_invalid_count=data.get("ocr_rtx_invalid_count"),
         )
