@@ -114,6 +114,7 @@ class TestInferenceServer:
         assert server.name not in _active_servers
 
     def test_wait_for_healthy(self, httpserver: HTTPServer) -> None:
+        # With no models the expected set is empty and any response body is a valid match.
         httpserver.expect_request("/v1/models").respond_with_json({"data": []})
         server = InferenceServer(models=[], port=httpserver.port, health_check_timeout_s=5)
         server._wait_for_healthy()
@@ -121,3 +122,21 @@ class TestInferenceServer:
         server = InferenceServer(models=[], port=19876, health_check_timeout_s=2)
         with pytest.raises(TimeoutError, match="did not become ready within 2s"):
             server._wait_for_healthy()
+
+    def test_wait_for_healthy_matches_expected_model_names(self, httpserver: HTTPServer) -> None:
+        httpserver.expect_request("/v1/models").respond_with_json({"data": [{"id": "my-model"}]})
+        ready = InferenceServer(
+            models=[RayServeModelConfig(model_identifier="my-model")],
+            port=httpserver.port,
+            health_check_timeout_s=5,
+        )
+        ready._wait_for_healthy()
+
+        # If the expected model isn't in the response, the check times out.
+        missing = InferenceServer(
+            models=[RayServeModelConfig(model_identifier="other-model")],
+            port=httpserver.port,
+            health_check_timeout_s=2,
+        )
+        with pytest.raises(TimeoutError, match="did not become ready within 2s"):
+            missing._wait_for_healthy()

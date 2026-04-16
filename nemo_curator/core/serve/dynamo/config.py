@@ -43,19 +43,19 @@ class DynamoRouterConfig:
     ``mode=None`` means "auto": Curator picks ``"kv"`` if any model uses
     ``mode="disagg"``, else leaves ``--router-mode`` unset so the Dynamo
     frontend falls back to its own ``round_robin`` default. ``kv_events``
-    only applies when ``mode == "kv"``. Anything else is forwarded to the
+    only applies when ``mode == "kv"``: pass ``kv_events=True`` to opt into
+    exact ZMQ KV-cache event publishing; the default uses the router's
+    approximate tree-based tracking. Anything else is forwarded to the
     Dynamo frontend as CLI args via ``router_kwargs``.
     """
 
     mode: Literal["round_robin", "random", "kv", "direct"] | None = None
-    kv_events: bool = True
+    kv_events: bool = False
     router_kwargs: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.mode is not None and self.mode != "kv" and self.kv_events:
-            msg = (
-                f"kv_events is only meaningful when mode='kv'; got mode={self.mode!r}. Set kv_events=False to disable."
-            )
+            msg = f"kv_events=True is only meaningful when mode='kv'; got mode={self.mode!r}."
             raise ValueError(msg)
 
 

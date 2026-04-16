@@ -31,8 +31,10 @@ class TestDynamoRoleConfig:
 
 class TestDynamoRouterConfig:
     def test_post_init(self) -> None:
-        # Invalid: non-kv mode leaving kv_events=True is contradictory
-        with pytest.raises(ValueError, match="kv_events is only meaningful when mode='kv'"):
+        # kv_events defaults to False so non-kv modes don't need to opt out.
+        assert DynamoRouterConfig(mode="round_robin").kv_events is False
+        # Explicit kv_events=True with a non-kv mode is contradictory.
+        with pytest.raises(ValueError, match="kv_events=True is only meaningful when mode='kv'"):
             DynamoRouterConfig(mode="round_robin", kv_events=True)
 
 
