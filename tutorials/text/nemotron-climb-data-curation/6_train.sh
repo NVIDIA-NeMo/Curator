@@ -61,6 +61,8 @@ export NCCL_DEBUG=INFO
 #          then data-parallel-size = 8
 #          and 4096 / (64 x 8) = 8
 #          and gradient-accumulation-steps = 8
+# The default values will work fine for any value of NUM_GPUS that is a power of 2
+# Else, adjust the value of global-batch-size, etc. to fit the formula above
 #
 # Decreasing the micro-batch-size can help reduce memory pressure, e.g., --micro-batch-size 32
 #

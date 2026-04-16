@@ -223,11 +223,11 @@ def generate_config_from_prior(  # noqa: PLR0913
 
         with open(output_path, "w") as f:
             f.write("#!/bin/bash\n")
-            parts = []
+            f.write("cat <<EOF\n")
             for path, weight in train_group.items():
                 if weight > 0:
-                    parts.append(f"{weight} {path}")
-            f.write(f'echo "{" ".join(parts)}"\n')
+                    f.write(f"{weight} {path}\n")
+            f.write("EOF\n")
 
 
 def sort_and_deduplicate(data: np.ndarray, threshold: float = 1e-5) -> np.ndarray:
