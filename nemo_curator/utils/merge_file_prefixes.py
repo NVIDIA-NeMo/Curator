@@ -1,5 +1,20 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
-Simplified version of the tools/merge_datasets.py script from the Megatron-LM library.
+Simplified version of the tools/merge_datasets.py script from the Megatron-LM library
+(https://github.com/NVIDIA/Megatron-LM/blob/main/tools/merge_datasets.py).
 """
 
 import argparse
@@ -236,17 +251,21 @@ def get_args() -> argparse.Namespace:
 
     assert os.path.isdir(args.input_dir), f"ERROR: {args.input_dir} is not a directory or does not exist"  # noqa: S101
 
-    assert os.path.isdir(os.path.dirname(args.output_prefix)), (  # noqa: S101
-        f"ERROR: {os.path.dirname(args.output_prefix)} is not a directory or does not exist"
+    output_dir = os.path.dirname(args.output_prefix) or "."
+    assert os.path.isdir(output_dir), (  # noqa: S101
+        f"ERROR: {output_dir} is not a directory or does not exist"
     )
 
     return args
 
 
-def main(input_dir: str, output_prefix: str) -> None:
+def merge_file_prefixes(input_dir: str, output_prefix: str) -> None:
     prefixes = set()
     for basename in os.listdir(input_dir):
         prefix, ext = os.path.splitext(basename)
+
+        if ext not in {".bin", ".idx"}:
+            continue
 
         if prefix in prefixes:
             continue
@@ -255,11 +274,15 @@ def main(input_dir: str, output_prefix: str) -> None:
             continue
 
         ext_pair = ".bin" if ext == ".idx" else ".idx"
-        assert os.path.isfile(os.path.join(input_dir, prefix) + ext_pair), (  # noqa: S101
+        assert os.path.isfile(os.path.join(input_dir, prefix + ext_pair)), (  # noqa: S101
             f"ERROR: {ext_pair} file not provided for {os.path.join(input_dir, prefix)}"
         )
 
         prefixes.add(prefix)
+
+    if not prefixes:
+        msg = f"ERROR: No valid file prefix pairs found in {input_dir}"
+        raise ValueError(msg)
 
     builder = None
     for prefix in sorted(prefixes):
@@ -274,4 +297,4 @@ def main(input_dir: str, output_prefix: str) -> None:
 
 if __name__ == "__main__":
     args = get_args()
-    main(args.input_dir, args.output_prefix)
+    merge_file_prefixes(args.input_dir, args.output_prefix)
