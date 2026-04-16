@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nemo_curator.core.serve.base import BaseModelConfig
+from nemo_curator.core.serve.base import BaseModelConfig, InferenceBackend
 from nemo_curator.core.serve.ray_serve.config import RayServeModelConfig
 from nemo_curator.core.utils import get_free_port
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from nemo_curator.core.serve.server import InferenceServer
 
 
-class RayServeBackend:
+class RayServeBackend(InferenceBackend):
     """Ray Serve backend for ``InferenceServer``."""
 
     def __init__(self, server: "InferenceServer") -> None:

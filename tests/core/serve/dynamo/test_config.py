@@ -23,7 +23,7 @@ from nemo_curator.core.serve import (
 
 class TestDynamoRoleConfig:
     def test_post_init(self) -> None:
-        # 0 replicas is allowed (disables that role in a disagg pair)
+        # 0 is allowed at the role level, though DynamoVLLMModelConfig rejects 0 on either role when mode="disagg".
         DynamoRoleConfig(num_replicas=0)
         with pytest.raises(ValueError, match="num_replicas must be >= 0"):
             DynamoRoleConfig(num_replicas=-1)
