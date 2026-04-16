@@ -29,9 +29,18 @@ AUDIO_SAMPLE_KEY_FIELD = "sample_key"
 class _AttrDict(dict):
     """Dict subclass exposing keys as attributes so ``hasattr`` works."""
 
-    def __getattr__(self, key: str):
+    def __getattr__(self: "_AttrDict", key: str) -> Any:
         try:
             return self[key]
+        except KeyError:
+            raise AttributeError(key) from None
+
+    def __setattr__(self: "_AttrDict", key: str, value: object) -> None:
+        self[key] = value
+
+    def __delattr__(self: "_AttrDict", key: str) -> None:
+        try:
+            del self[key]
         except KeyError:
             raise AttributeError(key) from None
 
@@ -55,13 +64,6 @@ def build_audio_sample_key(
     data: Mapping[str, Any],
     *,
     dataset_name: str = "",
-    audio_filepath_key: str = "audio_filepath",
-    tar_path_key: str = "_tar_path",
-    tar_member_key: str = "_tar_member",
-    shard_id_key: str = "_shard_id",
-    source_type_key: str = "_audio_source_type",
-    offset_key: str = "offset",
-    duration_key: str = "duration",
     sample_key_field: str = AUDIO_SAMPLE_KEY_FIELD,
 ) -> str:
     """Build a stable sample key for an audio entry.
@@ -76,25 +78,16 @@ def build_audio_sample_key(
 
     identity = {
         "dataset_name": _normalize_sample_key_value(dataset_name),
-        "source_type": _normalize_sample_key_value(data.get(source_type_key)),
-        "audio_filepath": _normalize_sample_key_value(data.get(audio_filepath_key)),
-        "tar_path": _normalize_sample_key_value(data.get(tar_path_key)),
-        "tar_member": _normalize_sample_key_value(data.get(tar_member_key)),
-        "shard_id": _normalize_sample_key_value(data.get(shard_id_key)),
-        "offset": _normalize_sample_key_value(data.get(offset_key)),
-        "duration": _normalize_sample_key_value(data.get(duration_key)),
+        "source_type": _normalize_sample_key_value(data.get("_audio_source_type")),
+        "audio_filepath": _normalize_sample_key_value(data.get("audio_filepath")),
+        "tar_path": _normalize_sample_key_value(data.get("_tar_path")),
+        "tar_member": _normalize_sample_key_value(data.get("_tar_member")),
+        "shard_id": _normalize_sample_key_value(data.get("_shard_id")),
+        "offset": _normalize_sample_key_value(data.get("offset")),
+        "duration": _normalize_sample_key_value(data.get("duration")),
     }
     identity_json = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(identity_json.encode("utf-8")).hexdigest()
-
-    def __setattr__(self, key: str, value: object) -> None:
-        self[key] = value
-
-    def __delattr__(self, key: str):
-        try:
-            del self[key]
-        except KeyError:
-            raise AttributeError(key) from None
 
 
 @dataclass
@@ -117,7 +110,7 @@ class AudioTask(Task[dict]):
     sample_key: str = ""
     filepath_key: str | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not isinstance(self.data, _AttrDict):
             self.data = _AttrDict(self.data)
         if not self.sample_key:
