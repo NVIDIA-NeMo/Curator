@@ -14,25 +14,21 @@
 
 from typing import TYPE_CHECKING
 
-from nemo_curator.core.serve.internal.base import InferenceBackend
+from nemo_curator.core.serve.base import InferenceBackend
 
 if TYPE_CHECKING:
     from nemo_curator.core.serve.server import InferenceServer
 
 
 class DynamoBackend(InferenceBackend):
-    """Typed Dynamo backend placeholder.
-
-    The real Dynamo implementation lands in the next stacked PR so this branch
-    can stay focused on the public typed config surface.
-    """
+    """Dynamo backend for ``InferenceServer``."""
 
     def __init__(self, server: "InferenceServer") -> None:
         self._server = server
 
     def start(self) -> None:
-        msg = "Dynamo backend implementation lands in PR 3."
+        msg = "DynamoBackend is not yet implemented."
         raise NotImplementedError(msg)
 
     def stop(self) -> None:
-        return
+        pass

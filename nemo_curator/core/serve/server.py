@@ -22,15 +22,10 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
-from nemo_curator.core.serve.config import (
-    BaseModelConfig,
-    DynamoServerConfig,
-    DynamoVLLMModelConfig,
-    RayServeModelConfig,
-    RayServeServerConfig,
-)
-from nemo_curator.core.serve.internal.base import InferenceBackend
-from nemo_curator.core.serve.internal.constants import DEFAULT_SERVE_HEALTH_TIMEOUT_S, DEFAULT_SERVE_PORT
+from nemo_curator.core.serve.base import BaseModelConfig, BaseServerConfig, InferenceBackend
+from nemo_curator.core.serve.constants import DEFAULT_SERVE_HEALTH_TIMEOUT_S, DEFAULT_SERVE_PORT
+from nemo_curator.core.serve.dynamo.config import DynamoServerConfig
+from nemo_curator.core.serve.ray_serve.config import RayServeServerConfig
 
 # Track which application names are currently managed by an InferenceServer in
 # this process so other components can detect possible GPU contention.
@@ -47,7 +42,7 @@ class InferenceServer:
     """Serve one or more models behind a typed backend config."""
 
     models: list[BaseModelConfig]
-    backend: RayServeServerConfig | DynamoServerConfig = field(default_factory=RayServeServerConfig)
+    backend: BaseServerConfig = field(default_factory=RayServeServerConfig)
     name: str = "default"
     port: int = DEFAULT_SERVE_PORT
     health_check_timeout_s: int = DEFAULT_SERVE_HEALTH_TIMEOUT_S
@@ -62,22 +57,19 @@ class InferenceServer:
         if not self.verbose:
             logging.getLogger("ray.serve").setLevel(logging.WARNING)
 
-    def _expected_model_config_type(self) -> type[BaseModelConfig]:
-        if isinstance(self.backend, RayServeServerConfig):
-            return RayServeModelConfig
-        if isinstance(self.backend, DynamoServerConfig):
-            return DynamoVLLMModelConfig
-        msg = f"Unknown backend config type: {type(self.backend)!r}"
-        raise TypeError(msg)
-
     def _validate_model_configs(self) -> None:
-        expected_type = self._expected_model_config_type()
-        mismatched = sorted({type(model).__name__ for model in self.models if not isinstance(model, expected_type)})
-        if mismatched:
-            msg = (
-                f"{type(self.backend).__name__} requires {expected_type.__name__} models, "
-                f"but got {', '.join(mismatched)}."
-            )
+        """Check every model is accepted by the backend and that all models share one concrete type."""
+        accepted = self.backend.model_configs
+        wrong = sorted({type(m).__name__ for m in self.models if not isinstance(m, accepted)})
+        if wrong:
+            accepted_names = ", ".join(c.__name__ for c in accepted) or "<none>"
+            msg = f"{type(self.backend).__name__} accepts {accepted_names}, but got {', '.join(wrong)}."
+            raise TypeError(msg)
+
+        model_types = {type(m) for m in self.models}
+        if len(model_types) > 1:
+            names = sorted(t.__name__ for t in model_types)
+            msg = f"All models in one InferenceServer must be the same config type; got {', '.join(names)}."
             raise TypeError(msg)
 
     def start(self) -> None:
@@ -109,7 +101,7 @@ class InferenceServer:
 
             return RayServeBackend(self)
         if isinstance(self.backend, DynamoServerConfig):
-            from nemo_curator.core.serve.internal.dynamo import DynamoBackend
+            from nemo_curator.core.serve.dynamo.backend import DynamoBackend
 
             return DynamoBackend(self)
         msg = f"Unknown backend config type: {type(self.backend)!r}"

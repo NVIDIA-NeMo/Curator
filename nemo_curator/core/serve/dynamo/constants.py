@@ -12,9 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-DEFAULT_SERVE_PORT = 8000
-DEFAULT_SERVE_HEALTH_TIMEOUT_S = 300
-
 DEFAULT_ETCD_PORT = 2379
 DEFAULT_NATS_PORT = 4222
 
