@@ -23,11 +23,9 @@ for binning (values above ``0.5`` count in the top bin). Plus ``(no clip score)`
 null / empty / unparseable. Additional **by ``sample_id``** stats: per sample, **max** and **min** of per-image ``clip_max``
 over image rows in that sample; same bin layout as per-image CLIP; no image export for these.
 
-**Image / text balance per ``sample_id``**: counts match
-:func:`~nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter.per_row_image_word_counts_broadcast`.
-When Parquet has ``image_num`` / ``text_word_num`` from
-:class:`~nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter.InterleavedImageToTextRatioFilterStage`,
-non-null values override the broadcast (sparse rows at ``position == 0``). Ratio
+**Image / text balance per ``sample_id``**: uses ``image_num`` and ``text_word_num`` written by
+:class:`~nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter.InterleavedImageToTextRatioFilterStage`
+(non-null on ``position == 0`` per sample; this script takes ``groupby('sample_id').max()``). Ratio
 ``images / words`` for samples with at least one image and one word; **10** equal bins on ``[0, 0.1]``
 (width ``0.01``), values clipped to ``[0, 0.1]`` for binning (above ``0.1`` counts in the top bin).
 Extra row **``0 (no images)``** when ``n_images == 0`` and ``n_words > 0``. Missing row when
@@ -73,16 +71,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Literal
 
+# import pandas as pd
+import modin.pandas as pd
 import numpy as np
-import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from fsspec.core import url_to_fs
 from pyarrow.fs import FSSpecHandler, PyFileSystem
 
-from nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter import (
-    per_row_image_word_counts_broadcast,
-)
 from nemo_curator.stages.interleaved.utils import resolve_storage_options
 
 MISSING_BIN_LABEL_BLUR = "(no sharpness)"
@@ -344,22 +340,21 @@ def sample_image_word_ratio_payload(
     *,
     include_missing_row: bool = True,
 ) -> dict[str, Any] | None:
-    """Per ``sample_id``: ``image_num`` / ``text_word_num`` (filter stage) and ``images/words`` histogram."""
-    if "sample_id" not in df.columns or "modality" not in df.columns:
+    """Per ``sample_id``: ``image_num`` / ``text_word_num`` from InterleavedImageToTextRatioFilterStage.
+
+    Values are expected on disk as the stage writes them (typically non-null only where ``position == 0``);
+    per-sample counts are ``max`` over rows in each ``sample_id`` group.
+    """
+    if "sample_id" not in df.columns:
         return None
-    img_full, word_full = per_row_image_word_counts_broadcast(df)
-    pack = pd.DataFrame({"sample_id": df["sample_id"], "_i": img_full, "_w": word_full})
-    ni = pack.groupby("sample_id", dropna=False)["_i"].first()
-    nw = pack.groupby("sample_id", dropna=False)["_w"].first()
-    source = "per_row_image_word_counts_broadcast"
     img_col = image_to_text_ratio_image_num_column(df)
     word_col = image_to_text_ratio_text_word_num_column(df)
-    if img_col is not None and word_col is not None:
-        ni_p = pd.to_numeric(df.groupby("sample_id", dropna=False)[img_col].max(), errors="coerce")
-        nw_p = pd.to_numeric(df.groupby("sample_id", dropna=False)[word_col].max(), errors="coerce")
-        ni = ni_p.combine_first(ni)
-        nw = nw_p.combine_first(nw)
-        source = f"broadcast_with_parquet_override:{img_col},{word_col}"
+    if img_col is None or word_col is None:
+        return None
+    g = df.groupby("sample_id", dropna=False)
+    ni = pd.to_numeric(g[img_col].max(), errors="coerce")
+    nw = pd.to_numeric(g[word_col].max(), errors="coerce")
+    source = f"{img_col},{word_col} (InterleavedImageToTextRatioFilterStage)"
 
     idx = ni.index.union(nw.index)
     if len(idx) == 0:
@@ -656,6 +651,7 @@ def export_distribution_with_samples(
     read_kwargs: dict[str, Any] | None = None,
     reload_max_workers: int = 1,
 ) -> None:
+    print("[phase] export: preparing output directory", flush=True)
     export_dir = Path(export_dir).resolve()
     if export_overwrite and export_dir.exists():
         shutil.rmtree(export_dir)
@@ -692,7 +688,12 @@ def export_distribution_with_samples(
         if sids_set:
             tmask = (df["modality"] == "text") & (df["sample_id"].isin(sids_set))
             merge_indices.update(int(i) for i in np.flatnonzero(np.asarray(tmask)))
+    print(
+        f"[phase] export: sampled {len(merge_indices)} row index(es) for files + paired text",
+        flush=True,
+    )
     if parquet_paths is not None and merge_indices:
+        print("[phase] export: reloading heavy Parquet columns for export rows (if needed)", flush=True)
         _merge_export_heavy_columns_for_indices(
             df,
             parquet_paths,
@@ -700,8 +701,10 @@ def export_distribution_with_samples(
             merge_indices,
             max_workers=reload_max_workers,
         )
+        print("[phase] export: heavy-column merge step finished", flush=True)
 
     if do_blur and sharp is not None:
+        print("[phase] export: writing blur bin sample images", flush=True)
         out_payload["blur_samples"] = _export_bin_images(
             df,
             blur_idx,
@@ -712,6 +715,7 @@ def export_distribution_with_samples(
             clip_scores_column=None,
         )
     if do_clip and clip_max is not None:
+        print("[phase] export: writing clip bin sample images and pair JSON", flush=True)
         out_payload["clip_samples"] = _export_bin_images(
             df,
             clip_idx,
@@ -723,6 +727,7 @@ def export_distribution_with_samples(
         )
 
     dist_path = export_dir / "distribution.json"
+    print(f"[phase] export: writing {dist_path}", flush=True)
     dist_path.write_text(json.dumps(out_payload, indent=2, default=str), encoding="utf-8")
 
 
@@ -1046,6 +1051,12 @@ def load_scored_parquet_frames(
     if not paths:
         msg = "paths must be non-empty"
         raise ValueError(msg)
+    _cols = (read_kwargs or {}).get("parquet_columns")
+    print(
+        f"[phase] load parquet: {len(paths)} file(s), max_workers={max_workers}, "
+        f"columns={_cols if _cols is not None else 'all'}",
+        flush=True,
+    )
     if len(paths) == 1 or max_workers <= 1:
         frames = []
         for i, ps in enumerate(paths):
@@ -1067,6 +1078,7 @@ def load_scored_parquet_frames(
     out = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
     del frames
     gc.collect()
+    print(f"[phase] load parquet: done, {len(out)} rows", flush=True)
     return out
 
 
@@ -1173,13 +1185,16 @@ def main() -> None:
     if args.storage_options_json:
         read_kwargs["storage_options"] = json.loads(args.storage_options_json)
 
+    print("[phase] resolve inputs: expanding Parquet paths (files / directories / URIs)", flush=True)
     parquet_paths = expand_parquet_path_inputs(
         [str(p) for p in args.parquet],
         read_kwargs=read_kwargs or None,
     )
+    print(f"[phase] resolve inputs: {len(parquet_paths)} Parquet file(s)", flush=True)
     read_workers = _effective_read_workers(int(args.read_workers), len(parquet_paths))
     read_kw_load: dict[str, Any] = dict(read_kwargs) if read_kwargs else {}
     if not args.read_all_columns:
+        print("[phase] schema: union of Parquet column names (lightweight schema reads)", flush=True)
         avail = _union_parquet_column_names(parquet_paths, read_kwargs or None)
         col_order = _parquet_read_column_order(
             avail,
@@ -1188,6 +1203,12 @@ def main() -> None:
         )
         if col_order is not None:
             read_kw_load["parquet_columns"] = col_order
+            print(f"[phase] schema: pruned read columns ({len(col_order)}): {col_order}", flush=True)
+        else:
+            print("[phase] schema: using full column set for load (no prune list)", flush=True)
+    else:
+        print("[phase] schema: --read-all-columns: skipping column prune", flush=True)
+
     df = load_scored_parquet_frames(
         parquet_paths,
         read_kwargs=read_kw_load or None,
@@ -1195,6 +1216,10 @@ def main() -> None:
     )
     images = df["modality"] == "image"
     total_img = int(images.sum())
+    print(
+        f"[phase] dataframe: {len(df)} rows, {total_img} image rows, {len(df.columns)} column(s)",
+        flush=True,
+    )
 
     blur_col = blur_sharpness_column(df)
     clip_col = clip_score_column(df)
@@ -1217,6 +1242,7 @@ def main() -> None:
     clip_max: pd.Series | None = None
 
     if do_blur:
+        print("[phase] statistics: blur (Laplacian sharpness) histogram", flush=True)
         sharp = df.loc[images, blur_col]
         blur_table = blur_histogram_table(
             sharp,
@@ -1234,6 +1260,7 @@ def main() -> None:
         }
 
     if do_clip:
+        print("[phase] statistics: CLIP (per-image max) and by-sample_id aggregates", flush=True)
         clip_max = clip_max_series_for_images(df, clip_col, images=images)
         clip_table = clip_histogram_table(clip_max, include_missing_row=include_missing)
         clip_by_sample_max = clip_max_per_sample_id(df, clip_max, images=images)
@@ -1267,11 +1294,13 @@ def main() -> None:
             }
         payload["clip"] = clip_entry
 
+    print("[phase] statistics: image/word ratio per sample_id (if columns allow)", flush=True)
     iw = sample_image_word_ratio_payload(df, include_missing_row=include_missing)
     if iw is not None:
         payload["sample_image_word_ratio"] = iw
 
     if args.export_dir:
+        print(f"[phase] export: writing under {args.export_dir!r}", flush=True)
         export_distribution_with_samples(
             export_dir=Path(args.export_dir),
             df=df,
@@ -1292,8 +1321,10 @@ def main() -> None:
         print(f"Wrote export: {Path(args.export_dir) / 'distribution.json'}")
 
     if args.json:
+        print("[phase] output: JSON payload to stdout", flush=True)
         print(json.dumps(payload, indent=2))
     else:
+        print("[phase] output: human-readable tables to stdout", flush=True)
         print(f"image_rows={total_img}")
         if do_blur:
             b = payload["blur"]

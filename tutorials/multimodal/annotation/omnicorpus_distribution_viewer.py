@@ -319,8 +319,23 @@ APP_JS = r"""
   }
   function ratioPage(d) {
     if (!d.sample_image_word_ratio) return "<p class='sub'>No sample_image_word_ratio in distribution.json.</p>";
-    return kvBlock("Image / words per sample", d.sample_image_word_ratio)
-      + hbarBlock("Image/words ratio histogram", d.sample_image_word_ratio.ratio_rows || []);
+    var r = d.sample_image_word_ratio;
+    var meta = {
+      source: r.source,
+      ratio: r.ratio,
+      unique_samples: r.unique_samples,
+      total_images_included_samples: r.total_images_included_samples,
+      total_words_included_samples: r.total_words_included_samples,
+    };
+    var h = kvBlock("Image / words per sample", meta);
+    if (r.n_images_per_sample && typeof r.n_images_per_sample === "object" && !Array.isArray(r.n_images_per_sample)) {
+      h += kvBlock("Images per sample (min / max / mean / median)", r.n_images_per_sample);
+    }
+    if (r.n_words_per_sample && typeof r.n_words_per_sample === "object" && !Array.isArray(r.n_words_per_sample)) {
+      h += kvBlock("Words per sample (min / max / mean / median)", r.n_words_per_sample);
+    }
+    h += hbarBlock("Image/words ratio histogram", r.ratio_rows || []);
+    return h;
   }
   global.omnistatRun = function (pageId) {
     var main = document.getElementById("main");

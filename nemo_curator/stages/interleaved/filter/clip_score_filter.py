@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
+from loguru import logger
 
 from nemo_curator.models.clip import CLIPImageEmbeddings
 from nemo_curator.stages.interleaved.stages import BaseInterleavedScoreFilterStage
@@ -129,7 +130,15 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedScoreFilterStage):
             indices, images = _indices_and_decoded_images_from_rows(rows, decode_ok)
             if not images:
                 continue
-            img_emb = self._model(images)
+            try:
+                img_emb = self._model(images)
+            except Exception as e:
+                logger.debug(
+                    "CLIP score computation failed (indices={}): {}",
+                    indices,
+                    e,
+                )
+                continue
             text_emb = self._model.encode_text(texts)
             sim = img_emb @ text_emb.T
             num_t = len(text_positions)
