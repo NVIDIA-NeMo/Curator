@@ -114,6 +114,7 @@ class TestCaptionEnhancementStage:
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
+            model_variant="qwen",
             model_id=None,
             model_revision=None,
         )
@@ -360,7 +361,7 @@ class TestCaptionEnhancementStage:
         # Verify verbose logging occurred
         info_calls = [str(call) for call in mock_logger.info.call_args_list]
         assert any("Caption for clip" in call for call in info_calls)
-        assert any("Enhanced QwenLM Caption" in call for call in info_calls)
+        assert any("Enhanced qwen LM Caption" in call for call in info_calls)
 
 
 class TestGetEnhancePrompt:
