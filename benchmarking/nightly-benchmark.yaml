@@ -89,10 +89,6 @@ datasets:
     formats:
     - type: "parquet"
       path: "{datasets_path}/cc_index_benchmark/cc_index"
-  - name: "dns_readspeech"
-    formats:
-    - type: "wav"
-      path: "{datasets_path}/dns_readspeech/read_speech"
 default_timeout_s: 7200
 
 # Optional sinks
@@ -688,76 +684,6 @@ entries:
         additional_metrics:
           - throughput_tasks_per_sec
           - num_tasks_processed
-        ping_on_failure:
-          - U03C41SNADV  # Aaftab V
-    requirements:
-      - metric: is_success
-        exact_value: true
-
-  - name: audio_readspeech_xenna
-    enabled: true
-    script: audio_readspeech_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:dns_readspeech,wav}
-      --max-samples=5000
-      --enable-vad
-      --enable-band-filter
-      --enable-utmos
-      --enable-sigmos
-      --enable-speaker-separation
-      --utmos-mos-threshold=3.4
-      --sigmos-noise-threshold=4.0
-      --sigmos-ovrl-threshold=3.5
-      --gpus=1
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
-    sink_data:
-      - name: slack
-        # time_taken_s intentionally omitted: ReadSpeech includes dataset download
-        # whose wall-clock varies with network conditions. Only throughput/count
-        # and filter_pass_rate are reported.
-        additional_metrics:
-          - throughput_tasks_per_sec
-          - num_tasks_processed
-          - filter_pass_rate
-        ping_on_failure:
-          - U03C41SNADV  # Aaftab V
-    requirements:
-      - metric: is_success
-        exact_value: true
-
-  - name: audio_readspeech_raydata
-    enabled: true
-    script: audio_readspeech_benchmark.py
-    args: >-
-      --benchmark-results-path={session_entry_dir}
-      --scratch-output-path={session_entry_dir}/scratch
-      --raw-data-dir={dataset:dns_readspeech,wav}
-      --max-samples=5000
-      --enable-vad
-      --enable-band-filter
-      --enable-utmos
-      --enable-sigmos
-      --enable-speaker-separation
-      --utmos-mos-threshold=3.4
-      --sigmos-noise-threshold=4.0
-      --sigmos-ovrl-threshold=3.5
-      --gpus=1
-      --executor=ray_data
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
-    sink_data:
-      - name: slack
-        additional_metrics:
-          - throughput_tasks_per_sec
-          - num_tasks_processed
-          - filter_pass_rate
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
     requirements:
