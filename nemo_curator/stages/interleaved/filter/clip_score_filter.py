@@ -15,13 +15,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pandas as pd
-from loguru import logger
 
 from nemo_curator.models.clip import CLIPImageEmbeddings
-from nemo_curator.stages.interleaved.stages import BaseInterleavedScoreFilterStage
+from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 from nemo_curator.stages.resources import Resources
 
@@ -32,30 +31,6 @@ if TYPE_CHECKING:
     from nemo_curator.tasks import InterleavedBatch
 
 DEFAULT_CLIP_MIN_SCORE: float = 0.15
-
-
-def _sample_text_positions_and_texts(df: pd.DataFrame, sample_id: Any) -> tuple[list[int], list[str]]:
-    """Text ``position`` and stripped non-empty ``text_content``, same row order as :func:`_sample_texts_list_from_df`."""
-    if "text_content" not in df.columns or "modality" not in df.columns or "position" not in df.columns:
-        return [], []
-    subset = df[(df["sample_id"] == sample_id) & (df["modality"] == "text")]
-    if subset.empty:
-        return [], []
-    positions: list[int] = []
-    contents: list[str] = []
-    for _, row in subset.iterrows():
-        raw = row["text_content"]
-        if raw is None or (isinstance(raw, float) and pd.isna(raw)):
-            continue
-        s = str(raw).strip()
-        if not s:
-            continue
-        pos = row["position"]
-        if pd.isna(pos):
-            continue
-        positions.append(int(pos))
-        contents.append(s)
-    return positions, contents
 
 
 def _sample_texts_list_from_df(df: pd.DataFrame, sample_id: str) -> list[str]:
@@ -69,15 +44,15 @@ def _sample_texts_list_from_df(df: pd.DataFrame, sample_id: str) -> list[str]:
 
 
 def _indices_and_decoded_images_from_rows(
-    rows: list[tuple[int, bytes]], row_ok: pd.Series
+    rows: list[tuple[int, bytes]], keep_mask: pd.Series
 ) -> tuple[list[int], list[np.ndarray]]:
-    """Decode image bytes per row; clear ``row_ok`` entries where decode fails."""
+    """Decode image bytes per row; clear keep_mask entries where decode fails."""
     indices: list[int] = []
     images: list[np.ndarray] = []
     for idx, b in rows:
         arr = image_bytes_to_array(b, row_index=idx)
         if arr is None:
-            row_ok.loc[idx] = False
+            keep_mask.loc[idx] = False
             continue
         indices.append(idx)
         images.append(arr)
@@ -85,12 +60,12 @@ def _indices_and_decoded_images_from_rows(
 
 
 @dataclass
-class InterleavedCLIPScoreFilterStage(BaseInterleavedScoreFilterStage):
-    """Add CLIP similarity dicts per image row as ``{name}_clip_scores_by_text_position``.
+class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
+    """Filter interleaved image rows by CLIP image-text relevance score.
 
-    For each image row, all text rows with the same ``sample_id`` form (image, text) pairs.
-    The stored dict maps each text row's interleaved ``position`` to the CLIP similarity.
-    Non-image rows and images with no text in the sample use ``<NA>`` (not ``float('nan')``).
+    For each image row, all text rows with the same sample_id form (image, text)
+    pairs. CLIP similarity is computed for each pair. An image is kept only if at
+    least one pair has score >= min_score; otherwise it is dropped.
     """
 
     model_dir: str | None = None
@@ -109,46 +84,33 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedScoreFilterStage):
             raise RuntimeError(msg)
         CLIPImageEmbeddings.download_weights_on_node(self.model_dir)
 
-    def _clip_score_dicts_series(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
-        out = pd.Series(pd.NA, index=df.index, dtype=object)
+    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+        keep_mask = pd.Series(True, index=df.index, dtype=bool)
         image_mask = df["modality"] == "image"
         if not image_mask.any():
-            return out
-        sample_id_to_rows: dict[Any, list[tuple[int, bytes]]] = {}
+            return keep_mask
+
+        sample_id_to_rows: dict[str, list[tuple[int, bytes]]] = {}
         for idx, image_bytes in self.iter_materialized_bytes(task=task, df=df, row_mask=image_mask):
             if image_bytes is None:
+                keep_mask.loc[idx] = False
                 continue
             sample_id = df.loc[idx, "sample_id"]
             sample_id_to_rows.setdefault(sample_id, []).append((idx, image_bytes))
-        decode_ok = pd.Series(True, index=df.index, dtype=bool)
+
         for sample_id, rows in sample_id_to_rows.items():
-            text_positions, texts = _sample_text_positions_and_texts(df, sample_id)
+            texts = _sample_texts_list_from_df(df, sample_id)
             if not texts:
                 for idx, _ in rows:
-                    out.at[idx] = pd.NA
+                    keep_mask.loc[idx] = False
                 continue
-            indices, images = _indices_and_decoded_images_from_rows(rows, decode_ok)
+            indices, images = _indices_and_decoded_images_from_rows(rows, keep_mask)
             if not images:
                 continue
-            try:
-                img_emb = self._model(images)
-            except Exception as e:
-                logger.debug(
-                    "CLIP score computation failed (indices={}): {}",
-                    indices,
-                    e,
-                )
-                continue
+            img_emb = self._model(images)
             text_emb = self._model.encode_text(texts)
-            sim = img_emb @ text_emb.T
-            num_t = len(text_positions)
+            scores = img_emb @ text_emb.T
             for i, idx in enumerate(indices):
-                d: dict[int, float] = {}
-                for j in range(num_t):
-                    cell = sim[i, j]
-                    d[text_positions[j]] = float(cell.item()) if hasattr(cell, "item") else float(cell)
-                out.at[idx] = {int(k): float(v) for k, v in d.items()}
-        return out
+                keep_mask.loc[idx] = (scores[i].max() >= self.min_score).item()
 
-    def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-        return {"clip_scores": self._clip_score_dicts_series(task, df)}
+        return keep_mask

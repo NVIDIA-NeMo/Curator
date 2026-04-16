@@ -125,8 +125,7 @@ def test_qrcode_filter_image_decode_error_drops_row(mock_to_array: MagicMock) ->
     stage = InterleavedQRCodeFilterStage(score_threshold=0.05)
     out = stage.process(task)
     out_frame = out.to_pandas()
-    assert len(out_frame) == 1
-    assert pd.isna(out_frame.iloc[0]["interleaved_qrcode_filter_qr_area_ratio"])
+    assert len(out_frame) == 0
 
 
 def test_qrcode_filter_image_bytes_none_drops_row() -> None:
@@ -158,8 +157,7 @@ def test_qrcode_filter_image_bytes_none_drops_row() -> None:
         stage = InterleavedQRCodeFilterStage(score_threshold=0.05)
         out = stage.process(task)
     out_frame = out.to_pandas()
-    assert len(out_frame) == 1
-    assert pd.isna(out_frame.iloc[0]["interleaved_qrcode_filter_qr_area_ratio"])
+    assert len(out_frame) == 0
 
 
 def test_qrcode_filter_image_below_threshold_kept() -> None:
@@ -203,6 +201,5 @@ def test_qrcode_filter_image_above_threshold_dropped(mock_qr_ratio: MagicMock) -
     stage = InterleavedQRCodeFilterStage(score_threshold=0.05)
     out = stage.process(task)
     out_frame = out.to_pandas()
-    assert len(out_frame) == 1
-    assert out_frame.iloc[0]["interleaved_qrcode_filter_qr_area_ratio"] == 0.5
+    assert len(out_frame) == 0
     mock_qr_ratio.assert_called()

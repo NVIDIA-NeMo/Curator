@@ -15,11 +15,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from nemo_curator.stages.interleaved.stages import BaseInterleavedScoreFilterStage
+from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 
 if TYPE_CHECKING:
     from nemo_curator.tasks import InterleavedBatch
@@ -35,49 +35,37 @@ def _text_word_count(text: str | None) -> int:
     return len(str(text).split())
 
 
-def per_row_image_word_counts_broadcast(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
-    """Per-sample image count and text word count, broadcast to every row index.
-
-    Used by :func:`~nemo_curator.stages.interleaved.filter.pass_mask.interleaved_score_pass_mask`
-    so ratio thresholds apply to every row (e.g. image rows) even though stored columns are
-    only filled at ``position == 0``.
-    """
-    if "sample_id" not in df.columns:
-        na_i = pd.Series(pd.NA, index=df.index, dtype="Int64")
-        return na_i, na_i.copy()
-    img_per: dict[Any, int] = {}
-    words_per: dict[Any, int] = {}
-    for sample_id, group in df.groupby("sample_id"):
-        image_count = int((group["modality"] == "image").sum())
-        text_mask = group["modality"] == "text"
-        text_word_count = 0
-        if text_mask.any() and "text_content" in group.columns:
-            text_word_count = sum(_text_word_count(t) for t in group.loc[text_mask, "text_content"].tolist())
-        img_per[sample_id] = image_count
-        words_per[sample_id] = text_word_count
-    image_num = df["sample_id"].map(img_per).astype("Int64")
-    word_num = df["sample_id"].map(words_per).astype("Int64")
-    return image_num, word_num
-
-
 @dataclass
-class InterleavedImageToTextRatioFilterStage(BaseInterleavedScoreFilterStage):
-    """Add per-sample image count and text word count only on rows with ``position == 0``.
+class InterleavedImageToTextRatioFilterStage(BaseInterleavedFilterStage):
+    """Filter interleaved samples by image-to-text ratio (images per word).
 
-    Other rows get null counts. Per-sample values are still derived from the whole sample
-    (all modalities). ``min_ratio`` / ``max_ratio`` apply to image_count / max(text_word_count, 1)
-    in :func:`~nemo_curator.stages.interleaved.filter.pass_mask.interleaved_score_pass_mask`
-    (which uses full-sample counts on every row); that ratio is not stored as a column.
+    Groups rows by sample_id. For each sample:
+    - image_count = number of rows with modality == 'image'
+    - text_word_count = sum of len(text_content.split()) over text rows
+    - ratio = image_count / max(text_word_count, 1)
+
+    Samples with ratio outside [min_ratio, max_ratio] are dropped (all their rows).
     """
 
     min_ratio: float = DEFAULT_IMAGE_TO_TEXT_MIN_RATIO
     max_ratio: float = DEFAULT_IMAGE_TO_TEXT_MAX_RATIO
     name: str = "interleaved_image_to_text_ratio_filter"
 
-    def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-        image_full, word_full = per_row_image_word_counts_broadcast(df)
-        pos0 = df["position"] == 0
-        return {
-            "image_num": image_full.where(pos0, pd.NA).astype("Int64"),
-            "text_word_num": word_full.where(pos0, pd.NA).astype("Int64"),
-        }
+    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:  # noqa: ARG002
+        keep_mask = pd.Series(True, index=df.index, dtype=bool)
+        if "sample_id" not in df.columns:
+            return keep_mask
+
+        sample_keep: dict[str, bool] = {}
+        for sample_id, group in df.groupby("sample_id"):
+            image_count = int((group["modality"] == "image").sum())
+            text_mask = group["modality"] == "text"
+            text_word_count = 0
+            if text_mask.any() and "text_content" in group.columns:
+                text_word_count = sum(_text_word_count(t) for t in group.loc[text_mask, "text_content"].tolist())
+            ratio = image_count / max(text_word_count, 1)
+            sample_keep[sample_id] = self.min_ratio <= ratio <= self.max_ratio
+
+        keep_mask = df["sample_id"].map(sample_keep)
+        keep_mask = keep_mask.fillna(True)
+        return keep_mask.astype(bool)

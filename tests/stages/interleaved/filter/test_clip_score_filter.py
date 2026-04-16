@@ -109,10 +109,7 @@ def test_clip_score_filter_drops_image_when_sample_has_no_text(
     stage.setup_on_node(NodeInfo(), WorkerMetadata())
     stage.setup()
     out = stage.process(task)
-    assert out.num_items == 1
-    out_frame = out.to_pandas()
-    assert len(out_frame) == 1
-    assert pd.isna(out_frame.iloc[0]["interleaved_clip_score_filter_clip_scores_by_text_position"])
+    assert out.num_items == 0
     mock_model.encode_text.assert_not_called()
 
 
@@ -255,10 +252,6 @@ def test_clip_score_filter_process_drops_image_when_score_below_threshold(
     stage.setup()
     out = stage.process(task)
     out_frame = out.to_pandas()
-    assert len(out_frame) == 2
+    assert len(out_frame) == 1
     assert (out_frame["modality"] == "text").sum() == 1
-    assert (out_frame["modality"] == "image").sum() == 1
-    img_row = out_frame[out_frame["modality"] == "image"].iloc[0]
-    scores = img_row["interleaved_clip_score_filter_clip_scores_by_text_position"]
-    assert isinstance(scores, dict)
-    assert max(scores.values()) < 0.15
+    assert (out_frame["modality"] == "image").sum() == 0
