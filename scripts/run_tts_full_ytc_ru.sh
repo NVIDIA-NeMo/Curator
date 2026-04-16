@@ -1,18 +1,18 @@
 #!/bin/bash
-#SBATCH --job-name=tts-cascade-ytc-ru
+#SBATCH --job-name=tts-full-ytc-ru
 #SBATCH --account=nemotron_speech_asr
 #SBATCH --partition=interactive
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=2
 #SBATCH --mem=400GB
-#SBATCH --time=00:30:00
+#SBATCH --time=01:00:00
 
 set -x
 
 CONTAINER="/lustre/fsw/portfolios/convai/users/mmkrtchyan/containers/curator-nightly-lhotse.sqsh"
 CURATOR_DIR="/lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/ASR/Curator"
-OUTPUT_DIR="/lustre/fsw/portfolios/convai/users/mmkrtchyan/outputs/tts_cascade_ytc_ru"
+OUTPUT_DIR="/lustre/fsw/portfolios/convai/users/mmkrtchyan/outputs/tts_full_ytc_ru"
 DATA_CONFIG="${CURATOR_DIR}/scripts/ytc_ru.yaml"
 HF_CACHE="/lustre/fsw/portfolios/convai/users/mmkrtchyan/.cache/huggingface"
 
@@ -32,14 +32,10 @@ export AIS_AUTHN_TOKEN=AIS_TOKEN_PH
 /opt/venv/bin/pip install -q cosmos-xenna loguru pynvml qwen-omni-utils 2>/dev/null
 SITE=$(/opt/venv/bin/python3 -c "import nemo_curator; import os; print(os.path.dirname(nemo_curator.__file__))")
 echo "SITE: ${SITE}"
-mkdir -p ${SITE}/models ${SITE}/stages/audio/inference ${SITE}/stages/audio/io ${SITE}/stages/audio/alm
+mkdir -p ${SITE}/models
 cp CURATOR_DIR_PH/nemo_curator/models/qwen_omni.py ${SITE}/models/
-cp CURATOR_DIR_PH/nemo_curator/stages/audio/inference/qwen_omni.py ${SITE}/stages/audio/inference/
-cp CURATOR_DIR_PH/nemo_curator/stages/audio/inference/transcription_cascade_inprocess.py ${SITE}/stages/audio/inference/
-touch ${SITE}/stages/audio/inference/__init__.py
-cp CURATOR_DIR_PH/nemo_curator/stages/audio/io/nemo_tarred_reader.py ${SITE}/stages/audio/io/
-cp CURATOR_DIR_PH/nemo_curator/stages/audio/alm/alm_manifest_writer.py ${SITE}/stages/audio/alm/
-cp -r CURATOR_DIR_PH/nemo_curator/stages/audio/request ${SITE}/stages/audio/
+rm -rf ${SITE}/stages/audio
+cp -r CURATOR_DIR_PH/nemo_curator/stages/audio ${SITE}/stages/
 
 /opt/venv/bin/python3 CURATOR_DIR_PH/tutorials/audio/tts_pipeline/run_pipeline.py \
     --input_manifest dummy \
@@ -51,7 +47,7 @@ cp -r CURATOR_DIR_PH/nemo_curator/stages/audio/request ${SITE}/stages/audio/
     --tensor_parallel_size 2 \
     --max_tokens 512 \
     --temperature 0.0 \
-    --batch_size 8 \
+    --batch_size 32 \
     --no_ray_local
 EOFCMD
 
