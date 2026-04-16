@@ -12,14 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from abc import ABC, abstractmethod
+from nemo_curator.core.serve.dynamo.backend import DynamoBackend
 
-
-class InferenceBackend(ABC):
-    """Base class for inference server backend implementations."""
-
-    @abstractmethod
-    def start(self) -> None: ...
-
-    @abstractmethod
-    def stop(self) -> None: ...
+__all__ = ["DynamoBackend"]

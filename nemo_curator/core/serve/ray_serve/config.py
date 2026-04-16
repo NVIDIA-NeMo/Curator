@@ -12,25 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.core.serve.base import BaseModelConfig, BaseServerConfig
-from nemo_curator.core.serve.dynamo.config import (
-    DynamoRoleConfig,
-    DynamoRouterConfig,
-    DynamoServerConfig,
-    DynamoVLLMModelConfig,
-)
-from nemo_curator.core.serve.ray_serve.config import RayServeModelConfig, RayServeServerConfig
-from nemo_curator.core.serve.server import InferenceServer, is_inference_server_active
+from dataclasses import dataclass, field
+from typing import Any, ClassVar
 
-__all__ = [
-    "BaseModelConfig",
-    "BaseServerConfig",
-    "DynamoRoleConfig",
-    "DynamoRouterConfig",
-    "DynamoServerConfig",
-    "DynamoVLLMModelConfig",
-    "InferenceServer",
-    "RayServeModelConfig",
-    "RayServeServerConfig",
-    "is_inference_server_active",
-]
+from nemo_curator.core.serve.base import BaseModelConfig, BaseServerConfig
+
+
+@dataclass
+class RayServeModelConfig(BaseModelConfig):
+    """Ray Serve model config."""
+
+    deployment_config: dict[str, Any] = field(default_factory=dict)
+    engine_kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class RayServeServerConfig(BaseServerConfig):
+    """Server-level Ray Serve config."""
+
+    model_configs: ClassVar[tuple[type[BaseModelConfig], ...]] = (RayServeModelConfig,)

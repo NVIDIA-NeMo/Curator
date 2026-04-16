@@ -24,7 +24,7 @@ from nemo_curator.core.serve import (
     RayServeModelConfig,
     RayServeServerConfig,
 )
-from nemo_curator.core.serve.internal.dynamo import DynamoBackend
+from nemo_curator.core.serve.dynamo.backend import DynamoBackend
 from nemo_curator.core.serve.ray_serve.backend import RayServeBackend
 
 
@@ -51,10 +51,34 @@ class TestInferenceServer:
         assert isinstance(dynamo_server._create_backend(), DynamoBackend)
 
     def test_init_rejects_backend_model_mismatch(self) -> None:
-        with pytest.raises(TypeError, match="RayServeServerConfig"):
+        with pytest.raises(TypeError, match="RayServeServerConfig accepts RayServeModelConfig"):
             InferenceServer(
                 models=[DynamoVLLMModelConfig(model_identifier="some-model")],
                 backend=RayServeServerConfig(),
+            )
+
+    def test_init_rejects_mixed_model_config_types(self) -> None:
+        from dataclasses import dataclass
+        from typing import ClassVar
+
+        from nemo_curator.core.serve import BaseModelConfig, BaseServerConfig
+
+        @dataclass
+        class _EngineA(BaseModelConfig):
+            pass
+
+        @dataclass
+        class _EngineB(BaseModelConfig):
+            pass
+
+        @dataclass
+        class _MultiEngineServerConfig(BaseServerConfig):
+            model_configs: ClassVar[tuple[type[BaseModelConfig], ...]] = (_EngineA, _EngineB)
+
+        with pytest.raises(TypeError, match="must be the same config type"):
+            InferenceServer(
+                models=[_EngineA(model_identifier="model-a"), _EngineB(model_identifier="model-b")],
+                backend=_MultiEngineServerConfig(),
             )
 
     def test_start_stop_delegates_to_backend(self) -> None:
