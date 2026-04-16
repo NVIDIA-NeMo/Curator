@@ -25,6 +25,7 @@ from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, DocumentBatch, FileGroupTask, _EmptyTask
+from nemo_curator.tasks.audio_task import build_audio_sample_key
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, pandas_select_columns
 
 from .base import BaseReader
@@ -177,7 +178,9 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 for line in f:
                     if not line.strip():
                         continue
-                    entry = json.loads(line)
+                    raw_entry = json.loads(line)
+                    sample_key = build_audio_sample_key(raw_entry, dataset_name=task.dataset_name)
+                    entry = raw_entry
                     if self.fields is not None:
                         entry = {field: entry[field] for field in self.fields if field in entry}
                     results.append(
@@ -185,6 +188,7 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                             task_id=f"{task.task_id}_{len(results)}",
                             dataset_name=task.dataset_name,
                             data=entry,
+                            sample_key=sample_key,
                             _metadata=task._metadata,
                             _stage_perf=list(task._stage_perf),
                         )

@@ -17,6 +17,7 @@
 from pathlib import Path
 
 from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks.audio_task import build_audio_sample_key
 
 
 def test_audio_task_stores_dict() -> None:
@@ -49,3 +50,22 @@ def test_audio_task_validation_missing_file(tmp_path: Path) -> None:
 def test_audio_task_validation_no_filepath_key() -> None:
     entry = AudioTask(data={"text": "hello"})
     assert entry.validate() is True
+
+
+def test_audio_task_propagates_explicit_sample_key_from_data() -> None:
+    entry = AudioTask(data={"audio_filepath": "/x.wav", "sample_key": "sample-123"})
+    assert entry.sample_key == "sample-123"
+
+
+def test_build_audio_sample_key_is_stable_for_same_identity() -> None:
+    entry = {
+        "audio_filepath": "/a.wav",
+        "offset": 0.25,
+        "duration": 1.5,
+    }
+
+    first = build_audio_sample_key(entry, dataset_name="dataset")
+    second = build_audio_sample_key(dict(entry), dataset_name="dataset")
+
+    assert first == second
+    assert first

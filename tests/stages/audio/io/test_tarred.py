@@ -109,9 +109,12 @@ class TestTarredAudioManifestReader:
         assert len(result) == 2
         assert result[0].data["_tar_path"] == str(tar_path)
         assert result[0].data["_tar_member"] == "a.wav"
+        assert result[0].sample_key
         assert result[1].data["_tar_member"] == "b.wav"
         assert result[1].data["audio_filepath"] == "b.wav-sub1"
         assert result[1].data["_audio_source_type"] == "tarred"
+        assert result[1].sample_key
+        assert result[0].sample_key != result[1].sample_key
 
     def test_reader_raises_when_manifest_entry_missing_in_tar(self, tmp_path: Path) -> None:
         manifest = tmp_path / "manifest_0.json"
@@ -302,6 +305,38 @@ class TestTarredAudioMaterialization:
 
         with pytest.raises(RuntimeError, match=r"Offset 1\.0s exceeds audio length"):
             materialize.process_batch([task])
+
+    def test_materialize_to_durable_directory_keeps_file_after_cleanup(self, tmp_path: Path) -> None:
+        tar_path = tmp_path / "audio_0.tar"
+        raw_audio = b"durable-bytes"
+        _write_tar(tar_path, {"sample.wav": raw_audio})
+
+        task = AudioTask(
+            task_id="t1",
+            dataset_name="ds",
+            sample_key="sample-key-1",
+            data={
+                "audio_filepath": "sample.wav",
+                "_tar_path": str(tar_path),
+                "_tar_member": "sample.wav",
+            },
+        )
+
+        materialization_dir = tmp_path / "materialized"
+        materialize = MaterializeTarredAudioStage(materialization_dir=str(materialization_dir))
+        [materialized] = materialize.process_batch([task])
+
+        durable_path = Path(materialized.data["audio_filepath"])
+        assert durable_path.exists()
+        assert durable_path.read_bytes() == raw_audio
+        assert durable_path.is_relative_to(materialization_dir)
+        assert "_temporary_audio_path" not in materialized.data
+
+        cleanup = CleanupTemporaryAudioStage()
+        cleaned = cleanup.process(materialized)
+
+        assert durable_path.exists()
+        assert cleaned.data["audio_filepath"] == "sample.wav"
 
     def test_pipe_transport_reads_manifest_and_tar(self, tmp_path: Path) -> None:
         manifest = tmp_path / "manifest_0.json"

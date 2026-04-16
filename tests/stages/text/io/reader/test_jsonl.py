@@ -149,6 +149,8 @@ class TestJsonlAudioReader:
         assert [item.task_id for item in result] == ["audio_task_0", "audio_task_1"]
         assert all(item.dataset_name == "audio_dataset" for item in result)
         assert all(item._metadata == {"source": "unit-test"} for item in result)
+        assert all(item.sample_key for item in result)
+        assert result[0].sample_key != result[1].sample_key
         assert result[0].data["segments"][0]["end"] == 1.0
 
     def test_audio_stage_filters_fields_and_skips_blank_lines(self, tmp_path: Path) -> None:
@@ -167,6 +169,18 @@ class TestJsonlAudioReader:
         assert len(result) == 2
         assert result[0].data == {"audio_filepath": "a.wav", "text": "alpha"}
         assert result[1].data == {"audio_filepath": "b.wav", "text": "beta"}
+
+    def test_audio_stage_preserves_explicit_sample_key_from_manifest(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "audio_sample_keys.jsonl"
+        manifest.write_text(
+            json.dumps({"audio_filepath": "a.wav", "text": "alpha", "sample_key": "explicit-a"}) + "\n"
+        )
+
+        stage = JsonlAudioReaderStage(fields=["audio_filepath", "text"])
+        task = FileGroupTask(task_id="audio_task", dataset_name="audio_dataset", data=[str(manifest)], _metadata={})
+        [result] = stage.process(task)
+
+        assert result.sample_key == "explicit-a"
 
     def test_audio_composite_decomposes_to_audio_stage(self, tmp_path: Path) -> None:
         manifest = tmp_path / "audio_manifest.jsonl"

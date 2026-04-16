@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -37,6 +38,7 @@ from loguru import logger
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
+from nemo_curator.tasks.audio_task import build_audio_sample_key
 from nemo_curator.utils.file_utils import infer_dataset_name_from_path
 
 _OP_CL_PATTERN = re.compile(r"_OP_(\d+)\.\.(\d+)_CL_")
@@ -346,6 +348,7 @@ class TarredAudioManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                             task_id=f"{task.task_id}_{manifest_index}_{entry_index}",
                             dataset_name=task.dataset_name,
                             data=item,
+                            sample_key=build_audio_sample_key(item, dataset_name=task.dataset_name),
                             _metadata=task._metadata,
                             _stage_perf=list(task._stage_perf),
                         )
@@ -405,6 +408,7 @@ class MaterializeTarredAudioStage(ProcessingStage[AudioTask, AudioTask]):
     offset_key: str = "offset"
     duration_key: str = "duration"
     temp_dir: str | None = None
+    materialization_dir: str | None = None
     transport: Literal["auto", "fsspec", "pipe"] = "auto"
     storage_options: dict[str, Any] | None = None
     segment_if_offset_present: bool = True
@@ -489,19 +493,23 @@ class MaterializeTarredAudioStage(ProcessingStage[AudioTask, AudioTask]):
         decoded_audio: tuple[Any, int] | None = None,
     ) -> None:
         should_segment = self._should_segment(task, member_name)
-        temp_path = self._create_temp_path(
+        output_path, is_temporary = self._create_output_path(
+            task,
             suffix=".wav" if should_segment else _tar_member_suffix(member_name),
         )
         if should_segment:
-            self._write_segmented_audio(task, raw_audio, temp_path, decoded_audio=decoded_audio)
+            self._write_segmented_audio(task, raw_audio, output_path, decoded_audio=decoded_audio)
             materialization_mode = "segment"
         else:
-            temp_path.write_bytes(raw_audio)
+            output_path.write_bytes(raw_audio)
             materialization_mode = "member"
 
         task.data.setdefault(self.manifest_audio_filepath_key, task.data.get(self.audio_filepath_key))
-        task.data[self.audio_filepath_key] = temp_path.as_posix()
-        task.data[self.temporary_audio_key] = temp_path.as_posix()
+        task.data[self.audio_filepath_key] = output_path.as_posix()
+        if is_temporary:
+            task.data[self.temporary_audio_key] = output_path.as_posix()
+        else:
+            task.data.pop(self.temporary_audio_key, None)
         task.data[self.materialization_mode_key] = materialization_mode
 
     def _should_segment(self, task: AudioTask, member_name: str) -> bool:
@@ -517,6 +525,21 @@ class MaterializeTarredAudioStage(ProcessingStage[AudioTask, AudioTask]):
         fd, path = tempfile.mkstemp(prefix="nemo_curator_tarred_audio_", suffix=suffix, dir=target_dir)
         os.close(fd)
         return Path(path)
+
+    def _get_sample_key(self, task: AudioTask) -> str:
+        if task.sample_key:
+            return task.sample_key
+        task.sample_key = build_audio_sample_key(task.data, dataset_name=task.dataset_name)
+        return task.sample_key
+
+    def _create_output_path(self, task: AudioTask, *, suffix: str) -> tuple[Path, bool]:
+        if self.materialization_dir is None:
+            return self._create_temp_path(suffix=suffix), True
+
+        sample_hash = hashlib.sha256(self._get_sample_key(task).encode("utf-8")).hexdigest()
+        target_dir = Path(self.materialization_dir) / sample_hash[:2]
+        target_dir.mkdir(parents=True, exist_ok=True)
+        return target_dir / f"{sample_hash}{suffix}", False
 
     def _write_segmented_audio(
         self,
