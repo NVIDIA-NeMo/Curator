@@ -1,0 +1,53 @@
+# Standalone YAML config for running the ReadSpeech audio curation benchmark locally.
+#
+# Data preparation (one-time):
+#   python benchmarking/data_prep/prepare_readspeech_data.py \
+#     --output-path /path/to/datasets/read_speech
+#
+# Running the benchmark:
+#   1. Build container (once):
+#      cd Curator && ./benchmarking/tools/build_docker.sh
+#
+#   2. Run benchmark:
+#      CURATOR_BENCHMARKING_IMAGE="nemo_curator_benchmarking:latest" \
+#        ./benchmarking/tools/run.sh \
+#          --config ./benchmarking/audio-readspeech-benchmark.yaml \
+#          --use-host-curator
+#
+# Update paths below to match your environment.
+
+results_path: /path/to/audio-readspeech-results
+datasets_path: /path/to/datasets
+model_weights_path: /path/to/model/files
+
+datasets:
+  - name: "read_speech"
+    formats:
+      - type: "wav"
+        path: "{datasets_path}/read_speech"
+
+default_timeout_s: 7200
+
+delete_scratch: true
+
+entries:
+  - name: audio_readspeech_xenna
+    enabled: true
+    script: audio_readspeech_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:read_speech,wav}
+      --no-auto-download
+      --executor=xenna
+      --max-samples=5000
+      --sample-rate=48000
+      --enable-utmos
+      --enable-band-filter
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      - metric: is_success
+        exact_value: true
