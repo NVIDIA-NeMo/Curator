@@ -1,0 +1,69 @@
+---
+description: "How NeMo Curator's streaming architecture processes data in constant memory"
+categories: ["architecture"]
+tags: ["deep-dive", "streaming", "batching", "memory", "data-flow"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "universal"
+---
+
+# Streaming vs. Batch Processing
+
+Different inference stages have different compute requirements. NeMo Curator uses Ray streaming to increase GPU utilization and processing speed compared to traditional batch-all-at-once approaches.
+
+## Batch Mode vs. Streaming Mode
+
+### Batch Mode
+
+In batch mode, each stage processes the **entire dataset** before the next stage begins. Stages with different compute requirements (CPU-only tokenization, single-GPU classifiers, multi-GPU encoders) all run sequentially:
+
+| Aspect | Batch Mode |
+|--------|-----------|
+| **Execution** | One stage at a time across the full dataset |
+| **Memory usage** | Proportional to dataset size |
+| **GPU utilization** | Low — GPUs idle while CPU stages run, and vice versa |
+| **Time to first output** | After the entire pipeline finishes |
+
+### Streaming Mode
+
+In streaming mode, data flows through the pipeline as discrete batches. Each stage processes its current batch and immediately passes it downstream, so **all stages run concurrently** on different batches:
+
+| Aspect | Streaming Mode |
+|--------|---------------|
+| **Execution** | All stages active simultaneously on different batches |
+| **Memory usage** | Constant (proportional to batch size, not dataset size) |
+| **GPU utilization** | High — stages with different hardware needs overlap |
+| **Time to first output** | After the first batch completes the pipeline |
+
+## Why Streaming Is Faster
+
+Streaming with heterogeneous compute allows NeMo Curator to overlap stages that use different resources. For example, while a GPU inference stage processes batch N, a CPU tokenization stage can process batch N+1 simultaneously — neither blocks the other.
+
+This overlap improves throughput in pipelines that mix CPU and GPU work, because both happen in parallel rather than taking turns.
+
+Combined with auto-balancing, streaming enables Curator to rearrange resources so that GPU stage workers are **kept busy over 99% of the time** after an initial warm-up period.
+
+## Heterogeneous Executors
+
+NeMo Curator supports streaming with multiple executors — Cosmos Xenna, Ray Data, and others — each optimized for different workload patterns. The executor handles scheduling, backpressure, and resource allocation so that streaming "just works" regardless of how many stages your pipeline has.
+
+## Configuring Batch Size
+
+Batch size controls the trade-off between memory usage and throughput:
+
+```python
+from nemo_curator.stages.resources import Resources
+
+# Configure batch size on a stage
+word_count_stage = WordCountStage().with_(batch_size=128)
+```
+
+- **Smaller batches**: Lower memory usage per batch. Ray may handle smaller batches more efficiently in some workloads.
+- **Larger batches**: More in-memory data per batch, which can reduce I/O overhead but uses more memory.
+
+## When Streaming Matters Most
+
+- **Datasets exceed memory.** A 10 TB Common Crawl snapshot cannot fit in RAM, but it can be streamed in manageable chunks.
+- **Pipeline stages have different hardware needs.** CPU-only and GPU stages overlap instead of taking turns.
+- **You need early results.** Inspect output from the first batch while the rest of the dataset is still processing.

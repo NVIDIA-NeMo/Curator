@@ -33,6 +33,21 @@ navigation:
               - page: Deduplication
                 path: ./v26.04/pages/about/concepts/deduplication.mdx
                 slug: deduplication
+              - section: Scaling & Performance
+                slug: scaling
+                contents:
+                  - page: Resource Allocation
+                    path: ./v26.04/pages/about/concepts/resource-allocation.mdx
+                    slug: resource-allocation
+                  - page: Streaming
+                    path: ./v26.04/pages/about/concepts/streaming.mdx
+                    slug: streaming
+                  - page: Auto-Balancing
+                    path: ./v26.04/pages/about/concepts/auto-balancing.mdx
+                    slug: auto-balancing
+                  - page: Throughput
+                    path: ./v26.04/pages/about/concepts/throughput.mdx
+                    slug: throughput
               - section: Text Concepts
                 slug: text
                 contents:
