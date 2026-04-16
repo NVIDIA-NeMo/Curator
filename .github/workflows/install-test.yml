@@ -213,7 +213,12 @@ jobs:
     name: "GPU Extras Individual - Install Only (${{ matrix.installer }}) - Py3.12"
     steps:
       - name: Install dependencies for setup-python
-        run: apt-get update && apt-get install -y --no-install-recommends git curl
+        run: |
+          for i in 1 2 3; do
+            apt-get update && apt-get install -y --no-install-recommends git curl && break
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
 
       - uses: actions/checkout@v6
         with:
@@ -426,7 +431,11 @@ jobs:
 
           cat > ${{ github.workspace }}/.run_install.sh << 'SCRIPT'
           set -e
-          apt-get update && apt-get install -y --no-install-recommends git curl
+          for i in 1 2 3; do
+            apt-get update && apt-get install -y --no-install-recommends git curl && break
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
           curl -LsSf https://astral.sh/uv/install.sh | sh
           export PATH="/root/.local/bin:$PATH"
           uv sync --locked --link-mode copy --extra all --python 3.12 2>&1 | tee install.log
