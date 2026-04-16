@@ -21,6 +21,7 @@ from uuid import UUID
 
 import numpy as np
 import numpy.typing as npt
+from loguru import logger
 
 from nemo_curator.utils.decoder_utils import extract_video_metadata
 
@@ -365,7 +366,7 @@ class VideoTask(Task[Video]):
     def validate(self) -> bool:
         """Validate the task data."""
         if isinstance(self.data.input_video, pathlib.Path) and not os.path.exists(self.data.input_video):
-            print(f"Video {self.data.input_video} does not exist")
+            logger.warning(f"Video {self.data.input_video} does not exist")
             return False
         return True
 
