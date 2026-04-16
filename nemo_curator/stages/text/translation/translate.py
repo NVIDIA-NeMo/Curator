@@ -397,7 +397,7 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         for idx, result in enumerate(raw_results):
             if isinstance(result, BaseException):
                 logger.error(
-                    "Translation failed for segment index %d: %s",
+                    "Translation failed for segment index {}: {}",
                     idx,
                     result,
                 )

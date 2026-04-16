@@ -435,7 +435,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         for idx, result in enumerate(raw_results):
             if isinstance(result, BaseException):
                 logger.error(
-                    "FAITH scoring failed for row index %d: %s",
+                    "FAITH scoring failed for row index {}: {}",
                     idx,
                     result,
                 )
