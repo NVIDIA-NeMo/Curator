@@ -29,7 +29,7 @@ AUDIO_SAMPLE_KEY_FIELD = "sample_key"
 class _AttrDict(dict):
     """Dict subclass exposing keys as attributes so ``hasattr`` works."""
 
-    def __getattr__(self: "_AttrDict", key: str) -> Any:
+    def __getattr__(self: "_AttrDict", key: str) -> object:
         try:
             return self[key]
         except KeyError:
