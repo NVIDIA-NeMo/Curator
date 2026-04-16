@@ -21,7 +21,7 @@ Pass 1 (audio+text): ASR transcription with number normalization.
 Pass 2 (audio+text): Verification of Pass 1 output against audio.
 Pass 3 (text-only):  Punctuation and capitalization correction.
 
-Used as a drop-in replacement for the server-based cascade in TTS pipelines.
+Used as a drop-in replacement for the server-based cascade in HIFI pipelines.
 """
 
 from __future__ import annotations

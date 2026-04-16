@@ -1,5 +1,0 @@
-- input_cfg:
-  - corpus: ytc
-    type: nemo_tarred
-    manifest_filepath: "/lustre/fs11/portfolios/convai/projects/convai_convaird_nemo-speech/users/ameister/TTS_Granary/granary_filtered/ytc/ru/shard__OP_0..63_CL_.jsonl"
-    tarred_audio_filepaths: "s3://YTC/ru/webds_ru/audio__OP_0..63_CL_.tar"

@@ -1,6 +1,6 @@
 ## Summary
 
-- Add end-to-end TTS data curation pipeline stages: SED inference, SED postprocessing, segment extraction, three-pass transcription cascade (Qwen3-Omni ASR + verification + LLM PnC), text-only LLM request, and speaker clustering improvements.
+- Add end-to-end HIFI data curation pipeline stages: SED inference, SED postprocessing, segment extraction, three-pass transcription cascade (Qwen3-Omni ASR + verification + LLM PnC), text-only LLM request, and speaker clustering improvements.
 - Add YAML-based prompt configs for four languages (En, Fi, Ru, Uk) with three passes each (ASR, verification, punctuation & capitalization).
 - Add `batch_size` parameter to `SpeakerClusteringStage` for grouped clustering -- clusters shards in groups of N with globally unique speaker labels, controlling memory vs. clustering scope trade-off.
 - Integrate existing `GetUtmosv2ScoreStage` (MOS quality scoring) and `UTMOSFilterStage` (quality filtering) from dev branch into the pipeline.
@@ -54,7 +54,7 @@ YAML-based prompt templates in `stages/audio/request/prompts/{lang}/`:
 | Ru | `Ru/1st_pass.yaml` | `Ru/2nd_pass.yaml` | `Ru/3_llm_pnc.yaml` |
 | Uk | `Uk/1st_pass.yaml` | `Uk/2nd_pass.yaml` | `Uk/3_llm_pnc.yaml` |
 
-## Slurm speaker ID tooling (`tutorials/audio/tts_pipeline/slurm_speaker_id/`)
+## Slurm speaker ID tooling (`tutorials/audio/hifi_pipeline/slurm_speaker_id/`)
 
 | Script | Purpose |
 |--------|---------|
@@ -71,7 +71,7 @@ YAML-based prompt templates in `stages/audio/request/prompts/{lang}/`:
 
 ## Tutorial pipeline runner
 
-`tutorials/audio/tts_pipeline/run_pipeline.py` -- end-to-end CLI that chains all stages:
+`tutorials/audio/hifi_pipeline/run_pipeline.py` -- end-to-end CLI that chains all stages:
 
 ```
 SED → SED postprocess → segment extract → diarize →

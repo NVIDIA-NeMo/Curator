@@ -1,5 +1,5 @@
 #!/bin/bash
-# Entrypoint for TTS data curation pipeline container.
+# Entrypoint for HIFI data curation pipeline container.
 #
 # Starts vLLM server (system Python) in background, waits for health,
 # then runs the Curator pipeline (venv Python).
@@ -71,8 +71,8 @@ fi
 # Use PYTHONPATH to prefer /opt/Curator (repo copy with prompt YAMLs)
 # over the pip-installed package (which lacks data files).
 export PYTHONPATH=/opt/Curator:$PYTHONPATH
-echo "[entrypoint] Running TTS pipeline..."
-/opt/curator_venv/bin/python /opt/Curator/tutorials/audio/tts_pipeline/run_pipeline.py \
+echo "[entrypoint] Running HIFI pipeline..."
+/opt/curator_venv/bin/python /opt/Curator/tutorials/audio/hifi_pipeline/run_pipeline.py \
     --vllm_host localhost \
     --vllm_port "$VLLM_PORT" \
     --omni_model "$VLLM_MODEL" \

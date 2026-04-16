@@ -12,21 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""End-to-end TTS data curation pipeline.
+"""End-to-end HIFI data curation pipeline.
 
 Chains all stages::
 
     SED -> SED postprocess -> segment extract -> diarize ->
-    transcribe (3-pass cascade) -> speaker embed -> speaker cluster
+    transcribe (3-pass cascade) -> speaker embed -> speaker cluster -> utmos
 
-Usage::
+Supports two transcription modes:
+
+* **HTTP mode** (default): Sends requests to an external vLLM server.
+* **In-process mode** (``--inprocess``): Loads vLLM engine inside the
+  pipeline worker. Requires ``--data_config`` (Granary YAML) instead of
+  ``--input_manifest`` for the ``transcribe`` stage. Audio is streamed
+  from NeMo tars and decoded in memory -- no temp files.
+
+Usage (HTTP)::
 
     python run_pipeline.py \\
         --input_manifest /data/manifest.jsonl \\
-        --stages sed,sed_post,segment,diarize,transcribe,embed,cluster \\
-        --language Ru \\
-        --sed_checkpoint /models/Cnn14_DecisionLevelMax.pth \\
+        --stages transcribe --language Ru \\
         --vllm_host localhost --vllm_port 8200
+
+Usage (in-process)::
+
+    python run_pipeline.py \\
+        --inprocess --data_config /path/to/granary.yaml \\
+        --stages transcribe --language Ru \\
+        --output_dir /output/cascade
 """
 
 from __future__ import annotations
@@ -40,10 +53,21 @@ from nemo_curator.pipeline import Pipeline
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="End-to-end TTS data curation pipeline.")
+    p = argparse.ArgumentParser(description="End-to-end HIFI data curation pipeline.")
 
-    p.add_argument("--input_manifest", type=str, required=True)
-    p.add_argument("--output_dir", type=str, default="output/tts_pipeline/")
+    p.add_argument("--input_manifest", type=str, default="")
+    p.add_argument("--output_dir", type=str, default="output/hifi_pipeline/")
+
+    # In-process vLLM mode
+    p.add_argument("--inprocess", action="store_true",
+                   help="Use in-process vLLM instead of external HTTP server")
+    p.add_argument("--data_config", type=str, default="",
+                   help="Granary YAML config for NemoTarredAudioReader (in-process mode)")
+    p.add_argument("--corpus", type=str, nargs="*", default=None,
+                   help="Filter corpora from data_config (in-process mode)")
+    p.add_argument("--tensor_parallel_size", type=int, default=2)
+    p.add_argument("--gpu_memory_utilization", type=float, default=0.90)
+    p.add_argument("--s3_endpoint_url", type=str, default=None)
 
     p.add_argument(
         "--stages", type=str, default="sed,sed_post,segment,diarize,transcribe,embed,cluster",
@@ -270,8 +294,12 @@ def main() -> None:
     args = parse_args()
     stages = set(args.stages.split(","))
 
+    if not args.input_manifest and not args.data_config:
+        print("ERROR: provide --input_manifest or --data_config")
+        sys.exit(1)
+
     RayDataExecutor, JsonlReader, JsonlWriter = None, None, None
-    ray_stages = {"sed", "sed_post", "segment", "embed", "cluster"}
+    ray_stages = {"sed", "sed_post", "segment", "embed", "cluster", "utmos"}
     if ray_stages & stages:
         RayDataExecutor, JsonlReader, JsonlWriter = _init_ray_pipeline()
 
@@ -281,6 +309,7 @@ def main() -> None:
     # ---- Stage 1: SED Inference ----
     if "sed" in stages:
         from nemo_curator.stages.audio.inference.sed import SEDInferenceStage
+        from nemo_curator.stages.resources import Resources
 
         if not args.sed_checkpoint:
             print("ERROR: --sed_checkpoint required")
@@ -289,14 +318,12 @@ def main() -> None:
         print(f"[pipeline] Stage 1: SED Inference ({args.sed_model_type})")
         pipeline = Pipeline(name="sed")
         pipeline.add_stage(JsonlReader(file_paths=current_manifest))
-        from nemo_curator.stages.resources import Resources
-
         pipeline.add_stage(
             SEDInferenceStage(
                 checkpoint_path=args.sed_checkpoint,
                 model_type=args.sed_model_type,
                 output_dir=os.path.join(args.output_dir, "sed"),
-                resources=Resources(cpus=1.0),  # CPU-only: avoids CUDA driver compat issues
+                resources=Resources(cpus=1.0),
             )
         )
         sed_out = os.path.join(args.output_dir, "sed_manifest")
@@ -338,8 +365,6 @@ def main() -> None:
         from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
 
         print("[pipeline] Stage 4: Diarization (Sortformer)")
-        # Sortformer expects AudioTask, not DocumentBatch from JsonlReader.
-        # Run directly on manifest rows.
         _run_audio_stage_on_manifest(
             current_manifest,
             InferenceSortformerStage(),
@@ -407,12 +432,29 @@ def main() -> None:
         print("[pipeline] Stage 7: Speaker Clustering (AHC)")
         pipeline = Pipeline(name="cluster")
         pipeline.add_stage(JsonlReader(file_paths=current_manifest))
-        pipeline.add_stage(SpeakerClusteringStage(threshold=args.cluster_threshold))
+        pipeline.add_stage(SpeakerClusteringStage(
+            threshold=args.cluster_threshold,
+            batch_size=args.cluster_batch_size,
+        ))
         cluster_out = os.path.join(args.output_dir, "cluster_manifest")
         pipeline.add_stage(JsonlWriter(path=cluster_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
         pipeline.run(executor=RayDataExecutor())
         current_manifest = cluster_out
         print(f"[pipeline] Clustering done -> {cluster_out}")
+
+    # ---- Stage 8: UTMOS Scoring ----
+    if "utmos" in stages:
+        from nemo_curator.stages.audio.metrics.utmosv2_score import GetUtmosv2ScoreStage
+
+        print("[pipeline] Stage 8: UTMOS Scoring (UTMOSv2)")
+        pipeline = Pipeline(name="utmos")
+        pipeline.add_stage(JsonlReader(file_paths=current_manifest))
+        pipeline.add_stage(GetUtmosv2ScoreStage(inference_batch_size=args.utmos_batch_size))
+        utmos_out = os.path.join(args.output_dir, "utmos_manifest")
+        pipeline.add_stage(JsonlWriter(path=utmos_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+        pipeline.run(executor=RayDataExecutor())
+        current_manifest = utmos_out
+        print(f"[pipeline] UTMOS scoring done -> {utmos_out}")
 
     # ---- Final output ----
     print(f"\n[pipeline] All stages complete. Final output: {current_manifest}")

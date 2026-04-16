@@ -2,7 +2,7 @@
 # CUDA 12.4 compatible.
 #
 # Build:
-#   docker build -t curator-nemo-stages -f tutorials/audio/tts_pipeline/Dockerfile.nemo .
+#   docker build -t curator-nemo-stages -f tutorials/audio/hifi_pipeline/Dockerfile.nemo .
 #
 # Run:
 #   docker run --gpus all --ipc=host --shm-size=8g \
@@ -34,4 +34,4 @@ RUN pip install --no-cache-dir . && \
     'torch==2.6.0' 'torchaudio==2.6.0' 'torchvision==0.21.0'
 
 ENV PYTHONPATH=/opt/Curator
-ENTRYPOINT ["python", "/opt/Curator/tutorials/audio/tts_pipeline/run_pipeline.py"]
+ENTRYPOINT ["python", "/opt/Curator/tutorials/audio/hifi_pipeline/run_pipeline.py"]

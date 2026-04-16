@@ -15,7 +15,7 @@
 """Prompt template utilities for the transcription cascade.
 
 Implements the same YAML-based prompt config format used by ameister's
-tts_granary ``omni_text_normalization/cascade/``.  A prompt config is a
+hifi_granary ``omni_text_normalization/cascade/``.  A prompt config is a
 YAML dict with three keys:
 
     input_fields:

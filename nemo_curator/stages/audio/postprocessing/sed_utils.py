@@ -14,7 +14,7 @@
 
 """Stateless utilities for SED postprocessing: framewise probabilities -> events.
 
-Ported from ameister's tts_granary ``sound_event_detection/postprocessing/``.
+Ported from ameister's hifi_granary ``sound_event_detection/postprocessing/``.
 All functions are pure numpy — no model or GPU dependencies.
 """
 

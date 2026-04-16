@@ -1,5 +1,5 @@
 #!/bin/bash
-# Submit the full TTS data curation pipeline as a Slurm job.
+# Submit the full HIFI data curation pipeline as a Slurm job.
 #
 # Usage:
 #   bash submit_pipeline.sh [--dry-run]
@@ -39,7 +39,7 @@ NUM_GPUS="${NUM_GPUS:-1}"
 CPUS_PER_TASK="${CPUS_PER_TASK:-32}"
 MEM="${MEM:-128G}"
 TIME="${TIME:-24:00:00}"
-WORK_DIR="${WORK_DIR:-${CURATOR_DIR}/output/tts_pipeline}"
+WORK_DIR="${WORK_DIR:-${CURATOR_DIR}/output/hifi_pipeline}"
 LOG_DIR="${WORK_DIR}/logs"
 
 # ---- Pipeline defaults ----
@@ -69,7 +69,7 @@ CORPORA=(
     "yodas_1bw_ru|/path/to/yodas/1_by_whisper/ru/manifest.jsonl|yodas_1bw_ru"
 )
 
-PIPELINE_PY="${CURATOR_DIR}/tutorials/audio/tts_pipeline/run_pipeline.py"
+PIPELINE_PY="${CURATOR_DIR}/tutorials/audio/hifi_pipeline/run_pipeline.py"
 
 for corpus_def in "${CORPORA[@]}"; do
     IFS='|' read -r NAME INPUT_MANIFEST OUTPUT_SUBDIR <<< "$corpus_def"
@@ -80,7 +80,7 @@ for corpus_def in "${CORPORA[@]}"; do
     JOB_SCRIPT="${LOG_DIR}/${NAME}_pipeline.sbatch"
     cat > "${JOB_SCRIPT}" <<EOF
 #!/bin/bash
-#SBATCH --job-name=tts_${NAME}
+#SBATCH --job-name=hifi_${NAME}
 #SBATCH --account=${ACCOUNT}
 #SBATCH --partition=${PARTITION}
 #SBATCH --nodes=1
@@ -129,4 +129,4 @@ EOF
     echo
 done
 
-echo "Monitor with: squeue -u \$USER -n 'tts_*'"
+echo "Monitor with: squeue -u \$USER -n 'hifi_*'"
