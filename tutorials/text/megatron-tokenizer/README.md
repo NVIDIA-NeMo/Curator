@@ -53,7 +53,7 @@ Following the header, the file contains **20 bytes per document** structured as 
 
 For more details about Megatron's DataLoading solution and tokenization pipeline refer to [`megatron.core.datasets`](https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/datasets) README.
 
-## Merge multiple file prefixes
+## Merge Multiple File Prefixes
 
 The `MegatronTokenizerWriter` will generate one file prefix per worker. For large-scale training runs with Megatron-LM, it is recommended to consolidate multiple file prefixes into larger files (typically 5-100GB each) to reduce the number of file accesses during training.
 
