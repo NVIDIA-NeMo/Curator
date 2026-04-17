@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from pathlib import Path
 from typing import Any, Final
 
@@ -41,6 +42,22 @@ _QWEN_LM_VARIANTS_INFO: Final = {
     "qwen2.5": ("Qwen/Qwen2.5-14B-Instruct", "cf98f3b"),
     "qwen3": ("Qwen/Qwen3-14B", "f8c293d"),
 }
+
+
+def _weights_complete(model_dir_path: Path) -> bool:
+    single_file = model_dir_path / "model.safetensors"
+    if single_file.exists():
+        return True
+    index_file = model_dir_path / "model.safetensors.index.json"
+    if not index_file.exists():
+        return False
+    try:
+        with open(index_file) as f:
+            index_data = json.load(f)
+        shard_names = set(index_data.get("weight_map", {}).values())
+        return bool(shard_names) and all((model_dir_path / s).exists() for s in shard_names)
+    except (json.JSONDecodeError, OSError):
+        return False
 
 
 class QwenLM(ModelInterface):
@@ -98,9 +115,7 @@ class QwenLM(ModelInterface):
         model_id, revision = _QWEN_LM_VARIANTS_INFO[variant]
         model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
-        single_file = model_dir_path / "model.safetensors"
-        shard_files = [f for f in model_dir_path.glob("model-*-of-*.safetensors") if f.exists()]
-        if single_file.exists() or shard_files:
+        if _weights_complete(model_dir_path):
             return
         download_model_from_hf(
             model_id=model_id,

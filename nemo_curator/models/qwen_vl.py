@@ -19,6 +19,7 @@ from typing import Any, Final
 
 from loguru import logger
 
+from nemo_curator.models.qwen_lm import _weights_complete
 from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
 try:
@@ -112,8 +113,11 @@ class QwenVL(ModelInterface):
             msg = "vllm is required for QwenVL model but is not installed. Please install vllm: pip install vllm"
             raise ImportError(msg)
 
+        # Qwen3-VL uses image_factor=32; pre-extracted frames may not be multiples of 32,
+        # so always enable resize for qwen3 regardless of model_does_preprocess.
+        do_resize = True if self.model_variant == "qwen3" else self.model_does_preprocess
         mm_processor_kwargs = {
-            "do_resize": self.model_does_preprocess,
+            "do_resize": do_resize,
             "do_rescale": self.model_does_preprocess,
             "do_normalize": self.model_does_preprocess,
             **_QWEN_VL_PIXEL_PARAMS[self.model_variant],
@@ -181,9 +185,7 @@ class QwenVL(ModelInterface):
         revision = _QWEN_REVISION_INFO[variant]
         model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
-        single_file = model_dir_path / "model.safetensors"
-        shard_files = [f for f in model_dir_path.glob("model-*-of-*.safetensors") if f.exists()]
-        if single_file.exists() or shard_files:
+        if _weights_complete(model_dir_path):
             return
         download_model_from_hf(
             model_id=model_id,
