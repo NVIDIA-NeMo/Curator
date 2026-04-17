@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import ClassVar
+
 import torch
 
 from nemo_curator.stages.audio.postprocessing.timestamp_mapper import (
@@ -32,7 +34,7 @@ def _make_task(data: dict, task_id: str = "test", metadata: dict | None = None) 
 class TestTranslateToOriginal:
     """Unit tests for the pure _translate_to_original() function."""
 
-    MAPPINGS = [
+    MAPPINGS: ClassVar[list[dict]] = [
         {"concat_start_ms": 0, "concat_end_ms": 2000, "original_file": "a.wav", "original_start_ms": 5000, "original_end_ms": 7000},
         {"concat_start_ms": 2000, "concat_end_ms": 5000, "original_file": "b.wav", "original_start_ms": 0, "original_end_ms": 3000},
         {"concat_start_ms": 5000, "concat_end_ms": 8000, "original_file": "c.wav", "original_start_ms": 10000, "original_end_ms": 13000},

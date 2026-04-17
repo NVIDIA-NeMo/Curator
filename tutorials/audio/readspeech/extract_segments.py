@@ -57,8 +57,9 @@ import json
 import os
 import sys
 from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import soundfile as sf
@@ -202,7 +203,7 @@ def _get_speaker_label(entry: dict) -> tuple[str, str]:
     return speaker_id, speaker_num
 
 
-def _extract_file_segments(
+def _extract_file_segments(  # noqa: PLR0913
     entries: list,
     output_dir: str,
     output_format: str,
@@ -293,7 +294,7 @@ def _intervals_from_diar_segments(entry: dict) -> list[Interval]:
     ]
 
 
-def _base_metadata(
+def _base_metadata(  # noqa: PLR0913
     filename: str, original_file: str, entry: dict,
     seg_idx: int, start_ms: int, end_ms: int, dur: float,
 ) -> dict:
@@ -326,7 +327,7 @@ def extract_segments_by_timestamps(
     """Extract segments by original_start_ms / original_end_ms, sorted by start time."""
     counter: dict[str, int] = defaultdict(int)
 
-    def _make_filename(name: str, entry: dict, _seg_idx: int) -> str:
+    def _make_filename(name: str, _entry: dict, _seg_idx: int) -> str:
         idx = counter[name]
         counter[name] += 1
         return f"{name}_segment_{idx:03d}.{output_format}"
