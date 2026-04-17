@@ -93,7 +93,6 @@ class ManagedSubprocess:
     label: str
     actor: ActorHandle
     run_ref: ObjectRef | None = None
-    log_file: str | None = None
 
     @classmethod
     def spawn(  # noqa: PLR0913
@@ -174,17 +173,13 @@ class ManagedSubprocess:
             ),
         ).remote()
 
-        actual_env = dict(subprocess_env or {})
-        if num_gpus > 0:
-            gpu_ids = ray.get(actor.get_assigned_gpus.remote())
-            if gpu_ids:
-                actual_env["CUDA_VISIBLE_DEVICES"] = ",".join(gpu_ids)
-
-        status = ray.get(actor.initialize.remote(command, actual_env, log_file, python_args=python_args))
+        # One round-trip: the actor injects CUDA_VISIBLE_DEVICES from its
+        # Ray-assigned accelerator IDs inside initialize() itself.
+        ray.get(actor.initialize.remote(command, subprocess_env or {}, log_file, python_args=python_args))
         run_ref = actor.run.remote()
 
         logger.info(f"Launching {label} on bundle {bundle_index} (actor: {actor_name}, gpus={num_gpus})")
-        return cls(label=label, actor=actor, run_ref=run_ref, log_file=status.get("log_file"))
+        return cls(label=label, actor=actor, run_ref=run_ref)
 
     def is_alive(self) -> bool:
         import ray
@@ -303,18 +298,6 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
             self._log_file: str | None = None
             self._cleanup_registered = False
 
-        def get_assigned_gpus(self) -> list[str]:
-            """Return Ray-assigned accelerator IDs for this actor."""
-            import ray as _ray
-
-            return _ray.get_runtime_context().get_accelerator_ids().get("GPU", [])
-
-        def get_node_ip(self) -> str:
-            """Return the routable IP of the node this actor is running on."""
-            import ray as _ray
-
-            return _ray.util.get_node_ip_address()
-
         def initialize(
             self,
             command: list[str] | None,
@@ -322,7 +305,7 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
             log_file: str | None = None,
             *,
             python_args: list[str] | None = None,
-        ) -> dict:
+        ) -> int:
             """Launch the subprocess with the actor's env + *subprocess_env* overrides.
 
             Pass *command* for binary subprocesses (etcd, nats) or
@@ -330,37 +313,49 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
             With *python_args*, the actor prepends its own ``sys.executable``
             so the subprocess uses the ``runtime_env``'s Python, not the driver's.
 
-            Returns: ``{"pid": int, "log_file": str | None}``.
-            """
-            if (command is None) == (python_args is None):
-                msg = "Exactly one of 'command' or 'python_args' must be provided"
-                raise ValueError(msg)
+            Injects ``CUDA_VISIBLE_DEVICES`` from Ray-assigned accelerator
+            IDs so the caller (``ManagedSubprocess.spawn``) doesn't need a
+            separate round-trip to ``get_assigned_gpus`` before this call.
 
+            Returns the subprocess pid.
+            """
             import subprocess as _sp
             import sys as _sys
+
+            import ray as _ray
 
             if python_args is not None:
                 command = [_sys.executable, *python_args]
 
             merged_env = {**os.environ, **subprocess_env}
+            gpu_ids = _ray.get_runtime_context().get_accelerator_ids().get("GPU", [])
+            if gpu_ids:
+                merged_env["CUDA_VISIBLE_DEVICES"] = ",".join(gpu_ids)
 
             self._log_file = log_file
             if log_file:
                 os.makedirs(os.path.dirname(log_file), exist_ok=True)
                 self._log_fh = open(log_file, "w")  # noqa: SIM115
-                self._proc = _sp.Popen(  # noqa: S603
-                    command, env=merged_env, stdout=self._log_fh, stderr=_sp.STDOUT, start_new_session=True
-                )
+                stdout: Any = self._log_fh
             else:
+                stdout = _sp.DEVNULL
+
+            try:
                 self._proc = _sp.Popen(  # noqa: S603
-                    command, env=merged_env, stdout=_sp.DEVNULL, stderr=_sp.STDOUT, start_new_session=True
+                    command, env=merged_env, stdout=stdout, stderr=_sp.STDOUT, start_new_session=True
                 )
+            except Exception:
+                if self._log_fh is not None:
+                    with contextlib.suppress(Exception):
+                        self._log_fh.close()
+                    self._log_fh = None
+                raise
 
             if not self._cleanup_registered:
                 atexit.register(self._cleanup)
                 self._cleanup_registered = True
 
-            return {"pid": self._proc.pid, "log_file": log_file}
+            return self._proc.pid
 
         def run(self) -> int:
             """Block until the subprocess exits. Returns the exit code."""
@@ -373,9 +368,6 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
 
         def is_alive(self) -> bool:
             return self._proc is not None and self._proc.poll() is None
-
-        def log_file(self) -> str | None:
-            return self._log_file
 
         def read_log_tail(self, num_bytes: int = 8192) -> str:
             """Read the last *num_bytes* of the log file, flushing first."""
@@ -402,6 +394,20 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
                     self._log_fh.close()
             return rc
 
+        def force_sigkill_subprocess(self) -> None:
+            """SIGKILL the subprocess group without waiting.
+
+            Escalation path when ``stop()`` is hung (e.g. the subprocess is
+            stuck in ``proc.wait()``). Non-blocking: one ``killpg`` syscall
+            and return; callers that need to wait should follow with
+            ``ray.kill`` to tear down the actor itself.
+            """
+            if self._proc is None or self._proc.poll() is not None:
+                return
+            with contextlib.suppress(OSError):
+                pgid = os.getpgid(self._proc.pid)
+                os.killpg(pgid, signal.SIGKILL)
+
         def _cleanup(self) -> None:
             """atexit hook: last-line-of-defense subprocess reap."""
             with contextlib.suppress(Exception):
@@ -427,7 +433,9 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
 
     _SubprocessActor.__name__ = actor_type
     _SubprocessActor.__qualname__ = actor_type
-    return ray.remote(num_cpus=1, num_gpus=0, max_concurrency=2)(_SubprocessActor)
+    # max_concurrency=4: allows force_sigkill_subprocess to preempt a stuck
+    # stop() without queueing behind run() + stop() + is_alive/read_log_tail.
+    return ray.remote(num_cpus=1, num_gpus=0, max_concurrency=4)(_SubprocessActor)
 
 
 # ---------------------------------------------------------------------------
@@ -474,9 +482,19 @@ def graceful_stop_actors(
     This primitive is for the raw-actor case (e.g. the reconnecting
     driver looking up orphaned actors by name).
 
-    Kicks off every ``actor.stop.remote()`` first so subprocess teardown
-    happens concurrently, then waits on all of them with a shared deadline
-    and force-kills anything that didn't drain in time.
+    Escalation order per actor:
+
+    1. ``actor.stop.remote()`` -- actor-driven SIGTERM on the subprocess
+       group with a bounded wait (finishes with SIGKILL if needed).
+    2. If stop did not drain in time, ``actor.force_sigkill_subprocess.remote()``
+       -- host-side SIGKILL on the subprocess group. This runs on the
+       actor's node (because actor methods always do), so it works
+       multi-node without any driver-side connectivity assumption.
+    3. ``ray.kill(actor)`` -- tear down the actor itself.
+
+    Without the step-2 escalation, ``ray.kill`` can orphan subprocesses:
+    ``ray.kill`` hard-kills the actor, which bypasses ``__ray_terminate__``
+    and ``atexit``, leaving the subprocess tree behind.
     """
     if not labeled_actors:
         return
@@ -489,7 +507,9 @@ def graceful_stop_actors(
     for (label, actor), ref in zip(labeled_actors, refs, strict=True):
         try:
             ray.get(ref, timeout=0)
-        except Exception:  # noqa: BLE001 - any failure here means force-kill
-            logger.debug(f"{label} actor stop() did not drain in time, force-killing")
+        except Exception:  # noqa: BLE001 - any failure here means escalate
+            logger.debug(f"{label} actor stop() did not drain in time, SIGKILL-ing subprocess group")
+            with contextlib.suppress(Exception):
+                ray.get(actor.force_sigkill_subprocess.remote(), timeout=SIGKILL_WAIT_S)
         with contextlib.suppress(Exception):
             ray.kill(actor, no_restart=True)

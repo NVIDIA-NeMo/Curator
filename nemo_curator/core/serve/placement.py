@@ -36,6 +36,7 @@ import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+import ray
 from loguru import logger
 
 from nemo_curator.core.serve.constants import PLACEMENT_GROUP_READY_TIMEOUT_S, WORKER_NODE_LABEL
@@ -94,8 +95,6 @@ def _get_gpu_topology(
             ``CURATOR_IGNORE_RAY_HEAD_NODE`` filtering).
         nodes: Pre-fetched ``ray.nodes()`` to avoid a redundant call.
     """
-    import ray
-
     if head_node_id is None:
         head_node_id = ray.get_runtime_context().get_node_id()
 
@@ -199,7 +198,6 @@ def build_pg(
     ready_timeout_s: float,
 ) -> PlacementGroup:
     """Create a detached, named PG and wait until ready; clean up on failure."""
-    import ray
     from ray.util.placement_group import placement_group
 
     pg_kwargs: dict[str, Any] = {
@@ -245,18 +243,11 @@ def build_replica_pg(
 
 # ---------------------------------------------------------------------------
 # Remote discovery (port + IP) via PG bundles
-#
-# TODO(dynamo-refactor): collapse ``_run_in_bundle`` / ``get_free_port_in_bundle`` /
-# ``get_bundle_node_ip`` (and ``ManagedSubprocess.spawn``'s (pg, bundle_index)
-# pair) into a ``Bundle(pg, index)`` wrapper once PR 4's DynamoBackend wiring
-# shows how often the same (pg, idx) pair gets threaded through. Worth doing
-# only if the repetition is real in the consumer, not upfront.
 # ---------------------------------------------------------------------------
 
 
 def _run_in_bundle(pg: PlacementGroup, bundle_index: int, remote_fn: Any, *args: Any) -> Any:  # noqa: ANN401
     """Schedule *remote_fn* into ``pg``'s bundle *bundle_index* and return the result."""
-    import ray
     from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
     return ray.get(
@@ -268,6 +259,18 @@ def _run_in_bundle(pg: PlacementGroup, bundle_index: int, remote_fn: Any, *args:
     )
 
 
+@ray.remote(num_cpus=0)
+def _remote_get_free_port(start: int, get_next: bool) -> int:
+    from nemo_curator.core.utils import get_free_port as _local_get_free_port
+
+    return _local_get_free_port(start, get_next)
+
+
+@ray.remote(num_cpus=0)
+def _remote_get_node_ip() -> str:
+    return ray.util.get_node_ip_address()
+
+
 def get_free_port_in_bundle(
     pg: PlacementGroup, bundle_index: int, start_port: int, get_next_free_port: bool = True
 ) -> int:
@@ -277,14 +280,6 @@ def get_free_port_in_bundle(
     ``PlacementGroupSchedulingStrategy``, so port availability is checked on
     the same node where the consuming actor will bind.
     """
-    import ray
-
-    @ray.remote(num_cpus=0)
-    def _remote_get_free_port(start: int, get_next: bool) -> int:
-        from nemo_curator.core.utils import get_free_port as _local_get_free_port
-
-        return _local_get_free_port(start, get_next)
-
     return _run_in_bundle(pg, bundle_index, _remote_get_free_port, start_port, get_next_free_port)
 
 
@@ -295,12 +290,6 @@ def get_bundle_node_ip(pg: PlacementGroup, bundle_index: int) -> str:
     the rank-0 actor will schedule into this same bundle, so its peers can
     connect to this IP.
     """
-    import ray
-
-    @ray.remote(num_cpus=0)
-    def _remote_get_node_ip() -> str:
-        return ray.util.get_node_ip_address()
-
     return _run_in_bundle(pg, bundle_index, _remote_get_node_ip)
 
 
@@ -320,7 +309,6 @@ def remove_named_pgs_with_prefix(prefix: str) -> int:
 
     Returns the number of PGs removed.
     """
-    import ray
     from ray.util.placement_group import placement_group_table
 
     try:
