@@ -24,11 +24,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, Literal
 
-from nemo_curator.core.serve.subprocess_mgr import (
-    _PG_READY_TIMEOUT_S,
-    _WORKER_NODE_LABEL,
-    _build_pg,
-)
+from nemo_curator.core.serve.constants import PLACEMENT_GROUP_READY_TIMEOUT_S, WORKER_NODE_LABEL
+from nemo_curator.core.serve.placement import build_pg
 from nemo_curator.core.utils import ignore_ray_head_node
 
 if TYPE_CHECKING:
@@ -39,7 +36,7 @@ def build_infra_pg(
     *,
     name: str,
     num_bundles: int,
-    ready_timeout_s: float = _PG_READY_TIMEOUT_S,
+    ready_timeout_s: float = PLACEMENT_GROUP_READY_TIMEOUT_S,
 ) -> PlacementGroup:
     """Create a ``STRICT_PACK`` PG for Dynamo infra services (etcd + NATS + frontend).
 
@@ -47,8 +44,8 @@ def build_infra_pg(
     When ``CURATOR_IGNORE_RAY_HEAD_NODE`` is set, every bundle requires a
     non-head (worker-labeled) node.
     """
-    selector = [_WORKER_NODE_LABEL] * num_bundles if ignore_ray_head_node() else None
-    return _build_pg(
+    selector = [WORKER_NODE_LABEL] * num_bundles if ignore_ray_head_node() else None
+    return build_pg(
         [{"CPU": 1}] * num_bundles,
         "STRICT_PACK",
         name=name,
