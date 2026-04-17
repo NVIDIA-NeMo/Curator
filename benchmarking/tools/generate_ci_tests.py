@@ -69,6 +69,16 @@ def generate_job(entry: dict, scope: str) -> dict:
     }
 
 
+def load_entry_overrides(curator_dir: str) -> dict:
+    """Load per-entry field overrides from ci-overrides.yaml if it exists."""
+    overrides_path = Path(curator_dir) / "benchmarking" / "ci-h100-overrides.yaml"
+    if not overrides_path.exists():
+        return {}
+    with open(overrides_path, encoding="utf-8") as f:
+        data = yaml.load(f)
+    return data.get("entry_overrides", {}) if data else {}
+
+
 def generate_pipeline(curator_dir: str, scope: str) -> dict:
     """
     Generate a GitLab CI pipeline from Curator benchmark entries.
@@ -84,6 +94,8 @@ def generate_pipeline(curator_dir: str, scope: str) -> dict:
     with open(config_path, encoding="utf-8") as f:
         config = yaml.load(f)
 
+    entry_overrides = load_entry_overrides(curator_dir)
+
     if scope == "NONE":
         scope = "nightly"
 
@@ -92,6 +104,11 @@ def generate_pipeline(curator_dir: str, scope: str) -> dict:
     }
 
     entries = config.get("entries", [])
+    for entry in entries:
+        overrides = entry_overrides.get(entry["name"])
+        if overrides:
+            entry.update(overrides)
+
     job_count = 0
     for entry in entries:
         if not entry.get("enabled", True):

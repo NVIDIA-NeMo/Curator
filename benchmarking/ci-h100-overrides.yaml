@@ -1,0 +1,13 @@
+# Per-entry field overrides applied on top of nightly-benchmark.yaml.
+# Used by both generate_ci_tests.py (SLURM TIME) and run.py (subprocess timeout).
+entry_overrides:
+  domain_classification_xenna:
+    timeout_s: 1400
+  fuzzy_dedup_identification:
+    timeout_s: 1200
+  semdedup_identification_xenna:
+    timeout_s: 1200
+  score_filter_xenna:
+    timeout_s: 800
+  video_transnetv2_motion_aesthetic_filter_embeddings:
+    timeout_s: 600
