@@ -227,9 +227,9 @@ class TestCaptionEnhancementStage:
         assert len(second_batch_call) == 1
 
         # Verify enhanced captions were set
-        assert "qwen_lm" in task.data.clips[0].windows[0].enhanced_caption
-        assert "qwen_lm" in task.data.clips[0].windows[1].enhanced_caption
-        assert "qwen_lm" in task.data.clips[1].windows[0].enhanced_caption
+        assert "qwen3_lm" in task.data.clips[0].windows[0].enhanced_caption
+        assert "qwen3_lm" in task.data.clips[0].windows[1].enhanced_caption
+        assert "qwen3_lm" in task.data.clips[1].windows[0].enhanced_caption
 
         # Verify the result is the same task
         assert result is task
@@ -317,8 +317,8 @@ class TestCaptionEnhancementStage:
 
         # Verify all enhanced captions were set
         for i, window in enumerate(task.data.clips[0].windows):
-            assert "qwen_lm" in window.enhanced_caption
-            assert window.enhanced_caption["qwen_lm"] == f"Enhanced caption {i + 1}"
+            assert "qwen3_lm" in window.enhanced_caption
+            assert window.enhanced_caption["qwen3_lm"] == f"Enhanced caption {i + 1}"
 
     def test_process_returns_same_task(self):
         """Test that process method returns the same task object."""
@@ -361,7 +361,7 @@ class TestCaptionEnhancementStage:
         # Verify verbose logging occurred
         info_calls = [str(call) for call in mock_logger.info.call_args_list]
         assert any("Caption for clip" in call for call in info_calls)
-        assert any("Enhanced qwen LM Caption" in call for call in info_calls)
+        assert any("Enhanced qwen3 LM Caption" in call for call in info_calls)
 
 
 class TestGetEnhancePrompt:
