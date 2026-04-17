@@ -22,8 +22,8 @@ import pyarrow as pa
 import pytest
 
 from nemo_curator.core.utils import split_table_by_group_max_bytes
-from nemo_curator.stages.interleaved.io.reader import InterleavedWebdatasetReader
 from nemo_curator.stages.interleaved.annotation.pass_mask import basic_interleaved_row_validity_mask
+from nemo_curator.stages.interleaved.io.reader import InterleavedWebdatasetReader
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
     BaseInterleavedScoreFilterStage,
@@ -315,10 +315,10 @@ def test_aspect_ratio_filter_handles_non_default_dataframe_index() -> None:
     )
     df.index = pd.Index([10, 42])
     task = InterleavedBatch(task_id="non_default_index", dataset_name="d1", data=df)
-    stage = InterleavedAspectRatioFilterStage()
+    stage = InterleavedAspectRatioFilterStage(drop_invalid_rows=False)
     out = stage.process(task).to_pandas()
-    assert len(out) == 2
-    assert pd.isna(out.loc[out["modality"] == "image", "interleaved_aspect_ratio_filter_aspect_ratio"].iloc[0])
+    assert len(out) == 1
+    assert out.iloc[0]["modality"] == "text"
 
 
 def test_aspect_ratio_filter_works_on_png_images() -> None:
@@ -368,14 +368,11 @@ def test_aspect_ratio_filter_works_on_png_images() -> None:
         ]
     )
     task = InterleavedBatch(task_id="png_test", dataset_name="d1", data=df)
-    stage = InterleavedAspectRatioFilterStage(min_aspect_ratio=0.2, max_aspect_ratio=5.0)
+    stage = InterleavedAspectRatioFilterStage(min_aspect_ratio=0.2, max_aspect_ratio=5.0, drop_invalid_rows=False)
     out = stage.process(task).to_pandas()
-    assert len(out) == 3
-    assert out["modality"].tolist() == ["text", "image", "image"]
-    assert out["position"].tolist() == [0, 1, 2]
-    ar = out.loc[out["modality"] == "image", "interleaved_aspect_ratio_filter_aspect_ratio"].tolist()
-    assert ar[0] == 2.0
-    assert ar[1] == 0.1
+    assert len(out) == 2
+    assert out["modality"].tolist() == ["text", "image"]
+    assert out["position"].tolist() == [0, 1]
 
 
 # --- split_table_by_group_max_bytes tests ---
@@ -1099,7 +1096,7 @@ def test_aspect_ratio_filter_no_image_rows() -> None:
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
-    stage = InterleavedAspectRatioFilterStage()
+    stage = InterleavedAspectRatioFilterStage(drop_invalid_rows=False)
     out_df = stage.process(task).to_pandas()
     assert len(out_df) == 2
     assert out_df["modality"].tolist() == ["metadata", "text"]

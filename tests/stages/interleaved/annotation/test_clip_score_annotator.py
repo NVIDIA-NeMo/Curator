@@ -155,7 +155,7 @@ def test_clip_score_annotator_no_text_image_gets_na(mock_clip_class: MagicMock, 
     stage.setup_on_node(NodeInfo(), WorkerMetadata())
     stage.setup()
     out_frame = stage.process(task).to_pandas()
-    col = f"{stage.name}_clip_scores"
+    col = "clip_scores"
     assert col in out_frame.columns
     assert pd.isna(out_frame.iloc[0][col])
     mock_model.encode_text.assert_not_called()
@@ -198,7 +198,7 @@ def test_clip_score_annotator_stores_dict_per_image_row(mock_clip_class: MagicMo
     stage.setup_on_node(NodeInfo(), WorkerMetadata())
     stage.setup()
     out_frame = stage.process(task).to_pandas()
-    col = f"{stage.name}_clip_scores"
+    col = "clip_scores"
     img_row = out_frame[out_frame["modality"] == "image"].iloc[0]
     assert isinstance(img_row[col], dict)
     assert 0 in img_row[col]
@@ -206,7 +206,7 @@ def test_clip_score_annotator_stores_dict_per_image_row(mock_clip_class: MagicMo
 
 @patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node")
 @patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings")
-def test_clip_score_annotator_column_name_uses_stage_name(
+def test_clip_score_annotator_column_name_is_clip_scores(
     mock_clip_class: MagicMock,  # noqa: ARG001
     mock_download: MagicMock,
 ) -> None:
@@ -228,7 +228,7 @@ def test_clip_score_annotator_column_name_uses_stage_name(
     stage.setup_on_node(NodeInfo(), WorkerMetadata())
     stage.setup()
     out_frame = stage.process(task).to_pandas()
-    assert f"{stage.name}_clip_scores" in out_frame.columns
+    assert "clip_scores" in out_frame.columns
 
 
 @patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node")

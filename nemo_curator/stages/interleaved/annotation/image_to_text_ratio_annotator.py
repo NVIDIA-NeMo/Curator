@@ -24,9 +24,6 @@ from nemo_curator.stages.interleaved.stages import BaseInterleavedScoreFilterSta
 if TYPE_CHECKING:
     from nemo_curator.tasks import InterleavedBatch
 
-DEFAULT_IMAGE_TO_TEXT_MIN_RATIO: float = 0.0
-DEFAULT_IMAGE_TO_TEXT_MAX_RATIO: float = float("inf")
-
 
 def _text_word_count(text: str | None) -> int:
     """Count words in text by splitting on whitespace."""
@@ -76,6 +73,6 @@ class InterleavedImageToTextRatioAnnotatorStage(BaseInterleavedScoreFilterStage)
         image_full, word_full = per_row_image_word_counts_broadcast(df)
         pos0 = df["position"] == 0
         return {
-            f"{self.name}_image_num": image_full.where(pos0, pd.NA).astype("Int64"),
-            f"{self.name}_text_word_num": word_full.where(pos0, pd.NA).astype("Int64"),
+            "image_num": image_full.where(pos0, pd.NA).astype("Int64"),
+            "text_word_num": word_full.where(pos0, pd.NA).astype("Int64"),
         }

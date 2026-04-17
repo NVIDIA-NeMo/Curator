@@ -20,7 +20,6 @@ import numpy as np
 import pandas as pd
 
 from nemo_curator.stages.interleaved.annotation.blur_annotator import (
-    DEFAULT_BLUR_SCORE_THRESHOLD,
     InterleavedBlurAnnotatorStage,
     _sharpness_score,
 )
@@ -56,7 +55,7 @@ def test_blur_annotator_text_only_no_sharpness_column_filled() -> None:
     task = interleaved_task(rows)
     stage = InterleavedBlurAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
-    col = f"{stage.name}_sharpness"
+    col = "sharpness"
     assert len(out_frame) == 1
     assert col in out_frame.columns
     assert pd.isna(out_frame.iloc[0][col])
@@ -99,7 +98,7 @@ def test_blur_annotator_sharp_image_has_high_sharpness_score() -> None:
     task = interleaved_task(rows)
     stage = InterleavedBlurAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
-    col = f"{stage.name}_sharpness"
+    col = "sharpness"
     assert out_frame.iloc[0][col] > 0
 
 
@@ -120,11 +119,11 @@ def test_blur_annotator_blurry_image_has_low_sharpness_score() -> None:
     task = interleaved_task(rows)
     stage = InterleavedBlurAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
-    col = f"{stage.name}_sharpness"
-    assert float(out_frame.iloc[0][col]) < DEFAULT_BLUR_SCORE_THRESHOLD
+    col = "sharpness"
+    assert float(out_frame.iloc[0][col]) < 100.0
 
 
-def test_blur_annotator_column_name_uses_stage_name() -> None:
+def test_blur_annotator_column_name_is_sharpness() -> None:
     rows = [
         {
             "sample_id": "s1",
@@ -140,7 +139,7 @@ def test_blur_annotator_column_name_uses_stage_name() -> None:
     task = interleaved_task(rows)
     stage = InterleavedBlurAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
-    assert f"{stage.name}_sharpness" in out_frame.columns
+    assert "sharpness" in out_frame.columns
 
 
 def test_blur_annotator_none_bytes_gives_na_sharpness() -> None:
@@ -167,7 +166,7 @@ def test_blur_annotator_none_bytes_gives_na_sharpness() -> None:
         stage = InterleavedBlurAnnotatorStage()
         out_frame = stage.process(task).to_pandas()
     assert len(out_frame) == 1
-    assert pd.isna(out_frame.iloc[0][f"{stage.name}_sharpness"])
+    assert pd.isna(out_frame.iloc[0]["sharpness"])
 
 
 def test_blur_annotator_empty_task_unchanged() -> None:

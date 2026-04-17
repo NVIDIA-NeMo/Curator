@@ -30,8 +30,6 @@ if TYPE_CHECKING:
 
     from nemo_curator.tasks import InterleavedBatch
 
-DEFAULT_QRCODE_SCORE_THRESHOLD: float = 0.05
-
 
 def _qr_code_ratio(image: np.ndarray, row_index: Hashable | None = None) -> float:
     """Return the ratio of image area covered by all detected QR code(s), in [0, 1]."""
@@ -63,7 +61,7 @@ def _qr_code_ratio(image: np.ndarray, row_index: Hashable | None = None) -> floa
 
 @dataclass
 class InterleavedQRCodeAnnotatorStage(BaseInterleavedScoreFilterStage):
-    """Add QR code area ratio per image row as ``{name}_qr_area_ratio`` (``<NA>`` on non-images)."""
+    """Add QR code area ratio per image row as ``qr_area_ratio`` (``<NA>`` on non-images)."""
 
     name: str = "interleaved_qrcode_annotator"
 
@@ -82,4 +80,4 @@ class InterleavedQRCodeAnnotatorStage(BaseInterleavedScoreFilterStage):
         return ratios
 
     def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-        return {f"{self.name}_qr_area_ratio": self._qr_ratio_series(task, df)}
+        return {"qr_area_ratio": self._qr_ratio_series(task, df)}

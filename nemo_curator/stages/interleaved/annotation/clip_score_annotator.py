@@ -31,8 +31,6 @@ if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
     from nemo_curator.tasks import InterleavedBatch
 
-DEFAULT_CLIP_MIN_SCORE: float = 0.15
-
 
 def _sample_text_positions_and_texts(df: pd.DataFrame, sample_id: str | int) -> tuple[list[int], list[str]]:
     """Text ``position`` and stripped non-empty ``text_content``, same row order."""
@@ -76,7 +74,7 @@ def _indices_and_decoded_images_from_rows(
 
 @dataclass
 class InterleavedCLIPScoreAnnotatorStage(BaseInterleavedScoreFilterStage):
-    """Add CLIP similarity dicts per image row as ``{name}_clip_scores``.
+    """Add CLIP similarity dicts per image row as ``clip_scores``.
 
     For each image row, all text rows with the same ``sample_id`` form (image, text) pairs.
     The stored dict maps each text row's interleaved ``position`` to the CLIP similarity.
@@ -140,4 +138,4 @@ class InterleavedCLIPScoreAnnotatorStage(BaseInterleavedScoreFilterStage):
         return out
 
     def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-        return {f"{self.name}_clip_scores": self._clip_score_dicts_series(task, df)}
+        return {"clip_scores": self._clip_score_dicts_series(task, df)}

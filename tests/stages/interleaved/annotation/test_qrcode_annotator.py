@@ -71,7 +71,7 @@ def test_qrcode_annotator_text_row_has_na_score() -> None:
     task = interleaved_task(rows)
     stage = InterleavedQRCodeAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
-    col = f"{stage.name}_qr_area_ratio"
+    col = "qr_area_ratio"
     assert col in out_frame.columns
     assert pd.isna(out_frame.iloc[0][col])
 
@@ -98,7 +98,7 @@ def test_qrcode_annotator_does_not_drop_high_qr_image() -> None:
     assert len(out_frame) == 1
 
 
-def test_qrcode_annotator_column_name_uses_stage_name() -> None:
+def test_qrcode_annotator_column_name_is_qr_area_ratio() -> None:
     rows = [
         {
             "sample_id": "s1",
@@ -114,7 +114,7 @@ def test_qrcode_annotator_column_name_uses_stage_name() -> None:
     task = interleaved_task(rows)
     stage = InterleavedQRCodeAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
-    assert f"{stage.name}_qr_area_ratio" in out_frame.columns
+    assert "qr_area_ratio" in out_frame.columns
 
 
 def test_qrcode_annotator_image_gets_qr_ratio_score() -> None:
@@ -134,7 +134,7 @@ def test_qrcode_annotator_image_gets_qr_ratio_score() -> None:
     task = interleaved_task(rows)
     stage = InterleavedQRCodeAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
-    col = f"{stage.name}_qr_area_ratio"
+    col = "qr_area_ratio"
     assert not pd.isna(out_frame.iloc[0][col])
     assert 0.0 <= float(out_frame.iloc[0][col]) <= 1.0
 
@@ -162,7 +162,7 @@ def test_qrcode_annotator_none_bytes_gives_na_score() -> None:
     with patch.object(InterleavedQRCodeAnnotatorStage, "iter_materialized_bytes", _none_bytes):
         stage = InterleavedQRCodeAnnotatorStage()
         out_frame = stage.process(task).to_pandas()
-    assert pd.isna(out_frame.iloc[0][f"{stage.name}_qr_area_ratio"])
+    assert pd.isna(out_frame.iloc[0]["qr_area_ratio"])
 
 
 def test_qrcode_annotator_pass_mask_low_qr_passes() -> None:

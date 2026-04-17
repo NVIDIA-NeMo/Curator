@@ -31,8 +31,6 @@ if TYPE_CHECKING:
 
     from nemo_curator.tasks import InterleavedBatch
 
-DEFAULT_BLUR_SCORE_THRESHOLD: float = 100.0
-
 
 def _sharpness_score(image: np.ndarray, row_index: Hashable | None = None) -> float:
     """Compute Laplacian variance as sharpness score; higher is sharper."""
@@ -50,7 +48,7 @@ def _sharpness_score(image: np.ndarray, row_index: Hashable | None = None) -> fl
 
 @dataclass
 class InterleavedBlurAnnotatorStage(BaseInterleavedScoreFilterStage):
-    """Add Laplacian sharpness per image row as ``{name}_sharpness`` (``<NA>`` on non-images / failures)."""
+    """Add Laplacian sharpness per image row as ``sharpness`` (``<NA>`` on non-images / failures)."""
 
     name: str = "interleaved_blur_annotator"
 
@@ -69,4 +67,4 @@ class InterleavedBlurAnnotatorStage(BaseInterleavedScoreFilterStage):
         return sharp
 
     def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-        return {f"{self.name}_sharpness": self._sharpness_series(task, df)}
+        return {"sharpness": self._sharpness_series(task, df)}

@@ -71,7 +71,7 @@ def test_image_to_text_ratio_annotator_does_not_drop_rows() -> None:
     assert len(out_frame) == 2
 
 
-def test_image_to_text_ratio_annotator_column_names_use_stage_name() -> None:
+def test_image_to_text_ratio_annotator_column_names_are_image_and_word_counts() -> None:
     rows = [
         {
             "sample_id": "s1",
@@ -87,8 +87,8 @@ def test_image_to_text_ratio_annotator_column_names_use_stage_name() -> None:
     task = interleaved_task(rows)
     stage = InterleavedImageToTextRatioAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
-    assert f"{stage.name}_image_num" in out_frame.columns
-    assert f"{stage.name}_text_word_num" in out_frame.columns
+    assert "image_num" in out_frame.columns
+    assert "text_word_num" in out_frame.columns
 
 
 def test_image_to_text_ratio_annotator_counts_stored_at_position_zero_only() -> None:
@@ -117,7 +117,7 @@ def test_image_to_text_ratio_annotator_counts_stored_at_position_zero_only() -> 
     task = interleaved_task(rows)
     stage = InterleavedImageToTextRatioAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
-    col = f"{stage.name}_image_num"
+    col = "image_num"
     pos0 = out_frame[out_frame["position"] == 0]
     pos1 = out_frame[out_frame["position"] == 1]
     assert int(pos0[col].iloc[0]) == 1
@@ -150,7 +150,7 @@ def test_image_to_text_ratio_annotator_image_only_sample() -> None:
     task = interleaved_task(rows)
     stage = InterleavedImageToTextRatioAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
-    col = f"{stage.name}_image_num"
+    col = "image_num"
     assert int(out_frame.loc[out_frame["position"] == 0, col].iloc[0]) == 2
     assert pd.isna(out_frame.loc[out_frame["position"] == 1, col].iloc[0])
 
@@ -301,8 +301,8 @@ def test_image_to_text_ratio_annotator_multiple_samples_stored_correctly() -> No
     task = interleaved_task(rows)
     stage = InterleavedImageToTextRatioAnnotatorStage()
     out_frame = stage.process(task).to_pandas()
-    col_img = f"{stage.name}_image_num"
-    col_word = f"{stage.name}_text_word_num"
+    col_img = "image_num"
+    col_word = "text_word_num"
     a_row = out_frame[(out_frame["sample_id"] == "a") & (out_frame["position"] == 0)]
     b_row = out_frame[(out_frame["sample_id"] == "b") & (out_frame["position"] == 0)]
     assert int(a_row[col_img].iloc[0]) == 1

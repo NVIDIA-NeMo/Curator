@@ -185,8 +185,8 @@ class BaseInterleavedScoreFilterStage(BaseInterleavedAnnotatorStage, ABC):
 
 
 @dataclass
-class InterleavedAspectRatioFilterStage(BaseInterleavedScoreFilterStage):
-    """Attach per-image aspect ratio (``{name}_aspect_ratio``); ``<NA>`` on non-images / failures."""
+class InterleavedAspectRatioFilterStage(BaseInterleavedFilterStage):
+    """Filter interleaved image rows by aspect-ratio bounds (all image formats)."""
 
     min_aspect_ratio: float = 1.0
     max_aspect_ratio: float = 2.0
@@ -209,18 +209,22 @@ class InterleavedAspectRatioFilterStage(BaseInterleavedScoreFilterStage):
             return None
         return float(width) / float(height)
 
-    def _aspect_ratio_series(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
-        s = pd.Series(pd.NA, index=df.index, dtype="Float64")
+    def _image_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+        keep_mask = pd.Series(True, index=df.index, dtype=bool)
         image_mask = df["modality"] == "image"
         if not image_mask.any():
-            return s
+            return keep_mask
         for idx, image_bytes in self.iter_materialized_bytes(task=task, df=df, row_mask=image_mask):
             if image_bytes is None:
+                keep_mask.loc[idx] = False
                 continue
             aspect_ratio = self._image_aspect_ratio(image_bytes)
-            if aspect_ratio is not None:
-                s.loc[idx] = aspect_ratio
-        return s
+            if aspect_ratio is None:
+                keep_mask.loc[idx] = False
+                continue
+            if aspect_ratio < self.min_aspect_ratio or aspect_ratio > self.max_aspect_ratio:
+                keep_mask.loc[idx] = False
+        return keep_mask
 
-    def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-        return {f"{self.name}_aspect_ratio": self._aspect_ratio_series(task, df)}
+    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+        return self._image_keep_mask(task, df)

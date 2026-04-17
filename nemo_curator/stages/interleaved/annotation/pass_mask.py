@@ -20,29 +20,24 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from nemo_curator.stages.interleaved.annotation.blur_annotator import (
-    DEFAULT_BLUR_SCORE_THRESHOLD,
-    InterleavedBlurAnnotatorStage,
-)
-from nemo_curator.stages.interleaved.annotation.clip_score_annotator import (
-    DEFAULT_CLIP_MIN_SCORE,
-    InterleavedCLIPScoreAnnotatorStage,
-)
+from nemo_curator.stages.interleaved.annotation.blur_annotator import InterleavedBlurAnnotatorStage
+from nemo_curator.stages.interleaved.annotation.clip_score_annotator import InterleavedCLIPScoreAnnotatorStage
 from nemo_curator.stages.interleaved.annotation.image_to_text_ratio_annotator import (
-    DEFAULT_IMAGE_TO_TEXT_MAX_RATIO,
-    DEFAULT_IMAGE_TO_TEXT_MIN_RATIO,
     InterleavedImageToTextRatioAnnotatorStage,
     per_row_image_word_counts_broadcast,
 )
-from nemo_curator.stages.interleaved.annotation.qrcode_annotator import (
-    DEFAULT_QRCODE_SCORE_THRESHOLD,
-    InterleavedQRCodeAnnotatorStage,
-)
+from nemo_curator.stages.interleaved.annotation.qrcode_annotator import InterleavedQRCodeAnnotatorStage
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedFilterStage,
     BaseInterleavedScoreFilterStage,
     InterleavedAspectRatioFilterStage,
 )
+
+DEFAULT_BLUR_SCORE_THRESHOLD: float = 100.0
+DEFAULT_CLIP_MIN_SCORE: float = 0.15
+DEFAULT_IMAGE_TO_TEXT_MIN_RATIO: float = 0.0
+DEFAULT_IMAGE_TO_TEXT_MAX_RATIO: float = float("inf")
+DEFAULT_QRCODE_SCORE_THRESHOLD: float = 0.05
 
 if TYPE_CHECKING:
     from nemo_curator.tasks import InterleavedBatch
@@ -96,19 +91,19 @@ def interleaved_score_pass_mask(  # noqa: PLR0913
 
     if isinstance(stage, InterleavedBlurAnnotatorStage):
         threshold = score_threshold if score_threshold is not None else DEFAULT_BLUR_SCORE_THRESHOLD
-        sharp = cols[f"{stage.name}_sharpness"]
+        sharp = cols["sharpness"]
         image = df["modality"] == "image"
         out &= ~image | (sharp.notna() & (sharp >= threshold))
         return out
     if isinstance(stage, InterleavedQRCodeAnnotatorStage):
         threshold = score_threshold if score_threshold is not None else DEFAULT_QRCODE_SCORE_THRESHOLD
-        qr = cols[f"{stage.name}_qr_area_ratio"]
+        qr = cols["qr_area_ratio"]
         image = df["modality"] == "image"
         out &= ~image | (qr.notna() & (qr < threshold))
         return out
     if isinstance(stage, InterleavedCLIPScoreAnnotatorStage):
         actual_min_score = min_score if min_score is not None else DEFAULT_CLIP_MIN_SCORE
-        scores = cols[f"{stage.name}_clip_scores"]
+        scores = cols["clip_scores"]
         image = df["modality"] == "image"
         for i in idx[image]:
             cell = scores.loc[i]
