@@ -29,6 +29,14 @@ from nemo_curator.core.serve.dynamo.infra import build_worker_actor_name, engine
             {"tensor_parallel_size": 4, "max_model_len": 8192},
             ["--tensor-parallel-size", "4", "--max-model-len", "8192"],
         ),
+        (
+            {"served_model_name": ["alias1", "alias2"]},
+            ["--served-model-name", '["alias1", "alias2"]'],
+        ),
+        (
+            {"generation_config": {"temperature": 0.7}},
+            ["--generation-config", '{"temperature": 0.7}'],
+        ),
     ],
 )
 def test_engine_kwargs_to_cli_flags(engine_kwargs: dict, expected: list[str]) -> None:

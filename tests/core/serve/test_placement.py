@@ -102,6 +102,12 @@ class TestPlanReplicaBundleShape:
         with pytest.raises(RuntimeError, match=match):
             plan_replica_bundle_shape(tp_size=tp_size, _topology=topology)
 
+    @pytest.mark.parametrize("tp_size", [0, -1])
+    def test_non_positive_tp_size_rejected(self, tp_size: int) -> None:
+        topology = [{"node_id": "n1", "num_gpus": 8, "is_head": False}]
+        with pytest.raises(ValueError, match=r"tp_size must be >= 1"):
+            plan_replica_bundle_shape(tp_size=tp_size, _topology=topology)
+
 
 class TestHeadNodeExclusion:
     """CURATOR_IGNORE_RAY_HEAD_NODE filters head from topology AND emits the label selector."""

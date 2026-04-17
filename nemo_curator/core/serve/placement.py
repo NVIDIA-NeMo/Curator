@@ -92,11 +92,16 @@ def _get_gpu_topology(
 
     Args:
         head_node_id: Ray node ID to tag as head in output (for
-            ``CURATOR_IGNORE_RAY_HEAD_NODE`` filtering).
+            ``CURATOR_IGNORE_RAY_HEAD_NODE`` filtering). Defaults to the
+            node bearing the ``node:__internal_head__`` resource marker;
+            falls back to the driver's own node id if no marker is found
+            (matches the behaviour used by ``backends/utils.py``).
         nodes: Pre-fetched ``ray.nodes()`` to avoid a redundant call.
     """
     if head_node_id is None:
-        head_node_id = ray.get_runtime_context().get_node_id()
+        from nemo_curator.backends.utils import get_head_node_id
+
+        head_node_id = get_head_node_id() or ray.get_runtime_context().get_node_id()
 
     topology: list[dict[str, Any]] = []
     for node in nodes or ray.nodes():
@@ -134,6 +139,10 @@ def plan_replica_bundle_shape(
     out of topology and every bundle gets
     ``[{"ray.io/node-type": "worker"}]`` as a label selector.
     """
+    if tp_size < 1:
+        msg = f"tp_size must be >= 1, got {tp_size}"
+        raise ValueError(msg)
+
     topology = _topology if _topology is not None else _get_gpu_topology(head_node_id, nodes=_nodes)
     if not topology:
         msg = "No GPU nodes found in the Ray cluster."

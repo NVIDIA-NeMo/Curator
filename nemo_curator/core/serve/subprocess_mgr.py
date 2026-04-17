@@ -23,10 +23,12 @@ plumbing.
 
 Each spawned actor owns one subprocess launched with
 ``start_new_session=True`` so the child becomes a process-group leader.
-Teardown is SIGTERM -> (bounded wait) -> SIGKILL on the process group
-so vLLM's torch.distributed workers get reaped along with the main
-process. ``__ray_terminate__`` + ``atexit`` are both wired so the
-subprocess tree goes away even if Ray hard-kills the actor.
+Teardown is driver-initiated (see ``graceful_stop_actors``): SIGTERM
+-> bounded wait -> escalated SIGKILL on the process group ->
+``ray.kill`` for the actor itself. A Python ``atexit`` hook inside the
+actor covers the clean-exit path; hard kills (``ray.kill``, PG removal,
+SIGKILL) bypass atexit, which is why ``graceful_stop_actors`` does the
+SIGKILL step explicitly before falling through to ``ray.kill``.
 
 Placement-group construction, bundle-level helpers, and the orphan PG
 sweep live in ``placement``.
@@ -159,7 +161,7 @@ class ManagedSubprocess:
             user_env_vars = runtime_env.get("env_vars", {})
             merged_runtime_env["env_vars"] = {**user_env_vars, **NOSET_CUDA_RUNTIME_ENV["env_vars"]}
         else:
-            merged_runtime_env = NOSET_CUDA_RUNTIME_ENV
+            merged_runtime_env = {**NOSET_CUDA_RUNTIME_ENV}
 
         actor = actor_cls.options(
             name=actor_name,
@@ -269,27 +271,31 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
 
     Lifecycle:
 
-    1. **Create** with GPU options (``num_gpus=...``).
-    2. **Discover GPUs** via ``get_assigned_gpus()`` (returns Ray-assigned IDs).
-    3. **Launch subprocess** via ``initialize()``.
-    4. **``run()``** blocks until exit -- returned ObjectRef resolves then.
+    1. Create with GPU options (``num_gpus=...``).
+    2. Launch subprocess via ``initialize()`` (injects the actor's
+       Ray-assigned ``CUDA_VISIBLE_DEVICES`` into the child env).
+    3. ``run()`` blocks until exit -- returned ObjectRef resolves then.
 
-    Graceful shutdown: we override ``__ray_terminate__`` to reap the
-    subprocess group before ``ray.actor.exit_actor()``. ``atexit`` is also
-    registered as a belt-and-suspenders path for unexpected actor exit. If
-    Ray hard-kills the actor (``ray.kill`` or ``remove_placement_group``),
-    ``atexit`` does not run, so callers should prefer
-    ``actor.stop.remote()`` (or ``actor.__ray_terminate__.remote()``) before
-    removing the PG.
+    Teardown is driver-initiated via ``graceful_stop_actors`` (see its
+    docstring for the SIGTERM -> SIGKILL -> ``ray.kill`` escalation). The
+    only actor-side teardown piece we register is a standard Python
+    ``atexit`` hook: if the actor process ever exits cleanly (e.g. the
+    raylet shuts it down through normal channels), the hook reaps the
+    subprocess group. ``atexit`` does not run on hard kill (``ray.kill``,
+    PG removal, SIGKILL), which is why callers must go through
+    ``graceful_stop_actors`` / ``ManagedSubprocess.stop`` to avoid
+    orphaning the subprocess tree.
     """
     import ray
 
     class _SubprocessActor:
         """Manages a subprocess on a Ray node with optional file-based logging.
 
-        ``max_concurrency=2`` lets ``run()`` block on the subprocess while
-        other methods (``is_alive``, ``read_log_tail``, ``stop``) stay
-        responsive.
+        ``max_concurrency=4`` lets ``run()`` block on the subprocess while
+        other methods (``is_alive``, ``read_log_tail``, ``stop``,
+        ``force_sigkill_subprocess``) stay responsive -- importantly,
+        ``force_sigkill_subprocess`` must be able to preempt a stuck
+        ``stop()``.
         """
 
         def __init__(self) -> None:
@@ -313,9 +319,9 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
             With *python_args*, the actor prepends its own ``sys.executable``
             so the subprocess uses the ``runtime_env``'s Python, not the driver's.
 
-            Injects ``CUDA_VISIBLE_DEVICES`` from Ray-assigned accelerator
-            IDs so the caller (``ManagedSubprocess.spawn``) doesn't need a
-            separate round-trip to ``get_assigned_gpus`` before this call.
+            Injects ``CUDA_VISIBLE_DEVICES`` from the actor's Ray-assigned
+            accelerator IDs so the caller (``ManagedSubprocess.spawn``)
+            does not need a separate round-trip before this call.
 
             Returns the subprocess pid.
             """
@@ -417,24 +423,8 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
                 if self._log_fh:
                     self._log_fh.close()
 
-        def __ray_terminate__(self) -> None:
-            """Override Ray's default termination to reap the subprocess group first.
-
-            Ray's default implementation just calls ``ray.actor.exit_actor()``.
-            We reap our subprocess tree beforehand so that a graceful
-            ``actor.__ray_terminate__.remote()`` leaves no child processes behind.
-            """
-            self._cleanup()
-            import ray as _ray
-
-            worker = _ray._private.worker.global_worker
-            if worker.mode != _ray.LOCAL_MODE:
-                _ray.actor.exit_actor()
-
     _SubprocessActor.__name__ = actor_type
     _SubprocessActor.__qualname__ = actor_type
-    # max_concurrency=4: allows force_sigkill_subprocess to preempt a stuck
-    # stop() without queueing behind run() + stop() + is_alive/read_log_tail.
     return ray.remote(num_cpus=1, num_gpus=0, max_concurrency=4)(_SubprocessActor)
 
 
@@ -493,8 +483,8 @@ def graceful_stop_actors(
     3. ``ray.kill(actor)`` -- tear down the actor itself.
 
     Without the step-2 escalation, ``ray.kill`` can orphan subprocesses:
-    ``ray.kill`` hard-kills the actor, which bypasses ``__ray_terminate__``
-    and ``atexit``, leaving the subprocess tree behind.
+    ``ray.kill`` hard-kills the actor, which bypasses the actor's
+    ``atexit`` hook and leaves the subprocess tree behind.
     """
     if not labeled_actors:
         return
