@@ -95,6 +95,7 @@ class TestPromptFormatterQwen:
         assert isinstance(video_data[0], np.ndarray)
         assert video_data[1]["fps"] == 2.0
         assert video_data[1]["frames_indices"] == [0]
+        assert video_data[1]["total_num_frames"] == 1
 
         # Verify processor was called correctly
         expected_message = [{"role": "user", "content": [{"type": "video"}, {"type": "text", "text": "Test prompt"}]}]

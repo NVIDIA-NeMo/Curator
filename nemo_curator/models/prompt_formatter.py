@@ -102,7 +102,7 @@ class PromptFormatter:
         if video_inputs is not None:
             video_np = self._convert_to_numpy(video_inputs)
             num_frames = video_np.shape[0]
-            video_data = (video_np, {"fps": fps, "frames_indices": list(range(num_frames))})
+            video_data = (video_np, {"fps": fps, "frames_indices": list(range(num_frames)), "total_num_frames": num_frames})
         return {
             "prompt": self.text_prompt,
             "multi_modal_data": {"video": video_data},
