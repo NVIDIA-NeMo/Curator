@@ -37,6 +37,13 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
     - Images are packed into tar archives with at most ``images_per_tar`` entries each.
     - Metadata for all written images in the batch is stored in a single Parquet file.
     - Tar filenames are unique across actors via an actor-scoped prefix.
+
+    Note:
+        ``images_per_tar`` must not exceed the pipeline's batch size (i.e. the number of
+        images delivered per ``ImageBatch``).  Each call to ``process()`` handles exactly
+        one batch; if ``images_per_tar`` is larger than the batch, every tar will contain
+        fewer images than requested.  Set ``images_per_tar <= batch_size`` to get the
+        intended packing density.
     """
 
     output_dir: str
@@ -143,6 +150,14 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
     def process(self, task: ImageBatch) -> FileGroupTask:
         if task is None or not isinstance(task.data, list) or len(task.data) == 0:
             logger.warning("Empty ImageBatch provided to ImageWriterStage; writing empty metadata only")
+
+        if isinstance(task.data, list) and len(task.data) > 0 and self.images_per_tar > len(task.data):
+            logger.warning(
+                f"images_per_tar={self.images_per_tar} exceeds the batch size "
+                f"({len(task.data)} images in this batch). "
+                f"Each tar will contain fewer images than requested. "
+                f"Set images_per_tar <= batch_size to get the intended packing density."
+            )
 
         # Paths produced for this batch
         tar_paths: list[str] = []
