@@ -69,6 +69,35 @@ def test_annotation_threshold_skips_when_all_columns_none() -> None:
     assert len(out.to_pandas()) == 1
 
 
+def test_annotation_threshold_none_threshold_keeps_image_and_drops_column() -> None:
+    col = "sharpness"
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+            col: 10.0,
+        },
+    ]
+    task = _annotated_task(rows)
+    stage = InterleavedAnnotationThresholdFilterStage(
+        blur_min_sharpness=None,
+        clip_scores_column=None,
+        qrcode_ratio_column=None,
+        image_text_image_num_column=None,
+        image_text_word_num_column=None,
+    )
+    out = stage.process(task)
+    out_frame = out.to_pandas()
+    assert len(out_frame) == 1
+    assert col not in out_frame.columns
+
+
 def test_annotation_threshold_drops_images_when_blur_column_absent() -> None:
     rows = [
         {
@@ -168,7 +197,8 @@ def test_annotation_threshold_blur_column_filters_image() -> None:
     out = stage.process(task)
     out_frame = out.to_pandas()
     assert len(out_frame) == 1
-    assert out_frame.iloc[0][col] == 200.0
+    assert col not in out_frame.columns
+    assert out_frame.iloc[0]["position"] == 0
 
 
 def test_annotation_threshold_qrcode_column() -> None:
