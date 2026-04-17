@@ -18,7 +18,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.models.qwen_lm import QwenLM, _QWEN_LM_VARIANTS_INFO
+from nemo_curator.models.qwen_lm import _QWEN_LM_VARIANTS_INFO, QwenLM
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import Clip, Video, VideoTask, _Window

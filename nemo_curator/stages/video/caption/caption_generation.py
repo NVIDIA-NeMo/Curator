@@ -20,7 +20,7 @@ from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.nemotron_h_vl import NemotronHVL
-from nemo_curator.models.qwen_vl import QwenVL, _QWEN_VARIANTS_INFO
+from nemo_curator.models.qwen_vl import _QWEN_VARIANTS_INFO, QwenVL
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import Video, VideoTask
