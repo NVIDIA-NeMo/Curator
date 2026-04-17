@@ -18,3 +18,13 @@ DEFAULT_NATS_PORT = 4222
 DEFAULT_DYNAMO_NAMESPACE = "curator"
 DEFAULT_DYNAMO_REQUEST_PLANE = "nats"
 DEFAULT_DYNAMO_EVENT_PLANE = "nats"
+
+NEMO_CURATOR_DYNAMO_NAMESPACE = "nemo_curator_dynamo"
+"""Ray namespace used for all Dynamo-related detached actors and placement groups.
+
+Passed as ``namespace=`` in ``ray.init()`` from ``DynamoBackend.start()`` and
+``.stop()``. Pipeline executors (Xenna, Ray Data) use their own namespace, so
+there is no collision. Keeping the PGs + actors in a stable namespace lets a
+reconnecting driver (server.start -> pipeline.run -> server.stop) find and
+reap them across ``ray.shutdown()`` / ``ray.init()`` cycles.
+"""

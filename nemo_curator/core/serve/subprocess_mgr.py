@@ -12,21 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Subprocess management for inference server backends, built on Ray placement groups.
+"""Generic Ray-placement-group-based subprocess manager.
 
-Each model replica is backed by one placement group whose bundles describe
-its TP topology. Single-node replicas use a single ``STRICT_PACK`` bundle;
-multi-node TP replicas use ``STRICT_SPREAD`` with one bundle per node. Infra
-services (etcd, NATS, frontend) share a ``STRICT_PACK`` PG so they co-locate.
+Each replica is backed by one placement group whose bundles describe its
+topology. Single-node replicas use a single ``STRICT_PACK`` bundle;
+multi-node (e.g. TP > per-node GPU count) replicas use ``STRICT_SPREAD``
+with one bundle per node.
 
-PGs are created with ``lifetime="detached"`` and a stable ``name=`` inside a
-named namespace, so a reconnecting driver can find and reap them across
-``ray.shutdown()`` / ``ray.init()`` cycles (e.g. server.start -> pipeline.run ->
-server.stop). ``remove_placement_group`` is the primary teardown handle --
-killing the PG forcibly terminates its actors. Subprocess cleanup is explicit:
-actors implement graceful shutdown (SIGTERM -> SIGKILL on the child's process
+PGs are created with ``lifetime="detached"`` and a stable ``name=`` inside
+the caller-chosen Ray namespace, so a reconnecting driver can find and
+reap them across ``ray.shutdown()`` / ``ray.init()`` cycles.
+``remove_placement_group`` is the primary teardown handle -- killing the
+PG forcibly terminates its actors. Subprocess cleanup is explicit: actors
+implement graceful shutdown (SIGTERM -> SIGKILL on the child's process
 group) via ``__ray_terminate__`` + ``atexit``, so the child tree is reaped
 even when Ray hard-kills the actor.
+
+Backend-specific construction (service layout, actor naming, CLI flag
+translation) lives alongside each backend (e.g.
+``nemo_curator.core.serve.dynamo.infra``), not here.
 """
 
 from __future__ import annotations
@@ -48,19 +52,11 @@ if TYPE_CHECKING:
     from ray.actor import ActorHandle
     from ray.util.placement_group import PlacementGroup
 
-from nemo_curator.core.utils import get_free_port  # noqa: F401 - re-exported
+from nemo_curator.core.utils import get_free_port, ignore_ray_head_node  # noqa: F401 - re-exported
 
 # ---------------------------------------------------------------------------
 # Module constants
 # ---------------------------------------------------------------------------
-
-NEMO_CURATOR_DYNAMO_NAMESPACE = "nemo_curator_dynamo"
-"""Ray namespace used for all Dynamo-related detached actors and PGs.
-
-Passed as ``namespace=`` in ``ray.init()`` from ``DynamoBackend.start()`` and
-``.stop()``. Pipeline executors (Xenna, Ray Data) use their own namespace --
-no collision.
-"""
 
 _WORKER_NODE_LABEL = {"ray.io/node-type": "worker"}
 """Bundle label selector applied when ``CURATOR_IGNORE_RAY_HEAD_NODE=1``.
@@ -81,16 +77,6 @@ We explicitly set ``CUDA_VISIBLE_DEVICES`` in ``subprocess_env`` from
 redundant -- it's kept defensively because the canonical vLLM+Ray pattern
 (vLLM issues #7890/#30016/#35848) relies on it, and Dynamo follows suit.
 """
-
-
-# ---------------------------------------------------------------------------
-# Head-node exclusion policy
-# ---------------------------------------------------------------------------
-
-
-def _ignore_head_node() -> bool:
-    """Return True if ``CURATOR_IGNORE_RAY_HEAD_NODE`` is set."""
-    return os.environ.get("CURATOR_IGNORE_RAY_HEAD_NODE", "").strip().lower() in ("1", "true", "yes")
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +174,7 @@ def plan_replica_bundle_shape(
         msg = "No GPU nodes found in the Ray cluster."
         raise RuntimeError(msg)
 
-    ignore_head = _ignore_head_node()
+    ignore_head = ignore_ray_head_node()
     if ignore_head:
         topology = [n for n in topology if not n["is_head"]]
         if not topology:
@@ -231,21 +217,6 @@ def plan_replica_bundle_shape(
         f"valid combination found across {len(topology)} eligible node(s)."
     )
     raise RuntimeError(msg)
-
-
-def check_total_gpu_capacity(gpus_needed: int, *, _cluster_resources: dict[str, float] | None = None) -> None:
-    """Raise if the cluster doesn't have enough GPUs to satisfy aggregate demand.
-
-    This is a coarse pre-check -- Ray's PG creation is the authoritative
-    admission control. Provides a cleaner error than a hung ``pg.ready()``.
-    """
-    import ray
-
-    resources = _cluster_resources if _cluster_resources is not None else ray.cluster_resources()
-    available = int(resources.get("GPU", 0))
-    if gpus_needed > available:
-        msg = f"Need {gpus_needed} GPUs but cluster has {available} total."
-        raise RuntimeError(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -306,28 +277,6 @@ def build_replica_pg(
     )
 
 
-def build_infra_pg(
-    *,
-    name: str,
-    num_bundles: int,
-    ready_timeout_s: float = _PG_READY_TIMEOUT_S,
-) -> PlacementGroup:
-    """Create a ``STRICT_PACK`` PG for infra services (etcd + NATS + frontend).
-
-    All bundles co-locate on one node so infra chatter stays off the wire.
-    When ``CURATOR_IGNORE_RAY_HEAD_NODE`` is set, every bundle requires a
-    non-head (worker-labeled) node.
-    """
-    selector = [_WORKER_NODE_LABEL] * num_bundles if _ignore_head_node() else None
-    return _build_pg(
-        [{"CPU": 1}] * num_bundles,
-        "STRICT_PACK",
-        name=name,
-        bundle_label_selector=selector,
-        ready_timeout_s=ready_timeout_s,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Subprocess actor
 # ---------------------------------------------------------------------------
@@ -335,12 +284,62 @@ def build_infra_pg(
 
 @dataclass
 class ManagedSubprocess:
-    """Track a detached Ray actor and the subprocess it owns."""
+    """Track a detached Ray actor and the subprocess it owns.
+
+    The instance methods hide the ``ray.get(self.actor.X.remote())``
+    boilerplate callers would otherwise repeat for every lifecycle
+    operation. Teardown is parallelised via ``stop_many`` so a whole
+    replica (or the infra trio) can be reaped with one round-trip.
+    """
 
     label: str
     actor: ActorHandle
     run_ref: ObjectRef | None = None
     log_file: str | None = None
+
+    def is_alive(self) -> bool:
+        import ray
+
+        return ray.get(self.actor.is_alive.remote())
+
+    def pid(self) -> int:
+        import ray
+
+        return ray.get(self.actor.pid.remote())
+
+    def read_log_tail(self, num_bytes: int = 8192) -> str:
+        import ray
+
+        return ray.get(self.actor.read_log_tail.remote(num_bytes))
+
+    def wait(self, timeout: float | None = None) -> int:
+        """Block until the subprocess exits. Returns its exit code."""
+        import ray
+
+        if self.run_ref is None:
+            msg = f"{self.label}: run_ref is None; subprocess was never started via spawn_actor"
+            raise RuntimeError(msg)
+        return ray.get(self.run_ref, timeout=timeout)
+
+    def stop(self, *, timeout_s: float | None = None) -> None:
+        """Best-effort graceful stop: SIGTERM the subprocess, then hard-kill the actor.
+
+        Calls ``actor.stop.remote()`` (reaps the subprocess group) with a
+        bounded wait, then falls back to ``ray.kill`` if stop times out.
+        Use this before ``remove_placement_group`` so the subprocess tree
+        dies before Ray hard-kills the actor.
+        """
+        type(self).stop_many([self], timeout_s=timeout_s)
+
+    @classmethod
+    def stop_many(cls, procs: list[ManagedSubprocess], *, timeout_s: float | None = None) -> None:
+        """Stop many managed subprocesses in parallel.
+
+        Kicks off every ``actor.stop.remote()`` first so subprocess
+        teardown happens concurrently, then waits on all of them with a
+        shared deadline and force-kills anything that did not drain.
+        """
+        graceful_stop_actors([(p.label, p.actor) for p in procs], timeout_s=timeout_s)
 
 
 def _stop_subprocess(proc: subprocess.Popen, sigterm_wait: float = _SIGTERM_WAIT_S) -> int | None:
@@ -370,35 +369,6 @@ def _stop_subprocess(proc: subprocess.Popen, sigterm_wait: float = _SIGTERM_WAIT
             proc.kill()
         proc.wait(timeout=_SIGKILL_WAIT_S)
     return proc.returncode
-
-
-def build_worker_actor_name(
-    model_name: str,
-    replica_index: int,
-    node_rank: int,
-    tp_size: int,
-    *,
-    role: Literal["decode", "prefill"] | None = None,
-) -> str:
-    """Build a descriptive actor name for Ray dashboard visibility.
-
-    Format: ``Dynamo_[<role>_]DP<n>[_TP<n>]_<model>``.
-
-    Examples::
-
-        build_worker_actor_name("Qwen3-0.6B", 0, 0, 1)           # Dynamo_DP0_Qwen3-0.6B
-        build_worker_actor_name("Qwen3-0.6B", 1, 0, 4)           # Dynamo_DP1_TP0_Qwen3-0.6B
-        build_worker_actor_name("Qwen3-0.6B", 0, 0, 2, role="decode")  # Dynamo_decode_DP0_TP0_Qwen3-0.6B
-    """
-    short_name = model_name.rsplit("/", 1)[-1]
-    parts = ["Dynamo"]
-    if role:
-        parts.append(role)
-    parts.append(f"DP{replica_index}")
-    if tp_size > 1:
-        parts.append(f"TP{node_rank}")
-    parts.append(short_name)
-    return "_".join(parts)
 
 
 def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # noqa: C901
@@ -580,27 +550,6 @@ def _check_binary(name: str) -> None:
         raise FileNotFoundError(msg)
 
 
-def _engine_kwargs_to_cli_flags(engine_kwargs: dict[str, Any]) -> list[str]:
-    """Convert engine_kwargs dict to vLLM CLI flags.
-
-    Example: ``{"tensor_parallel_size": 4, "enforce_eager": True}``
-    becomes ``["--tensor-parallel-size", "4", "--enforce-eager"]``.
-    """
-    import json
-
-    flags: list[str] = []
-    for key, value in engine_kwargs.items():
-        flag = "--" + key.replace("_", "-")
-        if isinstance(value, bool):
-            if value:
-                flags.append(flag)
-        elif isinstance(value, (dict, list)):
-            flags.extend([flag, json.dumps(value)])
-        else:
-            flags.extend([flag, str(value)])
-    return flags
-
-
 def _wait_for_port(host: str, port: int, timeout_s: float = 30, label: str = "") -> None:
     """Block until a TCP connection to *host:port* succeeds."""
     import socket as _socket
@@ -617,6 +566,12 @@ def _wait_for_port(host: str, port: int, timeout_s: float = 30, label: str = "")
 
 # ---------------------------------------------------------------------------
 # Remote discovery (port + IP) via PG bundles
+#
+# TODO(dynamo-refactor): collapse ``_run_in_bundle`` / ``get_free_port_in_bundle`` /
+# ``get_bundle_node_ip`` (and possibly ``spawn_actor``'s (pg, bundle_index)
+# tuple) into a ``Bundle(pg, index)`` wrapper once PR 4's DynamoBackend
+# wiring shows how often the same (pg, idx) pair gets threaded through.
+# Worth doing only if the repetition is real in the consumer, not upfront.
 # ---------------------------------------------------------------------------
 
 
@@ -769,30 +724,16 @@ def spawn_actor(  # noqa: PLR0913
 # ---------------------------------------------------------------------------
 
 
-def graceful_stop_actor(
-    ray_mod: Any,  # noqa: ANN401
-    label: str,
-    actor: ActorHandle,
-    *,
-    timeout_s: float | None = None,
-) -> None:
-    """Best-effort graceful stop of a detached actor.
-
-    Calls ``actor.stop.remote()`` (reaps the subprocess group) with a
-    bounded wait, then falls back to ``ray.kill`` if stop times out. Used
-    before ``remove_placement_group`` so the subprocess tree is killed
-    before Ray hard-kills the actor.
-    """
-    graceful_stop_actors(ray_mod, [(label, actor)], timeout_s=timeout_s)
-
-
 def graceful_stop_actors(
-    ray_mod: Any,  # noqa: ANN401
     labeled_actors: list[tuple[str, ActorHandle]],
     *,
     timeout_s: float | None = None,
 ) -> None:
     """Stop many detached actors in parallel.
+
+    Prefer ``ManagedSubprocess.stop`` / ``ManagedSubprocess.stop_many``.
+    This primitive is for the raw-actor case (e.g. the reconnecting
+    driver looking up orphaned actors by name).
 
     Kicks off every ``actor.stop.remote()`` first so subprocess teardown
     happens concurrently, then waits on all of them with a shared deadline
@@ -800,18 +741,19 @@ def graceful_stop_actors(
     """
     if not labeled_actors:
         return
+    import ray
 
     wait = timeout_s if timeout_s is not None else _SIGTERM_WAIT_S + _SIGKILL_WAIT_S + 5
     refs = [actor.stop.remote() for _, actor in labeled_actors]
     with contextlib.suppress(Exception):
-        ray_mod.wait(refs, num_returns=len(refs), timeout=wait)
+        ray.wait(refs, num_returns=len(refs), timeout=wait)
     for (label, actor), ref in zip(labeled_actors, refs, strict=True):
         try:
-            ray_mod.get(ref, timeout=0)
+            ray.get(ref, timeout=0)
         except Exception:  # noqa: BLE001 - any failure here means force-kill
             logger.debug(f"{label} actor stop() did not drain in time, force-killing")
         with contextlib.suppress(Exception):
-            ray_mod.kill(actor, no_restart=True)
+            ray.kill(actor, no_restart=True)
 
 
 def remove_named_pgs_with_prefix(prefix: str) -> int:
