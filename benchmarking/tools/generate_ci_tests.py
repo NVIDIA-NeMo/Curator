@@ -70,7 +70,7 @@ def generate_job(entry: dict, scope: str) -> dict:
 
 
 def load_entry_overrides(curator_dir: str) -> dict:
-    """Load per-entry field overrides from ci-overrides.yaml if it exists."""
+    """Load per-entry field overrides from ci-h100-overrides.yaml if it exists."""
     overrides_path = Path(curator_dir) / "benchmarking" / "ci-h100-overrides.yaml"
     if not overrides_path.exists():
         return {}
