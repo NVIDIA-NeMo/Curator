@@ -122,7 +122,7 @@ pipeline = Pipeline(name="mint1t_pipeline")
 pipeline.add_stage(InterleavedWebdatasetReader(
     file_paths="/data/mint1t/shards/",
 ))
-pipeline.add_stage(InterleavedAspectRatioFilterStage())
+pipeline.add_stage(InterleavedAspectRatioFilterStage(drop_invalid_rows=True))
 pipeline.add_stage(InterleavedParquetWriterStage(
     path="/output/parquet/",
     materialize_on_write=True,
@@ -137,7 +137,7 @@ pipeline.run()
 stages/interleaved/
 ├── __init__.py                     # Exports filter/annotator stages
 ├── stages.py                       # BaseInterleavedAnnotatorStage, BaseInterleavedFilterStage,
-│                                   # BaseInterleavedScoreFilterStage, InterleavedAspectRatioFilterStage
+│                                   # InterleavedAspectRatioFilterStage
 ├── io/
 │   ├── __init__.py                 # Exports InterleavedWebdatasetReader, InterleavedParquetReader,
 │   │                               # InterleavedParquetWriterStage, InterleavedWebdatasetWriterStage
