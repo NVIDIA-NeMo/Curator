@@ -122,6 +122,9 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
                     "exclude_overlaps": args.speaker_exclude_overlaps,
                     "min_duration": args.speaker_min_duration,
                 },
+                # Empty dict uses _DEFAULT_PASSTHROUGH_KEYS (all 13 built-in
+                # filter/speaker keys).  To restrict output columns, set e.g.:
+                #   "passthrough_keys": ["utmos_mos", "sigmos_noise", "sigmos_ovrl"]
                 "timestamp_mapper": {},
             }
         )

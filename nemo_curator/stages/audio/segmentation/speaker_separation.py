@@ -158,6 +158,10 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
                 logger.error(f"Failed to load speaker separator: {e}")
                 raise
 
+    # Keys dropped from the parent task when building per-speaker child tasks.
+    # "audio"/"waveform" are non-serializable blobs replaced by per-speaker audio.
+    # "duration"/"num_samples" describe the parent file, not the speaker segment;
+    # each child gets its own duration from the diarization result.
     _INHERITED_DROP_KEYS = frozenset({"audio", "waveform", "duration", "num_samples"})
 
     def _build_speaker_tasks(
@@ -169,19 +173,19 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
         """Build AudioTask list from speaker audio data."""
         results: list[AudioTask] = []
         num_speakers = len(speaker_audio_data)
-        for speaker_id, (speaker_audio_pydub, duration, diar_segments) in speaker_audio_data.items():
-            if duration < self.min_duration:
-                logger.debug(f"Skipping {speaker_id}: duration {duration:.2f}s < {self.min_duration}s")
+        for speaker_id, result in speaker_audio_data.items():
+            if result.duration < self.min_duration:
+                logger.debug(f"Skipping {speaker_id}: duration {result.duration:.2f}s < {self.min_duration}s")
                 continue
-            spk_waveform, spk_sr = _pydub_to_waveform_sr(speaker_audio_pydub)
+            spk_waveform, spk_sr = _pydub_to_waveform_sr(result.audio)
             speaker_data = {
                 **{k: v for k, v in item.items() if k not in self._INHERITED_DROP_KEYS},
                 "waveform": spk_waveform,
                 "sample_rate": spk_sr,
                 "speaker_id": speaker_id,
                 "num_speakers": num_speakers,
-                "duration": duration,
-                "diar_segments": diar_segments,
+                "duration": result.duration,
+                "diar_segments": result.diar_segments,
             }
             spk_task = AudioTask(
                 data=speaker_data,

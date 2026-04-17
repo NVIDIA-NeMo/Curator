@@ -92,6 +92,13 @@ processors:
         enable: ${enable_speaker_separation}
         exclude_overlaps: ${speaker_exclude_overlaps}
         min_duration: ${speaker_min_duration}
+      # Empty config uses _DEFAULT_PASSTHROUGH_KEYS which includes:
+      #   speaker_id, num_speakers, speaking_duration, sample_rate,
+      #   utmos_mos, sigmos_noise, sigmos_ovrl, sigmos_sig, sigmos_col,
+      #   sigmos_disc, sigmos_loud, sigmos_reverb, band_prediction.
+      # To restrict output columns, set passthrough_keys explicitly:
+      #   timestamp_mapper:
+      #     passthrough_keys: [utmos_mos, sigmos_noise, sigmos_ovrl]
       timestamp_mapper: {}
 
   - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage

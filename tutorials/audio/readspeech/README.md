@@ -230,6 +230,13 @@ AudioDataFilterStage(config={
 are always blocked, even if added to `passthrough_keys`.
 A warning is logged if blocked keys are detected in the configuration.
 
+**Speaker separation note**: When speaker separation is enabled, the parent
+task's `duration` and `num_samples` fields are dropped before building
+per-speaker child tasks, since each speaker segment has its own duration
+computed from the diarization result. Only `audio`/`waveform` (non-serializable)
+and `duration`/`num_samples` (parent-specific) are dropped; all other fields
+are inherited by child tasks.
+
 ### Example outputs
 
 **Combo 1** (no VAD, no speaker):
