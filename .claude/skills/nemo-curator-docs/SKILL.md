@@ -31,6 +31,17 @@ fern/
 
 **Current train:** `v26.02`. Default all new pages there unless the user specifies a version.
 
+```
+File system                              Published URL
+───────────────────────────────────────  ────────────────────────────────────────
+fern/versions/v26.02/pages/              docs.nvidia.com/nemo/curator/latest/
+  └─ get-started/text.mdx                  └─ get-started/text
+fern/versions/v26.02.yml ── nav for ──┐  docs.nvidia.com/nemo/curator/v26.02/
+fern/versions/latest.yml ─ symlink ───┘    └─ get-started/text
+fern/versions/v25.09/pages/              docs.nvidia.com/nemo/curator/v25.09/
+  └─ get-started/text.mdx                  └─ get-started/text
+```
+
 ## Operations
 
 ### Add a Page
@@ -84,6 +95,56 @@ modality: "text-only"        # text-only | image-only | video-only | audio-only 
 
 Only when explicitly asked. Repeat the operation in the corresponding `fern/versions/vXX.YY/` tree and `vXX.YY.yml` nav. MDX content often diverges between trains — do not blindly copy.
 
+### Worked Example: Adding a Page
+
+Request: *"Add a how-to for benchmarking text pipelines under Curate Text."*
+
+1. Create `fern/versions/v26.02/pages/curate-text/benchmarking.mdx`:
+
+   ```mdx
+   ---
+   description: "Benchmark text curation pipelines and interpret throughput and memory metrics"
+   categories: ["how-to"]
+   tags: ["text-curation", "benchmarking", "performance"]
+   personas: ["mle-focused"]
+   difficulty: "intermediate"
+   content_type: "how-to"
+   modality: "text-only"
+   ---
+
+   # Benchmark Text Pipelines
+
+   <content>
+   ```
+
+2. Add nav entry in `fern/versions/v26.02.yml` under the existing `Curate Text` section:
+
+   ```yaml
+   - page: Benchmark Text Pipelines
+     path: ./v26.02/pages/curate-text/benchmarking.mdx
+     slug: benchmarking
+   ```
+
+3. `cd fern && fern check` then `fern docs dev` and verify the page renders at `/curate-text/benchmarking`.
+
+### Worked Example: Renaming a Slug (with Redirect)
+
+Request: *"Rename `/curate-text/benchmarking` to `/curate-text/performance`."*
+
+1. Update `slug:` in `fern/versions/v26.02.yml`: `slug: performance`.
+2. (Optional) `git mv` the MDX file if you want the filename to match the slug.
+3. Add a redirect to `fern/docs.yml` so old links keep working:
+
+   ```yaml
+   redirects:
+     - source: "/nemo/curator/latest/curate-text/benchmarking"
+       destination: "/nemo/curator/latest/curate-text/performance"
+     - source: "/nemo/curator/v26.02/curate-text/benchmarking"
+       destination: "/nemo/curator/v26.02/curate-text/performance"
+   ```
+
+4. `grep -rn "/curate-text/benchmarking" fern/versions/v26.02/pages/` and update any incoming links.
+
 ---
 
 ## Content Guidelines
@@ -101,6 +162,27 @@ NeMo Curator uses **Fern-native MDX components directly** (unlike Dynamo, which 
 
 Images live in `fern/assets/` (shared) or `fern/versions/vXX.YY/pages/_images/` (version-scoped). Reference with root-relative paths.
 
+Component examples:
+
+```mdx
+<Tip>
+If `uv` is not installed, see the [Installation Guide](/admin/installation).
+</Tip>
+
+<Warning>
+GPU-accelerated dedup requires CUDA {{ recommended_cuda }} or later.
+</Warning>
+
+<Cards>
+  <Card title="Text Curation" href="/get-started/text">
+    Set up and run text curation workflows.
+  </Card>
+  <Card title="Image Curation" href="/get-started/image">
+    Set up and run image curation workflows.
+  </Card>
+</Cards>
+```
+
 ## Frontmatter Fields
 
 Required: `description`.
@@ -111,6 +193,20 @@ Optional but strongly preferred: `categories`, `tags`, `personas`, `difficulty`,
 ## Variable Substitution
 
 Tokens like `{{ product_name }}`, `{{ container_version }}`, `{{ current_release }}`, `{{ github_repo }}`, `{{ min_python_version }}` are resolved by `fern/substitute_variables.py` at CI time. Use them instead of hard-coding versions or URLs. Canonical list in `DEFAULT_VARIABLES` at the top of that file.
+
+Example in MDX:
+
+```mdx
+Install {{ product_name }} {{ current_release }} from {{ github_repo }}.
+Requires Python {{ min_python_version }}+ and CUDA {{ recommended_cuda }}.
+```
+
+After substitution at CI time:
+
+```
+Install NeMo Curator 25.09 from https://github.com/NVIDIA-NeMo/Curator.
+Requires Python 3.10+ and CUDA 12.0+.
+```
 
 To preview substitution locally:
 
@@ -138,9 +234,43 @@ git commit -s -m "docs: <add|update|remove> <page-title>"
 
 PRs that touch `fern/**` get an automatic Fern preview URL posted as a comment by `.github/workflows/fern-docs-preview.yml`. No manual step needed.
 
+```
+                    ┌─ fern-docs-ci.yml         → fern check + autodocs
+PR (touches fern/) ─┼─ fern-docs-preview.yml    → preview build
+                    └─ fern-docs-preview-*.yml  → 🌿 preview URL comment
+
+Merge to main      → NO publish. Site is unchanged.
+
+Tag push (docs/v*) → publish-fern-docs.yml      → docs.nvidia.com/nemo/curator
+```
+
 ## Publishing to Production
 
-Production publishes on `docs/v*` tag pushes via `.github/workflows/publish-fern-docs.yml`. Do not push tags unless the user asks.
+**Merging to `main` does NOT publish.** Production only updates when a tag matching `docs/v*` is pushed (or the workflow is manually dispatched from the **Actions** tab). Do not push tags unless the user asks.
+
+Tag must be `docs/v<MAJOR>.<MINOR>.<PATCH>` — the `docs/v` prefix is required by the workflow trigger and the semver suffix should match the docs release in `CHANGELOG.md`.
+
+```bash
+# Correct — triggers publish
+git tag docs/v1.1.0
+git push origin docs/v1.1.0
+
+git tag docs/v1.2.0-rc1     # pre-release suffix is fine, still matches docs/v*
+git push origin docs/v1.2.0-rc1
+
+# Wrong — these will NOT trigger publish
+git tag v1.1.0              # missing docs/ prefix
+git tag docs/1.1.0          # missing v
+git tag docs-v1.1.0         # wrong separator
+```
+
+URL → version mapping after publish:
+
+```
+docs.nvidia.com/nemo/curator/latest/...   → symlink to current train (v26.02 today)
+docs.nvidia.com/nemo/curator/v26.02/...   → 26.02 train
+docs.nvidia.com/nemo/curator/v25.09/...   → 25.09 train
+```
 
 ## Version Ship Checklist (when cutting a new train)
 
