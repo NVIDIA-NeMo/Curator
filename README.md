@@ -103,7 +103,7 @@ NeMo Curator leverages NVIDIA RAPIDS™ libraries such as cuDF, cuML, and cuGrap
 - **40% lower** total cost of ownership (TCO) compared to CPU-based alternatives
 - **Near-linear scaling** from one to four H100 80 GB nodes (2.05 hrs → 0.50 hrs)
 
-**Real-World Recipe:** The [Nemotron-CC curation pipeline](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/data_curation/nemotron-cc) uses NeMo Curator end-to-end — from Common Crawl extraction through exact, fuzzy, and substring deduplication, ensemble quality classification, and LLM-based synthetic data generation — to reproduce the [Nemotron-CC datasets](https://huggingface.co/datasets/nvidia/Nemotron-CC-v2).
+**Real-World Recipe:** The [Nemotron-CC curation pipeline](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/data_curation/nemotron-cc) uses NeMo Curator end-to-end — from Common Crawl extraction through language identification, exact/fuzzy/substring deduplication, ensemble quality classification, and LLM-based synthetic data generation — to reproduce the [Nemotron-CC datasets](https://huggingface.co/datasets/nvidia/Nemotron-CC-v2). The SDG stage is also available as an [in-repo tutorial](tutorials/synthetic/nemotron_cc/).
 
 <p align="center">
   <img src="./docs/_images/text-benchmarks.png" alt="Performance benchmarks showing 16x speed improvement, 40% cost savings, and near-linear scaling" width="700"/>
@@ -127,7 +127,7 @@ Data curation modules measurably improve model performance. In ablation studies 
 |----------|-------|
 | **Documentation** | [Main Docs](https://docs.nvidia.com/nemo/curator/latest/) • [API Reference](https://docs.nvidia.com/nemo/curator/latest/apidocs/index.html) • [Concepts](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) |
 | **Tutorials** | [Text](tutorials/text/) • [Image](tutorials/image/) • [Video](tutorials/video/) • [Audio](tutorials/audio/) |
-| **Recipes** | [Nemotron-CC: end-to-end web data curation](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/data_curation/nemotron-cc) |
+| **Recipes** | [Nemotron-CC: end-to-end web data curation](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/data_curation/nemotron-cc) • [SDG tutorial (in-repo)](tutorials/synthetic/nemotron_cc/) |
 | **Deployment** | [Installation](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html) • [Infrastructure](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/index.html) |
 | **Community** | [GitHub Discussions](https://github.com/NVIDIA-NeMo/Curator/discussions) • [Issues](https://github.com/NVIDIA-NeMo/Curator/issues) |
 

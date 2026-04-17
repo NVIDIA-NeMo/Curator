@@ -21,7 +21,7 @@ Complete, production-grade pipelines built on NeMo Curator:
 
 | Recipe | Description | Key Components |
 |--------|-------------|----------------|
-| [Nemotron-CC](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/data_curation/nemotron-cc) | Curate Common Crawl snapshots into an LLM-ready dataset, reproducing the [Nemotron-CC datasets](https://huggingface.co/datasets/nvidia/Nemotron-CC-v2) | `CommonCrawlDownloadExtractStage` • Exact/Fuzzy/Substring Dedup • `FineWebNemotronEduClassifier` • Synthetic Data Generation |
+| [Nemotron-CC](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/data_curation/nemotron-cc) • [SDG tutorial (in-repo)](synthetic/nemotron_cc/) | Curate Common Crawl snapshots into an LLM-ready dataset, reproducing the [Nemotron-CC datasets](https://huggingface.co/datasets/nvidia/Nemotron-CC-v2) | `CommonCrawlDownloadExtractStage` • Language ID & Filtering • Exact/Fuzzy/Substring Dedup • Ensemble Quality Classification (1 fasttext + 2 FineWeb classifiers) • Synthetic Data Generation (4 tasks) |
 
 ## Core Concepts Example
 
