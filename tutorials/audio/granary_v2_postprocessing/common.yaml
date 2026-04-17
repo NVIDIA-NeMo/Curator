@@ -1,0 +1,31 @@
+- {"pattern": "’", "repl": "'"}
+- {"pattern": "‘", "repl": "'"}
+- {"pattern": "—", "repl": "-"}
+- {"pattern": "–", "repl": "-"}
+- {"pattern": "-", "repl": "-"}
+- {"pattern": "_", "repl": " "}
+- {"pattern": "——", "repl": "-"}
+- {"pattern": "Ё", "repl": "Е"} 
+- {"pattern": "ё", "repl": "е"}
+
+- {"pattern": "♫", "repl": " "}
+- {"pattern": "♪", "repl": " "}
+- {"pattern": "♬", "repl": " "}
+- {"pattern": "♩", "repl": " "}
+- {"pattern": "♭", "repl": " "}
+- {"pattern": '\|', "repl": " "} # : -> :
+- {"pattern": ";", "repl": ","}
+
+- {"pattern": '\[[^\]]*\]', "repl": ""} # delete content inside []
+- {"pattern": ' ?\([^\)]+\)', "repl": ""} # delete content inside ()
+- {"pattern": ' ?{[^}]+}', "repl": ""} # delete content inside {}
+
+- {"pattern": "[^ !$%',-.0123456789;?ABCDEFGHIJKLMNOPQRSßTUVWXYŸZabcdefghijklmnopqrsẞtuvwxyÿz¡£¿ÀÁÂÃÄÅÆÇÈÉÊÌÍÎÑÒÓÔÕÖØÙÚÜÝàáâãäåæçèéêëìíîïñòóôõöøùúûüýĀāĂăĄąĆćĊċČčĎďĐđĒēĖėĘęĚěĠġĢģĦħĪīĮįĶķĹĺĻļĽľŁłŃńŅņŇňŐőŒœŔŕŘřŚśŠšŤťŪūŮůŰűŲųŹźŻżŽžȘșȚțΆΈΉΌΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩάέήίαβγδεζηθικλμνξοπρστυφχψωϊόύώЁЄІЇАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюяёєіїҐґ€₴₽/:]", "repl": " "}
+
+# keep capital letters, lowercase letters, and spaces, ?, !, ., ,, and ' only
+- {"pattern": '\s+\.', "repl": "."}
+- {"pattern": '\?+', "repl": "?"}
+- {"pattern": '\.+', "repl": "."}
+- {"pattern": ',+', "repl": ","}
+- {"pattern": '!+', "repl": "!"} 
+- {"pattern": '\s+', "repl": " "}  

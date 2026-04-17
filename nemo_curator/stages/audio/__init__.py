@@ -39,6 +39,11 @@ __all__ = [
     "TimestampMapperStage",
     "UTMOSFilterStage",
     "VADSegmentationStage",
+    "FastTextLIDStage",
+    "FinalizeFieldsStage",
+    "InitializeFieldsStage",
+    "RegexSubstitutionStage",
+    "WhisperHallucinationStage",
 ]
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
@@ -55,6 +60,11 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SpeakerSeparationStage": ("nemo_curator.stages.audio.segmentation", "SpeakerSeparationStage"),
     "VADSegmentationStage": ("nemo_curator.stages.audio.segmentation", "VADSegmentationStage"),
     "TimestampMapperStage": ("nemo_curator.stages.audio.postprocessing", "TimestampMapperStage"),
+    "FastTextLIDStage": ("nemo_curator.stages.audio.text_filtering", "FastTextLIDStage"),
+    "FinalizeFieldsStage": ("nemo_curator.stages.audio.text_filtering", "FinalizeFieldsStage"),
+    "InitializeFieldsStage": ("nemo_curator.stages.audio.text_filtering", "InitializeFieldsStage"),
+    "RegexSubstitutionStage": ("nemo_curator.stages.audio.text_filtering", "RegexSubstitutionStage"),
+    "WhisperHallucinationStage": ("nemo_curator.stages.audio.text_filtering", "WhisperHallucinationStage"),
 }
 
 

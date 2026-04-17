@@ -57,6 +57,7 @@ class QwenOmni(ModelInterface):
         self,
         model_id: str = _QWEN3_OMNI_MODEL_ID,
         prompt_text: str = "Transcribe the audio.",
+        second_prompt_text: str = "Now listen to the audio again and add any false starts, filler words and preserve colloquial words (like lemme, gonna, wanna, etc) as is spoken in the audio.",
         system_prompt: str | None = None,
         max_model_len: int = 32768,
         max_num_seqs: int = 32,
@@ -69,6 +70,7 @@ class QwenOmni(ModelInterface):
     ):
         self.model_id = model_id
         self.prompt_text = prompt_text
+        self.second_prompt_text = second_prompt_text
         self.system_prompt = system_prompt
         self.max_model_len = max_model_len
         self.max_num_seqs = max_num_seqs
@@ -159,7 +161,7 @@ class QwenOmni(ModelInterface):
         return librosa.resample(waveform, orig_sr=orig_sr, target_sr=target_sr)
 
     def _build_messages(self, waveform: np.ndarray) -> list[dict[str, Any]]:
-        """Build chat messages with an in-memory waveform (numpy array at 16 kHz)."""
+        """Build Turn 1 chat messages with an in-memory waveform (numpy array at 16 kHz)."""
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
             messages.append({"role": "system", "content": [{"type": "text", "text": self.system_prompt}]})
@@ -168,6 +170,28 @@ class QwenOmni(ModelInterface):
             "content": [
                 {"type": "text", "text": self.prompt_text},
                 {"type": "audio", "audio": waveform},
+            ],
+        })
+        return messages
+
+    def _build_turn2_messages(self, waveform: np.ndarray, pred_text: str) -> list[dict[str, Any]]:
+        """Build Turn 2 messages: full Turn 1 conversation history + follow-up with audio."""
+        messages: list[dict[str, Any]] = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": [{"type": "text", "text": self.system_prompt}]})
+        messages.append({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": self.prompt_text},
+                {"type": "audio", "audio": waveform},
+            ],
+        })
+        messages.append({"role": "assistant", "content": [{"type": "text", "text": pred_text}]})
+        messages.append({
+            "role": "user",
+            "content": [
+                {"type": "audio", "audio": waveform},
+                {"type": "text", "text": self.second_prompt_text},
             ],
         })
         return messages
@@ -206,6 +230,46 @@ class QwenOmni(ModelInterface):
             return [self._prepare_single(w, sr) for w, sr in zip(waveforms, sample_rates)]
         return list(self._prep_pool.map(self._prepare_single, waveforms, sample_rates))
 
+    def _prepare_turn2_single(
+        self, waveform: np.ndarray, sample_rate: int, pred_text: str,
+    ) -> dict[str, Any] | None:
+        from qwen_omni_utils import process_mm_info
+
+        try:
+            waveform_16k = self._resample(waveform, sample_rate)
+            messages = self._build_turn2_messages(waveform_16k, pred_text)
+            text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
+        except Exception:
+            logger.warning("Failed to preprocess Turn 2 audio (shape=%s, sr=%d)", waveform.shape, sample_rate)
+            return None
+
+        inputs: dict[str, Any] = {
+            "prompt": text,
+            "multi_modal_data": {},
+            "mm_processor_kwargs": {"use_audio_in_video": False},
+        }
+        if audios is not None:
+            inputs["multi_modal_data"]["audio"] = audios
+        if images is not None:
+            inputs["multi_modal_data"]["image"] = images
+        if videos is not None:
+            inputs["multi_modal_data"]["video"] = videos
+        return inputs
+
+    def _prepare_turn2_batch(
+        self,
+        waveforms: list[np.ndarray],
+        sample_rates: list[int],
+        pred_texts: list[str],
+    ) -> list[dict[str, Any] | None]:
+        if self._prep_pool is None:
+            return [
+                self._prepare_turn2_single(w, sr, pt)
+                for w, sr, pt in zip(waveforms, sample_rates, pred_texts)
+            ]
+        return list(self._prep_pool.map(self._prepare_turn2_single, waveforms, sample_rates, pred_texts))
+
     # ------------------------------------------------------------------
     # Generation
     # ------------------------------------------------------------------
@@ -214,36 +278,71 @@ class QwenOmni(ModelInterface):
         self,
         waveforms: list[np.ndarray],
         sample_rates: list[int],
-    ) -> list[str]:
-        """Run batched inference on in-memory audio waveforms.
+    ) -> tuple[list[str], list[str]]:
+        """Run batched two-turn inference on in-memory audio waveforms.
+
+        Turn 1 transcribes using ``prompt_text``.  If ``second_prompt_text``
+        is set, Turn 2 re-listens with the full conversation history and
+        a follow-up prompt (e.g. to add disfluencies / filler words).
 
         Args:
             waveforms: List of 1-D mono numpy float32 arrays.
             sample_rates: Corresponding sample rates for each waveform.
 
         Returns:
-            One predicted text string per input.  Entries that fail
-            preprocessing get an empty string.
+            ``(pred_texts, disfluency_texts)`` — one string per input for
+            each turn.  ``disfluency_texts`` is all empty strings when
+            ``second_prompt_text`` is ``None``.
         """
         if self._llm is None or self._sampling_params is None:
             msg = "Model not initialized. Call setup() first."
             raise RuntimeError(msg)
 
-        prepared = self._prepare_batch(waveforms, sample_rates)
+        n = len(waveforms)
 
+        # -- Turn 1 ----------------------------------------------------------
+        prepared = self._prepare_batch(waveforms, sample_rates)
         valid_indices = [i for i, p in enumerate(prepared) if p is not None]
         valid_inputs = [prepared[i] for i in valid_indices]
 
         if not valid_inputs:
-            logger.warning("All %d audio samples in batch failed preprocessing", len(waveforms))
-            return [""] * len(waveforms)
+            logger.warning("All %d audio samples in batch failed preprocessing", n)
+            return [""] * n, [""] * n
 
-        if len(valid_inputs) < len(waveforms):
-            logger.warning("Skipped %d/%d corrupt audio samples", len(waveforms) - len(valid_inputs), len(waveforms))
+        if len(valid_inputs) < n:
+            logger.warning("Skipped %d/%d corrupt audio samples", n - len(valid_inputs), n)
 
-        outputs = self._llm.generate(valid_inputs, sampling_params=self._sampling_params, use_tqdm=False)
+        t1_outputs = self._llm.generate(valid_inputs, sampling_params=self._sampling_params, use_tqdm=False)
 
-        results = [""] * len(waveforms)
-        for idx, out in zip(valid_indices, outputs):
-            results[idx] = out.outputs[0].text.strip()
-        return results
+        pred_texts: list[str] = [""] * n
+        for idx, out in zip(valid_indices, t1_outputs):
+            pred_texts[idx] = out.outputs[0].text.strip()
+
+        # -- Turn 2 (disfluency refinement) -----------------------------------
+        if not self.second_prompt_text:
+            return pred_texts, [""] * n
+
+        t2_indices = [i for i in valid_indices if pred_texts[i]]
+        if not t2_indices:
+            return pred_texts, [""] * n
+
+        t2_prepared = self._prepare_turn2_batch(
+            [waveforms[i] for i in t2_indices],
+            [sample_rates[i] for i in t2_indices],
+            [pred_texts[i] for i in t2_indices],
+        )
+
+        t2_valid = [(i, p) for i, p in zip(t2_indices, t2_prepared) if p is not None]
+        if not t2_valid:
+            logger.warning("All Turn 2 samples failed preprocessing")
+            return pred_texts, [""] * n
+
+        t2_outputs = self._llm.generate(
+            [p for _, p in t2_valid], sampling_params=self._sampling_params, use_tqdm=False,
+        )
+
+        disfluency_texts: list[str] = [""] * n
+        for (idx, _), out in zip(t2_valid, t2_outputs):
+            disfluency_texts[idx] = out.outputs[0].text.strip()
+
+        return pred_texts, disfluency_texts
