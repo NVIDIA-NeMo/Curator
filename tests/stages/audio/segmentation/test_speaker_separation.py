@@ -19,7 +19,10 @@ import torch
 from pydub import AudioSegment
 
 from nemo_curator.stages.audio.segmentation.speaker_separation import SpeakerSeparationStage
-from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import SpeakerSeparator
+from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import (
+    SpeakerResult,
+    SpeakerSeparator,
+)
 from nemo_curator.tasks import AudioTask
 
 
@@ -43,8 +46,8 @@ class TestSpeakerSeparationStage:
 
         separator = MagicMock()
         speaker_data = {
-            "speaker_0": (_make_audio_segment(3000), 3.0, [(0.0, 3.0)]),
-            "speaker_1": (_make_audio_segment(4000), 4.0, [(0.0, 4.0)]),
+            "speaker_0": SpeakerResult(_make_audio_segment(3000), 3.0, [(0.0, 3.0)]),
+            "speaker_1": SpeakerResult(_make_audio_segment(4000), 4.0, [(0.0, 4.0)]),
         }
         separator.get_speaker_audio_data.return_value = speaker_data
         stage._separator = separator
@@ -66,7 +69,7 @@ class TestSpeakerSeparationStage:
 
         separator = MagicMock()
         separator.get_speaker_audio_data.return_value = {
-            "spk_0": (_make_audio_segment(5000), 5.0, [(0.0, 5.0)]),
+            "spk_0": SpeakerResult(_make_audio_segment(5000), 5.0, [(0.0, 5.0)]),
         }
         stage._separator = separator
 
@@ -86,8 +89,8 @@ class TestSpeakerSeparationStage:
 
         separator = MagicMock()
         separator.get_speaker_audio_data.return_value = {
-            "speaker_0": (_make_audio_segment(5000), 5.0, [(0.0, 5.0)]),
-            "speaker_1": (_make_audio_segment(1000), 1.0, [(0.0, 1.0)]),
+            "speaker_0": SpeakerResult(_make_audio_segment(5000), 5.0, [(0.0, 5.0)]),
+            "speaker_1": SpeakerResult(_make_audio_segment(1000), 1.0, [(0.0, 1.0)]),
         }
         stage._separator = separator
 
