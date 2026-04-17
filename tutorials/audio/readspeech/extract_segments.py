@@ -58,6 +58,7 @@ import os
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import Any, Callable
 
 import numpy as np
 import soundfile as sf
@@ -188,117 +189,64 @@ def _read_segment(filepath: str, start_ms: int, end_ms: int, sample_rate: int) -
 
 
 # ------------------------------------------------------------------
-# Combos 1 & 2: extract segments by timestamps
+# Shared extraction engine
 # ------------------------------------------------------------------
 
+Interval = tuple[int, int, float]  # (start_ms, end_ms, duration_sec)
 
-def extract_segments_by_timestamps(
-    entries: list, output_dir: str, output_format: str
+
+def _get_speaker_label(entry: dict) -> tuple[str, str]:
+    """Return (speaker_id, speaker_num) from a manifest entry."""
+    speaker_id = entry.get("speaker_id", "unknown")
+    speaker_num = speaker_id.replace("speaker_", "") if "speaker_" in speaker_id else speaker_id
+    return speaker_id, speaker_num
+
+
+def _extract_file_segments(
+    entries: list,
+    output_dir: str,
+    output_format: str,
+    *,
+    sort_key: Callable[[dict], Any],
+    get_intervals: Callable[[dict], list[Interval]],
+    make_filename: Callable[[str, dict, int], str],
+    make_metadata: Callable[[str, str, dict, int, int, int, float], dict],
 ) -> tuple[int, float, dict[str, int], list[dict]]:
-    """Extract segments by original_start_ms / original_end_ms, sorted by start time."""
-    by_file = defaultdict(list)
+    """Shared group-by-file -> read -> write -> metadata loop.
+
+    Args:
+        entries: Manifest entries to extract.
+        output_dir: Where to write extracted audio files.
+        output_format: Audio format (wav, flac, ogg).
+        sort_key: How to sort entries within each file group.
+        get_intervals: Given an entry, return a list of (start_ms, end_ms, dur_sec).
+        make_filename: Given (original_name, entry, segment_index), return filename.
+        make_metadata: Given (filename, original_file, entry, seg_idx, start_ms,
+                       end_ms, dur), return the metadata dict for this segment.
+    """
+    by_file: dict[str, list] = defaultdict(list)
     for entry in entries:
-        original_file = entry.get("original_file", "")
-        by_file[original_file].append(entry)
-
-    extracted = 0
-    total_dur = 0.0
-    speaker_counts: dict[str, int] = {}
-    metadata_rows: list[dict] = []
-
-    for original_file, segments in by_file.items():
-        if not os.path.exists(original_file):
-            logger.error(f"Original file not found: {original_file}")
-            continue
-
-        info = sf.info(original_file)
-        original_name = Path(original_file).stem
-        logger.info(f"\nProcessing: {original_name} ({len(segments)} segments)")
-
-        segments.sort(key=lambda x: x.get("original_start_ms", 0))
-
-        for i, seg in enumerate(segments):
-            start_ms = seg.get("original_start_ms", 0)
-            end_ms = seg.get("original_end_ms", 0)
-            dur = seg.get("duration", (end_ms - start_ms) / 1000)
-
-            out_filename = f"{original_name}_segment_{i:03d}.{output_format}"
-            output_path = os.path.join(output_dir, out_filename)
-
-            try:
-                audio = _read_segment(original_file, start_ms, end_ms, info.samplerate)
-                _write_segment(output_path, audio, info.samplerate, output_format)
-                extracted += 1
-                total_dur += dur
-                logger.debug(f"  {out_filename} ({start_ms}-{end_ms}ms, {dur:.2f}s)")
-
-                metadata_rows.append(
-                    {
-                        "filename": out_filename,
-                        "original_file": original_file,
-                        "segment_index": i,
-                        "start_sec": round(start_ms / 1000, 3),
-                        "end_sec": round(end_ms / 1000, 3),
-                        "duration": round(dur, 3),
-                        **_extract_scores(seg),
-                    }
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"  Failed to extract {out_filename}: {e}")
-
-    return extracted, total_dur, speaker_counts, metadata_rows
-
-
-# ------------------------------------------------------------------
-# Combo 3: speaker only -- extract each diar_segment per speaker
-# ------------------------------------------------------------------
-
-
-def extract_speaker_diar_segments(entries: list, output_dir: str, output_format: str) -> tuple[int, float, dict, list[dict]]:
-    """Extract individual speaking intervals from diar_segments per speaker."""
-    by_file = defaultdict(list)
-    for entry in entries:
-        original_file = entry.get("original_file", "")
-        by_file[original_file].append(entry)
+        by_file[entry.get("original_file", "")].append(entry)
 
     extracted = 0
     total_dur = 0.0
     speaker_counts: dict[str, int] = defaultdict(int)
     metadata_rows: list[dict] = []
 
-    for original_file, speaker_entries in by_file.items():
+    for original_file, file_entries in by_file.items():
         if not os.path.exists(original_file):
             logger.error(f"Original file not found: {original_file}")
             continue
 
         info = sf.info(original_file)
         original_name = Path(original_file).stem
-        logger.info(f"\nProcessing: {original_name} ({len(speaker_entries)} speakers)")
+        file_entries.sort(key=sort_key)
+        logger.info(f"\nProcessing: {original_name} ({len(file_entries)} entries)")
 
-        speaker_entries.sort(key=lambda x: x.get("speaker_id", ""))
-
-        for entry in speaker_entries:
-            speaker_id = entry.get("speaker_id", "unknown")
-            speaker_num = speaker_id.replace("speaker_", "") if "speaker_" in speaker_id else speaker_id
-            num_speakers = entry.get("num_speakers", 0)
-            diar_segments = entry.get("diar_segments", [])
-
-            scores = _extract_scores(entry)
-
-            if not diar_segments:
-                logger.warning(f"  {speaker_id}: no diar_segments, skipping")
-                continue
-
-            diar_segments_sorted = sorted(diar_segments, key=lambda x: x[0])
-
-            logger.info(f"  {speaker_id}: {len(diar_segments_sorted)} speaking intervals")
-
-            for j, (start_sec, end_sec) in enumerate(diar_segments_sorted):
-                start_ms = int(start_sec * 1000)
-                end_ms = int(end_sec * 1000)
-                dur = end_sec - start_sec
-
-                out_filename = f"{original_name}_speaker_{speaker_num}_segment_{j:03d}.{output_format}"
+        for entry in file_entries:
+            intervals = get_intervals(entry)
+            for seg_idx, (start_ms, end_ms, dur) in enumerate(intervals):
+                out_filename = make_filename(original_name, entry, seg_idx)
                 output_path = os.path.join(output_dir, out_filename)
 
                 try:
@@ -306,26 +254,113 @@ def extract_speaker_diar_segments(entries: list, output_dir: str, output_format:
                     _write_segment(output_path, audio, info.samplerate, output_format)
                     extracted += 1
                     total_dur += dur
-                    speaker_counts[speaker_id] += 1
-                    logger.debug(f"    {out_filename} ({start_sec:.2f}-{end_sec:.2f}s, {dur:.2f}s)")
+
+                    speaker_id = entry.get("speaker_id")
+                    if speaker_id:
+                        speaker_counts[speaker_id] += 1
 
                     metadata_rows.append(
-                        {
-                            "filename": out_filename,
-                            "original_file": original_file,
-                            "speaker_id": speaker_id,
-                            "num_speakers": num_speakers,
-                            "segment_index": j,
-                            "start_sec": round(start_sec, 3),
-                            "end_sec": round(end_sec, 3),
-                            "duration": round(dur, 3),
-                            **scores,
-                        }
+                        make_metadata(out_filename, original_file, entry, seg_idx, start_ms, end_ms, dur)
                     )
+                    logger.debug(f"  {out_filename} ({start_ms}-{end_ms}ms, {dur:.2f}s)")
                 except Exception as e:  # noqa: BLE001
-                    logger.error(f"    Failed to extract {out_filename}: {e}")
+                    logger.error(f"  Failed to extract {out_filename}: {e}")
 
     return extracted, total_dur, speaker_counts, metadata_rows
+
+
+# ------------------------------------------------------------------
+# Combo-specific callables
+# ------------------------------------------------------------------
+
+
+def _intervals_from_timestamps(entry: dict) -> list[Interval]:
+    start_ms = entry.get("original_start_ms", 0)
+    end_ms = entry.get("original_end_ms", 0)
+    dur = entry.get("duration", (end_ms - start_ms) / 1000)
+    return [(start_ms, end_ms, dur)]
+
+
+def _intervals_from_diar_segments(entry: dict) -> list[Interval]:
+    diar_segments = entry.get("diar_segments", [])
+    if not diar_segments:
+        speaker_id = entry.get("speaker_id", "unknown")
+        logger.warning(f"  {speaker_id}: no diar_segments, skipping")
+        return []
+    return [
+        (int(s * 1000), int(e * 1000), e - s)
+        for s, e in sorted(diar_segments, key=lambda x: x[0])
+    ]
+
+
+def _base_metadata(
+    filename: str, original_file: str, entry: dict,
+    seg_idx: int, start_ms: int, end_ms: int, dur: float,
+) -> dict:
+    row: dict = {
+        "filename": filename,
+        "original_file": original_file,
+        "segment_index": seg_idx,
+        "start_sec": round(start_ms / 1000, 3),
+        "end_sec": round(end_ms / 1000, 3),
+        "duration": round(dur, 3),
+    }
+    speaker_id = entry.get("speaker_id")
+    if speaker_id is not None:
+        row["speaker_id"] = speaker_id
+    num_speakers = entry.get("num_speakers")
+    if num_speakers is not None:
+        row["num_speakers"] = num_speakers
+    row.update(_extract_scores(entry))
+    return row
+
+
+# ------------------------------------------------------------------
+# Combos 1 & 2: extract segments by timestamps
+# ------------------------------------------------------------------
+
+
+def extract_segments_by_timestamps(
+    entries: list, output_dir: str, output_format: str,
+) -> tuple[int, float, dict[str, int], list[dict]]:
+    """Extract segments by original_start_ms / original_end_ms, sorted by start time."""
+    counter: dict[str, int] = defaultdict(int)
+
+    def _make_filename(name: str, entry: dict, _seg_idx: int) -> str:
+        idx = counter[name]
+        counter[name] += 1
+        return f"{name}_segment_{idx:03d}.{output_format}"
+
+    return _extract_file_segments(
+        entries, output_dir, output_format,
+        sort_key=lambda x: x.get("original_start_ms", 0),
+        get_intervals=_intervals_from_timestamps,
+        make_filename=_make_filename,
+        make_metadata=_base_metadata,
+    )
+
+
+# ------------------------------------------------------------------
+# Combo 3: speaker only -- extract each diar_segment per speaker
+# ------------------------------------------------------------------
+
+
+def extract_speaker_diar_segments(
+    entries: list, output_dir: str, output_format: str,
+) -> tuple[int, float, dict[str, int], list[dict]]:
+    """Extract individual speaking intervals from diar_segments per speaker."""
+
+    def _make_filename(name: str, entry: dict, seg_idx: int) -> str:
+        _, speaker_num = _get_speaker_label(entry)
+        return f"{name}_speaker_{speaker_num}_segment_{seg_idx:03d}.{output_format}"
+
+    return _extract_file_segments(
+        entries, output_dir, output_format,
+        sort_key=lambda x: x.get("speaker_id", ""),
+        get_intervals=_intervals_from_diar_segments,
+        make_filename=_make_filename,
+        make_metadata=_base_metadata,
+    )
 
 
 # ------------------------------------------------------------------
@@ -333,70 +368,25 @@ def extract_speaker_diar_segments(entries: list, output_dir: str, output_format:
 # ------------------------------------------------------------------
 
 
-def extract_speaker_segments_by_timestamps(entries: list, output_dir: str, output_format: str) -> tuple[int, float, dict, list[dict]]:
+def extract_speaker_segments_by_timestamps(
+    entries: list, output_dir: str, output_format: str,
+) -> tuple[int, float, dict[str, int], list[dict]]:
     """Extract speaker-segments using original_start_ms / original_end_ms."""
-    by_file = defaultdict(list)
-    for entry in entries:
-        original_file = entry.get("original_file", "")
-        by_file[original_file].append(entry)
+    per_speaker_count: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
-    extracted = 0
-    total_dur = 0.0
-    speaker_counts: dict[str, int] = defaultdict(int)
-    metadata_rows: list[dict] = []
+    def _make_filename(name: str, entry: dict, _seg_idx: int) -> str:
+        speaker_id, speaker_num = _get_speaker_label(entry)
+        idx = per_speaker_count[name][speaker_id]
+        per_speaker_count[name][speaker_id] += 1
+        return f"{name}_speaker_{speaker_num}_segment_{idx:03d}.{output_format}"
 
-    for original_file, segments in by_file.items():
-        if not os.path.exists(original_file):
-            logger.error(f"Original file not found: {original_file}")
-            continue
-
-        info = sf.info(original_file)
-        original_name = Path(original_file).stem
-        logger.info(f"\nProcessing: {original_name} ({len(segments)} speaker-segments)")
-
-        segments.sort(key=lambda x: (x.get("speaker_id", ""), x.get("original_start_ms", 0)))
-
-        per_speaker_count: dict[str, int] = defaultdict(int)
-
-        for seg in segments:
-            speaker_id = seg.get("speaker_id", "unknown")
-            speaker_num = speaker_id.replace("speaker_", "") if "speaker_" in speaker_id else speaker_id
-            num_speakers = seg.get("num_speakers", 0)
-            start_ms = seg.get("original_start_ms", 0)
-            end_ms = seg.get("original_end_ms", 0)
-            dur = seg.get("duration", (end_ms - start_ms) / 1000)
-
-            seg_idx = per_speaker_count[speaker_id]
-            per_speaker_count[speaker_id] += 1
-
-            out_filename = f"{original_name}_speaker_{speaker_num}_segment_{seg_idx:03d}.{output_format}"
-            output_path = os.path.join(output_dir, out_filename)
-
-            try:
-                audio = _read_segment(original_file, start_ms, end_ms, info.samplerate)
-                _write_segment(output_path, audio, info.samplerate, output_format)
-                extracted += 1
-                total_dur += dur
-                speaker_counts[speaker_id] += 1
-                logger.debug(f"  {out_filename} ({start_ms}-{end_ms}ms, {dur:.2f}s)")
-
-                metadata_rows.append(
-                    {
-                        "filename": out_filename,
-                        "original_file": original_file,
-                        "speaker_id": speaker_id,
-                        "num_speakers": num_speakers,
-                        "segment_index": seg_idx,
-                        "start_sec": round(start_ms / 1000, 3),
-                        "end_sec": round(end_ms / 1000, 3),
-                        "duration": round(dur, 3),
-                        **_extract_scores(seg),
-                    }
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"  Failed to extract {out_filename}: {e}")
-
-    return extracted, total_dur, speaker_counts, metadata_rows
+    return _extract_file_segments(
+        entries, output_dir, output_format,
+        sort_key=lambda x: (x.get("speaker_id", ""), x.get("original_start_ms", 0)),
+        get_intervals=_intervals_from_timestamps,
+        make_filename=_make_filename,
+        make_metadata=_base_metadata,
+    )
 
 
 # ------------------------------------------------------------------

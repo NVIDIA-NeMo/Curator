@@ -273,7 +273,7 @@ python extract_segments.py -m ./dns_data/result/ -o ./extracted/ -f flac
 
 | Topology | What it extracts | File naming |
 |----------|-----------------|-------------|
-| Combo 1 | Full file copy | `{name}.wav` |
+| Combo 1 | Full file (single segment) | `{name}_segment_000.wav` |
 | Combo 2 | Each VAD segment | `{name}_segment_000.wav` |
 | Combo 3 | Each speaking interval per speaker | `{name}_speaker_0_segment_000.wav` |
 | Combo 4 | Each speaker-segment | `{name}_speaker_0_segment_000.wav` |

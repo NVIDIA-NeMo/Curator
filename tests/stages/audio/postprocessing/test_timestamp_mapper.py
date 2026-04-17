@@ -17,6 +17,7 @@ import torch
 from nemo_curator.stages.audio.postprocessing.timestamp_mapper import (
     _NEVER_PASS_KEYS,
     TimestampMapperStage,
+    _translate_to_original,
 )
 from nemo_curator.tasks import AudioTask
 
@@ -26,6 +27,79 @@ def _make_task(data: dict, task_id: str = "test", metadata: dict | None = None) 
     if metadata:
         t._metadata = metadata
     return t
+
+
+class TestTranslateToOriginal:
+    """Unit tests for the pure _translate_to_original() function."""
+
+    MAPPINGS = [
+        {"concat_start_ms": 0, "concat_end_ms": 2000, "original_file": "a.wav", "original_start_ms": 5000, "original_end_ms": 7000},
+        {"concat_start_ms": 2000, "concat_end_ms": 5000, "original_file": "b.wav", "original_start_ms": 0, "original_end_ms": 3000},
+        {"concat_start_ms": 5000, "concat_end_ms": 8000, "original_file": "c.wav", "original_start_ms": 10000, "original_end_ms": 13000},
+    ]
+
+    def test_single_mapping_exact_match(self) -> None:
+        """Segment exactly matches one mapping."""
+        results = _translate_to_original(self.MAPPINGS, 0, 2000)
+        assert len(results) == 1
+        assert results[0]["original_file"] == "a.wav"
+        assert results[0]["original_start_ms"] == 5000
+        assert results[0]["original_end_ms"] == 7000
+        assert results[0]["duration_ms"] == 2000
+
+    def test_single_mapping_partial_overlap(self) -> None:
+        """Segment partially overlaps one mapping."""
+        results = _translate_to_original(self.MAPPINGS, 500, 1500)
+        assert len(results) == 1
+        assert results[0]["original_file"] == "a.wav"
+        assert results[0]["original_start_ms"] == 5500
+        assert results[0]["original_end_ms"] == 6500
+        assert results[0]["duration_ms"] == 1000
+
+    def test_cross_boundary_span(self) -> None:
+        """Segment spans two mappings — returns both."""
+        results = _translate_to_original(self.MAPPINGS, 1500, 3000)
+        assert len(results) == 2
+        assert results[0]["original_file"] == "a.wav"
+        assert results[0]["original_start_ms"] == 6500
+        assert results[0]["original_end_ms"] == 7000
+        assert results[0]["duration_ms"] == 500
+        assert results[1]["original_file"] == "b.wav"
+        assert results[1]["original_start_ms"] == 0
+        assert results[1]["original_end_ms"] == 1000
+        assert results[1]["duration_ms"] == 1000
+
+    def test_silence_gap_no_overlap(self) -> None:
+        """Segment falls entirely in a gap between mappings."""
+        mappings = [
+            {"concat_start_ms": 0, "concat_end_ms": 1000, "original_file": "a.wav", "original_start_ms": 0, "original_end_ms": 1000},
+            {"concat_start_ms": 3000, "concat_end_ms": 5000, "original_file": "b.wav", "original_start_ms": 0, "original_end_ms": 2000},
+        ]
+        results = _translate_to_original(mappings, 1000, 3000)
+        assert len(results) == 0
+
+    def test_malformed_mapping_missing_key(self) -> None:
+        """Malformed mapping (missing key) is skipped gracefully."""
+        mappings = [
+            {"concat_start_ms": 0, "concat_end_ms": 2000},
+            {"concat_start_ms": 2000, "concat_end_ms": 4000, "original_file": "b.wav", "original_start_ms": 0, "original_end_ms": 2000},
+        ]
+        results = _translate_to_original(mappings, 0, 4000)
+        assert len(results) == 1
+        assert results[0]["original_file"] == "b.wav"
+
+    def test_empty_mappings(self) -> None:
+        """Empty mappings list returns empty results."""
+        results = _translate_to_original([], 0, 1000)
+        assert results == []
+
+    def test_no_overlap_before_all_mappings(self) -> None:
+        """Segment ends before any mapping starts."""
+        mappings = [
+            {"concat_start_ms": 5000, "concat_end_ms": 8000, "original_file": "a.wav", "original_start_ms": 0, "original_end_ms": 3000},
+        ]
+        results = _translate_to_original(mappings, 0, 1000)
+        assert results == []
 
 
 def test_combo4_with_segment_mappings() -> None:

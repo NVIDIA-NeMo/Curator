@@ -240,6 +240,11 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
             result["duration_ms"] = duration_ms
             result["duration"] = float(dur)
         else:
+            logger.warning(
+                f"[TimestampMapper] No timing information found for "
+                f"{result['original_file']!r} — emitting zero-duration row. "
+                f"This may indicate a corrupted or zero-length source file."
+            )
             result["original_start_ms"] = 0
             result["original_end_ms"] = 0
             result["duration_ms"] = 0
