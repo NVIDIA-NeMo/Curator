@@ -196,7 +196,9 @@ class QwenOmni(ModelInterface):
         })
         return messages
 
-    def _prepare_single(self, waveform: np.ndarray, sample_rate: int) -> dict[str, Any] | None:
+    def _prepare_single(
+        self, waveform: np.ndarray, sample_rate: int,
+    ) -> tuple[dict[str, Any], np.ndarray] | None:
         from qwen_omni_utils import process_mm_info
 
         try:
@@ -219,29 +221,28 @@ class QwenOmni(ModelInterface):
             inputs["multi_modal_data"]["image"] = images
         if videos is not None:
             inputs["multi_modal_data"]["video"] = videos
-        return inputs
+        return inputs, waveform_16k
 
     def _prepare_batch(
         self,
         waveforms: list[np.ndarray],
         sample_rates: list[int],
-    ) -> list[dict[str, Any] | None]:
+    ) -> list[tuple[dict[str, Any], np.ndarray] | None]:
         if self._prep_pool is None:
             return [self._prepare_single(w, sr) for w, sr in zip(waveforms, sample_rates)]
         return list(self._prep_pool.map(self._prepare_single, waveforms, sample_rates))
 
     def _prepare_turn2_single(
-        self, waveform: np.ndarray, sample_rate: int, pred_text: str,
+        self, waveform_16k: np.ndarray, pred_text: str,
     ) -> dict[str, Any] | None:
         from qwen_omni_utils import process_mm_info
 
         try:
-            waveform_16k = self._resample(waveform, sample_rate)
             messages = self._build_turn2_messages(waveform_16k, pred_text)
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
         except Exception:
-            logger.warning("Failed to preprocess Turn 2 audio (shape=%s, sr=%d)", waveform.shape, sample_rate)
+            logger.warning("Failed to preprocess Turn 2 audio (shape=%s)", waveform_16k.shape)
             return None
 
         inputs: dict[str, Any] = {
@@ -259,16 +260,15 @@ class QwenOmni(ModelInterface):
 
     def _prepare_turn2_batch(
         self,
-        waveforms: list[np.ndarray],
-        sample_rates: list[int],
+        waveforms_16k: list[np.ndarray],
         pred_texts: list[str],
     ) -> list[dict[str, Any] | None]:
         if self._prep_pool is None:
             return [
-                self._prepare_turn2_single(w, sr, pt)
-                for w, sr, pt in zip(waveforms, sample_rates, pred_texts)
+                self._prepare_turn2_single(w, pt)
+                for w, pt in zip(waveforms_16k, pred_texts)
             ]
-        return list(self._prep_pool.map(self._prepare_turn2_single, waveforms, sample_rates, pred_texts))
+        return list(self._prep_pool.map(self._prepare_turn2_single, waveforms_16k, pred_texts))
 
     # ------------------------------------------------------------------
     # Generation
@@ -303,7 +303,8 @@ class QwenOmni(ModelInterface):
         # -- Turn 1 ----------------------------------------------------------
         prepared = self._prepare_batch(waveforms, sample_rates)
         valid_indices = [i for i, p in enumerate(prepared) if p is not None]
-        valid_inputs = [prepared[i] for i in valid_indices]
+        valid_inputs = [prepared[i][0] for i in valid_indices]
+        waveforms_16k: dict[int, np.ndarray] = {i: prepared[i][1] for i in valid_indices}
 
         if not valid_inputs:
             logger.warning("All %d audio samples in batch failed preprocessing", n)
@@ -327,8 +328,7 @@ class QwenOmni(ModelInterface):
             return pred_texts, [""] * n
 
         t2_prepared = self._prepare_turn2_batch(
-            [waveforms[i] for i in t2_indices],
-            [sample_rates[i] for i in t2_indices],
+            [waveforms_16k[i] for i in t2_indices],
             [pred_texts[i] for i in t2_indices],
         )
 
