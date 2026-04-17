@@ -98,7 +98,7 @@ class QwenVL(ModelInterface):
         self.model_does_preprocess = model_does_preprocess
         self.disable_mmcache = disable_mmcache
         self.vllm_kwargs = vllm_kwargs
-        self.stage2_prompt = stage2_prompt_text if stage2_prompt_text else "Please refine this caption: "
+        self.stage2_prompt = stage2_prompt_text or "Please refine this caption: "
         self.verbose = verbose
         self.weight_file = str(pathlib.Path(model_dir) / _QWEN_VARIANTS_INFO[model_variant])
         # Default pattern for stage2 caption generation - matches (.*)(user_prompt)(.*)
@@ -186,6 +186,7 @@ class QwenVL(ModelInterface):
         model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if _weights_complete(model_dir_path):
+            logger.info(f"QwenVL weights already present at: {model_dir_path}")
             return
         download_model_from_hf(
             model_id=model_id,

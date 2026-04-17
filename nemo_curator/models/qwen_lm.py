@@ -116,6 +116,7 @@ class QwenLM(ModelInterface):
         model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if _weights_complete(model_dir_path):
+            logger.info(f"QwenLM weights already present at: {model_dir_path}")
             return
         download_model_from_hf(
             model_id=model_id,
