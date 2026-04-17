@@ -191,10 +191,21 @@ def get_gpu_stats() -> dict:
     Returns:
         dict: Keys are GPU indices; values are dicts with "memory_total" and "memory_used".
     """
+    # utils.py is also imported in scripts that run before the Curator
+    # environment is set up, so import gpustat lazily.
     import gpustat
 
     query = gpustat.new_query()
-    return {gpu.index: {"memory_total": gpu.memory_total, "memory_used": gpu.memory_used} for gpu in query}
+    query_data = {}
+    for gpu in query:
+        # Only include certain fields from the process data.
+        process_data = [{k: p[k] for k in ["username", "command", "gpu_memory_usage", "pid"]} for p in gpu.processes]
+        query_data[gpu.index] = {
+            "memory_total": gpu.memory_total,
+            "memory_used": gpu.memory_used,
+            "processes": process_data,
+        }
+    return query_data
 
 
 def log_gpu_stats(gpu_stats: dict, warn_if_in_use: bool = False) -> None:
