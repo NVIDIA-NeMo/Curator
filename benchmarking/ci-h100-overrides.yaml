@@ -10,4 +10,4 @@ entry_overrides:
   score_filter_xenna:
     timeout_s: 800
   video_transnetv2_motion_aesthetic_filter_embeddings:
-    timeout_s: 600
+    timeout_s: 900
