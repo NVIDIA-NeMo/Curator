@@ -186,10 +186,15 @@ def human_readable_bytes_repr(size: int) -> str:
 
 
 def get_gpu_stats() -> dict:
-    """Query GPU stats using gpustat and return memory info for each available GPU.
+    """
+    Query GPU stats using gpustat and return memory information and process info for each available GPU.
 
     Returns:
-        dict: Keys are GPU indices; values are dicts with "memory_total" and "memory_used".
+        dict: Keys are GPU indices; values are dicts containing:
+            - "memory_total" (int): Total GPU memory in MiB.
+            - "memory_used" (int): Used GPU memory in MiB.
+            - "processes" (list[dict]): List of processes using the GPU, each with keys:
+                "username", "command", "gpu_memory_usage", "pid".
     """
     # utils.py is also imported in scripts that run before the Curator
     # environment is set up, so import gpustat lazily.
