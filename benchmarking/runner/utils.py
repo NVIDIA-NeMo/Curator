@@ -199,7 +199,9 @@ def get_gpu_stats() -> dict:
     query_data = {}
     for gpu in query:
         # Only include certain fields from the process data.
-        process_data = [{k: p[k] for k in ["username", "command", "gpu_memory_usage", "pid"]} for p in gpu.processes]
+        process_data = [
+            {k: p.get(k) for k in ["username", "command", "gpu_memory_usage", "pid"]} for p in gpu.processes
+        ]
         query_data[gpu.index] = {
             "memory_total": gpu.memory_total,
             "memory_used": gpu.memory_used,
