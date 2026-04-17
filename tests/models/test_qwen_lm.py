@@ -16,7 +16,7 @@
 
 from unittest.mock import Mock, patch
 
-from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM
+from nemo_curator.models.qwen_lm import _QWEN_LM_VARIANTS_INFO, QwenLM
 
 
 class TestQwenLM:
@@ -33,13 +33,15 @@ class TestQwenLM:
         self.max_output_tokens = 256
         self.qwen_lm = QwenLM(
             model_dir=self.model_dir,
+            model_variant="qwen2.5",
             caption_batch_size=self.caption_batch_size,
             fp8=self.fp8,
             max_output_tokens=self.max_output_tokens,
         )
 
     def test_constants(self) -> None:
-        assert _QWEN_LM_MODEL_ID == "Qwen/Qwen2.5-14B-Instruct"
+        assert _QWEN_LM_VARIANTS_INFO["qwen2.5"][0] == "Qwen/Qwen2.5-14B-Instruct"
+        assert _QWEN_LM_VARIANTS_INFO["qwen3"][0] == "Qwen/Qwen3-14B"
 
     def test_initialization(self) -> None:
         assert self.qwen_lm.model_dir == self.model_dir
@@ -51,7 +53,7 @@ class TestQwenLM:
         model_ids = self.qwen_lm.model_id_names()
         assert isinstance(model_ids, list)
         assert len(model_ids) == 1
-        assert model_ids[0] == _QWEN_LM_MODEL_ID
+        assert model_ids[0] == _QWEN_LM_VARIANTS_INFO["qwen2.5"][0]
 
     @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
     @patch("nemo_curator.models.qwen_lm.SamplingParams")
@@ -311,7 +313,7 @@ class TestQwenLM:
 
                 # Verify Path was called correctly
                 mock_path.assert_called_once_with(self.model_dir)
-                mock_path_instance.__truediv__.assert_called_once_with(_QWEN_LM_MODEL_ID)
+                mock_path_instance.__truediv__.assert_called_once_with(_QWEN_LM_VARIANTS_INFO["qwen2.5"][0])
                 assert self.qwen_lm.weight_file == expected_path
 
     def test_sampling_params_configuration(self) -> None:

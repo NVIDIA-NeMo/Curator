@@ -75,7 +75,7 @@ class TestCaptionPreparationStage:
     def setup_method(self):
         """Set up test fixtures."""
         self.stage = CaptionPreparationStage(
-            model_variant="qwen",
+            model_variant="qwen2.5",
             prompt_variant="default",
             prompt_text="Custom test prompt",
             verbose=True,
@@ -90,7 +90,7 @@ class TestCaptionPreparationStage:
     def test_init_default_values(self):
         """Test initialization with default values."""
         stage = CaptionPreparationStage()
-        assert stage.model_variant == "qwen"
+        assert stage.model_variant == "qwen2.5"
         assert stage.prompt_variant == "default"
         assert stage.prompt_text is None
         assert stage.verbose is False
@@ -120,7 +120,7 @@ class TestCaptionPreparationStage:
 
         self.stage.setup()
 
-        mock_prompt_formatter.assert_called_once_with("qwen")
+        mock_prompt_formatter.assert_called_once_with("qwen2.5")
         assert self.stage.prompt_formatter == mock_formatter
 
     def test_setup_with_worker_metadata(self):
@@ -128,7 +128,7 @@ class TestCaptionPreparationStage:
         with patch("nemo_curator.stages.video.caption.caption_preparation.PromptFormatter") as mock_formatter:
             worker_metadata = WorkerMetadata(worker_id="test")
             self.stage.setup(worker_metadata)
-            mock_formatter.assert_called_once_with("qwen")
+            mock_formatter.assert_called_once_with("qwen2.5")
 
     def _create_test_video_task(self) -> VideoTask:
         """Create a test VideoTask with sample data."""
@@ -216,11 +216,11 @@ class TestCaptionPreparationStage:
             assert window1.start_frame == 0
             assert window1.end_frame == 10
             assert window1.mp4_bytes == b"window1_bytes"
-            # Check structure of llm_inputs["qwen"] (can't compare tensors directly)
-            assert "prompt" in window1.llm_inputs["qwen"]
-            assert "multi_modal_data" in window1.llm_inputs["qwen"]
-            assert window1.llm_inputs["qwen"]["prompt"] == "test formatted prompt"
-            assert "video" in window1.llm_inputs["qwen"]["multi_modal_data"]
+            # Check structure of llm_inputs["qwen2.5"] (can't compare tensors directly)
+            assert "prompt" in window1.llm_inputs["qwen2.5"]
+            assert "multi_modal_data" in window1.llm_inputs["qwen2.5"]
+            assert window1.llm_inputs["qwen2.5"]["prompt"] == "test formatted prompt"
+            assert "video" in window1.llm_inputs["qwen2.5"]["multi_modal_data"]
 
     @patch("nemo_curator.stages.video.caption.caption_preparation.logger")
     def test_process_clip_without_buffer(self, mock_logger: Mock):
