@@ -2,8 +2,7 @@
 
 Stages:
   1. ocr_nemotron   NemotronOCR-v2 (multilingual) word-level OCR → populates ocr_dense
-  2. verification   Gemini API bounding-box verification (optional)
-  3. scoring_qa     Combined Gemini bbox scoring + multi-turn QA generation (optional)
+  2. scoring_qa     Combined Gemini bbox scoring + multi-turn QA generation (optional)
 """
 
 from __future__ import annotations
@@ -23,16 +22,11 @@ from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.synthetic.omni.io import (
-    JsonlPipelineOutputReaderStage,
     JsonlTarImageReaderStage,
     ResultWriterStage,
     SkipProcessedStage,
 )
-from nemo_curator.stages.synthetic.omni.ocr_conversationalize import OCRConversationalizeStage
-from nemo_curator.stages.synthetic.omni.ocr_dense_qa import OCRDenseQAStage
 from nemo_curator.stages.synthetic.omni.ocr_nemotron_v2 import OCRNemotronV2Stage
-from nemo_curator.stages.synthetic.omni.ocr_verification import OCRVerificationStage
-from nemo_curator.stages.synthetic.omni.ocr_scoring_verification import OCRScoringVerificationStage
 from nemo_curator.stages.synthetic.omni.ocr_scoring_qa import OCRScoringQAStage
 from nemo_curator.tasks.ocr import OCRData
 
@@ -55,25 +49,18 @@ def create_ocr_pipeline(
     valid_only: bool = False,
     num_workers: int | None = None,
     nemotron_model_dir: Path | None = None,
-    run_verification: bool = False,
-    verification_model_id: str = "gcp/google/gemini-3-flash-preview",
-    run_scoring_verification: bool = False,
-    scoring_verification_model_id: str = "gcp/google/gemini-3-flash-preview",
-    scoring_min_bbox_match: int = 7,
-    scoring_max_text_errors: int = 0,
-    scoring_fail_on_missing_text: bool = True,
-    run_conversationalize: bool = False,
-    run_dense_qa: bool = False,
     run_scoring_qa: bool = False,
     scoring_qa_model_id: str = "gcp/google/gemini-3-flash-preview",
     scoring_qa_min_bbox_match: int = 7,
     scoring_qa_max_text_errors: int = 0,
     scoring_qa_fail_on_missing_text: bool = False,
+    scoring_qa_dense_dump_prob: float = 0.10,
 ) -> Pipeline:
     """Create the OCR pipeline using NemotronOCR-v2 (multilingual) on every image.
 
     Reads images from JSONL+tar shards, runs NemotronOCR-v2 word-level OCR on
-    every image, and writes a JSONL with ``ocr_dense`` populated.
+    every image, and optionally runs a combined Gemini bbox scoring + QA generation
+    stage to produce training conversations.
 
     Args:
         input_path: Path to a JSONL file, a directory of JSONL files, or a list
@@ -90,11 +77,14 @@ def create_ocr_pipeline(
             If None, the Xenna autoscaler decides.
         nemotron_model_dir: Path to the NemotronOCR-v2 model directory.
             If None, downloads from HuggingFace.
-        run_verification: If True, run Gemini verification on OCR output.
-        run_scoring_verification: If True, run per-bbox Gemini scoring.
-        run_conversationalize: If True, convert OCR output to SFT conversation format.
-        run_dense_qa: If True, generate multi-turn QA conversations.
-        run_scoring_qa: If True, run combined Gemini scoring + QA generation.
+        run_scoring_qa: If True, run combined Gemini bbox scoring + QA generation.
+        scoring_qa_model_id: NVIDIA Inference API model ID for scoring QA stage.
+        scoring_qa_min_bbox_match: Minimum bbox_match score (0–10) for a valid bbox.
+        scoring_qa_max_text_errors: Maximum text_errors count for a valid bbox.
+        scoring_qa_fail_on_missing_text: If True, mark the image invalid when
+            Gemini reports missing text regions.
+        scoring_qa_dense_dump_prob: Probability of generating a single-turn dense
+            dump instead of multi-turn QA for complete-OCR images.
 
     Returns:
         Configured NeMo Curator Pipeline.
@@ -137,29 +127,13 @@ def create_ocr_pipeline(
         )
     )
 
-    if run_verification:
-        pipeline.add_stage(OCRVerificationStage(model_id=verification_model_id))
-
-    if run_scoring_verification:
-        pipeline.add_stage(OCRScoringVerificationStage(
-            model_id=scoring_verification_model_id,
-            min_bbox_match=scoring_min_bbox_match,
-            max_text_errors=scoring_max_text_errors,
-            fail_on_missing_text=scoring_fail_on_missing_text,
-        ))
-
-    if run_conversationalize:
-        pipeline.add_stage(OCRConversationalizeStage())
-
-    if run_dense_qa:
-        pipeline.add_stage(OCRDenseQAStage())
-
     if run_scoring_qa:
         pipeline.add_stage(OCRScoringQAStage(
             model_id=scoring_qa_model_id,
             min_bbox_match=scoring_qa_min_bbox_match,
             max_text_errors=scoring_qa_max_text_errors,
             fail_on_missing_text=scoring_qa_fail_on_missing_text,
+            dense_dump_prob=scoring_qa_dense_dump_prob,
         ))
 
     pipeline.add_stage(
@@ -238,75 +212,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--run-verification",
-        action="store_true",
-        default=False,
-        help=(
-            "After OCR, run Gemini 3 verification to validate bounding boxes. "
-            "Requires NVINFERENCE_API_KEY to be set."
-        ),
-    )
-    parser.add_argument(
-        "--verification-model-id",
-        type=str,
-        default="gcp/google/gemini-3-flash-preview",
-        help="NVIDIA Inference API model ID for verification",
-    )
-    parser.add_argument(
-        "--run-scoring-verification",
-        action="store_true",
-        default=False,
-        help=(
-            "After OCR, run per-bbox scoring verification using Gemini. "
-            "Assigns bbox_match (0-10) and text_errors per bbox."
-        ),
-    )
-    parser.add_argument(
-        "--scoring-verification-model-id",
-        type=str,
-        default="gcp/google/gemini-3-flash-preview",
-        help="NVIDIA Inference API model ID for scoring verification.",
-    )
-    parser.add_argument(
-        "--scoring-min-bbox-match",
-        type=int,
-        default=7,
-        help="Minimum bbox_match score (0-10) for a bbox to be considered valid.",
-    )
-    parser.add_argument(
-        "--scoring-max-text-errors",
-        type=int,
-        default=0,
-        help="Maximum text_errors count for a bbox to be considered valid.",
-    )
-    parser.add_argument(
-        "--scoring-no-fail-on-missing-text",
-        action="store_true",
-        default=False,
-        help="Do not mark the image invalid when Gemini reports missing text regions.",
-    )
-    parser.add_argument(
-        "--run-conversationalize",
-        action="store_true",
-        default=False,
-        help="Convert word-level OCR output into SFT conversation format.",
-    )
-    parser.add_argument(
-        "--run-dense-qa",
-        action="store_true",
-        default=False,
-        help=(
-            "Generate multi-turn QA conversations (up to 100 pairs per image). "
-            "Mutually exclusive with --run-conversationalize."
-        ),
-    )
-    parser.add_argument(
         "--run-scoring-qa",
         action="store_true",
         default=False,
         help=(
-            "Combined Gemini bbox scoring + multi-turn QA generation in one stage. "
-            "Replaces --run-scoring-verification + --run-dense-qa."
+            "After OCR, run Gemini bbox scoring + QA generation. "
+            "Scores every bbox (bbox_match 0–10, text_errors), filters low-quality "
+            "bboxes, and generates multi-turn QA or dense-dump conversations. "
+            "Requires NVINFERENCE_API_KEY to be set."
         ),
     )
     parser.add_argument(
@@ -333,6 +246,12 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help="Mark the whole image invalid when Gemini reports missing text regions.",
     )
+    parser.add_argument(
+        "--scoring-qa-dense-dump-prob",
+        type=float,
+        default=0.10,
+        help="Probability of dense dump conversation for complete-OCR images (default: 0.10).",
+    )
     return parser.parse_args()
 
 
@@ -349,20 +268,12 @@ def main() -> None:
         valid_only=args.valid_only,
         num_workers=args.num_workers,
         nemotron_model_dir=Path(args.nemotron_model_dir) if args.nemotron_model_dir else None,
-        run_verification=args.run_verification,
-        verification_model_id=args.verification_model_id,
-        run_scoring_verification=args.run_scoring_verification,
-        scoring_verification_model_id=args.scoring_verification_model_id,
-        scoring_min_bbox_match=args.scoring_min_bbox_match,
-        scoring_max_text_errors=args.scoring_max_text_errors,
-        scoring_fail_on_missing_text=not args.scoring_no_fail_on_missing_text,
-        run_conversationalize=args.run_conversationalize,
-        run_dense_qa=args.run_dense_qa,
         run_scoring_qa=args.run_scoring_qa,
         scoring_qa_model_id=args.scoring_qa_model_id,
         scoring_qa_min_bbox_match=args.scoring_qa_min_bbox_match,
         scoring_qa_max_text_errors=args.scoring_qa_max_text_errors,
         scoring_qa_fail_on_missing_text=args.scoring_qa_fail_on_missing_text,
+        scoring_qa_dense_dump_prob=args.scoring_qa_dense_dump_prob,
     )
 
     logger.info("\n" + pipeline.describe())

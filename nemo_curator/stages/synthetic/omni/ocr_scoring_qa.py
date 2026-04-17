@@ -33,6 +33,7 @@ Output task data is ``OCRConversationData`` (``OCRData`` + ``conversation``).
 from __future__ import annotations
 
 import json
+import random
 import re
 from pathlib import Path
 from typing import Any
@@ -44,7 +45,7 @@ from nemo_curator.models.omni.gemini import Gemini3Pro
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.synthetic.omni.base import ModelProcessingStage, SkipSample
 from nemo_curator.stages.synthetic.omni.ocr_conversationalize import OCRConversationData
-from nemo_curator.stages.synthetic.omni.ocr_dense_qa import build_conversation, build_qa_tagged
+from nemo_curator.stages.synthetic.omni.ocr_dense_qa import build_conversation, build_dense_conversation, build_qa_tagged
 from nemo_curator.tasks.image import SingleDataTask
 from nemo_curator.tasks.ocr import OCRData
 
@@ -135,8 +136,6 @@ def _copy_to_conversation_data(src: OCRData) -> OCRConversationData:
 class OCRScoringQAStage(ModelProcessingStage[OCRData]):
     """Gemini bbox scoring + multi-turn QA generation in a single pipeline stage.
 
-    Combines the work of ``OCRScoringVerificationStage`` and ``OCRDenseQAStage``:
-
     * Calls Gemini once per image to score every bbox.
     * Marks low-quality bboxes ``valid=False`` (below ``min_bbox_match`` or
       above ``max_text_errors``).
@@ -168,6 +167,7 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         min_bbox_match: int = 7,
         max_text_errors: int = 0,
         fail_on_missing_text: bool = False,
+        dense_dump_prob: float = 0.10,
         batch_size: int | None = None,
         priority_mode: bool = False,
         **kwargs: Any,
@@ -183,6 +183,10 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
             fail_on_missing_text: If ``True``, mark the whole image invalid
                 when Gemini reports missing text.  Defaults to ``False`` —
                 missing text only disables the dense-dump QA turn.
+            dense_dump_prob: Probability (0–1) of generating a single-turn
+                dense dump conversation instead of multi-turn QA, for images
+                where OCR is provably complete (no missing text).
+                Defaults to 0.10 (10%).
             batch_size: Override the default batch size of 16.
             priority_mode: Use priority API queue (lower latency, higher cost).
         """
@@ -190,6 +194,7 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         self.min_bbox_match = min_bbox_match
         self.max_text_errors = max_text_errors
         self.fail_on_missing_text = fail_on_missing_text
+        self.dense_dump_prob = dense_dump_prob
         super().__init__(
             model=Gemini3Pro(
                 model_config=NVInferenceModelConfig(max_tokens=max_tokens),
@@ -309,13 +314,17 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
             )
             return task
 
-        # --- 4. Generate QA conversation ---
-        # Dense dump is only safe when OCR is provably complete (no missing text)
-        allow_dense_dump = not missing_text
-        qa_tagged, rng = build_qa_tagged(
-            task.data, task.task_id, allow_dense_dump=allow_dense_dump
-        )
+        # --- 4. Generate conversation ---
+        # When OCR is provably complete (no missing text), 10% of images get a
+        # single-turn dense dump; the other 90% get multi-turn QA.
+        # When OCR is incomplete, always use multi-turn QA (dense dump would lie).
         image_name = Path(str(task.data.image_path)).name
-        task.data.conversation = build_conversation(qa_tagged, rng, image_name)
+        rng = random.Random(task.task_id)
+        ocr_complete = not missing_text
+        if ocr_complete and rng.random() < self.dense_dump_prob:
+            task.data.conversation = build_dense_conversation(valid_words, rng, image_name)
+        else:
+            qa_tagged, rng = build_qa_tagged(task.data, task.task_id)
+            task.data.conversation = build_conversation(qa_tagged, rng, image_name)
 
         return task

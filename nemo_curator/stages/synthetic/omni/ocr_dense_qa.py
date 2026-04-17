@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Full QA conversation stage for dense OCR output.
+"""QA conversation helpers for dense OCR output.
 
-Generates up to MAX_QA_PAIRS multi-turn QA pairs per image, balanced across
+Builds up to MAX_QA_PAIRS multi-turn QA pairs per image, balanced across
 9 question types:
 
   1. bbox_to_text        — given a bbox, return the word/line text
@@ -29,6 +29,9 @@ Generates up to MAX_QA_PAIRS multi-turn QA pairs per image, balanced across
 
 Types 5–9 require ``ocr_rtx_blocks_lines_idx`` (block/line hierarchy).
 Types 3–4 and 8–9 are disabled when OCR quality is low (many invalid bboxes).
+
+Public API: ``build_qa_tagged``, ``build_conversation``, ``build_dense_conversation``.
+Used by ``OCRScoringQAStage``.
 """
 
 from __future__ import annotations
@@ -37,19 +40,15 @@ import json
 import math
 import random
 from collections import Counter, defaultdict
-from pathlib import Path
 from typing import Any, Callable
 
-from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.synthetic.omni.ocr_conversationalize import (
     OCRConversationData,
     SDG_PROMPT_VARIATIONS,
     WORD_OUTPUT_FORMATS,
 )
 from nemo_curator.stages.synthetic.omni.utils.conversation import ConversationSample, ImageMedia, Message
-from nemo_curator.tasks.image import SingleDataTask
-from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
+from nemo_curator.tasks.ocr import OCRDenseWord
 
 
 MAX_QA_PAIRS = 100
@@ -583,7 +582,6 @@ def _gen_dense_dump(rng: random.Random, words: list[OCRDenseWord]) -> tuple[str,
 def build_qa_tagged(
     data: OCRData,
     task_id: str,
-    allow_dense_dump: bool = False,
 ) -> tuple[list[tuple[str, str, str]], random.Random]:
     """Build the full list of tagged QA pairs for ``data``.
 
@@ -593,10 +591,6 @@ def build_qa_tagged(
     Args:
         data: OCRData with ocr_dense populated.
         task_id: Used to seed the RNG for reproducibility.
-        allow_dense_dump: Include a QA_TYPE_DENSE_DUMP entry when True.
-            Should only be True when OCR output is provably complete (i.e.
-            ``ocr_scoring_missing`` is empty), since Gemini-predicted missing
-            regions cannot be used as training labels.
     """
     words = data.ocr_dense or []
     valid_words = [w for w in words if w.valid]
@@ -751,13 +745,6 @@ def build_qa_tagged(
                 q, a = _gen_block_text_to_bbox(rng, pt, bbox)
                 qa_tagged.append((QA_TYPE_BLOCK_BBOX, q, a))
 
-    # ------------------------------------------------------------------
-    # Dense dump (only when OCR output is provably complete)
-    # ------------------------------------------------------------------
-    if allow_dense_dump and valid_words:
-        q, a = _gen_dense_dump(rng, valid_words)
-        qa_tagged.append((QA_TYPE_DENSE_DUMP, q, a))
-
     return qa_tagged, rng
 
 
@@ -781,82 +768,19 @@ def build_conversation(
     return ConversationSample(conversation=messages)
 
 
-# ---------------------------------------------------------------------------
-# Stage (no Gemini — runs on raw OCR output, no scoring filter)
-# ---------------------------------------------------------------------------
+def build_dense_conversation(
+    words: list[OCRDenseWord],
+    rng: random.Random,
+    image_name: str,
+) -> ConversationSample:
+    """Build a single-turn dense dump conversation listing all words with bboxes.
 
-class OCRDenseQAStage(
-    ProcessingStage[
-        SingleDataTask[OCRData],
-        SingleDataTask[OCRConversationData],
-    ]
-):
-    """Convert dense OCR output into a rich multi-turn QA conversation.
-
-    Generates up to ``MAX_QA_PAIRS`` (100) QA pairs across 9 question types.
-    Runs without Gemini — uses raw OCR output, treating all bboxes as valid
-    unless already filtered by a preceding ``OCRScoringVerificationStage``.
-
-    For a single stage that combines Gemini scoring + QA generation, use
-    ``OCRScoringQAStage`` (ocr_scoring_qa.py) instead.
-
-    Dense dump (list-all-bboxes) QA pair is included unless
-    ``ocr_scoring_missing`` is non-empty, which indicates incomplete OCR.
+    Used for ~10% of images where OCR is provably complete (no missing text).
     """
-
-    name = "ocr_dense_qa"
-    resources = Resources(cpus=1.0)
-    batch_size = 1
-
-    def _copy_ocr_data(self, src: OCRData) -> OCRConversationData:
-        return OCRConversationData(
-            image_path=src.image_path,
-            image_id=src.image_id,
-            is_valid=src.is_valid,
-            error=src.error,
-            ocr_language_route=src.ocr_language_route,
-            ocr_language_route_prompt=src.ocr_language_route_prompt,
-            ocr_language_route_response_raw=src.ocr_language_route_response_raw,
-            ocr_has_text=src.ocr_has_text,
-            ocr_has_chinese=src.ocr_has_chinese,
-            ocr_has_english=src.ocr_has_english,
-            ocr_has_other_language=src.ocr_has_other_language,
-            ocr_is_word_level=src.ocr_is_word_level,
-            ocr_dense_prompt=src.ocr_dense_prompt,
-            ocr_dense=src.ocr_dense,
-            ocr_verification_prompt=src.ocr_verification_prompt,
-            ocr_verification_model=src.ocr_verification_model,
-            ocr_verification_response_raw=src.ocr_verification_response_raw,
-            ocr_verification_answers=src.ocr_verification_answers,
-            ocr_scoring_prompt=src.ocr_scoring_prompt,
-            ocr_scoring_model=src.ocr_scoring_model,
-            ocr_scoring_response_raw=src.ocr_scoring_response_raw,
-            ocr_scoring_mode=src.ocr_scoring_mode,
-            ocr_scoring_missing=src.ocr_scoring_missing,
-            ocr_rtx_blocks_lines_idx=src.ocr_rtx_blocks_lines_idx,
-            ocr_rtx_invalid_count=src.ocr_rtx_invalid_count,
-        )
-
-    def process(
-        self, task: SingleDataTask[OCRData]
-    ) -> SingleDataTask[OCRConversationData]:
-        task.data = self._copy_ocr_data(task.data)
-
-        if not task.data.is_valid:
-            return task
-
-        words = task.data.ocr_dense
-        if not words:
-            return task
-        if not any(w.valid for w in words):
-            return task
-
-        # Dense dump is safe only when OCR didn't miss any text
-        allow_dense_dump = not task.data.ocr_scoring_missing
-
-        qa_tagged, rng = build_qa_tagged(
-            task.data, task.task_id, allow_dense_dump=allow_dense_dump
-        )
-        image_name = Path(str(task.data.image_path)).name
-        task.data.conversation = build_conversation(qa_tagged, rng, image_name)
-        return task
+    q, a = _gen_dense_dump(rng, words)
+    return ConversationSample(
+        conversation=[
+            Message(sender="user", fragments=[ImageMedia(value=image_name), q]),
+            Message(sender="assistant", fragments=[a]),
+        ]
+    )
