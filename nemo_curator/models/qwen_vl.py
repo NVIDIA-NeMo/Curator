@@ -15,7 +15,7 @@
 import pathlib
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
 
@@ -42,8 +42,38 @@ from nemo_curator.utils import grouping
 _QWEN2_5_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
 _QWEN2_5_VL_MODEL_REVISION = "cc59489"
 
+_QWEN3_VL_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
+_QWEN3_VL_MODEL_REVISION = "0c351dd"
+
 _QWEN_VARIANTS_INFO = {
-    "qwen": _QWEN2_5_VL_MODEL_ID,
+    "qwen2.5": _QWEN2_5_VL_MODEL_ID,
+    "qwen3": _QWEN3_VL_MODEL_ID,
+}
+
+_QWEN_REVISIONS_INFO = {
+    "qwen2.5": _QWEN2_5_VL_MODEL_REVISION,
+    "qwen3": _QWEN3_VL_MODEL_REVISION,
+}
+
+QwenVariant = Literal["qwen2.5", "qwen3"]
+
+QWEN_VL_PIXEL_PARAMS: dict[str, dict] = {
+    "qwen2.5": {
+        "image_factor": 28,
+        "min_pixels": 4 * 28 * 28,
+        "max_pixels": 16384 * 28 * 28,
+        "video_min_pixels": 128 * 28 * 28,
+        "video_max_pixels": 768 * 28 * 28,
+        "video_total_pixels": 24576 * 28 * 28,
+    },
+    "qwen3": {
+        "image_factor": 32,
+        "min_pixels": 4 * 32 * 32,
+        "max_pixels": 16384 * 32 * 32,
+        "video_min_pixels": 128 * 32 * 32,
+        "video_max_pixels": 768 * 32 * 32,
+        "video_total_pixels": 24576 * 32 * 32,
+    },
 }
 
 
@@ -67,7 +97,7 @@ class QwenVL(ModelInterface):
         self.max_output_tokens = max_output_tokens
         self.model_does_preprocess = model_does_preprocess
         self.disable_mmcache = disable_mmcache
-        self.stage2_prompt = stage2_prompt_text if stage2_prompt_text else "Please refine this caption: "
+        self.stage2_prompt = stage2_prompt_text or "Please refine this caption: "
         self.verbose = verbose
         self.weight_file = str(pathlib.Path(model_dir) / _QWEN_VARIANTS_INFO[model_variant])
         # Default pattern for stage2 caption generation - matches (.*)(user_prompt)(.*)
@@ -143,15 +173,16 @@ class QwenVL(ModelInterface):
         return generated_text
 
     @classmethod
-    def download_weights_on_node(cls, model_dir: str) -> None:
+    def download_weights_on_node(cls, model_dir: str, variant: str = "qwen2.5") -> None:
         """Download the weights for the QwenVL model on the node."""
-        model_dir_path = Path(model_dir) / _QWEN2_5_VL_MODEL_ID
+        model_id = _QWEN_VARIANTS_INFO[variant]
+        model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
             return
         download_model_from_hf(
-            model_id=_QWEN2_5_VL_MODEL_ID,
+            model_id=model_id,
             local_dir=model_dir_path,
-            revision=_QWEN2_5_VL_MODEL_REVISION,
+            revision=_QWEN_REVISIONS_INFO[variant],
         )
         logger.info(f"QwenVL weights downloaded to: {model_dir_path}")

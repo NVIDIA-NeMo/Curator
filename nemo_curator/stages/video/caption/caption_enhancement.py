@@ -45,7 +45,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
     """
 
     model_dir: str = "models/qwen"
-    model_variant: str = "qwen"
+    model_variant: str = "qwen2.5"
     prompt_variant: str = "default"
     prompt_text: str | None = None
     model_batch_size: int = 128
@@ -68,12 +68,13 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
         )
 
     def _initialize_model(self) -> None:
-        if self.model_variant == "qwen":
+        if self.model_variant in ("qwen2.5", "qwen3"):
             self.model = QwenLM(
                 model_dir=self.model_dir,
                 caption_batch_size=self.model_batch_size,
                 fp8=self.fp8,
                 max_output_tokens=self.max_output_tokens,
+                model_variant=self.model_variant,
             )
         else:
             msg = f"Unsupported model variant: {self.model_variant}"

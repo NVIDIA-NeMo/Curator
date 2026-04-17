@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
 from transformers import AutoTokenizer
@@ -40,18 +40,33 @@ from nemo_curator.models.base import ModelInterface
 _QWEN_LM_MODEL_ID = "Qwen/Qwen2.5-14B-Instruct"
 _QWEN_LM_MODEL_REVISION = "cf98f3b"
 
+_QWEN_LM_VARIANTS_INFO = {
+    "qwen2.5": _QWEN_LM_MODEL_ID,
+    "qwen3": _QWEN_LM_MODEL_ID,
+}
+
+QwenLMVariant = Literal["qwen2.5", "qwen3"]
+
 
 class QwenLM(ModelInterface):
     """Qwen language model."""
 
     def model_id_names(self) -> list[str]:
-        return [_QWEN_LM_MODEL_ID]
+        return [_QWEN_LM_VARIANTS_INFO[self.model_variant]]
 
-    def __init__(self, model_dir: str, caption_batch_size: int, fp8: bool, max_output_tokens: int):
+    def __init__(
+        self,
+        model_dir: str,
+        caption_batch_size: int,
+        fp8: bool,
+        max_output_tokens: int,
+        model_variant: str = "qwen2.5",
+    ):
         self.model_dir = model_dir
         self.caption_batch_size = caption_batch_size
         self.fp8 = fp8
         self.max_output_tokens = max_output_tokens
+        self.model_variant = model_variant
 
     def setup(self) -> None:
         if not VLLM_AVAILABLE:

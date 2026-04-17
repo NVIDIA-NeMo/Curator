@@ -19,6 +19,7 @@ from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.models.prompt_formatter import PromptFormatter
+from nemo_curator.models.qwen_vl import QWEN_VL_PIXEL_PARAMS
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks.video import VideoTask, _Window
 from nemo_curator.utils import windowing_utils
@@ -130,6 +131,7 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     skip_resize=self._skip_intermediate_resize,
                     return_bytes=self.generate_previews,
                     num_threads=max(int(self.resources.cpus), 1),
+                    pixel_params=QWEN_VL_PIXEL_PARAMS.get(self.model_variant),
                 ),
             ):
                 prompt = _get_prompt(

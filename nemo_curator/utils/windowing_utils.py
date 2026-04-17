@@ -90,6 +90,7 @@ def split_video_into_windows(  # noqa: PLR0913
     return_bytes: bool = False,
     return_video_frames: bool = True,
     num_threads: int = 1,
+    pixel_params: dict | None = None,
 ) -> tuple[list[bytes], list[torch.Tensor | None], list[WindowFrameInfo]]:
     """Calculate windows and return video inputs for language model from input clips.
 
@@ -137,6 +138,7 @@ def split_video_into_windows(  # noqa: PLR0913
                 num_frames_to_use=num_frames_to_use,
                 flip_input=flip_input,
                 skip_resize=skip_resize,
+                pixel_params=pixel_params,
             )
 
             index = 0
@@ -305,6 +307,7 @@ def fetch_video(  # noqa: C901, PLR0911, PLR0912, PLR0913
     num_frames_to_use: int = 0,
     flip_input: bool = False,
     skip_resize: bool = False,
+    pixel_params: dict | None = None,
 ) -> tuple[torch.Tensor, list[int]]:
     """Load and preprocess video frames from a file.
 
@@ -332,15 +335,20 @@ def fetch_video(  # noqa: C901, PLR0911, PLR0912, PLR0913
     nframes, _, height, width = video.shape
 
     if do_preprocess or not skip_resize:
+        _p = pixel_params or {}
+        _image_factor = _p.get("image_factor", IMAGE_FACTOR)
+        _video_min_pixels = _p.get("video_min_pixels", VIDEO_MIN_PIXELS)
+        _video_max_pixels = _p.get("video_max_pixels", VIDEO_MAX_PIXELS)
+        _video_total_pixels = _p.get("video_total_pixels", VIDEO_TOTAL_PIXELS)
         max_pixels = max(
-            min(VIDEO_MAX_PIXELS, int(VIDEO_TOTAL_PIXELS / nframes * FRAME_FACTOR)),
-            int(VIDEO_MIN_PIXELS * 1.05),
+            min(_video_max_pixels, int(_video_total_pixels / nframes * FRAME_FACTOR)),
+            int(_video_min_pixels * 1.05),
         )
         resized_height, resized_width = smart_resize(
             height,
             width,
-            factor=IMAGE_FACTOR,
-            min_pixels=VIDEO_MIN_PIXELS,
+            factor=_image_factor,
+            min_pixels=_video_min_pixels,
             max_pixels=max_pixels,
         )
 

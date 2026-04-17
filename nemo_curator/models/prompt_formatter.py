@@ -19,10 +19,11 @@ import torch
 from transformers import AutoProcessor
 
 from nemo_curator.models.nemotron_h_vl import _NEMOTRON_VARIANTS_INFO
+from nemo_curator.models.qwen_vl import _QWEN_VARIANTS_INFO
 
 # Mapping of variants to their HuggingFace model IDs
 VARIANT_MAPPING: dict[str, str] = {
-    "qwen": "Qwen/Qwen2.5-VL-7B-Instruct",
+    **_QWEN_VARIANTS_INFO,
     **_NEMOTRON_VARIANTS_INFO,
 }
 
@@ -73,7 +74,7 @@ class PromptFormatter:
                 - "multi_modal_data": Dictionary containing processed "video" inputs
 
         """
-        if self.prompt_variant == "qwen":
+        if self.prompt_variant in ("qwen2.5", "qwen3"):
             return self._generate_qwen_inputs(prompt, video_inputs, override_text_prompt)
 
         if self.prompt_variant.startswith("nemotron"):

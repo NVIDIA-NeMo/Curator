@@ -34,7 +34,7 @@ class TestQwenVL:
         self.vllm_patcher.start()
 
         self.model_dir = "/test/model/dir"
-        self.model_variant = "qwen"
+        self.model_variant = "qwen2.5"
         self.caption_batch_size = 4
         self.qwen_vl = QwenVL(
             model_dir=self.model_dir,
@@ -55,8 +55,8 @@ class TestQwenVL:
     def test_constants(self) -> None:
         """Test that module constants are correctly defined."""
         assert _QWEN2_5_VL_MODEL_ID == "Qwen/Qwen2.5-VL-7B-Instruct"
-        assert "qwen" in _QWEN_VARIANTS_INFO
-        assert _QWEN_VARIANTS_INFO["qwen"] == _QWEN2_5_VL_MODEL_ID
+        assert "qwen2.5" in _QWEN_VARIANTS_INFO
+        assert _QWEN_VARIANTS_INFO["qwen2.5"] == _QWEN2_5_VL_MODEL_ID
 
     def test_initialization_default_parameters(self) -> None:
         """Test initialization with default parameters."""
@@ -92,9 +92,9 @@ class TestQwenVL:
     def test_initialization_different_variant(self) -> None:
         """Test initialization with different model variant."""
         # Note: This test assumes the variant exists in _QWEN_VARIANTS_INFO
-        qwen_vl = QwenVL(model_dir="/another/path", model_variant="qwen", caption_batch_size=8)
+        qwen_vl = QwenVL(model_dir="/another/path", model_variant="qwen2.5", caption_batch_size=8)
 
-        expected_weight_file = str(pathlib.Path("/another/path") / _QWEN_VARIANTS_INFO["qwen"])
+        expected_weight_file = str(pathlib.Path("/another/path") / _QWEN_VARIANTS_INFO["qwen2.5"])
         assert qwen_vl.weight_file == expected_weight_file
 
     def test_model_id_names_property(self) -> None:
@@ -375,8 +375,8 @@ class TestQwenVL:
         assert self.qwen_vl.weight_file == expected_path
 
         # Test with different paths
-        qwen_vl2 = QwenVL(model_dir="/different/path", model_variant="qwen", caption_batch_size=1)
-        expected_path2 = str(pathlib.Path("/different/path") / _QWEN_VARIANTS_INFO["qwen"])
+        qwen_vl2 = QwenVL(model_dir="/different/path", model_variant="qwen2.5", caption_batch_size=1)
+        expected_path2 = str(pathlib.Path("/different/path") / _QWEN_VARIANTS_INFO["qwen2.5"])
         assert qwen_vl2.weight_file == expected_path2
 
     def test_max_output_tokens_parameter(self) -> None:
