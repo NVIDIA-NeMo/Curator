@@ -35,7 +35,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     """
 
     model_dir: str = "models/qwen"
-    model_variant: str = "qwen"
+    model_variant: str = "qwen2.5"
     caption_batch_size: int = 16
     fp8: bool = False
     max_output_tokens: int = 512

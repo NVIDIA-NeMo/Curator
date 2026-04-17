@@ -281,7 +281,7 @@ class TestCaptionPreparationStage:
             mock_logger.error.assert_called_with("Error in Caption preparation: Formatter error")
 
             # Verify error was set on clip
-            assert result.data.clips[0].errors["qwen_input"] == "Formatter error"
+            assert result.data.clips[0].errors["qwen2.5_input"] == "Formatter error"
 
             # Verify no windows were created for the failed clip
             assert len(result.data.clips[0].windows) == 0

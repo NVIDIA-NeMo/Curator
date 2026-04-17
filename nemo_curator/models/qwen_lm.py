@@ -39,7 +39,7 @@ from nemo_curator.models.base import ModelInterface
 
 _QWEN_LM_VARIANTS_INFO: Final = {
     "qwen2.5": ("Qwen/Qwen2.5-14B-Instruct", "cf98f3b"),
-    "qwen3": ("Qwen/Qwen3-14B", "8268fe3"),
+    "qwen3": ("Qwen/Qwen3-14B", "f8c293d"),
 }
 
 
