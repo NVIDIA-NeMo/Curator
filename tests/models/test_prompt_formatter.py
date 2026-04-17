@@ -90,7 +90,11 @@ class TestPromptFormatterQwen:
         assert "prompt" in result
         assert "multi_modal_data" in result
         assert result["prompt"] == "formatted_prompt"
-        assert result["multi_modal_data"]["video"] is video_tensor
+        video_data = result["multi_modal_data"]["video"]
+        assert isinstance(video_data, tuple)
+        assert isinstance(video_data[0], np.ndarray)
+        assert video_data[1]["fps"] == 2.0
+        assert video_data[1]["frames_indices"] == [0]
 
         # Verify processor was called correctly
         expected_message = [{"role": "user", "content": [{"type": "video"}, {"type": "text", "text": "Test prompt"}]}]
@@ -115,7 +119,9 @@ class TestPromptFormatterQwen:
         result = formatter.generate_inputs(prompt="Test prompt", video_inputs=video_tensor)
 
         assert result["prompt"] == "cached_prompt"
-        assert result["multi_modal_data"]["video"] is video_tensor
+        video_data = result["multi_modal_data"]["video"]
+        assert isinstance(video_data, tuple)
+        assert isinstance(video_data[0], np.ndarray)
         mock_processor_instance.apply_chat_template.assert_not_called()
 
     @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
