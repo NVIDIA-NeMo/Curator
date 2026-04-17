@@ -58,6 +58,24 @@ from nemo_curator.core.serve.constants import (
 )
 
 # ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+
+class SubprocessError(RuntimeError):
+    """Raised when a managed subprocess fails during inference server lifecycle.
+
+    Carries an optional ``debug_context`` dict so callers can surface
+    subprocess logs, PIDs, or any other diagnostic state alongside the
+    user-facing message.
+    """
+
+    def __init__(self, message: str, debug_context: dict | None = None):
+        super().__init__(message)
+        self.debug_context = debug_context or {}
+
+
+# ---------------------------------------------------------------------------
 # ManagedSubprocess: Ray actor + subprocess handle + lifecycle
 # ---------------------------------------------------------------------------
 
