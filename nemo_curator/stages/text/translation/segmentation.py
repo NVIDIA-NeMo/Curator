@@ -256,6 +256,7 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     text_field: str | list[str] = "text"
     source_lang: str = "en"
     mode: str = "coarse"
+    min_segment_chars: int = 4000
     skipme_field: str | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -319,15 +320,25 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             for field_path in field_paths:
                 texts = self._extract_texts(row, field_path)
                 for text in texts:
-                    if self.mode == "fine":
+                    if len(text) < self.min_segment_chars:
+                        # Passthrough: text is short enough to translate as one block.
+                        # Preserves full context (lists, markdown, structure).
+                        meta = {"mode": "passthrough", "field_path": field_path}
+                        field_metadatas.append(meta)
+                        if text.strip():
+                            all_segments.append(text)
+                    elif self.mode == "fine":
                         segments, meta_json = self._segment_fine(text)
+                        meta = json.loads(meta_json)
+                        meta["field_path"] = field_path
+                        field_metadatas.append(meta)
+                        all_segments.extend(segments)
                     else:
                         segments, meta_json = self._segment_coarse(text)
-
-                    meta = json.loads(meta_json)
-                    meta["field_path"] = field_path
-                    field_metadatas.append(meta)
-                    all_segments.extend(segments)
+                        meta = json.loads(meta_json)
+                        meta["field_path"] = field_path
+                        field_metadatas.append(meta)
+                        all_segments.extend(segments)
 
             # Build the combined metadata envelope.
             combined_metadata = {

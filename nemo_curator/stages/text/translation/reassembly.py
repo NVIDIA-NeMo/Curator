@@ -206,7 +206,10 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             entry_segments = translated_segments[seg_offset : seg_offset + n_segments]
             seg_offset += n_segments
 
-            if mode == "fine":
+            if mode == "passthrough":
+                # Text was short enough to translate as one block -- no reconstruction needed.
+                reassembled = entry_segments[0] if entry_segments else ""
+            elif mode == "fine":
                 reassembled = self._reassemble_fine(fm, entry_segments)
             elif mode == "coarse":
                 reassembled = self._reassemble_coarse(fm, entry_segments)
@@ -259,7 +262,9 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             The number of translatable segments for this entry.
         """
         mode = fm.get("mode", "coarse")
-        if mode == "coarse":
+        if mode == "passthrough":
+            return 1  # Entire text is one segment
+        elif mode == "coarse":
             template = fm.get("template", [])
             return sum(1 for entry in template if entry is None)
         elif mode == "fine":
