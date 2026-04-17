@@ -39,7 +39,7 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
     - Tar filenames are unique across actors via an actor-scoped prefix.
 
     Note:
-        ``images_per_tar`` must not exceed the pipeline's batch size (i.e. the number of
+        ``images_per_tar`` should not exceed the pipeline's batch size (i.e. the number of
         images delivered per ``ImageBatch``).  Each call to ``process()`` handles exactly
         one batch; if ``images_per_tar`` is larger than the batch, every tar will contain
         fewer images than requested.  Set ``images_per_tar <= batch_size`` to get the
@@ -55,6 +55,7 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
 
     def __post_init__(self) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
+        self._warned_images_per_tar: bool = False
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -151,7 +152,13 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
         if task is None or not isinstance(task.data, list) or len(task.data) == 0:
             logger.warning("Empty ImageBatch provided to ImageWriterStage; writing empty metadata only")
 
-        if isinstance(task.data, list) and len(task.data) > 0 and self.images_per_tar > len(task.data):
+        if (
+            isinstance(task.data, list)
+            and len(task.data) > 0
+            and self.images_per_tar > len(task.data)
+            and not self._warned_images_per_tar
+        ):
+            self._warned_images_per_tar = True
             logger.warning(
                 f"images_per_tar={self.images_per_tar} exceeds the batch size "
                 f"({len(task.data)} images in this batch). "
