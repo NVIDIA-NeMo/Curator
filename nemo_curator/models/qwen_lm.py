@@ -98,9 +98,9 @@ class QwenLM(ModelInterface):
         model_id, revision = _QWEN_LM_VARIANTS_INFO[variant]
         model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
-        index_file = model_dir_path / "model.safetensors.index.json"
         single_file = model_dir_path / "model.safetensors"
-        if index_file.exists() or single_file.exists():
+        shard_files = [f for f in model_dir_path.glob("model-*-of-*.safetensors") if f.exists()]
+        if single_file.exists() or shard_files:
             return
         download_model_from_hf(
             model_id=model_id,
