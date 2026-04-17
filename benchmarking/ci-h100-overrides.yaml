@@ -1,5 +1,5 @@
 # Per-entry field overrides applied on top of nightly-benchmark.yaml.
-# Used by both generate_ci_tests.py (SLURM TIME) and run.py (subprocess timeout).
+# Consumed by generate_ci_tests.py to set SLURM TIME for CI jobs.
 entry_overrides:
   domain_classification_xenna:
     timeout_s: 1400
