@@ -877,7 +877,7 @@ entries:
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=1000
-    timeout_s: 600
+    timeout_s: 800
     sink_data:
       - name: slack
         ping_on_failure:
