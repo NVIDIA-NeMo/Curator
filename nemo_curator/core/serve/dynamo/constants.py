@@ -19,6 +19,16 @@ DEFAULT_DYNAMO_NAMESPACE = "curator"
 DEFAULT_DYNAMO_REQUEST_PLANE = "nats"
 DEFAULT_DYNAMO_EVENT_PLANE = "nats"
 
+ETCD_ACTOR_LABEL = "Dynamo_ETCD"
+NATS_ACTOR_LABEL = "Dynamo_NATS"
+FRONTEND_ACTOR_LABEL = "Dynamo_Frontend"
+
+# Layout of the infra placement group shared by etcd, NATS, and the Dynamo frontend.
+INFRA_ETCD_BUNDLE = 0
+INFRA_NATS_BUNDLE = 1
+INFRA_FRONTEND_BUNDLE = 2
+INFRA_NUM_BUNDLES = 3
+
 NEMO_CURATOR_DYNAMO_NAMESPACE = "nemo_curator_dynamo"
 """Ray namespace used for all Dynamo-related detached actors and placement groups.
 

@@ -20,6 +20,7 @@
     "paths": [
       "tests/stages/synthetic",
       "tests/core/serve/ray_serve/test_integration.py",
+      "tests/core/serve/integration/test_dynamo.py",
       "tests/core/serve/test_placement.py",
       "tests/core/serve/test_subprocess_mgr.py"
     ]
