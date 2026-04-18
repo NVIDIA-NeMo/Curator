@@ -262,6 +262,7 @@ def _launch_vllm_worker(  # noqa: PLR0913
     python_args += ["--kv-events-config", kv_events_config]
 
     if spec.is_multi_node:
+        assert master_addr is not None, "master_addr must be set for multi-node replicas"  # noqa: S101
         python_args += [
             "--nnodes",
             str(spec.nnodes),

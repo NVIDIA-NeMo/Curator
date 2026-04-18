@@ -31,9 +31,8 @@ from nemo_curator.core.serve import (
 INTEGRATION_TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"  # pragma: allowlist secret
 
 
-@pytest.fixture(scope="class")
-def dynamo_aggregated_server(shared_ray_cluster: str) -> InferenceServer:  # noqa: ARG001
-    """Start a single-model aggregated Dynamo server for the class.
+def _make_aggregated_server() -> InferenceServer:
+    """Build a single-model aggregated Dynamo server used by the GPU integration tests.
 
     ``enforce_eager=True`` skips torch.compile + CUDA graph capture so the
     worker becomes ready in roughly the same window as the Ray Serve
@@ -48,11 +47,16 @@ def dynamo_aggregated_server(shared_ray_cluster: str) -> InferenceServer:  # noq
         },
         num_replicas=1,
     )
-    server = InferenceServer(
+    return InferenceServer(
         models=[model],
         backend=DynamoServerConfig(),
         health_check_timeout_s=600,
     )
+
+
+@pytest.fixture(scope="class")
+def dynamo_aggregated_server(shared_ray_cluster: str) -> InferenceServer:  # noqa: ARG001
+    server = _make_aggregated_server()
     server.start()
     try:
         yield server
@@ -86,29 +90,26 @@ class TestDynamoAggregatedSingleNode:
         assert response.choices
         assert response.choices[0].message.content
 
-    def test_restart_after_stop(self, dynamo_aggregated_server: InferenceServer) -> None:
-        """A new Dynamo server starts cleanly after the previous one is stopped.
 
-        Exercises the orphan-PG and orphan-actor sweeps in ``start()``:
-        tearing the first server down releases the named PGs, and a fresh
-        ``start()`` must not see stale bundles or actors from the prior
-        session.
-        """
+@pytest.mark.gpu
+class TestDynamoRestartAfterStop:
+    """Exercises the orphan-PG and orphan-actor sweeps by stopping and restarting.
+
+    This lives in its own class (with its own stop-early-own server) so it does
+    not mutate the class-scoped fixture shared by ``TestDynamoAggregatedSingleNode``.
+    Test-ordering randomizers (e.g. ``pytest-randomly``) would otherwise leave the
+    shared server stopped before other tests run.
+    """
+
+    def test_restart_after_stop(self, shared_ray_cluster: str) -> None:
         from openai import OpenAI
 
-        dynamo_aggregated_server.stop()
+        server = _make_aggregated_server()
+        server.start()
+        server.stop()
         assert not is_inference_server_active()
 
-        model = DynamoVLLMModelConfig(
-            model_identifier=INTEGRATION_TEST_MODEL,
-            engine_kwargs={"tensor_parallel_size": 1, "max_model_len": 512, "enforce_eager": True},
-            num_replicas=1,
-        )
-        server2 = InferenceServer(
-            models=[model],
-            backend=DynamoServerConfig(),
-            health_check_timeout_s=600,
-        )
+        server2 = _make_aggregated_server()
         server2.start()
         try:
             client = OpenAI(base_url=server2.endpoint, api_key="na")

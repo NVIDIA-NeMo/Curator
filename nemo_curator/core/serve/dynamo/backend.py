@@ -153,8 +153,12 @@ class DynamoBackend(InferenceBackend):
             with ray.init(namespace=NEMO_CURATOR_DYNAMO_NAMESPACE, ignore_reinit_error=True):
                 self._teardown_actors_and_pgs()
                 # Safety net for PGs left behind when atexit didn't run
-                # (e.g. Jupyter kernel restart).
-                remove_named_pgs_with_prefix(self._pg_name_prefix)
+                # (e.g. Jupyter kernel restart). Guard against an empty
+                # prefix — an early-failing ``start()`` (e.g. ``mode="disagg"``)
+                # leaves ``_pg_name_prefix`` unset, and ``remove_named_pgs_with_prefix("")``
+                # would match every PG in the namespace.
+                if self._pg_name_prefix:
+                    remove_named_pgs_with_prefix(self._pg_name_prefix)
         except Exception:  # noqa: BLE001
             logger.debug("Could not connect to Ray during Dynamo shutdown (cluster may be gone)")
 
@@ -176,25 +180,22 @@ class DynamoBackend(InferenceBackend):
         self._infra_ip = get_bundle_node_ip(self._infra_pg, INFRA_ETCD_BUNDLE)
         server._host = self._infra_ip
 
-        etcd_port = (
-            int(backend_cfg.etcd_endpoint.rsplit(":", 1)[-1])
-            if backend_cfg.etcd_endpoint
-            else get_free_port_in_bundle(self._infra_pg, INFRA_ETCD_BUNDLE, DEFAULT_ETCD_PORT)
-        )
-        nats_port = (
-            int(backend_cfg.nats_url.rsplit(":", 1)[-1])
-            if backend_cfg.nats_url
-            else get_free_port_in_bundle(self._infra_pg, INFRA_NATS_BUNDLE, DEFAULT_NATS_PORT)
-        )
         server.port = get_free_port_in_bundle(self._infra_pg, INFRA_FRONTEND_BUNDLE, server.port)
 
-        if not backend_cfg.etcd_endpoint:
+        if backend_cfg.etcd_endpoint:
+            etcd_endpoint = backend_cfg.etcd_endpoint
+        else:
+            etcd_port = get_free_port_in_bundle(self._infra_pg, INFRA_ETCD_BUNDLE, DEFAULT_ETCD_PORT)
             self._etcd_actor = self._start_etcd(etcd_port)
-        if not backend_cfg.nats_url:
-            self._nats_actor = self._start_nats(nats_port)
+            etcd_endpoint = f"http://{self._infra_ip}:{etcd_port}"
 
-        etcd_endpoint = backend_cfg.etcd_endpoint or f"http://{self._infra_ip}:{etcd_port}"
-        nats_url = backend_cfg.nats_url or f"nats://{self._infra_ip}:{nats_port}"
+        if backend_cfg.nats_url:
+            nats_url = backend_cfg.nats_url
+        else:
+            nats_port = get_free_port_in_bundle(self._infra_pg, INFRA_NATS_BUNDLE, DEFAULT_NATS_PORT)
+            self._nats_actor = self._start_nats(nats_port)
+            nats_url = f"nats://{self._infra_ip}:{nats_port}"
+
         base_env = {"ETCD_ENDPOINTS": etcd_endpoint, "NATS_SERVER": nats_url}
 
         expected_models: set[str] = set()
