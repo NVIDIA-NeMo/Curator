@@ -65,6 +65,11 @@ COPY docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
 
+# Install etcd + nats-server (required by the Dynamo inference backend)
+COPY docker/common/install_etcd_nats.sh .
+RUN bash install_etcd_nats.sh && \
+    rm install_etcd_nats.sh
+
 
 FROM nemo_curator_dep AS nemo_curator
 
