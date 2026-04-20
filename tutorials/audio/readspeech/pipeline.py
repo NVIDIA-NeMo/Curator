@@ -51,19 +51,32 @@ Example:
 """
 
 import argparse
+import importlib
 import os
 import shutil
 import sys
 
 from loguru import logger
 
-from nemo_curator.backends.ray_data import RayDataExecutor
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import AudioDataFilterStage
 from nemo_curator.stages.audio.datasets.readspeech import CreateInitialManifestReadSpeechStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
+
+_EXECUTOR_FACTORIES = {
+    "xenna": "nemo_curator.backends.xenna:XennaExecutor",
+    "ray_data": "nemo_curator.backends.ray_data:RayDataExecutor",
+}
+
+
+def _create_executor(backend: str, **kwargs) -> object:
+    if backend not in _EXECUTOR_FACTORIES:
+        msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
+        raise ValueError(msg)
+    module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
+    mod = importlib.import_module(module_path)
+    return getattr(mod, class_name)(**kwargs)
 
 
 def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -201,7 +214,7 @@ Examples:
         type=str,
         choices=["streaming", "batch"],
         default="streaming",
-        help="Xenna execution mode: 'streaming' (default) or 'batch'",
+        help="Xenna execution mode: 'streaming' (concurrent stages, default) or 'batch' (sequential stages)",
     )
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
     parser.add_argument("--enable-vad", action="store_true", help="Enable VAD segmentation")
@@ -257,6 +270,9 @@ def _log_config(args: argparse.Namespace) -> None:
         enabled.append("SpeakerSep")
 
     logger.info(f"Enabled Filters: {enabled or ['none']}")
+    logger.info(f"Backend:         {args.backend}")
+    if args.backend == "xenna":
+        logger.info(f"Execution Mode:  {args.execution_mode}")
     logger.info("=" * 70)
 
 
@@ -278,14 +294,14 @@ def main() -> None:
     pipeline = create_readspeech_pipeline(args)
     logger.info(pipeline.describe())
 
-    logger.info("Starting pipeline execution...")
+    executor_kwargs = {}
+    if args.backend == "xenna":
+        executor_kwargs["config"] = {"execution_mode": args.execution_mode}
+    executor = _create_executor(args.backend, **executor_kwargs)
+
+    logger.info(f"Starting pipeline execution (backend: {args.backend})...")
 
     try:
-        executor = (
-            RayDataExecutor()
-            if args.backend == "ray_data"
-            else XennaExecutor(config={"execution_mode": args.execution_mode})
-        )
         pipeline.run(executor)
 
         logger.info(f"Results written to {args.output_dir}/*.jsonl")
