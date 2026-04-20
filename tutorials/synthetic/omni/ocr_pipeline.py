@@ -25,6 +25,7 @@ from nemo_curator.stages.synthetic.omni.io import (
     JsonlTarImageReaderStage,
     ResultWriterStage,
     SkipProcessedStage,
+    merge_output_shards,
 )
 from nemo_curator.stages.synthetic.omni.ocr_nemotron_v2 import OCRNemotronV2Stage
 from nemo_curator.stages.synthetic.omni.ocr_scoring_qa import OCRScoringQAStage
@@ -287,6 +288,9 @@ def main() -> None:
 
     logger.info(f"Pipeline completed in {elapsed:.1f}s ({elapsed / 60:.1f} min)")
     logger.info(f"Tasks processed: {len(output_tasks)}")
+
+    merged = merge_output_shards(Path(args.output_path))
+    logger.info(f"Output: {merged}")
 
 
 if __name__ == "__main__":
