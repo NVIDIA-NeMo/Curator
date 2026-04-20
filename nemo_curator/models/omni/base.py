@@ -163,8 +163,6 @@ class NVInferenceModel(VLMModel):
         )
         logger.info("NVIDIA Inference client initialized")
 
-        self._thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.model_config.tensor_parallel_size)
-
     def preload(self) -> None:
         """Preload is not needed for API-based models."""
         logger.info(f"Preload not required for API-based model {self.model_id}")
@@ -215,33 +213,6 @@ class NVInferenceModel(VLMModel):
                     "image_url": {"url": image_url},
                 }
             )
-        return content
-
-    def _build_message_content_legacy(
-        self, prompt: str, image: Image.Image | str | None
-    ) -> list[dict[str, Any]]:
-        """Build message content for OpenAI-compatible API (legacy format).
-
-        Args:
-            prompt: Text prompt.
-            image: Optional PIL Image or URI string (legacy format).
-
-        Returns:
-            List of content dictionaries (legacy format).
-        """
-        content: list[dict[str, Any]] = []
-
-        if image is not None:
-            if isinstance(image, str):
-                image_url = image
-            else:
-                image_b64 = self._encode_image_to_base64(image)
-                image_url = f"data:image/png;base64,{image_b64}"
-            image_url = f"<image>{image_url}</image>"
-        else:
-            image_url = ""
-
-        content.append({"role": "user", "content": f"{image_url}\n{prompt}"})
         return content
 
     def generate(

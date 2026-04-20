@@ -42,7 +42,7 @@ from nemo_curator.stages.synthetic.omni.ocr_conversationalize import (
     WORD_OUTPUT_FORMATS,
 )
 from nemo_curator.stages.synthetic.omni.utils.conversation import ConversationSample, ImageMedia, Message
-from nemo_curator.tasks.ocr import OCRDenseWord
+from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
 
 
 MAX_QA_PAIRS = 100
@@ -127,18 +127,6 @@ def _point_dist_from_center(p: tuple[int, int]) -> float:
     return math.sqrt((p[0] - 500) ** 2 + (p[1] - 500) ** 2)
 
 
-def _union_bbox_words(words: list[OCRDenseWord]) -> tuple[int, int, int, int] | list[int]:
-    return OCRDenseWord.join(words).bbox_2d
-
-
-def _line_has_invalid(words: list[OCRDenseWord]) -> bool:
-    return any(not w.valid for w in words)
-
-
-def _line_text_full(words: list[OCRDenseWord]) -> str:
-    return OCRDenseWord.join(words).text_content.strip()
-
-
 # ---------------------------------------------------------------------------
 # Text escaping
 # ---------------------------------------------------------------------------
@@ -158,42 +146,6 @@ def _escape_text_for_prompt(text: str, rng: random.Random) -> str:
         return "'" + escaped + "'"
     escaped = text.replace("\\", "\\\\").replace('"', '\\"')
     return '"' + escaped + '"'
-
-
-# ---------------------------------------------------------------------------
-# Abbreviation helpers (for abbrev_word_position and line/block_bbox)
-# ---------------------------------------------------------------------------
-
-def _line_abbrev(words: list[OCRDenseWord], first_n: int = 3, last_n: int = 3) -> str | None:
-    """Return 'first_n words ... last_n words', or None if not enough words."""
-    if len(words) < first_n + last_n:
-        return None
-    first = OCRDenseWord.join(words[:first_n]).text_content.strip()
-    last = OCRDenseWord.join(words[-last_n:]).text_content.strip()
-    if not first or not last:
-        return None
-    return first + " ... " + last
-
-
-def _line_abbrev_options(
-    words: list[OCRDenseWord],
-    min_n: int = 2,
-    max_n: int = 4,
-) -> list[tuple[str, int, int]]:
-    """All valid (abbrev, first_n, last_n) pairs for words with >7 words."""
-    if len(words) <= 7:
-        return []
-    seen: set[str] = set()
-    result: list[tuple[str, int, int]] = []
-    for first_n in range(min_n, min(max_n + 1, len(words))):
-        for last_n in range(min_n, min(max_n + 1, len(words))):
-            if first_n + last_n >= len(words):
-                continue
-            abbrev = _line_abbrev(words, first_n=first_n, last_n=last_n)
-            if abbrev and abbrev not in seen:
-                seen.add(abbrev)
-                result.append((abbrev, first_n, last_n))
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -415,58 +367,6 @@ _POINT_SORT_GENERATORS: list[Callable[[list[tuple[int, int]]], tuple[str, list[t
     ),
 ]
 
-_BBOX_TO_LINE_TEMPLATES: list[str] = [
-    "What is the full line of text in the bounding box {}?",
-    "Read the line of text at region {}.",
-    "What does the line in the bounding box {} say?",
-    "Give me the line text inside the box {}.",
-    "What is the text on the line at coordinates {}?",
-    "Extract the line of text from the area {}.",
-    "Look at the bounding box {}. What is the full line of text?",
-]
-
-_BBOX_TO_BLOCK_TEMPLATES: list[str] = [
-    "What is the text in the bounding box {}?",
-    "Read the block of text at region {}.",
-    "What does the block in the bounding box {} say?",
-    "Give me the paragraph text inside the box {}.",
-    "What is the text in the block at coordinates {}?",
-    "Extract the block or paragraph from the area {}.",
-    "Look at the bounding box {}. What is the full block of text?",
-]
-
-_ABBREV_WORD_SINGLE_LINE: list[str] = [
-    "In the line {0}, what is the {1}th word?",
-    "In the line {0}, give me the {1}th word.",
-    "What is the {1}th word in the line {0}?",
-]
-_ABBREV_WORD_SINGLE_PARAGRAPH: list[str] = [
-    "In the paragraph {0}, what is the {1}th word?",
-    "In the paragraph {0}, give me the {1}th word.",
-    "What is the {1}th word in the paragraph {0}?",
-]
-_ABBREV_WORD_RANGE_LINE: list[str] = [
-    "In the line {0}, what is the {1}-{2}th word?",
-    "In the line {0}, what are the {1}th to {2}th words?",
-    "What are the {1}th to {2}th words in the line {0}?",
-]
-_ABBREV_WORD_RANGE_PARAGRAPH: list[str] = [
-    "In the paragraph {0}, what is the {1}-{2}th word?",
-    "In the paragraph {0}, what are the {1}th to {2}th words?",
-    "What are the {1}th to {2}th words in the paragraph {0}?",
-]
-
-_LINE_TEXT_TO_BBOX_BASES: list[str] = [
-    "Where is the line that says {}?",
-    "Locate the line containing {}.",
-    "Find the bounding box of the line that reads {}.",
-]
-_BLOCK_TEXT_TO_BBOX_BASES: list[str] = [
-    "Where is the block (paragraph) that says {}?",
-    "Locate the block containing {}.",
-    "Find the bounding box of the block that reads {}.",
-]
-
 
 # ---------------------------------------------------------------------------
 # QA generators (module-level, reused by stage and combined scoring+QA stage)
@@ -474,14 +374,6 @@ _BLOCK_TEXT_TO_BBOX_BASES: list[str] = [
 
 def _gen_bbox_to_text(rng: random.Random, bbox: list[int] | tuple[int, ...], text: str) -> tuple[str, str]:
     return (rng.choice(_BBOX_TO_TEXT_TEMPLATES).format(_fmt_box(bbox)), text)
-
-
-def _gen_bbox_to_line(rng: random.Random, bbox: list[int] | tuple[int, ...], line_text: str) -> tuple[str, str]:
-    return (rng.choice(_BBOX_TO_LINE_TEMPLATES).format(_fmt_box(bbox)), line_text)
-
-
-def _gen_bbox_to_block(rng: random.Random, bbox: list[int] | tuple[int, ...], block_text: str) -> tuple[str, str]:
-    return (rng.choice(_BBOX_TO_BLOCK_TEMPLATES).format(_fmt_box(bbox)), block_text)
 
 
 def _gen_point_to_text(rng: random.Random, point: tuple[int, int], text: str) -> tuple[str, str]:
@@ -518,46 +410,6 @@ def _gen_text_to_point_multi(rng: random.Random, text: str, bboxes: list[list[in
     fmt_instruction, answer = rng.choice(_POINT_LIST_FORMAT_TEMPLATES)(sorted_centers)
     parts = [base, sort_instruction, fmt_instruction]
     return (" ".join(p for p in parts if p), answer)
-
-
-def _gen_line_text_to_bbox(rng: random.Random, prompt_text: str, bbox: list[int] | tuple[int, ...]) -> tuple[str, str]:
-    base = rng.choice(_LINE_TEXT_TO_BBOX_BASES).format(_escape_text_for_prompt(prompt_text, rng))
-    fmt_instruction, answer = rng.choice(_BBOX_FORMAT_TEMPLATES)(tuple(bbox))
-    return (f"{base} {fmt_instruction}", answer)
-
-
-def _gen_block_text_to_bbox(rng: random.Random, prompt_text: str, bbox: list[int] | tuple[int, ...]) -> tuple[str, str]:
-    base = rng.choice(_BLOCK_TEXT_TO_BBOX_BASES).format(_escape_text_for_prompt(prompt_text, rng))
-    fmt_instruction, answer = rng.choice(_BBOX_FORMAT_TEMPLATES)(tuple(bbox))
-    return (f"{base} {fmt_instruction}", answer)
-
-
-def _gen_abbrev_word_position(
-    rng: random.Random,
-    words: list[OCRDenseWord],
-    abbrev: str,
-    is_paragraph: bool,
-    first_n: int,
-    last_n: int,
-) -> tuple[str, str]:
-    n = len(words)
-    low_1 = first_n + 1
-    high_1 = n - last_n
-    if low_1 > high_1:
-        return ("", "")
-    quoted = _escape_text_for_prompt(abbrev, rng)
-    if rng.random() < 0.5:
-        start_1 = rng.randint(low_1, high_1)
-        single_tpl = rng.choice(_ABBREV_WORD_SINGLE_PARAGRAPH if is_paragraph else _ABBREV_WORD_SINGLE_LINE)
-        q = single_tpl.format(quoted, start_1)
-        a = (words[start_1 - 1].text_content or "").strip()
-    else:
-        start_1 = rng.randint(low_1, high_1)
-        end_1 = min(start_1 + rng.randint(0, min(1, high_1 - start_1)), high_1)
-        range_tpl = rng.choice(_ABBREV_WORD_RANGE_PARAGRAPH if is_paragraph else _ABBREV_WORD_RANGE_LINE)
-        q = range_tpl.format(quoted, start_1, end_1)
-        a = " ".join((w.text_content or "").strip() for w in words[start_1 - 1 : end_1]).strip()
-    return (q, a)
 
 
 def _gen_dense_dump(rng: random.Random, words: list[OCRDenseWord]) -> tuple[str, str]:

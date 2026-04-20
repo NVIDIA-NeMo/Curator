@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from nemo_curator.stages.synthetic.omni.utils.conversation import ConversationSample
 from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
 
 
@@ -158,10 +159,6 @@ class OCRConversationData(OCRData):
             ocr_is_word_level=base.ocr_is_word_level,
             ocr_dense_prompt=base.ocr_dense_prompt,
             ocr_dense=base.ocr_dense,
-            ocr_verification_prompt=base.ocr_verification_prompt,
-            ocr_verification_model=base.ocr_verification_model,
-            ocr_verification_response_raw=base.ocr_verification_response_raw,
-            ocr_verification_answers=base.ocr_verification_answers,
             ocr_scoring_prompt=base.ocr_scoring_prompt,
             ocr_scoring_model=base.ocr_scoring_model,
             ocr_scoring_response_raw=base.ocr_scoring_response_raw,

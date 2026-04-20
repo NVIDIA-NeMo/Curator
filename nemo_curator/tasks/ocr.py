@@ -100,13 +100,7 @@ class OCRData(ImageTaskData):
     ocr_dense_prompt: str | None = None
     ocr_dense: list[OCRDenseWord] | None = None
 
-    # --- Verification (OCRVerificationStage) ---
-    ocr_verification_prompt: str | None = None
-    ocr_verification_model: str | None = None
-    ocr_verification_response_raw: str | None = None
-    ocr_verification_answers: list[dict] | None = None
-
-    # --- Scoring verification (OCRScoringVerificationStage) ---
+    # --- Scoring QA (OCRScoringQAStage) ---
     ocr_scoring_prompt: str | None = None
     ocr_scoring_model: str | None = None
     ocr_scoring_response_raw: str | None = None
@@ -138,10 +132,6 @@ class OCRData(ImageTaskData):
             ocr_is_word_level=is_word_level,
             ocr_dense_prompt=data.get("ocr_dense_prompt"),
             ocr_dense=qwen_items,
-            ocr_verification_prompt=data.get("ocr_verification_prompt"),
-            ocr_verification_model=data.get("ocr_verification_model"),
-            ocr_verification_response_raw=data.get("ocr_verification_response_raw"),
-            ocr_verification_answers=data.get("ocr_verification_answers"),
             ocr_scoring_prompt=data.get("ocr_scoring_prompt"),
             ocr_scoring_model=data.get("ocr_scoring_model"),
             ocr_scoring_response_raw=data.get("ocr_scoring_response_raw"),
