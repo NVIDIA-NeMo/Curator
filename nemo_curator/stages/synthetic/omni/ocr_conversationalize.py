@@ -167,8 +167,6 @@ class OCRConversationData(OCRData):
             ocr_scoring_response_raw=base.ocr_scoring_response_raw,
             ocr_scoring_mode=base.ocr_scoring_mode,
             ocr_scoring_missing=base.ocr_scoring_missing,
-            ocr_rtx_blocks_lines_idx=base.ocr_rtx_blocks_lines_idx,
-            ocr_rtx_invalid_count=base.ocr_rtx_invalid_count,
         )
 
 

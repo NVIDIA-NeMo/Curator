@@ -113,24 +113,6 @@ class OCRData(ImageTaskData):
     ocr_scoring_mode: str | None = None          # "word" or "line" as inferred by Gemini
     ocr_scoring_missing: list[dict] | None = None  # missing text regions with bbox_2d
 
-    # --- Block/line hierarchy (from RTX OCR or future geometric grouping) ---
-    # blocks → lines → indices into ocr_dense
-    ocr_rtx_blocks_lines_idx: list[list[list[int]]] | None = None
-    ocr_rtx_invalid_count: int | None = None
-
-    @property
-    def ocr_rtx_blocks_lines(self) -> list[list[list[OCRDenseWord]]] | None:
-        """Resolve ocr_rtx_blocks_lines_idx into word objects from ocr_dense."""
-        idx = self.ocr_rtx_blocks_lines_idx
-        dense = self.ocr_dense
-        if not idx or not dense:
-            return None
-        n = len(dense)
-        return [
-            [[dense[i] for i in line if 0 <= i < n] for line in block]
-            for block in idx
-        ]
-
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "OCRData":
         """Deserialize from a JSONL record (produced by ResultWriterStage)."""
@@ -165,6 +147,4 @@ class OCRData(ImageTaskData):
             ocr_scoring_response_raw=data.get("ocr_scoring_response_raw"),
             ocr_scoring_mode=data.get("ocr_scoring_mode"),
             ocr_scoring_missing=data.get("ocr_scoring_missing"),
-            ocr_rtx_blocks_lines_idx=data.get("ocr_rtx_blocks_lines_idx"),
-            ocr_rtx_invalid_count=data.get("ocr_rtx_invalid_count"),
         )

@@ -121,8 +121,6 @@ def _copy_to_conversation_data(src: OCRData) -> OCRConversationData:
         ocr_scoring_response_raw=src.ocr_scoring_response_raw,
         ocr_scoring_mode=src.ocr_scoring_mode,
         ocr_scoring_missing=src.ocr_scoring_missing,
-        ocr_rtx_blocks_lines_idx=src.ocr_rtx_blocks_lines_idx,
-        ocr_rtx_invalid_count=src.ocr_rtx_invalid_count,
     )
 
 

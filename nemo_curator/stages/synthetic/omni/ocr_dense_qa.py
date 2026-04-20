@@ -15,20 +15,14 @@
 """QA conversation helpers for dense OCR output.
 
 Builds up to MAX_QA_PAIRS multi-turn QA pairs per image, balanced across
-9 question types:
+4 question types:
 
-  1. bbox_to_text        — given a bbox, return the word/line text
-  2. point_to_text       — given a center point, return the word/line text
-  3. text_to_bbox        — given text, locate its bbox(es)
-  4. text_to_point       — given text, locate its center point(s)
-  5. bbox_to_line        — given a bbox, return the full line of text
-  6. bbox_to_block       — given a bbox, return the full block/paragraph
-  7. abbrev_word_position — given abbreviated line context, return the Nth word
-  8. line_bbox           — given line text, return the line's bbox
-  9. block_bbox          — given block text, return the block's bbox
+  1. bbox_to_text   — given a bbox, return the word/line text
+  2. point_to_text  — given a center point, return the word/line text
+  3. text_to_bbox   — given text, locate its bbox(es)
+  4. text_to_point  — given text, locate its center point(s)
 
-Types 5–9 require ``ocr_rtx_blocks_lines_idx`` (block/line hierarchy).
-Types 3–4 and 8–9 are disabled when OCR quality is low (many invalid bboxes).
+Types 3–4 are disabled when OCR quality is low (many invalid bboxes).
 
 Public API: ``build_qa_tagged``, ``build_conversation``, ``build_dense_conversation``.
 Used by ``OCRScoringQAStage``.
@@ -39,7 +33,7 @@ from __future__ import annotations
 import json
 import math
 import random
-from collections import Counter, defaultdict
+from collections import defaultdict
 from typing import Any, Callable
 
 from nemo_curator.stages.synthetic.omni.ocr_conversationalize import (
@@ -57,11 +51,6 @@ QA_TYPE_BBOX_TO_TEXT = "bbox_to_text"
 QA_TYPE_POINT_TO_TEXT = "point_to_text"
 QA_TYPE_TEXT_TO_BBOX = "text_to_bbox"
 QA_TYPE_TEXT_TO_POINT = "text_to_point"
-QA_TYPE_BBOX_TO_LINE = "bbox_to_line"
-QA_TYPE_BBOX_TO_BLOCK = "bbox_to_block"
-QA_TYPE_LINE_BBOX = "line_bbox"
-QA_TYPE_BLOCK_BBOX = "block_bbox"
-QA_TYPE_ABBREV_WORD_POSITION = "abbrev_word_position"
 QA_TYPE_DENSE_DUMP = "dense_dump"  # list-all-bboxes turn; only included when OCR is complete
 
 
@@ -596,8 +585,6 @@ def build_qa_tagged(
     valid_words = [w for w in words if w.valid]
 
     num_invalid = sum(1 for w in words if not w.valid)
-    if data.ocr_rtx_invalid_count is not None:
-        num_invalid = data.ocr_rtx_invalid_count
     allow_text_to_bbox = num_invalid < 5
 
     rng = random.Random(hash(task_id))
@@ -643,107 +630,6 @@ def build_qa_tagged(
                 else:
                     q, a = _gen_text_to_point_multi(rng, text, bboxes)
                 qa_tagged.append((loc_type, q, a))
-
-    # ------------------------------------------------------------------
-    # Types 5-9: block/line hierarchy (optional)
-    # ------------------------------------------------------------------
-    blocks_lines = data.ocr_rtx_blocks_lines
-    if blocks_lines:
-        lines_flat = [line for block in blocks_lines for line in block]
-        blocks_flat = [[w for line in block for w in line] for block in blocks_lines]
-
-        for line in rng.sample(lines_flat, min(3, len(lines_flat))):
-            if _line_has_invalid(line):
-                continue
-            line_text = _line_text_full(line)
-            if not line_text:
-                continue
-            bbox = _union_bbox_words(line)
-            q, a = _gen_bbox_to_line(rng, bbox, line_text)
-            qa_tagged.append((QA_TYPE_BBOX_TO_LINE, q, a))
-
-        for block in rng.sample(blocks_flat, min(3, len(blocks_flat))):
-            if any(not w.valid for w in block):
-                continue
-            block_text = _line_text_full(block)
-            if not block_text:
-                continue
-            bbox = _union_bbox_words(block)
-            q, a = _gen_bbox_to_block(rng, bbox, block_text)
-            qa_tagged.append((QA_TYPE_BBOX_TO_BLOCK, q, a))
-
-        long_lines = [l for l in lines_flat if len(l) > 7 and not _line_has_invalid(l)]
-        long_blocks = [b for b in blocks_flat if len(b) > 7 and not any(not w.valid for w in b)]
-        all_abbrevs = [a for l in long_lines for a, _, _ in _line_abbrev_options(l)]
-        all_abbrevs += [a for b in long_blocks for a, _, _ in _line_abbrev_options(b)]
-        abbrev_counts = Counter(all_abbrevs)
-
-        for line in rng.sample(long_lines, min(2, len(long_lines))):
-            unique_opts = [(a, fn, ln) for a, fn, ln in _line_abbrev_options(line) if abbrev_counts[a] == 1]
-            if not unique_opts:
-                continue
-            abbrev, first_n, last_n = rng.choice(unique_opts)
-            q, a = _gen_abbrev_word_position(rng, line, abbrev, False, first_n, last_n)
-            if a:
-                qa_tagged.append((QA_TYPE_ABBREV_WORD_POSITION, q, a))
-        for block in rng.sample(long_blocks, min(2, len(long_blocks))):
-            unique_opts = [(a, fn, ln) for a, fn, ln in _line_abbrev_options(block) if abbrev_counts[a] == 1]
-            if not unique_opts:
-                continue
-            abbrev, first_n, last_n = rng.choice(unique_opts)
-            q, a = _gen_abbrev_word_position(rng, block, abbrev, True, first_n, last_n)
-            if a:
-                qa_tagged.append((QA_TYPE_ABBREV_WORD_POSITION, q, a))
-
-        if allow_text_to_bbox:
-            line_cands: list[tuple[list[OCRDenseWord], str, list[tuple[str, int, int]]]] = [
-                (l, _line_text_full(l), _line_abbrev_options(l) if len(l) > 7 else [])
-                for l in lines_flat if not _line_has_invalid(l)
-            ]
-            block_cands: list[tuple[list[OCRDenseWord], str, list[tuple[str, int, int]]]] = [
-                (b, _line_text_full(b), _line_abbrev_options(b) if len(b) > 7 else [])
-                for b in blocks_flat if not _line_has_invalid(b)
-            ]
-            bac = Counter(a for _, _, opts in line_cands for a, _, _ in opts)
-            bac.update(a for _, _, opts in block_cands for a, _, _ in opts)
-
-            def _others(excl_l: Any, excl_b: Any) -> set[str]:
-                s: set[str] = set()
-                for l, full, opts in line_cands:
-                    if l is not excl_l:
-                        if full:
-                            s.add(full)
-                        s.update(a for a, _, _ in opts)
-                for b, full, opts in block_cands:
-                    if b is not excl_b:
-                        if full:
-                            s.add(full)
-                        s.update(a for a, _, _ in opts)
-                return s
-
-            lbc: list[tuple[str, Any]] = []
-            for l, full, opts in line_cands:
-                if not full.strip():
-                    continue
-                ua = [a for a, _, _ in opts if bac[a] == 1]
-                pt = rng.choice(ua) if ua else full
-                if pt not in _others(l, None):
-                    lbc.append((pt, _union_bbox_words(l)))
-            for pt, bbox in rng.sample(lbc, min(3, len(lbc))):
-                q, a = _gen_line_text_to_bbox(rng, pt, bbox)
-                qa_tagged.append((QA_TYPE_LINE_BBOX, q, a))
-
-            bbc: list[tuple[str, Any]] = []
-            for b, full, opts in block_cands:
-                if not full.strip():
-                    continue
-                ua = [a for a, _, _ in opts if bac[a] == 1]
-                pt = rng.choice(ua) if ua else full
-                if pt not in _others(None, b):
-                    bbc.append((pt, _union_bbox_words(b)))
-            for pt, bbox in rng.sample(bbc, min(3, len(bbc))):
-                q, a = _gen_block_text_to_bbox(rng, pt, bbox)
-                qa_tagged.append((QA_TYPE_BLOCK_BBOX, q, a))
 
     return qa_tagged, rng
 

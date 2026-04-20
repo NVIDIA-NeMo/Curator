@@ -19,7 +19,6 @@ from loguru import logger
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import Task
-from nemo_curator.utils.stage_pip_env import resolve_stage_pip_envs
 
 
 class Pipeline:
