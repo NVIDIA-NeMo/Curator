@@ -10,7 +10,7 @@ modality: "text-only"
 
 # NeMo Data Designer Integration
 
-NeMo Data Designer (NDD) is a declarative data generation framework that integrates with NeMo Curator to scale synthetic data pipelines. Instead of writing imperative LLM call logic, you define a configuration that describes what columns to generate, how to sample structured fields, and which LLM to use. NDD handles execution, batching, and token metric collection automatically.
+[NeMo Data Designer (NDD)](https://nvidia-nemo.github.io/DataDesigner/latest/) is a declarative data generation framework that integrates with NeMo Curator to scale synthetic data pipelines. Instead of writing imperative LLM call logic, you define a configuration that describes what columns to generate, how to sample structured fields, and which LLM to use. NDD handles execution, batching, and token metric collection automatically.
 
 ## How It Works
 
@@ -76,6 +76,10 @@ The `DataDesignerStage` is the core integration point between NeMo Curator and N
 ## Building a Configuration
 
 NDD configurations use a builder pattern. You add columns of three types:
+
+<Tip>
+For full documentation for building NDD configuration, see the [NDD config builder reference](https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config_builder/).
+</Tip>
 
 ### Sampler Columns
 
@@ -217,7 +221,10 @@ To use NVIDIA NIM or another hosted endpoint instead of a local server, configur
 
 ```python
 import os
+
 import data_designer.config as dd
+
+from nemo_curator.stages.synthetic.nemo_data_designer.data_designer import DataDesignerStage
 
 model_config = dd.ModelConfig(
     alias="nim-llm",
