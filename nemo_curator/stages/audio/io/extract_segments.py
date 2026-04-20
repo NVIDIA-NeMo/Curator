@@ -308,12 +308,20 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
             msg = f"output_format must be one of {list(SOUNDFILE_FORMATS)}, got {self.output_format!r}"
             raise ValueError(msg)
         self._all_metadata_rows: list[dict] = []
+        self._segment_counter: dict[str, int] = defaultdict(int)
+        self._speaker_segment_counter: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], ["original_file"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["extracted_path"]
+
+    def num_workers(self) -> int | None:
+        return 1
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {"num_workers": 1}
 
     def process(self, task: AudioTask) -> AudioTask:
         msg = "SegmentExtractionStage only supports process_batch"
@@ -356,11 +364,10 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         self, entries: list[dict],
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Combo 2: extract by original_start_ms / original_end_ms."""
-        counter: dict[str, int] = defaultdict(int)
 
         def _make_filename(name: str, _entry: dict, _seg_idx: int) -> str:
-            idx = counter[name]
-            counter[name] += 1
+            idx = self._segment_counter[name]
+            self._segment_counter[name] += 1
             return f"{name}_segment_{idx:03d}.{self.output_format}"
 
         return self._extract_file_segments(
@@ -375,9 +382,11 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Combo 3: extract each diar_segment per speaker."""
 
-        def _make_filename(name: str, entry: dict, seg_idx: int) -> str:
-            _, speaker_num = _get_speaker_label(entry)
-            return f"{name}_speaker_{speaker_num}_segment_{seg_idx:03d}.{self.output_format}"
+        def _make_filename(name: str, entry: dict, _seg_idx: int) -> str:
+            speaker_id, speaker_num = _get_speaker_label(entry)
+            idx = self._speaker_segment_counter[name][speaker_id]
+            self._speaker_segment_counter[name][speaker_id] += 1
+            return f"{name}_speaker_{speaker_num}_segment_{idx:03d}.{self.output_format}"
 
         return self._extract_file_segments(
             entries,
@@ -390,12 +399,11 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         self, entries: list[dict],
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Combo 4: extract speaker-segments by timestamps."""
-        per_speaker_count: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
         def _make_filename(name: str, entry: dict, _seg_idx: int) -> str:
             speaker_id, speaker_num = _get_speaker_label(entry)
-            idx = per_speaker_count[name][speaker_id]
-            per_speaker_count[name][speaker_id] += 1
+            idx = self._speaker_segment_counter[name][speaker_id]
+            self._speaker_segment_counter[name][speaker_id] += 1
             return f"{name}_speaker_{speaker_num}_segment_{idx:03d}.{self.output_format}"
 
         return self._extract_file_segments(
