@@ -50,16 +50,12 @@ def _to_ocr_dense_word(pred: dict[str, Any]) -> OCRDenseWord:
 
 
 class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
-    """Word-level dense OCR using NemotronOCR-v2.
+    """Word-level dense OCR using NemotronOCR-v2 (multilingual).
 
-    By default only processes tasks routed to "rtx" by OCRLanguageRoutingStage.
-    When ``process_all=True`` (e.g. routing stage was skipped) every valid task
-    is processed regardless of ``ocr_language_route``.
-
-    The ``model_dir`` parameter should point to the ``v2_english`` (or
-    ``v2_multilingual``) directory inside the NemotronOCR-v2 model checkout.
-    If ``model_dir`` is None the stage downloads the model from HuggingFace on
-    first use (``nvidia/nemotron-ocr-v2``).
+    Processes every valid task in the pipeline.  The ``model_dir`` parameter
+    should point to the ``v2_multilingual`` directory inside the NemotronOCR-v2
+    model checkout.  If ``model_dir`` is None the stage downloads the model
+    from HuggingFace on first use (``nvidia/nemotron-ocr-v2``).
 
     Output field ``ocr_dense`` is populated with a list of
     ``{"bbox_2d": [x1, y1, x2, y2], "text_content": "..."}`` entries
@@ -78,28 +74,23 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
         model_dir: str | Path | None = None,
         num_workers: int | None = None,
         merge_level: str = "word",
-        process_all: bool = False,
         **kwargs: Any,
     ) -> None:
         """Initialize the NemotronOCR-v2 stage.
 
         Args:
-            model_dir: Path to the model directory (e.g. ``<repo>/v2_english``).
+            model_dir: Path to the model directory (e.g. ``<repo>/v2_multilingual``).
                 If None, the model is downloaded from HuggingFace on ``setup()``.
             num_workers: If set, the number of Xenna workers for this stage.
                 If None, the Xenna autoscaler decides.
             merge_level: NemotronOCR merge level — "word", "sentence", or
-                "paragraph".  Defaults to "word" for compatibility with the
-                Qwen OCR output schema.
-            process_all: If True, run on every valid task regardless of
-                ``ocr_language_route`` (use when routing stage is skipped).
+                "paragraph".  Defaults to "word".
             **kwargs: Additional arguments forwarded to VLMProcessingStage.
         """
         super().__init__(**kwargs)
         self.model_dir = Path(model_dir) if model_dir is not None else None
         self.num_workers = num_workers
         self.merge_level = merge_level
-        self.process_all = process_all
         self._model: Any = None  # NemotronOCRV2, loaded in setup()
 
     def _resolve_model_dir(self) -> str:
@@ -131,9 +122,6 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
         for task in tasks:
             if not task.data.is_valid:
                 continue
-            if not self.process_all and task.data.ocr_language_route != "rtx":
-                continue  # pass through qwen/skip tasks unchanged
-
             try:
                 self._process_one(task)
             except Exception as e:

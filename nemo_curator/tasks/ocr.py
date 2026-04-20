@@ -88,26 +88,14 @@ class OCRDenseWord:
 
 @dataclass(kw_only=True)
 class OCRData(ImageTaskData):
-    """Task data for the OCR mixed dense pipeline.
+    """Task data for the OCR dense pipeline.
 
     Fields are populated incrementally as the task moves through pipeline stages:
-    - Language routing stage: ocr_language_route and associated debug flags
-    - OCR stage (Qwen): ocr_dense
-    - Verification stage: ocr_verification_*  (future)
-    - Conversationalize stage: conversation  (future)
+    - OCR stage (NemotronOCR-v2): ocr_dense
+    - Scoring QA stage (Gemini): ocr_scoring_*
+    - Conversationalize stage: conversation
     """
 
-    # --- Language routing (OCRLanguageRoutingStage) ---
-    # Route decision: "qwen" | "rtx" | "skip"
-    ocr_language_route: str | None = None
-    ocr_language_route_prompt: str | None = None
-    ocr_language_route_response_raw: str | None = None
-    ocr_has_text: bool | None = None
-    ocr_has_chinese: bool | None = None
-    ocr_has_english: bool | None = None
-    ocr_has_other_language: bool | None = None
-
-    # --- Qwen dense OCR (OCRQwenStage) ---
     ocr_is_word_level: bool = True
     ocr_dense_prompt: str | None = None
     ocr_dense: list[OCRDenseWord] | None = None
@@ -165,13 +153,6 @@ class OCRData(ImageTaskData):
             image_id=data.get("image_id"),
             is_valid=data.get("is_valid", True),
             error=data.get("error"),
-            ocr_language_route=data.get("ocr_language_route"),
-            ocr_language_route_prompt=data.get("ocr_language_route_prompt"),
-            ocr_language_route_response_raw=data.get("ocr_language_route_response_raw"),
-            ocr_has_text=data.get("ocr_has_text"),
-            ocr_has_chinese=data.get("ocr_has_chinese"),
-            ocr_has_english=data.get("ocr_has_english"),
-            ocr_has_other_language=data.get("ocr_has_other_language"),
             ocr_is_word_level=is_word_level,
             ocr_dense_prompt=data.get("ocr_dense_prompt"),
             ocr_dense=qwen_items,
