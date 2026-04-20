@@ -1,6 +1,19 @@
 # Nemotron-Climb Data Curation
 
-TODO: Description here
+[CLustering-based Iterative Data Mixture Bootstrapping (Nemotron-CLIMB)](https://arxiv.org/abs/2504.13161) is an automated framework that discovers, evaluates, and refines data mixtures in a pre-training setting. Specifically, Nemotron-CLIMB embeds and clusters large-scale datasets in a semantic space and then iteratively searches for optimal mixtures using a smaller proxy model and a predictor.
+
+This tutorial uses NeMo Curator to implement the data curation recipe used to create the [Nemotron-CLIMB dataset](https://huggingface.co/datasets/nvidia/Nemotron-ClimbMix). At a high level, it follows these steps:
+
+1. Compute text embeddings per document
+2. Cluster the documents with K-Means
+3. Use FastText classification models to remove low-quality clusters, then merge similar clusters according to a Euclidean distance threshold
+4. Tokenize and write to `.bin` and `.idx` files
+5. Use a Dirichlet distribution to generate data mixtures
+6. Train a proxy model for each data mixture using Megatron-LM
+7. Benchmark each proxy model using LM Evaluation Harness
+8. Fit a LightGBM predictor on the benchmark results and use the predictor to generate an optimal data mixture for full-scale LLM training
+
+For reference, the [Nemotron-CLIMB dataset](https://huggingface.co/datasets/nvidia/Nemotron-ClimbMix) was produced using this pipeline on multi-terabyte pretraining corpora. See the [Nemotron-CLIMB paper](https://arxiv.org/pdf/2504.13161) for full experimental details, ablations, and results.
 
 ## Step 0: Requirements
 
@@ -137,7 +150,7 @@ Users may opt to run the script with all 5 models as demonstrated above, or a su
 
 After the FastText scores are computed, clusters with an average score less than `--pruning-threshold 1.0` are removed.
 
-Finally, remaining clusters with a Euclidean distance closer than `--merge-threshold 1.5` are combined with each other. **It is strongly recommended to use step 2.5 to choose an appropriate merge threshold value.** The [Nemotron-CLIMB paper](https://arxiv.org/pdf/2504.13161) used a value of 1.5, which is quite large, to merge multiple terabytes of data and produce 21 "super clusters." For smaller datasets, a 1.5 threshold is almost certainly too large and may combine all of the data into a single cluster.
+TODO: Update this paragraph as needed. Finally, remaining clusters with a Euclidean distance closer than `--merge-threshold 1.5` are combined with each other. **It is strongly recommended to use step 2.5 to choose an appropriate merge threshold value.** The [Nemotron-CLIMB paper](https://arxiv.org/pdf/2504.13161) used a value of 1.5, which is quite large, to merge multiple terabytes of data and produce 21 "super clusters." For smaller datasets, a 1.5 threshold is almost certainly too large and may combine all of the data into a single cluster.
 
 ## Step 4: Convert to Tokenized Files
 
@@ -252,16 +265,43 @@ The script evalutes each proxy model on the [ARC-Easy](https://arxiv.org/abs/180
 
 By default, all available GPUs are used for benchmarking. Make sure the `model_args` used in `7_evaluate.sh` match those used in `6_train.sh` (e.g., `tokenizer_type=Llama2Tokenizer` and `seq_length=1024`).
 
-## Step 8: Train Predictor
+## Step 8: Fit Predictor
 
-Train a [LightGBM](https://lightgbm.readthedocs.io/en/stable/) model on the results with:
+Fit a [LightGBM](https://lightgbm.readthedocs.io/en/stable/) predictor on the results with:
 
 ```bash
 # run `uv pip install lightgbm` if not already installed
 
-python 8_predict.py
+python 8_predict.py \
+    --input-path /path/to/lm_eval_results \
+    --domains-path /path/to/domains \
+    --mixtures-path /path/to/mixtures \
+    --output-path /path/to/predict_results \
+    --metric "valid_avg" \
+    --num-mixtures 1
 ```
 
-The script uses `lightgbm` which can each be installed via `uv pip install lightgbm`.
+The script uses `lightgbm` which can each be installed via `uv pip install lightgbm`. It requires several inputs:
 
-TODO: Add more information
+- `--input-path`: The output `lm_eval_results` directory from step 7
+- `--domains-path`: The output `domains` directory from step 4 containing the `.bin` and `.idx` files
+- `--mixtures-path`: The output `mixtures` directory from step 5 containing the data mixtures
+- `--output-path`: Path to write the output mixture(s)
+
+The script fits a LightGBM predictor by using the data mixtures as the features and the average benchmark score (via `--metric "valid_avg"`) as the target. It then outputs `--num-mixtures 1` data ratios which represent the optimal data mixture(s) to use for LLM training.
+
+From here, the user may opt to use `num_mixtures > 1` and repeat steps 6 and 7 with the newly generated data mixtures. Then, the new benchmarks can be combined with the existing benchmarks to rerun step 8 and fit a predictor with all benchmarking data. The goal is to iterate upon steps 6, 7, and 8 until a single optimal data mixture is produced to be used for full-scale LLM training.
+
+## Conclusion
+
+To follow the [Nemotron-CLIMB paper](https://arxiv.org/pdf/2504.13161) exactly:
+
+a. Run steps 1-7, generating 64 data mixtures in step 5 and training a single proxy model per data mixture (64 models total).
+b. Run step 8 to fit a predictor on the benchmarks from the 64 models. Generate 32 more mixtures.
+c. Re-run steps 6 and 7 with the 32 data mixtures.
+d. Re-run step 8 to fit a predictor using current and past benchmarks (64 + 32 = 96 total). Generate 16 more mixtures.
+e. Re-run steps 6 and 7 with the 16 data mixtures.
+f. Re-run step 8 to fit a predictor using current and past benchmarks (96 + 16 = 112 total). Generate 1 more mixture.
+g. Use the final data mixture for full-scale LLM training.
+
+By iteratively refining the data mixture across three rounds (64 -> 32 -> 16 -> 1), the predictor is trained on an increasingly rich set of mixture-performance pairs, resulting in a more accurate estimate of the optimal data mixture. The final mixture can then be used to train a full-scale LLM with a data composition that is empirically grounded in downstream benchmark performance.
