@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
 
 from nemo_curator.stages.synthetic.omni.utils.conversation import ConversationSample
 from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
@@ -148,22 +147,5 @@ class OCRConversationData(OCRData):
 
     conversation: ConversationSample | None = None
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OCRConversationData":
-        base = OCRData.from_dict(data)
-        return cls(
-            image_path=base.image_path,
-            image_id=base.image_id,
-            is_valid=base.is_valid,
-            error=base.error,
-            ocr_is_word_level=base.ocr_is_word_level,
-            ocr_dense_prompt=base.ocr_dense_prompt,
-            ocr_dense=base.ocr_dense,
-            ocr_scoring_prompt=base.ocr_scoring_prompt,
-            ocr_scoring_model=base.ocr_scoring_model,
-            ocr_scoring_response_raw=base.ocr_scoring_response_raw,
-            ocr_scoring_mode=base.ocr_scoring_mode,
-            ocr_scoring_missing=base.ocr_scoring_missing,
-        )
 
 

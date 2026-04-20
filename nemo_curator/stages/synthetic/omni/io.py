@@ -804,7 +804,6 @@ class ParquetImageReader(CompositeStage[_EmptyTask, SingleDataTask[T_TaskData]],
         self,
         input_parquet_path: str,
         extract_dir: str | None = None,
-        image_parent: str | None = None,
         image_limit: int | None = None,
         verbose: bool = False,
         task_type: Type[T_TaskData] = ImageTaskData,
@@ -813,7 +812,6 @@ class ParquetImageReader(CompositeStage[_EmptyTask, SingleDataTask[T_TaskData]],
         super().__init__()
         self.input_parquet_path = input_parquet_path
         self.extract_dir = Path(extract_dir) if extract_dir else None
-        self.image_parent = Path(image_parent) if image_parent else None
         self.image_limit = image_limit
         self.verbose = verbose
         self.task_type = task_type
@@ -950,6 +948,7 @@ class SkipProcessedStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataT
             if key is None:
                 self._passed += 1
                 results.append(task)
+                continue
             if key in self._processed:
                 self._skipped_existing += 1
                 continue
@@ -1476,29 +1475,3 @@ def load_image_from_task(task: SingleDataTask[ImageTaskData]) -> Image.Image:
     return reader.open_image(task.data.image_path)
 
 
-def load_image_uri_from_task(task: SingleDataTask[ImageTaskData]) -> str:
-    """Load image as data URL from an ImageCaptionTask.
-
-    Handles parquet references, in-memory bytes, direct file paths, and tar-embedded paths.
-
-    Args:
-        task: ImageCaptionTask containing image source (parquet ref, bytes, or path).
-
-    Returns:
-        Data URL string.
-    """
-    reader = _get_reader_for_path(task.data.image_path)
-    return reader.read_image_url(task.data.image_path)
-
-
-def get_image_name_from_task(task: SingleDataTask[ImageTaskData]) -> str:
-    """Get image name from task."""
-    if task.data.image_path.parent.name.endswith(".parquet"):
-        raise ValueError(f"Cannot get image name from parquet files. {task.data.image_path}")
-    if (tar_slice := _parse_tar_slice_path(task.data.image_path)) is not None:
-        _, _, _, internal_name = tar_slice
-        return internal_name
-    elif task.data.image_path is not None:
-        return task.data.image_path.name
-    else:
-        raise ValueError(f"Invalid image path: {task.data.image_path}")
