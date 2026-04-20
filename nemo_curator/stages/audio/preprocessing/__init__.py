@@ -18,6 +18,7 @@ Audio preprocessing stages.
 These stages prepare audio for further processing:
 - MonoConversionStage: Convert to mono and verify sample rate
 - SegmentConcatenationStage: Concatenate multiple audio segments
+- GroupByVideoStage: Annotate rows with resolved video ID
 
 Example:
     from nemo_curator.pipeline import Pipeline
@@ -28,6 +29,7 @@ Example:
 """
 
 from .concatenation import SegmentConcatenationStage
+from .group_by_video import GroupByVideoStage
 from .mono_conversion import MonoConversionStage
 
-__all__ = ["MonoConversionStage", "SegmentConcatenationStage"]
+__all__ = ["GroupByVideoStage", "MonoConversionStage", "SegmentConcatenationStage"]

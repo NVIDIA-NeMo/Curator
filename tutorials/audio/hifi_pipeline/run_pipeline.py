@@ -17,7 +17,8 @@
 Chains all stages::
 
     SED -> SED postprocess -> segment extract -> diarize ->
-    transcribe (3-pass cascade) -> speaker embed -> speaker cluster -> utmos
+    transcribe (3-pass cascade) -> speaker embed -> group by video ->
+    speaker cluster -> utmos
 
 Supports two transcription modes:
 
@@ -70,8 +71,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--s3_endpoint_url", type=str, default=None)
 
     p.add_argument(
-        "--stages", type=str, default="sed,sed_post,segment,diarize,transcribe,embed,cluster",
-        help="Comma-separated: sed,sed_post,segment,diarize,transcribe,embed,cluster",
+        "--stages", type=str,
+        default="sed,sed_post,segment,diarize,transcribe,embed,group_video,cluster,utmos",
+        help="Comma-separated: sed,sed_post,segment,diarize,transcribe,embed,group_video,cluster,utmos",
     )
 
     # SED
@@ -88,13 +90,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--api_key", type=str, default="dummy-key")
     p.add_argument("--max_tokens", type=int, default=512)
     p.add_argument("--temperature", type=float, default=0.0)
-    p.add_argument("--data_config", type=str, default=None,
-                    help="Granary YAML config for in-process vLLM transcription.")
-    p.add_argument("--tensor_parallel_size", type=int, default=2)
 
     # Speaker ID
     p.add_argument("--speaker_model", type=str, default="nvidia/speakerverification_en_titanet_large")
     p.add_argument("--cluster_threshold", type=float, default=0.292)
+    p.add_argument("--cluster_batch_size", type=int, default=64)
+
+    # UTMOS
+    p.add_argument("--utmos_batch_size", type=int, default=16)
 
     p.add_argument("--no_ray_local", action="store_true")
     p.add_argument("--batch_size", type=int, default=1)
@@ -299,7 +302,7 @@ def main() -> None:
         sys.exit(1)
 
     RayDataExecutor, JsonlReader, JsonlWriter = None, None, None
-    ray_stages = {"sed", "sed_post", "segment", "embed", "cluster", "utmos"}
+    ray_stages = {"sed", "sed_post", "segment", "embed", "group_video", "cluster", "utmos"}
     if ray_stages & stages:
         RayDataExecutor, JsonlReader, JsonlWriter = _init_ray_pipeline()
 
@@ -425,11 +428,25 @@ def main() -> None:
         current_manifest = embed_out
         print(f"[pipeline] Embedding done -> {embed_out}")
 
-    # ---- Stage 7: Speaker Clustering ----
+    # ---- Stage 7a: Group by Video ID ----
+    if "group_video" in stages:
+        from nemo_curator.stages.audio.preprocessing.group_by_video import GroupByVideoStage
+
+        print("[pipeline] Stage 7a: Group by Video ID")
+        pipeline = Pipeline(name="group_video")
+        pipeline.add_stage(JsonlReader(file_paths=current_manifest))
+        pipeline.add_stage(GroupByVideoStage())
+        group_out = os.path.join(args.output_dir, "grouped_manifest")
+        pipeline.add_stage(JsonlWriter(path=group_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+        pipeline.run(executor=RayDataExecutor())
+        current_manifest = group_out
+        print(f"[pipeline] Grouping done -> {group_out}")
+
+    # ---- Stage 7b: Speaker Clustering ----
     if "cluster" in stages:
         from nemo_curator.stages.audio.speaker_id.speaker_clustering_and_scoring import SpeakerClusteringStage
 
-        print("[pipeline] Stage 7: Speaker Clustering (AHC)")
+        print("[pipeline] Stage 7b: Speaker Clustering (AHC)")
         pipeline = Pipeline(name="cluster")
         pipeline.add_stage(JsonlReader(file_paths=current_manifest))
         pipeline.add_stage(SpeakerClusteringStage(
@@ -446,15 +463,31 @@ def main() -> None:
     if "utmos" in stages:
         from nemo_curator.stages.audio.metrics.utmosv2_score import GetUtmosv2ScoreStage
 
-        print("[pipeline] Stage 8: UTMOS Scoring (UTMOSv2)")
-        pipeline = Pipeline(name="utmos")
-        pipeline.add_stage(JsonlReader(file_paths=current_manifest))
-        pipeline.add_stage(GetUtmosv2ScoreStage(inference_batch_size=args.utmos_batch_size))
-        utmos_out = os.path.join(args.output_dir, "utmos_manifest")
-        pipeline.add_stage(JsonlWriter(path=utmos_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
-        pipeline.run(executor=RayDataExecutor())
-        current_manifest = utmos_out
-        print(f"[pipeline] UTMOS scoring done -> {utmos_out}")
+        if args.data_config:
+            # Streaming mode: read audio from NeMo tars via AIS, score in-memory
+            from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
+            from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
+            from nemo_curator.backends.xenna import XennaExecutor
+
+            print(f"[pipeline] Stage 8: UTMOS Scoring (UTMOSv2, AIS streaming)")
+            utmos_out = os.path.join(args.output_dir, "utmos_output.jsonl")
+            pipeline = Pipeline(name="utmos")
+            pipeline.add_stage(NemoTarredAudioReader(yaml_path=args.data_config))
+            pipeline.add_stage(GetUtmosv2ScoreStage(inference_batch_size=args.utmos_batch_size))
+            pipeline.add_stage(ALMManifestWriterStage(output_path=utmos_out))
+            pipeline.run(executor=XennaExecutor(config={"execution_mode": "streaming"}))
+            current_manifest = utmos_out
+        else:
+            # File mode: read from JSONL manifest, score files (local/remote)
+            print("[pipeline] Stage 8: UTMOS Scoring (UTMOSv2)")
+            pipeline = Pipeline(name="utmos")
+            pipeline.add_stage(JsonlReader(file_paths=current_manifest))
+            pipeline.add_stage(GetUtmosv2ScoreStage(inference_batch_size=args.utmos_batch_size))
+            utmos_out = os.path.join(args.output_dir, "utmos_manifest")
+            pipeline.add_stage(JsonlWriter(path=utmos_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+            pipeline.run(executor=RayDataExecutor())
+            current_manifest = utmos_out
+        print(f"[pipeline] UTMOS scoring done -> {current_manifest}")
 
     # ---- Final output ----
     print(f"\n[pipeline] All stages complete. Final output: {current_manifest}")

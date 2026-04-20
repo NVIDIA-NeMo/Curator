@@ -1,47 +1,173 @@
 ## Summary
 
-- Add end-to-end HIFI data curation pipeline stages: SED inference, SED postprocessing, segment extraction, three-pass transcription cascade (Qwen3-Omni ASR + verification + LLM PnC), text-only LLM request, and speaker clustering improvements.
-- Add YAML-based prompt configs for four languages (En, Fi, Ru, Uk) with three passes each (ASR, verification, punctuation & capitalization).
-- Add `batch_size` parameter to `SpeakerClusteringStage` for grouped clustering -- clusters shards in groups of N with globally unique speaker labels, controlling memory vs. clustering scope trade-off.
-- Integrate existing `GetUtmosv2ScoreStage` (MOS quality scoring) and `UTMOSFilterStage` (quality filtering) from dev branch into the pipeline.
-- Add Slurm-based speaker ID tooling for large-scale embedding extraction and global clustering on AIS-backed NeMo tarred audio datasets.
+End-to-end HIFI data curation pipeline for speech audio: SED inference, SED postprocessing, segment extraction, diarization, three-pass transcription cascade (Qwen3-Omni ASR + verification + LLM PnC), speaker embedding + clustering, and UTMOS quality scoring.
 
 ## Pipeline stages
 
-1. **SEDInferenceStage** (GPU, batch) -- runs PANNs CNN14 on audio, outputs per-frame class probability matrix (T x 527 AudioSet classes) as compressed NPZ sidecar files.
-2. **SEDPostprocessingStage** (CPU, 1:1) -- reads NPZ probability matrices, aggregates speech-class probabilities (noisy-or), applies threshold/hysteresis/smoothing/merging to detect clean-speech events. Optional GBT classifier for event filtering.
-3. **SegmentExtractorStage** (CPU, 1:N fan-out) -- takes `predicted_events` from SED postprocessing and produces one `AudioTask` per speech event with start/end timestamps. Same fan-out pattern as `VADSegmentationStage`.
-4. **TranscriptionCascadeStage** (GPU, 3-pass) -- orchestrates three sequential LLM passes using YAML prompt configs:
-   - **Pass 1** (Qwen3-Omni): Audio-only ASR + number normalization → `qwen3_omni_pred_text`
-   - **Pass 2** (Qwen3-Omni): Audio + draft text verification → `qwen3_omni_verified_text`
-   - **Pass 3** (Qwen3-LLM): Text-only punctuation & capitalization → `qwen3_llm_corrected_text`
-5. **TextOnlyLLMRequestStage** (GPU, 1:1) -- sends text-only messages to an LLM via OpenAI API for punctuation, capitalization, and text refinement. Used standalone or as Pass 3 of the cascade.
-6. **GetUtmosv2ScoreStage** (GPU, 1:1) -- compute UTMOSv2 MOS quality score per utterance.
-7. **UTMOSFilterStage** (CPU, 1:1) -- filter utterances by MOS quality threshold.
-8. **SpeakerEmbeddingLhotseStage** (GPU, batch) -- TitaNet-Large 192-dim speaker embeddings via NeMo `EncDecSpeakerLabelModel`, saved as per-shard NPZ files.
-9. **SpeakerClusteringStage** (CPU) -- Agglomerative Hierarchical Clustering (AHC) with cosine similarity threshold. Supports three modes: global (all shards), shard-level (per shard), and grouped via `batch_size` (N shards per group with globally unique labels). Writes manifest with `speaker_label` and `confidence_score` per utterance.
+```
+SED -> SED postprocess -> segment extract -> diarize ->
+transcribe (3-pass cascade) -> speaker embed -> group by video ->
+speaker cluster -> utmos
+```
 
-## New library modules
+| # | Stage | Compute | Description |
+|---|-------|---------|-------------|
+| 1 | **SEDInferenceStage** | GPU, batch | PANNs CNN14 sound event detection, outputs per-frame probability matrix (T x 527 AudioSet classes) as NPZ sidecar files |
+| 2 | **SEDPostprocessingStage** | CPU, 1:1 | Aggregates speech-class probabilities, applies threshold/hysteresis/smoothing/merging to detect clean-speech events |
+| 3 | **SegmentExtractorStage** | CPU, 1:N | Fan-out: SED events -> individual AudioTasks with start/end timestamps |
+| 4 | **InferenceSortformerStage** | GPU | Sortformer diarization: speaker segmentation and labeling |
+| 5 | **TranscriptionCascadeStage** | GPU, 3-pass | Three sequential LLM passes via YAML prompt configs (see below) |
+| 6 | **SpeakerEmbeddingLhotseStage** | GPU, batch | TitaNet-Large 192-dim speaker embeddings via NeMo |
+| 7a | **GroupByVideoStage** | CPU, 1:1 | Resolves and annotates each row with a `video_id` extracted from manifest fields (`id`, `youtube_id`, `audio_item_id`) or regex on `audio_filepath`. Enables per-video clustering downstream |
+| 7b | **SpeakerClusteringStage** | CPU | Agglomerative Hierarchical Clustering with cosine similarity. Supports global, shard-level, and grouped (`batch_size`) modes. Uses `video_id` for per-video clustering when available |
+| 8 | **GetUtmosv2ScoreStage** | GPU, 1:1 | UTMOSv2 Mean Opinion Score per utterance. Supports local WAV, remote audio (s3://, ais://), and any ffmpeg-supported format (opus, m4a, flac, mp3, etc.) |
 
-| Module | Purpose |
-|--------|---------|
-| `stages/audio/inference/sed.py` | SED inference stage wrapping PANNs CNN14 |
-| `stages/audio/inference/sed_models/cnn14.py` | CNN14 / CNN14-DecisionLevelMax model definitions |
-| `stages/audio/postprocessing/sed_postprocessing.py` | SED postprocessing: threshold, hysteresis, merging |
-| `stages/audio/postprocessing/sed_utils.py` | SED utilities: smoothing, AudioSet class mapping |
-| `stages/audio/request/prompt_template.py` | YAML prompt config loader and renderer |
-| `stages/audio/request/text_only_llm_request.py` | Text-only LLM request stage (PnC / standalone) |
-| `stages/audio/request/transcription_cascade.py` | Three-pass transcription cascade orchestrator |
-| `stages/audio/segmentation/segment_extractor.py` | Fan-out stage: SED events → individual AudioTasks |
+### Transcription cascade passes
 
-## Modified modules
+| Pass | Model | Input | Output |
+|------|-------|-------|--------|
+| 1 | Qwen3-Omni | Audio-only ASR + number normalization | `qwen3_omni_pred_text` |
+| 2 | Qwen3-Omni | Audio + draft text verification | `qwen3_omni_verified_text` |
+| 3 | Qwen3-LLM | Text-only punctuation & capitalization | `qwen3_llm_corrected_text` |
 
-| Module | Change |
-|--------|--------|
-| `stages/audio/speaker_id/speaker_clustering_and_scoring.py` | Add `batch_size` parameter for grouped clustering; graceful handling of missing embeddings (`speaker_label=-1, confidence_score=0.0`) |
-| `stages/audio/__init__.py` | Export new stages |
-| `stages/audio/request/__init__.py` | Export new request stages |
-| `stages/audio/segmentation/__init__.py` | Export `SegmentExtractorStage` |
+## Docker containers
+
+Two container images, each targeting a subset of pipeline stages:
+
+### `curator-hifi-pipeline` (full pipeline with vLLM)
+
+Base: `qwenllm/qwen3-omni` (~35 GB). Includes Qwen3-Omni vLLM for transcription cascade.
+
+```bash
+# Build
+docker build -t curator-hifi-pipeline -f tutorials/audio/hifi_pipeline/Dockerfile .
+
+# Run (all stages, server-based transcription)
+docker run --gpus all --ipc=host --shm-size=8g \
+  -v /path/to/data:/data -v /path/to/models:/models \
+  curator-hifi-pipeline \
+  --input_manifest /data/manifest.jsonl \
+  --stages sed,sed_post,segment,diarize,transcribe,embed,cluster,utmos \
+  --sed_checkpoint /models/Cnn14_DecisionLevelMax.pth \
+  --language Ru
+
+# Run (in-process vLLM via XennaExecutor)
+docker run --gpus all --ipc=host --shm-size=8g \
+  -v /path/to/data:/data \
+  curator-hifi-pipeline \
+  --data_config /data/granary.yaml \
+  --stages transcribe \
+  --language Ru
+```
+
+### `curator-nemo-stages` (SED + diarize + speaker ID + UTMOS)
+
+Base: `pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime` (~8.5 GB). No vLLM -- for stages that don't need LLM inference.
+
+```bash
+# Build
+docker build -t curator-nemo-stages -f tutorials/audio/hifi_pipeline/Dockerfile.nemo .
+
+# Run
+docker run --gpus all --ipc=host --shm-size=8g \
+  -v /path/to/data:/data -v /path/to/models:/models \
+  curator-nemo-stages \
+  --input_manifest /data/manifest.jsonl \
+  --stages sed,sed_post,diarize,embed,cluster,utmos
+
+# UTMOS only (with utmosv2 installed at runtime)
+docker run --gpus all --ipc=host --shm-size=8g \
+  --entrypoint bash \
+  -v /path/to/Curator:/opt/Curator \
+  -v /path/to/data:/data \
+  curator-nemo-stages \
+  -c "apt-get update -qq && apt-get install -y -qq wget >/dev/null 2>&1 && \
+      pip install -q 'utmosv2 @ git+https://github.com/sarulab-speech/UTMOSv2.git' && \
+      PYTHONPATH=/opt/Curator python /opt/Curator/tutorials/audio/hifi_pipeline/run_pipeline.py \
+        --input_manifest /data/manifest.jsonl \
+        --output_dir /data/output \
+        --stages utmos"
+```
+
+### Stage-to-container mapping
+
+| Stage | `curator-hifi-pipeline` | `curator-nemo-stages` |
+|-------|:-----------------------:|:---------------------:|
+| sed, sed_post, segment | yes | yes |
+| diarize | yes | yes |
+| transcribe (server) | yes | -- |
+| transcribe (in-process) | yes | -- |
+| embed, cluster | yes | yes |
+| utmos | yes* | yes* |
+
+\* Requires `utmosv2` package installed at runtime (not baked into either image).
+
+## UTMOS scoring details
+
+`GetUtmosv2ScoreStage` computes UTMOSv2 MOS quality scores (1-5 scale) per audio entry.
+
+### Audio input modes
+
+**Mode 1 — In-memory waveform (AIS streaming, preferred for large datasets):**
+
+When upstream is `NemoTarredAudioReader`, each `AudioTask` carries a `waveform` (numpy array) and `sample_rate` decoded in memory from NeMo tar archives streamed via AIS. No files are downloaded to disk. The stage resamples to 16kHz, writes a temp WAV for UTMOSv2, scores, and discards. Use `--data_config` to activate this mode.
+
+```bash
+python run_pipeline.py \
+    --data_config /path/to/granary.yaml \
+    --stages utmos \
+    --output_dir /output
+```
+
+**Mode 2 — File path (local or remote):**
+
+When reading from JSONL manifests, the stage resolves `audio_filepath` to local or remote files. Supports `s3://`, `ais://`, `http(s)://` via CLI download, and any ffmpeg-supported format (opus, m4a, flac, mp3, etc.).
+
+```bash
+python run_pipeline.py \
+    --input_manifest /data/manifest.jsonl \
+    --stages utmos \
+    --output_dir /output
+```
+
+**Mode 3 — Mixed:** A `DocumentBatch` may contain entries with waveforms and entries with file paths; each is handled appropriately.
+
+### GPU-accelerated spectrograms (Slurm scoring)
+
+The standalone `score_utmos_shard.py` script patches UTMOSv2 to compute mel spectrograms on GPU via `torchaudio` instead of the default CPU-based `librosa`. This avoids the main bottleneck in UTMOSv2's fusion model (16 mel spectrograms per sample computed on CPU). The spectrogram computation is moved from the dataset `__getitem__` (CPU DataLoader) to the model `forward` pass (GPU), yielding ~35x speedup with negligible score deviation (correlation > 0.999 vs unpatched).
+
+| Approach | Time per shard (~1400 files) |
+|----------|----------------------------|
+| Default librosa (CPU) | ~35 min |
+| torchaudio (CPU replacement) | ~13 min |
+| **torchaudio (GPU, used in script)** | **~2 min** |
+
+### Dedicated UTMOS container
+
+`Dockerfile.utmos` provides a lightweight container with UTMOSv2 + torchaudio + aistore SDK:
+
+```bash
+docker build -t curator-utmos -f tutorials/audio/hifi_pipeline/Dockerfile.utmos .
+```
+
+## CLI reference
+
+```bash
+python run_pipeline.py \
+    --input_manifest /data/manifest.jsonl \
+    --output_dir /data/output \
+    --stages sed,sed_post,segment,diarize,transcribe,embed,group_video,cluster,utmos \
+    --language Ru \
+    --sed_checkpoint /models/Cnn14_DecisionLevelMax.pth \
+    --vllm_host localhost --vllm_port 8200 \
+    --omni_model Qwen/Qwen3-Omni-30B-A3B-Instruct \
+    --llm_model Qwen/Qwen3-30B-A3B-Instruct \
+    --cluster_threshold 0.292 \
+    --cluster_batch_size 64 \
+    --utmos_batch_size 16
+```
+
+Stages can be run selectively: `--stages utmos` runs only UTMOS scoring.
 
 ## Prompt configs
 
@@ -54,7 +180,7 @@ YAML-based prompt templates in `stages/audio/request/prompts/{lang}/`:
 | Ru | `Ru/1st_pass.yaml` | `Ru/2nd_pass.yaml` | `Ru/3_llm_pnc.yaml` |
 | Uk | `Uk/1st_pass.yaml` | `Uk/2nd_pass.yaml` | `Uk/3_llm_pnc.yaml` |
 
-## Slurm speaker ID tooling (`tutorials/audio/hifi_pipeline/slurm_speaker_id/`)
+## Slurm speaker ID tooling (`slurm_speaker_id/`)
 
 | Script | Purpose |
 |--------|---------|
@@ -66,19 +192,23 @@ YAML-based prompt templates in `stages/audio/request/prompts/{lang}/`:
 | `submit_clustering_grouped.sh` | Grouped clustering Slurm submission |
 | `submit_clustering.sh` / `submit_clustering_by_video.sh` | Other clustering submission variants |
 | `run_clustering.py` | Clustering orchestrator using Curator's `SpeakerClusteringStage` |
-| `check_status.sh` | Monitor embedding/clustering progress per corpus |
-| `auto_submit_1bw.sh` | Auto-retry submission for large corpora |
 
-## Tutorial pipeline runner
+## Library modules
 
-`tutorials/audio/hifi_pipeline/run_pipeline.py` -- end-to-end CLI that chains all stages:
-
-```
-SED → SED postprocess → segment extract → diarize →
-transcribe (3-pass cascade) → speaker embed → speaker cluster
-```
-
-Supports selective stage execution via `--stages sed,sed_post,segment,...`.
+| Module | Purpose |
+|--------|---------|
+| `stages/audio/inference/sed.py` | SED inference stage wrapping PANNs CNN14 |
+| `stages/audio/inference/sed_models/cnn14.py` | CNN14 / CNN14-DecisionLevelMax model definitions |
+| `stages/audio/inference/transcription_cascade_inprocess.py` | In-process vLLM 3-pass transcription cascade |
+| `stages/audio/postprocessing/sed_postprocessing.py` | SED postprocessing: threshold, hysteresis, merging |
+| `stages/audio/postprocessing/sed_utils.py` | SED utilities: smoothing, AudioSet class mapping |
+| `stages/audio/request/prompt_template.py` | YAML prompt config loader and renderer |
+| `stages/audio/request/text_only_llm_request.py` | Text-only LLM request stage (PnC / standalone) |
+| `stages/audio/request/transcription_cascade.py` | Three-pass transcription cascade orchestrator |
+| `stages/audio/segmentation/segment_extractor.py` | Fan-out stage: SED events -> individual AudioTasks |
+| `stages/audio/preprocessing/group_by_video.py` | Resolve and annotate video ID from manifest fields or audio filepath |
+| `stages/audio/metrics/utmosv2_score.py` | UTMOSv2 MOS scoring (local + remote + any format) |
+| `stages/audio/filtering/utmos.py` | Quality filtering by MOS threshold |
 
 ## Tests
 
@@ -90,42 +220,3 @@ Supports selective stage execution via `--stages sed,sed_post,segment,...`.
 | `test_prompt_template.py` | YAML prompt loading and rendering |
 | `test_transcription_cascade.py` | Three-pass cascade orchestration |
 | `test_segment_extractor.py` | Segment fan-out from SED events |
-
-## Usage
-
-```python
-from nemo_curator.stages.audio.inference.sed import SEDInferenceStage, SEDConfig
-from nemo_curator.stages.audio.postprocessing.sed_postprocessing import SEDPostprocessingStage
-from nemo_curator.stages.audio.segmentation.segment_extractor import SegmentExtractorStage
-from nemo_curator.stages.audio.request.transcription_cascade import TranscriptionCascadeStage
-from nemo_curator.stages.audio.metrics.utmosv2_score import GetUtmosv2ScoreStage
-from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
-from nemo_curator.stages.audio.speaker_id.speaker_clustering_and_scoring import SpeakerClusteringStage
-
-# SED + postprocessing + segment extraction
-sed = SEDInferenceStage(config=SEDConfig(checkpoint_path="/models/Cnn14_DecisionLevelMax.pth"))
-sed_post = SEDPostprocessingStage()
-segmenter = SegmentExtractorStage()
-
-# Three-pass transcription cascade
-cascade = TranscriptionCascadeStage(
-    language="Ru",
-    omni_model="Qwen/Qwen3-Omni",
-    llm_model="Qwen/Qwen3-235B-A22B",
-    vllm_host="localhost",
-    vllm_port=8200,
-)
-
-# UTMOS quality scoring + filtering
-utmos_scorer = GetUtmosv2ScoreStage()
-utmos_filter = UTMOSFilterStage(mos_threshold=3.5)
-
-# Speaker clustering -- grouped mode (64 shards per group)
-clustering = SpeakerClusteringStage(
-    input_manifest="/data/manifests/manifest_{0..255}.jsonl",
-    embedding_dir="/data/embeddings",
-    output_manifest_dir="/data/output_manifests",
-    batch_size=64,
-    threshold=0.292,
-)
-```

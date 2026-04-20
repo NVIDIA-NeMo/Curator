@@ -1,0 +1,37 @@
+# UTMOS scoring container for HIFI pipeline.
+# Scores audio quality (MOS) via UTMOSv2.
+# Streams NeMo tars from AIS/S3, decodes in memory, no bulk downloads.
+#
+# Build:
+#   docker build -t curator-utmos -f tutorials/audio/hifi_pipeline/Dockerfile.utmos .
+#
+# Run (single shard):
+#   docker run --gpus all --ipc=host \
+#     -e AIS_ENDPOINT=http://your-ais:51080 \
+#     -e AIS_AUTHN_TOKEN=your_token \
+#     curator-utmos \
+#     --manifest_dir /path/to/manifests \
+#     --tar_pattern "s3://bucket/audio_{SHARD}.tar" \
+#     --output_dir /path/to/output \
+#     --shard_ids 0
+
+FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget git curl libsndfile1 ffmpeg && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+    aistore \
+    soundfile \
+    librosa \
+    'utmosv2 @ git+https://github.com/sarulab-speech/UTMOSv2.git'
+
+# Pre-download UTMOSv2 model weights so they're baked into the image
+RUN python -c "import utmosv2; utmosv2.create_model(pretrained=True); print('UTMOSv2 weights cached')"
+
+WORKDIR /opt/Curator
+COPY tutorials/audio/hifi_pipeline/slurm_speaker_id/score_utmos_shard.py /opt/score_utmos_shard.py
+
+ENTRYPOINT ["python", "/opt/score_utmos_shard.py"]
