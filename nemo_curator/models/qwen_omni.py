@@ -102,8 +102,7 @@ class QwenOmni(ModelInterface):
         tp_size = self.tensor_parallel_size or get_gpu_count()
 
         logger.info(
-            "Loading QwenOmni model=%s  tp=%d  max_model_len=%d  max_num_seqs=%d",
-            self.model_id, tp_size, self.max_model_len, self.max_num_seqs,
+            f"Loading QwenOmni model={self.model_id}  tp={tp_size}  max_model_len={self.max_model_len}  max_num_seqs={self.max_num_seqs}"
         )
 
         self._llm = LLM(
@@ -206,7 +205,7 @@ class QwenOmni(ModelInterface):
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
         except Exception:
-            logger.warning("Failed to preprocess audio, skipping (waveform shape=%s, sr=%d)", waveform.shape, sample_rate)
+            logger.warning(f"Failed to preprocess audio, skipping (waveform shape={waveform.shape}, sr={sample_rate})")
             return None
 
         inputs: dict[str, Any] = {
@@ -241,7 +240,7 @@ class QwenOmni(ModelInterface):
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
         except Exception:
-            logger.warning("Failed to preprocess Turn 2 audio (shape=%s)", waveform_16k.shape)
+            logger.warning(f"Failed to preprocess Turn 2 audio (shape={waveform_16k.shape})")
             return None
 
         inputs: dict[str, Any] = {
@@ -306,11 +305,11 @@ class QwenOmni(ModelInterface):
         waveforms_16k: dict[int, np.ndarray] = {i: prepared[i][1] for i in valid_indices}
 
         if not valid_inputs:
-            logger.warning("All %d audio samples in batch failed preprocessing", n)
+            logger.warning(f"All {n} audio samples in batch failed preprocessing")
             return [""] * n, [""] * n
 
         if len(valid_inputs) < n:
-            logger.warning("Skipped %d/%d corrupt audio samples", n - len(valid_inputs), n)
+            logger.warning(f"Skipped {n - len(valid_inputs)}/{n} corrupt audio samples")
 
         t1_outputs = self._llm.generate(valid_inputs, sampling_params=self._sampling_params, use_tqdm=False)
 

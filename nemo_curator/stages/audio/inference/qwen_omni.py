@@ -171,5 +171,5 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data[self.disfluency_text_key] = disfl
             task.data.pop(self.waveform_key, None)
 
-        logger.info("QwenOmni: generated %d predictions (turn2=%s)", len(pred_texts), bool(self.followup_prompt))
+        logger.info(f"QwenOmni: generated {len(pred_texts)} predictions (turn2={bool(self.followup_prompt)})")
         return tasks

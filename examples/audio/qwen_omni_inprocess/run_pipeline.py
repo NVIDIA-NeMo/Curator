@@ -61,7 +61,7 @@ from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
+from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
 from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
 from nemo_curator.stages.audio.text_filtering import (
@@ -77,7 +77,7 @@ def main():
     ap = argparse.ArgumentParser(description="QwenOmni in-process vLLM pipeline")
     ap.add_argument("--data_config", type=str, required=True, help="Granary YAML data config.")
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
-    ap.add_argument("--output", type=str, required=True, help="Output JSONL path.")
+    ap.add_argument("--output_dir", type=str, required=True, help="Output directory for per-shard manifests.")
     ap.add_argument("--model_id", type=str, default="Qwen/Qwen3-Omni-30B-A3B-Instruct")
     ap.add_argument("--prompt", type=str, default="Transcribe the audio.")
     ap.add_argument("--prompt_file", type=str, default=None, help="Read prompt from file.")
@@ -144,6 +144,7 @@ def main():
                 yaml_path=args.data_config,
                 corpus_filter=args.corpus,
                 s3_endpoint_url=args.s3_endpoint_url,
+                output_dir=args.output_dir,
             ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=4.0)}}),
             InitializeFieldsStage(),
             InferenceQwenOmniStage(
@@ -181,13 +182,13 @@ def main():
                 text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
                 output_text_key="cleaned_text",
             ),
-            ALMManifestWriterStage(
-                output_path=args.output,
+            ShardedManifestWriterStage(
+                output_dir=args.output_dir,
             ),
         ],
     )
 
-    logger.info("Pipeline: %s", pipeline.describe())
+    logger.info(f"Pipeline: {pipeline.describe()}")
 
     executor = XennaExecutor(config={
         "execution_mode": args.execution_mode,
@@ -196,7 +197,7 @@ def main():
     t0 = time.time()
     pipeline.run(executor=executor)
     elapsed = time.time() - t0
-    logger.info("Pipeline finished in %.1f min. Output: %s", elapsed / 60, args.output)
+    logger.info(f"Pipeline finished in {elapsed / 60:.1f} min. Output: {args.output_dir}")
 
 
 if __name__ == "__main__":
