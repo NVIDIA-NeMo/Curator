@@ -14,9 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+from pathlib import Path
 from unittest.mock import Mock, patch
 
-from nemo_curator.models.qwen_lm import _QWEN_LM_VARIANTS_INFO, QwenLM
+from nemo_curator.models.qwen_lm import _QWEN_LM_VARIANTS_INFO, QwenLM, _weights_complete
 
 
 class TestQwenLM:
@@ -343,3 +345,74 @@ class TestQwenLM:
 
     def teardown_method(self) -> None:
         self.vllm_available_patcher.stop()
+
+
+class TestWeightsComplete:
+    """Test cases for _weights_complete helper function."""
+
+    def test_single_safetensors_file_exists(self, tmp_path: Path) -> None:
+        (tmp_path / "model.safetensors").touch()
+        assert _weights_complete(tmp_path) is True
+
+    def test_no_files_returns_false(self, tmp_path: Path) -> None:
+        assert _weights_complete(tmp_path) is False
+
+    def test_index_with_all_shards_present(self, tmp_path: Path) -> None:
+        shard1 = "model-00001-of-00002.safetensors"
+        shard2 = "model-00002-of-00002.safetensors"
+        (tmp_path / shard1).touch()
+        (tmp_path / shard2).touch()
+        index_data = {"weight_map": {"w1": shard1, "w2": shard2}}
+        (tmp_path / "model.safetensors.index.json").write_text(json.dumps(index_data))
+        assert _weights_complete(tmp_path) is True
+
+    def test_index_with_missing_shard_returns_false(self, tmp_path: Path) -> None:
+        shard1 = "model-00001-of-00002.safetensors"
+        shard2 = "model-00002-of-00002.safetensors"
+        (tmp_path / shard1).touch()
+        index_data = {"weight_map": {"w1": shard1, "w2": shard2}}
+        (tmp_path / "model.safetensors.index.json").write_text(json.dumps(index_data))
+        assert _weights_complete(tmp_path) is False
+
+    def test_index_with_invalid_json_returns_false(self, tmp_path: Path) -> None:
+        (tmp_path / "model.safetensors.index.json").write_text("not valid json {{{")
+        assert _weights_complete(tmp_path) is False
+
+    def test_index_with_empty_weight_map_returns_false(self, tmp_path: Path) -> None:
+        (tmp_path / "model.safetensors.index.json").write_text(json.dumps({"weight_map": {}}))
+        assert _weights_complete(tmp_path) is False
+
+    def test_index_with_oserror_returns_false(self, tmp_path: Path) -> None:
+        index_file = tmp_path / "model.safetensors.index.json"
+        index_file.write_text("{}")
+        with patch("builtins.open", side_effect=OSError("permission denied")):
+            assert _weights_complete(tmp_path) is False
+
+
+class TestQwenLMDownloadWeightsOnNode:
+    """Test cases for QwenLM.download_weights_on_node class method."""
+
+    @patch("nemo_curator.models.qwen_lm._weights_complete", return_value=True)
+    @patch("nemo_curator.models.qwen_lm.download_model_from_hf")
+    @patch("nemo_curator.models.qwen_lm.logger")
+    def test_skips_download_when_weights_complete(
+        self, mock_logger: Mock, mock_download: Mock, mock_complete: Mock, tmp_path: Path
+    ) -> None:
+        QwenLM.download_weights_on_node(str(tmp_path), variant="qwen2.5")
+        mock_download.assert_not_called()
+        assert "already present" in mock_logger.info.call_args[0][0]
+
+    @patch("nemo_curator.models.qwen_lm._weights_complete", return_value=False)
+    @patch("nemo_curator.models.qwen_lm.download_model_from_hf")
+    @patch("nemo_curator.models.qwen_lm.logger")
+    def test_downloads_when_weights_missing(
+        self, mock_logger: Mock, mock_download: Mock, mock_complete: Mock, tmp_path: Path
+    ) -> None:
+        QwenLM.download_weights_on_node(str(tmp_path), variant="qwen2.5")
+        expected_model_id = _QWEN_LM_VARIANTS_INFO["qwen2.5"][0]
+        mock_download.assert_called_once_with(
+            model_id=expected_model_id,
+            local_dir=tmp_path / expected_model_id,
+            revision=_QWEN_LM_VARIANTS_INFO["qwen2.5"][1],
+        )
+        assert "downloaded" in mock_logger.info.call_args[0][0]

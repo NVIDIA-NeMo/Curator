@@ -16,6 +16,7 @@
 
 import pathlib
 import re
+from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
 
@@ -23,6 +24,7 @@ import pytest
 
 from nemo_curator.models.qwen_vl import (
     _QWEN2_5_VL_MODEL_ID,
+    _QWEN_REVISION_INFO,
     _QWEN_VARIANTS_INFO,
     _QWEN_VL_PIXEL_PARAMS,
     QwenVL,
@@ -425,6 +427,23 @@ class TestQwenVL:
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
+    def test_setup_qwen3_do_resize_always_true(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
+        """Test that qwen3 sets do_resize=True even when model_does_preprocess=False."""
+        qwen_vl = QwenVL(
+            model_dir=self.model_dir,
+            model_variant="qwen3",
+            caption_batch_size=1,
+            model_does_preprocess=False,
+        )
+        qwen_vl.setup()
+
+        mm_kwargs = mock_llm.call_args[1]["mm_processor_kwargs"]
+        assert mm_kwargs["do_resize"] is True
+        assert mm_kwargs["do_rescale"] is False
+        assert mm_kwargs["do_normalize"] is False
+
+    @patch("nemo_curator.models.qwen_vl.LLM")
+    @patch("nemo_curator.models.qwen_vl.SamplingParams")
     def test_setup_sampling_params_with_custom_tokens(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
         """Test that SamplingParams uses the custom max_output_tokens."""
         custom_tokens = 256
@@ -445,3 +464,32 @@ class TestQwenVL:
             max_tokens=custom_tokens,
             stop_token_ids=[],
         )
+
+
+class TestQwenVLDownloadWeightsOnNode:
+    """Test cases for QwenVL.download_weights_on_node class method."""
+
+    @patch("nemo_curator.models.qwen_vl._weights_complete", return_value=True)
+    @patch("nemo_curator.models.qwen_vl.download_model_from_hf")
+    @patch("nemo_curator.models.qwen_vl.logger")
+    def test_skips_download_when_weights_complete(
+        self, mock_logger: Mock, mock_download: Mock, mock_complete: Mock, tmp_path: Path
+    ) -> None:
+        QwenVL.download_weights_on_node(str(tmp_path), variant="qwen2.5")
+        mock_download.assert_not_called()
+        assert "already present" in mock_logger.info.call_args[0][0]
+
+    @patch("nemo_curator.models.qwen_vl._weights_complete", return_value=False)
+    @patch("nemo_curator.models.qwen_vl.download_model_from_hf")
+    @patch("nemo_curator.models.qwen_vl.logger")
+    def test_downloads_when_weights_missing(
+        self, mock_logger: Mock, mock_download: Mock, mock_complete: Mock, tmp_path: Path
+    ) -> None:
+        QwenVL.download_weights_on_node(str(tmp_path), variant="qwen2.5")
+        expected_model_id = _QWEN_VARIANTS_INFO["qwen2.5"]
+        mock_download.assert_called_once_with(
+            model_id=expected_model_id,
+            local_dir=tmp_path / expected_model_id,
+            revision=_QWEN_REVISION_INFO["qwen2.5"],
+        )
+        assert "downloaded" in mock_logger.info.call_args[0][0]
