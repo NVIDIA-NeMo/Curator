@@ -127,21 +127,56 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         return {"num_workers_per_node": 1}
 
     def _scan_completed_shards(self) -> set[str]:
-        """Scan output_dir for .done marker files and return completed shard keys."""
+        """Scan output_dir recursively for .done marker files and return completed shard keys.
+
+        Keys are relative paths like ``yodas/0_from_captions/en/sharded_manifests/manifest_42``.
+        """
         if not self.output_dir:
             return set()
         completed: set[str] = set()
         if not os.path.isdir(self.output_dir):
             return completed
-        for corpus_dir in os.listdir(self.output_dir):
-            corpus_path = os.path.join(self.output_dir, corpus_dir)
-            if not os.path.isdir(corpus_path):
-                continue
-            for fname in os.listdir(corpus_path):
+        for root, _dirs, files in os.walk(self.output_dir):
+            for fname in files:
                 if fname.endswith(".jsonl.done"):
-                    shard_id = fname[:-len(".jsonl.done")]
-                    completed.add(f"{corpus_dir}_{shard_id}")
+                    rel = os.path.relpath(os.path.join(root, fname), self.output_dir)
+                    shard_key = rel[:-len(".jsonl.done")]
+                    completed.add(shard_key)
         return completed
+
+    @staticmethod
+    def _manifest_to_rel_path(manifest_path: str, corpus: str) -> str:
+        """Extract relative output path from a manifest path, starting at the corpus name.
+
+        Example::
+
+            manifest_path = "/data/yodas/0_from_captions/en/sharded_manifests/manifest_42.jsonl"
+            corpus = "yodas"
+            → "yodas/0_from_captions/en/sharded_manifests/manifest_42"
+
+        The ``.jsonl`` extension is stripped so it can be used as a shard key.
+        """
+        parts = manifest_path.replace("\\", "/").split("/")
+        count = parts.count(corpus)
+        if count == 0:
+            msg = (
+                f"Corpus name '{corpus}' not found in manifest path: {manifest_path}. "
+                f"The YAML 'corpus' field must appear exactly once as a directory component in the manifest path."
+            )
+            raise ValueError(msg)
+        if count > 1:
+            msg = (
+                f"Corpus name '{corpus}' appears {count} times in manifest path: {manifest_path}. "
+                f"It must appear exactly once as a directory component for unambiguous path extraction."
+            )
+            raise ValueError(msg)
+        idx = parts.index(corpus)
+        rel = "/".join(parts[idx:])
+        if rel.endswith(".jsonl"):
+            rel = rel[:-len(".jsonl")]
+        elif rel.endswith(".json"):
+            rel = rel[:-len(".json")]
+        return rel
 
     def process(self, _task: _EmptyTask) -> list[FileGroupTask]:
         import yaml
@@ -164,32 +199,30 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 if cfg.get("type", "nemo_tarred") != "nemo_tarred":
                     logger.warning(f"Skipping non-nemo_tarred corpus {corpus} (type={cfg.get('type')})")
                     continue
-                corpus_id = cfg.get("corpus_id", corpus)
                 manifest_paths = _expand_nemo_path(cfg["manifest_filepath"])
                 tar_paths = _expand_nemo_path(cfg["tarred_audio_filepaths"])
                 if len(manifest_paths) != len(tar_paths):
                     msg = (
-                        f"Manifest/tar count mismatch for corpus={corpus_id}: "
+                        f"Manifest/tar count mismatch for corpus={corpus}: "
                         f"{len(manifest_paths)} manifests vs {len(tar_paths)} tars"
                     )
                     raise ValueError(msg)
-                for i, (mp, tp) in enumerate(zip(manifest_paths, tar_paths, strict=False)):
-                    shard_key = f"{corpus_id}_{i}"
+                for mp, tp in zip(manifest_paths, tar_paths, strict=False):
+                    shard_key = self._manifest_to_rel_path(mp, corpus)
                     if shard_key in completed:
                         skipped += 1
                         continue
-                    # Delete partial output if exists (no .done = incomplete)
                     if self.output_dir:
-                        partial = os.path.join(self.output_dir, corpus_id, f"{i}.jsonl")
+                        partial = os.path.join(self.output_dir, f"{shard_key}.jsonl")
                         if os.path.exists(partial):
                             os.remove(partial)
                             logger.info(f"Removed partial output for {shard_key}")
                     tasks.append(
                         FileGroupTask(
-                            task_id=f"{corpus_id}_{i}",
-                            dataset_name=corpus_id,
+                            task_id=shard_key,
+                            dataset_name=corpus,
                             data=[mp, tp],
-                            reader_config={"corpus": corpus_id, "shard_idx": i},
+                            reader_config={"corpus": corpus, "shard_key": shard_key},
                         )
                     )
 
@@ -251,8 +284,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         manifest_path, tar_path = task.data[0], task.data[1]
         corpus = task.reader_config.get("corpus", "unknown")
-        shard_idx = task.reader_config.get("shard_idx", 0)
-        shard_key = f"{corpus}_{shard_idx}"
+        shard_key = task.reader_config.get("shard_key", task.task_id)
 
         manifest = self._read_manifest(manifest_path)
 

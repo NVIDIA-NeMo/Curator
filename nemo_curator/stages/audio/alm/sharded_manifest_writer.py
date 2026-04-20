@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Sharded Manifest Writer -- writes per-corpus/shard JSONL with .done markers."""
+"""Sharded Manifest Writer -- writes per-shard JSONL files mirroring input paths with .done markers."""
 
 import json
 import os
@@ -29,20 +29,17 @@ from nemo_curator.tasks import AudioTask, FileGroupTask
 
 @dataclass
 class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
-    """Write AudioTasks to per-corpus/shard JSONL files with .done markers.
+    """Write AudioTasks to per-shard JSONL files mirroring the input manifest path structure.
 
-    Output structure::
+    Output structure mirrors the input manifest paths::
 
         output_dir/
-          {corpus}/
-            {shard_id}.jsonl
-            {shard_id}.done    # written after all utterances in the shard
-
-    On resume, shards with ``.done`` files are skipped by the discovery stage.
-    Partial shards (no ``.done``) are deleted and re-processed.
+          yodas/0_from_captions/en/sharded_manifests/manifest_42.jsonl
+          yodas/0_from_captions/en/sharded_manifests/manifest_42.jsonl.done
 
     The shard key is extracted from ``task._metadata["_shard_key"]``
-    which is set by ``NemoTarShardReaderStage`` as ``{corpus}_{shard_idx}``.
+    which is set by ``NemoTarShardReaderStage`` as a relative path
+    (e.g. ``yodas/0_from_captions/en/sharded_manifests/manifest_42``).
 
     Args:
         output_dir: Root directory for output manifests.
@@ -51,7 +48,6 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
     name: str = "sharded_manifest_writer"
     output_dir: str = ""
     _shard_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int), repr=False)
-    _shard_expected: dict[str, int] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         if not self.output_dir:
@@ -66,24 +62,12 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"ShardedManifestWriterStage: output_dir={self.output_dir}")
 
-    def _get_shard_info(self, task: AudioTask) -> tuple[str, str]:
-        """Extract corpus and shard_id from task metadata."""
-        shard_key = task._metadata.get("_shard_key", "")
-        if "_" in shard_key:
-            parts = shard_key.rsplit("_", 1)
-            return parts[0], parts[1]
-        corpus = task.data.get("corpus", task.dataset_name or "unknown")
-        shard_id = str(task.data.get("shard_id", "0"))
-        return corpus, shard_id
-
     def process(self, task: AudioTask) -> FileGroupTask:
-        corpus, shard_id = self._get_shard_info(task)
-        shard_key = f"{corpus}_{shard_id}"
+        shard_key = task._metadata.get("_shard_key", "unknown/shard_0")
 
-        corpus_dir = os.path.join(self.output_dir, corpus)
-        os.makedirs(corpus_dir, exist_ok=True)
+        out_path = os.path.join(self.output_dir, f"{shard_key}.jsonl")
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-        out_path = os.path.join(corpus_dir, f"{shard_id}.jsonl")
         with open(out_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
 
@@ -91,7 +75,7 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
 
         shard_total = task._metadata.get("_shard_total", 0)
         if shard_total > 0 and self._shard_counts[shard_key] >= shard_total:
-            done_path = os.path.join(corpus_dir, f"{shard_id}.jsonl.done")
+            done_path = os.path.join(self.output_dir, f"{shard_key}.jsonl.done")
             with open(done_path, "w") as f:
                 f.write(f"{self._shard_counts[shard_key]}\n")
             logger.info(f"Shard {shard_key} complete: {self._shard_counts[shard_key]} utterances, wrote {done_path}")
@@ -109,9 +93,10 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
 
     def teardown(self) -> None:
         total = sum(self._shard_counts.values())
-        done = sum(1 for k in self._shard_counts if "_" in k and os.path.exists(
-            os.path.join(self.output_dir, k.rsplit("_", 1)[0], f"{k.rsplit('_', 1)[1]}.jsonl.done")
-        ))
+        done = sum(
+            1 for k in self._shard_counts
+            if os.path.exists(os.path.join(self.output_dir, f"{k}.jsonl.done"))
+        )
         logger.info(f"ShardedManifestWriter: {total} utterances across {len(self._shard_counts)} shards, {done} completed with .done")
 
     def num_workers(self) -> int | None:
