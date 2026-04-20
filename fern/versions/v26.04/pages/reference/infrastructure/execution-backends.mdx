@@ -169,11 +169,33 @@ For more details, refer to [Text Deduplication ](/curate-text/process-data/dedup
 - **Scalable transformations**: Efficient map-batch operations across distributed workers
 
 ```python
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 
-executor = RayDataExecutor()
+executor = RayDataExecutor(
+    config={"ignore_failures": False},
+    ignore_head_node=True,  # Exclude head node from computation
+)
 results = pipeline.run(executor)
 ```
+
+**Constructor Parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `config` | `dict` | `{}` | Configuration dictionary for Ray Data execution (see config keys below) |
+| `ignore_head_node` | `bool` | `False` | Exclude the Ray cluster's head node from execution |
+
+**Config Dictionary Keys** (passed via `config={...}`):
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `ignore_failures` | `bool` | `False` | If `True`, continue pipeline execution even when tasks fail |
+
+## Per-Stage Runtime Environments
+
+All three backends support per-stage runtime environments, which allow individual stages to declare isolated Python dependencies. When a stage sets a `runtime_env`, the backend forwards it to Ray so that each stage's workers run in a dedicated virtualenv. This enables pipelines where stages require incompatible library versions.
+
+See the [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) reference for configuration details and examples.
 
 ## Ray Executors in Practice
 

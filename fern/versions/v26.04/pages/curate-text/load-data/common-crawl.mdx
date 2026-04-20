@@ -25,6 +25,15 @@ Curator's Common Crawl processing pipeline consists of four sequential stages:
 
 The pipeline outputs structured data that you can write to JSONL or Parquet files for further processing.
 
+### WARC Record Reader
+
+For pipelines that already have WARC metadata (such as `warc_filename`, `warc_record_offset`, and `warc_record_length` columns from a CC Index lookup), use `CommonCrawlWARCReader` to fetch individual WARC records directly via byte-range requests — without downloading full WARC files.
+
+`CommonCrawlWARCReader` supports two transport modes:
+
+- **HTTPS** (default): Fetches records from `data.commoncrawl.org` using the `requests` library. No AWS credentials required.
+- **S3**: Fetches records from the `commoncrawl` S3 bucket using `boto3` range requests. Activate with `use_s3=True` or by setting the `CC_USE_S3=1` environment variable. Credentials are resolved through boto3's standard chain (environment variables, `~/.aws/config`, instance profiles).
+
 ## Before You Start
 
 Choose your download method and ensure you have the prerequisites:
@@ -119,6 +128,7 @@ pipeline.add_stage(writer)
 | `url_limit` | int \| None | Maximum number of WARC files to download (useful for testing) | None |
 | `record_limit` | int \| None | Maximum number of records to extract per WARC file | None |
 | `add_filename_column` | bool \| str | Whether to add source filename column to output; if str, uses it as the column name (default name: "file_name") | True |
+| `extractor_max_calls_per_worker` | int \| None | Restart Ray Data worker processes after this many tasks to mitigate memory fragmentation. Auto-set to `2` for `JusTextExtractor`. | Auto (`2` for jusText, `None` otherwise) |
 
 ## Output Format
 
@@ -204,6 +214,57 @@ cc_stage = CommonCrawlDownloadExtractStage(
 )
 ```
 
+## WARC Record Reader Usage
+
+Use `CommonCrawlWARCReader` when your dataset already contains WARC metadata columns from a CC Index lookup:
+
+```python
+from nemo_curator.stages.text.download.common_crawl.download import CommonCrawlWARCReader
+
+# HTTPS transport (default)
+warc_reader = CommonCrawlWARCReader(
+    warc_filename_col="warc_filename",
+    warc_record_offset_col="warc_record_offset",
+    warc_record_length_col="warc_record_length",
+    max_workers=16,
+)
+
+# S3 transport
+warc_reader = CommonCrawlWARCReader(
+    warc_filename_col="warc_filename",
+    warc_record_offset_col="warc_record_offset",
+    warc_record_length_col="warc_record_length",
+    use_s3=True,
+    max_workers=16,
+)
+```
+
+### WARC Record Reader Parameters
+
+| Parameter | Type | Description | Default |
+| --- | --- | --- | --- |
+| `warc_filename_col` | str | Column name containing the WARC filename | `"warc_filename"` |
+| `warc_record_offset_col` | str | Column name containing the byte offset | `"warc_record_offset"` |
+| `warc_record_length_col` | str | Column name containing the record length | `"warc_record_length"` |
+| `binary_content_col` | str | Output column name for fetched content | `"binary_content"` |
+| `drop_failed` | bool | Drop rows where the fetch failed | `True` |
+| `max_workers` | int | Number of parallel threads for fetching | `16` |
+| `timeout` | int | Request timeout in seconds | `30` |
+| `max_retries` | int | Number of retries for failed requests | `3` |
+| `use_s3` | bool \| None | Use S3 transport instead of HTTPS. If `None`, reads the `CC_USE_S3` environment variable (accepted values: `1`, `true`, `yes`). | `None` |
+| `s3_bucket` | str \| None | S3 bucket name. Falls back to the `CC_S3_BUCKET` environment variable, then `"commoncrawl"`. | `None` |
+| `s3_key_prefix` | str \| None | Prefix to strip from `warc_filename` when building the S3 object key. Falls back to the `CC_S3_KEY_PREFIX` environment variable. | `None` |
+
+### Environment Variables
+
+You can configure `CommonCrawlWARCReader` S3 transport using environment variables instead of constructor parameters:
+
+| Variable | Description | Example |
+| --- | --- | --- |
+| `CC_USE_S3` | Enable S3 transport | `1`, `true`, `yes` |
+| `CC_S3_BUCKET` | Override the S3 bucket name | `commoncrawl` |
+| `CC_S3_KEY_PREFIX` | Prefix to strip from `warc_filename` for S3 key construction | `crawl-data/` |
+
 ## Advanced Usage
 
 ### Processing CC-NEWS Data
@@ -228,7 +289,7 @@ For production workloads, consider these optimizations:
 ```python
 cc_stage = CommonCrawlDownloadExtractStage(
     start_snapshot="2020-50",
-    end_snapshot="2020-50", 
+    end_snapshot="2020-50",
     download_dir="/fast_storage/cc_downloads",
     use_aws_to_download=True,  # Faster S3 downloads
     verbose=False,  # Reduce logging overhead
@@ -237,3 +298,31 @@ cc_stage = CommonCrawlDownloadExtractStage(
     # record_limit=None
 )
 ```
+
+### Memory Management for Extraction
+
+JusText extraction relies on lxml/libxml2, which can cause C-heap memory fragmentation during long-running jobs. Over many WARC files, this fragmentation causes resident memory to grow until workers run out of memory.
+
+To mitigate this, Curator automatically sets `extractor_max_calls_per_worker=2` when using `JusTextExtractor`. This restarts Ray Data worker processes every two tasks, reclaiming fragmented memory. You can override this value:
+
+```python
+# Increase recycling frequency for very memory-constrained environments
+cc_stage = CommonCrawlDownloadExtractStage(
+    start_snapshot="2020-50",
+    end_snapshot="2020-50",
+    download_dir="./downloads",
+    extractor_max_calls_per_worker=1,  # Recycle after every task
+)
+
+# Disable worker recycling (not recommended for large jobs with jusText)
+cc_stage = CommonCrawlDownloadExtractStage(
+    start_snapshot="2020-50",
+    end_snapshot="2020-50",
+    download_dir="./downloads",
+    extractor_max_calls_per_worker=None,  # No recycling
+)
+```
+
+<Note>
+Worker recycling is only supported with the Ray Data executor and applies to task-based stages (not actor-based). For custom extraction stages that use C libraries prone to memory fragmentation, set `max_calls_per_worker` on `DocumentIterateExtractStage` directly.
+</Note>

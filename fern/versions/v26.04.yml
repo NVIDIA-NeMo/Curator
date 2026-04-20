@@ -33,6 +33,21 @@ navigation:
               - page: Deduplication
                 path: ./v26.04/pages/about/concepts/deduplication.mdx
                 slug: deduplication
+              - section: Scaling & Performance
+                slug: scaling
+                contents:
+                  - page: Resource Allocation
+                    path: ./v26.04/pages/about/concepts/resource-allocation.mdx
+                    slug: resource-allocation
+                  - page: Streaming
+                    path: ./v26.04/pages/about/concepts/streaming.mdx
+                    slug: streaming
+                  - page: Auto-Balancing
+                    path: ./v26.04/pages/about/concepts/auto-balancing.mdx
+                    slug: auto-balancing
+                  - page: Throughput
+                    path: ./v26.04/pages/about/concepts/throughput.mdx
+                    slug: throughput
               - section: Text Concepts
                 slug: text
                 contents:
@@ -96,9 +111,9 @@ navigation:
                   - page: Curation Pipeline
                     path: ./v26.04/pages/about/concepts/audio/curation-pipeline.mdx
                     slug: curation-pipeline
-                  - page: Audio Batch
-                    path: ./v26.04/pages/about/concepts/audio/audio-batch.mdx
-                    slug: audio-batch
+                  - page: Audio Task
+                    path: ./v26.04/pages/about/concepts/audio/audio-task.mdx
+                    slug: audio-task
                   - page: ASR Pipeline
                     path: ./v26.04/pages/about/concepts/audio/asr-pipeline.mdx
                     slug: asr-pipeline
@@ -189,6 +204,15 @@ navigation:
                   - page: Text Cleaning
                     path: ./v26.04/pages/curate-text/process-data/content-processing/text-cleaning.mdx
                     slug: text-cleaning
+              - section: Embeddings
+                slug: embeddings
+                contents:
+                  - page: Overview
+                    path: ./v26.04/pages/curate-text/process-data/embeddings/index.mdx
+                    slug: ""
+                  - page: vLLM Embedder
+                    path: ./v26.04/pages/curate-text/process-data/embeddings/vllm-embedder.mdx
+                    slug: vllm-embedder
               - section: Deduplication
                 slug: deduplication
                 contents:
@@ -522,6 +546,9 @@ navigation:
               - page: Execution Backends
                 path: ./v26.04/pages/reference/infrastructure/execution-backends.mdx
                 slug: execution-backends
+              - page: Per-Stage Runtime Environments
+                path: ./v26.04/pages/reference/infrastructure/per-stage-runtime.mdx
+                slug: per-stage-runtime
               - page: Container Environments
                 path: ./v26.04/pages/reference/infrastructure/container-environments.mdx
                 slug: container-environments
@@ -558,9 +585,9 @@ navigation:
               - page: VideoTask
                 path: ./v26.04/pages/api-reference/tasks/video-task.mdx
                 slug: video-task
-              - page: AudioBatch
-                path: ./v26.04/pages/api-reference/tasks/audio-batch.mdx
-                slug: audio-batch
+              - page: AudioTask
+                path: ./v26.04/pages/api-reference/tasks/audio-task.mdx
+                slug: audio-task
           - section: Executors
             slug: executors
             contents:

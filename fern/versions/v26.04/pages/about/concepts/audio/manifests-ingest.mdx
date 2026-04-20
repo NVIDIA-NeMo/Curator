@@ -40,8 +40,8 @@ NeMo Curator provides robust validation mechanisms for audio data ingestion:
 
 **File Existence Validation**:
 
-- `AudioBatch` automatically validates file paths during creation
-- Use `validate()` for batch-level validation
+- `AudioTask` automatically validates file paths during creation
+- Use `validate()` to check whether the audio file for this task exists on disk
 - Use `validate_item()` for individual file validation
 - Missing files generate warnings but do not stop processing
 
@@ -102,20 +102,16 @@ with open("manifest.jsonl", "w") as f:
         f.write(json.dumps(item) + "\n")
 ```
 
-**AudioBatch Validation**:
+**AudioTask Validation**:
 
 ```python
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
-# Create AudioBatch with validation
-audio_batch = AudioBatch(
-    data=manifest_data,
-    filepath_key="audio_filepath"
-)
-
-# Validate file existence
-is_valid = audio_batch.validate()
-print(f"Batch validation: {is_valid}")
+# Create one AudioTask per manifest entry and validate
+for entry in manifest_data:
+    audio_task = AudioTask(data=entry, filepath_key="audio_filepath")
+    is_valid = audio_task.validate()
+    print(f"Task validation: {is_valid}")
 ```
 
 ## Pipeline Integration

@@ -9,35 +9,9 @@ NeMo Curator provides experimental executors for alternative execution backends.
 Experimental executors are subject to change and may not have full feature parity with `XennaExecutor`.
 </Warning>
 
-## RayDataExecutor
-
-Uses Ray Data for distributed execution.
-
-### Import
-
-```python
-from nemo_curator.backends.experimental import RayDataExecutor
-```
-
-### Usage
-
-```python
-executor = RayDataExecutor(
-    config={
-        "ignore_failures": False,
-    },
-    ignore_head_node=True,  # Exclude head node from execution
-)
-
-results = pipeline.run(executor=executor)
-```
-
-### Configuration
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `ignore_failures` | `bool` | `False` | Continue on task failures |
-| `ignore_head_node` | `bool` | `False` | Exclude head node from execution |
+<Note>
+`RayDataExecutor` was promoted from experimental in 26.04. Import it from `nemo_curator.backends.ray_data`. See [Pipeline Execution Backends](/reference/infrastructure/execution-backends) for details.
+</Note>
 
 ## RayActorPoolExecutor
 
@@ -153,7 +127,7 @@ class MyCustomExecutor(BaseExecutor):
 | Executor | Best For | Considerations |
 |----------|----------|----------------|
 | `XennaExecutor` | Production workloads | Default choice, most stable |
-| `RayDataExecutor` | Ray-native environments | Experimental |
+| `RayDataExecutor` | Ray-native environments | Promoted from experimental in 26.04 |
 | `RayActorPoolExecutor` | Fine-grained actor control | Experimental |
 
 ## Source Code

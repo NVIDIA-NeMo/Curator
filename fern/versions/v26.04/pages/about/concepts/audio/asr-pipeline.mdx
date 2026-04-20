@@ -18,7 +18,7 @@ The ASR pipeline in NeMo Curator follows a systematic approach to speech process
 
 ```mermaid
 graph TD
-    A[Audio Files] --> B[AudioBatch Creation]
+    A[Audio Files] --> B[AudioTask Creation]
     B --> C[ASR Model Loading]
     C --> D[Batch Inference]
     D --> E[Transcription Output]
@@ -46,7 +46,7 @@ graph TD
 
 ### 1. Audio Input Management
 
-**AudioBatch Structure**: The foundation for audio processing
+**AudioTask Structure**: The foundation for audio processing
 
 - Contains audio file paths and associated metadata
 - Validates file existence and accessibility automatically
@@ -54,7 +54,7 @@ graph TD
 
 **Input Validation**: Ensures data integrity before processing
 
-- File path existence checks using `AudioBatch.validate()` and `validate_item()`
+- File path existence checks using `AudioTask.validate()` and `validate_item()`
 - Optional metadata validation added by downstream stages (such as duration and format checks)
 
 ### 2. ASR Model Integration
@@ -104,7 +104,7 @@ manifest_reader = JsonlReader(
     input_file_path="/path/to/manifest.jsonl"
 )
 
-# Stages automatically create AudioBatch objects from loaded data
+# Stages automatically create AudioTask objects from loaded data
 ```
 
 ### Stage 2: ASR Model Setup
@@ -125,12 +125,12 @@ asr_stage.setup()  # Downloads and loads model
 ### Stage 3: Transcription Generation
 
 ```python
-# ASR stage processes AudioBatch objects automatically
-# The stage extracts file paths and calls transcribe() internally
-processed_batch = asr_stage.process(audio_batch)
+# Don't call process() directly — the Pipeline/Executor handles dispatch:
+pipeline.add_stage(asr_stage)
+results = pipeline.run(executor)
 
-# Output: AudioBatch with added "pred_text" field
-# Each item now contains both original data and predictions
+# Output: AudioTask objects with added "pred_text" field
+# Each task now contains both original data and predictions
 ```
 
 ### Stage 4: Quality Assessment Integration
@@ -156,7 +156,7 @@ duration_stage = GetAudioDurationStage(
 
 1. **Audio Files** → File system
 2. **Manifest Files** → JSONL format with metadata
-3. **AudioBatch Objects** → Validated, structured data containers
+3. **AudioTask Objects** → Validated, structured data containers
 
 ### Processing Data Flow
 
@@ -217,10 +217,10 @@ asr_stage = InferenceAsrNemoStage(
 
 ```python
 # Validate and filter invalid file paths
-audio_batch = AudioBatch(data=audio_data, filepath_key="audio_filepath")
+audio_task = AudioTask(data=audio_data, filepath_key="audio_filepath")
 
-# Filter out entries that do not exist on disk
-valid_samples = [item for item in audio_batch.data if audio_batch.validate_item(item)]
+# Validate the audio file exists on disk
+is_valid = audio_task.validate()
 ```
 
 ### Pipeline Recovery
@@ -237,7 +237,7 @@ The ASR pipeline seamlessly integrates with text processing workflows:
 # Audio → Text pipeline
 audio_to_text = [
     InferenceAsrNemoStage(),  # Audio → Transcriptions
-    AudioToDocumentStage(),   # AudioBatch → DocumentBatch
+    AudioToDocumentStage(),   # AudioTask → DocumentBatch
     # Continue with text processing stages...
 ]
 ```

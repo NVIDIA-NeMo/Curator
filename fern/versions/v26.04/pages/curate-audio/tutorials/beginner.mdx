@@ -166,7 +166,7 @@ def create_audio_pipeline(args):
 3. **GetPairwiseWerStage**: Compares ground truth and predictions to calculate WER
 4. **GetAudioDurationStage**: Reads audio files to extract duration metadata
 5. **PreserveByValueStage**: Filters samples, keeping only those with WER ≤ threshold
-6. **AudioToDocumentStage**: Converts AudioBatch to DocumentBatch format for export
+6. **AudioToDocumentStage**: Converts AudioTask to DocumentBatch format for export
 7. **JsonlWriter**: Saves filtered results as JSONL manifest
 
 ### Step 3: Run the Pipeline
