@@ -30,7 +30,7 @@ Architecture:
         → drops prompt-engineering fields (answer, source_lang, …)
     InferenceQwenOmniStage (GPU, TP=2 → 4 workers on 8 GPUs)
         → resamples to 16 kHz, batched vLLM inference
-        → outputs pred_text, disfluency_text
+        → outputs qwen3_prediction_s1, qwen3_prediction_s2
     WhisperHallucinationStage (CPU)
         → reads qwen3_prediction_s2, flags hallucination patterns
     FastTextLIDStage (CPU)
@@ -159,7 +159,7 @@ def main():
                 gpu_memory_utilization=args.gpu_memory_utilization,
                 prep_workers=args.prep_workers,
                 pred_text_key="qwen3_prediction_s1",
-                disfluency_text_key="qwen3_prediction_s2",
+                followup_text_key="qwen3_prediction_s2",
             ),
             WhisperHallucinationStage(
                 common_hall_file=args.hall_phrases,
