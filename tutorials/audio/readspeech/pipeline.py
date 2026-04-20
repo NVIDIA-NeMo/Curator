@@ -59,7 +59,7 @@ import sys
 from loguru import logger
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio import AudioDataFilterStage
+from nemo_curator.stages.audio.advanced_pipelines import AudioDataFilterStage
 from nemo_curator.stages.audio.datasets.readspeech import CreateInitialManifestReadSpeechStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
