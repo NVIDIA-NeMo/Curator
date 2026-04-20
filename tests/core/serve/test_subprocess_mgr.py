@@ -15,9 +15,14 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import re
+import subprocess
+import sys
+import time
 
+import psutil
 import pytest
 
 from nemo_curator.core.serve.placement import (
@@ -26,7 +31,11 @@ from nemo_curator.core.serve.placement import (
     get_free_port_in_bundle,
     plan_replica_bundle_shape,
 )
-from nemo_curator.core.serve.subprocess_mgr import ManagedSubprocess, _define_subprocess_actor
+from nemo_curator.core.serve.subprocess_mgr import (
+    ManagedSubprocess,
+    _define_subprocess_actor,
+    _stop_subprocess,
+)
 
 
 @pytest.mark.gpu
@@ -73,7 +82,8 @@ class TestReplicaLifecycle:
                         "bash",
                         "-c",
                         f"echo CUDA=$CUDA_VISIBLE_DEVICES; echo PATH=$PATH; "
-                        f"echo etcd=$ETCD_ENDPOINTS; echo post_init=${{{sentinel}:-MISSING}}",
+                        f"echo etcd=$ETCD_ENDPOINTS; echo post_init=${{{sentinel}:-MISSING}}; "
+                        "echo marker=${CURATOR_SUBPROC_MARKER:-MISSING}",
                     ],
                     runtime_dir=str(tmp_path),
                     actor_name_prefix=f"test_{os.getpid()}",
@@ -93,12 +103,128 @@ class TestReplicaLifecycle:
             assert "post_init=MISSING" in log, (
                 f"driver os.environ mutations set AFTER ray.init() must NOT leak to the actor:\n{log}"
             )
+            assert "marker=MISSING" in log, f"cleanup marker should not be injected into the subprocess env:\n{log}"
 
             # 4. Graceful stop reaps the subprocess without raising.
             proc.stop()
         finally:
             with contextlib.suppress(Exception):
                 ray.util.remove_placement_group(pg)
+
+
+def test_stop_subprocess_reaps_spawned_multiprocessing_children(tmp_path: os.PathLike) -> None:
+    """Children launched through Python multiprocessing spawn must die with the parent group."""
+    helper = os.path.join(tmp_path, "spawn_tree.py")
+    helper_src = """
+import json
+import multiprocessing
+import os
+import time
+
+def child_main():
+    time.sleep(300)
+
+if __name__ == '__main__':
+    ctx = multiprocessing.get_context('spawn')
+    child = ctx.Process(target=child_main, name='spawn-child')
+    child.start()
+    print(json.dumps({
+        'outer_pid': os.getpid(),
+        'outer_pgid': os.getpgid(0),
+        'child_pid': child.pid,
+        'child_pgid': os.getpgid(child.pid),
+    }), flush=True)
+    time.sleep(300)
+"""
+    with open(helper, "w") as f:
+        f.write(helper_src)
+
+    parent = subprocess.Popen(  # noqa: S603
+        [sys.executable, helper],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        assert parent.stdout is not None
+        info = json.loads(parent.stdout.readline())
+        tracked_pids = [parent.pid, info["child_pid"]]
+        assert info["child_pgid"] == info["outer_pgid"]
+
+        _stop_subprocess(parent, sigterm_wait=2)
+
+        for _ in range(20):
+            if not any(psutil.pid_exists(pid) for pid in tracked_pids):
+                break
+            time.sleep(0.1)
+        assert not any(psutil.pid_exists(pid) for pid in tracked_pids), "spawned child process tree was not reaped"
+    finally:
+        with contextlib.suppress(Exception):
+            if parent.poll() is None:
+                parent.kill()
+
+
+def test_stop_subprocess_reaps_same_group_child_after_launcher_exit(tmp_path: os.PathLike) -> None:
+    """Even if the launcher already exited, ``killpg(proc.pid)`` must reap the remaining group."""
+    helper = os.path.join(tmp_path, "same_group_orphan.py")
+    helper_src = """
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+
+if __name__ == '__main__' and len(sys.argv) > 1 and sys.argv[1] == '--child':
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    time.sleep(300)
+elif __name__ == '__main__':
+    child = subprocess.Popen([sys.executable, __file__, '--child'])
+    print(json.dumps({
+        'parent_pid': os.getpid(),
+        'parent_pgid': os.getpgid(0),
+        'child_pid': child.pid,
+        'child_pgid': os.getpgid(child.pid),
+    }), flush=True)
+"""
+    with open(helper, "w") as f:
+        f.write(helper_src)
+
+    parent = subprocess.Popen(  # noqa: S603
+        [sys.executable, helper],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    child_pid: int | None = None
+    try:
+        assert parent.stdout is not None
+        info = json.loads(parent.stdout.readline())
+        child_pid = info["child_pid"]
+
+        parent.wait(timeout=5)
+        assert parent.poll() is not None
+        assert info["parent_pid"] == parent.pid
+        assert info["parent_pgid"] == parent.pid
+        assert info["child_pgid"] == parent.pid
+        assert psutil.pid_exists(child_pid), "same-process-group child should still be alive before cleanup"
+
+        _stop_subprocess(parent, sigterm_wait=1)
+
+        for _ in range(20):
+            if not psutil.pid_exists(child_pid):
+                break
+            time.sleep(0.1)
+        assert not psutil.pid_exists(child_pid), "same-process-group child survived after launcher exit"
+    finally:
+        with contextlib.suppress(Exception):
+            if parent.poll() is None:
+                parent.kill()
+        with contextlib.suppress(Exception):
+            if child_pid is not None and psutil.pid_exists(child_pid):
+                psutil.Process(child_pid).kill()
 
 
 @pytest.mark.gpu

@@ -14,11 +14,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from typing import Any
 
 import pytest
 
+import nemo_curator.core.serve.dynamo.backend as dynamo_backend
 from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig, InferenceServer
 from nemo_curator.core.serve.dynamo import vllm as dynamo_vllm
 from nemo_curator.core.serve.dynamo.backend import DynamoBackend
@@ -277,6 +279,33 @@ class TestDynamoBackendValidateGpuRequirements:
         )
         DynamoBackend._validate_gpu_requirements(server.models)
         assert recorded == [4]
+
+
+class TestDynamoBackendStart:
+    def test_sweeps_orphan_actors_before_removing_placement_groups(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        order: list[str] = []
+        server = InferenceServer(
+            models=[DynamoVLLMModelConfig(model_identifier="m")],
+            backend=DynamoServerConfig(
+                etcd_endpoint="http://127.0.0.1:2379",
+                nats_url="nats://127.0.0.1:4222",
+            ),
+        )
+        backend = DynamoBackend(server)
+
+        monkeypatch.setattr(dynamo_backend.ray, "init", lambda **_kwargs: contextlib.nullcontext())
+        monkeypatch.setattr(dynamo_backend.tempfile, "mkdtemp", lambda **_kwargs: "/tmp/dynamo-test-runtime")  # noqa: S108
+        monkeypatch.setattr(backend, "_sweep_orphan_actors", lambda: order.append("actors"))
+        monkeypatch.setattr(
+            dynamo_backend,
+            "remove_named_pgs_with_prefix",
+            lambda _prefix: order.append("pgs"),
+        )
+        monkeypatch.setattr(backend, "_deploy_and_healthcheck", lambda *_args: order.append("deploy"))
+
+        backend.start()
+
+        assert order == ["actors", "pgs", "deploy"]
 
 
 class TestDynamoBackendLaunchFrontend:

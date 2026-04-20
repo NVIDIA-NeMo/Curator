@@ -78,7 +78,7 @@ class DynamoBackend(InferenceBackend):
     """Dynamo backend for ``InferenceServer`` — aggregated serving on Ray PGs.
 
     - ``start()`` enters the ``nemo_curator_dynamo`` namespace, sweeps any
-      leftover PGs + actors from a prior driver session, then deploys
+      leftover actors + PGs from a prior driver session, then deploys
       infra → workers → frontend and blocks on a ``/v1/models`` health check.
     - ``stop()`` reconnects to the same namespace, parallel-stops every actor
       (SIGTERM → SIGKILL escalation inside ``graceful_stop_actors``), and
@@ -138,8 +138,8 @@ class DynamoBackend(InferenceBackend):
         logger.info(f"Dynamo runtime dir: {self._runtime_dir}")
 
         with ray.init(namespace=NEMO_CURATOR_DYNAMO_NAMESPACE, ignore_reinit_error=True):
-            remove_named_pgs_with_prefix(self._pg_name_prefix)
             self._sweep_orphan_actors()
+            remove_named_pgs_with_prefix(self._pg_name_prefix)
 
             try:
                 self._deploy_and_healthcheck(server, backend_cfg)

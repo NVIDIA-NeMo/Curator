@@ -21,14 +21,19 @@ path, and exposes the lifecycle operations (``spawn``, ``stop``,
 callers never have to hand-write ``ray.get(actor.<something>.remote())``
 plumbing.
 
-Each spawned actor owns one subprocess launched with
-``start_new_session=True`` so the child becomes a process-group leader.
-Teardown is driver-initiated (see ``graceful_stop_actors``): SIGTERM
--> bounded wait -> escalated SIGKILL on the process group ->
-``ray.kill`` for the actor itself. A Python ``atexit`` hook inside the
-actor covers the clean-exit path; hard kills (``ray.kill``, PG removal,
-SIGKILL) bypass atexit, which is why ``graceful_stop_actors`` does the
-SIGKILL step explicitly before falling through to ``ray.kill``.
+Every subprocess is launched with ``start_new_session=True``, so it
+becomes its own session and process-group leader with ``pgid == pid``.
+For the Dynamo -> vLLM path we care about, descendants are created via
+Python ``multiprocessing`` without calling ``setsid()``, so they stay in
+that process group.
+
+Teardown is driver-initiated (see ``graceful_stop_actors``): SIGTERM on
+the subprocess group -> bounded wait -> escalated SIGKILL on the same
+group -> ``ray.kill`` for the actor itself. A Python ``atexit`` hook
+inside the actor covers the clean-exit path; hard kills (``ray.kill``,
+PG removal, SIGKILL) bypass atexit, which is why
+``graceful_stop_actors`` does the SIGKILL step explicitly before
+falling through to ``ray.kill``.
 
 Placement-group construction, bundle-level helpers, and the orphan PG
 sweep live in ``placement``.
@@ -208,13 +213,7 @@ class ManagedSubprocess:
         return ray.get(self.run_ref, timeout=timeout)
 
     def stop(self, *, timeout_s: float | None = None) -> None:
-        """Best-effort graceful stop: SIGTERM the subprocess, then hard-kill the actor.
-
-        Calls ``actor.stop.remote()`` (reaps the subprocess group) with a
-        bounded wait, then falls back to ``ray.kill`` if stop times out.
-        Use this before ``remove_placement_group`` so the subprocess tree
-        dies before Ray hard-kills the actor.
-        """
+        """Best-effort graceful stop: reap the subprocess group, then kill the actor."""
         type(self).stop_many([self], timeout_s=timeout_s)
 
     @classmethod
@@ -223,41 +222,46 @@ class ManagedSubprocess:
 
         Kicks off every ``actor.stop.remote()`` first so subprocess
         teardown happens concurrently, then waits on all of them with a
-        shared deadline and force-kills anything that did not drain.
+        shared deadline before tearing down the actors.
         """
         graceful_stop_actors([(p.label, p.actor) for p in procs], timeout_s=timeout_s)
 
 
 # ---------------------------------------------------------------------------
-# Subprocess reaper + Ray actor class factory
+# Subprocess helpers + Ray actor class factory
 # ---------------------------------------------------------------------------
 
 
-def _stop_subprocess(proc: subprocess.Popen, sigterm_wait: float = SIGTERM_WAIT_S) -> int | None:
-    """SIGTERM -> wait -> SIGKILL a subprocess and its entire process group.
+def _reap_process_group(pgid: int, *, sigterm_wait: float = SIGTERM_WAIT_S) -> None:
+    """SIGTERM the whole process group, wait briefly, then SIGKILL.
 
-    Subprocesses are launched with ``start_new_session=True`` so they become
-    process-group leaders. Signaling the group (``os.killpg``) ensures child
-    processes (e.g. vLLM torch.distributed workers) are also terminated
-    rather than becoming orphans.
+    Because every managed subprocess is launched with
+    ``start_new_session=True``, ``pgid == pid`` for the launcher and every
+    descendant that did not explicitly call ``setsid()`` remains in that
+    group. The group persists while any member is alive, so this still
+    works even if the launcher itself already exited.
     """
-    if proc.poll() is not None:
-        return proc.returncode
-    pgid: int | None = None
-    with contextlib.suppress(OSError):
-        pgid = os.getpgid(proc.pid)
-    is_group_leader = pgid is not None and pgid == proc.pid
-    if is_group_leader:
+    with contextlib.suppress(ProcessLookupError):
         os.killpg(pgid, signal.SIGTERM)
-    else:
-        proc.terminate()
-    try:
-        proc.wait(timeout=sigterm_wait)
-    except Exception:  # noqa: BLE001
-        if is_group_leader:
-            os.killpg(pgid, signal.SIGKILL)
-        else:
-            proc.kill()
+    deadline = time.monotonic() + sigterm_wait
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(pgid, signal.SIGKILL)
+
+
+def _stop_subprocess(proc: subprocess.Popen, sigterm_wait: float = SIGTERM_WAIT_S) -> int | None:
+    """Reap the subprocess's process group and return its exit code.
+
+    Assumes ``proc`` was launched with ``start_new_session=True``, so
+    ``proc.pid`` is the process-group id to target.
+    """
+    _reap_process_group(proc.pid, sigterm_wait=sigterm_wait)
+    with contextlib.suppress(Exception):
         proc.wait(timeout=SIGKILL_WAIT_S)
     return proc.returncode
 
@@ -271,20 +275,19 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
 
     Lifecycle:
 
-    1. Create with GPU options (``num_gpus=...``).
-    2. Launch subprocess via ``initialize()`` (injects the actor's
-       Ray-assigned ``CUDA_VISIBLE_DEVICES`` into the child env).
-    3. ``run()`` blocks until exit -- returned ObjectRef resolves then.
+    1. ``initialize`` Popens the subprocess with ``start_new_session=True``
+       so the whole subtree shares one process group (``pgid == popen.pid``).
+    2. ``run`` blocks until the subprocess exits; the returned ObjectRef
+       resolves on exit so ``ray.wait`` can be used for liveness.
+    3. ``stop`` / ``force_sigkill_subprocess`` reap that process group.
 
-    Teardown is driver-initiated via ``graceful_stop_actors`` (see its
-    docstring for the SIGTERM -> SIGKILL -> ``ray.kill`` escalation). The
-    only actor-side teardown piece we register is a standard Python
-    ``atexit`` hook: if the actor process ever exits cleanly (e.g. the
-    raylet shuts it down through normal channels), the hook reaps the
-    subprocess group. ``atexit`` does not run on hard kill (``ray.kill``,
-    PG removal, SIGKILL), which is why callers must go through
-    ``graceful_stop_actors`` / ``ManagedSubprocess.stop`` to avoid
-    orphaning the subprocess tree.
+    Teardown is driver-initiated via ``graceful_stop_actors``. The only
+    actor-side teardown piece we register is a standard Python ``atexit``
+    hook: if the actor process ever exits cleanly (e.g. the raylet shuts
+    it down through normal channels), the hook reaps the subprocess
+    group. ``atexit`` does not run on hard kill (``ray.kill``, PG
+    removal, SIGKILL), which is why callers must go through
+    ``graceful_stop_actors`` / ``ManagedSubprocess.stop`` first.
     """
     import ray
 
@@ -348,7 +351,11 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
 
             try:
                 self._proc = _sp.Popen(  # noqa: S603
-                    command, env=merged_env, stdout=stdout, stderr=_sp.STDOUT, start_new_session=True
+                    command,
+                    env=merged_env,
+                    stdout=stdout,
+                    stderr=_sp.STDOUT,
+                    start_new_session=True,
                 )
             except Exception:
                 if self._log_fh is not None:
@@ -391,28 +398,20 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
                 return ""
 
         def stop(self, sigterm_wait: float = SIGTERM_WAIT_S) -> int | None:
-            """Gracefully stop the subprocess (SIGTERM group -> wait -> SIGKILL)."""
-            if self._proc is None:
-                return None
-            rc = _stop_subprocess(self._proc, sigterm_wait)
+            """Gracefully stop the subprocess tree via ``killpg``."""
+            rc: int | None = None
+            if self._proc is not None:
+                rc = _stop_subprocess(self._proc, sigterm_wait)
             if self._log_fh:
                 with contextlib.suppress(Exception):
                     self._log_fh.close()
             return rc
 
         def force_sigkill_subprocess(self) -> None:
-            """SIGKILL the subprocess group without waiting.
-
-            Escalation path when ``stop()`` is hung (e.g. the subprocess is
-            stuck in ``proc.wait()``). Non-blocking: one ``killpg`` syscall
-            and return; callers that need to wait should follow with
-            ``ray.kill`` to tear down the actor itself.
-            """
-            if self._proc is None or self._proc.poll() is not None:
-                return
-            with contextlib.suppress(OSError):
-                pgid = os.getpgid(self._proc.pid)
-                os.killpg(pgid, signal.SIGKILL)
+            """SIGKILL the whole process group without a grace period."""
+            if self._proc is not None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(self._proc.pid, signal.SIGKILL)
 
         def _cleanup(self) -> None:
             """atexit hook: last-line-of-defense subprocess reap."""
@@ -475,16 +474,15 @@ def graceful_stop_actors(
     Escalation order per actor:
 
     1. ``actor.stop.remote()`` -- actor-driven SIGTERM on the subprocess
-       group with a bounded wait (finishes with SIGKILL if needed).
+       group with a bounded wait, then SIGKILL if needed.
     2. If stop did not drain in time, ``actor.force_sigkill_subprocess.remote()``
        -- host-side SIGKILL on the subprocess group. This runs on the
        actor's node (because actor methods always do), so it works
        multi-node without any driver-side connectivity assumption.
     3. ``ray.kill(actor)`` -- tear down the actor itself.
 
-    Without the step-2 escalation, ``ray.kill`` can orphan subprocesses:
-    ``ray.kill`` hard-kills the actor, which bypasses the actor's
-    ``atexit`` hook and leaves the subprocess tree behind.
+    Without the step-2 escalation, ``ray.kill`` can orphan subprocesses
+    because it bypasses the actor's ``atexit`` hook.
     """
     if not labeled_actors:
         return
