@@ -22,7 +22,6 @@ import pyarrow as pa
 import pytest
 
 from nemo_curator.core.utils import split_table_by_group_max_bytes
-from nemo_curator.stages.interleaved.annotation.pass_mask import basic_interleaved_row_validity_mask
 from nemo_curator.stages.interleaved.io.reader import InterleavedWebdatasetReader
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
@@ -426,21 +425,6 @@ def test_split_table_preserves_group_integrity() -> None:
     for chunk in result:
         groups = chunk["g"].to_pylist()
         assert len(set(groups)) == 1 or all(g == groups[0] for g in groups)
-
-
-# --- basic_row_validity_mask tests ---
-
-
-def test_basic_row_validity_mask_filters_bad_modality() -> None:
-    df = pd.DataFrame({"modality": ["text", "image", "video", "metadata"], "position": [0, 1, 2, -1]})
-    mask = basic_interleaved_row_validity_mask(df)
-    assert mask.tolist() == [True, True, False, True]
-
-
-def test_basic_row_validity_mask_enforces_position_rules() -> None:
-    df = pd.DataFrame({"modality": ["metadata", "metadata", "text", "text"], "position": [-1, 0, 0, -1]})
-    mask = basic_interleaved_row_validity_mask(df)
-    assert mask.tolist() == [True, False, True, False]
 
 
 # --- filter position preservation test ---
@@ -936,9 +920,7 @@ def test_annotator_process_empty_batch() -> None:
     assert result is task
 
 
-def test_annotate_preserves_rows_while_basic_validity_masks_schema_invalid() -> None:
-    """annotate keeps every row; basic_interleaved_row_validity_mask marks invalid modality/position pairs."""
-
+def test_annotate_preserves_rows_without_dropping() -> None:
     class _KeepAllContent(BaseInterleavedScoreFilterStage):
         name: str = "keep_all"
 
@@ -996,8 +978,6 @@ def test_annotate_preserves_rows_while_basic_validity_masks_schema_invalid() -> 
     out_df = stage.process(task).to_pandas()
     assert len(out_df) == 4
     assert set(out_df["modality"].tolist()) == {"metadata", "text", "video"}
-    km = basic_interleaved_row_validity_mask(task.to_pandas())
-    assert km.sum() == 2
 
 
 def test_iter_materialized_bytes_empty_mask() -> None:

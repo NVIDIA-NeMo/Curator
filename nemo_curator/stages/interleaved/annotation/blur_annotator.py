@@ -17,33 +17,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import cv2
 import pandas as pd
-from loguru import logger
 
+from nemo_curator.stages.interleaved.filter.blur_filter import _sharpness_score
 from nemo_curator.stages.interleaved.stages import BaseInterleavedScoreFilterStage
 from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 
 if TYPE_CHECKING:
-    from collections.abc import Hashable
-
-    import numpy as np
-
     from nemo_curator.tasks import InterleavedBatch
-
-
-def _sharpness_score(image: np.ndarray, row_index: Hashable | None = None) -> float:
-    """Compute Laplacian variance as sharpness score; higher is sharper."""
-    try:
-        return float(cv2.Laplacian(image, cv2.CV_64F).var())
-    except cv2.error as e:
-        logger.debug(
-            "cv2.Laplacian failed (row_index={} image_shape={}): {}",
-            row_index,
-            getattr(image, "shape", None),
-            e,
-        )
-        return 0.0
 
 
 @dataclass

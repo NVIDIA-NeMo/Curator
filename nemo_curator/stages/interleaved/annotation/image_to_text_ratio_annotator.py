@@ -19,26 +19,15 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter import _text_word_count
 from nemo_curator.stages.interleaved.stages import BaseInterleavedScoreFilterStage
 
 if TYPE_CHECKING:
     from nemo_curator.tasks import InterleavedBatch
 
 
-def _text_word_count(text: str | None) -> int:
-    """Count words in text by splitting on whitespace."""
-    if text is None or (isinstance(text, float) and pd.isna(text)):
-        return 0
-    return len(str(text).split())
-
-
 def per_row_image_word_counts_broadcast(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
-    """Per-sample image count and text word count, broadcast to every row index.
-
-    Used by :func:`~nemo_curator.stages.interleaved.annotation.pass_mask.interleaved_score_pass_mask`
-    so ratio thresholds apply to every row (e.g. image rows) even though stored columns are
-    only filled at ``position == 0``.
-    """
+    """Per-sample image count and text word count, broadcast to every row index."""
     if "sample_id" not in df.columns:
         na_i = pd.Series(pd.NA, index=df.index, dtype="Int64")
         return na_i, na_i.copy()
@@ -62,9 +51,7 @@ class InterleavedImageToTextRatioAnnotatorStage(BaseInterleavedScoreFilterStage)
     """Add per-sample image count and text word count only on rows with ``position == 0``.
 
     Other rows get null counts. Per-sample values are still derived from the whole sample
-    (all modalities). The ratio image_count / max(text_word_count, 1) is computed in
-    :func:`~nemo_curator.stages.interleaved.annotation.pass_mask.interleaved_score_pass_mask`
-    using full-sample counts; that ratio is not stored as a column.
+    (all modalities).
     """
 
     name: str = "interleaved_image_to_text_ratio_annotator"

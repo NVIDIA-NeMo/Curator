@@ -23,7 +23,6 @@ from nemo_curator.stages.interleaved.annotation.clip_score_annotator import (
     InterleavedCLIPScoreAnnotatorStage,
     _sample_text_positions_and_texts,
 )
-from nemo_curator.stages.interleaved.annotation.pass_mask import interleaved_score_pass_mask
 
 from .conftest import interleaved_task, make_jpeg_bytes
 
@@ -229,87 +228,3 @@ def test_clip_score_annotator_column_name_is_clip_scores(
     stage.setup()
     out_frame = stage.process(task).to_pandas()
     assert "clip_scores" in out_frame.columns
-
-
-@patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node")
-@patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings")
-def test_clip_score_annotator_pass_mask_high_score_passes(
-    mock_clip_class: MagicMock, mock_download: MagicMock
-) -> None:
-    mock_download.return_value = None
-    dim = 512
-    mock_model = mock_clip_class.return_value
-    mock_model.return_value = torch.ones(1, dim) / (dim**0.5)
-    mock_model.encode_text.return_value = torch.ones(1, dim) / (dim**0.5)
-
-    jpeg = make_jpeg_bytes()
-    rows = [
-        {
-            "sample_id": "s1",
-            "position": 0,
-            "modality": "text",
-            "content_type": "text/plain",
-            "text_content": "a cat",
-            "binary_content": None,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-        {
-            "sample_id": "s1",
-            "position": 1,
-            "modality": "image",
-            "content_type": "image/jpeg",
-            "text_content": None,
-            "binary_content": jpeg,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-    ]
-    task = interleaved_task(rows)
-    stage = InterleavedCLIPScoreAnnotatorStage(model_dir="/fake/clip")
-    stage.setup_on_node(NodeInfo(), WorkerMetadata())
-    stage.setup()
-    mask = interleaved_score_pass_mask(stage, task, task.to_pandas(), min_score=0.0)
-    assert mask.all()
-
-
-@patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings.download_weights_on_node")
-@patch("nemo_curator.stages.interleaved.annotation.clip_score_annotator.CLIPImageEmbeddings")
-def test_clip_score_annotator_pass_mask_low_score_fails(mock_clip_class: MagicMock, mock_download: MagicMock) -> None:
-    mock_download.return_value = None
-    dim = 512
-    mock_model = mock_clip_class.return_value
-    mock_model.return_value = torch.ones(1, dim) / (dim**0.5)
-    mock_model.encode_text.return_value = -torch.ones(1, dim) / (dim**0.5)
-
-    jpeg = make_jpeg_bytes()
-    rows = [
-        {
-            "sample_id": "s1",
-            "position": 0,
-            "modality": "text",
-            "content_type": "text/plain",
-            "text_content": "unrelated",
-            "binary_content": None,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-        {
-            "sample_id": "s1",
-            "position": 1,
-            "modality": "image",
-            "content_type": "image/jpeg",
-            "text_content": None,
-            "binary_content": jpeg,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-    ]
-    task = interleaved_task(rows)
-    stage = InterleavedCLIPScoreAnnotatorStage(model_dir="/fake/clip")
-    stage.setup_on_node(NodeInfo(), WorkerMetadata())
-    stage.setup()
-    df = task.to_pandas()
-    mask = interleaved_score_pass_mask(stage, task, df, min_score=0.15)
-    assert not bool(mask.loc[df["modality"] == "image"].iloc[0])
-    assert bool(mask.loc[df["modality"] == "text"].iloc[0])
