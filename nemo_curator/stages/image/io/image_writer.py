@@ -163,7 +163,10 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
                 f"images_per_tar={self.images_per_tar} exceeds the batch size "
                 f"({len(task.data)} images in this batch). "
                 f"Each tar will contain fewer images than requested. "
-                f"Set images_per_tar <= batch_size to get the intended packing density."
+                f"Set images_per_tar <= batch_size to get the intended packing density. "
+                f"If this warning appears only once (on the last batch), it is expected "
+                f"behavior — the remaining samples are fewer than images_per_tar and will "
+                f"be packed into a single smaller tar."
             )
 
         # Paths produced for this batch
