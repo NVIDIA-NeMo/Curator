@@ -16,13 +16,17 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from nemo_curator.core.serve.base import BaseModelConfig, InferenceBackend
+from nemo_curator.core.serve.ray_serve.config import RayServeModelConfig
 from nemo_curator.core.utils import get_free_port
 
 if TYPE_CHECKING:
+    from ray.serve.llm import LLMConfig
+
     from nemo_curator.core.serve.server import InferenceServer
 
 
-class RayServeBackend:
+class RayServeBackend(InferenceBackend):
     """Ray Serve backend for ``InferenceServer``."""
 
     def __init__(self, server: "InferenceServer") -> None:
@@ -59,11 +63,11 @@ class RayServeBackend:
         server = self._server
         server.port = get_free_port(server.port)
 
-        model_names = [model.model_name or model.model_identifier for model in server.models]
+        model_names = [model.resolved_model_name for model in server.models]
         logger.info(f"Starting Ray Serve with models: {model_names} on port {server.port}")
 
         quiet_env = self._quiet_runtime_env() if not server.verbose else None
-        llm_configs = [model.to_llm_config(quiet_runtime_env=quiet_env) for model in server.models]
+        llm_configs = [self._to_llm_config(model, quiet_runtime_env=quiet_env) for model in server.models]
 
         build_args: dict[str, Any] = {"llm_configs": llm_configs}
         if quiet_env:
@@ -117,6 +121,23 @@ class RayServeBackend:
                 "RAY_SERVE_LOG_TO_STDERR": "0",
             },
         }
+
+    @staticmethod
+    def _to_llm_config(model: RayServeModelConfig, quiet_runtime_env: dict[str, Any] | None = None) -> "LLMConfig":
+        """Translate a typed Ray Serve model config into ``LLMConfig``."""
+        from ray.serve.llm import LLMConfig
+
+        merged_env = BaseModelConfig.merge_runtime_envs(model.runtime_env, quiet_runtime_env)
+
+        return LLMConfig(
+            model_loading_config={
+                "model_id": model.resolved_model_name,
+                "model_source": model.model_identifier,
+            },
+            deployment_config=model.deployment_config,
+            engine_kwargs=model.engine_kwargs,
+            runtime_env=merged_env or None,
+        )
 
     @staticmethod
     def _cleanup_failed_deploy() -> None:

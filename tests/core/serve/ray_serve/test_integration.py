@@ -14,7 +14,7 @@
 
 import pytest
 
-from nemo_curator.core.serve import InferenceModelConfig, InferenceServer, is_inference_server_active
+from nemo_curator.core.serve import InferenceServer, RayServeModelConfig, is_inference_server_active
 
 INTEGRATION_TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"  # pragma: allowlist secret
 INTEGRATION_TEST_MODEL_2 = "HuggingFaceTB/SmolLM-135M-Instruct"  # pragma: allowlist secret
@@ -27,7 +27,7 @@ def model_server(shared_ray_cluster: str) -> InferenceServer:  # noqa: ARG001
     Uses enforce_eager=True to skip torch.compile and CUDA graph capture,
     cutting vLLM startup from ~30s to ~5s.
     """
-    config = InferenceModelConfig(
+    config = RayServeModelConfig(
         model_identifier=INTEGRATION_TEST_MODEL,
         deployment_config={
             "autoscaling_config": {"min_replicas": 1, "max_replicas": 1},
@@ -77,7 +77,7 @@ class TestRayServeIntegration:
         """Cannot start a second InferenceServer while one is already active."""
         server2 = InferenceServer(
             models=[
-                InferenceModelConfig(
+                RayServeModelConfig(
                     model_identifier=INTEGRATION_TEST_MODEL_2,
                     deployment_config={"autoscaling_config": {"min_replicas": 1, "max_replicas": 1}},
                     engine_kwargs={"tensor_parallel_size": 1, "max_model_len": 512, "enforce_eager": True},
@@ -94,19 +94,13 @@ class TestRayServeIntegration:
         assert INTEGRATION_TEST_MODEL in {model.id for model in client.models.list()}
 
     def test_restart_after_stop(self, model_server: InferenceServer) -> None:
-        """A new InferenceServer starts cleanly after the previous one is stopped.
-
-        stop() calls serve.shutdown(), so start() must recreate the
-        controller and HTTP proxy from scratch. This test must run last
-        in the class — it stops the shared fixture's server and starts a
-        replacement.
-        """
+        """A new InferenceServer starts cleanly after the previous one is stopped."""
         from openai import OpenAI
 
         model_server.stop()
         assert not is_inference_server_active()
 
-        config = InferenceModelConfig(
+        config = RayServeModelConfig(
             model_identifier=INTEGRATION_TEST_MODEL,
             deployment_config={"autoscaling_config": {"min_replicas": 1, "max_replicas": 1}},
             engine_kwargs={"tensor_parallel_size": 1, "max_model_len": 512, "enforce_eager": True},
