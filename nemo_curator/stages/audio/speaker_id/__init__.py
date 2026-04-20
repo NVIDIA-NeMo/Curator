@@ -12,6 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Speaker ID for ASR data.
+
+Curator stages and supporting libraries for speaker embedding extraction,
+clustering, and per-utterance speaker confidence scoring.
+
+Heavy submodules (``data``, ``embedding``, ``multigpu``, ``utils``,
+``clustering``) are exposed as importable subpackages but are NOT eagerly
+imported here -- they pull in optional GPU / model / boto3 / sklearn
+dependencies that not every consumer needs.
+"""
+
+__version__ = "0.2.0"
+
 from nemo_curator.stages.audio.speaker_id.speaker_clustering_and_scoring import SpeakerClusteringStage
 from nemo_curator.stages.audio.speaker_id.speaker_embedding_lhotse import SpeakerEmbeddingLhotseStage
 from nemo_curator.stages.audio.speaker_id.speaker_embedding_request import SpeakerEmbeddingRequestStage
@@ -20,4 +33,5 @@ __all__ = [
     "SpeakerClusteringStage",
     "SpeakerEmbeddingLhotseStage",
     "SpeakerEmbeddingRequestStage",
+    "__version__",
 ]

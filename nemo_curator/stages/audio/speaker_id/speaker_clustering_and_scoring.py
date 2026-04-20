@@ -53,6 +53,12 @@ from typing import Literal
 
 import numpy as np
 from loguru import logger
+from tqdm.auto import tqdm
+
+from nemo_curator.stages.audio.speaker_id.speaker_embedding_lhotse import (
+    _tqdm_enabled,
+    _worker_tag,
+)
 
 EmbeddingNormalization = Literal["none", "center_global", "external"]
 
@@ -65,7 +71,7 @@ from nemo_curator.tasks import EmptyTask, _EmptyTask
 EER_THRESHOLD = 0.3483
 # Default AHC cosine threshold for TitaNet + batch mean removal (``center_global``):
 # local eval: TitaNet with cohort mean subtraction, cosine @ EER ≈ 0.291670
-# (see speaker_id_for_asr_data/TITANET_VS_WESPKResNet_benchmark.md).  Raise toward
+# (see tutorials/audio/speaker_id/TITANET_VS_WESPKResNet_benchmark.md).  Raise toward
 # 0.35–0.40 if false merges (different speakers merged) hurt more than splits.
 DEFAULT_THRESHOLD = 0.292
 
@@ -121,7 +127,7 @@ def normalize_embeddings_for_clustering(
       you cluster).  Good default for unlabeled web/audio without external stats.
     * ``external`` -- subtract ``cohort_mean.npy``; optionally divide by
       ``cohort_std.npy`` (e.g. VoxCeleb cohort from
-      ``speaker_id_for_asr_data/embedding_norm_stats``).
+      ``tutorials/audio/speaker_id/embedding_norm_stats``).
 
     Args:
         embeddings: ``(N, D)`` float array.
@@ -410,6 +416,7 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
     external_norm_std_npy: str = ""
     norm_eps: float = 1e-8
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    show_progress: bool = True
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         pass
@@ -451,38 +458,49 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
     def _process_shard_level(self, manifest_paths: list[str]) -> int:
         os.makedirs(self.output_manifest_dir, exist_ok=True)
         total = 0
+        bar_disable = not _tqdm_enabled(self.show_progress)
 
-        for idx, mp in enumerate(manifest_paths, start=1):
-            manifest_entries, cut_ids, embeddings, mapping = self._load_shard_pair(mp)
-            n = embeddings.shape[0]
-            if n == 0:
-                logger.warning(f"Shard {mp} has 0 embeddings, skipping")
-                continue
+        with tqdm(
+            total=len(manifest_paths),
+            desc=f"clustering shards [{_worker_tag()}]",
+            unit="shard",
+            dynamic_ncols=True,
+            disable=bar_disable,
+        ) as bar:
+            for idx, mp in enumerate(manifest_paths, start=1):
+                manifest_entries, cut_ids, embeddings, mapping = self._load_shard_pair(mp)
+                n = embeddings.shape[0]
+                if n == 0:
+                    logger.warning(f"Shard {mp} has 0 embeddings, skipping")
+                    bar.update(1)
+                    continue
 
-            embs = self._normalize(embeddings)
-            labels = cluster_embeddings(embs, self.threshold, self.linkage_method)
-            scores = speaker_confidence(embs, labels)
-            _log_cluster_summary(labels, self.threshold)
+                embs = self._normalize(embeddings)
+                labels = cluster_embeddings(embs, self.threshold, self.linkage_method)
+                scores = speaker_confidence(embs, labels)
+                _log_cluster_summary(labels, self.threshold)
 
-            for entry in manifest_entries:
-                afp = entry[self.audio_filepath_key]
-                emb_idx = mapping.get(afp)
-                if emb_idx is not None:
-                    entry["speaker_label"] = int(labels[emb_idx])
-                    entry["confidence_score"] = round(float(scores[emb_idx]), 6)
-                else:
-                    entry["speaker_label"] = -1
-                    entry["confidence_score"] = 0.0
+                for entry in manifest_entries:
+                    afp = entry[self.audio_filepath_key]
+                    emb_idx = mapping.get(afp)
+                    if emb_idx is not None:
+                        entry["speaker_label"] = int(labels[emb_idx])
+                        entry["confidence_score"] = round(float(scores[emb_idx]), 6)
+                    else:
+                        entry["speaker_label"] = -1
+                        entry["confidence_score"] = 0.0
 
-            out_path = os.path.join(
-                self.output_manifest_dir, os.path.basename(mp)
-            )
-            _write_manifest(out_path, manifest_entries)
-            total += n
-            logger.info(
-                f"  Shard {idx}/{len(manifest_paths)}: "
-                f"{os.path.basename(mp)} -> {out_path}"
-            )
+                out_path = os.path.join(
+                    self.output_manifest_dir, os.path.basename(mp)
+                )
+                _write_manifest(out_path, manifest_entries)
+                total += n
+                logger.info(
+                    f"  Shard {idx}/{len(manifest_paths)}: "
+                    f"{os.path.basename(mp)} -> {out_path}"
+                )
+                bar.set_postfix(utts=total, last_n_clusters=int(labels.max() + 1))
+                bar.update(1)
 
         return total
 
@@ -492,11 +510,18 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
 
     def _process_global(self, manifest_paths: list[str]) -> int:
         os.makedirs(self.output_manifest_dir, exist_ok=True)
+        bar_disable = not _tqdm_enabled(self.show_progress)
 
         shard_data: list[tuple[str, list[dict], np.ndarray, dict[str, int]]] = []
         all_embs: list[np.ndarray] = []
 
-        for mp in manifest_paths:
+        for mp in tqdm(
+            manifest_paths,
+            desc=f"loading shards [{_worker_tag()}]",
+            unit="shard",
+            dynamic_ncols=True,
+            disable=bar_disable,
+        ):
             manifest_entries, cut_ids, embeddings, mapping = self._load_shard_pair(mp)
             if embeddings.shape[0] == 0:
                 logger.warning(f"Shard {mp} has 0 embeddings, skipping")
@@ -514,14 +539,25 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
             f"from {len(shard_data)} shards"
         )
 
+        # AHC + confidence are single SciPy/NumPy calls on the merged matrix;
+        # they cannot be tqdm-tracked without rewriting the algorithm. They are
+        # the bulk of CPU time for global mode.
+        logger.info("  AHC clustering (no progress bar -- single SciPy call) ...")
         merged_embs = self._normalize(merged_embs)
         labels = cluster_embeddings(merged_embs, self.threshold, self.linkage_method)
+        logger.info("  Computing per-utterance confidence scores ...")
         scores = speaker_confidence(merged_embs, labels)
         _log_cluster_summary(labels, self.threshold)
 
         offset = 0
         total = 0
-        for mp, manifest_entries, embeddings, mapping in shard_data:
+        for mp, manifest_entries, embeddings, mapping in tqdm(
+            shard_data,
+            desc=f"writing manifests [{_worker_tag()}]",
+            unit="shard",
+            dynamic_ncols=True,
+            disable=bar_disable,
+        ):
             n = embeddings.shape[0]
             shard_labels = labels[offset:offset + n]
             shard_scores = scores[offset:offset + n]
@@ -562,79 +598,105 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
         total = 0
         label_offset = 0
         num_groups = (len(manifest_paths) + batch_size - 1) // batch_size
+        bar_disable = not _tqdm_enabled(self.show_progress)
 
-        for group_idx in range(num_groups):
-            start = group_idx * batch_size
-            end = min(start + batch_size, len(manifest_paths))
-            group_paths = manifest_paths[start:end]
+        with tqdm(
+            total=num_groups,
+            desc=f"clustering groups [{_worker_tag()}]",
+            unit="group",
+            dynamic_ncols=True,
+            disable=bar_disable,
+        ) as group_bar:
+            for group_idx in range(num_groups):
+                start = group_idx * batch_size
+                end = min(start + batch_size, len(manifest_paths))
+                group_paths = manifest_paths[start:end]
 
-            logger.info(
-                f"Group {group_idx + 1}/{num_groups}: "
-                f"shards {start}-{end - 1} ({len(group_paths)} shards)"
-            )
-
-            shard_data: list[tuple[str, list[dict], np.ndarray, dict[str, int]]] = []
-            all_embs: list[np.ndarray] = []
-
-            for mp in group_paths:
-                try:
-                    manifest_entries, cut_ids, embeddings, mapping = (
-                        self._load_shard_pair(mp)
-                    )
-                except FileNotFoundError:
-                    logger.warning(f"Missing embeddings for {mp}, skipping")
-                    continue
-                if embeddings.shape[0] == 0:
-                    logger.warning(f"Shard {mp} has 0 embeddings, skipping")
-                    continue
-                shard_data.append((mp, manifest_entries, embeddings, mapping))
-                all_embs.append(embeddings)
-
-            if not all_embs:
-                logger.warning(f"Group {group_idx + 1}: no embeddings, skipping")
-                continue
-
-            merged_embs = np.concatenate(all_embs)
-            logger.info(
-                f"  Clustering {merged_embs.shape[0]:,} utterances "
-                f"from {len(shard_data)} shards"
-            )
-
-            merged_embs = self._normalize(merged_embs)
-            labels = cluster_embeddings(
-                merged_embs, self.threshold, self.linkage_method,
-            )
-            scores = speaker_confidence(merged_embs, labels)
-            _log_cluster_summary(labels, self.threshold)
-
-            # Offset labels so they don't collide across groups.
-            labels = labels + label_offset
-            label_offset = int(labels.max())
-
-            offset = 0
-            for mp, manifest_entries, embeddings, mapping in shard_data:
-                n = embeddings.shape[0]
-                shard_labels = labels[offset:offset + n]
-                shard_scores = scores[offset:offset + n]
-                offset += n
-
-                for entry in manifest_entries:
-                    afp = entry[self.audio_filepath_key]
-                    emb_idx = mapping.get(afp)
-                    if emb_idx is not None:
-                        entry["speaker_label"] = int(shard_labels[emb_idx])
-                        entry["confidence_score"] = round(
-                            float(shard_scores[emb_idx]), 6,
-                        )
-                    else:
-                        entry["speaker_label"] = -1
-                        entry["confidence_score"] = 0.0
-
-                out_path = os.path.join(
-                    self.output_manifest_dir, os.path.basename(mp),
+                logger.info(
+                    f"Group {group_idx + 1}/{num_groups}: "
+                    f"shards {start}-{end - 1} ({len(group_paths)} shards)"
                 )
-                _write_manifest(out_path, manifest_entries)
-                total += n
+
+                shard_data: list[tuple[str, list[dict], np.ndarray, dict[str, int]]] = []
+                all_embs: list[np.ndarray] = []
+
+                for mp in tqdm(
+                    group_paths,
+                    desc=f"  group {group_idx + 1}/{num_groups}: loading",
+                    unit="shard",
+                    leave=False,
+                    dynamic_ncols=True,
+                    disable=bar_disable,
+                ):
+                    try:
+                        manifest_entries, cut_ids, embeddings, mapping = (
+                            self._load_shard_pair(mp)
+                        )
+                    except FileNotFoundError:
+                        logger.warning(f"Missing embeddings for {mp}, skipping")
+                        continue
+                    if embeddings.shape[0] == 0:
+                        logger.warning(f"Shard {mp} has 0 embeddings, skipping")
+                        continue
+                    shard_data.append((mp, manifest_entries, embeddings, mapping))
+                    all_embs.append(embeddings)
+
+                if not all_embs:
+                    logger.warning(f"Group {group_idx + 1}: no embeddings, skipping")
+                    group_bar.update(1)
+                    continue
+
+                merged_embs = np.concatenate(all_embs)
+                logger.info(
+                    f"  Clustering {merged_embs.shape[0]:,} utterances "
+                    f"from {len(shard_data)} shards"
+                )
+
+                merged_embs = self._normalize(merged_embs)
+                labels = cluster_embeddings(
+                    merged_embs, self.threshold, self.linkage_method,
+                )
+                scores = speaker_confidence(merged_embs, labels)
+                _log_cluster_summary(labels, self.threshold)
+
+                # Offset labels so they don't collide across groups.
+                labels = labels + label_offset
+                label_offset = int(labels.max())
+
+                offset = 0
+                for mp, manifest_entries, embeddings, mapping in tqdm(
+                    shard_data,
+                    desc=f"  group {group_idx + 1}/{num_groups}: writing",
+                    unit="shard",
+                    leave=False,
+                    dynamic_ncols=True,
+                    disable=bar_disable,
+                ):
+                    n = embeddings.shape[0]
+                    shard_labels = labels[offset:offset + n]
+                    shard_scores = scores[offset:offset + n]
+                    offset += n
+
+                    for entry in manifest_entries:
+                        afp = entry[self.audio_filepath_key]
+                        emb_idx = mapping.get(afp)
+                        if emb_idx is not None:
+                            entry["speaker_label"] = int(shard_labels[emb_idx])
+                            entry["confidence_score"] = round(
+                                float(shard_scores[emb_idx]), 6,
+                            )
+                        else:
+                            entry["speaker_label"] = -1
+                            entry["confidence_score"] = 0.0
+
+                    out_path = os.path.join(
+                        self.output_manifest_dir, os.path.basename(mp),
+                    )
+                    _write_manifest(out_path, manifest_entries)
+                    total += n
+
+                group_bar.set_postfix(utts=total, max_label=label_offset)
+                group_bar.update(1)
 
         return total
 

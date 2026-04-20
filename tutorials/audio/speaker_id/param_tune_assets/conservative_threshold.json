@@ -1,0 +1,16 @@
+{
+  "rule": "smallest threshold s.t. cluster-majority purity >= 99.95% AND speaker_coverage >= 80.0%",
+  "chosen": {
+    "confidence_threshold": 0.62,
+    "kept_utts": 1680,
+    "kept_correct": 1680,
+    "kept_wrong": 0,
+    "retention_pct": 0.5979264763979201,
+    "purity_pct": 100.0,
+    "speaker_coverage_pct": 9.927257167308515
+  },
+  "best_clustering_cell": {
+    "ahc_threshold": 0.5,
+    "birch_cosine_floor": 0.95
+  }
+}

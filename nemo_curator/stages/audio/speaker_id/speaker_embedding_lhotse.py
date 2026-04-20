@@ -24,17 +24,44 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import torch
 from loguru import logger
+from tqdm.auto import tqdm
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, _EmptyTask
+
+
+def _tqdm_enabled(default: bool = True) -> bool:
+    """Decide whether tqdm progress bars should render.
+
+    Order of precedence (highest first):
+      1. ``CURATOR_TQDM=0|1`` -- explicit override.
+      2. ``default`` argument from the caller (e.g. stage flag).
+      3. Whether stderr is a TTY -- avoids thousands of carriage-returns
+         in redirected log files.
+    """
+    env = os.environ.get("CURATOR_TQDM")
+    if env is not None:
+        return env.strip() not in ("0", "false", "False", "no", "off", "")
+    if not default:
+        return False
+    return sys.stderr.isatty()
+
+
+def _worker_tag() -> str:
+    """Short tag identifying this worker for multi-GPU progress bars."""
+    cv = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if cv:
+        return f"gpu{cv.split(',')[0]}"
+    return f"pid{os.getpid()}"
 
 if TYPE_CHECKING:
     from lhotse import Cut, CutSet
@@ -163,6 +190,7 @@ class SpeakerEmbeddingLhotseStage(ProcessingStage[_EmptyTask, _EmptyTask]):
     max_cuts: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
     batch_size: int = 64
+    show_progress: bool = True
 
     def setup_on_node(
         self,
@@ -266,11 +294,20 @@ class SpeakerEmbeddingLhotseStage(ProcessingStage[_EmptyTask, _EmptyTask]):
     # Stage entry point
     # ------------------------------------------------------------------
 
+    def _count_shard_cuts(self, manifest_path: str) -> int | None:
+        """Count manifest lines for a single shard (used for the inner tqdm bar)."""
+        try:
+            with open(manifest_path) as f:
+                return sum(1 for _ in f)
+        except (FileNotFoundError, OSError):
+            return None
+
     def _process_shard(
         self,
         manifest_path: str,
         tar_path: str,
         remaining: int | None,
+        progress_position: int = 1,
     ) -> tuple[int, str]:
         """Extract embeddings for a single manifest/tar pair.
 
@@ -292,23 +329,43 @@ class SpeakerEmbeddingLhotseStage(ProcessingStage[_EmptyTask, _EmptyTask]):
         batch_ids: list[str] = []
         count = 0
 
-        for cut in cuts:
-            try:
-                batch_audio.append(self._load_audio(cut))
-                batch_ids.append(cut.id)
-            except Exception:
-                logger.warning(f"Failed to load cut {cut.id!r}, skipping")
-                continue
+        shard_total = self._count_shard_cuts(manifest_path)
+        if remaining is not None and shard_total is not None:
+            shard_total = min(shard_total, remaining)
+        elif remaining is not None:
+            shard_total = remaining
 
-            if len(batch_audio) >= self.batch_size:
-                self._flush_batch(batch_audio, batch_ids, cut_ids, embeddings)
-                batch_audio, batch_ids = [], []
+        bar_disable = not _tqdm_enabled(self.show_progress)
+        is_tty = sys.stderr.isatty()
+        with tqdm(
+            total=shard_total,
+            desc=f"  shard {shard_id} [{_worker_tag()}] cuts",
+            unit="cut",
+            leave=False,
+            position=progress_position,
+            dynamic_ncols=True,
+            disable=bar_disable,
+            mininterval=0.1 if is_tty else 5.0,
+            miniters=1 if is_tty else 256,
+        ) as pbar:
+            for cut in cuts:
+                try:
+                    batch_audio.append(self._load_audio(cut))
+                    batch_ids.append(cut.id)
+                except Exception:
+                    logger.warning(f"Failed to load cut {cut.id!r}, skipping")
+                    continue
 
-            count += 1
-            if remaining is not None and count >= remaining:
-                break
+                if len(batch_audio) >= self.batch_size:
+                    self._flush_batch(batch_audio, batch_ids, cut_ids, embeddings)
+                    batch_audio, batch_ids = [], []
 
-        self._flush_batch(batch_audio, batch_ids, cut_ids, embeddings)
+                count += 1
+                pbar.update(1)
+                if remaining is not None and count >= remaining:
+                    break
+
+            self._flush_batch(batch_audio, batch_ids, cut_ids, embeddings)
 
         emb_array = np.concatenate(embeddings) if embeddings else np.empty((0, 0), dtype=np.float32)
         self._save_shard(shard_output, cut_ids, emb_array)
@@ -332,21 +389,39 @@ class SpeakerEmbeddingLhotseStage(ProcessingStage[_EmptyTask, _EmptyTask]):
         )
         os.makedirs(self.output_path, exist_ok=True)
 
+        bar_disable = not _tqdm_enabled(self.show_progress)
+        is_tty = sys.stderr.isatty()
         global_count = 0
-        for shard_idx, (mp, tp) in enumerate(zip(manifest_paths, tar_paths), start=1):
-            remaining = None
-            if self.max_cuts is not None:
-                remaining = self.max_cuts - global_count
-                if remaining <= 0:
-                    break
+        with tqdm(
+            total=num_shards,
+            desc=f"shards [{_worker_tag()}]",
+            unit="shard",
+            position=0,
+            dynamic_ncols=True,
+            disable=bar_disable,
+            mininterval=0.1 if is_tty else 2.0,
+        ) as shard_bar:
+            for shard_idx, (mp, tp) in enumerate(zip(manifest_paths, tar_paths), start=1):
+                remaining = None
+                if self.max_cuts is not None:
+                    remaining = self.max_cuts - global_count
+                    if remaining <= 0:
+                        break
 
-            n, out_file = self._process_shard(mp, tp, remaining)
-            global_count += n
-            pct = f" ({100 * global_count / effective_total:.1f}%)" if effective_total else ""
-            logger.info(
-                f"Shard {shard_idx}/{num_shards}: {n} cuts → {os.path.basename(out_file)}  "
-                f"[total {global_count}{pct}]"
-            )
+                n, out_file = self._process_shard(
+                    mp, tp, remaining, progress_position=1,
+                )
+                global_count += n
+                pct = f" ({100 * global_count / effective_total:.1f}%)" if effective_total else ""
+                logger.info(
+                    f"Shard {shard_idx}/{num_shards}: {n} cuts → {os.path.basename(out_file)}  "
+                    f"[total {global_count}{pct}]"
+                )
+                shard_bar.set_postfix(
+                    cuts=global_count,
+                    last=os.path.basename(out_file),
+                )
+                shard_bar.update(1)
 
         logger.info(f"Done. {global_count} embeddings across {num_shards} shard files in {self.output_path}")
         return EmptyTask
