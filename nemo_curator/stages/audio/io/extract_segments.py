@@ -307,6 +307,7 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         if self.output_format not in SOUNDFILE_FORMATS:
             msg = f"output_format must be one of {list(SOUNDFILE_FORMATS)}, got {self.output_format!r}"
             raise ValueError(msg)
+        self._all_metadata_rows: list[dict] = []
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], ["original_file"]
@@ -334,7 +335,8 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         }
         extracted, total_dur, speaker_counts, metadata_rows = extractors[combo](entries)
 
-        _write_metadata_csv(self.output_dir, metadata_rows)
+        self._all_metadata_rows.extend(metadata_rows)
+        _write_metadata_csv(self.output_dir, self._all_metadata_rows)
 
         logger.info(
             f"[{self.name}] Extracted {extracted} segments "
