@@ -120,7 +120,6 @@ def create_hf_ocr_pipeline(
         OCRNemotronV2Stage(
             model_dir=nemotron_model_dir,
             num_workers=num_workers,
-            process_all=True,
         )
     )
 

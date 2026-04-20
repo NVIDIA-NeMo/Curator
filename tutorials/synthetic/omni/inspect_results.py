@@ -40,17 +40,14 @@ def main():
         sys.exit(1)
 
     total = 0
-    routes = Counter()
     ocr_status = Counter()  # None / empty_list / has_words
     verif_status = Counter()  # not_run / passed / failed / no_parse
     errors = []
-    samples: dict[str, dict] = {}  # route -> first record
+    samples: list[dict] = []
 
     for fpath in files:
         for d in iter_jsonl(fpath):
             total += 1
-            route = d.get("ocr_language_route") or "none"
-            routes[route] += 1
 
             # OCR status — distinguish None from []
             ocr_dense = d.get("ocr_dense")
@@ -78,11 +75,10 @@ def main():
             if d.get("error"):
                 errors.append(d["error"])
 
-            if route not in samples and args.show_sample > 0:
-                samples[route] = d
+            if len(samples) < args.show_sample:
+                samples.append(d)
 
     print(f"Files: {len(files)}, Records: {total}")
-    print(f"\nRoutes:        {dict(routes)}")
     print(f"OCR status:    {dict(ocr_status)}")
     print(f"Verif status:  {dict(verif_status)}")
     if errors:
@@ -93,18 +89,14 @@ def main():
             if key not in seen:
                 seen.add(key)
                 print(f"  {e[:120]}")
-                if args.show_errors:
-                    pass  # already printed
 
     if args.show_sample and samples:
-        print(f"\nSamples (one per route):")
-        for route, d in samples.items():
-            print(f"\n--- route={route} ---")
+        print(f"\nSamples:")
+        for d in samples:
+            print(f"\n--- {d.get('image_id', '?')} ---")
             # Print key fields only
             for k in [
                 "image_id", "is_valid", "error",
-                "ocr_language_route",
-                "ocr_has_text", "ocr_has_english", "ocr_has_chinese",
                 "ocr_verification_model",
                 "ocr_verification_answers",
                 "ocr_verification_response_raw",

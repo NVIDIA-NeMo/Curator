@@ -73,7 +73,6 @@ def _draw_bboxes(img: Image.Image, words: list[dict]) -> Image.Image:
 def _result_json(record: dict) -> dict:
     """Extract key fields for result.json (drop raw prompts to keep it readable)."""
     skip = {
-        "ocr_language_route_prompt", "ocr_language_route_response_raw",
         "ocr_dense_prompt", "ocr_verification_prompt",
     }
     return {k: v for k, v in record.items() if k not in skip}

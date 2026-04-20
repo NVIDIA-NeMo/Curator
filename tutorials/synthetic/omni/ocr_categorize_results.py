@@ -25,8 +25,6 @@ from PIL import Image, ImageDraw, ImageFont
 
 _TAR_RE = re.compile(r"^(.*\.tar)/(\d+):(\d+):(.+)$")
 _SKIP_KEYS = {
-    "ocr_language_route_prompt",
-    "ocr_language_route_response_raw",
     "ocr_dense_prompt",
     "ocr_verification_prompt",
 }
