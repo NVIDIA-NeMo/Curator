@@ -163,7 +163,7 @@ def main():
             ),
             WhisperHallucinationStage(
                 common_hall_file=args.hall_phrases,
-                text_key="qwen3_prediction_s2",
+                text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
                 unique_words_threshold=args.unique_words_threshold,
                 long_word_threshold=args.long_word_threshold,
                 long_word_rel_threshold=args.long_word_rel_threshold,
@@ -172,13 +172,13 @@ def main():
             ),
             FastTextLIDStage(
                 model_path=args.fasttext_model,
-                text_key="qwen3_prediction_s2",
+                text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
                 target_lang=args.target_lang,
                 min_lang_prob=args.min_lang_prob,
             ),
             RegexSubstitutionStage(
                 regex_params_yaml=args.regex_yaml,
-                text_key="qwen3_prediction_s2",
+                text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
                 output_text_key="cleaned_text",
             ),
             ALMManifestWriterStage(
