@@ -40,7 +40,7 @@ from loguru import logger
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio import AudioDataFilterStage
+from nemo_curator.stages.audio.advanced_pipelines import AudioDataFilterStage
 from nemo_curator.stages.audio.datasets.readspeech import CreateInitialManifestReadSpeechStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
@@ -260,7 +260,9 @@ def main() -> None:
     logger.info("Starting pipeline execution...")
 
     try:
-        executor = RayDataExecutor() if args.backend == "ray_data" else XennaExecutor(config={"execution_mode": "streaming"})
+        executor = (
+            RayDataExecutor() if args.backend == "ray_data" else XennaExecutor(config={"execution_mode": "streaming"})
+        )
         pipeline.run(executor)
 
         logger.info(f"Results written to {args.output_dir}/*.jsonl")
