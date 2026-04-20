@@ -116,7 +116,7 @@ Here's a simple example to get started with NeMo Curator's image curation pipeli
 **CPU Memory Considerations**
 
 Image loading and decoding happens in CPU memory before GPU processing. If you encounter out-of-memory errors during the `ImageReaderStage`, reduce:
-- `batch_size`: Number of images per batch (reduce to 32-50 for systems with limited RAM)
+- `dali_batch_size`: Number of images per batch (reduce to 32-50 for systems with limited RAM)
 - `num_threads`: Parallel decoding threads (reduce to 4 for systems with limited RAM)
 - `num_cpus`: Ray Client CPU allocation (reduce to 8-16 for systems with limited RAM)
 
@@ -152,7 +152,7 @@ pipeline.add_stage(FilePartitioningStage(
 
 # Stage 2: Read images from tar files using DALI
 pipeline.add_stage(ImageReaderStage(
-    batch_size=50,
+    dali_batch_size=50,
     verbose=True,
     num_threads=4,
     num_gpus_per_worker=0.25,
