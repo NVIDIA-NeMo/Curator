@@ -1,10 +1,9 @@
 """Base stage class extending NeMo Curator's ProcessingStage."""
 
 from abc import abstractmethod
-import functools
 import math
 import os
-from typing import Any, Generator, Generic, Iterable, Sequence, TypeVar
+from typing import Any, Generic, Sequence, TypeVar
 
 from loguru import logger
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -13,7 +12,6 @@ from nemo_curator.stages.resources import Resources, _get_gpu_memory_gb
 from PIL import Image
 
 from nemo_curator.models.omni.base import InferenceConfig, VLMModel
-from nemo_curator.stages.synthetic.omni.utils.stream_base import StatsCollector, TextResultProcessor
 from nemo_curator.tasks.image import SingleDataTask
 
 
@@ -131,10 +129,6 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
         self.model = model
         self.inference_config = inference_config
         self.batch_size = batch_size
-
-        if not hasattr(model, "generate_stream"):
-            # No support
-            del self.generate_stream
 
     def _initialize_model(self) -> None:
         """Initialize the model."""
@@ -268,59 +262,6 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
                 task.data.is_valid = False
 
         return tasks
-
-    def generate_stream(
-        self,
-        tasks: Iterable[SingleDataTask[T]],
-        *,
-        stats_collector: StatsCollector | None = None,
-    ) -> Generator[SingleDataTask[T], None, None]:
-        """Yield completed tasks as the model produces them (within this stage only).
-
-        Uses the model's generate_stream so results are yielded per task as ready,
-        instead of waiting for the full batch like process_batch. The default
-        executor (Xenna) does not call this; it uses process_batch, so stage-to-stage
-        overlap is determined by the executor, not by this method.
-        """
-
-        if not hasattr(self.model, "generate_stream"):
-            raise ValueError("Model does not support streaming generation")
-
-        def get_prompts():
-            for task in tasks:
-                try:
-                    task = (
-                        self.build_prompt(task),
-                        self.load_image(task) if self.multimodal else None,
-                        TextResultProcessor(
-                            task,
-                            self.handle_response,
-                            stats_collector=stats_collector,
-                        ),
-                    )
-                except SkipSample:
-                    logger.debug(f"{self.name}: skipping sample {task.task_id}")
-                    yield None, None, functools.partial((lambda x, *_: x), task)
-                except Exception as e:
-                    logger.error(f"{self.name}: error preparing task {task.task_id}: {e}")
-                    task.data.error = f"{self.name}: {e}"
-                    task.data.is_valid = False
-                    yield None, None, functools.partial((lambda x, *_: x), task)
-                else:
-                    yield task
-
-        if stats_collector is None:
-            stats_collector = StatsCollector()
-
-        with stats_collector:
-            for result in self.model.generate_stream(
-                prompts=get_prompts(),
-                inference_config=self.inference_config,
-                step=stats_collector.step,
-                max_parallel_tasks=self.batch_size,
-            ):
-                yield result
-            stats_collector.step(force=True)
 
     def preload_model(self) -> None:
         """Preload the model."""
