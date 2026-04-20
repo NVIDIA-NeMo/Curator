@@ -64,10 +64,12 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "QwenOmni_inference"
     model_id: str = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
     prompt_text: str = "Transcribe the audio."
+    followup_prompt: str | None = None
     system_prompt: str | None = None
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
-    pred_text_key: str = "pred_text"
+    pred_text_key: str = "qwen3_prediction_s1"
+    disfluency_text_key: str = "qwen3_prediction_s2"
     max_model_len: int = 32768
     max_num_seqs: int = 32
     gpu_memory_utilization: float = 0.95
@@ -89,6 +91,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         return QwenOmni(
             model_id=self.model_id,
             prompt_text=self.prompt_text,
+            followup_prompt=self.followup_prompt,
             system_prompt=self.system_prompt,
             max_model_len=self.max_model_len,
             max_num_seqs=self.max_num_seqs,
@@ -136,7 +139,10 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.waveform_key, self.sample_rate_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.pred_text_key]
+        keys = [self.pred_text_key]
+        if self.followup_prompt:
+            keys.append(self.disfluency_text_key)
+        return [], keys
 
     # ------------------------------------------------------------------
     # Processing
@@ -157,13 +163,13 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         waveforms = [t.data[self.waveform_key] for t in tasks]
         sample_rates = [t.data[self.sample_rate_key] for t in tasks]
 
-        texts = self._model.generate(waveforms, sample_rates)
+        pred_texts, disfluency_texts = self._model.generate(waveforms, sample_rates)
 
-        for task, text in zip(tasks, texts, strict=True):
-            task.data[self.pred_text_key] = text
-            # Drop waveform from output to free memory — downstream stages
-            # only need the predicted text and manifest metadata.
+        for task, pred, disfl in zip(tasks, pred_texts, disfluency_texts, strict=True):
+            task.data[self.pred_text_key] = pred
+            if self.followup_prompt:
+                task.data[self.disfluency_text_key] = disfl
             task.data.pop(self.waveform_key, None)
 
-        logger.info("QwenOmni: generated %d predictions", len(texts))
+        logger.info("QwenOmni: generated %d predictions (turn2=%s)", len(pred_texts), bool(self.followup_prompt))
         return tasks
