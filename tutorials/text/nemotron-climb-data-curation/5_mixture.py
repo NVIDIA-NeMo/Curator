@@ -16,36 +16,15 @@
 # https://github.com/sail-sg/regmix/blob/main/mixture_config/synthesize_mixture.py
 
 import argparse
-import glob
 import os
 import random
 
 import numpy as np
+from utils import get_token_distribution
 
 SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)  # noqa: NPY002
-
-
-def get_token_distribution(input_path: str) -> dict[str, float]:
-    """
-    Get the token distribution from the input path of the tokenized files.
-
-    Args:
-    input_path (str): Path to the input directory containing the tokenized files.
-
-    Returns:
-    dict: Dictionary of tokenized files and their corresponding weights.
-    """
-
-    files = sorted(glob.glob(f"{input_path}/*.bin"))
-
-    sizes = [os.path.getsize(f) for f in files]
-    total = sum(sizes)
-
-    weights: list[float] = [s / total for s in sizes]
-
-    return dict(zip(files, weights, strict=True))
 
 
 def generate_train_group(groups: list[str], weights: list[float], precision: int = 5) -> dict[str, float]:
