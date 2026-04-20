@@ -73,7 +73,7 @@ from nemo_curator.stages.audio.text_filtering import (
 from nemo_curator.stages.resources import Resources
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser(description="QwenOmni in-process vLLM pipeline")
     ap.add_argument("--data_config", type=str, required=True, help="Granary YAML data config.")
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")

@@ -16,13 +16,15 @@ from __future__ import annotations
 
 import gc
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
 from loguru import logger
 
 from nemo_curator.models.base import ModelInterface
 from nemo_curator.utils.gpu_utils import get_gpu_count
+
+if TYPE_CHECKING:
+    import numpy as np
 
 try:
     from vllm import LLM, SamplingParams
@@ -227,7 +229,7 @@ class QwenOmni(ModelInterface):
         sample_rates: list[int],
     ) -> list[tuple[dict[str, Any], np.ndarray] | None]:
         if self._prep_pool is None:
-            return [self._prepare_single(w, sr) for w, sr in zip(waveforms, sample_rates)]
+            return [self._prepare_single(w, sr) for w, sr in zip(waveforms, sample_rates, strict=False)]
         return list(self._prep_pool.map(self._prepare_single, waveforms, sample_rates))
 
     def _prepare_turn2_single(
@@ -264,7 +266,7 @@ class QwenOmni(ModelInterface):
         if self._prep_pool is None:
             return [
                 self._prepare_turn2_single(w, pt)
-                for w, pt in zip(waveforms_16k, pred_texts)
+                for w, pt in zip(waveforms_16k, pred_texts, strict=False)
             ]
         return list(self._prep_pool.map(self._prepare_turn2_single, waveforms_16k, pred_texts))
 
@@ -314,7 +316,7 @@ class QwenOmni(ModelInterface):
         t1_outputs = self._llm.generate(valid_inputs, sampling_params=self._sampling_params, use_tqdm=False)
 
         pred_texts: list[str] = [""] * n
-        for idx, out in zip(valid_indices, t1_outputs):
+        for idx, out in zip(valid_indices, t1_outputs, strict=False):
             pred_texts[idx] = out.outputs[0].text.strip()
 
         # -- Turn 2 (disfluency refinement) -----------------------------------
@@ -330,7 +332,7 @@ class QwenOmni(ModelInterface):
             [pred_texts[i] for i in t2_indices],
         )
 
-        t2_valid = [(i, p) for i, p in zip(t2_indices, t2_prepared) if p is not None]
+        t2_valid = [(i, p) for i, p in zip(t2_indices, t2_prepared, strict=False) if p is not None]
         if not t2_valid:
             logger.warning("All Turn 2 samples failed preprocessing")
             return pred_texts, [""] * n
@@ -340,7 +342,7 @@ class QwenOmni(ModelInterface):
         )
 
         disfluency_texts: list[str] = [""] * n
-        for (idx, _), out in zip(t2_valid, t2_outputs):
+        for (idx, _), out in zip(t2_valid, t2_outputs, strict=False):
             disfluency_texts[idx] = out.outputs[0].text.strip()
 
         return pred_texts, disfluency_texts

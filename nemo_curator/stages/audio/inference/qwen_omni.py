@@ -15,14 +15,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.qwen_omni import QwenOmni
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
 @dataclass

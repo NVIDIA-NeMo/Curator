@@ -85,7 +85,8 @@ def _open_tar(tar_path: str, s3_endpoint_url: str | None = None) -> tarfile.TarF
         fileobj = open_best(pipe_path, mode="rb")
     else:
         if not os.path.exists(tar_path):
-            raise FileNotFoundError(f"Tar file not found: {tar_path}")
+            msg = f"Tar file not found: {tar_path}"
+            raise FileNotFoundError(msg)
         fileobj = open_best(tar_path, mode="rb")
     return tarfile.open(fileobj=fileobj, mode="r|*")
 
@@ -172,7 +173,7 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                         f"{len(manifest_paths)} manifests vs {len(tar_paths)} tars"
                     )
                     raise ValueError(msg)
-                for i, (mp, tp) in enumerate(zip(manifest_paths, tar_paths)):
+                for i, (mp, tp) in enumerate(zip(manifest_paths, tar_paths, strict=False)):
                     shard_key = f"{corpus_id}_{i}"
                     if shard_key in completed:
                         skipped += 1

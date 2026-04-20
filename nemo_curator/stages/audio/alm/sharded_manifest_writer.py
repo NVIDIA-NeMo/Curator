@@ -105,24 +105,13 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         )
 
     def process_batch(self, tasks: list[AudioTask]) -> list[FileGroupTask]:
-        results = []
-        for task in tasks:
-            results.append(self.process(task))
-
-        completed = set()
-        for task in tasks:
-            corpus, shard_id = self._get_shard_info(task)
-            shard_key = f"{corpus}_{shard_id}"
-            if shard_key not in completed:
-                completed.add(shard_key)
-
-        return results
+        return [self.process(task) for task in tasks]
 
     def teardown(self) -> None:
         total = sum(self._shard_counts.values())
-        done = sum(1 for k in self._shard_counts if os.path.exists(
+        done = sum(1 for k in self._shard_counts if "_" in k and os.path.exists(
             os.path.join(self.output_dir, k.rsplit("_", 1)[0], f"{k.rsplit('_', 1)[1]}.jsonl.done")
-        ) if "_" in k)
+        ))
         logger.info(f"ShardedManifestWriter: {total} utterances across {len(self._shard_counts)} shards, {done} completed with .done")
 
     def num_workers(self) -> int | None:
