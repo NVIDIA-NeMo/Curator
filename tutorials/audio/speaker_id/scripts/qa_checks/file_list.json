@@ -1,0 +1,67 @@
+[
+  {
+    "session_id": "6ce797ee-04a0-4df1-b33b-b449473ec313",
+    "sample_rate": 16000,
+    "mixed_wav": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/6ce797ee-04a0-4df1-b33b-b449473ec313/6ce797ee-04a0-4df1-b33b-b449473ec313.wav",
+    "channels": {
+      "speaker1": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/6ce797ee-04a0-4df1-b33b-b449473ec313/speaker1.wav",
+      "speaker2": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/6ce797ee-04a0-4df1-b33b-b449473ec313/speaker2.wav"
+    },
+    "rttms": {
+      "speaker1": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/tjp_annotated_rttms/6ce797ee-04a0-4df1-b33b-b449473ec313-speaker1.rttm",
+      "speaker2": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/tjp_annotated_rttms/6ce797ee-04a0-4df1-b33b-b449473ec313-speaker2.rttm"
+    }
+  },
+  {
+    "session_id": "953f9005-88f6-45bc-be03-d1f3452410e9",
+    "sample_rate": 16000,
+    "mixed_wav": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/953f9005-88f6-45bc-be03-d1f3452410e9/953f9005-88f6-45bc-be03-d1f3452410e9.wav",
+    "channels": {
+      "speaker1": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/953f9005-88f6-45bc-be03-d1f3452410e9/speaker1.wav",
+      "speaker2": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/953f9005-88f6-45bc-be03-d1f3452410e9/speaker2.wav"
+    },
+    "rttms": {
+      "speaker1": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/tjp_annotated_rttms/953f9005-88f6-45bc-be03-d1f3452410e9-speaker1.rttm",
+      "speaker2": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/tjp_annotated_rttms/953f9005-88f6-45bc-be03-d1f3452410e9-speaker2.rttm"
+    }
+  },
+  {
+    "session_id": "9df05f16-7a1f-40a1-bc1e-1dc75ebf2c58",
+    "sample_rate": 16000,
+    "mixed_wav": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/9df05f16-7a1f-40a1-bc1e-1dc75ebf2c58/9df05f16-7a1f-40a1-bc1e-1dc75ebf2c58.wav",
+    "channels": {
+      "speaker1": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/9df05f16-7a1f-40a1-bc1e-1dc75ebf2c58/speaker1.wav",
+      "speaker2": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/9df05f16-7a1f-40a1-bc1e-1dc75ebf2c58/speaker2.wav"
+    },
+    "rttms": {
+      "speaker1": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/tjp_annotated_rttms/9df05f16-7a1f-40a1-bc1e-1dc75ebf2c58-speaker1.rttm",
+      "speaker2": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/tjp_annotated_rttms/9df05f16-7a1f-40a1-bc1e-1dc75ebf2c58-speaker2.rttm"
+    }
+  },
+  {
+    "session_id": "f665477a-2191-4a79-9133-8239a5efff27",
+    "sample_rate": 16000,
+    "mixed_wav": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/f665477a-2191-4a79-9133-8239a5efff27/f665477a-2191-4a79-9133-8239a5efff27.wav",
+    "channels": {
+      "speaker1": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/f665477a-2191-4a79-9133-8239a5efff27/speaker1.wav",
+      "speaker2": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/f665477a-2191-4a79-9133-8239a5efff27/speaker2.wav"
+    },
+    "rttms": {
+      "speaker1": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/tjp_annotated_rttms/f665477a-2191-4a79-9133-8239a5efff27-speaker1.rttm",
+      "speaker2": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/tjp_annotated_rttms/f665477a-2191-4a79-9133-8239a5efff27-speaker2.rttm"
+    }
+  },
+  {
+    "session_id": "fb1a3261-2a5a-4f17-88b0-3c83c160c0dc",
+    "sample_rate": 16000,
+    "mixed_wav": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/fb1a3261-2a5a-4f17-88b0-3c83c160c0dc/fb1a3261-2a5a-4f17-88b0-3c83c160c0dc.wav",
+    "channels": {
+      "speaker1": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/fb1a3261-2a5a-4f17-88b0-3c83c160c0dc/speaker1.wav",
+      "speaker2": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/fb1a3261-2a5a-4f17-88b0-3c83c160c0dc/speaker2.wav"
+    },
+    "rttms": {
+      "speaker1": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/tjp_annotated_rttms/fb1a3261-2a5a-4f17-88b0-3c83c160c0dc-speaker1.rttm",
+      "speaker2": "/disk_a_nvd/datasets/sub4spk_finetune_datasets/DavidAI_Micro/tjp_annotated_rttms/fb1a3261-2a5a-4f17-88b0-3c83c160c0dc-speaker2.rttm"
+    }
+  }
+]

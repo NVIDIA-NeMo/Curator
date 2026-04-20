@@ -1,0 +1,30 @@
+embedding_norm_stats/
+  voxceleb/
+    compute_embedding_stats.py   — run this on VoxCeleb2-dev (or Vox1) xvector.scp after extraction
+
+YouTube audio is closer to VoxCeleb (interview / web speech) than telephony, so
+VoxCeleb cohort statistics can be a reasonable *default* — still compare against
+mean/std computed on your own scraped pool when you can.
+
+Steps:
+  1) Extract embeddings for VoxCeleb2 **dev** wavs with the **same** model you use
+     for YouTube (TitaNet or WeSpeaker ResNet, etc.). Same recipe as v2 eval:
+     exp/embeddings/vox2_dev/xvector.scp
+  2) python voxceleb/compute_embedding_stats.py \
+       --xvector_scp .../xvector.scp \
+       --out_dir voxceleb/<model_name> \
+       --label <model>_vox2dev
+
+Outputs: cohort_mean.npy, cohort_var.npy, cohort_std.npy, meta.json
+
+In Python (after loading your YouTube embeddings as (N, D)):
+  import sys
+  sys.path.insert(0, "/ABS/PATH/TO/embedding_norm_stats/voxceleb")
+  from compute_embedding_stats import apply_cohort_affine
+  import numpy as np
+  mean = np.load(".../cohort_mean.npy")
+  std = np.load(".../cohort_std.npy")   # optional
+  x = apply_cohort_affine(youtube_emb, mean, std=None)           # mean only (WeSpeaker-style)
+  x = apply_cohort_affine(youtube_emb, mean, std, l2_normalize_rows=True)  # + L2 rows for cosine
+
+One stats folder per (model, cohort); do not mix TitaNet dim with ResNet dim.

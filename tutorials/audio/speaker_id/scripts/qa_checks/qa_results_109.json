@@ -1,0 +1,6251 @@
+[
+  {
+    "session_id": "en_0638",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.13183279742765272,
+        "c2": 0.17094972067039105
+      }
+    },
+    "der": {
+      "mixed_der": 0.0187,
+      "per_channel_der": {
+        "c1": 0.0166,
+        "c2": 0.0903
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0187,
+          "scored_speaker_time": 281.49,
+          "missed_speaker_time": 3.18,
+          "falarm_speaker_time": 2.09,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0166,
+          "scored_speaker_time": 127.37,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 2.12,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0903,
+          "scored_speaker_time": 145.36,
+          "missed_speaker_time": 5.69,
+          "falarm_speaker_time": 7.44,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -57.723563699167826,
+        "c2": -56.85851758697794
+      },
+      "per_channel_snr_db": {
+        "c1": 30.978775187077872,
+        "c2": 22.736334867424056
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.13",
+      "WER(c2)=0.17"
+    ]
+  },
+  {
+    "session_id": "en_4065",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.07799442896935933,
+        "c2": 0.11567877629063097
+      }
+    },
+    "der": {
+      "mixed_der": 0.0366,
+      "per_channel_der": {
+        "c1": 0.0308,
+        "c2": 0.075
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0366,
+          "scored_speaker_time": 486.43,
+          "missed_speaker_time": 16.9,
+          "falarm_speaker_time": 0.92,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0308,
+          "scored_speaker_time": 277.61,
+          "missed_speaker_time": 5.2,
+          "falarm_speaker_time": 3.34,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.075,
+          "scored_speaker_time": 211.11,
+          "missed_speaker_time": 8.5,
+          "falarm_speaker_time": 7.34,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -49.57213534035559,
+        "c2": -42.5192288536812
+      },
+      "per_channel_snr_db": {
+        "c1": 22.13306553310131,
+        "c2": 20.63119510702961
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.12"
+    ]
+  },
+  {
+    "session_id": "en_4074",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.2982315112540193,
+        "c2": 0.2301980198019802
+      }
+    },
+    "der": {
+      "mixed_der": 0.014,
+      "per_channel_der": {
+        "c1": 0.2897,
+        "c2": 0.0686
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.014,
+          "scored_speaker_time": 447.06,
+          "missed_speaker_time": 1.72,
+          "falarm_speaker_time": 4.53,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.2897,
+          "scored_speaker_time": 353.33,
+          "missed_speaker_time": 0.52,
+          "falarm_speaker_time": 101.83,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0686,
+          "scored_speaker_time": 91.56,
+          "missed_speaker_time": 2.13,
+          "falarm_speaker_time": 4.15,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -44.40181478742527,
+        "c2": -59.05959740687685
+      },
+      "per_channel_snr_db": {
+        "c1": 19.2765925072681,
+        "c2": 38.93748036883827
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.30",
+      "WER(c2)=0.23",
+      "DER(c1)=0.29",
+      "SNR(c1)=19.3"
+    ]
+  },
+  {
+    "session_id": "en_4077",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.29978586723768735,
+        "c2": 0.08534946236559139
+      }
+    },
+    "der": {
+      "mixed_der": 0.0085,
+      "per_channel_der": {
+        "c1": 0.0316,
+        "c2": 0.0368
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0085,
+          "scored_speaker_time": 496.98,
+          "missed_speaker_time": 3.46,
+          "falarm_speaker_time": 0.78,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0316,
+          "scored_speaker_time": 104.58,
+          "missed_speaker_time": 1.18,
+          "falarm_speaker_time": 2.12,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0368,
+          "scored_speaker_time": 394.36,
+          "missed_speaker_time": 11.54,
+          "falarm_speaker_time": 2.99,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -45.39131600010042,
+        "c2": -44.298673895546855
+      },
+      "per_channel_snr_db": {
+        "c1": 24.767754971677064,
+        "c2": 24.161720517563477
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.30"
+    ]
+  },
+  {
+    "session_id": "en_4092",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.17893660531697342,
+        "c2": 0.22712238147739802
+      }
+    },
+    "der": {
+      "mixed_der": 0.0387,
+      "per_channel_der": {
+        "c1": 0.0407,
+        "c2": 0.0755
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0387,
+          "scored_speaker_time": 357.27,
+          "missed_speaker_time": 12.03,
+          "falarm_speaker_time": 1.8,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0407,
+          "scored_speaker_time": 168.21,
+          "missed_speaker_time": 2.69,
+          "falarm_speaker_time": 4.16,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0755,
+          "scored_speaker_time": 183.91,
+          "missed_speaker_time": 4.83,
+          "falarm_speaker_time": 9.05,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -48.67598469589079,
+        "c2": -37.828691648038095
+      },
+      "per_channel_snr_db": {
+        "c1": 20.618148754379284,
+        "c2": 22.656590961510723
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.18",
+      "WER(c2)=0.23",
+      "sil(c2)=-37.83"
+    ]
+  },
+  {
+    "session_id": "en_4093",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.2299794661190965,
+        "c2": 0.07231920199501247
+      }
+    },
+    "der": {
+      "mixed_der": 0.0218,
+      "per_channel_der": {
+        "c1": 0.0632,
+        "c2": 0.0311
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0218,
+          "scored_speaker_time": 411.01,
+          "missed_speaker_time": 5.4,
+          "falarm_speaker_time": 3.55,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0632,
+          "scored_speaker_time": 90.25,
+          "missed_speaker_time": 1.44,
+          "falarm_speaker_time": 4.26,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0311,
+          "scored_speaker_time": 319.15,
+          "missed_speaker_time": 1.6,
+          "falarm_speaker_time": 8.32,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -49.67120393942311,
+        "c2": -48.400436827548305
+      },
+      "per_channel_snr_db": {
+        "c1": 20.74282522897564,
+        "c2": 28.2559583259691
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.23"
+    ]
+  },
+  {
+    "session_id": "en_4104",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.2851919561243144,
+        "c2": 0.3869565217391304
+      }
+    },
+    "der": {
+      "mixed_der": 0.0407,
+      "per_channel_der": {
+        "c1": 0.0906,
+        "c2": 0.0508
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0407,
+          "scored_speaker_time": 358.75,
+          "missed_speaker_time": 13.02,
+          "falarm_speaker_time": 1.57,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0906,
+          "scored_speaker_time": 127.46,
+          "missed_speaker_time": 10.62,
+          "falarm_speaker_time": 0.93,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0508,
+          "scored_speaker_time": 230.52,
+          "missed_speaker_time": 3.97,
+          "falarm_speaker_time": 7.73,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -55.02871106893813,
+        "c2": -43.66762858378436
+      },
+      "per_channel_snr_db": {
+        "c1": 31.546944990597478,
+        "c2": 17.575341954840496
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.29",
+      "WER(c2)=0.39",
+      "SNR(c2)=17.6"
+    ]
+  },
+  {
+    "session_id": "en_4112",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.5547703180212014,
+        "c2": 0.21961620469083157
+      }
+    },
+    "der": {
+      "mixed_der": 0.4459,
+      "per_channel_der": {
+        "c1": 0.6169,
+        "c2": 0.2319
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.4459,
+          "scored_speaker_time": 404.08,
+          "missed_speaker_time": 23.55,
+          "falarm_speaker_time": 156.61,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.6169,
+          "scored_speaker_time": 268.2,
+          "missed_speaker_time": 9.68,
+          "falarm_speaker_time": 155.78,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.2319,
+          "scored_speaker_time": 131.71,
+          "missed_speaker_time": 6.78,
+          "falarm_speaker_time": 23.76,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -32.07891794245924,
+        "c2": -41.38223278607984
+      },
+      "per_channel_snr_db": {
+        "c1": 5.736939031415135,
+        "c2": 13.084001513538201
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.55",
+      "WER(c2)=0.22",
+      "DER(mix)=0.45",
+      "DER(c1)=0.62",
+      "DER(c2)=0.23",
+      "SNR(c1)=5.7",
+      "SNR(c2)=13.1",
+      "sil(c1)=-32.08"
+    ]
+  },
+  {
+    "session_id": "en_4145",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.08503767491926803,
+        "c2": 0.05
+      }
+    },
+    "der": {
+      "mixed_der": 0.0132,
+      "per_channel_der": {
+        "c1": 0.0469,
+        "c2": 0.0374
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0132,
+          "scored_speaker_time": 496.37,
+          "missed_speaker_time": 1.9,
+          "falarm_speaker_time": 4.65,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0469,
+          "scored_speaker_time": 195.13,
+          "missed_speaker_time": 1.7,
+          "falarm_speaker_time": 7.46,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0374,
+          "scored_speaker_time": 295.85,
+          "missed_speaker_time": 2.49,
+          "falarm_speaker_time": 8.56,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -33.245938506112786,
+        "c2": -50.42672988452577
+      },
+      "per_channel_snr_db": {
+        "c1": 16.247930702029123,
+        "c2": 22.778693104654884
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "SNR(c1)=16.2",
+      "sil(c1)=-33.25"
+    ]
+  },
+  {
+    "session_id": "en_4157",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.058431952662721894,
+        "c2": 0.08839779005524862
+      }
+    },
+    "der": {
+      "mixed_der": 0.0189,
+      "per_channel_der": {
+        "c1": 0.0143,
+        "c2": 0.0088
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0189,
+          "scored_speaker_time": 523.17,
+          "missed_speaker_time": 9.9,
+          "falarm_speaker_time": 0.0,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0143,
+          "scored_speaker_time": 256.73,
+          "missed_speaker_time": 3.39,
+          "falarm_speaker_time": 0.28,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0088,
+          "scored_speaker_time": 244.19,
+          "missed_speaker_time": 0.58,
+          "falarm_speaker_time": 1.57,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -63.38819710528909,
+        "c2": -55.52875839227752
+      },
+      "per_channel_snr_db": {
+        "c1": 39.06041258809823,
+        "c2": 33.01028087591345
+      }
+    },
+    "passed": true,
+    "fail_reasons": []
+  },
+  {
+    "session_id": "en_4184",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.05945945945945946,
+        "c2": 0.10025062656641603
+      }
+    },
+    "der": {
+      "mixed_der": 0.0279,
+      "per_channel_der": {
+        "c1": 0.0402,
+        "c2": 0.0289
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0279,
+          "scored_speaker_time": 393.98,
+          "missed_speaker_time": 8.74,
+          "falarm_speaker_time": 2.24,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0402,
+          "scored_speaker_time": 233.65,
+          "missed_speaker_time": 1.75,
+          "falarm_speaker_time": 7.65,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0289,
+          "scored_speaker_time": 141.35,
+          "missed_speaker_time": 1.93,
+          "falarm_speaker_time": 2.15,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -43.13263956144673,
+        "c2": -46.4092799579513
+      },
+      "per_channel_snr_db": {
+        "c1": 19.394147593514145,
+        "c2": 31.475101552534962
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.10",
+      "SNR(c1)=19.4"
+    ]
+  },
+  {
+    "session_id": "en_4234",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.08301158301158301,
+        "c2": 0.2145922746781116
+      }
+    },
+    "der": {
+      "mixed_der": 0.0371,
+      "per_channel_der": {
+        "c1": 0.0201,
+        "c2": 0.2034
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0371,
+          "scored_speaker_time": 442.73,
+          "missed_speaker_time": 11.75,
+          "falarm_speaker_time": 4.69,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0201,
+          "scored_speaker_time": 336.03,
+          "missed_speaker_time": 2.7,
+          "falarm_speaker_time": 4.06,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.2034,
+          "scored_speaker_time": 107.15,
+          "missed_speaker_time": 4.96,
+          "falarm_speaker_time": 16.83,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -47.355929555930665,
+        "c2": -42.055945839555974
+      },
+      "per_channel_snr_db": {
+        "c1": 22.858422745896352,
+        "c2": 24.61825830497633
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.21",
+      "DER(c2)=0.20"
+    ]
+  },
+  {
+    "session_id": "en_4245",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.0781627719580983,
+        "c2": 0.13534675615212527
+      }
+    },
+    "der": {
+      "mixed_der": 0.0142,
+      "per_channel_der": {
+        "c1": 0.0925,
+        "c2": 0.0618
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0142,
+          "scored_speaker_time": 445.73,
+          "missed_speaker_time": 3.69,
+          "falarm_speaker_time": 2.65,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0925,
+          "scored_speaker_time": 261.15,
+          "missed_speaker_time": 10.02,
+          "falarm_speaker_time": 14.13,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0618,
+          "scored_speaker_time": 188.41,
+          "missed_speaker_time": 1.04,
+          "falarm_speaker_time": 10.6,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -41.44774621900191,
+        "c2": -47.153802175192354
+      },
+      "per_channel_snr_db": {
+        "c1": 18.014458280649595,
+        "c2": 21.764685420135383
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.14",
+      "SNR(c1)=18.0"
+    ]
+  },
+  {
+    "session_id": "en_4247",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.06898861352980576,
+        "c2": 0.5736568457538995
+      }
+    },
+    "der": {
+      "mixed_der": 0.0226,
+      "per_channel_der": {
+        "c1": 0.0207,
+        "c2": 0.0124
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0226,
+          "scored_speaker_time": 465.05,
+          "missed_speaker_time": 8.72,
+          "falarm_speaker_time": 1.77,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0207,
+          "scored_speaker_time": 357.11,
+          "missed_speaker_time": 2.58,
+          "falarm_speaker_time": 4.83,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0124,
+          "scored_speaker_time": 100.4,
+          "missed_speaker_time": 1.15,
+          "falarm_speaker_time": 0.09,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -49.298483417386365,
+        "c2": -44.93216342484145
+      },
+      "per_channel_snr_db": {
+        "c1": 25.921096743880582,
+        "c2": 20.37747786433584
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.57"
+    ]
+  },
+  {
+    "session_id": "en_4248",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.15087719298245614,
+        "c2": 0.10369609856262833
+      }
+    },
+    "der": {
+      "mixed_der": 0.0075,
+      "per_channel_der": {
+        "c1": 0.0193,
+        "c2": 0.041
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0075,
+          "scored_speaker_time": 514.9,
+          "missed_speaker_time": 3.31,
+          "falarm_speaker_time": 0.55,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0193,
+          "scored_speaker_time": 283.12,
+          "missed_speaker_time": 1.05,
+          "falarm_speaker_time": 4.42,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.041,
+          "scored_speaker_time": 229.42,
+          "missed_speaker_time": 1.14,
+          "falarm_speaker_time": 8.27,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -46.9758022250202,
+        "c2": -42.897500020092636
+      },
+      "per_channel_snr_db": {
+        "c1": 20.36578351907099,
+        "c2": 19.148861062740593
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.15",
+      "WER(c2)=0.10",
+      "SNR(c2)=19.1"
+    ]
+  },
+  {
+    "session_id": "en_4310",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.028962611901000527,
+        "c2": 0.10619469026548672
+      }
+    },
+    "der": {
+      "mixed_der": 0.0162,
+      "per_channel_der": {
+        "c1": 0.0182,
+        "c2": 0.0775
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0162,
+          "scored_speaker_time": 482.39,
+          "missed_speaker_time": 7.22,
+          "falarm_speaker_time": 0.6,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0182,
+          "scored_speaker_time": 364.67,
+          "missed_speaker_time": 0.86,
+          "falarm_speaker_time": 5.79,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0775,
+          "scored_speaker_time": 104.94,
+          "missed_speaker_time": 5.34,
+          "falarm_speaker_time": 2.79,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -40.89416091072765,
+        "c2": -45.82758808523303
+      },
+      "per_channel_snr_db": {
+        "c1": 19.799652522247612,
+        "c2": 26.029968717496136
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.11",
+      "SNR(c1)=19.8"
+    ]
+  },
+  {
+    "session_id": "en_4315",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.12139423076923077,
+        "c2": 0.11378205128205128
+      }
+    },
+    "der": {
+      "mixed_der": 0.0178,
+      "per_channel_der": {
+        "c1": 0.0995,
+        "c2": 0.0303
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0178,
+          "scored_speaker_time": 535.75,
+          "missed_speaker_time": 9.55,
+          "falarm_speaker_time": 0.0,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0995,
+          "scored_speaker_time": 208.64,
+          "missed_speaker_time": 20.76,
+          "falarm_speaker_time": 0.0,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0303,
+          "scored_speaker_time": 338.0,
+          "missed_speaker_time": 9.95,
+          "falarm_speaker_time": 0.29,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -58.27022680169388,
+        "c2": -50.717670183596766
+      },
+      "per_channel_snr_db": {
+        "c1": 37.19553196298793,
+        "c2": 28.56725075294071
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.12",
+      "WER(c2)=0.11"
+    ]
+  },
+  {
+    "session_id": "en_4325",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.5557986870897156,
+        "c2": 0.1346153846153846
+      }
+    },
+    "der": {
+      "mixed_der": 0.0681,
+      "per_channel_der": {
+        "c1": 0.0666,
+        "c2": 0.0728
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0681,
+          "scored_speaker_time": 443.76,
+          "missed_speaker_time": 30.07,
+          "falarm_speaker_time": 0.13,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0666,
+          "scored_speaker_time": 71.49,
+          "missed_speaker_time": 2.54,
+          "falarm_speaker_time": 2.22,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0728,
+          "scored_speaker_time": 365.94,
+          "missed_speaker_time": 22.79,
+          "falarm_speaker_time": 3.85,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -51.6882538358744,
+        "c2": -46.62855563186662
+      },
+      "per_channel_snr_db": {
+        "c1": 25.632151997791066,
+        "c2": 20.595082330142247
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.56",
+      "WER(c2)=0.13",
+      "DER(mix)=0.07"
+    ]
+  },
+  {
+    "session_id": "en_4335",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.12760882528324388,
+        "c2": 0.07613636363636364
+      }
+    },
+    "der": {
+      "mixed_der": 0.0031,
+      "per_channel_der": {
+        "c1": 0.0311,
+        "c2": 0.0013
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0031,
+          "scored_speaker_time": 469.33,
+          "missed_speaker_time": 1.14,
+          "falarm_speaker_time": 0.31,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0311,
+          "scored_speaker_time": 292.57,
+          "missed_speaker_time": 0.44,
+          "falarm_speaker_time": 8.65,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0013,
+          "scored_speaker_time": 174.35,
+          "missed_speaker_time": 0.23,
+          "falarm_speaker_time": 0.0,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -45.97308893059277,
+        "c2": -61.76406871301164
+      },
+      "per_channel_snr_db": {
+        "c1": 15.49270441052185,
+        "c2": 36.762018723935334
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.13",
+      "SNR(c1)=15.5"
+    ]
+  },
+  {
+    "session_id": "en_4365",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.1111111111111111,
+        "c2": 0.10264686894770819
+      }
+    },
+    "der": {
+      "mixed_der": 0.014,
+      "per_channel_der": {
+        "c1": 0.0374,
+        "c2": 0.0243
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.014,
+          "scored_speaker_time": 481.73,
+          "missed_speaker_time": 5.86,
+          "falarm_speaker_time": 0.87,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0374,
+          "scored_speaker_time": 206.97,
+          "missed_speaker_time": 2.03,
+          "falarm_speaker_time": 5.72,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0243,
+          "scored_speaker_time": 269.89,
+          "missed_speaker_time": 1.56,
+          "falarm_speaker_time": 4.99,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -47.59144007771144,
+        "c2": -46.95420598823503
+      },
+      "per_channel_snr_db": {
+        "c1": 17.712559312822748,
+        "c2": 24.650884713002597
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.11",
+      "WER(c2)=0.10",
+      "SNR(c1)=17.7"
+    ]
+  },
+  {
+    "session_id": "en_4371",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.10175438596491228,
+        "c2": 0.2054794520547945
+      }
+    },
+    "der": {
+      "mixed_der": 0.0312,
+      "per_channel_der": {
+        "c1": 0.0409,
+        "c2": 0.0663
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0312,
+          "scored_speaker_time": 509.97,
+          "missed_speaker_time": 15.87,
+          "falarm_speaker_time": 0.04,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0409,
+          "scored_speaker_time": 370.81,
+          "missed_speaker_time": 15.17,
+          "falarm_speaker_time": 0.01,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0663,
+          "scored_speaker_time": 120.59,
+          "missed_speaker_time": 8.0,
+          "falarm_speaker_time": 0.0,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -61.75556219824759,
+        "c2": -49.27395462672321
+      },
+      "per_channel_snr_db": {
+        "c1": 35.58410147098202,
+        "c2": 24.478881349844173
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.10",
+      "WER(c2)=0.21"
+    ]
+  },
+  {
+    "session_id": "en_4415",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.2338403041825095,
+        "c2": 0.10092807424593968
+      }
+    },
+    "der": {
+      "mixed_der": 0.1349,
+      "per_channel_der": {
+        "c1": 0.2255,
+        "c2": 0.0779
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.1349,
+          "scored_speaker_time": 397.99,
+          "missed_speaker_time": 16.16,
+          "falarm_speaker_time": 37.51,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.2255,
+          "scored_speaker_time": 174.76,
+          "missed_speaker_time": 2.74,
+          "falarm_speaker_time": 36.66,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0779,
+          "scored_speaker_time": 222.03,
+          "missed_speaker_time": 2.4,
+          "falarm_speaker_time": 14.9,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -32.18842480008791,
+        "c2": -31.873364187533028
+      },
+      "per_channel_snr_db": {
+        "c1": 11.006532054142857,
+        "c2": 13.658752050029
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.23",
+      "WER(c2)=0.10",
+      "DER(mix)=0.13",
+      "DER(c1)=0.23",
+      "SNR(c1)=11.0",
+      "SNR(c2)=13.7",
+      "sil(c1)=-32.19",
+      "sil(c2)=-31.87"
+    ]
+  },
+  {
+    "session_id": "en_4431",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.04934687953555878,
+        "c2": 0.44325481798715205
+      }
+    },
+    "der": {
+      "mixed_der": 0.0824,
+      "per_channel_der": {
+        "c1": 0.0844,
+        "c2": 0.0548
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0824,
+          "scored_speaker_time": 400.02,
+          "missed_speaker_time": 32.93,
+          "falarm_speaker_time": 0.05,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0844,
+          "scored_speaker_time": 322.26,
+          "missed_speaker_time": 24.55,
+          "falarm_speaker_time": 2.65,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0548,
+          "scored_speaker_time": 72.41,
+          "missed_speaker_time": 0.64,
+          "falarm_speaker_time": 3.33,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -48.07904005433563,
+        "c2": -59.697213060949295
+      },
+      "per_channel_snr_db": {
+        "c1": 20.75069607986418,
+        "c2": 38.52230552370155
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.44",
+      "DER(mix)=0.08"
+    ]
+  },
+  {
+    "session_id": "en_4432",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.10246174318030606,
+        "c2": 0.41308089500860584
+      }
+    },
+    "der": {
+      "mixed_der": 0.0453,
+      "per_channel_der": {
+        "c1": 0.0394,
+        "c2": 0.1155
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0453,
+          "scored_speaker_time": 425.04,
+          "missed_speaker_time": 16.99,
+          "falarm_speaker_time": 2.26,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0394,
+          "scored_speaker_time": 304.69,
+          "missed_speaker_time": 4.17,
+          "falarm_speaker_time": 7.83,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.1155,
+          "scored_speaker_time": 113.01,
+          "missed_speaker_time": 8.86,
+          "falarm_speaker_time": 4.19,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -47.35682843525662,
+        "c2": -52.28269586943548
+      },
+      "per_channel_snr_db": {
+        "c1": 24.270449981979326,
+        "c2": 19.84066213477382
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.10",
+      "WER(c2)=0.41",
+      "DER(c2)=0.12",
+      "SNR(c2)=19.8"
+    ]
+  },
+  {
+    "session_id": "en_4459",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.32170542635658916,
+        "c2": 0.08350840336134453
+      }
+    },
+    "der": {
+      "mixed_der": 0.0017,
+      "per_channel_der": {
+        "c1": 0.003,
+        "c2": 0.0041
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0017,
+          "scored_speaker_time": 459.68,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 0.78,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.003,
+          "scored_speaker_time": 53.94,
+          "missed_speaker_time": 0.16,
+          "falarm_speaker_time": 0.0,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0041,
+          "scored_speaker_time": 399.5,
+          "missed_speaker_time": 0.17,
+          "falarm_speaker_time": 1.47,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -66.50435820592277,
+        "c2": -57.45961910107149
+      },
+      "per_channel_snr_db": {
+        "c1": 40.897047481394864,
+        "c2": 24.4378460025597
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.32"
+    ]
+  },
+  {
+    "session_id": "en_4485",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.38979118329466356,
+        "c2": 0.060461416070007955
+      }
+    },
+    "der": {
+      "mixed_der": 0.0642,
+      "per_channel_der": {
+        "c1": 0.0731,
+        "c2": 0.0676
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0642,
+          "scored_speaker_time": 480.94,
+          "missed_speaker_time": 30.33,
+          "falarm_speaker_time": 0.56,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0731,
+          "scored_speaker_time": 85.63,
+          "missed_speaker_time": 6.0,
+          "falarm_speaker_time": 0.26,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0676,
+          "scored_speaker_time": 397.48,
+          "missed_speaker_time": 21.58,
+          "falarm_speaker_time": 5.3,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -58.79945785008743,
+        "c2": -37.46563850337432
+      },
+      "per_channel_snr_db": {
+        "c1": 34.20505760420685,
+        "c2": 22.693871020966917
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.39",
+      "DER(mix)=0.06",
+      "sil(c2)=-37.47"
+    ]
+  },
+  {
+    "session_id": "en_4490",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.06967840735068913,
+        "c2": 0.22020431328036322
+      }
+    },
+    "der": {
+      "mixed_der": 0.0344,
+      "per_channel_der": {
+        "c1": 0.0357,
+        "c2": 0.0473
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0344,
+          "scored_speaker_time": 468.65,
+          "missed_speaker_time": 15.8,
+          "falarm_speaker_time": 0.31,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0357,
+          "scored_speaker_time": 307.21,
+          "missed_speaker_time": 9.46,
+          "falarm_speaker_time": 1.5,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0473,
+          "scored_speaker_time": 152.14,
+          "missed_speaker_time": 5.3,
+          "falarm_speaker_time": 1.9,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -52.21552039088973,
+        "c2": -48.89945653887153
+      },
+      "per_channel_snr_db": {
+        "c1": 30.599100689234856,
+        "c2": 28.89436275158205
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.22"
+    ]
+  },
+  {
+    "session_id": "en_4521",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.8502943650126157,
+        "c2": 0.14339981006647673
+      }
+    },
+    "der": {
+      "mixed_der": 0.016,
+      "per_channel_der": {
+        "c1": 1.681,
+        "c2": 0.0358
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.016,
+          "scored_speaker_time": 355.54,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 5.69,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 1.681,
+          "scored_speaker_time": 140.44,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 236.08,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0358,
+          "scored_speaker_time": 190.08,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 6.8,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -40.5907403374918,
+        "c2": -44.6848218497026
+      },
+      "per_channel_snr_db": {
+        "c1": 15.795491897206341,
+        "c2": 26.979293279680906
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.85",
+      "WER(c2)=0.14",
+      "DER(c1)=1.68",
+      "SNR(c1)=15.8"
+    ]
+  },
+  {
+    "session_id": "en_4544",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.10668229777256741,
+        "c2": 0.22646784715750232
+      }
+    },
+    "der": {
+      "mixed_der": 0.0098,
+      "per_channel_der": {
+        "c1": 0.0341,
+        "c2": 0.0504
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0098,
+          "scored_speaker_time": 398.2,
+          "missed_speaker_time": 2.6,
+          "falarm_speaker_time": 1.3,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0341,
+          "scored_speaker_time": 159.21,
+          "missed_speaker_time": 2.61,
+          "falarm_speaker_time": 2.82,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0504,
+          "scored_speaker_time": 247.97,
+          "missed_speaker_time": 8.0,
+          "falarm_speaker_time": 4.49,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -43.70354778894623,
+        "c2": -44.194561110766244
+      },
+      "per_channel_snr_db": {
+        "c1": 26.49635517069253,
+        "c2": 17.625069994482892
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.11",
+      "WER(c2)=0.23",
+      "SNR(c2)=17.6"
+    ]
+  },
+  {
+    "session_id": "en_4556",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.15014436958614052,
+        "c2": 0.08079930495221546
+      }
+    },
+    "der": {
+      "mixed_der": 0.0128,
+      "per_channel_der": {
+        "c1": 0.0347,
+        "c2": 0.0173
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0128,
+          "scored_speaker_time": 505.55,
+          "missed_speaker_time": 6.19,
+          "falarm_speaker_time": 0.27,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0347,
+          "scored_speaker_time": 241.32,
+          "missed_speaker_time": 3.46,
+          "falarm_speaker_time": 4.91,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0173,
+          "scored_speaker_time": 255.44,
+          "missed_speaker_time": 3.39,
+          "falarm_speaker_time": 1.04,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -50.528580642315944,
+        "c2": -54.79403517725066
+      },
+      "per_channel_snr_db": {
+        "c1": 23.6988216102182,
+        "c2": 34.89729095245718
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.15"
+    ]
+  },
+  {
+    "session_id": "en_4564",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.10719754977029096,
+        "c2": 0.08531073446327683
+      }
+    },
+    "der": {
+      "mixed_der": 0.0234,
+      "per_channel_der": {
+        "c1": 0.0641,
+        "c2": 0.0474
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0234,
+          "scored_speaker_time": 502.54,
+          "missed_speaker_time": 10.82,
+          "falarm_speaker_time": 0.94,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0641,
+          "scored_speaker_time": 134.8,
+          "missed_speaker_time": 4.54,
+          "falarm_speaker_time": 4.1,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0474,
+          "scored_speaker_time": 372.86,
+          "missed_speaker_time": 12.1,
+          "falarm_speaker_time": 5.58,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -40.968441257871156,
+        "c2": -36.46292805062855
+      },
+      "per_channel_snr_db": {
+        "c1": 22.28863222550283,
+        "c2": 17.185923300697926
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.11",
+      "SNR(c2)=17.2",
+      "sil(c2)=-36.46"
+    ]
+  },
+  {
+    "session_id": "en_4569",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.09832635983263599,
+        "c2": 0.04482225656877898
+      }
+    },
+    "der": {
+      "mixed_der": 0.0268,
+      "per_channel_der": {
+        "c1": 0.0729,
+        "c2": 0.0357
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0268,
+          "scored_speaker_time": 509.75,
+          "missed_speaker_time": 13.44,
+          "falarm_speaker_time": 0.24,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0729,
+          "scored_speaker_time": 114.12,
+          "missed_speaker_time": 5.13,
+          "falarm_speaker_time": 3.19,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0357,
+          "scored_speaker_time": 392.37,
+          "missed_speaker_time": 11.62,
+          "falarm_speaker_time": 2.39,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -41.5042879865547,
+        "c2": -42.180248167823855
+      },
+      "per_channel_snr_db": {
+        "c1": 23.072821926676262,
+        "c2": 21.817998838785783
+      }
+    },
+    "passed": true,
+    "fail_reasons": []
+  },
+  {
+    "session_id": "en_4571",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.06057385759829968,
+        "c2": 0.2916666666666667
+      }
+    },
+    "der": {
+      "mixed_der": 0.0199,
+      "per_channel_der": {
+        "c1": 0.0264,
+        "c2": 0.0858
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0199,
+          "scored_speaker_time": 542.22,
+          "missed_speaker_time": 10.14,
+          "falarm_speaker_time": 0.63,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0264,
+          "scored_speaker_time": 481.46,
+          "missed_speaker_time": 8.96,
+          "falarm_speaker_time": 3.77,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0858,
+          "scored_speaker_time": 67.93,
+          "missed_speaker_time": 3.46,
+          "falarm_speaker_time": 2.37,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -42.10393018532408,
+        "c2": -51.49464561843244
+      },
+      "per_channel_snr_db": {
+        "c1": 12.291883154643578,
+        "c2": 30.49720777342893
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.29",
+      "SNR(c1)=12.3"
+    ]
+  },
+  {
+    "session_id": "en_4576",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.09543230016313213,
+        "c2": 0.211864406779661
+      }
+    },
+    "der": {
+      "mixed_der": 0.0064,
+      "per_channel_der": {
+        "c1": 0.0351,
+        "c2": 0.1007
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0064,
+          "scored_speaker_time": 369.61,
+          "missed_speaker_time": 0.71,
+          "falarm_speaker_time": 1.67,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0351,
+          "scored_speaker_time": 206.09,
+          "missed_speaker_time": 1.73,
+          "falarm_speaker_time": 5.51,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.1007,
+          "scored_speaker_time": 147.76,
+          "missed_speaker_time": 0.96,
+          "falarm_speaker_time": 13.92,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -50.92152080914868,
+        "c2": -48.45517347018095
+      },
+      "per_channel_snr_db": {
+        "c1": 28.56561352165891,
+        "c2": 20.24928098203722
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.21",
+      "DER(c2)=0.10"
+    ]
+  },
+  {
+    "session_id": "en_4595",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.061168384879725084,
+        "c2": 0.16934487021013597
+      }
+    },
+    "der": {
+      "mixed_der": 0.0197,
+      "per_channel_der": {
+        "c1": 0.0219,
+        "c2": 0.03
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0197,
+          "scored_speaker_time": 518.96,
+          "missed_speaker_time": 9.6,
+          "falarm_speaker_time": 0.64,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0219,
+          "scored_speaker_time": 346.38,
+          "missed_speaker_time": 6.45,
+          "falarm_speaker_time": 1.12,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.03,
+          "scored_speaker_time": 199.55,
+          "missed_speaker_time": 4.42,
+          "falarm_speaker_time": 1.56,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -47.93311544515582,
+        "c2": -51.78702944531068
+      },
+      "per_channel_snr_db": {
+        "c1": 25.095101524800025,
+        "c2": 31.642734802579398
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.17"
+    ]
+  },
+  {
+    "session_id": "en_4610",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.029192546583850933,
+        "c2": 0.14893617021276595
+      }
+    },
+    "der": {
+      "mixed_der": 0.0416,
+      "per_channel_der": {
+        "c1": 0.032,
+        "c2": 0.0913
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0416,
+          "scored_speaker_time": 428.02,
+          "missed_speaker_time": 17.44,
+          "falarm_speaker_time": 0.36,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.032,
+          "scored_speaker_time": 316.24,
+          "missed_speaker_time": 9.24,
+          "falarm_speaker_time": 0.88,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0913,
+          "scored_speaker_time": 110.37,
+          "missed_speaker_time": 7.06,
+          "falarm_speaker_time": 3.02,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -48.3221115231731,
+        "c2": -46.86095630426479
+      },
+      "per_channel_snr_db": {
+        "c1": 29.629694471277688,
+        "c2": 15.715732417230717
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.15",
+      "SNR(c2)=15.7"
+    ]
+  },
+  {
+    "session_id": "en_4612",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.17173051519154559,
+        "c2": 0.24872579001019368
+      }
+    },
+    "der": {
+      "mixed_der": 0.0177,
+      "per_channel_der": {
+        "c1": 0.0296,
+        "c2": 0.0392
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0177,
+          "scored_speaker_time": 323.78,
+          "missed_speaker_time": 4.78,
+          "falarm_speaker_time": 0.94,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0296,
+          "scored_speaker_time": 116.1,
+          "missed_speaker_time": 0.86,
+          "falarm_speaker_time": 2.58,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0392,
+          "scored_speaker_time": 203.75,
+          "missed_speaker_time": 6.2,
+          "falarm_speaker_time": 1.78,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -59.96086860614145,
+        "c2": -59.26396177393444
+      },
+      "per_channel_snr_db": {
+        "c1": 30.004264288253566,
+        "c2": 30.29799472284957
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.17",
+      "WER(c2)=0.25"
+    ]
+  },
+  {
+    "session_id": "en_4624",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.1069182389937107,
+        "c2": 0.15220483641536273
+      }
+    },
+    "der": {
+      "mixed_der": 0.05,
+      "per_channel_der": {
+        "c1": 0.0709,
+        "c2": 0.0282
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.05,
+          "scored_speaker_time": 602.44,
+          "missed_speaker_time": 29.5,
+          "falarm_speaker_time": 0.61,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0709,
+          "scored_speaker_time": 261.03,
+          "missed_speaker_time": 17.84,
+          "falarm_speaker_time": 0.68,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0282,
+          "scored_speaker_time": 331.95,
+          "missed_speaker_time": 6.13,
+          "falarm_speaker_time": 3.22,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -57.99321196317864,
+        "c2": -55.926787336272355
+      },
+      "per_channel_snr_db": {
+        "c1": 25.683708188514736,
+        "c2": 31.74350359548206
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.11",
+      "WER(c2)=0.15"
+    ]
+  },
+  {
+    "session_id": "en_4628",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.15082956259426847,
+        "c2": 0.13315926892950392
+      }
+    },
+    "der": {
+      "mixed_der": 0.0297,
+      "per_channel_der": {
+        "c1": 0.0395,
+        "c2": 0.0424
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0297,
+          "scored_speaker_time": 488.08,
+          "missed_speaker_time": 13.46,
+          "falarm_speaker_time": 1.06,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0395,
+          "scored_speaker_time": 325.4,
+          "missed_speaker_time": 10.2,
+          "falarm_speaker_time": 2.64,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0424,
+          "scored_speaker_time": 165.01,
+          "missed_speaker_time": 6.42,
+          "falarm_speaker_time": 0.58,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -44.68752053144718,
+        "c2": -54.2016781387389
+      },
+      "per_channel_snr_db": {
+        "c1": 14.360711711580102,
+        "c2": 26.42393465933332
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.15",
+      "WER(c2)=0.13",
+      "SNR(c1)=14.4"
+    ]
+  },
+  {
+    "session_id": "en_4660",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.04724041159962582,
+        "c2": 0.47767857142857145
+      }
+    },
+    "der": {
+      "mixed_der": 0.0256,
+      "per_channel_der": {
+        "c1": 0.0389,
+        "c2": 0.0459
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0256,
+          "scored_speaker_time": 471.33,
+          "missed_speaker_time": 7.72,
+          "falarm_speaker_time": 4.33,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0389,
+          "scored_speaker_time": 425.31,
+          "missed_speaker_time": 5.52,
+          "falarm_speaker_time": 11.03,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0459,
+          "scored_speaker_time": 35.7,
+          "missed_speaker_time": 0.87,
+          "falarm_speaker_time": 0.77,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -51.9144636413051,
+        "c2": -52.55627341420475
+      },
+      "per_channel_snr_db": {
+        "c1": 28.628613366753637,
+        "c2": 26.701630161618127
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.48"
+    ]
+  },
+  {
+    "session_id": "en_4665",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.07154882154882154,
+        "c2": 0.13333333333333333
+      }
+    },
+    "der": {
+      "mixed_der": 0.0332,
+      "per_channel_der": {
+        "c1": 0.0564,
+        "c2": 0.1436
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0332,
+          "scored_speaker_time": 483.69,
+          "missed_speaker_time": 15.48,
+          "falarm_speaker_time": 0.6,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0564,
+          "scored_speaker_time": 274.76,
+          "missed_speaker_time": 14.85,
+          "falarm_speaker_time": 0.66,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.1436,
+          "scored_speaker_time": 234.65,
+          "missed_speaker_time": 22.44,
+          "falarm_speaker_time": 11.26,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -48.997277672884785,
+        "c2": -42.492618163740474
+      },
+      "per_channel_snr_db": {
+        "c1": 26.968470267071865,
+        "c2": 16.208566852272515
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.13",
+      "DER(c2)=0.14",
+      "SNR(c2)=16.2"
+    ]
+  },
+  {
+    "session_id": "en_4666",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.0446685878962536,
+        "c2": 0.4551282051282051
+      }
+    },
+    "der": {
+      "mixed_der": 0.0014,
+      "per_channel_der": {
+        "c1": 0.0054,
+        "c2": 0.0041
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0014,
+          "scored_speaker_time": 413.4,
+          "missed_speaker_time": 0.17,
+          "falarm_speaker_time": 0.41,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0054,
+          "scored_speaker_time": 343.39,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 1.84,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0041,
+          "scored_speaker_time": 60.31,
+          "missed_speaker_time": 0.18,
+          "falarm_speaker_time": 0.07,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -58.752765913844065,
+        "c2": -58.12111659561929
+      },
+      "per_channel_snr_db": {
+        "c1": 28.877649784966835,
+        "c2": 31.43421760841466
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.46"
+    ]
+  },
+  {
+    "session_id": "en_4673",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.15346534653465346,
+        "c2": 0.10817941952506596
+      }
+    },
+    "der": {
+      "mixed_der": 0.0035,
+      "per_channel_der": {
+        "c1": 0.0252,
+        "c2": 0.0139
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0035,
+          "scored_speaker_time": 487.87,
+          "missed_speaker_time": 1.39,
+          "falarm_speaker_time": 0.33,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0252,
+          "scored_speaker_time": 284.82,
+          "missed_speaker_time": 1.58,
+          "falarm_speaker_time": 5.59,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0139,
+          "scored_speaker_time": 217.09,
+          "missed_speaker_time": 0.2,
+          "falarm_speaker_time": 2.81,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -32.450525421474,
+        "c2": -42.42224162738574
+      },
+      "per_channel_snr_db": {
+        "c1": 15.883113584320679,
+        "c2": 28.34869797714557
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.15",
+      "WER(c2)=0.11",
+      "SNR(c1)=15.9",
+      "sil(c1)=-32.45"
+    ]
+  },
+  {
+    "session_id": "en_4677",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.18773234200743494,
+        "c2": 0.22570532915360503
+      }
+    },
+    "der": {
+      "mixed_der": 0.0347,
+      "per_channel_der": {
+        "c1": 0.0261,
+        "c2": 0.1681
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0347,
+          "scored_speaker_time": 143.86,
+          "missed_speaker_time": 2.37,
+          "falarm_speaker_time": 2.62,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0261,
+          "scored_speaker_time": 81.49,
+          "missed_speaker_time": 0.5,
+          "falarm_speaker_time": 1.63,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.1681,
+          "scored_speaker_time": 55.99,
+          "missed_speaker_time": 6.67,
+          "falarm_speaker_time": 2.74,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -52.89385771579375,
+        "c2": -49.396928406087056
+      },
+      "per_channel_snr_db": {
+        "c1": 24.429446518075583,
+        "c2": 21.627204418923668
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.19",
+      "WER(c2)=0.23",
+      "DER(c2)=0.17"
+    ]
+  },
+  {
+    "session_id": "en_4686",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.18829787234042553,
+        "c2": 0.17145688800792863
+      }
+    },
+    "der": {
+      "mixed_der": 0.0202,
+      "per_channel_der": {
+        "c1": 0.0505,
+        "c2": 0.0758
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0202,
+          "scored_speaker_time": 341.44,
+          "missed_speaker_time": 4.9,
+          "falarm_speaker_time": 2.01,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0505,
+          "scored_speaker_time": 168.74,
+          "missed_speaker_time": 2.87,
+          "falarm_speaker_time": 5.65,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0758,
+          "scored_speaker_time": 163.06,
+          "missed_speaker_time": 2.65,
+          "falarm_speaker_time": 9.71,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -59.415015446654465,
+        "c2": -48.78476093025193
+      },
+      "per_channel_snr_db": {
+        "c1": 27.8371136467595,
+        "c2": 28.64812638397586
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.19",
+      "WER(c2)=0.17"
+    ]
+  },
+  {
+    "session_id": "en_4702",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.8048780487804879,
+        "c2": 0.06816834617664493
+      }
+    },
+    "der": {
+      "mixed_der": 0.0347,
+      "per_channel_der": {
+        "c1": 0.0564,
+        "c2": 0.0334
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0347,
+          "scored_speaker_time": 667.19,
+          "missed_speaker_time": 22.94,
+          "falarm_speaker_time": 0.18,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0564,
+          "scored_speaker_time": 98.52,
+          "missed_speaker_time": 3.97,
+          "falarm_speaker_time": 1.59,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0334,
+          "scored_speaker_time": 563.61,
+          "missed_speaker_time": 18.16,
+          "falarm_speaker_time": 0.64,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -57.626872084219784,
+        "c2": -39.061718939918116
+      },
+      "per_channel_snr_db": {
+        "c1": 35.962658392978916,
+        "c2": 26.331560537418632
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.80",
+      "sil(c2)=-39.06"
+    ]
+  },
+  {
+    "session_id": "en_4705",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.13351749539594843,
+        "c2": 0.0614115490375802
+      }
+    },
+    "der": {
+      "mixed_der": 0.0263,
+      "per_channel_der": {
+        "c1": 0.0516,
+        "c2": 0.0319
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0263,
+          "scored_speaker_time": 542.51,
+          "missed_speaker_time": 13.74,
+          "falarm_speaker_time": 0.53,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0516,
+          "scored_speaker_time": 246.19,
+          "missed_speaker_time": 7.74,
+          "falarm_speaker_time": 4.97,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0319,
+          "scored_speaker_time": 275.02,
+          "missed_speaker_time": 1.68,
+          "falarm_speaker_time": 7.08,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -46.63756580899803,
+        "c2": -47.97821691295408
+      },
+      "per_channel_snr_db": {
+        "c1": 20.672692225260214,
+        "c2": 22.8767207903069
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.13"
+    ]
+  },
+  {
+    "session_id": "en_4792",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.17015706806282724,
+        "c2": 0.13165680473372782
+      }
+    },
+    "der": {
+      "mixed_der": 0.0086,
+      "per_channel_der": {
+        "c1": 0.0448,
+        "c2": 0.0175
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0086,
+          "scored_speaker_time": 245.49,
+          "missed_speaker_time": 0.85,
+          "falarm_speaker_time": 1.25,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0448,
+          "scored_speaker_time": 98.96,
+          "missed_speaker_time": 1.32,
+          "falarm_speaker_time": 3.11,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0175,
+          "scored_speaker_time": 143.01,
+          "missed_speaker_time": 0.12,
+          "falarm_speaker_time": 2.38,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -48.9699109235574,
+        "c2": -55.95352612506511
+      },
+      "per_channel_snr_db": {
+        "c1": 26.44330906561028,
+        "c2": 20.193041302740397
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.17",
+      "WER(c2)=0.13"
+    ]
+  },
+  {
+    "session_id": "en_4801",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.6052631578947368,
+        "c2": 0.13930348258706468
+      }
+    },
+    "der": {
+      "mixed_der": 0.0863,
+      "per_channel_der": {
+        "c1": 0.0325,
+        "c2": 0.0778
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0863,
+          "scored_speaker_time": 248.22,
+          "missed_speaker_time": 20.66,
+          "falarm_speaker_time": 0.76,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0325,
+          "scored_speaker_time": 76.65,
+          "missed_speaker_time": 0.4,
+          "falarm_speaker_time": 2.09,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0778,
+          "scored_speaker_time": 169.9,
+          "missed_speaker_time": 10.97,
+          "falarm_speaker_time": 2.25,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -43.20092180972776,
+        "c2": -45.62754834499566
+      },
+      "per_channel_snr_db": {
+        "c1": 22.90543240307043,
+        "c2": 22.088897230000747
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.61",
+      "WER(c2)=0.14",
+      "DER(mix)=0.09"
+    ]
+  },
+  {
+    "session_id": "en_4807",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.23563218390804597,
+        "c2": 0.20412844036697247
+      }
+    },
+    "der": {
+      "mixed_der": 0.0499,
+      "per_channel_der": {
+        "c1": 0.0626,
+        "c2": 0.0762
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0499,
+          "scored_speaker_time": 461.96,
+          "missed_speaker_time": 20.45,
+          "falarm_speaker_time": 2.59,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0626,
+          "scored_speaker_time": 156.17,
+          "missed_speaker_time": 4.48,
+          "falarm_speaker_time": 5.3,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0762,
+          "scored_speaker_time": 295.92,
+          "missed_speaker_time": 10.19,
+          "falarm_speaker_time": 12.36,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -55.94560107637612,
+        "c2": -46.339819961931894
+      },
+      "per_channel_snr_db": {
+        "c1": 24.743778866383444,
+        "c2": 20.152183248872465
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.24",
+      "WER(c2)=0.20"
+    ]
+  },
+  {
+    "session_id": "en_4808",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.452431289640592,
+        "c2": 0.0790413054563998
+      }
+    },
+    "der": {
+      "mixed_der": 0.0015,
+      "per_channel_der": {
+        "c1": 0.0259,
+        "c2": 0.0055
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0015,
+          "scored_speaker_time": 454.51,
+          "missed_speaker_time": 0.24,
+          "falarm_speaker_time": 0.46,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0259,
+          "scored_speaker_time": 74.94,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 1.94,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0055,
+          "scored_speaker_time": 366.85,
+          "missed_speaker_time": 0.48,
+          "falarm_speaker_time": 1.55,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -55.028301080153625,
+        "c2": -54.7350542583716
+      },
+      "per_channel_snr_db": {
+        "c1": 27.755821923645772,
+        "c2": 36.55860170968519
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.45"
+    ]
+  },
+  {
+    "session_id": "en_4822",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.08869565217391304,
+        "c2": 0.09785932721712538
+      }
+    },
+    "der": {
+      "mixed_der": 0.0056,
+      "per_channel_der": {
+        "c1": 0.0148,
+        "c2": 0.0233
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0056,
+          "scored_speaker_time": 455.22,
+          "missed_speaker_time": 2.36,
+          "falarm_speaker_time": 0.21,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0148,
+          "scored_speaker_time": 227.15,
+          "missed_speaker_time": 1.45,
+          "falarm_speaker_time": 1.92,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0233,
+          "scored_speaker_time": 204.55,
+          "missed_speaker_time": 1.21,
+          "falarm_speaker_time": 3.55,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -46.41400815609729,
+        "c2": -42.07130342618326
+      },
+      "per_channel_snr_db": {
+        "c1": 26.19994323642881,
+        "c2": 20.493309630443775
+      }
+    },
+    "passed": true,
+    "fail_reasons": []
+  },
+  {
+    "session_id": "en_4829",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.09598853868194843,
+        "c2": 0.22807017543859648
+      }
+    },
+    "der": {
+      "mixed_der": 0.0375,
+      "per_channel_der": {
+        "c1": 0.0543,
+        "c2": 0.0478
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0375,
+          "scored_speaker_time": 234.63,
+          "missed_speaker_time": 8.5,
+          "falarm_speaker_time": 0.3,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0543,
+          "scored_speaker_time": 159.02,
+          "missed_speaker_time": 8.34,
+          "falarm_speaker_time": 0.3,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0478,
+          "scored_speaker_time": 74.97,
+          "missed_speaker_time": 1.82,
+          "falarm_speaker_time": 1.76,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -38.709761880185894,
+        "c2": -37.439986741433636
+      },
+      "per_channel_snr_db": {
+        "c1": 27.286379396897587,
+        "c2": 19.284730708025297
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.23",
+      "SNR(c2)=19.3",
+      "sil(c1)=-38.71",
+      "sil(c2)=-37.44"
+    ]
+  },
+  {
+    "session_id": "en_4838",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.3533834586466165,
+        "c2": 0.17391304347826086
+      }
+    },
+    "der": {
+      "mixed_der": 0.0658,
+      "per_channel_der": {
+        "c1": 0.0838,
+        "c2": 0.0709
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0658,
+          "scored_speaker_time": 360.25,
+          "missed_speaker_time": 18.9,
+          "falarm_speaker_time": 4.8,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0838,
+          "scored_speaker_time": 133.71,
+          "missed_speaker_time": 8.25,
+          "falarm_speaker_time": 2.95,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0709,
+          "scored_speaker_time": 213.55,
+          "missed_speaker_time": 7.0,
+          "falarm_speaker_time": 8.14,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -51.22428353659059,
+        "c2": -48.271987232138464
+      },
+      "per_channel_snr_db": {
+        "c1": 31.6462862774487,
+        "c2": 25.901045589524422
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.35",
+      "WER(c2)=0.17",
+      "DER(mix)=0.07"
+    ]
+  },
+  {
+    "session_id": "en_4844",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.13766088416340236,
+        "c2": 0.36486486486486486
+      }
+    },
+    "der": {
+      "mixed_der": 0.0226,
+      "per_channel_der": {
+        "c1": 0.0549,
+        "c2": 0.051
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0226,
+          "scored_speaker_time": 459.09,
+          "missed_speaker_time": 9.5,
+          "falarm_speaker_time": 0.86,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0549,
+          "scored_speaker_time": 333.8,
+          "missed_speaker_time": 4.6,
+          "falarm_speaker_time": 13.71,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.051,
+          "scored_speaker_time": 109.71,
+          "missed_speaker_time": 2.84,
+          "falarm_speaker_time": 2.76,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -50.153998368833356,
+        "c2": -50.30162387908494
+      },
+      "per_channel_snr_db": {
+        "c1": 24.466346092761093,
+        "c2": 27.885819673539864
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.14",
+      "WER(c2)=0.36"
+    ]
+  },
+  {
+    "session_id": "en_4861",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.45579567779960706,
+        "c2": 0.1020671834625323
+      }
+    },
+    "der": {
+      "mixed_der": 0.0231,
+      "per_channel_der": {
+        "c1": 0.076,
+        "c2": 0.0026
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0231,
+          "scored_speaker_time": 393.63,
+          "missed_speaker_time": 8.42,
+          "falarm_speaker_time": 0.68,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.076,
+          "scored_speaker_time": 104.21,
+          "missed_speaker_time": 7.7,
+          "falarm_speaker_time": 0.22,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0026,
+          "scored_speaker_time": 285.74,
+          "missed_speaker_time": 0.14,
+          "falarm_speaker_time": 0.6,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -58.49233668640274,
+        "c2": -56.26530500795909
+      },
+      "per_channel_snr_db": {
+        "c1": 32.17519142674998,
+        "c2": 37.0426562640302
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.46",
+      "WER(c2)=0.10"
+    ]
+  },
+  {
+    "session_id": "en_4886",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.3466796875,
+        "c2": 0.1426872770511296
+      }
+    },
+    "der": {
+      "mixed_der": 0.0016,
+      "per_channel_der": {
+        "c1": 0.0149,
+        "c2": 0.0005
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0016,
+          "scored_speaker_time": 509.53,
+          "missed_speaker_time": 0.45,
+          "falarm_speaker_time": 0.34,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0149,
+          "scored_speaker_time": 153.36,
+          "missed_speaker_time": 0.24,
+          "falarm_speaker_time": 2.04,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0005,
+          "scored_speaker_time": 349.88,
+          "missed_speaker_time": 0.18,
+          "falarm_speaker_time": 0.0,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -50.508303607254284,
+        "c2": -54.7161733227759
+      },
+      "per_channel_snr_db": {
+        "c1": 24.090899174823637,
+        "c2": 35.5569977064597
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.35",
+      "WER(c2)=0.14"
+    ]
+  },
+  {
+    "session_id": "en_4913",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.0657439446366782,
+        "c2": 0.08446601941747572
+      }
+    },
+    "der": {
+      "mixed_der": 0.0138,
+      "per_channel_der": {
+        "c1": 0.0382,
+        "c2": 0.0411
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0138,
+          "scored_speaker_time": 478.09,
+          "missed_speaker_time": 6.18,
+          "falarm_speaker_time": 0.4,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0382,
+          "scored_speaker_time": 259.69,
+          "missed_speaker_time": 6.82,
+          "falarm_speaker_time": 3.1,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0411,
+          "scored_speaker_time": 207.14,
+          "missed_speaker_time": 1.3,
+          "falarm_speaker_time": 7.22,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -44.644508028806804,
+        "c2": -41.37420234525659
+      },
+      "per_channel_snr_db": {
+        "c1": 19.43320772777508,
+        "c2": 26.057342740300204
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "SNR(c1)=19.4"
+    ]
+  },
+  {
+    "session_id": "en_4926",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.18562874251497005,
+        "c2": 0.3595959595959596
+      }
+    },
+    "der": {
+      "mixed_der": 0.0297,
+      "per_channel_der": {
+        "c1": 0.0573,
+        "c2": 0.0481
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0297,
+          "scored_speaker_time": 435.85,
+          "missed_speaker_time": 10.51,
+          "falarm_speaker_time": 2.43,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0573,
+          "scored_speaker_time": 243.47,
+          "missed_speaker_time": 4.0,
+          "falarm_speaker_time": 9.94,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0481,
+          "scored_speaker_time": 189.79,
+          "missed_speaker_time": 6.12,
+          "falarm_speaker_time": 3.0,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -44.28539650100688,
+        "c2": -43.58505700599054
+      },
+      "per_channel_snr_db": {
+        "c1": 25.722847159284214,
+        "c2": 17.065440356292974
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.19",
+      "WER(c2)=0.36",
+      "SNR(c2)=17.1"
+    ]
+  },
+  {
+    "session_id": "en_4927",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.10109465550547328,
+        "c2": 0.17006802721088435
+      }
+    },
+    "der": {
+      "mixed_der": 0.0427,
+      "per_channel_der": {
+        "c1": 0.0532,
+        "c2": 0.0628
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0427,
+          "scored_speaker_time": 474.58,
+          "missed_speaker_time": 18.52,
+          "falarm_speaker_time": 1.73,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0532,
+          "scored_speaker_time": 344.26,
+          "missed_speaker_time": 14.2,
+          "falarm_speaker_time": 4.12,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0628,
+          "scored_speaker_time": 131.13,
+          "missed_speaker_time": 4.78,
+          "falarm_speaker_time": 3.45,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -59.41348252266474,
+        "c2": -56.779772147670855
+      },
+      "per_channel_snr_db": {
+        "c1": 23.346973392579745,
+        "c2": 29.834357373576967
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.10",
+      "WER(c2)=0.17"
+    ]
+  },
+  {
+    "session_id": "en_4941",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.1780909673286355,
+        "c2": 0.150210970464135
+      }
+    },
+    "der": {
+      "mixed_der": 0.003,
+      "per_channel_der": {
+        "c1": 0.0247,
+        "c2": 0.0264
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.003,
+          "scored_speaker_time": 509.38,
+          "missed_speaker_time": 1.46,
+          "falarm_speaker_time": 0.07,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0247,
+          "scored_speaker_time": 327.68,
+          "missed_speaker_time": 2.96,
+          "falarm_speaker_time": 5.14,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0264,
+          "scored_speaker_time": 219.98,
+          "missed_speaker_time": 1.83,
+          "falarm_speaker_time": 3.98,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -36.69634621394108,
+        "c2": -42.416728537520726
+      },
+      "per_channel_snr_db": {
+        "c1": 14.04311438661985,
+        "c2": 27.73495764136043
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.18",
+      "WER(c2)=0.15",
+      "SNR(c1)=14.0",
+      "sil(c1)=-36.70"
+    ]
+  },
+  {
+    "session_id": "en_4967",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.861271676300578,
+        "c2": 0.08932346723044397
+      }
+    },
+    "der": {
+      "mixed_der": 0.0739,
+      "per_channel_der": {
+        "c1": 0.0783,
+        "c2": 0.0675
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0739,
+          "scored_speaker_time": 576.47,
+          "missed_speaker_time": 41.54,
+          "falarm_speaker_time": 1.08,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0783,
+          "scored_speaker_time": 37.53,
+          "missed_speaker_time": 0.78,
+          "falarm_speaker_time": 2.16,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0675,
+          "scored_speaker_time": 538.22,
+          "missed_speaker_time": 31.66,
+          "falarm_speaker_time": 4.66,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -63.15737845232418,
+        "c2": -48.81641880169809
+      },
+      "per_channel_snr_db": {
+        "c1": 26.969198721765025,
+        "c2": 21.51528571649813
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.86",
+      "DER(mix)=0.07"
+    ]
+  },
+  {
+    "session_id": "en_5046",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.04495912806539509,
+        "c2": 0.2024866785079929
+      }
+    },
+    "der": {
+      "mixed_der": 0.0078,
+      "per_channel_der": {
+        "c1": 0.0094,
+        "c2": 0.029
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0078,
+          "scored_speaker_time": 473.3,
+          "missed_speaker_time": 3.18,
+          "falarm_speaker_time": 0.5,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0094,
+          "scored_speaker_time": 348.61,
+          "missed_speaker_time": 0.62,
+          "falarm_speaker_time": 2.64,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.029,
+          "scored_speaker_time": 113.63,
+          "missed_speaker_time": 1.02,
+          "falarm_speaker_time": 2.27,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -47.256850828525444,
+        "c2": -46.494129144871856
+      },
+      "per_channel_snr_db": {
+        "c1": 26.91623775832341,
+        "c2": 24.60484761493288
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.20"
+    ]
+  },
+  {
+    "session_id": "en_5166",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.1772554002541296,
+        "c2": 0.18384879725085912
+      }
+    },
+    "der": {
+      "mixed_der": 0.0047,
+      "per_channel_der": {
+        "c1": 0.023,
+        "c2": 0.0458
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0047,
+          "scored_speaker_time": 438.05,
+          "missed_speaker_time": 0.51,
+          "falarm_speaker_time": 1.56,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.023,
+          "scored_speaker_time": 278.15,
+          "missed_speaker_time": 0.43,
+          "falarm_speaker_time": 5.96,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0458,
+          "scored_speaker_time": 142.46,
+          "missed_speaker_time": 0.63,
+          "falarm_speaker_time": 5.89,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -48.7717970585592,
+        "c2": -44.46708095214995
+      },
+      "per_channel_snr_db": {
+        "c1": 26.338185864317175,
+        "c2": 28.93651879167505
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.18",
+      "WER(c2)=0.18"
+    ]
+  },
+  {
+    "session_id": "en_5208",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.2381852551984877,
+        "c2": 0.05929721815519766
+      }
+    },
+    "der": {
+      "mixed_der": 0.0032,
+      "per_channel_der": {
+        "c1": 0.0462,
+        "c2": 0.0137
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0032,
+          "scored_speaker_time": 500.71,
+          "missed_speaker_time": 1.33,
+          "falarm_speaker_time": 0.28,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0462,
+          "scored_speaker_time": 127.83,
+          "missed_speaker_time": 4.14,
+          "falarm_speaker_time": 1.76,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0137,
+          "scored_speaker_time": 373.06,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 5.1,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -56.79036403760673,
+        "c2": -40.793578606839006
+      },
+      "per_channel_snr_db": {
+        "c1": 23.220140030280024,
+        "c2": 17.03409191086657
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.24",
+      "SNR(c2)=17.0"
+    ]
+  },
+  {
+    "session_id": "en_5254",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.06684315023163467,
+        "c2": 0.1337890625
+      }
+    },
+    "der": {
+      "mixed_der": 0.0112,
+      "per_channel_der": {
+        "c1": 0.0148,
+        "c2": 0.0257
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0112,
+          "scored_speaker_time": 434.82,
+          "missed_speaker_time": 4.36,
+          "falarm_speaker_time": 0.52,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0148,
+          "scored_speaker_time": 264.95,
+          "missed_speaker_time": 2.66,
+          "falarm_speaker_time": 1.27,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0257,
+          "scored_speaker_time": 156.75,
+          "missed_speaker_time": 2.45,
+          "falarm_speaker_time": 1.58,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -55.961683810429875,
+        "c2": -53.02853351825285
+      },
+      "per_channel_snr_db": {
+        "c1": 30.499364932926873,
+        "c2": 25.93741994774557
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.13"
+    ]
+  },
+  {
+    "session_id": "en_5278",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.057177615571776155,
+        "c2": 0.3076923076923077
+      }
+    },
+    "der": {
+      "mixed_der": 0.0032,
+      "per_channel_der": {
+        "c1": 0.0164,
+        "c2": 0.008
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0032,
+          "scored_speaker_time": 446.7,
+          "missed_speaker_time": 0.75,
+          "falarm_speaker_time": 0.66,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0164,
+          "scored_speaker_time": 293.55,
+          "missed_speaker_time": 0.41,
+          "falarm_speaker_time": 4.39,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.008,
+          "scored_speaker_time": 143.28,
+          "missed_speaker_time": 0.5,
+          "falarm_speaker_time": 0.64,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -50.480265306805414,
+        "c2": -54.10282413213707
+      },
+      "per_channel_snr_db": {
+        "c1": 31.695379416492564,
+        "c2": 31.722646630048498
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.31"
+    ]
+  },
+  {
+    "session_id": "en_5352",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.09802749551703527,
+        "c2": 0.3355140186915888
+      }
+    },
+    "der": {
+      "mixed_der": 0.0199,
+      "per_channel_der": {
+        "c1": 0.0105,
+        "c2": 0.0582
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0199,
+          "scored_speaker_time": 421.49,
+          "missed_speaker_time": 1.26,
+          "falarm_speaker_time": 7.11,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0105,
+          "scored_speaker_time": 280.59,
+          "missed_speaker_time": 1.06,
+          "falarm_speaker_time": 1.88,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0582,
+          "scored_speaker_time": 134.62,
+          "missed_speaker_time": 1.78,
+          "falarm_speaker_time": 6.05,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -55.22851634959599,
+        "c2": -47.93240110761153
+      },
+      "per_channel_snr_db": {
+        "c1": 28.93509648582029,
+        "c2": 35.08935104168762
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.34"
+    ]
+  },
+  {
+    "session_id": "en_5373",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.2072398190045249,
+        "c2": 0.07802547770700637
+      }
+    },
+    "der": {
+      "mixed_der": 0.0077,
+      "per_channel_der": {
+        "c1": 0.0222,
+        "c2": 0.0063
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0077,
+          "scored_speaker_time": 495.05,
+          "missed_speaker_time": 3.66,
+          "falarm_speaker_time": 0.13,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0222,
+          "scored_speaker_time": 233.1,
+          "missed_speaker_time": 2.51,
+          "falarm_speaker_time": 2.66,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0063,
+          "scored_speaker_time": 263.73,
+          "missed_speaker_time": 0.89,
+          "falarm_speaker_time": 0.78,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -60.14371252247998,
+        "c2": -50.70949060852679
+      },
+      "per_channel_snr_db": {
+        "c1": 29.485305719500502,
+        "c2": 31.308130221737272
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.21"
+    ]
+  },
+  {
+    "session_id": "en_5495",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.16401273885350318,
+        "c2": 0.5648854961832062
+      }
+    },
+    "der": {
+      "mixed_der": 0.0932,
+      "per_channel_der": {
+        "c1": 0.0825,
+        "c2": 0.0751
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0932,
+          "scored_speaker_time": 414.59,
+          "missed_speaker_time": 37.73,
+          "falarm_speaker_time": 0.91,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0825,
+          "scored_speaker_time": 331.22,
+          "missed_speaker_time": 23.61,
+          "falarm_speaker_time": 3.73,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0751,
+          "scored_speaker_time": 73.35,
+          "missed_speaker_time": 1.85,
+          "falarm_speaker_time": 3.66,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -50.32674150840534,
+        "c2": -53.34824460784898
+      },
+      "per_channel_snr_db": {
+        "c1": 21.104075684066487,
+        "c2": 31.987466228642703
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.16",
+      "WER(c2)=0.56",
+      "DER(mix)=0.09"
+    ]
+  },
+  {
+    "session_id": "en_5532",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.175990675990676,
+        "c2": 0.05263157894736842
+      }
+    },
+    "der": {
+      "mixed_der": 0.0488,
+      "per_channel_der": {
+        "c1": 0.0654,
+        "c2": 0.0427
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0488,
+          "scored_speaker_time": 467.0,
+          "missed_speaker_time": 20.81,
+          "falarm_speaker_time": 1.98,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0654,
+          "scored_speaker_time": 183.5,
+          "missed_speaker_time": 7.79,
+          "falarm_speaker_time": 4.22,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0427,
+          "scored_speaker_time": 281.89,
+          "missed_speaker_time": 7.44,
+          "falarm_speaker_time": 4.6,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -59.04108781536678,
+        "c2": -43.25550072727441
+      },
+      "per_channel_snr_db": {
+        "c1": 21.044142986327596,
+        "c2": 19.136745351430665
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.18",
+      "SNR(c2)=19.1"
+    ]
+  },
+  {
+    "session_id": "en_5551",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.2537634408602151,
+        "c2": 0.18307905686546463
+      }
+    },
+    "der": {
+      "mixed_der": 0.0608,
+      "per_channel_der": {
+        "c1": 0.0181,
+        "c2": 0.0556
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0608,
+          "scored_speaker_time": 343.37,
+          "missed_speaker_time": 20.64,
+          "falarm_speaker_time": 0.24,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0181,
+          "scored_speaker_time": 190.32,
+          "missed_speaker_time": 2.94,
+          "falarm_speaker_time": 0.51,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0556,
+          "scored_speaker_time": 146.19,
+          "missed_speaker_time": 7.19,
+          "falarm_speaker_time": 0.94,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -55.30851663634138,
+        "c2": -65.18573803230508
+      },
+      "per_channel_snr_db": {
+        "c1": 29.96838139575194,
+        "c2": 31.269673609763586
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.25",
+      "WER(c2)=0.18",
+      "DER(mix)=0.06"
+    ]
+  },
+  {
+    "session_id": "en_5573",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.06822810590631365,
+        "c2": 0.06205035971223022
+      }
+    },
+    "der": {
+      "mixed_der": 0.0128,
+      "per_channel_der": {
+        "c1": 0.0237,
+        "c2": 0.0211
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0128,
+          "scored_speaker_time": 392.94,
+          "missed_speaker_time": 4.64,
+          "falarm_speaker_time": 0.39,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0237,
+          "scored_speaker_time": 183.86,
+          "missed_speaker_time": 3.17,
+          "falarm_speaker_time": 1.18,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0211,
+          "scored_speaker_time": 193.59,
+          "missed_speaker_time": 2.45,
+          "falarm_speaker_time": 1.64,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -51.6622072029411,
+        "c2": -49.055331897976046
+      },
+      "per_channel_snr_db": {
+        "c1": 25.84393502670414,
+        "c2": 25.84683400507192
+      }
+    },
+    "passed": true,
+    "fail_reasons": []
+  },
+  {
+    "session_id": "en_5648",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.13486842105263158,
+        "c2": 0.08638211382113821
+      }
+    },
+    "der": {
+      "mixed_der": 0.0348,
+      "per_channel_der": {
+        "c1": 0.0606,
+        "c2": 0.0898
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0348,
+          "scored_speaker_time": 491.35,
+          "missed_speaker_time": 15.78,
+          "falarm_speaker_time": 1.33,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0606,
+          "scored_speaker_time": 263.2,
+          "missed_speaker_time": 9.66,
+          "falarm_speaker_time": 6.28,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0898,
+          "scored_speaker_time": 259.24,
+          "missed_speaker_time": 16.78,
+          "falarm_speaker_time": 6.49,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -41.1331900257194,
+        "c2": -41.776270568929526
+      },
+      "per_channel_snr_db": {
+        "c1": 18.52269114893418,
+        "c2": 28.970755072423025
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.13",
+      "SNR(c1)=18.5"
+    ]
+  },
+  {
+    "session_id": "en_5700",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.1438943894389439,
+        "c2": 0.1950354609929078
+      }
+    },
+    "der": {
+      "mixed_der": 0.0157,
+      "per_channel_der": {
+        "c1": 0.0547,
+        "c2": 0.0689
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0157,
+          "scored_speaker_time": 486.56,
+          "missed_speaker_time": 4.62,
+          "falarm_speaker_time": 3.04,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0547,
+          "scored_speaker_time": 331.53,
+          "missed_speaker_time": 3.83,
+          "falarm_speaker_time": 14.31,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0689,
+          "scored_speaker_time": 152.09,
+          "missed_speaker_time": 2.48,
+          "falarm_speaker_time": 8.0,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -40.62434858218226,
+        "c2": -39.77128346956261
+      },
+      "per_channel_snr_db": {
+        "c1": 17.82716832906319,
+        "c2": 22.578750921580166
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.14",
+      "WER(c2)=0.20",
+      "SNR(c1)=17.8",
+      "sil(c2)=-39.77"
+    ]
+  },
+  {
+    "session_id": "en_5712",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.10253164556962026,
+        "c2": 0.21306818181818182
+      }
+    },
+    "der": {
+      "mixed_der": 0.0873,
+      "per_channel_der": {
+        "c1": 0.1286,
+        "c2": 0.0649
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0873,
+          "scored_speaker_time": 432.52,
+          "missed_speaker_time": 33.3,
+          "falarm_speaker_time": 4.46,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.1286,
+          "scored_speaker_time": 235.37,
+          "missed_speaker_time": 23.55,
+          "falarm_speaker_time": 6.71,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0649,
+          "scored_speaker_time": 214.05,
+          "missed_speaker_time": 10.78,
+          "falarm_speaker_time": 3.11,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -37.958612282425776,
+        "c2": -45.39546241515293
+      },
+      "per_channel_snr_db": {
+        "c1": 15.493408170519164,
+        "c2": 19.455225311897202
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.10",
+      "WER(c2)=0.21",
+      "DER(mix)=0.09",
+      "DER(c1)=0.13",
+      "SNR(c1)=15.5",
+      "SNR(c2)=19.5",
+      "sil(c1)=-37.96"
+    ]
+  },
+  {
+    "session_id": "en_5713",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.19839679358717435,
+        "c2": 0.1870781099324976
+      }
+    },
+    "der": {
+      "mixed_der": 0.0047,
+      "per_channel_der": {
+        "c1": 0.0052,
+        "c2": 0.0063
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0047,
+          "scored_speaker_time": 431.95,
+          "missed_speaker_time": 1.26,
+          "falarm_speaker_time": 0.75,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0052,
+          "scored_speaker_time": 228.76,
+          "missed_speaker_time": 0.94,
+          "falarm_speaker_time": 0.24,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0063,
+          "scored_speaker_time": 189.82,
+          "missed_speaker_time": 0.02,
+          "falarm_speaker_time": 1.17,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -57.43882086580592,
+        "c2": -50.788532974768614
+      },
+      "per_channel_snr_db": {
+        "c1": 36.114963039873594,
+        "c2": 27.947993830455896
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.20",
+      "WER(c2)=0.19"
+    ]
+  },
+  {
+    "session_id": "en_5736",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.08051118210862619,
+        "c2": 0.31338028169014087
+      }
+    },
+    "der": {
+      "mixed_der": 0.0111,
+      "per_channel_der": {
+        "c1": 0.0145,
+        "c2": 0.0208
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0111,
+          "scored_speaker_time": 453.07,
+          "missed_speaker_time": 4.41,
+          "falarm_speaker_time": 0.63,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0145,
+          "scored_speaker_time": 323.24,
+          "missed_speaker_time": 1.49,
+          "falarm_speaker_time": 3.19,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0208,
+          "scored_speaker_time": 114.12,
+          "missed_speaker_time": 2.26,
+          "falarm_speaker_time": 0.11,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -57.43463653682884,
+        "c2": -59.69876911523159
+      },
+      "per_channel_snr_db": {
+        "c1": 31.478508390319494,
+        "c2": 32.73883709360847
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.31"
+    ]
+  },
+  {
+    "session_id": "en_5777",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.10912698412698413,
+        "c2": 0.1111111111111111
+      }
+    },
+    "der": {
+      "mixed_der": 0.0146,
+      "per_channel_der": {
+        "c1": 0.0307,
+        "c2": 0.0575
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0146,
+          "scored_speaker_time": 436.41,
+          "missed_speaker_time": 1.01,
+          "falarm_speaker_time": 5.37,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0307,
+          "scored_speaker_time": 171.64,
+          "missed_speaker_time": 2.03,
+          "falarm_speaker_time": 3.24,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0575,
+          "scored_speaker_time": 249.44,
+          "missed_speaker_time": 2.74,
+          "falarm_speaker_time": 11.6,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -53.95231472974157,
+        "c2": -42.910507196717596
+      },
+      "per_channel_snr_db": {
+        "c1": 28.934914816377418,
+        "c2": 20.76416767010584
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.11",
+      "WER(c2)=0.11"
+    ]
+  },
+  {
+    "session_id": "en_5788",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.30162412993039445,
+        "c2": 0.05813953488372093
+      }
+    },
+    "der": {
+      "mixed_der": 0.0061,
+      "per_channel_der": {
+        "c1": 0.0234,
+        "c2": 0.0085
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0061,
+          "scored_speaker_time": 463.48,
+          "missed_speaker_time": 1.83,
+          "falarm_speaker_time": 0.99,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0234,
+          "scored_speaker_time": 73.98,
+          "missed_speaker_time": 0.19,
+          "falarm_speaker_time": 1.54,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0085,
+          "scored_speaker_time": 368.13,
+          "missed_speaker_time": 0.33,
+          "falarm_speaker_time": 2.79,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -55.63171824507491,
+        "c2": -46.50162322131652
+      },
+      "per_channel_snr_db": {
+        "c1": 27.24362277480398,
+        "c2": 26.77374286695176
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.30"
+    ]
+  },
+  {
+    "session_id": "en_5866",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.08324552160168598,
+        "c2": 0.08102189781021898
+      }
+    },
+    "der": {
+      "mixed_der": 0.0012,
+      "per_channel_der": {
+        "c1": 0.0056,
+        "c2": 0.0034
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0012,
+          "scored_speaker_time": 478.94,
+          "missed_speaker_time": 0.58,
+          "falarm_speaker_time": 0.0,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0056,
+          "scored_speaker_time": 191.93,
+          "missed_speaker_time": 0.48,
+          "falarm_speaker_time": 0.59,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0034,
+          "scored_speaker_time": 272.5,
+          "missed_speaker_time": 0.16,
+          "falarm_speaker_time": 0.78,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -52.385695014752756,
+        "c2": -54.99974681656707
+      },
+      "per_channel_snr_db": {
+        "c1": 31.860546857811553,
+        "c2": 43.422039257137435
+      }
+    },
+    "passed": true,
+    "fail_reasons": []
+  },
+  {
+    "session_id": "en_5872",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.7008547008547008,
+        "c2": 0.3560311284046693
+      }
+    },
+    "der": {
+      "mixed_der": 0.0685,
+      "per_channel_der": {
+        "c1": 0.1036,
+        "c2": 0.043
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0685,
+          "scored_speaker_time": 170.3,
+          "missed_speaker_time": 9.97,
+          "falarm_speaker_time": 1.69,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.1036,
+          "scored_speaker_time": 65.65,
+          "missed_speaker_time": 5.27,
+          "falarm_speaker_time": 1.53,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.043,
+          "scored_speaker_time": 101.55,
+          "missed_speaker_time": 1.61,
+          "falarm_speaker_time": 2.76,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -63.18990028714123,
+        "c2": -58.33673159222759
+      },
+      "per_channel_snr_db": {
+        "c1": 27.98662769305334,
+        "c2": 32.87467020663819
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.70",
+      "WER(c2)=0.36",
+      "DER(mix)=0.07",
+      "DER(c1)=0.10"
+    ]
+  },
+  {
+    "session_id": "en_5888",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.12293577981651377,
+        "c2": 0.2152777777777778
+      }
+    },
+    "der": {
+      "mixed_der": 0.0032,
+      "per_channel_der": {
+        "c1": 0.0307,
+        "c2": 0.0485
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0032,
+          "scored_speaker_time": 237.12,
+          "missed_speaker_time": 0.18,
+          "falarm_speaker_time": 0.58,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0307,
+          "scored_speaker_time": 128.77,
+          "missed_speaker_time": 0.35,
+          "falarm_speaker_time": 3.6,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0485,
+          "scored_speaker_time": 110.18,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 5.34,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -44.19583701092356,
+        "c2": -50.76290629890477
+      },
+      "per_channel_snr_db": {
+        "c1": 22.046799320433628,
+        "c2": 31.333634461093254
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.12",
+      "WER(c2)=0.22"
+    ]
+  },
+  {
+    "session_id": "en_5907",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.10009624639076034,
+        "c2": 0.23937007874015748
+      }
+    },
+    "der": {
+      "mixed_der": 0.0389,
+      "per_channel_der": {
+        "c1": 0.0593,
+        "c2": 0.1361
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0389,
+          "scored_speaker_time": 460.96,
+          "missed_speaker_time": 12.03,
+          "falarm_speaker_time": 5.89,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0593,
+          "scored_speaker_time": 247.74,
+          "missed_speaker_time": 7.46,
+          "falarm_speaker_time": 7.22,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.1361,
+          "scored_speaker_time": 223.68,
+          "missed_speaker_time": 1.1,
+          "falarm_speaker_time": 29.34,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -48.08378762833924,
+        "c2": -36.46668354376041
+      },
+      "per_channel_snr_db": {
+        "c1": 25.507398020518032,
+        "c2": 15.713417693934659
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.10",
+      "WER(c2)=0.24",
+      "DER(c2)=0.14",
+      "SNR(c2)=15.7",
+      "sil(c2)=-36.47"
+    ]
+  },
+  {
+    "session_id": "en_5931",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.12130005803830528,
+        "c2": 0.3734015345268542
+      }
+    },
+    "der": {
+      "mixed_der": 0.0108,
+      "per_channel_der": {
+        "c1": 0.0301,
+        "c2": 0.1166
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0108,
+          "scored_speaker_time": 429.43,
+          "missed_speaker_time": 1.46,
+          "falarm_speaker_time": 3.16,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0301,
+          "scored_speaker_time": 345.35,
+          "missed_speaker_time": 0.16,
+          "falarm_speaker_time": 10.25,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.1166,
+          "scored_speaker_time": 90.54,
+          "missed_speaker_time": 2.55,
+          "falarm_speaker_time": 8.01,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -45.01621241877535,
+        "c2": -39.72340821458572
+      },
+      "per_channel_snr_db": {
+        "c1": 25.850335760312678,
+        "c2": 19.093600691857343
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.12",
+      "WER(c2)=0.37",
+      "DER(c2)=0.12",
+      "SNR(c2)=19.1",
+      "sil(c2)=-39.72"
+    ]
+  },
+  {
+    "session_id": "en_6033",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.07052709725315516,
+        "c2": 0.17052023121387283
+      }
+    },
+    "der": {
+      "mixed_der": 0.0156,
+      "per_channel_der": {
+        "c1": 0.0323,
+        "c2": 0.0392
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0156,
+          "scored_speaker_time": 399.55,
+          "missed_speaker_time": 5.4,
+          "falarm_speaker_time": 0.84,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0323,
+          "scored_speaker_time": 307.37,
+          "missed_speaker_time": 0.06,
+          "falarm_speaker_time": 9.86,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0392,
+          "scored_speaker_time": 89.35,
+          "missed_speaker_time": 0.26,
+          "falarm_speaker_time": 3.24,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -50.87555619147785,
+        "c2": -50.83086237909917
+      },
+      "per_channel_snr_db": {
+        "c1": 24.501546367311317,
+        "c2": 28.34491987126495
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.17"
+    ]
+  },
+  {
+    "session_id": "en_6045",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.444253859348199,
+        "c2": 0.08830744071954211
+      }
+    },
+    "der": {
+      "mixed_der": 0.0301,
+      "per_channel_der": {
+        "c1": 0.0455,
+        "c2": 0.0578
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0301,
+          "scored_speaker_time": 449.47,
+          "missed_speaker_time": 3.5,
+          "falarm_speaker_time": 10.01,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0455,
+          "scored_speaker_time": 128.94,
+          "missed_speaker_time": 0.56,
+          "falarm_speaker_time": 5.31,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0578,
+          "scored_speaker_time": 313.39,
+          "missed_speaker_time": 4.42,
+          "falarm_speaker_time": 13.68,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -48.52401384845642,
+        "c2": -33.35282678534628
+      },
+      "per_channel_snr_db": {
+        "c1": 26.341993689250828,
+        "c2": 17.29970733460712
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.44",
+      "SNR(c2)=17.3",
+      "sil(c2)=-33.35"
+    ]
+  },
+  {
+    "session_id": "en_6047",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.6435643564356436,
+        "c2": 0.07946336429308566
+      }
+    },
+    "der": {
+      "mixed_der": 0.011,
+      "per_channel_der": {
+        "c1": 0.0719,
+        "c2": 0.0131
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.011,
+          "scored_speaker_time": 237.2,
+          "missed_speaker_time": 2.47,
+          "falarm_speaker_time": 0.13,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0719,
+          "scored_speaker_time": 52.57,
+          "missed_speaker_time": 2.15,
+          "falarm_speaker_time": 1.63,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0131,
+          "scored_speaker_time": 190.56,
+          "missed_speaker_time": 1.29,
+          "falarm_speaker_time": 1.21,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -47.96295239542766,
+        "c2": -36.66792800169376
+      },
+      "per_channel_snr_db": {
+        "c1": 28.471607121664086,
+        "c2": 20.251142720315407
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.64",
+      "sil(c2)=-36.67"
+    ]
+  },
+  {
+    "session_id": "en_6067",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.12614107883817427,
+        "c2": 0.18640576725025745
+      }
+    },
+    "der": {
+      "mixed_der": 0.0034,
+      "per_channel_der": {
+        "c1": 0.0204,
+        "c2": 0.0193
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0034,
+          "scored_speaker_time": 408.5,
+          "missed_speaker_time": 0.71,
+          "falarm_speaker_time": 0.66,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0204,
+          "scored_speaker_time": 208.42,
+          "missed_speaker_time": 0.12,
+          "falarm_speaker_time": 4.13,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0193,
+          "scored_speaker_time": 178.03,
+          "missed_speaker_time": 0.68,
+          "falarm_speaker_time": 2.76,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -51.999569196486945,
+        "c2": -49.85511517045913
+      },
+      "per_channel_snr_db": {
+        "c1": 31.293636166046326,
+        "c2": 30.411134372219873
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.13",
+      "WER(c2)=0.19"
+    ]
+  },
+  {
+    "session_id": "en_6071",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.0836734693877551,
+        "c2": 0.14466546112115733
+      }
+    },
+    "der": {
+      "mixed_der": 0.0124,
+      "per_channel_der": {
+        "c1": 0.0178,
+        "c2": 0.0823
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0124,
+          "scored_speaker_time": 230.02,
+          "missed_speaker_time": 1.59,
+          "falarm_speaker_time": 1.27,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0178,
+          "scored_speaker_time": 108.71,
+          "missed_speaker_time": 0.3,
+          "falarm_speaker_time": 1.64,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0823,
+          "scored_speaker_time": 122.52,
+          "missed_speaker_time": 2.98,
+          "falarm_speaker_time": 7.1,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -53.630241588194274,
+        "c2": -40.88017117131126
+      },
+      "per_channel_snr_db": {
+        "c1": 31.903313512675297,
+        "c2": 23.70124351589288
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.14"
+    ]
+  },
+  {
+    "session_id": "en_6079",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.10986703988803359,
+        "c2": 0.24634420697412823
+      }
+    },
+    "der": {
+      "mixed_der": 0.0116,
+      "per_channel_der": {
+        "c1": 0.0137,
+        "c2": 0.0413
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0116,
+          "scored_speaker_time": 424.07,
+          "missed_speaker_time": 1.74,
+          "falarm_speaker_time": 3.2,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0137,
+          "scored_speaker_time": 218.11,
+          "missed_speaker_time": 1.23,
+          "falarm_speaker_time": 1.76,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0413,
+          "scored_speaker_time": 184.74,
+          "missed_speaker_time": 2.2,
+          "falarm_speaker_time": 5.43,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -53.077997589376345,
+        "c2": -41.704274105422876
+      },
+      "per_channel_snr_db": {
+        "c1": 31.618257718165843,
+        "c2": 13.91417235948758
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.11",
+      "WER(c2)=0.25",
+      "SNR(c2)=13.9"
+    ]
+  },
+  {
+    "session_id": "en_6100",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.8310454065469906,
+        "c2": 0.24369747899159663
+      }
+    },
+    "der": {
+      "mixed_der": 0.0611,
+      "per_channel_der": {
+        "c1": 1.1869,
+        "c2": 0.4971
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0611,
+          "scored_speaker_time": 349.2,
+          "missed_speaker_time": 1.6,
+          "falarm_speaker_time": 19.73,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 1.1869,
+          "scored_speaker_time": 168.67,
+          "missed_speaker_time": 0.2,
+          "falarm_speaker_time": 200.0,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.4971,
+          "scored_speaker_time": 177.32,
+          "missed_speaker_time": 0.15,
+          "falarm_speaker_time": 87.99,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -34.58909109430297,
+        "c2": -27.96700155930461
+      },
+      "per_channel_snr_db": {
+        "c1": 15.356740991998594,
+        "c2": 12.038425462721296
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.83",
+      "WER(c2)=0.24",
+      "DER(mix)=0.06",
+      "DER(c1)=1.19",
+      "DER(c2)=0.50",
+      "SNR(c1)=15.4",
+      "SNR(c2)=12.0",
+      "sil(c1)=-34.59",
+      "sil(c2)=-27.97"
+    ]
+  },
+  {
+    "session_id": "en_6179",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.796875,
+        "c2": 0.054884742041712405
+      }
+    },
+    "der": {
+      "mixed_der": 0.0148,
+      "per_channel_der": {
+        "c1": 0.0133,
+        "c2": 0.0162
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0148,
+          "scored_speaker_time": 216.23,
+          "missed_speaker_time": 1.93,
+          "falarm_speaker_time": 1.26,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0133,
+          "scored_speaker_time": 9.77,
+          "missed_speaker_time": 0.03,
+          "falarm_speaker_time": 0.1,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0162,
+          "scored_speaker_time": 206.11,
+          "missed_speaker_time": 0.46,
+          "falarm_speaker_time": 2.88,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -69.18618760710699,
+        "c2": -49.5094929345384
+      },
+      "per_channel_snr_db": {
+        "c1": 40.77130063009756,
+        "c2": 26.29595390492434
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.80"
+    ]
+  },
+  {
+    "session_id": "en_6252",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.2208904109589041,
+        "c2": 0.09170305676855896
+      }
+    },
+    "der": {
+      "mixed_der": 0.0051,
+      "per_channel_der": {
+        "c1": 0.0234,
+        "c2": 0.0298
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0051,
+          "scored_speaker_time": 396.98,
+          "missed_speaker_time": 0.52,
+          "falarm_speaker_time": 1.51,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0234,
+          "scored_speaker_time": 123.51,
+          "missed_speaker_time": 0.88,
+          "falarm_speaker_time": 2.01,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0298,
+          "scored_speaker_time": 268.91,
+          "missed_speaker_time": 1.26,
+          "falarm_speaker_time": 6.75,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -50.41576427936537,
+        "c2": -43.81680901988113
+      },
+      "per_channel_snr_db": {
+        "c1": 26.113789518710867,
+        "c2": 19.939858651011043
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.22",
+      "SNR(c2)=19.9"
+    ]
+  },
+  {
+    "session_id": "en_6274",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.14495798319327732,
+        "c2": 0.1644021739130435
+      }
+    },
+    "der": {
+      "mixed_der": 0.0134,
+      "per_channel_der": {
+        "c1": 0.0521,
+        "c2": 0.0904
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0134,
+          "scored_speaker_time": 374.39,
+          "missed_speaker_time": 1.13,
+          "falarm_speaker_time": 3.9,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0521,
+          "scored_speaker_time": 174.27,
+          "missed_speaker_time": 0.83,
+          "falarm_speaker_time": 8.25,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0904,
+          "scored_speaker_time": 191.1,
+          "missed_speaker_time": 0.85,
+          "falarm_speaker_time": 16.42,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -50.184761364731685,
+        "c2": -49.50712176370062
+      },
+      "per_channel_snr_db": {
+        "c1": 22.092771831841517,
+        "c2": 23.524815052890766
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.14",
+      "WER(c2)=0.16"
+    ]
+  },
+  {
+    "session_id": "en_6298",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.10047846889952153,
+        "c2": 0.0712979890310786
+      }
+    },
+    "der": {
+      "mixed_der": 0.0034,
+      "per_channel_der": {
+        "c1": 0.014,
+        "c2": 0.007
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0034,
+          "scored_speaker_time": 226.94,
+          "missed_speaker_time": 0.4,
+          "falarm_speaker_time": 0.38,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.014,
+          "scored_speaker_time": 109.89,
+          "missed_speaker_time": 0.08,
+          "falarm_speaker_time": 1.46,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.007,
+          "scored_speaker_time": 112.26,
+          "missed_speaker_time": 0.77,
+          "falarm_speaker_time": 0.02,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -53.012291608678225,
+        "c2": -50.30596747184425
+      },
+      "per_channel_snr_db": {
+        "c1": 37.806080511466334,
+        "c2": 35.065705168761774
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.10"
+    ]
+  },
+  {
+    "session_id": "en_6313",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.19387755102040816,
+        "c2": 0.03571428571428571
+      }
+    },
+    "der": {
+      "mixed_der": 0.0023,
+      "per_channel_der": {
+        "c1": 0.0297,
+        "c2": 0.0034
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0023,
+          "scored_speaker_time": 209.79,
+          "missed_speaker_time": 0.45,
+          "falarm_speaker_time": 0.04,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0297,
+          "scored_speaker_time": 23.6,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 0.7,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0034,
+          "scored_speaker_time": 183.13,
+          "missed_speaker_time": 0.56,
+          "falarm_speaker_time": 0.07,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -66.54721583688402,
+        "c2": -50.363775035579934
+      },
+      "per_channel_snr_db": {
+        "c1": 39.145997736250905,
+        "c2": 26.683792809945412
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.19"
+    ]
+  },
+  {
+    "session_id": "en_6314",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.06554054054054054,
+        "c2": 0.21132596685082872
+      }
+    },
+    "der": {
+      "mixed_der": 0.0024,
+      "per_channel_der": {
+        "c1": 0.0061,
+        "c2": 0.0792
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0024,
+          "scored_speaker_time": 500.88,
+          "missed_speaker_time": 0.64,
+          "falarm_speaker_time": 0.54,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0061,
+          "scored_speaker_time": 357.22,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 2.17,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0792,
+          "scored_speaker_time": 195.28,
+          "missed_speaker_time": 2.04,
+          "falarm_speaker_time": 13.42,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -40.46385051718336,
+        "c2": -35.07645067707706
+      },
+      "per_channel_snr_db": {
+        "c1": 18.24072079383319,
+        "c2": 13.627182554929746
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.21",
+      "SNR(c1)=18.2",
+      "SNR(c2)=13.6",
+      "sil(c2)=-35.08"
+    ]
+  },
+  {
+    "session_id": "en_6348",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.08524289642529789,
+        "c2": 0.10192616372391654
+      }
+    },
+    "der": {
+      "mixed_der": 0.0116,
+      "per_channel_der": {
+        "c1": 0.016,
+        "c2": 0.0768
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0116,
+          "scored_speaker_time": 427.55,
+          "missed_speaker_time": 4.23,
+          "falarm_speaker_time": 0.73,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.016,
+          "scored_speaker_time": 173.64,
+          "missed_speaker_time": 1.06,
+          "falarm_speaker_time": 1.71,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0768,
+          "scored_speaker_time": 248.63,
+          "missed_speaker_time": 4.51,
+          "falarm_speaker_time": 14.59,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -55.08130969474209,
+        "c2": -47.8351548761858
+      },
+      "per_channel_snr_db": {
+        "c1": 31.14957652034154,
+        "c2": 22.952242223368824
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.10"
+    ]
+  },
+  {
+    "session_id": "en_6408",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.38735177865612647,
+        "c2": 0.060085836909871244
+      }
+    },
+    "der": {
+      "mixed_der": 0.011,
+      "per_channel_der": {
+        "c1": 0.117,
+        "c2": 0.0479
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.011,
+          "scored_speaker_time": 215.19,
+          "missed_speaker_time": 1.39,
+          "falarm_speaker_time": 0.98,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.117,
+          "scored_speaker_time": 52.41,
+          "missed_speaker_time": 0.58,
+          "falarm_speaker_time": 5.55,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0479,
+          "scored_speaker_time": 153.66,
+          "missed_speaker_time": 0.58,
+          "falarm_speaker_time": 6.78,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -50.68370777287996,
+        "c2": -43.136086126735535
+      },
+      "per_channel_snr_db": {
+        "c1": 21.451751298729054,
+        "c2": 18.152422701959207
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.39",
+      "DER(c1)=0.12",
+      "SNR(c2)=18.2"
+    ]
+  },
+  {
+    "session_id": "en_6447",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.15334773218142547,
+        "c2": 0.06543624161073826
+      }
+    },
+    "der": {
+      "mixed_der": 0.0081,
+      "per_channel_der": {
+        "c1": 0.0487,
+        "c2": 0.0426
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0081,
+          "scored_speaker_time": 257.36,
+          "missed_speaker_time": 1.28,
+          "falarm_speaker_time": 0.81,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0487,
+          "scored_speaker_time": 111.74,
+          "missed_speaker_time": 4.12,
+          "falarm_speaker_time": 1.32,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0426,
+          "scored_speaker_time": 152.32,
+          "missed_speaker_time": 3.56,
+          "falarm_speaker_time": 2.93,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -48.92167276717576,
+        "c2": -39.58729464469775
+      },
+      "per_channel_snr_db": {
+        "c1": 27.40971172994235,
+        "c2": 24.82445881317943
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.15",
+      "sil(c2)=-39.59"
+    ]
+  },
+  {
+    "session_id": "en_6456",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.24113475177304963,
+        "c2": 0.22739018087855298
+      }
+    },
+    "der": {
+      "mixed_der": 0.013,
+      "per_channel_der": {
+        "c1": 0.0247,
+        "c2": 0.1104
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.013,
+          "scored_speaker_time": 232.3,
+          "missed_speaker_time": 3.0,
+          "falarm_speaker_time": 0.03,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0247,
+          "scored_speaker_time": 122.95,
+          "missed_speaker_time": 1.24,
+          "falarm_speaker_time": 1.8,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.1104,
+          "scored_speaker_time": 113.19,
+          "missed_speaker_time": 12.0,
+          "falarm_speaker_time": 0.5,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -45.63291652905245,
+        "c2": -49.512590040140026
+      },
+      "per_channel_snr_db": {
+        "c1": 13.110154622399488,
+        "c2": 32.499490224029486
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.24",
+      "WER(c2)=0.23",
+      "DER(c2)=0.11",
+      "SNR(c1)=13.1"
+    ]
+  },
+  {
+    "session_id": "en_6467",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.8426966292134831,
+        "c2": 0.1134020618556701
+      }
+    },
+    "der": {
+      "mixed_der": 0.0598,
+      "per_channel_der": {
+        "c1": 0.0416,
+        "c2": 0.0468
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0598,
+          "scored_speaker_time": 242.97,
+          "missed_speaker_time": 13.54,
+          "falarm_speaker_time": 0.99,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0416,
+          "scored_speaker_time": 15.37,
+          "missed_speaker_time": 0.62,
+          "falarm_speaker_time": 0.02,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0468,
+          "scored_speaker_time": 220.67,
+          "missed_speaker_time": 7.76,
+          "falarm_speaker_time": 2.56,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -59.014765896477996,
+        "c2": -51.035700186856005
+      },
+      "per_channel_snr_db": {
+        "c1": 35.08452257822589,
+        "c2": 29.468054672026152
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.84",
+      "WER(c2)=0.11",
+      "DER(mix)=0.06"
+    ]
+  },
+  {
+    "session_id": "en_6479",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.16923076923076924,
+        "c2": 0.07197549770290965
+      }
+    },
+    "der": {
+      "mixed_der": 0.0071,
+      "per_channel_der": {
+        "c1": 0.0796,
+        "c2": 0.0394
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0071,
+          "scored_speaker_time": 253.0,
+          "missed_speaker_time": 1.1,
+          "falarm_speaker_time": 0.69,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0796,
+          "scored_speaker_time": 87.99,
+          "missed_speaker_time": 1.93,
+          "falarm_speaker_time": 5.07,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0394,
+          "scored_speaker_time": 165.33,
+          "missed_speaker_time": 1.86,
+          "falarm_speaker_time": 4.65,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -30.541018820927658,
+        "c2": -27.430876798073708
+      },
+      "per_channel_snr_db": {
+        "c1": 13.239465754579275,
+        "c2": 11.946851424741475
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.17",
+      "SNR(c1)=13.2",
+      "SNR(c2)=11.9",
+      "sil(c1)=-30.54",
+      "sil(c2)=-27.43"
+    ]
+  },
+  {
+    "session_id": "en_6521",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.426497277676951,
+        "c2": 0.22761194029850745
+      }
+    },
+    "der": {
+      "mixed_der": 0.069,
+      "per_channel_der": {
+        "c1": 0.8125,
+        "c2": 0.1205
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.069,
+          "scored_speaker_time": 140.87,
+          "missed_speaker_time": 5.23,
+          "falarm_speaker_time": 4.49,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.8125,
+          "scored_speaker_time": 78.95,
+          "missed_speaker_time": 0.02,
+          "falarm_speaker_time": 64.13,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.1205,
+          "scored_speaker_time": 62.33,
+          "missed_speaker_time": 1.75,
+          "falarm_speaker_time": 5.76,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -49.064037502205124,
+        "c2": -41.84132949682316
+      },
+      "per_channel_snr_db": {
+        "c1": 15.709066928477654,
+        "c2": 17.97804938497629
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.43",
+      "WER(c2)=0.23",
+      "DER(mix)=0.07",
+      "DER(c1)=0.81",
+      "DER(c2)=0.12",
+      "SNR(c1)=15.7",
+      "SNR(c2)=18.0"
+    ]
+  },
+  {
+    "session_id": "en_6625",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.05688622754491018,
+        "c2": 0.21611721611721613
+      }
+    },
+    "der": {
+      "mixed_der": 0.0011,
+      "per_channel_der": {
+        "c1": 0.0158,
+        "c2": 0.0337
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0011,
+          "scored_speaker_time": 210.04,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 0.23,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0158,
+          "scored_speaker_time": 144.73,
+          "missed_speaker_time": 1.4,
+          "falarm_speaker_time": 0.88,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0337,
+          "scored_speaker_time": 73.68,
+          "missed_speaker_time": 0.69,
+          "falarm_speaker_time": 1.79,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -52.71282129987698,
+        "c2": -52.1046506954672
+      },
+      "per_channel_snr_db": {
+        "c1": 32.53421198398072,
+        "c2": 31.42787078911095
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c2)=0.22"
+    ]
+  },
+  {
+    "session_id": "en_6785",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.17050691244239632,
+        "c2": 0.12312811980033278
+      }
+    },
+    "der": {
+      "mixed_der": 0.0192,
+      "per_channel_der": {
+        "c1": 0.0075,
+        "c2": 0.0394
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0192,
+          "scored_speaker_time": 214.44,
+          "missed_speaker_time": 3.99,
+          "falarm_speaker_time": 0.13,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0075,
+          "scored_speaker_time": 90.98,
+          "missed_speaker_time": 0.36,
+          "falarm_speaker_time": 0.32,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0394,
+          "scored_speaker_time": 119.32,
+          "missed_speaker_time": 2.44,
+          "falarm_speaker_time": 2.26,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -56.535503286787474,
+        "c2": -49.392464625534124
+      },
+      "per_channel_snr_db": {
+        "c1": 35.60023777331739,
+        "c2": 24.580997501058146
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.17",
+      "WER(c2)=0.12"
+    ]
+  },
+  {
+    "session_id": "en_6825",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.3343108504398827,
+        "c2": 0.09779179810725552
+      }
+    },
+    "der": {
+      "mixed_der": 0.0022,
+      "per_channel_der": {
+        "c1": 0.0066,
+        "c2": 0.0069
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0022,
+          "scored_speaker_time": 172.65,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 0.38,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.0066,
+          "scored_speaker_time": 45.57,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 0.3,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0069,
+          "scored_speaker_time": 126.0,
+          "missed_speaker_time": 0.0,
+          "falarm_speaker_time": 0.87,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -58.82372147188876,
+        "c2": -55.29947143114701
+      },
+      "per_channel_snr_db": {
+        "c1": 36.19919803990669,
+        "c2": 32.55559627319058
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.33"
+    ]
+  },
+  {
+    "session_id": "en_6861",
+    "wer": {
+      "per_channel_wer": {
+        "c1": 0.19393939393939394,
+        "c2": 0.14124293785310735
+      }
+    },
+    "der": {
+      "mixed_der": 0.0118,
+      "per_channel_der": {
+        "c1": 0.086,
+        "c2": 0.0207
+      },
+      "detail": {
+        "mixed": {
+          "error_rate": 0.0118,
+          "scored_speaker_time": 357.44,
+          "missed_speaker_time": 2.51,
+          "falarm_speaker_time": 1.7,
+          "speaker_error_time": 0.0
+        },
+        "c1": {
+          "error_rate": 0.086,
+          "scored_speaker_time": 106.34,
+          "missed_speaker_time": 0.17,
+          "falarm_speaker_time": 8.98,
+          "speaker_error_time": 0.0
+        },
+        "c2": {
+          "error_rate": 0.0207,
+          "scored_speaker_time": 260.77,
+          "missed_speaker_time": 5.17,
+          "falarm_speaker_time": 0.23,
+          "speaker_error_time": 0.0
+        }
+      }
+    },
+    "channel_bleed": {
+      "per_channel_echo_reduction_db": {}
+    },
+    "snr": {
+      "per_channel_silence_rms_db": {
+        "c1": -46.85138146731539,
+        "c2": -55.46200070456824
+      },
+      "per_channel_snr_db": {
+        "c1": 17.081656624455892,
+        "c2": 31.656114612243094
+      }
+    },
+    "passed": false,
+    "fail_reasons": [
+      "WER(c1)=0.19",
+      "WER(c2)=0.14",
+      "SNR(c1)=17.1"
+    ]
+  }
+]

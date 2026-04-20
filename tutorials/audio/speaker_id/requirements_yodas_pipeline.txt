@@ -1,0 +1,13 @@
+torch>=2.0
+torchaudio>=2.0
+numpy
+scipy
+scikit-learn>=1.3
+soundfile
+wespeaker @ git+https://github.com/tango4j/wespeaker.git
+requests
+onnxruntime
+boto3
+botocore
+tqdm
+pyyaml

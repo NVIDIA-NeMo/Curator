@@ -1,0 +1,35 @@
+# Default configuration for speaker embedding extraction pipeline.
+# All paths use the current workspace defaults — override via CLI args
+# or by passing a custom config YAML for other clusters.
+
+s3:
+  s3cfg: "~/.s3cfg[default]"
+  download_workers: 16
+
+data:
+  base_dir: "/disk_f_nvd/datasets/Yodas/"
+  language: "hr"
+  subsets:
+    - "0_by_whisper"
+    - "0_from_captions"
+  audio_bucket: "yodas2"
+  manifest_bucket: "granary"
+  audio_pattern: "s3://yodas2/{language}/{subset}/audio__OP_0..63_CL_.tar"
+  manifest_pattern: "s3://granary/version_1_0/manifests/manifests_all_pnc/ASR_updated/YODAS2/{language}/{subset}/sharded_manifests_updated/manifest__OP_0..63_CL_.json"
+
+model:
+  name: "voxblink2_samresnet100_ft"
+  dir: "models/"
+  # Any wespeaker hub name or local path works here.
+  # Alternatives: "w2vbert2_mfa", "english", etc.
+
+extraction:
+  batch_dur: 600.0
+  batch_size: 1
+  num_workers: 1
+  sample_rate: 16000
+  num_mel_bins: 80
+
+gpu:
+  num_gpus: 1
+  gpus: [0]
