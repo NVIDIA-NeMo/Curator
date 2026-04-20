@@ -159,7 +159,7 @@ def main():
                 gpu_memory_utilization=args.gpu_memory_utilization,
                 prep_workers=args.prep_workers,
                 pred_text_key="qwen3_prediction_s1",
-                followup_text_key="qwen3_prediction_s2",
+                disfluency_text_key="qwen3_prediction_s2",
             ),
             WhisperHallucinationStage(
                 common_hall_file=args.hall_phrases,
