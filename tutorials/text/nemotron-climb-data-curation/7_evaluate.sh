@@ -55,6 +55,7 @@ for MODEL_DIR in "${MODEL_DIRS[@]}"; do
 
     mkdir -p "$OUT_DIR"
 
+    # If needed, update the tokenizer_type and seq_length arguments to match the values used in 6_train.sh
     torchrun --nproc_per_node="$NUM_GPUS" -m lm_eval \
         --model megatron_lm \
         --model_args "load=${CKPT_PATH},tokenizer_type=Llama2Tokenizer,tokenizer_model=${TOKENIZER_MODEL},seq_length=1024,devices=${NUM_GPUS}" \

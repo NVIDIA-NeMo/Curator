@@ -12,7 +12,6 @@ The following Python libraries are needed to run this tutorial:
 - `megatron-core`
 - `lm-eval`
 - `lightgbm`
-- `seaborn`
 
 NeMo Curator should be installed with the `text_cuda12` extra. See the installation options on the [Text Quickstart](https://docs.nvidia.com/nemo/curator/get-started/text) for more information. Installation commands for the other libraries above are included within their respective sections.
 
@@ -251,21 +250,18 @@ The above script looks for 4 inputs in order:
 
 The script evalutes each proxy model on the [ARC-Easy](https://arxiv.org/abs/1803.05457), [HellaSwag](https://arxiv.org/abs/1905.07830), and [PIQA](https://arxiv.org/abs/1911.11641) benchmarks.
 
+By default, all available GPUs are used for benchmarking. Make sure the `model_args` used in `7_evaluate.sh` match those used in `6_train.sh` (e.g., `tokenizer_type=Llama2Tokenizer` and `seq_length=1024`).
+
 ## Step 8: Train Predictor
 
-Train a LightGBM model on the results with:
+Train a [LightGBM](https://lightgbm.readthedocs.io/en/stable/) model on the results with:
 
 ```bash
-# TODO: install lightgbm
-# run `uv pip install matplotlib` if not already installed
-# run `uv pip install scipy` if not already installed
-# run `uv pip install seaborn` if not already installed
+# run `uv pip install lightgbm` if not already installed
 
 python 8_predict.py
 ```
 
-TODO: LightGBM installation
-
-The script uses `matplotlib`, `seaborn`, and `scipy`, which can each be installed via `uv pip install`.
+The script uses `lightgbm` which can each be installed via `uv pip install lightgbm`.
 
 TODO: Add more information
