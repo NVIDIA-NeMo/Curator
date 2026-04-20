@@ -57,7 +57,7 @@ class QwenOmni(ModelInterface):
         self,
         model_id: str = _QWEN3_OMNI_MODEL_ID,
         prompt_text: str = "Transcribe the audio.",
-        second_prompt_text: str = "Now listen to the audio again and add any false starts, filler words and preserve colloquial words (like lemme, gonna, wanna, etc) as is spoken in the audio.",
+        followup_prompt: str = "Now listen to the audio again and add any false starts, filler words and preserve colloquial words (like lemme, gonna, wanna, etc) as is spoken in the audio.",
         system_prompt: str | None = None,
         max_model_len: int = 32768,
         max_num_seqs: int = 32,
@@ -70,7 +70,7 @@ class QwenOmni(ModelInterface):
     ):
         self.model_id = model_id
         self.prompt_text = prompt_text
-        self.second_prompt_text = second_prompt_text
+        self.followup_prompt = followup_prompt
         self.system_prompt = system_prompt
         self.max_model_len = max_model_len
         self.max_num_seqs = max_num_seqs
@@ -175,7 +175,7 @@ class QwenOmni(ModelInterface):
         return messages
 
     def _build_turn2_messages(self, waveform: np.ndarray, pred_text: str) -> list[dict[str, Any]]:
-        """Build Turn 2 messages: full Turn 1 conversation history + follow-up with audio."""
+        """Build Turn 2 messages: full Turn 1 conversation history + follow-up promt."""
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
             messages.append({"role": "system", "content": [{"type": "text", "text": self.system_prompt}]})
@@ -190,8 +190,7 @@ class QwenOmni(ModelInterface):
         messages.append({
             "role": "user",
             "content": [
-                {"type": "audio", "audio": waveform},
-                {"type": "text", "text": self.second_prompt_text},
+                {"type": "text", "text": self.followup_prompt},
             ],
         })
         return messages
@@ -281,7 +280,7 @@ class QwenOmni(ModelInterface):
     ) -> tuple[list[str], list[str]]:
         """Run batched two-turn inference on in-memory audio waveforms.
 
-        Turn 1 transcribes using ``prompt_text``.  If ``second_prompt_text``
+        Turn 1 transcribes using ``prompt_text``.  If ``followup_prompt``
         is set, Turn 2 re-listens with the full conversation history and
         a follow-up prompt (e.g. to add disfluencies / filler words).
 
@@ -292,7 +291,7 @@ class QwenOmni(ModelInterface):
         Returns:
             ``(pred_texts, disfluency_texts)`` — one string per input for
             each turn.  ``disfluency_texts`` is all empty strings when
-            ``second_prompt_text`` is ``None``.
+            ``followup_prompt`` is ``None``.
         """
         if self._llm is None or self._sampling_params is None:
             msg = "Model not initialized. Call setup() first."
@@ -320,7 +319,7 @@ class QwenOmni(ModelInterface):
             pred_texts[idx] = out.outputs[0].text.strip()
 
         # -- Turn 2 (disfluency refinement) -----------------------------------
-        if not self.second_prompt_text:
+        if not self.followup_prompt:
             return pred_texts, [""] * n
 
         t2_indices = [i for i in valid_indices if pred_texts[i]]

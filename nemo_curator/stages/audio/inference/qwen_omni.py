@@ -91,7 +91,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         return QwenOmni(
             model_id=self.model_id,
             prompt_text=self.prompt_text,
-            second_prompt_text=self.followup_prompt,
+            followup_prompt=self.followup_prompt,
             system_prompt=self.system_prompt,
             max_model_len=self.max_model_len,
             max_num_seqs=self.max_num_seqs,
