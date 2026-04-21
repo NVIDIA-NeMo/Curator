@@ -229,15 +229,15 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
         labels = fcluster(z, t=args.merge_threshold, criterion="distance")
 
         super_clusters = defaultdict(list)
-        for cid, label in zip(kept, labels):
+        for cid, label in zip(kept, labels, strict=True):
             super_clusters[label].append(cid)
 
         for cluster_ids in super_clusters.values():
             if len(cluster_ids) <= 1:
                 continue
-            cluster_ids = sorted(cluster_ids)
-            dst_dir = f"{args.output_path}/centroid={cluster_ids[0]}"
-            for other in cluster_ids[1:]:
+            cluster_ids_sorted = sorted(cluster_ids)
+            dst_dir = f"{args.output_path}/centroid={cluster_ids_sorted[0]}"
+            for other in cluster_ids_sorted[1:]:
                 src_dir = f"{args.output_path}/centroid={other}"
                 for f in os.listdir(src_dir):
                     shutil.move(os.path.join(src_dir, f), dst_dir)
