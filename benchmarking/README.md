@@ -155,6 +155,12 @@ sinks:
     drive_folder_id: ${GDRIVE_FOLDER_ID}
     service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
 
+# Optional: Global Ray settings inherited by all entries; per-entry ray sections override these values
+ray:
+  num_cpus: 64
+  num_gpus: 4
+  enable_object_spilling: false
+
 # Optional: Define datasets for template substitution
 datasets:
   - name: common_crawl
@@ -322,13 +328,22 @@ requirements:
     max_value: 64
 ```
 
-**ray**: Configures Ray resources for the entry:
+**ray**: Configures Ray resources. A global `ray` section can be defined at the top level of the configuration to set defaults inherited by all entries. Per-entry `ray` sections override individual keys from the global defaults.
 
+Global defaults (applies to all entries unless overridden):
 ```yaml
 ray:
   num_cpus: 64
   num_gpus: 4
-  enable_object_spilling: false  # Disable object spilling to local disk
+  enable_object_spilling: false
+```
+
+Per-entry override (only the differing keys need to be specified):
+```yaml
+entries:
+  - name: my_benchmark
+    ray:
+      num_gpus: 0  # overrides global num_gpus; num_cpus and enable_object_spilling inherit global values
 ```
 
 ---

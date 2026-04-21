@@ -378,6 +378,7 @@ def main() -> int:  # noqa: C901
         logger.error(f"Invalid configuration: {e}")
         return 1
 
+    # Now that all YAML config files have been read, merged, and processed, create the Session object.
     session = Session.from_dict(config_dict, args.entries)
 
     if args.list:
