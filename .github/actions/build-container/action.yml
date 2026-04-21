@@ -81,8 +81,11 @@ runs:
     - name: Install GH CLI
       shell: bash
       run: |
-        apt-get update
-        apt-get install -y gh
+        for i in 1 2 3; do
+          apt-get update && apt-get install -y gh && break
+          echo "Attempt $i failed, retrying in 10s..."
+          sleep 10
+        done
 
     - name: Normalize repo name to lowercase
       shell: bash

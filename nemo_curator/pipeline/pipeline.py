@@ -215,9 +215,9 @@ class Pipeline:
                 )
             checkpoint_path = abs_path
 
-        from nemo_curator.core.serve import is_ray_serve_active
+        from nemo_curator.core.serve import is_inference_server_active
 
-        if is_ray_serve_active():
+        if is_inference_server_active():
             gpu_stages = [s for s in self.stages if s.resources.requires_gpu]
             if gpu_stages:
                 names = ", ".join(s.name for s in gpu_stages)
