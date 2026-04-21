@@ -17,13 +17,14 @@ import json
 import os
 import re
 import shutil
+from collections import defaultdict
 from dataclasses import dataclass
 
 import fasttext
-import networkx as nx
 import numpy as np
 import ray
 from loguru import logger
+from scipy.cluster.hierarchy import fcluster, linkage
 
 import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.core.client import RayClient
@@ -218,37 +219,29 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
                 # Grab the number from the path, e.g., output_path/centroid=999 grabs 999
                 removed_clusters.append(int(path_to_remove.split("/")[-1].split("=")[1]))
 
-    # TODO: Update to merge clusters greedily instead of using connected components
     centroids = np.load(os.path.join(args.centroids_path, "kmeans_centroids.npy"))
-    # Compute the Euclidean distance between the centroids
-    diff = centroids[:, None, :] - centroids[None, :, :]
-    l2_distances = np.sqrt(np.sum(diff**2, axis=2))
 
-    # Build graph of mergeable centroids
-    graph = nx.Graph()
-    num_centroids = centroids.shape[0]
-    graph.add_nodes_from(range(num_centroids))
+    kept = [i for i in range(len(centroids)) if i not in removed_clusters]
 
-    pairs = np.argwhere((l2_distances < args.merge_threshold) & (l2_distances > 0))
-    for i, j in pairs:
-        # Skip if i or j is in removed_clusters
-        if i in removed_clusters or j in removed_clusters:
-            continue
-        graph.add_edge(i, j)
+    # Merge similar clusters according to a Euclidean distance threshold using Ward's method (agglomerative clustering)
+    if len(kept) > 1:
+        z = linkage(centroids[kept], method="ward")
+        labels = fcluster(z, t=args.merge_threshold, criterion="distance")
 
-    # Find connected components, each component is a merged cluster
-    for comp in nx.connected_components(graph):
-        component = list(comp)
-        if len(component) <= 1:
-            continue
-        # Merge all directories in this component into the first one
-        main = component[0]
-        for other in component[1:]:
-            src_dir = f"{args.output_path}/centroid={other}"
-            dst_dir = f"{args.output_path}/centroid={main}"
-            for f in os.listdir(src_dir):
-                shutil.move(os.path.join(src_dir, f), dst_dir)
-            os.rmdir(src_dir)
+        super_clusters = defaultdict(list)
+        for cid, label in zip(kept, labels):
+            super_clusters[label].append(cid)
+
+        for cluster_ids in super_clusters.values():
+            if len(cluster_ids) <= 1:
+                continue
+            cluster_ids = sorted(cluster_ids)
+            dst_dir = f"{args.output_path}/centroid={cluster_ids[0]}"
+            for other in cluster_ids[1:]:
+                src_dir = f"{args.output_path}/centroid={other}"
+                for f in os.listdir(src_dir):
+                    shutil.move(os.path.join(src_dir, f), dst_dir)
+                os.rmdir(src_dir)
 
     ray_client.stop()
 
