@@ -279,6 +279,9 @@ navigation:
               - page: Inference Server
                 path: ./v26.04/pages/curate-text/synthetic/inference-server.mdx
                 slug: inference-server
+              - page: NeMo Data Designer
+                path: ./v26.04/pages/curate-text/synthetic/nemo-data-designer.mdx
+                slug: nemo-data-designer
               - page: Multilingual Q&A
                 path: ./v26.04/pages/curate-text/synthetic/multilingual-qa.mdx
                 slug: multilingual-qa

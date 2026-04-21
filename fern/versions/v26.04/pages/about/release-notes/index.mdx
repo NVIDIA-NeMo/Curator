@@ -157,6 +157,17 @@ Learn more in the [Save and Export](/curate-text/save-export) documentation.
 
 Added tqdm progress bars to `RayActorPoolExecutor` for real-time visibility into task completion during stage processing and shuffle inserts. Progress bars are enabled by default and can be configured with `show_progress` and `progress_interval` parameters. This is particularly useful for long-running deduplication jobs where progress is not otherwise apparent.
 
+### NeMo Data Designer Integration
+
+Integrated the NeMo Data Designer (NDD) client with NeMo Curator for declarative synthetic data generation at scale:
+
+- **`DataDesignerStage`**: New processing stage that wraps NDD's `DataDesigner.preview()` to generate structured synthetic data within Curator pipelines. Accepts a `DataDesignerConfigBuilder` or YAML config file and supports sampler columns (Faker names, UUIDs, dates), expression columns (Jinja templates), and LLM text columns.
+- **NDD-backed Nemotron-CC stages**: Drop-in replacements for the five Nemotron-CC stages (`WikipediaParaphrasingStage`, `DiverseQAStage`, `DistillStage`, `ExtractKnowledgeStage`, `KnowledgeListStage`) that route generation through NDD instead of `AsyncOpenAIClient`. Import from `nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.nemotron_cc`.
+- **Token metric collection**: `DataDesignerStage` automatically reports `input_tokens_median_per_record` and `output_tokens_median_per_record` from NDD's analysis, enabling throughput tracking without manual instrumentation.
+- **Local and remote inference**: Supports both the built-in `InferenceServer` (Ray Serve + vLLM) via custom `ModelProvider` and remote endpoints (NVIDIA NIM).
+
+Learn more in the [NeMo Data Designer](/curate-text/synthetic/nemo-data-designer) documentation.
+
 ### S3 Transport for CommonCrawlWARCReader (PR #1604)
 
 Added S3 as an alternative transport for `CommonCrawlWARCReader`, which fetches individual WARC records using byte-range requests:
