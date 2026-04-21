@@ -34,6 +34,13 @@ Built-in LLM serving alongside curation pipelines using Ray Serve and vLLM:
 
 Learn more in the [Inference Server](/curate-text/synthetic/inference-server) documentation.
 
+### RayDataExecutor Promoted from Experimental (PR #1619)
+
+Moved `RayDataExecutor` out of the experimental namespace to `nemo_curator.backends.ray_data`. The executor is no longer marked as experimental, and the startup warning has been removed. Import path changes:
+
+- **Before**: `from nemo_curator.backends.experimental.ray_data import RayDataExecutor`
+- **After**: `from nemo_curator.backends.ray_data import RayDataExecutor`
+
 ### Shared Tokenizer Support for Multiple Classifiers (PR #1528)
 
 Text classifiers that share the same base tokenizer can now reuse tokens across a pipeline, avoiding redundant tokenization. New parameters `keep_tokens` and `use_existing_tokens` on all distributed classifiers control this behavior. DeBERTa-based classifiers (DomainClassifier, MultilingualDomainClassifier, QualityClassifier, ContentTypeClassifier, FineWeb variants, PromptTaskComplexityClassifier) and LlamaGuard-based classifiers (AegisClassifier, InstructionDataGuardClassifier) each form a compatible tokenizer group.
@@ -108,6 +115,16 @@ Pipeline stages can now declare isolated Python dependencies using Ray's native 
 
 Learn more in the [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) documentation.
 
+### Audio Task Redesign (PR #1608)
+
+Redesigned the audio task model and stage hierarchy for consistency with other modalities:
+
+- **`AudioBatch` → `AudioTask`**: Single-dict task model (`Task[dict]`) replacing the list-of-dicts batch model. One manifest entry per task, matching `VideoTask` and `FileGroupTask` conventions.
+- **Direct `ProcessingStage` subclassing**: Removed the `AudioTaskStage` intermediate class. All audio stages now subclass `ProcessingStage[AudioTask, AudioTask]` directly.
+- **Configurable backend selection**: FLEURS and ALM tutorial runners support backend selection using Hydra config (`backend=ray_data` or `backend=xenna`).
+- **`cache_dir` parameter**: `InferenceAsrNemoStage` accepts an optional `cache_dir` for NeMo model checkpoint storage.
+- **Fan-out stage fix**: `CreateInitialManifestFleursStage` now declares `ray_stage_spec()` for correct Ray Data repartitioning.
+
 ### Pipeline Stage Metrics (PR #1385)
 
 Pipeline stages now track document-level metrics through `StagePerfStats.num_items_processed`, so you can see how each stage affects your dataset. After calling `pipeline.run()`, the returned task objects expose per-stage document counts that you can use to monitor filtering behavior and tune thresholds.
@@ -120,6 +137,17 @@ Standardized return type for all deduplication workflows:
 - **`WorkflowBase` abstract class**: New base class that most deduplication workflows inherit from, enforcing a consistent `run()` → `WorkflowRunResult` interface. (`TextSemanticDeduplicationWorkflow` implements the same interface without formal inheritance.)
 - **Structured metadata**: Access per-stage timing (`total_time`, `identification_time`, and others), duplicate counts (`num_duplicates`, `num_duplicates_removed`), and output paths through `result.metadata`
 - **`TaskPerfUtils` compatibility**: `collect_stage_metrics()` and `aggregate_task_metrics()` now accept `WorkflowRunResult` directly
+
+### Megatron Tokenization Writer (PR #1259)
+
+Added `MegatronTokenizerWriter`, a writer stage that tokenizes text documents and produces the `.bin` and `.idx` files required by Megatron-LM for data loading during pretraining:
+
+- **Integrated tokenization**: Tokenize and export in a single pipeline step using any Hugging Face `AutoTokenizer`, replacing the need for Megatron's standalone `preprocess_data.py` script.
+- **Memory-efficient batching**: The `tokenization_batch_size` parameter controls how many documents are tokenized and written per batch, preventing out-of-memory errors on large datasets.
+- **Automatic dtype selection**: Uses 2-byte tokens (`uint16`) for vocabularies with 65,536 or fewer entries (such as GPT-2) and 4-byte tokens (`int32`) for larger vocabularies.
+- **Megatron-compatible output**: Produces `.bin` and `.idx` files directly compatible with Megatron-LM's `MMapIndexedDataset` data loader, including support for end-of-document token appending via `append_eod`.
+
+Learn more in the [Save and Export](/curate-text/save-export) documentation.
 
 ### Image Reader Ray Data Support (PR #1610)
 
@@ -156,6 +184,17 @@ Added stage-wise profiling for FLEURS GPU and ALM CPU pipelines with benchmark s
 - **Per-stage timing breakdowns** on DGX A100: FLEURS pipeline completes in approximately 100 seconds with Xenna (4.01 tasks per second) and 123 seconds with Ray Data (3.27 tasks per second).
 - **Bottleneck analysis**: Identified data download (91% of FLEURS wall time) and `repeat_entries` (44% of ALM wall time) as primary bottlenecks.
 - **Nightly CI entries**: Split FLEURS and ALM benchmarks into separate Xenna and Ray Data entries for both-backend coverage.
+
+### NeMo Data Designer Integration
+
+Integrated the NeMo Data Designer (NDD) client with NeMo Curator for declarative synthetic data generation at scale:
+
+- **`DataDesignerStage`**: New processing stage that wraps NDD's `DataDesigner.preview()` to generate structured synthetic data within Curator pipelines. Accepts a `DataDesignerConfigBuilder` or YAML config file and supports sampler columns (Faker names, UUIDs, dates), expression columns (Jinja templates), and LLM text columns.
+- **NDD-backed Nemotron-CC stages**: Drop-in replacements for the five Nemotron-CC stages (`WikipediaParaphrasingStage`, `DiverseQAStage`, `DistillStage`, `ExtractKnowledgeStage`, `KnowledgeListStage`) that route generation through NDD instead of `AsyncOpenAIClient`. Import from `nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.nemotron_cc`.
+- **Token metric collection**: `DataDesignerStage` automatically reports `input_tokens_median_per_record` and `output_tokens_median_per_record` from NDD's analysis, enabling throughput tracking without manual instrumentation.
+- **Local and remote inference**: Supports both the built-in `InferenceServer` (Ray Serve + vLLM) via custom `ModelProvider` and remote endpoints (NVIDIA NIM).
+
+Learn more in the [NeMo Data Designer](/curate-text/synthetic/nemo-data-designer) documentation.
 
 ### S3 Transport for CommonCrawlWARCReader (PR #1604)
 
@@ -200,6 +239,7 @@ Resolved four HIGH-severity vulnerabilities affecting Curator dependencies:
 
 - **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
 - **Ray** (PR #1557): Updated minimum version from 2.50 to 2.54. This supersedes the previous constraint dependency for CVE GHSA-q279-jhrf-cc6v, which required >=2.52.
+- **pynvml**: Added to the `cuda12` optional dependency group for Xenna GPU detection
 - **sentence-transformers**: Added to the `text_cpu` optional dependency group
 - **vllm**: New vllm optional dependency group
 - **uv**: Added minimum required version (>=0.7.0) to prevent lockfile revision drift
@@ -270,6 +310,8 @@ Added `__getstate__`/`__setstate__` to `CommonCrawlWARCReader` for pickle compat
 - **Minimum Ray version**: The minimum required Ray version increased from 2.50 to 2.54. Users on Ray 2.50–2.53 must upgrade before installing this release.
 - **`TextSemanticDeduplicationWorkflow` embedding backend**: The default embedding backend changed from SentenceTransformers to vLLM. The default model changed from `sentence-transformers/all-MiniLM-L6-v2` to `google/embeddinggemma-300m`. The parameters `embedding_model_inference_batch_size`, `embedding_pooling`, `embedding_padding_side`, and `embedding_max_seq_length` have been removed. Use `embedding_vllm_init_kwargs` to pass configuration to the vLLM backend instead.
 - **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
+- **`AudioBatch` removed**: Replaced by `AudioTask`. Update imports from `from nemo_curator.tasks import AudioBatch` to `from nemo_curator.tasks import AudioTask`. Data is now a single `dict` instead of `dict | list[dict]`.
+- **`RayDataExecutor` import path**: Moved from `nemo_curator.backends.experimental.ray_data` to `nemo_curator.backends.ray_data`. Update imports accordingly.
 - **`DocumentExtractStage` Removed**: The standalone `DocumentExtractStage` class has been removed. Use `DocumentIterateExtractStage` with an optional `extractor` parameter instead. The `DocumentExtractor` abstract base class is unchanged.
 - **`DocumentIterateStage` Renamed**: `DocumentIterateStage` has been replaced by `DocumentIterateExtractStage`. Update imports from `nemo_curator.stages.text.download.base.iterator`.
 - **Three-Stage Pipeline**: The data acquisition pipeline is now a three-step pattern (URL generation → download → iterate-extract) instead of four steps.

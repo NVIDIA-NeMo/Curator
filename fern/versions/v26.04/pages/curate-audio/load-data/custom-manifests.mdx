@@ -89,7 +89,7 @@ pipeline.add_stage(
     )
 )
 
-# ASR inference (consumes DocumentBatch, produces AudioBatch)
+# ASR inference (consumes DocumentBatch, produces AudioTask)
 pipeline.add_stage(
     InferenceAsrNemoStage(
         model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
@@ -113,12 +113,12 @@ pipeline.add_stage(
 Audio file validation happens automatically during pipeline processing:
 
 ```python
-# Validation occurs when stages process AudioBatch objects
+# Validation occurs when stages process AudioTask objects
 # Files are checked for existence during ASR inference
 # Invalid files generate warnings but don't stop processing
 
 # Pipeline stages handle validation automatically
-if audio_batch.validate():
+if audio_task.validate():
     print("All audio files exist")
 else:
     print("Some audio files are missing")

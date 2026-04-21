@@ -10,13 +10,13 @@ modality: "audio-text"
 
 # Text Integration for Audio Data
 
-Convert processed audio data from `AudioBatch` to `DocumentBatch` format using the built-in `AudioToDocumentStage`. This enables you to export audio processing results or integrate with custom text processing workflows.
+Convert processed audio data from `AudioTask` to `DocumentBatch` format using the built-in `AudioToDocumentStage`. This enables you to export audio processing results or integrate with custom text processing workflows.
 
 ## How it Works
 
 The `AudioToDocumentStage` provides straightforward format conversion between NeMo Curator's audio and text data structures:
 
-1. **Format Conversion**: Transform `AudioBatch` objects to `DocumentBatch` format
+1. **Format Conversion**: Transform `AudioTask` objects to `DocumentBatch` format
 2. **Metadata Preservation**: All fields from the audio data are preserved in the conversion
 3. **Export Ready**: Convert audio processing results to pandas DataFrame format for analysis or export
 
@@ -27,30 +27,28 @@ The `AudioToDocumentStage` provides straightforward format conversion between Ne
 
 ## Basic Conversion
 
-### AudioBatch to DocumentBatch
+### AudioTask to DocumentBatch
 
 Use `AudioToDocumentStage` to convert audio processing results to document format:
 
 ```python
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.tasks import AudioTask
 
 # Convert audio data to DocumentBatch format
 converter = AudioToDocumentStage()
 
-# Input: AudioBatch with audio processing results
-audio_batch = AudioBatch(data=[
-    {
-        "audio_filepath": "/data/audio/sample.wav",
-        "text": "ground truth text",
-        "pred_text": "asr predicted text",
-        "wer": 12.5,
-        "duration": 3.2
-    }
-])
+# Input: AudioTask with audio processing results
+audio_task = AudioTask(data={
+    "audio_filepath": "/data/audio/sample.wav",
+    "text": "ground truth text",
+    "pred_text": "asr predicted text",
+    "wer": 12.5,
+    "duration": 3.2
+})
 
 # Output: DocumentBatch with pandas DataFrame
-document_batches = converter.process(audio_batch)
+document_batches = converter.process(audio_task)
 document_batch = document_batches[0]
 
 # Access the converted data
@@ -78,7 +76,7 @@ The conversion preserves all fields from your audio processing pipeline:
 ```
 
 <Note>
-Field names and values are preserved exactly as they appear in the `AudioBatch`. No data transformation or cleaning is performed during conversion.
+Field names and values are preserved exactly as they appear in the `AudioTask`. No data transformation or cleaning is performed during conversion.
 </Note>
 
 ## Integration in Pipelines
@@ -145,7 +143,7 @@ pipeline.run(executor)
 
 ## Custom Integration
 
-While `AudioToDocumentStage` converts audio data to `DocumentBatch` format, NeMo Curator's built-in text processing stages (filters, classifiers, etc.) are designed for text documents, not audio transcriptions. For audio-specific text processing, implement custom stages that operate on the converted `DocumentBatch` data.
+While `AudioToDocumentStage` converts audio data to `DocumentBatch` format, NeMo Curator's built-in text processing stages (filters, classifiers, and so on) are designed for text documents, not audio transcriptions. For audio-specific text processing, implement custom stages that operate on the converted `DocumentBatch` data.
 
 ### Example: Custom Text Processing
 
@@ -162,7 +160,7 @@ def filter_transcriptions(document_batch: DocumentBatch) -> DocumentBatch:
     df = document_batch.data
 
     # Example: Filter by transcription length
-    df = df[df['pred_text'].str.len() &gt;10]  # Keep transcriptions &gt;10 chars
+    df = df[df['pred_text'].str.len() &gt; 10]  # Keep transcriptions &gt;10 chars
 
     # Example: Filter by WER if available
     if 'wer' in df.columns:

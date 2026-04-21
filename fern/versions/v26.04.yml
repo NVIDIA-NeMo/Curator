@@ -33,6 +33,21 @@ navigation:
               - page: Deduplication
                 path: ./v26.04/pages/about/concepts/deduplication.mdx
                 slug: deduplication
+              - section: Scaling & Performance
+                slug: scaling
+                contents:
+                  - page: Resource Allocation
+                    path: ./v26.04/pages/about/concepts/resource-allocation.mdx
+                    slug: resource-allocation
+                  - page: Streaming
+                    path: ./v26.04/pages/about/concepts/streaming.mdx
+                    slug: streaming
+                  - page: Auto-Balancing
+                    path: ./v26.04/pages/about/concepts/auto-balancing.mdx
+                    slug: auto-balancing
+                  - page: Throughput
+                    path: ./v26.04/pages/about/concepts/throughput.mdx
+                    slug: throughput
               - section: Text Concepts
                 slug: text
                 contents:
@@ -96,9 +111,9 @@ navigation:
                   - page: Curation Pipeline
                     path: ./v26.04/pages/about/concepts/audio/curation-pipeline.mdx
                     slug: curation-pipeline
-                  - page: Audio Batch
-                    path: ./v26.04/pages/about/concepts/audio/audio-batch.mdx
-                    slug: audio-batch
+                  - page: Audio Task
+                    path: ./v26.04/pages/about/concepts/audio/audio-task.mdx
+                    slug: audio-task
                   - page: ASR Pipeline
                     path: ./v26.04/pages/about/concepts/audio/asr-pipeline.mdx
                     slug: asr-pipeline
@@ -252,6 +267,9 @@ navigation:
                   - page: Code Processing
                     path: ./v26.04/pages/curate-text/process-data/specialized-processing/code.mdx
                     slug: code
+          - page: Save and Export
+            path: ./v26.04/pages/curate-text/save-export.mdx
+            slug: save-export
           - section: Synthetic Data
             slug: synthetic
             contents:
@@ -264,6 +282,9 @@ navigation:
               - page: Inference Server
                 path: ./v26.04/pages/curate-text/synthetic/inference-server.mdx
                 slug: inference-server
+              - page: NeMo Data Designer
+                path: ./v26.04/pages/curate-text/synthetic/nemo-data-designer.mdx
+                slug: nemo-data-designer
               - page: Multilingual Q&A
                 path: ./v26.04/pages/curate-text/synthetic/multilingual-qa.mdx
                 slug: multilingual-qa
@@ -585,9 +606,9 @@ navigation:
               - page: VideoTask
                 path: ./v26.04/pages/api-reference/tasks/video-task.mdx
                 slug: video-task
-              - page: AudioBatch
-                path: ./v26.04/pages/api-reference/tasks/audio-batch.mdx
-                slug: audio-batch
+              - page: AudioTask
+                path: ./v26.04/pages/api-reference/tasks/audio-task.mdx
+                slug: audio-task
           - section: Executors
             slug: executors
             contents:

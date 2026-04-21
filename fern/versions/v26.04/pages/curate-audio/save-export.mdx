@@ -47,7 +47,7 @@ Standard fields included in audio manifests:
 from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 
-# Convert AudioBatch to DocumentBatch for text writer
+# Convert AudioTask to DocumentBatch for text writer
 pipeline.add_stage(AudioToDocumentStage())
 
 # Configure JSONL export
