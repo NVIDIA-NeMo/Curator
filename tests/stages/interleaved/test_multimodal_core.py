@@ -25,6 +25,7 @@ from nemo_curator.core.utils import split_table_by_group_max_bytes
 from nemo_curator.stages.interleaved.io.reader import InterleavedWebdatasetReader
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
+    BaseInterleavedFilterStage,
     BaseInterleavedScoreFilterStage,
     InterleavedAspectRatioFilterStage,
 )
@@ -427,19 +428,33 @@ def test_split_table_preserves_group_integrity() -> None:
         assert len(set(groups)) == 1 or all(g == groups[0] for g in groups)
 
 
+# --- basic_row_validity_mask tests ---
+
+
+def test_basic_row_validity_mask_filters_bad_modality() -> None:
+    df = pd.DataFrame({"modality": ["text", "image", "video", "metadata"], "position": [0, 1, 2, -1]})
+    mask = BaseInterleavedFilterStage._basic_row_validity_mask(df)
+    assert mask.tolist() == [True, True, False, True]
+
+
+def test_basic_row_validity_mask_enforces_position_rules() -> None:
+    df = pd.DataFrame({"modality": ["metadata", "metadata", "text", "text"], "position": [-1, 0, 0, -1]})
+    mask = BaseInterleavedFilterStage._basic_row_validity_mask(df)
+    assert mask.tolist() == [True, False, True, False]
+
+
 # --- filter position preservation test ---
 
 
-def test_filter_stage_preserves_all_rows_and_positions() -> None:
-    """Filter annotate merges score columns and does not drop or reindex positions."""
+def test_filter_recomputes_positions_after_drop() -> None:
+    """Filtering must recompute content positions to close gaps; metadata stays at -1."""
 
-    class _DropOddPositions(BaseInterleavedScoreFilterStage):
+    class _DropOddPositions(BaseInterleavedFilterStage):
         name: str = "drop_odd"
 
-        def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
+        def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
             pos = df["position"].astype(int)
-            mark = ((df["modality"] != "metadata") & (pos % 2 == 1)).astype(float)
-            return {f"{self.name}_odd_marker": mark}
+            return ~((df["modality"] != "metadata") & (pos % 2 == 1))
 
     rows = [
         {
@@ -470,26 +485,27 @@ def test_filter_stage_preserves_all_rows_and_positions() -> None:
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
-    stage = _DropOddPositions()
+    stage = _DropOddPositions(drop_invalid_rows=False)
     result = stage.process(task)
     out_df = result.to_pandas()
-    assert len(out_df) == 5
-    assert out_df["position"].tolist() == [0, 1, 2, 3, -1]
-    assert "drop_odd_odd_marker" in out_df.columns
+    assert out_df["position"].tolist() == [-1, 0, 1]
+    assert pd.isna(out_df["text_content"].iloc[0])
+    assert out_df["text_content"].iloc[1] == "t0"
+    assert out_df["text_content"].iloc[2] == "t2"
 
 
 def test_filter_preserves_interleaved_ordering_across_modalities() -> None:
-    """All modalities remain; optional score column flags the second image row."""
+    """When text and image rows are interleaved, filtering must preserve relative order."""
 
-    class _DropSecondImage(BaseInterleavedScoreFilterStage):
+    class _DropSecondImage(BaseInterleavedFilterStage):
         name: str = "drop_second_image"
 
-        def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-            s = pd.Series(0.0, index=df.index, dtype=float)
+        def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+            keep = pd.Series(True, index=df.index, dtype=bool)
             image_indices = df.index[df["modality"] == "image"].tolist()
             if len(image_indices) > 1:
-                s.loc[image_indices[1]] = 1.0
-            return {f"{self.name}_second_image_flag": s}
+                keep.loc[image_indices[1]] = False
+            return keep
 
     def _row(sample_id: str, position: int, modality: str, text: str | None = None) -> dict:
         return {
@@ -525,26 +541,26 @@ def test_filter_preserves_interleaved_ordering_across_modalities() -> None:
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
-    stage = _DropSecondImage()
+    stage = _DropSecondImage(drop_invalid_rows=False)
     result = stage.process(task)
     out_df = result.to_pandas()
 
-    assert out_df["modality"].tolist() == ["metadata", "text", "image", "text", "image", "text"]
-    assert out_df["position"].tolist() == [-1, 0, 1, 2, 3, 4]
+    assert out_df["modality"].tolist() == ["metadata", "text", "image", "text", "text"]
+    assert out_df["position"].tolist() == [-1, 0, 1, 2, 3]
     content = out_df[out_df["modality"] != "metadata"]
     assert content["text_content"].tolist()[0] == "intro"
     assert content["text_content"].tolist()[2] == "middle"
-    assert content["text_content"].tolist()[4] == "end"
+    assert content["text_content"].tolist()[3] == "end"
 
 
 def test_filter_preserves_interleaved_ordering_with_noninterleaved_row_order() -> None:
-    """Score annotate keeps physical row order (no re-sort by sample_id/position)."""
+    """Even when DataFrame rows are grouped by modality (not position order), filter must preserve interleaving."""
 
-    class _KeepAll(BaseInterleavedScoreFilterStage):
+    class _KeepAll(BaseInterleavedFilterStage):
         name: str = "keep_all"
 
-        def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-            return {}
+        def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+            return pd.Series(True, index=df.index, dtype=bool)
 
     def _row(sample_id: str, position: int, modality: str, text: str | None = None) -> dict:
         return {
@@ -580,24 +596,24 @@ def test_filter_preserves_interleaved_ordering_with_noninterleaved_row_order() -
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
-    stage = _KeepAll()
+    stage = _KeepAll(drop_invalid_rows=False)
     result = stage.process(task)
     out_df = result.to_pandas()
 
-    assert out_df["modality"].tolist() == ["metadata", "text", "text", "text", "image", "image"]
-    assert out_df["position"].tolist() == [-1, 0, 2, 4, 1, 3]
+    assert out_df["modality"].tolist() == ["metadata", "text", "image", "text", "image", "text"]
+    assert out_df["position"].tolist() == [-1, 0, 1, 2, 3, 4]
 
 
-def test_filter_preserves_orphan_metadata_rows() -> None:
-    """Annotate keeps metadata rows even when a hypothetical pass mask would drop all content for a sample."""
+def test_filter_drops_orphaned_metadata_rows() -> None:
+    """When all content rows for a sample are filtered out, the metadata row must also be removed."""
 
-    class _DropAllSample2Content(BaseInterleavedScoreFilterStage):
+    class _DropAllSample2Content(BaseInterleavedFilterStage):
         name: str = "drop_s2"
 
-        def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-            s = pd.Series(0.0, index=df.index, dtype=float)
-            s.loc[(df["sample_id"] == "s2") & (df["modality"] != "metadata")] = 1.0
-            return {f"{self.name}_s2_content_flag": s}
+        def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+            keep = pd.Series(True, index=df.index, dtype=bool)
+            keep &= ~((df["sample_id"] == "s2") & (df["modality"] != "metadata"))
+            return keep
 
     def _row(sample_id: str, position: int, modality: str, text: str | None = None) -> dict:
         return {
@@ -624,13 +640,14 @@ def test_filter_preserves_orphan_metadata_rows() -> None:
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
-    stage = _DropAllSample2Content()
+    stage = _DropAllSample2Content(drop_invalid_rows=False)
     result = stage.process(task)
     out_df = result.to_pandas()
 
-    assert set(out_df["sample_id"]) == {"s1", "s2"}
-    assert len(out_df) == 6
-    assert out_df[out_df["sample_id"] == "s2"]["modality"].tolist() == ["metadata", "text", "text"]
+    assert set(out_df["sample_id"]) == {"s1"}, "s2 must be fully removed (including metadata)"
+    assert len(out_df) == 3
+    assert out_df["modality"].tolist() == ["metadata", "text", "text"]
+    assert out_df["position"].tolist() == [-1, 0, 1]
 
 
 # --- count / num_samples tests ---
@@ -920,12 +937,14 @@ def test_annotator_process_empty_batch() -> None:
     assert result is task
 
 
-def test_annotate_preserves_rows_without_dropping() -> None:
-    class _KeepAllContent(BaseInterleavedScoreFilterStage):
+def test_filter_drop_invalid_rows_true() -> None:
+    """drop_invalid_rows=True (default) filters rows with bad modality or invalid position."""
+
+    class _KeepAllContent(BaseInterleavedFilterStage):
         name: str = "keep_all"
 
-        def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-            return {f"{self.name}_tag": pd.Series(1.0, index=df.index, dtype=float)}
+        def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+            return pd.Series(True, index=df.index, dtype=bool)
 
     rows = [
         {
@@ -974,10 +993,10 @@ def test_annotate_preserves_rows_without_dropping() -> None:
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
-    stage = _KeepAllContent()
+    stage = _KeepAllContent(drop_invalid_rows=True)
     out_df = stage.process(task).to_pandas()
-    assert len(out_df) == 4
-    assert set(out_df["modality"].tolist()) == {"metadata", "text", "video"}
+    assert len(out_df) == 2
+    assert out_df["modality"].tolist() == ["metadata", "text"]
 
 
 def test_iter_materialized_bytes_empty_mask() -> None:
@@ -1006,13 +1025,13 @@ def test_iter_materialized_bytes_empty_mask() -> None:
 
 
 def test_annotate_metadata_only_rows() -> None:
-    """Metadata-only samples are kept on the annotated frame."""
+    """Metadata-only rows are orphans and must all be dropped."""
 
-    class _KeepAllContent(BaseInterleavedScoreFilterStage):
+    class _KeepAllContent(BaseInterleavedFilterStage):
         name: str = "keep_all"
 
-        def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-            return {f"{self.name}_tag": pd.Series(1.0, index=df.index, dtype=float)}
+        def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+            return pd.Series(True, index=df.index, dtype=bool)
 
     rows = [
         {
@@ -1041,10 +1060,9 @@ def test_annotate_metadata_only_rows() -> None:
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
-    stage = _KeepAllContent()
+    stage = _KeepAllContent(drop_invalid_rows=False)
     out_df = stage.process(task).to_pandas()
-    assert len(out_df) == 2
-    assert (out_df["modality"] == "metadata").all()
+    assert len(out_df) == 0
 
 
 def test_aspect_ratio_filter_no_image_rows() -> None:
@@ -1102,11 +1120,11 @@ def test_image_aspect_ratio_pillow_not_installed_raises() -> None:
         InterleavedAspectRatioFilterStage._image_aspect_ratio(b"x")
 
 
-class _PassthroughFilter(BaseInterleavedScoreFilterStage):
+class _PassthroughFilter(BaseInterleavedFilterStage):
     name: str = "passthrough"
 
-    def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-        return {}
+    def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+        return pd.Series(True, index=df.index, dtype=bool)
 
 
 _DROP_COL = object()  # sentinel: drop the binary_content column entirely
@@ -1132,3 +1150,96 @@ def test_iter_materialized_bytes_missing_column_yields_none() -> None:
 
 def test_iter_materialized_bytes_non_bytes_value_yields_none() -> None:
     assert all(v is None for _, v in _materialized_bytes("not-bytes"))
+
+
+# --- iter_materialized_bytes is accessible from BaseInterleavedAnnotatorStage ---
+
+
+def test_iter_materialized_bytes_accessible_from_score_filter_stage(tmp_path: Path) -> None:
+    """BaseInterleavedScoreFilterStage inherits iter_materialized_bytes from
+    BaseInterleavedAnnotatorStage after the method was promoted to the base class.
+    """
+    img_bytes = b"score-stage-bytes"
+    img_path = tmp_path / "img.jpg"
+    img_path.write_bytes(img_bytes)
+
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": InterleavedBatch.build_source_ref(path=str(img_path), member=None),
+            "materialize_error": None,
+        },
+    ]
+    task = InterleavedBatch(
+        task_id="score_stage_test",
+        dataset_name="d",
+        data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
+    )
+    df = task.to_pandas().copy()
+
+    class _ScoreStage(BaseInterleavedScoreFilterStage):
+        name: str = "score_stage"
+
+        def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
+            image_mask = df["modality"] == "image"
+            scores: pd.Series = pd.Series(float("nan"), index=df.index, dtype=float)
+            for idx, raw in self.iter_materialized_bytes(task, df, image_mask):
+                scores.loc[idx] = float(len(raw)) if raw is not None else float("nan")
+            return {"byte_len": scores}
+
+    stage = _ScoreStage()
+    mask = df["modality"] == "image"
+    yielded = list(stage.iter_materialized_bytes(task, df, mask))
+    assert len(yielded) == 1
+    assert yielded[0][1] == img_bytes
+
+
+def test_iter_materialized_bytes_accessible_from_annotator_stage(tmp_path: Path) -> None:
+    """A plain BaseInterleavedAnnotatorStage subclass can call iter_materialized_bytes
+    directly, confirming it lives on the base class.
+    """
+    img_bytes = b"annotator-base-bytes"
+    img_path = tmp_path / "img2.jpg"
+    img_path.write_bytes(img_bytes)
+
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": InterleavedBatch.build_source_ref(path=str(img_path), member=None),
+            "materialize_error": None,
+        },
+    ]
+    task = InterleavedBatch(
+        task_id="annotator_base_test",
+        dataset_name="d",
+        data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
+    )
+    df = task.to_pandas().copy()
+
+    class _AnnotatorUsingBytes(BaseInterleavedAnnotatorStage):
+        name: str = "annotator_using_bytes"
+
+        def annotate(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.DataFrame:
+            out = df.copy()
+            image_mask = df["modality"] == "image"
+            byte_lens: pd.Series = pd.Series(float("nan"), index=df.index, dtype=float)
+            for idx, raw in self.iter_materialized_bytes(task, df, image_mask):
+                byte_lens.loc[idx] = float(len(raw)) if raw is not None else float("nan")
+            out["byte_len"] = byte_lens
+            return out
+
+    stage = _AnnotatorUsingBytes()
+    mask = df["modality"] == "image"
+    yielded = list(stage.iter_materialized_bytes(task, df, mask))
+    assert len(yielded) == 1
+    assert yielded[0][1] == img_bytes

@@ -30,7 +30,7 @@ from nemo_curator.stages.interleaved.io.writers.webdataset import (
     _ext_from_content_type,
     _is_null,
 )
-from nemo_curator.stages.interleaved.stages import BaseInterleavedScoreFilterStage
+from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA, RESERVED_COLUMNS
 
@@ -145,17 +145,17 @@ def test_writer_does_not_persist_dataframe_index(tmp_path: Path) -> None:
 
 
 def test_interleaved_ordering_preserved_through_filter_and_write(tmp_path: Path) -> None:
-    """End-to-end: filter stage annotates all rows; parquet roundtrip preserves order."""
+    """End-to-end: interleaved text+image rows survive filtering and parquet roundtrip."""
 
-    class _DropSecondImage(BaseInterleavedScoreFilterStage):
+    class _DropSecondImage(BaseInterleavedFilterStage):
         name: str = "drop_second_image"
 
-        def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
-            s = pd.Series(0.0, index=df.index, dtype=float)
+        def content_keep_mask(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.Series:
+            keep = pd.Series(True, index=df.index, dtype=bool)
             image_indices = df.index[df["modality"] == "image"].tolist()
             if len(image_indices) > 1:
-                s.loc[image_indices[1]] = 1.0
-            return {f"{self.name}_second_image_flag": s}
+                keep.loc[image_indices[1]] = False
+            return keep
 
     def _row(sample_id: str, position: int, modality: str, text: str | None = None) -> dict:
         return {
@@ -189,7 +189,7 @@ def test_interleaved_ordering_preserved_through_filter_and_write(tmp_path: Path)
     table = pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA)
     task = InterleavedBatch(task_id="e2e_order", dataset_name="d", data=table)
 
-    filter_stage = _DropSecondImage()
+    filter_stage = _DropSecondImage(drop_invalid_rows=False)
     filtered_task = filter_stage.process(task)
 
     out_dir = str(tmp_path / "e2e_out")
@@ -201,11 +201,11 @@ def test_interleaved_ordering_preserved_through_filter_and_write(tmp_path: Path)
     content = written[written["modality"] != "metadata"].sort_values("position")
 
     assert meta["position"].tolist() == [-1]
-    assert content["position"].tolist() == [0, 1, 2, 3, 4]
-    assert content["modality"].tolist() == ["text", "image", "text", "image", "text"]
+    assert content["position"].tolist() == [0, 1, 2, 3]
+    assert content["modality"].tolist() == ["text", "image", "text", "text"]
     assert content["text_content"].tolist()[0] == "intro"
     assert content["text_content"].tolist()[2] == "middle"
-    assert content["text_content"].tolist()[4] == "end"
+    assert content["text_content"].tolist()[3] == "end"
 
 
 def test_writer_write_kwargs_cannot_override_index_false(tmp_path: Path) -> None:
