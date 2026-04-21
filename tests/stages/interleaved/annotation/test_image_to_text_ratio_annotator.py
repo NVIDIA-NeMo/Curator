@@ -16,171 +16,197 @@ import pandas as pd
 
 from nemo_curator.stages.interleaved.annotation.image_to_text_ratio_annotator import (
     InterleavedImageToTextRatioAnnotatorStage,
-    _text_word_count,
     per_row_image_word_counts_broadcast,
 )
 
 from .conftest import interleaved_task
 
 
-def test_text_word_count_none_is_zero() -> None:
-    assert _text_word_count(None) == 0
+class TestPerRowImageWordCountsBroadcast:
+    def test_values(self) -> None:
+        rows = [
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "text",
+                "content_type": "text/plain",
+                "text_content": "one two",
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+            {
+                "sample_id": "s1",
+                "position": 1,
+                "modality": "image",
+                "content_type": "image/jpeg",
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+        ]
+        task = interleaved_task(rows)
+        df = task.to_pandas()
+        img, words = per_row_image_word_counts_broadcast(df)
+        assert int(img.iloc[0]) == 1
+        assert int(img.iloc[1]) == 1
+        assert int(words.iloc[0]) == 2
+        assert int(words.iloc[1]) == 2
 
 
-def test_text_word_count_nan_float_is_zero() -> None:
-    assert _text_word_count(float("nan")) == 0
+class TestInterleavedImageToTextRatioAnnotatorStage:
+    def test_empty_task_unchanged(self) -> None:
+        task = interleaved_task([])
+        stage = InterleavedImageToTextRatioAnnotatorStage()
+        assert stage.process(task).num_items == 0
 
+    def test_does_not_drop_rows(self) -> None:
+        rows = [
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "text",
+                "content_type": "text/plain",
+                "text_content": "one two three four five",
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+            {
+                "sample_id": "s1",
+                "position": 1,
+                "modality": "image",
+                "content_type": "image/jpeg",
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+        ]
+        task = interleaved_task(rows)
+        stage = InterleavedImageToTextRatioAnnotatorStage()
+        out_frame = stage.process(task).to_pandas()
+        assert len(out_frame) == 2
 
-def test_text_word_count_splits_on_whitespace() -> None:
-    assert _text_word_count("  one   two three  ") == 3
+    def test_column_names_are_image_and_word_counts(self) -> None:
+        rows = [
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "text",
+                "content_type": "text/plain",
+                "text_content": "hello",
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+        ]
+        task = interleaved_task(rows)
+        stage = InterleavedImageToTextRatioAnnotatorStage()
+        out_frame = stage.process(task).to_pandas()
+        assert "image_num" in out_frame.columns
+        assert "text_word_num" in out_frame.columns
 
+    def test_counts_stored_at_position_zero_only(self) -> None:
+        rows = [
+            {
+                "sample_id": "s1",
+                "position": 0,
+                "modality": "text",
+                "content_type": "text/plain",
+                "text_content": "a b",
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+            {
+                "sample_id": "s1",
+                "position": 1,
+                "modality": "image",
+                "content_type": "image/jpeg",
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+        ]
+        task = interleaved_task(rows)
+        stage = InterleavedImageToTextRatioAnnotatorStage()
+        out_frame = stage.process(task).to_pandas()
+        col = "image_num"
+        assert int(out_frame[out_frame["position"] == 0][col].iloc[0]) == 1
+        assert pd.isna(out_frame[out_frame["position"] == 1][col].iloc[0])
 
-def test_image_to_text_ratio_annotator_empty_task_unchanged() -> None:
-    task = interleaved_task([])
-    stage = InterleavedImageToTextRatioAnnotatorStage()
-    assert stage.process(task).num_items == 0
+    def test_image_only_sample(self) -> None:
+        rows = [
+            {
+                "sample_id": "solo",
+                "position": 0,
+                "modality": "image",
+                "content_type": "image/jpeg",
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+            {
+                "sample_id": "solo",
+                "position": 1,
+                "modality": "image",
+                "content_type": "image/jpeg",
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+        ]
+        task = interleaved_task(rows)
+        stage = InterleavedImageToTextRatioAnnotatorStage()
+        out_frame = stage.process(task).to_pandas()
+        col = "image_num"
+        assert int(out_frame.loc[out_frame["position"] == 0, col].iloc[0]) == 2
+        assert pd.isna(out_frame.loc[out_frame["position"] == 1, col].iloc[0])
 
-
-def test_image_to_text_ratio_annotator_does_not_drop_rows() -> None:
-    rows = [
-        {
-            "sample_id": "s1",
-            "position": 0,
-            "modality": "text",
-            "content_type": "text/plain",
-            "text_content": "one two three four five",
-            "binary_content": None,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-        {
-            "sample_id": "s1",
-            "position": 1,
-            "modality": "image",
-            "content_type": "image/jpeg",
-            "text_content": None,
-            "binary_content": None,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-    ]
-    task = interleaved_task(rows)
-    stage = InterleavedImageToTextRatioAnnotatorStage()
-    out_frame = stage.process(task).to_pandas()
-    assert len(out_frame) == 2
-
-
-def test_image_to_text_ratio_annotator_column_names_are_image_and_word_counts() -> None:
-    rows = [
-        {
-            "sample_id": "s1",
-            "position": 0,
-            "modality": "text",
-            "content_type": "text/plain",
-            "text_content": "hello",
-            "binary_content": None,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-    ]
-    task = interleaved_task(rows)
-    stage = InterleavedImageToTextRatioAnnotatorStage()
-    out_frame = stage.process(task).to_pandas()
-    assert "image_num" in out_frame.columns
-    assert "text_word_num" in out_frame.columns
-
-
-def test_image_to_text_ratio_annotator_counts_stored_at_position_zero_only() -> None:
-    rows = [
-        {
-            "sample_id": "s1",
-            "position": 0,
-            "modality": "text",
-            "content_type": "text/plain",
-            "text_content": "a b",
-            "binary_content": None,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-        {
-            "sample_id": "s1",
-            "position": 1,
-            "modality": "image",
-            "content_type": "image/jpeg",
-            "text_content": None,
-            "binary_content": None,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-    ]
-    task = interleaved_task(rows)
-    stage = InterleavedImageToTextRatioAnnotatorStage()
-    out_frame = stage.process(task).to_pandas()
-    col = "image_num"
-    pos0 = out_frame[out_frame["position"] == 0]
-    pos1 = out_frame[out_frame["position"] == 1]
-    assert int(pos0[col].iloc[0]) == 1
-    assert pd.isna(pos1[col].iloc[0])
-
-
-def test_image_to_text_ratio_annotator_image_only_sample() -> None:
-    rows = [
-        {
-            "sample_id": "solo",
-            "position": 0,
-            "modality": "image",
-            "content_type": "image/jpeg",
-            "text_content": None,
-            "binary_content": None,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-        {
-            "sample_id": "solo",
-            "position": 1,
-            "modality": "image",
-            "content_type": "image/jpeg",
-            "text_content": None,
-            "binary_content": None,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-    ]
-    task = interleaved_task(rows)
-    stage = InterleavedImageToTextRatioAnnotatorStage()
-    out_frame = stage.process(task).to_pandas()
-    col = "image_num"
-    assert int(out_frame.loc[out_frame["position"] == 0, col].iloc[0]) == 2
-    assert pd.isna(out_frame.loc[out_frame["position"] == 1, col].iloc[0])
-
-
-def test_per_row_image_word_counts_broadcast_values() -> None:
-    rows = [
-        {
-            "sample_id": "s1",
-            "position": 0,
-            "modality": "text",
-            "content_type": "text/plain",
-            "text_content": "one two",
-            "binary_content": None,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-        {
-            "sample_id": "s1",
-            "position": 1,
-            "modality": "image",
-            "content_type": "image/jpeg",
-            "text_content": None,
-            "binary_content": None,
-            "source_ref": None,
-            "materialize_error": None,
-        },
-    ]
-    task = interleaved_task(rows)
-    df = task.to_pandas()
-    img, words = per_row_image_word_counts_broadcast(df)
-    assert int(img.iloc[0]) == 1
-    assert int(img.iloc[1]) == 1
-    assert int(words.iloc[0]) == 2
-    assert int(words.iloc[1]) == 2
+    def test_multiple_samples_stored_correctly(self) -> None:
+        rows = [
+            {
+                "sample_id": "a",
+                "position": 0,
+                "modality": "text",
+                "content_type": "text/plain",
+                "text_content": "x y",
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+            {
+                "sample_id": "a",
+                "position": 1,
+                "modality": "image",
+                "content_type": "image/jpeg",
+                "text_content": None,
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+            {
+                "sample_id": "b",
+                "position": 0,
+                "modality": "text",
+                "content_type": "text/plain",
+                "text_content": "p q r",
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+        ]
+        task = interleaved_task(rows)
+        stage = InterleavedImageToTextRatioAnnotatorStage()
+        out_frame = stage.process(task).to_pandas()
+        a_row = out_frame[(out_frame["sample_id"] == "a") & (out_frame["position"] == 0)]
+        b_row = out_frame[(out_frame["sample_id"] == "b") & (out_frame["position"] == 0)]
+        assert int(a_row["image_num"].iloc[0]) == 1
+        assert int(a_row["text_word_num"].iloc[0]) == 2
+        assert int(b_row["image_num"].iloc[0]) == 0
+        assert int(b_row["text_word_num"].iloc[0]) == 3
