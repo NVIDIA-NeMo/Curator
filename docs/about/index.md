@@ -55,6 +55,31 @@ Learn about text data curation, covering data loading and processing (filtering,
 :::
 
 :::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` Image Curation Concepts
+
+---
+
+
+---
+
+# Curator in Action: Nemotron & Scientific LLMs
+
+NeMo Curator is the foundation for building advanced, open post-training datasets powering domain-specific LLMs such as Nemotron and Chemistry LLMs for scientific discovery.
+
+**LANL & NVIDIA Collaboration:**
+LANL and NVIDIA are collaborating on a multiphase process to develop a co-scientist for ICF fusion hypothesis generation. This showcases two agents being developed by Los Alamos National Laboratories (LANL) to address two of the toughest challenges in science today: inertial confinement fusion (ICF) hypothesis generation and cancer treatment. NeMo Curator is used for data curation in these workflows.
+
+**Nemotron & Synthetic Data:**
+
+NeMo Curator is used to build Nemotron datasets through advanced synthetic data generation pipelines (see [Nemotron-CC Pipelines](../curate-text/synthetic/nemotron-cc/index.md)). These pipelines enable:
+
+- Paraphrasing and improving noisy web data
+- Extracting structured knowledge and facts
+- Quality-based routing and transformation of scientific documents
+
+**SES AI Chemistry LLM:**
+To train their Chemistry LLM on 35B tokens from 17M scientific papers, SES AI used NVIDIA DGX Cloud with NeMo and NeMo Curator. To achieve higher model accuracy, the SES team used NeMo Curator features such as exact deduplication, numbers filter, word count filter, repeated lines filter, and non-alphanumeric filter. The outcome is a customized model that is more accurate than its base version in ranking molecules and providing actionable insights, accelerating discovery at an unprecedented rate.
+
+---
 :link: about-concepts-image
 :link-type: ref
 
