@@ -259,11 +259,11 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Truncate the output file once on the driver before processing starts."""
-        fs, path = url_to_fs(self.output_path)
-        parent_dir = "/".join(path.split("/")[:-1])
+        self._fs, self._path = url_to_fs(self.output_path)
+        parent_dir = "/".join(self._path.split("/")[:-1])
         if parent_dir:
-            fs.makedirs(parent_dir, exist_ok=True)
-        with fs.open(path, "w", encoding="utf-8"):
+            self._fs.makedirs(parent_dir, exist_ok=True)
+        with self._fs.open(self._path, "w", encoding="utf-8"):
             pass
         logger.info(f"ManifestWriterStage: writing to {self.output_path}")
 
@@ -273,14 +273,13 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
         """Ensure parent directory exists on each node (no truncation)."""
-        fs, path = url_to_fs(self.output_path)
-        parent_dir = "/".join(path.split("/")[:-1])
+        self._fs, self._path = url_to_fs(self.output_path)
+        parent_dir = "/".join(self._path.split("/")[:-1])
         if parent_dir:
-            fs.makedirs(parent_dir, exist_ok=True)
+            self._fs.makedirs(parent_dir, exist_ok=True)
 
     def process(self, task: AudioTask) -> AudioTask:
-        fs, path = url_to_fs(self.output_path)
-        with fs.open(path, "a", encoding="utf-8") as f:
+        with self._fs.open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
         return AudioTask(
             task_id=task.task_id,

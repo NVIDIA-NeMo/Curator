@@ -23,6 +23,7 @@ https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/audio/commo
 
 import hashlib
 import os
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -65,6 +66,9 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
+        if not shutil.which("sox") and not shutil.which("ffmpeg"):
+            msg = "ResampleAudioStage requires 'sox' or 'ffmpeg'. Install with: sudo apt-get install -y sox ffmpeg"
+            raise RuntimeError(msg)
         fs, path = url_to_fs(self.resampled_audio_dir)
         fs.makedirs(path, exist_ok=True)
 

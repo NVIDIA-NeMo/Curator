@@ -150,7 +150,6 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
         audio_item_id, split_filepaths_before = data_entry.get("audio_item_id", "unknown"), bool(split_filepaths)
 
         if not split_filepaths:
-            duration = len(audio[0]) / sr
             logger.warning(
                 f"[{self.name}] No split files produced for entry "
                 f"'{audio_item_id}' (duration={duration:.1f}s, splits={splits}). "

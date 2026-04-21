@@ -23,41 +23,53 @@ The pipeline is YAML-driven via Hydra and supports both TTS and ASR
 modalities by switching the configuration file.
 
 Usage:
-    # TTS pipeline (from Curator repo root)
+    # TTS pipeline with bundled sample data (from Curator repo root)
     python tutorials/audio/tagging/main.py \\
         --config-path . \\
         --config-name tts_pipeline \\
-        input_manifest=/data/input.jsonl \\
-        final_manifest=/data/tts_output.jsonl \\
+        input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \\
+        final_manifest=/tmp/tts_output.jsonl \\
         hf_token=<your_hf_token>
 
-    # ASR pipeline
+    # Override backend
     python tutorials/audio/tagging/main.py \\
         --config-path . \\
-        --config-name asr_pipeline \\
-        input_manifest=/data/input.jsonl \\
-        final_manifest=/data/asr_output.jsonl \\
-        hf_token=<your_hf_token>
+        --config-name tts_pipeline \\
+        input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \\
+        final_manifest=/tmp/tts_output.jsonl \\
+        hf_token=<your_hf_token> \\
+        backend=ray_data
 
     # Override parameters
     python tutorials/audio/tagging/main.py \\
         --config-path . \\
         --config-name tts_pipeline \\
-        input_manifest=/data/input.jsonl \\
-        final_manifest=/data/output.jsonl \\
+        input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \\
+        final_manifest=/tmp/output.jsonl \\
         hf_token=<your_hf_token> \\
-        device=cpu \\
         max_segment_length=30 \\
-        stages.10.min_duration=3
+        stages.4.batch_size=16
 """
+
+import importlib
 
 import hydra
 from loguru import logger
 from omegaconf import DictConfig
 
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.config.run import create_pipeline_from_yaml
 from nemo_curator.tasks.utils import TaskPerfUtils
+
+_EXECUTOR_FACTORIES = {
+    "xenna": "nemo_curator.backends.xenna:XennaExecutor",
+    "ray_data": "nemo_curator.backends.ray_data:RayDataExecutor",
+}
+
+
+def _create_executor(backend: str) -> object:
+    module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
+    mod = importlib.import_module(module_path)
+    return getattr(mod, class_name)()
 
 
 @hydra.main(version_base=None)
@@ -68,7 +80,12 @@ def main(cfg: DictConfig) -> None:
     logger.info(pipeline.describe())
     logger.info("\n" + "=" * 50 + "\n")
 
-    executor = XennaExecutor()
+    backend = cfg.get("backend", "xenna")
+    if backend not in _EXECUTOR_FACTORIES:
+        msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
+        raise ValueError(msg)
+    logger.info(f"Using backend: {backend}")
+    executor = _create_executor(backend)
 
     logger.info("Starting audio tagging pipeline...")
     results = pipeline.run(executor)
