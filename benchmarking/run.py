@@ -103,6 +103,9 @@ def update_config(config_dict: dict, new_dict: dict) -> None:
                         else:
                             # If no matching dict, append the new dict to the list
                             config_dict[key].append(sub_val)
+                    else:
+                        # If not a dict, append the new value to the list
+                        config_dict[key].append(sub_val)
             else:
                 # If types differ, or not a dict/list, replace value in config_dict
                 config_dict[key] = value
