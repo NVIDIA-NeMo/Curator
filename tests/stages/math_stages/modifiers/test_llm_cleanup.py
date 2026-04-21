@@ -37,7 +37,7 @@ class MockLLM:
         self.model = kwargs.get("model", "test-model")
         self.max_model_len = kwargs.get("max_model_len", 32000)
 
-    def generate(self, prompts: list[str], sampling_params=None, use_tqdm=False):  # noqa: ANN001
+    def generate(self, prompts: list[str], sampling_params=None, use_tqdm=False):
         """Mock generate method that returns cleaned text."""
         results = []
         for prompt in prompts:

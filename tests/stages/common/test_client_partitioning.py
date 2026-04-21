@@ -18,7 +18,6 @@ import pytest
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.client_partitioning import ClientPartitioningStage, _read_list_json_rel
-from nemo_curator.stages.file_partitioning import _compute_partition_id
 from nemo_curator.tasks import FileGroupTask, _EmptyTask
 
 
