@@ -81,7 +81,7 @@ inference_server = [
     "nemo_curator[vllm]",
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "ray[serve,llm]==2.54",
+    "ray[serve,llm]>=2.54",
     "vllm<0.16.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 

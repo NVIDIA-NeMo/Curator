@@ -5244,7 +5244,7 @@ requires-dist = [
     { name = "raft-dask-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "rapidsmpf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "ray", extras = ["data", "default"], specifier = ">=2.54" },
-    { name = "ray", extras = ["llm", "serve"], marker = "extra == 'inference-server'", specifier = "==2.54" },
+    { name = "ray", extras = ["llm", "serve"], marker = "extra == 'inference-server'", specifier = ">=2.54" },
     { name = "resiliparse", marker = "extra == 'text-cpu'" },
     { name = "s3fs", marker = "extra == 'interleaved-cpu'", specifier = ">=2024.12.0" },
     { name = "s5cmd", marker = "extra == 'text-cpu'" },
