@@ -39,10 +39,8 @@ import asyncio
 
 from loguru import logger
 
+from ._retry import retry_with_backoff
 from .base import TranslationBackend
-
-# Retry configuration
-MAX_RETRIES = 5
 
 
 class NMTTranslationBackend(TranslationBackend):
@@ -96,11 +94,11 @@ class NMTTranslationBackend(TranslationBackend):
             )
 
         # Optional health check -- log but do not fail.
-        self._health_check()
+        self.check_server()
 
         logger.info(
-            "NMT backend initialized: server_url=%s, batch_size=%d, "
-            "timeout=%ds, max_concurrent=%d",
+            "NMT backend initialized: server_url={}, batch_size={}, "
+            "timeout={}s, max_concurrent={}",
             self._server_url,
             self._batch_size,
             self._timeout,
@@ -111,18 +109,18 @@ class NMTTranslationBackend(TranslationBackend):
         """Close the aiohttp session if open.
 
         Handles both cases:
-        - Inside a running event loop: schedule close via ``ensure_future``
-          so it is awaited by the running loop.
+        - Inside a running event loop: schedule close via
+          ``loop.create_task`` so it is awaited by the running loop.
         - Outside an event loop: use ``asyncio.run`` to close synchronously.
         """
         if self._session is not None and not self._session.closed:
             try:
                 loop = asyncio.get_running_loop()
-                # Already inside a running loop -- schedule and let the
-                # loop drive it to completion.
-                asyncio.ensure_future(self._session.close(), loop=loop)
+                # Already inside a running loop -- schedule on it.  The
+                # ``loop=`` kwarg was removed from asyncio APIs in 3.10.
+                loop.create_task(self._session.close())
             except RuntimeError:
-                # No running event loop -- create one to close cleanly.
+                # No running event loop -- actually await the close.
                 asyncio.run(self._session.close())
             self._session = None
             logger.debug("NMT aiohttp session closed")
@@ -216,46 +214,25 @@ class NMTTranslationBackend(TranslationBackend):
             "tgt_lang": target_lang,
         }
 
-        for attempt in range(MAX_RETRIES):
-            try:
-                async with self._semaphore:
-                    async with session.post(
-                        f"{self._server_url}/translate",
-                        json=payload,
-                    ) as response:
-                        response.raise_for_status()
-                        result = await response.json()
+        async def _attempt() -> list[str]:
+            async with self._semaphore:
+                async with session.post(
+                    f"{self._server_url}/translate",
+                    json=payload,
+                ) as response:
+                    response.raise_for_status()
+                    result = await response.json()
 
-                translations = result.get("translations", [])
-                if len(translations) != len(texts):
-                    raise RuntimeError(
-                        f"Translation count mismatch: sent {len(texts)} "
-                        f"texts, received {len(translations)} translations "
-                        "from NMT server."
-                    )
-                return translations
+            translations = result.get("translations", [])
+            if len(translations) != len(texts):
+                raise RuntimeError(
+                    f"Translation count mismatch: sent {len(texts)} "
+                    f"texts, received {len(translations)} translations "
+                    "from NMT server."
+                )
+            return translations
 
-            except Exception as exc:
-                if attempt < MAX_RETRIES - 1:
-                    wait_time = 2 ** attempt
-                    logger.warning(
-                        "NMT request failed (attempt %d/%d): %s. "
-                        "Retrying in %ds...",
-                        attempt + 1,
-                        MAX_RETRIES,
-                        exc,
-                        wait_time,
-                    )
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.exception(
-                        "NMT batch request failed after %d attempts",
-                        MAX_RETRIES,
-                    )
-                    raise
-
-        # Should not be reached.
-        return []  # pragma: no cover
+        return await retry_with_backoff(_attempt, backend_name="NMT")
 
     def check_server(self) -> bool:
         """Check if the NMT server is reachable via its ``/health`` endpoint.
@@ -279,28 +256,21 @@ class NMTTranslationBackend(TranslationBackend):
                 f"{self._server_url}/health", timeout=10
             )
             resp.raise_for_status()
-            logger.info("NMT server health check passed (%s)", self._server_url)
+            logger.info("NMT server health check passed ({})", self._server_url)
             return True
         except Exception:
             try:
                 resp = requests.get(self._server_url, timeout=10)
                 logger.info(
-                    "NMT server reachable at %s (no /health endpoint)",
+                    "NMT server reachable at {} (no /health endpoint)",
                     self._server_url,
                 )
                 return True
             except Exception as exc:
                 logger.warning(
-                    "NMT server at %s is not reachable: %s. "
+                    "NMT server at {} is not reachable: {}. "
                     "Translation calls may fail.",
                     self._server_url,
                     exc,
                 )
                 return False
-
-    def _health_check(self) -> None:
-        """Best-effort health check (legacy wrapper around :meth:`check_server`).
-
-        Logs a warning if the server is unreachable but does NOT raise.
-        """
-        self.check_server()

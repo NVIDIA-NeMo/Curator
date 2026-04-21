@@ -21,18 +21,16 @@ from nemo_curator.stages.text.translation.field_utils import (
     set_nested_fields,
 )
 from nemo_curator.stages.text.translation.output_utils import (
-    build_segment_pairs,
     build_translation_metadata,
     merge_faith_scores_into_metadata,
     reconstruct_messages_with_translation,
 )
 from nemo_curator.stages.text.translation.pipeline import (
-    MergeSkippedStage,
-    OutputFormattingStage,
-    ScoreMergeStage,
-    SegmentPairCaptureStage,
-    SkipTranslatedStage,
     TranslationPipeline,
+)
+from nemo_curator.stages.text.translation.round_trip_eval import (
+    TextQualityMetricStage,
+    compute_text_quality_metric,
 )
 from nemo_curator.stages.text.translation.reassembly import ReassemblyStage
 from nemo_curator.stages.text.translation.segmentation import SegmentationStage
@@ -40,17 +38,13 @@ from nemo_curator.stages.text.translation.translate import TranslateStage
 
 __all__ = [
     "FaithEvalFilter",
-    "MergeSkippedStage",
-    "OutputFormattingStage",
     "ReassemblyStage",
-    "ScoreMergeStage",
-    "SegmentPairCaptureStage",
     "SegmentationStage",
-    "SkipTranslatedStage",
+    "TextQualityMetricStage",
     "TranslateStage",
     "TranslationPipeline",
-    "build_segment_pairs",
     "build_translation_metadata",
+    "compute_text_quality_metric",
     "extract_nested_fields",
     "is_wildcard_path",
     "merge_faith_scores_into_metadata",

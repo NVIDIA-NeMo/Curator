@@ -21,10 +21,7 @@ directly, fitting Curator's DataFrame-based processing model.
 """
 
 import asyncio
-import logging
 from abc import ABC, abstractmethod
-
-LOG = logging.getLogger(__name__)
 
 
 class TranslationBackend(ABC):

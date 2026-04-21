@@ -12,17 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ReassemblyStage -- stitches translated segments back into whole documents.
-
-Reverses the explosion performed by
-:class:`~nemo_curator.stages.text.translation.segmentation.SegmentationStage`
-using the reconstruction metadata stored in ``_seg_metadata``.
-
-Supports both flat text columns and nested/wildcard field paths (Gap 1.1 / 1.2).
-When the segmentation metadata contains ``field_metadatas`` with wildcard paths,
-:func:`~nemo_curator.stages.text.translation.field_utils.set_nested_fields` is
-used to inject translated text back into structured data.
-"""
+"""Reassemble translated segments back into document rows."""
 
 from __future__ import annotations
 
@@ -41,7 +31,6 @@ from nemo_curator.stages.text.translation.field_utils import (
 )
 from nemo_curator.tasks.document import DocumentBatch
 
-# Internal columns written by SegmentationStage / TranslateStage
 _INTERNAL_COLUMNS = {
     "_seg_segments",
     "_seg_metadata",
@@ -54,47 +43,28 @@ _INTERNAL_COLUMNS = {
 
 @dataclass
 class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
-    """Collapse translated segment rows back into one row per original document.
-
-    Groups rows by ``_seg_doc_id``, reads the ``_seg_metadata`` JSON to
-    determine the reconstruction strategy (coarse or fine), and substitutes
-    translated segments into the stored template.
-
-    When segments originated from wildcard / nested field paths, the
-    reassembled translations are written back into the structured column
-    via :func:`set_nested_fields`.
-
-    Attributes:
-        text_field: Name of the column that held the original source text,
-            **or** a wildcard dot-path / list matching what was passed to
-            :class:`SegmentationStage`.
-        output_field: Name of the column to write the reassembled translation
-            into.  For flat (non-wildcard) fields the reassembled string is
-            stored here.  For wildcard paths the structured column is updated
-            in-place and a copy with translations injected is stored in
-            ``output_field``.
-    """
+    """Collapse segment rows back into one row per document."""
 
     name: str = "ReassemblyStage"
     text_field: str = "text"
     output_field: str = "translated_text"
+    replace_source_fields: bool = False
+    emit_metadata_helpers: bool = False
+    emit_faith_helpers: bool = False
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["_translated", "_seg_metadata", "_seg_doc_id"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.output_field, "translation_time", "translation_errors"]
+        out_cols = [self.output_field, "translation_time", "translation_errors"]
+        if self.emit_metadata_helpers:
+            out_cols.extend(["_translation_map", "_segmented_translation_map"])
+        if self.emit_faith_helpers:
+            out_cols.extend(["_faith_source_text", "_faith_translated_text"])
+        return ["data"], out_cols
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
-        """Reassemble translated segments into full documents.
-
-        1. Group rows by ``_seg_doc_id``.
-        2. For each group, parse ``_seg_metadata`` from the first row.
-        3. Dispatch to the appropriate reassembly logic (legacy single-field,
-           multi-field with optional wildcard paths, or skip-mode passthrough).
-        4. Produce one output row per original document.
-        5. Drop internal ``_seg_*`` / ``_translated`` columns.
-        """
+        """Reassemble translated segments into full documents."""
         df = batch.to_pandas()
 
         result_rows: list[dict[str, Any]] = []
@@ -106,8 +76,6 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             metadata: dict[str, Any] = json.loads(metadata_json)
             translated_segments: list[str] = group["_translated"].tolist()
 
-            # Aggregate per-segment timing and error columns before dropping.
-            # Sum timing across all segments; concatenate non-empty errors.
             if "_translation_time" in group.columns:
                 total_time = group["_translation_time"].sum()
             else:
@@ -120,37 +88,54 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             else:
                 combined_errors = ""
 
-            # Build output row from the first row of the group (carries all
-            # original columns) plus the reassembled translation.
             first_row = group.iloc[0].to_dict()
             out_row = {k: v for k, v in first_row.items() if k not in _INTERNAL_COLUMNS}
 
-            # Store aggregated timing/error as public (non-underscore) columns
             out_row["translation_time"] = total_time
             out_row["translation_errors"] = combined_errors
 
-            # -------------------------------------------------------
-            # Dispatch based on metadata shape
-            # -------------------------------------------------------
             if metadata.get("mode") == "skip":
-                # Gap 9.2: skipme passthrough -- no translation was done.
                 out_row[self.output_field] = ""
+                if self.emit_metadata_helpers:
+                    out_row["_translation_map"] = json.dumps({}, ensure_ascii=False)
+                    out_row["_segmented_translation_map"] = json.dumps({}, ensure_ascii=False)
                 result_rows.append(out_row)
                 continue
 
             if "field_metadatas" in metadata:
-                # New multi-field / wildcard-aware format produced by the
-                # updated SegmentationStage.
-                self._reassemble_multi_field(metadata, translated_segments, out_row)
+                translation_map, segmented_map, faith_source_text, faith_translated_text = self._reassemble_multi_field(
+                    metadata,
+                    translated_segments,
+                    out_row,
+                )
             else:
-                # Legacy single-field format (backwards compatibility with
-                # metadata produced before the Gap 1.1/1.2 changes).
                 mode = metadata.get("mode", "coarse")
                 if mode == "fine":
                     reassembled = self._reassemble_fine(metadata, translated_segments)
                 else:
                     reassembled = self._reassemble_coarse(metadata, translated_segments)
                 out_row[self.output_field] = reassembled
+                field_path = self.text_field
+                field_key = self._leaf_field_key(field_path)
+                translation_map = {field_key: reassembled}
+                segmented_map = {
+                    field_key: self._build_segment_pairs(metadata, translated_segments)
+                }
+                faith_source_text = self._serialize_faith_entries(
+                    [{"field_path": field_path, "text": self._reassemble_original_text(metadata)}]
+                )
+                faith_translated_text = self._serialize_faith_entries(
+                    [{"field_path": field_path, "text": reassembled}]
+                )
+                if self.replace_source_fields and not (is_wildcard_path(field_path) or "." in field_path):
+                    out_row[field_path] = reassembled
+
+            if self.emit_metadata_helpers:
+                out_row["_translation_map"] = json.dumps(translation_map, ensure_ascii=False)
+                out_row["_segmented_translation_map"] = json.dumps(segmented_map, ensure_ascii=False)
+            if self.emit_faith_helpers:
+                out_row["_faith_source_text"] = faith_source_text
+                out_row["_faith_translated_text"] = faith_translated_text
 
             result_rows.append(out_row)
 
@@ -165,105 +150,108 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             _stage_perf=batch._stage_perf,
         )
 
-    # ------------------------------------------------------------------
-    # Multi-field reassembly (Gap 1.1 / 1.2)
-    # ------------------------------------------------------------------
-
     def _reassemble_multi_field(
         self,
         metadata: dict[str, Any],
         translated_segments: list[str],
         out_row: dict[str, Any],
-    ) -> None:
-        """Reassemble translations from one or more field paths.
-
-        Each entry in ``metadata["field_metadatas"]`` describes the
-        segmentation of one text blob (one field-path x one extracted string).
-        The translated segments are consumed in order across all entries.
-
-        For flat (non-wildcard) field paths, the reassembled text is written
-        to ``self.output_field``.  For wildcard paths the structured column
-        is updated in-place using :func:`set_nested_fields`.
-
-        Args:
-            metadata: The combined metadata envelope.
-            translated_segments: All translated segments for this document,
-                in the same order they were emitted during segmentation.
-            out_row: The output row dict (mutated in place).
-        """
+    ) -> tuple[dict[str, Any], dict[str, Any], str, str]:
+        """Reassemble one or more translated field paths."""
         field_metadatas: list[dict[str, Any]] = metadata["field_metadatas"]
 
         seg_offset = 0
-        # Group reassembled texts by field_path for wildcard injection.
         reassembled_by_path: dict[str, list[str]] = {}
+        translation_map: dict[str, Any] = {}
+        segmented_map: dict[str, Any] = {}
+        faith_source_entries: list[dict[str, str]] = []
+        faith_translated_entries: list[dict[str, str]] = []
 
         for fm in field_metadatas:
             mode = fm.get("mode", "coarse")
             field_path = fm.get("field_path", self.text_field)
+            field_key = self._leaf_field_key(field_path)
+            wildcard_path = is_wildcard_path(field_path)
 
-            # Determine how many segments this entry consumed.
             n_segments = self._count_segments_in_meta(fm)
             entry_segments = translated_segments[seg_offset : seg_offset + n_segments]
             seg_offset += n_segments
 
             if mode == "passthrough":
-                # Text was short enough to translate as one block -- no reconstruction needed.
                 reassembled = entry_segments[0] if entry_segments else ""
             elif mode == "fine":
                 reassembled = self._reassemble_fine(fm, entry_segments)
             elif mode == "coarse":
                 reassembled = self._reassemble_coarse(fm, entry_segments)
             else:
-                # Unknown mode -- concatenate segments as fallback.
                 reassembled = " ".join(entry_segments)
 
-            reassembled_by_path.setdefault(field_path, []).append(reassembled)
+            faith_source_entries.append(
+                {"field_path": field_path, "text": self._reassemble_original_text(fm)}
+            )
+            faith_translated_entries.append(
+                {"field_path": field_path, "text": reassembled}
+            )
 
-        if seg_offset != len(translated_segments):
+            reassembled_by_path.setdefault(field_path, []).append(reassembled)
+            current_pairs = self._build_segment_pairs(fm, entry_segments)
+            if wildcard_path:
+                translation_map.setdefault(field_key, []).append(reassembled)
+                segmented_map.setdefault(field_key, []).extend(current_pairs)
+            else:
+                translation_map[field_key] = reassembled
+                segmented_map[field_key] = current_pairs
+
+        remaining_segments = translated_segments[seg_offset:]
+        has_nonempty_remaining = any(str(seg).strip() for seg in remaining_segments)
+        if seg_offset != len(translated_segments) and has_nonempty_remaining:
             logger.warning(
                 f"Multi-field reassembly: consumed {seg_offset} segments but "
                 f"received {len(translated_segments)}"
             )
 
-        # Write results back into out_row.
+        output_payload: Any = None
+
         for field_path, texts in reassembled_by_path.items():
             if is_wildcard_path(field_path) or "." in field_path:
-                # Structured column -- inject translated texts back into the
-                # nested structure stored in the root column.
                 root_key = field_path.split(".")[0]
                 raw_value = out_row.get(root_key)
                 record = parse_structured_value(raw_value)
                 if record is not None:
                     updated = set_nested_fields({root_key: record}, field_path, texts)
-                    # Store the updated structure in output_field.
-                    # If the original value was a JSON string, serialize back.
-                    if isinstance(raw_value, str):
-                        out_row[self.output_field] = json.dumps(
-                            updated[root_key], ensure_ascii=False
-                        )
-                    else:
-                        out_row[self.output_field] = updated[root_key]
+                    updated_value = (
+                        json.dumps(updated[root_key], ensure_ascii=False)
+                        if isinstance(raw_value, str)
+                        else updated[root_key]
+                    )
+                    if self.replace_source_fields:
+                        out_row[root_key] = updated_value
+                    output_payload = updated_value
                 else:
-                    # Fallback: store concatenated texts.
-                    out_row[self.output_field] = "\n\n".join(texts)
+                    output_payload = "\n\n".join(texts)
             else:
-                # Flat column -- simple reassembled string.
-                out_row[self.output_field] = texts[0] if len(texts) == 1 else "\n\n".join(texts)
+                reassembled_text = texts[0] if len(texts) == 1 else "\n\n".join(texts)
+                if self.replace_source_fields:
+                    out_row[field_path] = reassembled_text
+                output_payload = reassembled_text
+
+        if len(reassembled_by_path) == 1 and output_payload is not None:
+            out_row[self.output_field] = output_payload
+        else:
+            out_row[self.output_field] = translation_map
+
+        return (
+            translation_map,
+            segmented_map,
+            self._serialize_faith_entries(faith_source_entries),
+            self._serialize_faith_entries(faith_translated_entries),
+        )
 
     @staticmethod
     def _count_segments_in_meta(fm: dict[str, Any]) -> int:
-        """Count how many translatable segments a single field-metadata entry expects.
-
-        Args:
-            fm: A single field metadata dict (with ``mode``, ``template`` or
-                ``units``, etc.).
-
-        Returns:
-            The number of translatable segments for this entry.
-        """
+        """Count the translatable segments expected by one field entry."""
         mode = fm.get("mode", "coarse")
         if mode == "passthrough":
-            return 1  # Entire text is one segment
+            return 1
         elif mode == "coarse":
             template = fm.get("template", [])
             return sum(1 for entry in template if entry is None)
@@ -272,21 +260,75 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             return sum(1 for u in units if u.get("translatable", False))
         return 0
 
-    # ------------------------------------------------------------------
-    # Coarse reassembly
-    # ------------------------------------------------------------------
+    @staticmethod
+    def _leaf_field_key(field_path: str) -> str:
+        """Return the Speaker-style metadata key for *field_path*."""
+        return field_path.split(".")[-1]
+
+    @staticmethod
+    def _build_segment_pairs(metadata: dict[str, Any], translated_segments: list[str]) -> list[dict[str, str]]:
+        """Build Speaker-style ``[{src, tgt}, ...]`` pairs for one field entry."""
+        mode = metadata.get("mode", "coarse")
+        if mode == "passthrough":
+            original_text = metadata.get("original_text", "")
+            translated_text = translated_segments[0] if translated_segments else ""
+            return [{"src": original_text, "tgt": translated_text}]
+        if mode == "coarse":
+            original_lines = metadata.get("original_stripped_lines", [])
+            return [
+                {"src": src, "tgt": tgt}
+                for src, tgt in zip(original_lines, translated_segments)
+            ]
+        if mode == "fine":
+            pairs: list[dict[str, str]] = []
+            units = metadata.get("units", [])
+            trans_idx = 0
+            for unit in units:
+                if not unit.get("translatable", False):
+                    continue
+                tgt = translated_segments[trans_idx] if trans_idx < len(translated_segments) else ""
+                pairs.append({"src": unit.get("original", ""), "tgt": tgt})
+                trans_idx += 1
+            return pairs
+        return []
+
+    @classmethod
+    def _reassemble_original_text(cls, metadata: dict[str, Any]) -> str:
+        """Reconstruct the original source text for one field entry."""
+        mode = metadata.get("mode", "coarse")
+        if mode == "passthrough":
+            return str(metadata.get("original_text", ""))
+        if mode == "coarse":
+            return cls._reassemble_coarse(
+                metadata,
+                [str(text) for text in metadata.get("original_stripped_lines", [])],
+            )
+        if mode == "fine":
+            units = metadata.get("units", [])
+            original_segments = [
+                str(unit.get("original", ""))
+                for unit in units
+                if unit.get("translatable", False)
+            ]
+            return cls._reassemble_fine(metadata, original_segments)
+        return ""
+
+    @staticmethod
+    def _serialize_faith_entries(entries: list[dict[str, str]]) -> str:
+        """Serialize reassembled field texts into a FAITH-friendly string."""
+        if not entries:
+            return ""
+        if len(entries) == 1:
+            return entries[0]["text"]
+        return json.dumps(entries, ensure_ascii=False)
 
     @staticmethod
     def _reassemble_coarse(metadata: dict[str, Any], translated_segments: list[str]) -> str:
-        """Reconstruct a document from coarse-mode metadata.
-
-        Iterates over the ``template`` list.  For each ``None`` entry the next
-        translated segment is substituted (with leading whitespace restored).
-        All entries are joined with ``"\\n"``.
-        """
+        """Reconstruct a document from coarse-mode metadata."""
         template: list[str | None] = metadata["template"]
         leading_spaces: list[str] = metadata["leading_spaces"]
 
+        expected_segments = sum(1 for entry in template if entry is None)
         trans_idx = 0
         output_lines: list[str] = []
 
@@ -302,28 +344,22 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             else:
                 output_lines.append(entry)
 
-        if trans_idx != len(translated_segments):
+        if expected_segments != len(translated_segments):
             logger.warning(
-                f"Coarse reassembly: expected {trans_idx} segments consumed but "
-                f"received {len(translated_segments)}"
+                "Coarse reassembly: segment count mismatch: metadata expected "
+                "{} segments but pipeline processed {}",
+                expected_segments,
+                len(translated_segments),
             )
 
         return "\n".join(output_lines)
 
-    # ------------------------------------------------------------------
-    # Fine reassembly
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _reassemble_fine(metadata: dict[str, Any], translated_segments: list[str]) -> str:
-        """Reconstruct a document from fine-mode metadata.
-
-        Iterates over the ``units`` list.  For translatable units, the next
-        translated segment plus its stored separator is emitted.  For
-        non-translatable units, ``original + separator`` is emitted verbatim.
-        """
+        """Reconstruct a document from fine-mode metadata."""
         units: list[dict[str, Any]] = metadata["units"]
 
+        expected_segments = sum(1 for u in units if u.get("translatable", False))
         trans_idx = 0
         parts: list[str] = []
 
@@ -334,16 +370,19 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                     trans_idx += 1
                 else:
                     logger.warning(
-                        f"Fine reassembly: ran out of translated segments at unit '{unit['original']}'"
+                        "Fine reassembly: ran out of translated segments at unit {!r}",
+                        unit["original"],
                     )
                     parts.append(unit["original"] + unit["separator"])
             else:
                 parts.append(unit["original"] + unit["separator"])
 
-        if trans_idx != len(translated_segments):
+        if expected_segments != len(translated_segments):
             logger.warning(
-                f"Fine reassembly: expected {trans_idx} segments consumed but "
-                f"received {len(translated_segments)}"
+                "Fine reassembly: segment count mismatch: metadata expected "
+                "{} segments but pipeline processed {}",
+                expected_segments,
+                len(translated_segments),
             )
 
         return "".join(parts)

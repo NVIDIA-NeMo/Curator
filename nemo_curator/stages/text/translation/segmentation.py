@@ -219,13 +219,25 @@ def is_line_translatable_content(line: str) -> bool:
     """Determine whether *line* contains translatable content.
 
     Returns ``False`` for lines that have no alphabetic characters or that
-    look like XML/HTML tags (e.g. ``<tag>``).
+    look like XML/HTML tags (e.g. ``<tag>``). Structured JSON blobs are also
+    treated as non-translatable so tool payloads and machine-readable content
+    are preserved verbatim.
     """
     stripped_line = line.strip()
     if not any(char.isalpha() for char in stripped_line):
         return False
     if stripped_line.startswith("<") and stripped_line.endswith(">"):
         return False
+    if (
+        (stripped_line.startswith("{") and stripped_line.endswith("}"))
+        or (stripped_line.startswith("[") and stripped_line.endswith("]"))
+    ):
+        try:
+            parsed = json.loads(stripped_line)
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+        if isinstance(parsed, (dict, list)):
+            return False
     return True
 
 
@@ -256,7 +268,7 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     text_field: str | list[str] = "text"
     source_lang: str = "en"
     mode: str = "coarse"
-    min_segment_chars: int = 4000
+    min_segment_chars: int = 0
     skipme_field: str | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -320,13 +332,19 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             for field_path in field_paths:
                 texts = self._extract_texts(row, field_path)
                 for text in texts:
-                    if len(text) < self.min_segment_chars:
+                    if self.min_segment_chars > 0 and len(text) < self.min_segment_chars:
                         # Passthrough: text is short enough to translate as one block.
                         # Preserves full context (lists, markdown, structure).
-                        meta = {"mode": "passthrough", "field_path": field_path}
+                        # Always emit a segment to keep metadata count and segment
+                        # count in lock-step (see reassembly._count_segments_in_meta
+                        # which returns 1 for any passthrough entry).
+                        meta = {
+                            "mode": "passthrough",
+                            "field_path": field_path,
+                            "original_text": text,
+                        }
                         field_metadatas.append(meta)
-                        if text.strip():
-                            all_segments.append(text)
+                        all_segments.append(text)
                     elif self.mode == "fine":
                         segments, meta_json = self._segment_fine(text)
                         meta = json.loads(meta_json)
@@ -444,6 +462,7 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         template: list[str | None] = []
         leading_spaces_list: list[str] = []
         segments: list[str] = []
+        original_stripped_lines: list[str] = []
         in_code_block = False
 
         for line in lines:
@@ -462,11 +481,13 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 template.append(None)
                 segments.append(stripped)
                 leading_spaces_list.append(leading)
+                original_stripped_lines.append(stripped)
 
         metadata = {
             "mode": "coarse",
             "template": template,
             "leading_spaces": leading_spaces_list,
+            "original_stripped_lines": original_stripped_lines,
         }
         return segments, json.dumps(metadata, ensure_ascii=False)
 

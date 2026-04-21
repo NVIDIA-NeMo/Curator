@@ -12,25 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-TranslateStage -- translates text segments using an LLM backend (AsyncLLMClient)
-or a pluggable non-LLM backend (Google, AWS, NMT).
-
-The stage reads the ``_seg_segments`` column produced by :class:`SegmentationStage`
-and writes a ``_translated`` column consumed by :class:`ReassemblyStage`.
-"""
+"""Translate segmented text with an LLM or external backend."""
 
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 
-import iso639
-import pandas as pd
-import yaml
 from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
@@ -38,27 +27,9 @@ from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConf
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch
 
-# ---------------------------------------------------------------------------
-# Prompt template loading
-# ---------------------------------------------------------------------------
-
-_PROMPT_DIR = Path(__file__).resolve().parent / "prompts"
-
-
-def _load_prompt_template(filename: str) -> tuple[str, str]:
-    """Load a YAML prompt file and return (system_prompt, user_template).
-
-    Args:
-        filename: Name of the YAML file inside the ``prompts/`` directory.
-
-    Returns:
-        Tuple of (system prompt string, user template string).
-    """
-    path = _PROMPT_DIR / filename
-    with open(path, encoding="utf-8") as fh:
-        data = yaml.safe_load(fh)
-    return data["system"], data["user"]
-
+from ._async_utils import run_async_safe
+from ._prompts import get_language_name, load_prompt_template
+from .segmentation import is_line_translatable_content
 
 # ---------------------------------------------------------------------------
 # TranslateStage
@@ -69,20 +40,7 @@ def _load_prompt_template(filename: str) -> tuple[str, str]:
 class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """Translate text segments produced by :class:`SegmentationStage`.
 
-    For the **LLM backend** (default), the stage formats a translation prompt
-    and sends it to an :class:`AsyncLLMClient`.  The LLM response is expected
-    to wrap the translation in ``〘...〙`` brackets, which are stripped by
-    :meth:`_unwrap_translation`.
-
-    For **non-LLM backends** (``google``, ``aws``, ``nmt``), the stage
-    delegates to a :class:`TranslationBackend` obtained via
-    ``backends.get_backend()``.
-
-    Note:
-        The ``client`` parameter accepts ``AsyncLLMClient``. When used in a
-        ``TranslationPipeline`` that includes ``FaithEvalFilter``, an
-        ``AsyncLLMClient`` is required since FaithEvalFilter only supports
-        async clients.
+    Reads ``_seg_segments`` and writes ``_translated``.
     """
 
     name: str = "TranslateStage"
@@ -93,7 +51,6 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     backend_type: str = "llm"
     backend_config: dict = field(default_factory=dict)
     generation_config: GenerationConfig | None = None
-    prompt_template: str = ""  # Reserved for user override; loaded from YAML when empty.
     max_concurrent_requests: int = 64
     health_check: bool = True
     """If True, verify the translation backend is reachable during ``setup()``."""
@@ -101,10 +58,7 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """If True, skip actual translation and return empty strings."""
     dry_run_log_count: int = 5
     """Number of example prompts to log when *dry_run* is enabled."""
-    show_progress: bool = False
-    """If True, display a ``tqdm`` progress bar during async translation."""
 
-    # -- internal state (not constructor args) ---------------------------------
     _system_prompt: str = field(init=False, repr=False, default="")
     _user_template: str = field(init=False, repr=False, default="")
     _backend: object = field(init=False, repr=False, default=None)  # TranslationBackend or None
@@ -115,7 +69,6 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     # ------------------------------------------------------------------
 
     def __post_init__(self) -> None:
-        # Validate basic config on the driver side (before Ray serialization).
         if self.backend_type == "llm":
             if self.client is None:
                 msg = "TranslateStage requires a non-None 'client' (AsyncLLMClient) when backend_type='llm'"
@@ -128,41 +81,21 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], ["_translated", "_translation_time", "_translation_error"]
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
-        """Initialize the LLM client or translation backend.
-
-        Prompt YAML loading and backend instantiation are deferred here
-        (instead of ``__post_init__``) for Ray compatibility: ``__post_init__``
-        runs on the driver, while ``setup()`` runs on the worker.
-
-        When ``health_check`` is enabled, the backend is verified before any
-        translation work begins:
-        - LLM backend: a small test translation is attempted.
-        - Non-LLM backends: the backend's ``check_server()`` method is called.
-        """
+        """Initialize the client or backend on the worker."""
         if not self._initialized:
-            # Load prompt template on the worker
-            self._system_prompt, self._user_template = _load_prompt_template("translate.yaml")
+            self._system_prompt, self._user_template = load_prompt_template("translate.yaml")
 
             if self.backend_type != "llm":
-                # Non-LLM backend -- import factory lazily so that backends/
-                # can be developed independently.
                 from nemo_curator.stages.text.translation.backends import get_backend
 
                 self._backend = get_backend(self.backend_type, self.backend_config)
 
-            # Initialize the client or backend once.
             if self.backend_type == "llm":
                 if self.client is not None:
                     self.client.setup()
             elif self._backend is not None:
                 self._backend.setup()
 
-            # --- Gap 11.2: Example prompt logging ---
-            if self.backend_type == "llm":
-                example_messages = self._build_messages("Sample text to translate")
-                logger.info("Example translation prompt:\n{}", example_messages)
-
-            # --- Gap 10.1: Server health check ---
             if self.health_check:
                 self._run_health_check()
 
@@ -173,24 +106,10 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     # ------------------------------------------------------------------
 
     def _run_health_check(self) -> None:
-        """Verify the translation backend is reachable.
-
-        For the LLM backend, attempts a small test translation to confirm
-        the server is responding.  For non-LLM backends, calls the
-        backend's ``check_server()`` method.
-
-        Raises:
-            RuntimeError: If the health check fails.
-        """
+        """Verify the translation backend is reachable."""
         if self.backend_type == "llm":
             try:
                 messages = self._build_messages("Hello")
-                # Fire a lightweight test request.
-                loop_running = True
-                try:
-                    asyncio.get_running_loop()
-                except RuntimeError:
-                    loop_running = False
 
                 async def _test_query() -> str:
                     resp = await self.client.query_model(  # type: ignore[union-attr]
@@ -200,11 +119,7 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                     )
                     return resp[0] if resp else ""
 
-                if loop_running:
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                        result = pool.submit(asyncio.run, _test_query()).result()
-                else:
-                    result = asyncio.run(_test_query())
+                result = run_async_safe(_test_query)
 
                 if result:
                     logger.info("LLM health check passed")
@@ -227,7 +142,7 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                     )
             else:
                 logger.debug(
-                    "Backend %r does not implement check_server(); "
+                    "Backend {!r} does not implement check_server(); "
                     "skipping health check",
                     self.backend_type,
                 )
@@ -237,21 +152,10 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     # ------------------------------------------------------------------
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
-        """Translate every segment in the batch.
-
-        Reads the ``_seg_segments`` column, translates each value, and writes
-        the results into a new ``_translated`` column.  Additionally populates
-        ``_translation_time`` (per-segment elapsed seconds) and
-        ``_translation_error`` (empty string on success, error message on
-        failure).
-
-        When ``dry_run`` is enabled, logs the first N prompts and returns
-        immediately with empty translations.
-        """
+        """Translate every segment in the batch."""
         df = batch.to_pandas().copy()
         segments: list[str] = df["_seg_segments"].tolist()
 
-        # --- Gap 10.3: Dry run mode ---
         if self.dry_run:
             n = min(self.dry_run_log_count, len(segments))
             for i in range(n):
@@ -261,7 +165,7 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 else:
                     logger.info("Dry-run segment [{}]: {}", i, segments[i][:200])
             logger.info(
-                "Dry run: skipping translation for %d segments",
+                "Dry run: skipping translation for {} segments",
                 len(segments),
             )
             df["_translated"] = [""] * len(segments)
@@ -276,7 +180,7 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             )
 
         if self.backend_type == "llm":
-            translated, timings, errors = self._translate_llm(segments)
+            translated, timings, errors = self._translate_llm_async(segments)
         else:
             translated, timings, errors = self._translate_backend(segments)
 
@@ -296,75 +200,23 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     # LLM translation helpers
     # ------------------------------------------------------------------
 
-    def _translate_llm(
-        self, segments: list[str]
-    ) -> tuple[list[str], list[float], list[str]]:
-        """Translate segments via the AsyncLLMClient.
-
-        Since ``client`` is always ``AsyncLLMClient``, this delegates
-        directly to the async path.
-
-        Returns:
-            Tuple of (translated_texts, timing_seconds, error_messages).
-        """
-        return self._translate_llm_async(segments)
-
     def _translate_llm_async(
         self, segments: list[str]
     ) -> tuple[list[str], list[float], list[str]]:
-        """Concurrent translation using an :class:`AsyncLLMClient`.
-
-        Handles both cases:
-        - Normal case: no event loop running -- use ``asyncio.run()``.
-        - Edge case: called from within an async context (e.g. Ray async actors)
-          -- run in a separate thread with its own loop.
-
-        Returns:
-            Tuple of (translated_texts, timing_seconds, error_messages).
-        """
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            # No loop running -- the expected / normal case.
-            return asyncio.run(self._translate_all_async(segments))
-
-        # Already inside an event loop -- offload to a new thread.
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(asyncio.run, self._translate_all_async(segments))
-            return future.result()
+        """Translate segments with the async LLM client."""
+        return run_async_safe(lambda: self._translate_all_async(segments))
 
     async def _translate_all_async(
         self, segments: list[str]
     ) -> tuple[list[str], list[float], list[str]]:
-        """Fire off concurrent translation requests for all segments.
-
-        Uses ``return_exceptions=True`` so that individual segment failures
-        do not abort the entire batch (Gap 10.2).  Failed segments receive
-        an empty translation and the error message is recorded in the
-        ``_translation_error`` column.
-
-        When ``show_progress`` is enabled, a ``tqdm`` progress bar is updated
-        after each segment completes via an asyncio callback.
-
-        Returns:
-            Tuple of (translated_texts, timing_seconds, error_messages).
-        """
+        """Translate all segments concurrently."""
         sem = asyncio.Semaphore(self.max_concurrent_requests)
 
-        # --- Gap 11.1: Progress bar with real-time updates ---
-        pbar = None
-        if self.show_progress:
-            try:
-                from tqdm import tqdm
-                pbar = tqdm(total=len(segments), desc="Translating segments")
-            except ImportError:
-                logger.warning("tqdm not installed; progress bar disabled")
-
         async def _translate_one(seg: str) -> tuple[str, float]:
-            """Translate a single segment, returning (result, elapsed_seconds)."""
-            # Skip empty/whitespace-only segments to avoid wasting LLM calls
             if not seg or not seg.strip():
                 return ("", 0.0)
+            if not is_line_translatable_content(seg):
+                return (seg, 0.0)
             messages = self._build_messages(seg)
             start = time.time()
             response = await self.client.query_model(  # type: ignore[union-attr]
@@ -377,18 +229,10 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         async def _translate_one_throttled(seg: str) -> tuple[str, float]:
             async with sem:
-                result = await _translate_one(seg)
-                if pbar is not None:
-                    pbar.update(1)
-                return result
+                return await _translate_one(seg)
 
         tasks = [_translate_one_throttled(seg) for seg in segments]
-
-        # --- Gap 10.2: Partial translation recovery ---
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        if pbar is not None:
-            pbar.close()
 
         translated: list[str] = []
         timings: list[float] = []
@@ -419,54 +263,94 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _translate_backend(
         self, segments: list[str]
     ) -> tuple[list[str], list[float], list[str]]:
-        """Delegate translation to a non-LLM backend (Google, AWS, NMT).
-
-        Wraps each segment with timing and error handling so the output
-        format is consistent with the LLM path.
-
-        Returns:
-            Tuple of (translated_texts, timing_seconds, error_messages).
-        """
+        """Delegate translation to a non-LLM backend."""
         if self._backend is None:
             msg = f"Backend '{self.backend_type}' was not initialized"
             raise RuntimeError(msg)
 
-        translated: list[str] = []
-        timings: list[float] = []
-        errors: list[str] = []
+        translated = [""] * len(segments)
+        timings = [0.0] * len(segments)
+        errors = [""] * len(segments)
 
-        # --- Gap 11.1: Progress bar for backend translation ---
-        pbar = None
-        if self.show_progress:
-            try:
-                from tqdm import tqdm
-                pbar = tqdm(total=len(segments), desc="Translating segments")
-            except ImportError:
-                logger.warning("tqdm not installed; progress bar disabled")
+        translate_indices: list[int] = []
+        translate_segments: list[str] = []
+        for idx, seg in enumerate(segments):
+            if not seg or not seg.strip():
+                continue
+            if not is_line_translatable_content(seg):
+                translated[idx] = seg
+                continue
+            translate_indices.append(idx)
+            translate_segments.append(seg)
+
+        if not translate_segments:
+            return translated, timings, errors
+
+        try:
+            start = time.time()
+            if hasattr(self._backend, "translate_batch_async"):
+                backend = self._backend
+                result = run_async_safe(
+                    lambda: backend.translate_batch_async(
+                        translate_segments, self.source_lang, self.target_lang
+                    )
+                )
+            else:
+                result = self._backend.translate_batch(
+                    translate_segments, self.source_lang, self.target_lang
+                )
+            elapsed = time.time() - start
+
+            if len(result) != len(translate_segments):
+                raise RuntimeError(
+                    f"Backend returned {len(result)} translations for "
+                    f"{len(translate_segments)} segments"
+                )
+
+            per_segment_time = elapsed / len(translate_segments)
+            for out_idx, translated_text in zip(translate_indices, result):
+                translated[out_idx] = translated_text
+                timings[out_idx] = per_segment_time
+
+            return translated, timings, errors
+        except Exception as exc:
+            logger.warning(
+                "Bulk backend translation failed for {} segments: {}. "
+                "Falling back to per-segment requests.",
+                len(translate_segments),
+                exc,
+            )
 
         for idx, seg in enumerate(segments):
+            if not seg or not seg.strip():
+                continue
+            if not is_line_translatable_content(seg):
+                continue
             start = time.time()
             try:
-                result = self._backend.translate_batch([seg], self.source_lang, self.target_lang)
+                if hasattr(self._backend, "translate_batch_async"):
+                    backend = self._backend
+                    src = self.source_lang
+                    tgt = self.target_lang
+                    result = run_async_safe(
+                        lambda: backend.translate_batch_async([seg], src, tgt)
+                    )
+                else:
+                    result = self._backend.translate_batch([seg], self.source_lang, self.target_lang)
                 elapsed = time.time() - start
-                translated.append(result[0] if result else "")
-                timings.append(elapsed)
-                errors.append("")
+                translated[idx] = result[0] if result else ""
+                timings[idx] = elapsed
+                errors[idx] = ""
             except Exception as exc:
                 elapsed = time.time() - start
                 logger.error(
-                    "Backend translation failed for segment index %d: %s",
+                    "Backend translation failed for segment index {}: {}",
                     idx,
                     exc,
                 )
-                translated.append("")
-                timings.append(elapsed)
-                errors.append(str(exc))
-            if pbar is not None:
-                pbar.update(1)
-
-        if pbar is not None:
-            pbar.close()
+                translated[idx] = ""
+                timings[idx] = elapsed
+                errors[idx] = str(exc)
 
         return translated, timings, errors
 
@@ -475,13 +359,9 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     # ------------------------------------------------------------------
 
     def _build_messages(self, segment: str) -> list[dict]:
-        """Build the chat-style messages list for the LLM.
-
-        Uses ``iso639`` to resolve language codes to human-readable names so
-        the prompt reads naturally (e.g. "English" instead of "en").
-        """
-        source_lang_name = iso639.Lang(self.source_lang).name
-        target_lang_name = iso639.Lang(self.target_lang).name
+        """Build the prompt for one segment."""
+        source_lang_name = get_language_name(self.source_lang)
+        target_lang_name = get_language_name(self.target_lang)
         return [
             {"role": "system", "content": self._system_prompt},
             {
@@ -500,16 +380,7 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     @staticmethod
     def _unwrap_translation(text: str) -> str:
-        """Extract the translated text from ``〘...〙`` bracket delimiters.
-
-        Ported from ``speaker.core.translate.translate_jsonl.unwrap_translation_results()``.
-
-        Rules:
-        - If both ``〘`` and ``〙`` are found (with left before right), return
-          the text between them.
-        - If only ``〘`` is found, return everything after it.
-        - Otherwise return the original text unchanged.
-        """
+        """Extract translated text from the expected ``〘...〙`` wrapper."""
         left_loc = text.rfind("\u3018")  # 〘
         right_loc = text.rfind("\u3019")  # 〙
         if left_loc != -1 and right_loc != -1 and left_loc < right_loc:

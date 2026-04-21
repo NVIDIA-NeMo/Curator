@@ -144,14 +144,21 @@ class TestProcessNonLLMBackend:
     """Tests for process() with a non-LLM backend (delegation path)."""
 
     def test_process_non_llm_backend(self) -> None:
-        """Mock backend translate_batch -- verify per-segment delegation.
+        """Mock backend translate_batch_async -- verify bulk delegation.
 
-        The non-LLM backend path calls translate_batch([seg], ...) once per
-        segment (not batched).  The mock returns different values for each call.
+        The non-LLM backend path should batch all translatable segments into a
+        single backend request, falling back to per-segment requests only on
+        backend failure.
         """
         mock_backend = MagicMock()
-        # Each call receives a single-element list; return a single-element list
-        mock_backend.translate_batch.side_effect = [["Hola mundo"], ["Adios"]]
+
+        async def _fake_async(texts, src, tgt):
+            assert texts == ["Hello world", "Goodbye"]
+            assert src == "en"
+            assert tgt == "es"
+            return ["Hola mundo", "Adios"]
+
+        mock_backend.translate_batch_async = MagicMock(side_effect=_fake_async)
 
         stage = TranslateStage(
             client=None,
@@ -176,10 +183,10 @@ class TestProcessNonLLMBackend:
 
         assert "_translated" in result_df.columns
         assert result_df["_translated"].tolist() == ["Hola mundo", "Adios"]
-        # translate_batch is called once per segment, not in bulk
-        assert mock_backend.translate_batch.call_count == 2
-        mock_backend.translate_batch.assert_any_call(["Hello world"], "en", "es")
-        mock_backend.translate_batch.assert_any_call(["Goodbye"], "en", "es")
+        assert mock_backend.translate_batch_async.call_count == 1
+        mock_backend.translate_batch_async.assert_called_once_with(
+            ["Hello world", "Goodbye"], "en", "es"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +222,7 @@ class TestSetup:
     """Tests for setup() lifecycle."""
 
     @patch(
-        "nemo_curator.stages.text.translation.translate._load_prompt_template",
+        "nemo_curator.stages.text.translation.translate.load_prompt_template",
         return_value=("system prompt", "user {source_lang} {target_lang} {src}"),
     )
     def test_setup_initializes_client(self, mock_load: MagicMock) -> None:

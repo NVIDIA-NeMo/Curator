@@ -18,65 +18,11 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from nemo_curator.stages.text.translation.output_utils import (
-    build_segment_pairs,
     build_translation_metadata,
     merge_faith_scores_into_metadata,
     reconstruct_messages_with_translation,
 )
-
-
-# ---------------------------------------------------------------------------
-# build_segment_pairs tests
-# ---------------------------------------------------------------------------
-
-
-class TestBuildSegmentPairs:
-    """Tests for build_segment_pairs() -- JSON segment pair construction."""
-
-    def test_basic_pairs(self) -> None:
-        """Matching-length lists produce correct src/tgt pairs."""
-        result = build_segment_pairs(["Hello", "World"], ["Hola", "Mundo"])
-        parsed = json.loads(result)
-        assert len(parsed) == 2
-        assert parsed[0] == {"src": "Hello", "tgt": "Hola"}
-        assert parsed[1] == {"src": "World", "tgt": "Mundo"}
-
-    def test_empty_lists(self) -> None:
-        """Empty input lists produce an empty JSON array."""
-        result = build_segment_pairs([], [])
-        parsed = json.loads(result)
-        assert parsed == []
-
-    def test_single_pair(self) -> None:
-        """Single-element lists produce a single pair."""
-        result = build_segment_pairs(["one"], ["uno"])
-        parsed = json.loads(result)
-        assert len(parsed) == 1
-        assert parsed[0] == {"src": "one", "tgt": "uno"}
-
-    def test_mismatched_lengths_uses_shorter(self) -> None:
-        """When lists differ in length, pairing stops at the shorter one."""
-        result = build_segment_pairs(["a", "b", "c"], ["x", "y"])
-        parsed = json.loads(result)
-        assert len(parsed) == 2
-        assert parsed[0] == {"src": "a", "tgt": "x"}
-        assert parsed[1] == {"src": "b", "tgt": "y"}
-
-    def test_unicode_content(self) -> None:
-        """Unicode strings are preserved (ensure_ascii=False)."""
-        result = build_segment_pairs(["Hello"], ["\u4f60\u597d"])
-        parsed = json.loads(result)
-        assert parsed[0]["tgt"] == "\u4f60\u597d"
-
-    def test_output_is_valid_json(self) -> None:
-        """Output is a valid JSON string that can be parsed."""
-        result = build_segment_pairs(["a"], ["b"])
-        assert isinstance(result, str)
-        # Should not raise
-        json.loads(result)
 
 
 # ---------------------------------------------------------------------------
@@ -111,20 +57,12 @@ class TestBuildTranslationMetadata:
         assert len(parsed["segmented_translation"]) == 1
         assert parsed["segmented_translation"][0]["src"] == "Hello"
 
-    def test_with_faith_scores(self) -> None:
-        """FAITH scores are included when provided."""
-        scores = {"Fluency": 4.0, "Accuracy": 3.5}
-        result = build_translation_metadata(
-            target_lang="zh",
-            translated_text="test",
-            faith_scores=scores,
-        )
-        parsed = json.loads(result)
-        assert parsed["faith_scores"]["Fluency"] == 4.0
-        assert parsed["faith_scores"]["Accuracy"] == 3.5
-
     def test_without_faith_scores(self) -> None:
-        """When faith_scores is None, the key is absent."""
+        """build_translation_metadata never emits the faith_scores key.
+
+        FAITH scores are attached separately via
+        :func:`merge_faith_scores_into_metadata` once scoring has run.
+        """
         result = build_translation_metadata(
             target_lang="de",
             translated_text="test",
@@ -141,6 +79,19 @@ class TestBuildTranslationMetadata:
         )
         parsed = json.loads(result)
         assert parsed["segmented_translation"] == []
+
+    def test_with_translation_maps(self) -> None:
+        """Speaker-style translation maps are preserved verbatim."""
+        result = build_translation_metadata(
+            target_lang="hi",
+            translation_map={"question": "Namaste"},
+            segmented_translation_map={
+                "question": [{"src": "Hello", "tgt": "Namaste"}],
+            },
+        )
+        parsed = json.loads(result)
+        assert parsed["translation"]["question"] == "Namaste"
+        assert parsed["segmented_translation"]["question"][0]["src"] == "Hello"
 
 
 # ---------------------------------------------------------------------------
@@ -267,3 +218,11 @@ class TestReconstructMessagesWithTranslation:
         assert result[0]["content"] == "Hola"
         assert result[0]["name"] == "Alice"
         assert result[0]["metadata"]["ts"] == 123
+
+    def test_structured_messages_passthrough(self) -> None:
+        """Structured translated messages should be returned directly."""
+        original = [{"role": "user", "content": "Hello"}]
+        translated = [{"role": "user", "content": "Hola"}]
+        result = reconstruct_messages_with_translation(original, translated)
+        assert result == translated
+        assert original[0]["content"] == "Hello"

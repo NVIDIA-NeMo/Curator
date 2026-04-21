@@ -36,18 +36,12 @@ Notes:
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 
 from loguru import logger
 
+from ._retry import retry_with_backoff
 from .base import TranslationBackend
-
-# Suppress urllib3 connection-pool warnings under high concurrency.
-logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
-
-# Retry configuration
-MAX_RETRIES = 5
 
 # AWS Translate hard limit per TranslateText call (bytes, UTF-8).
 AWS_MAX_BYTES_PER_REQUEST = 10_000
@@ -102,7 +96,7 @@ class AWSTranslationBackend(TranslationBackend):
             region_name=self._region,
         )
         logger.info(
-            "AWS Translate client initialized (region=%s)",
+            "AWS Translate client initialized (region={})",
             self._region,
         )
 
@@ -128,7 +122,7 @@ class AWSTranslationBackend(TranslationBackend):
             return False
         except Exception as exc:
             logger.warning(
-                "AWS Translate health check failed: %s",
+                "AWS Translate health check failed: {}",
                 exc,
             )
             return False
@@ -201,40 +195,19 @@ class AWSTranslationBackend(TranslationBackend):
 
         loop = asyncio.get_running_loop()
 
-        for attempt in range(MAX_RETRIES):
-            try:
-                async with self._semaphore:
-                    return await loop.run_in_executor(
-                        None,
-                        self._translate_single_sync,
-                        text,
-                        source_lang,
-                        target_lang,
-                    )
-            except ValueError:
-                # Input size violation -- non-retryable.
-                raise
-            except Exception as exc:
-                if attempt < MAX_RETRIES - 1:
-                    wait_time = 2 ** attempt
-                    logger.warning(
-                        "AWS API error (attempt %d/%d): %s. "
-                        "Retrying in %ds...",
-                        attempt + 1,
-                        MAX_RETRIES,
-                        exc,
-                        wait_time,
-                    )
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.exception(
-                        "AWS translation failed after %d attempts",
-                        MAX_RETRIES,
-                    )
-                    raise
+        async def _attempt() -> str:
+            async with self._semaphore:
+                return await loop.run_in_executor(
+                    None,
+                    self._translate_single_sync,
+                    text,
+                    source_lang,
+                    target_lang,
+                )
 
-        # Should not be reached, but satisfy type-checkers.
-        return ""  # pragma: no cover
+        return await retry_with_backoff(
+            _attempt, backend_name="AWS", non_retryable=(ValueError,)
+        )
 
     def _translate_single_sync(
         self,

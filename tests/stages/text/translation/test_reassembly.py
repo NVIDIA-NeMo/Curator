@@ -238,7 +238,7 @@ class TestColumnManagement:
 
         resource_kind, output_cols = stage.outputs()
         assert resource_kind == ["data"]
-        assert output_cols == ["tgt_text"]
+        assert output_cols == ["tgt_text", "translation_time", "translation_errors"]
 
 
 # ---------------------------------------------------------------------------
@@ -296,3 +296,48 @@ class TestEdgeCases:
         # No internal columns remain
         for col in _INTERNAL_COLUMNS:
             assert col not in df.columns
+
+    def test_wildcard_list_field_replaced_in_place(self) -> None:
+        """Wildcard paths over list roots are reassembled back into the source schema."""
+        df = pd.DataFrame(
+            {
+                "messages": [[
+                    {"role": "user", "content": "Hello"},
+                    {"role": "assistant", "content": "Hi there"},
+                ]]
+            }
+        )
+        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+
+        segmented = SegmentationStage(
+            text_field="messages.*.content",
+            mode="coarse",
+        ).process(batch)
+        seg_df = segmented.to_pandas()
+        seg_df["_translated"] = ["Hola", "Que tal"]
+        translated_batch = DocumentBatch(
+            data=seg_df,
+            dataset_name=segmented.dataset_name,
+            task_id=segmented.task_id,
+            _metadata=segmented._metadata,
+            _stage_perf=segmented._stage_perf,
+        )
+
+        result = ReassemblyStage(
+            text_field="messages.*.content",
+            replace_source_fields=True,
+            emit_metadata_helpers=True,
+            emit_faith_helpers=True,
+        ).process(translated_batch)
+        result_df = result.to_pandas()
+
+        assert result_df.iloc[0]["messages"][0]["content"] == "Hola"
+        assert result_df.iloc[0]["messages"][1]["content"] == "Que tal"
+        assert result_df.iloc[0]["translated_text"][0]["content"] == "Hola"
+        assert '"field_path": "messages.*.content"' in result_df.iloc[0]["_faith_source_text"]
+        assert '"text": "Hola"' in result_df.iloc[0]["_faith_translated_text"]
+
+        translation_map = json.loads(result_df.iloc[0]["_translation_map"])
+        segmented_map = json.loads(result_df.iloc[0]["_segmented_translation_map"])
+        assert translation_map["content"] == ["Hola", "Que tal"]
+        assert segmented_map["content"][0]["src"] == "Hello"
