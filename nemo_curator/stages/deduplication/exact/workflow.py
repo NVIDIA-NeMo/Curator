@@ -192,7 +192,11 @@ class ExactDeduplicationWorkflow(WorkflowBase):
             raise ValueError(msg)
 
     def run(  # noqa: PLR0915
-        self, initial_tasks: list[FileGroupTask] | None = None, executor: RayActorPoolExecutor | None = None
+        self,
+        initial_tasks: list[FileGroupTask] | None = None,
+        executor: RayActorPoolExecutor | None = None,
+        checkpoint_path: str | None = None,
+        checkpoint_storage_options: dict | None = None,
     ) -> WorkflowRunResult:
         """Run the deduplication pipeline.
 
@@ -239,7 +243,12 @@ class ExactDeduplicationWorkflow(WorkflowBase):
             if initial_tasks is None:
                 input_filegroups_pipeline = self._create_input_filegroups()
                 input_start_time = time.time()
-                initial_tasks = input_filegroups_pipeline.run(executor=executor, initial_tasks=None)
+                initial_tasks = input_filegroups_pipeline.run(
+                    executor=executor,
+                    initial_tasks=None,
+                    checkpoint_path=checkpoint_path,
+                    checkpoint_storage_options=checkpoint_storage_options,
+                )
                 input_filegroups_time = time.time() - input_start_time
                 workflow_result.add_metadata("input_filegroups_time", input_filegroups_time)
                 workflow_result.add_pipeline_tasks("input_filegroups", initial_tasks)
@@ -247,7 +256,12 @@ class ExactDeduplicationWorkflow(WorkflowBase):
             initial_tasks = initial_tasks or []
             identification_pipeline = self._create_identification_pipeline(num_input_tasks=len(initial_tasks))
             identification_start_time = time.time()
-            removal_id_tasks = identification_pipeline.run(executor=executor, initial_tasks=initial_tasks)
+            removal_id_tasks = identification_pipeline.run(
+                executor=executor,
+                initial_tasks=initial_tasks,
+                checkpoint_path=checkpoint_path,
+                checkpoint_storage_options=checkpoint_storage_options,
+            )
             identification_end_time = time.time()
             identification_time = identification_end_time - identification_start_time
             workflow_result.add_metadata("identification_time", identification_time)

@@ -157,7 +157,11 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
         return total_removed
 
     def run(
-        self, executor: Optional["BaseExecutor"] = None, initial_tasks: list[FileGroupTask] | None = None
+        self,
+        executor: Optional["BaseExecutor"] = None,
+        initial_tasks: list[FileGroupTask] | None = None,
+        checkpoint_path: str | None = None,
+        checkpoint_storage_options: dict | None = None,
     ) -> WorkflowRunResult:
         pipeline = Pipeline(
             name="text_duplicates_removal_workflow",
@@ -193,7 +197,12 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
             create_id_generator_actor(self.id_generator_path, storage_options=self.id_generator_storage_options)
             try:
                 start_time = time.time()
-                output_tasks = pipeline.run(executor, initial_tasks=initial_tasks)
+                output_tasks = pipeline.run(
+                    executor,
+                    initial_tasks=initial_tasks,
+                    checkpoint_path=checkpoint_path,
+                    checkpoint_storage_options=checkpoint_storage_options,
+                )
                 execution_time = time.time() - start_time
                 num_duplicates_removed = self._count_removed_duplicates(output_tasks)
             except Exception as e:
@@ -203,7 +212,12 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
                 kill_id_generator_actor()
         else:
             start_time = time.time()
-            output_tasks = pipeline.run(executor, initial_tasks=initial_tasks)
+            output_tasks = pipeline.run(
+                executor,
+                initial_tasks=initial_tasks,
+                checkpoint_path=checkpoint_path,
+                checkpoint_storage_options=checkpoint_storage_options,
+            )
             execution_time = time.time() - start_time
             num_duplicates_removed = self._count_removed_duplicates(output_tasks)
 

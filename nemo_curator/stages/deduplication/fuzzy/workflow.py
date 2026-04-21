@@ -290,7 +290,11 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             raise ValueError(msg)
 
     def run(  # noqa: PLR0915
-        self, initial_tasks: list[FileGroupTask] | None = None, executor: RayActorPoolExecutor | None = None
+        self,
+        initial_tasks: list[FileGroupTask] | None = None,
+        executor: RayActorPoolExecutor | None = None,
+        checkpoint_path: str | None = None,
+        checkpoint_storage_options: dict | None = None,
     ) -> WorkflowRunResult:
         """Run the deduplication pipeline.
 
@@ -334,7 +338,12 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             # Step 1: Minhash
             minhash_pipeline = self._create_minhash_pipeline(generate_input_filegroups=initial_tasks is None)
             minhash_start_time = time.time()
-            minhash_tasks = minhash_pipeline.run(executor=executor, initial_tasks=initial_tasks)
+            minhash_tasks = minhash_pipeline.run(
+                executor=executor,
+                initial_tasks=initial_tasks,
+                checkpoint_path=checkpoint_path,
+                checkpoint_storage_options=checkpoint_storage_options,
+            )
             minhash_end_time = time.time()
             minhash_time = minhash_end_time - minhash_start_time
             workflow_result.add_pipeline_tasks("minhash", minhash_tasks)
@@ -356,7 +365,12 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             lsh_pipeline = self._create_lsh_pipeline()
             lsh_start_time = time.time()
             # LSH stage generates it's own input tasks from the minhash directory
-            lsh_tasks = lsh_pipeline.run(executor=executor, initial_tasks=None)
+            lsh_tasks = lsh_pipeline.run(
+                executor=executor,
+                initial_tasks=None,
+                checkpoint_path=checkpoint_path,
+                checkpoint_storage_options=checkpoint_storage_options,
+            )
             lsh_end_time = time.time()
             lsh_time = lsh_end_time - lsh_start_time
             workflow_result.add_pipeline_tasks("lsh", lsh_tasks)
@@ -372,7 +386,10 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                 connected_components_pipeline = self._create_connected_components_pipeline()
                 connected_components_start_time = time.time()
                 connected_components_tasks = connected_components_pipeline.run(
-                    executor=executor, initial_tasks=valid_lsh_tasks
+                    executor=executor,
+                    initial_tasks=valid_lsh_tasks,
+                    checkpoint_path=checkpoint_path,
+                    checkpoint_storage_options=checkpoint_storage_options,
                 )
                 connected_components_end_time = time.time()
                 connected_components_time = connected_components_end_time - connected_components_start_time
