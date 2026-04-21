@@ -263,6 +263,17 @@ def parse_args() -> argparse.Namespace:
             "Defaults to the per-user temp directory."
         ),
     )
+    parser.add_argument(
+        "--run-name",
+        type=str,
+        default=None,
+        help=(
+            "Human-readable label for this run. Sets SLURM_JOB_NAME, which Xenna attaches as "
+            "the xenna_job_name label on the ray_pipeline_input_tasks metric in Prometheus. "
+            "Note: the Grafana session dropdown shows Ray's auto-generated SessionName "
+            "(session_YYYY-MM-DD_HH-MM-SS_PID); this flag does not change that."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -288,6 +299,9 @@ def main() -> None:
     )
 
     logger.info("\n" + pipeline.describe())
+
+    if args.run_name:
+        os.environ["SLURM_JOB_NAME"] = args.run_name
 
     client = RayClient(metrics_dir=args.metrics_dir)
     client.start()
