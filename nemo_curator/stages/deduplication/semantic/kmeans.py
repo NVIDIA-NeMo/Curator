@@ -253,7 +253,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
                 _EmptyTask(
                     task_id=output_filename,
                     dataset_name=f"kmeans_group_{i}",
-                    _metadata=None,
+                    _metadata={},
                     _stage_perf=[],
                     data=None,
                 )
