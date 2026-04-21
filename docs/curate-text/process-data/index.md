@@ -1,5 +1,5 @@
 ---
-description: "Process text data using comprehensive filtering, deduplication, content processing, and specialized tools for high-quality datasets"
+description: "Process text data using language management, translation, filtering, deduplication, content processing, and specialized tools for high-quality datasets"
 categories: ["workflows"]
 tags: ["data-processing", "filtering", "deduplication", "content-processing", "quality-assessment", "distributed"]
 personas: ["data-scientist-focused", "mle-focused"]
@@ -18,7 +18,7 @@ NeMo Curator provides a comprehensive suite of tools for processing text data as
 
 NeMo Curator's text processing capabilities are organized into five main categories:
 
-1. **Language Management**: Handle multilingual content and language-specific processing
+1. **Language Management**: Handle multilingual content, translation, and language-specific processing
 2. **Content Processing & Cleaning**: Clean, normalize, and transform text content
 3. **Deduplication**: Remove duplicate and near-duplicate documents efficiently
 4. **Quality Assessment & Filtering**: Score and remove low-quality content using heuristics and ML classifiers
@@ -30,7 +30,7 @@ Each category provides specific implementations optimized for different curation
 
 ## Language Management
 
-Handle multilingual content and language-specific processing requirements.
+Handle multilingual content, translation, and language-specific processing requirements.
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
@@ -53,6 +53,16 @@ Manage high-frequency words to enhance text extraction and content detection
 {bdg-secondary}`preprocessing`
 {bdg-secondary}`filtering`
 {bdg-secondary}`language-specific`
+:::
+
+:::{grid-item-card} {octicon}`comment-discussion;1.5em;sd-mr-1` Translation
+:link: language-management/translation
+:link-type: doc
+Translate flat or structured fields with optional FAITH and round-trip evaluation
++++
+{bdg-secondary}`translation`
+{bdg-secondary}`wildcard-fields`
+{bdg-secondary}`faith`
 :::
 
 ::::

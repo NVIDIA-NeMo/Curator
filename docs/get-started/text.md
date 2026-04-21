@@ -174,4 +174,7 @@ print(f"Pipeline completed successfully! Processed {len(results) if results else
 
 ## Next Steps
 
-Explore the [Text Curation documentation](text-overview) for more advanced filtering techniques, GPU acceleration options, and large-scale processing workflows.
+Explore the [Text Curation documentation](text-overview) for more advanced filtering techniques, translation workflows, GPU acceleration options, and large-scale processing workflows.
+
+- For multilingual processing and translation, see {ref}`text-process-data-languages`
+- For translation-specific usage, see {ref}`text-process-data-translation`
