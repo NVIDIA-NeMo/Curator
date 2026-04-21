@@ -157,20 +157,22 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         The ``.jsonl`` extension is stripped so it can be used as a shard key.
         """
         parts = manifest_path.replace("\\", "/").split("/")
-        count = parts.count(corpus)
-        if count == 0:
+        parts_lower = [p.lower() for p in parts]
+        corpus_lower = corpus.lower()
+        matches = [i for i, p in enumerate(parts_lower) if p == corpus_lower]
+        if len(matches) == 0:
             msg = (
                 f"Corpus name '{corpus}' not found in manifest path: {manifest_path}. "
-                f"The YAML 'corpus' field must appear exactly once as a directory component in the manifest path."
+                f"The YAML 'corpus' field must match a directory component in the manifest path (case-insensitive)."
             )
             raise ValueError(msg)
-        if count > 1:
+        if len(matches) > 1:
             msg = (
-                f"Corpus name '{corpus}' appears {count} times in manifest path: {manifest_path}. "
-                f"It must appear exactly once as a directory component for unambiguous path extraction."
+                f"Corpus name '{corpus}' appears {len(matches)} times in manifest path: {manifest_path}. "
+                f"It must appear exactly once for unambiguous path extraction."
             )
             raise ValueError(msg)
-        idx = parts.index(corpus)
+        idx = matches[0]
         rel = "/".join(parts[idx:])
         if rel.endswith(".jsonl"):
             rel = rel[:-len(".jsonl")]
