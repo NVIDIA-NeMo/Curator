@@ -107,7 +107,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Sortformer diarization on CallHome English + DER evaluation.")
     p.add_argument("--data-dir", type=Path, required=True, help="CallHome-eng0 dataset root.")
     p.add_argument("--output-dir", type=Path, default=Path("output"), help="Root directory for all outputs.")
-    p.add_argument("--model", default="nvidia/diar_streaming_sortformer_4spk-v2", help="HF Sortformer model id.")
+    p.add_argument("--model", default="nvidia/diar_streaming_sortformer_4spk-v2.1", help="HF Sortformer model id.")
     p.add_argument("--collar", type=float, default=COLLAR, help="Collar tolerance (seconds).")
     p.add_argument("--clean", action="store_true", help="Remove entire output directory before running.")
     p.add_argument("--chunk-len", type=int, default=340, help="Streaming chunk size in 80ms frames.")

@@ -1,6 +1,6 @@
 # Speaker Diarization on CallHome English with NeMo Curator
 
-This tutorial runs [Streaming Sortformer](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2) speaker diarization on the [CallHome English](https://catalog.ldc.upenn.edu/LDC97S42) dataset using NeMo Curator's `InferenceSortformerStage`, then evaluates Diarization Error Rate (DER).
+This tutorial runs [Streaming Sortformer](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1) speaker diarization on the [CallHome English](https://catalog.ldc.upenn.edu/LDC97S42) dataset using NeMo Curator's `InferenceSortformerStage`, then evaluates Diarization Error Rate (DER).
 
 Inference runs in parallel via `Pipeline` + `XennaExecutor` for high throughput.
 
@@ -51,7 +51,7 @@ Key arguments:
 | `--output-dir` | `output` | Root for RTTM files, results JSON, and checkpoints |
 | `--collar` | `0.25` | Collar tolerance (seconds) for DER scoring |
 | `--clean` | off | Remove entire output directory before re-running |
-| `--model` | `nvidia/diar_streaming_sortformer_4spk-v2` | Hugging Face model id |
+| `--model` | `nvidia/diar_streaming_sortformer_4spk-v2.1` | Hugging Face model id |
 
 ### Streaming configuration
 
@@ -102,7 +102,7 @@ pipeline = Pipeline(
     stages=[
         MyAudioReaderStage(data_dir="/path/to/audio"),  # your reader stage
         InferenceSortformerStage(
-            model_name="nvidia/diar_streaming_sortformer_4spk-v2",
+            model_name="nvidia/diar_streaming_sortformer_4spk-v2.1",
             rttm_out_dir="./rttm",
         ),
     ],

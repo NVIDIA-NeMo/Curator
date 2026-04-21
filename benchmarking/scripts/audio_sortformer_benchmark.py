@@ -50,7 +50,7 @@ def _collect_diarization_metrics(tasks: list, elapsed_s: float) -> dict[str, Any
     rtf = elapsed_s / total_audio_duration_s if total_audio_duration_s > 0 else 0.0
 
     return {
-        "is_success": True,
+        "is_success": num_files > 0,
         "num_files_processed": num_files,
         "exec_time_s": round(elapsed_s, 2),
         "total_audio_duration_s": round(total_audio_duration_s, 2),
@@ -104,6 +104,13 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     )
 
     return {
+        "params": {
+            "executor": executor,
+            "manifest_path": manifest_path,
+            "model_name": model_name,
+            "gpus": gpus,
+            "rttm_out_dir": rttm_out_dir,
+        },
         "metrics": metrics,
         "tasks": results,
     }
@@ -115,7 +122,7 @@ def main() -> int:
     parser.add_argument("--manifest-path", required=True, help="Path to input JSONL manifest")
     parser.add_argument(
         "--model-name",
-        default="nvidia/diar_streaming_sortformer_4spk-v2",
+        default="nvidia/diar_streaming_sortformer_4spk-v2.1",
         help="HF Sortformer model id",
     )
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
