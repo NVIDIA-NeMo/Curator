@@ -25,20 +25,19 @@ Ported from Speaker's faith_eval.py with Curator-native interfaces.
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import json
-import re
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pandas as pd
-import yaml
 from loguru import logger
 
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch
+
+from ._async_utils import run_async_safe
+from ._prompts import get_language_name, load_prompt_template
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
@@ -55,18 +54,6 @@ _SCORE_COLUMNS = [
     "faith_handling_of_format",
     "faith_avg",
 ]
-
-
-def _load_prompt_template() -> tuple[str, str]:
-    """Load the FAITH evaluation prompt template from the bundled YAML file.
-
-    Returns:
-        Tuple of (system_prompt, user_template) strings.
-    """
-    prompt_path = Path(__file__).parent / "prompts" / "faith_eval.yaml"
-    with open(prompt_path, encoding="utf-8") as f:
-        prompts = yaml.safe_load(f)
-    return prompts["system"], prompts["user"]
 
 
 @dataclass
@@ -114,8 +101,6 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         scoring if the column is absent.
     generation_config : GenerationConfig | None
         LLM generation parameters. Defaults to ``temperature=0.0, max_tokens=256``.
-    prompt_template : str
-        Unused reserved field (prompts are loaded from YAML).
     """
 
     name: str = "FaithEvalFilter"
@@ -129,7 +114,6 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     filter_enabled: bool = True
     segment_level: bool = False
     generation_config: GenerationConfig | None = None
-    prompt_template: str = ""
     max_concurrent_requests: int = 64
 
     # -- internal state (not constructor args) ---------------------------------
@@ -149,7 +133,13 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], [self.source_text_field, self.translated_text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], list(_SCORE_COLUMNS)
+        # process() always writes faith_parse_failed, and additionally writes
+        # faith_segment_scores when segment_level=True.  Declare both so the
+        # stage contract matches what downstream stages can rely on.
+        out_cols = list(_SCORE_COLUMNS) + ["faith_parse_failed"]
+        if self.segment_level:
+            out_cols.append("faith_segment_scores")
+        return ["data"], out_cols
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Initialize the LLM client and load prompt templates.
@@ -159,12 +149,13 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         runs on the driver, while ``setup()`` runs on the worker.
         """
         if not self._initialized:
-            # Load prompt templates from YAML on the worker
-            self._system_prompt, self._user_template = _load_prompt_template()
+            self._system_prompt, self._user_template = load_prompt_template("faith_eval.yaml")
 
-            # Default generation config for deterministic scoring
             if self.generation_config is None:
-                self.generation_config = GenerationConfig(temperature=0.0, max_tokens=256)
+                self.generation_config = GenerationConfig(
+                    temperature=0.0,
+                    max_tokens=256,
+                )
 
             if self.client is not None:
                 self.client.setup()
@@ -202,8 +193,9 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             self.segment_level and "_seg_translation_pairs" in df.columns
         )
 
+        parse_failed_flags: list[bool]
         if use_segment_scoring:
-            all_scores, segment_scores_json = self._score_segments(df)
+            all_scores, segment_scores_json, parse_failed_flags = self._score_segments(df)
             df["faith_segment_scores"] = segment_scores_json
         else:
             if self.segment_level:
@@ -213,7 +205,9 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
                 )
             # Whole-document scoring (original behaviour)
             responses = self._score_all(df)
-            all_scores = [self._extract_scores_from_json(r) for r in responses]
+            parsed = [self._extract_scores_from_json(r) for r in responses]
+            all_scores = [p[0] for p in parsed]
+            parse_failed_flags = [p[1] for p in parsed]
 
         # Attach per-dimension score columns
         df["faith_fluency"] = [s["Fluency"] for s in all_scores]
@@ -221,18 +215,40 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         df["faith_idiomaticity"] = [s["Idiomaticity"] for s in all_scores]
         df["faith_terminology"] = [s["Terminology"] for s in all_scores]
         df["faith_handling_of_format"] = [s["Handling_of_Format"] for s in all_scores]
-        df["faith_avg"] = df[
-            ["faith_fluency", "faith_accuracy", "faith_idiomaticity", "faith_terminology", "faith_handling_of_format"]
-        ].mean(axis=1)
+
+        # "zero means not applicable": compute faith_avg as the mean of the
+        # non-zero per-dimension scores for that row.  If every dimension is
+        # zero, faith_avg is 0.0.  Both doc-level and segment-level paths
+        # route through ``_compute_faith_avg`` so the semantics stay in
+        # lockstep.  We feed the FAITH_KEYS-keyed ``all_scores`` dicts in
+        # directly rather than re-reading the score columns we just wrote,
+        # so the helper is the single source of truth for both paths.
+        df["faith_avg"] = [self._compute_faith_avg(s) for s in all_scores]
+
+        # Track rows where the LLM response could not be parsed as JSON so
+        # downstream users can distinguish genuinely low-quality translations
+        # from scoring-pipeline failures.
+        df["faith_parse_failed"] = parse_failed_flags
 
         # Log average scores across the batch
         avg_batch_scores = {col: round(df[col].mean(), 3) for col in _SCORE_COLUMNS}
         logger.info("FaithEvalFilter: average batch scores: {}", avg_batch_scores)
 
-        # Filter rows below threshold (when enabled)
+        parse_failure_count = int(df["faith_parse_failed"].sum())
+        if parse_failure_count:
+            logger.warning(
+                "FaithEvalFilter: {} of {} responses failed JSON parsing; "
+                "these rows are preserved (not filtered as 'low quality')",
+                parse_failure_count,
+                len(df),
+            )
+
+        # Filter rows below threshold (when enabled).  Parse-failed rows are
+        # always retained so users can debug LLM-side bugs.
         if self.filter_enabled:
             pre_filter_count = len(df)
-            df = df[df["faith_avg"] >= self.threshold].reset_index(drop=True)
+            keep_mask = (df["faith_avg"] >= self.threshold) | df["faith_parse_failed"]
+            df = df[keep_mask].reset_index(drop=True)
             num_filtered = pre_filter_count - len(df)
             logger.info(
                 "FaithEvalFilter: filtered {}/{} documents below threshold {}",
@@ -254,6 +270,28 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     # ------------------------------------------------------------------
     # Per-segment scoring
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _compute_faith_avg(scores: dict) -> float:
+        """Compute ``faith_avg`` as the mean of non-zero per-dimension scores.
+
+        Follows the "zero means not applicable" convention: dimensions
+        scored as ``0.0`` are excluded from the average.  If every
+        dimension is zero, returns ``0.0``.
+
+        Single source of truth for both doc-level and segment-level paths
+        so the semantics stay in lockstep.
+
+        Parameters
+        ----------
+        scores : dict
+            Dict keyed by :data:`FAITH_KEYS` (missing keys treated as 0).
+        """
+        values = [float(scores.get(k, 0.0)) for k in FAITH_KEYS]
+        non_zero = [v for v in values if v > 0]
+        if not non_zero:
+            return 0.0
+        return float(sum(non_zero) / len(non_zero))
 
     @staticmethod
     def _average_scores(segment_scores: list[dict]) -> dict:
@@ -285,7 +323,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             averaged[key] = round(sum(values) / len(values), 2) if values else 0.0
         return averaged
 
-    def _score_segments(self, df: pd.DataFrame) -> tuple[list[dict], list[str]]:
+    def _score_segments(self, df: pd.DataFrame) -> tuple[list[dict], list[str], list[bool]]:
         """Score each document by evaluating its individual segment pairs.
 
         Reads ``_seg_translation_pairs`` (JSON-serialized list of
@@ -299,11 +337,12 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         Returns
         -------
-        tuple[list[dict], list[str]]
-            ``(doc_scores, segment_scores_json)`` where *doc_scores* is a
-            list of averaged score dicts (one per row) and
+        tuple[list[dict], list[str], list[bool]]
+            ``(doc_scores, segment_scores_json, parse_failed_flags)`` where
+            *doc_scores* is a list of averaged score dicts (one per row),
             *segment_scores_json* is a list of JSON-serialized per-segment
-            score lists (one per row).
+            score lists (one per row), and *parse_failed_flags* marks rows
+            where at least one segment response failed to parse as JSON.
         """
         # Flatten all segment pairs across all documents for bulk LLM scoring
         all_pairs: list[tuple[str, str]] = []      # (src, tgt)
@@ -311,7 +350,14 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         for _, row in df.iterrows():
             raw = row["_seg_translation_pairs"]
-            pairs: list[dict] = json.loads(raw) if isinstance(raw, str) else raw
+            # Tolerant parsing: rows filled in by MergeSkippedStage may carry
+            # an empty string (or None) for skipped/untranslated documents.
+            # ``json.loads("")`` would crash -- treat empty/None as "no pairs".
+            if isinstance(raw, str):
+                raw_stripped = raw.strip()
+                pairs: list[dict] = json.loads(raw_stripped) if raw_stripped else []
+            else:
+                pairs = raw or []
             doc_segment_counts.append(len(pairs))
             for pair in pairs:
                 all_pairs.append((pair["src"], pair["tgt"]))
@@ -324,49 +370,43 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
         # Score all segments in bulk
+        all_segment_scores: list[dict] = []
+        all_segment_parse_failed: list[bool] = []
         if total_segments > 0:
             segment_df = pd.DataFrame(
                 {self.source_text_field: [p[0] for p in all_pairs],
                  self.translated_text_field: [p[1] for p in all_pairs]},
             )
             responses = self._score_all(segment_df)
-            all_segment_scores = [self._extract_scores_from_json(r) for r in responses]
-        else:
-            all_segment_scores = []
+            for r in responses:
+                scores, failed = self._extract_scores_from_json(r)
+                all_segment_scores.append(scores)
+                all_segment_parse_failed.append(failed)
 
         # Split back per-document and average
         doc_scores: list[dict] = []
         segment_scores_json: list[str] = []
+        parse_failed_flags: list[bool] = []
         offset = 0
         for count in doc_segment_counts:
             seg_scores = all_segment_scores[offset: offset + count]
+            seg_failed = all_segment_parse_failed[offset: offset + count]
             offset += count
             averaged = self._average_scores(seg_scores)
             doc_scores.append(averaged)
             segment_scores_json.append(json.dumps(seg_scores, ensure_ascii=False))
+            parse_failed_flags.append(any(seg_failed))
 
-        return doc_scores, segment_scores_json
+        return doc_scores, segment_scores_json, parse_failed_flags
 
     # ------------------------------------------------------------------
     # LLM interaction helpers
     # ------------------------------------------------------------------
 
-    def _get_language_name(self, lang_code: str) -> str:
-        """Convert ISO 639-1 code to full language name.
-
-        Falls back to the raw code if iso639 is not available.
-        """
-        try:
-            import iso639
-
-            return iso639.Lang(lang_code).name
-        except Exception:
-            return lang_code
-
     def _build_messages(self, source_text: str, translated_text: str) -> list[dict]:
         """Build the chat messages for a single FAITH evaluation request."""
-        source_language = self._get_language_name(self.source_lang)
-        target_language = self._get_language_name(self.target_lang)
+        source_language = get_language_name(self.source_lang)
+        target_language = get_language_name(self.target_lang)
         return [
             {
                 "role": "system",
@@ -392,16 +432,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         Handles event-loop edge cases (e.g. being called from within an
         existing async context such as a Ray async actor).
         """
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            # No loop running -- normal path
-            return asyncio.run(self._score_all_async(df))
-
-        # Already inside an event loop -- offload to a thread
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(asyncio.run, self._score_all_async(df))
-            return future.result()
+        return run_async_safe(lambda: self._score_all_async(df))
 
     async def _score_all_async(self, df: pd.DataFrame) -> list[str]:
         """Issue concurrent LLM requests for every row.
@@ -449,27 +480,106 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _extract_scores_from_json(text: str) -> dict:
+    def _extract_json_object(text: str) -> str | None:
+        """Find and return the first balanced ``{...}`` JSON object in *text*.
+
+        Walks the string counting ``{``/``}`` pairs, respecting string
+        literals so that braces inside quoted strings do not affect the
+        balance *and* do not anchor the scan.  For example, in
+        ``'message: "{pre}" scores: {"Fluency": 4}'`` the first ``{`` lives
+        inside a string literal and must be ignored; the real object starts
+        at the second ``{``.
+
+        Supports nested objects (e.g. ``{"scores": {"Fluency": 4, ...}}``).
+
+        Returns:
+            Substring from the first real ``{`` to its matching ``}``
+            inclusive, or ``None`` if no balanced object can be found.
+        """
+        # First pass: find the first ``{`` that lies *outside* any string
+        # literal.  Tracking ``in_string``/``escape`` from index 0 ensures
+        # braces inside quoted strings do not anchor the scan.
+        start = -1
+        in_string = False
+        escape = False
+        for i, ch in enumerate(text):
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+            else:
+                if ch == '"':
+                    in_string = True
+                elif ch == "{":
+                    start = i
+                    break
+        if start == -1:
+            return None
+
+        # Second pass: balanced brace walk from ``start``.
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+            else:
+                if ch == '"':
+                    in_string = True
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return text[start : i + 1]
+        return None
+
+    @classmethod
+    def _extract_scores_from_json(cls, text: str) -> tuple[dict, bool]:
         """Extract FAITH scores from an LLM JSON response.
 
-        Searches for the first ``{...}`` block in *text*, parses it as JSON,
-        and normalises the keys to the five FAITH dimensions. Missing keys
-        default to ``0.0``.
+        Finds the first balanced ``{...}`` block in *text* (with support for
+        nested objects), parses it as JSON, and normalises the keys to the
+        five FAITH dimensions. Missing keys default to ``0.0``.
+
+        A score of ``0.0`` follows the "zero means not applicable" convention
+        (see :meth:`_average_scores`).
 
         Ported from ``speaker/src/speaker/core/translate/faith_eval.py``
         ``FaithEvaluationTask.extract_scores_from_json``.
+
+        Returns:
+            Tuple of ``(scores, parse_failed)`` where ``scores`` is a dict
+            keyed by :data:`FAITH_KEYS` (values float) and ``parse_failed``
+            is ``True`` iff no JSON object could be located or it failed to
+            parse / validate.
         """
-        json_match = re.search(r"\{[^}]*\}", text, re.DOTALL)
-        if json_match:
-            try:
-                scores_dict = json.loads(json_match.group(0))
-                normalized: dict[str, float] = {}
-                for key in FAITH_KEYS:
-                    if key in scores_dict:
-                        normalized[key] = float(scores_dict[key])
-                    else:
-                        normalized[key] = 0.0
-                return normalized
-            except (json.JSONDecodeError, ValueError):
-                return {k: 0.0 for k in FAITH_KEYS}
-        return {k: 0.0 for k in FAITH_KEYS}
+        zero_scores = {k: 0.0 for k in FAITH_KEYS}
+        candidate = cls._extract_json_object(text)
+        if candidate is None:
+            return zero_scores, True
+        try:
+            scores_dict = json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            return zero_scores, True
+        if not isinstance(scores_dict, dict):
+            return zero_scores, True
+        normalized: dict[str, float] = {}
+        for key in FAITH_KEYS:
+            if key in scores_dict:
+                try:
+                    normalized[key] = float(scores_dict[key])
+                except (TypeError, ValueError):
+                    normalized[key] = 0.0
+            else:
+                normalized[key] = 0.0
+        return normalized, False

@@ -109,6 +109,29 @@ class TestTranslationPipelineDecompose:
         assert isinstance(faith_stage, FaithEvalFilter)
         assert faith_stage.model_name == "translate-model"
 
+    def test_decompose_structured_faith_uses_helper_columns(
+        self,
+        mock_client: MockAsyncLLMClient,
+    ) -> None:
+        """Structured paths should route FAITH through reassembly helper columns."""
+        pipeline = TranslationPipeline(
+            source_lang="en",
+            target_lang="de",
+            client=mock_client,
+            model_name="translate-model",
+            text_field="messages.*.content",
+            enable_faith_eval=True,
+        )
+        stages = pipeline.decompose()
+
+        assert len(stages) == 5
+        assert isinstance(stages[2], ReassemblyStage)
+        assert stages[2].emit_faith_helpers is True
+        assert isinstance(stages[3], FaithEvalFilter)
+        assert stages[3].source_text_field == "_faith_source_text"
+        assert stages[3].translated_text_field == "_faith_translated_text"
+        assert isinstance(stages[4], OutputFormattingStage)
+
     def test_segmentation_stage_inherits_config(self, mock_client: MockAsyncLLMClient) -> None:
         """SegmentationStage receives text_field and source_lang from the pipeline."""
         pipeline = TranslationPipeline(
@@ -157,6 +180,8 @@ class TestTranslationPipelineDecompose:
         assert isinstance(reas, ReassemblyStage)
         assert reas.text_field == "body"
         assert reas.output_field == "translated_body"
+        assert reas.replace_source_fields is True
+        assert reas.emit_metadata_helpers is False
 
     def test_composite_stage_process_raises(self, mock_client: MockAsyncLLMClient) -> None:
         """CompositeStage.process() must raise RuntimeError (never executed directly)."""
@@ -198,42 +223,76 @@ class TestFaithEvalFilter:
     def test_extract_scores_valid_json(self) -> None:
         """Valid JSON with all 5 keys is parsed correctly."""
         text = '{"Fluency": 4, "Accuracy": 5, "Idiomaticity": 3, "Terminology": 4, "Handling_of_Format": 5}'
-        scores = FaithEvalFilter._extract_scores_from_json(text)
+        scores, parse_failed = FaithEvalFilter._extract_scores_from_json(text)
         assert scores["Fluency"] == 4.0
         assert scores["Accuracy"] == 5.0
         assert scores["Idiomaticity"] == 3.0
         assert scores["Terminology"] == 4.0
         assert scores["Handling_of_Format"] == 5.0
+        assert parse_failed is False
 
     def test_extract_scores_with_surrounding_text(self) -> None:
         """JSON embedded in explanatory text is still extracted."""
         text = 'Here are the scores:\n{"Fluency": 3, "Accuracy": 4, "Idiomaticity": 2, "Terminology": 3, "Handling_of_Format": 4}\nDone.'
-        scores = FaithEvalFilter._extract_scores_from_json(text)
+        scores, parse_failed = FaithEvalFilter._extract_scores_from_json(text)
         assert scores["Fluency"] == 3.0
+        assert parse_failed is False
 
     def test_extract_scores_missing_keys(self) -> None:
         """Missing keys default to 0.0."""
         text = '{"Fluency": 5, "Accuracy": 4}'
-        scores = FaithEvalFilter._extract_scores_from_json(text)
+        scores, parse_failed = FaithEvalFilter._extract_scores_from_json(text)
         assert scores["Fluency"] == 5.0
         assert scores["Accuracy"] == 4.0
         assert scores["Idiomaticity"] == 0.0
         assert scores["Terminology"] == 0.0
         assert scores["Handling_of_Format"] == 0.0
+        # Successful parse, just missing keys
+        assert parse_failed is False
 
     def test_extract_scores_no_json(self) -> None:
-        """When no JSON is found, all scores are 0.0."""
+        """When no JSON is found, all scores are 0.0 and parse_failed is True."""
         text = "I cannot evaluate this translation."
-        scores = FaithEvalFilter._extract_scores_from_json(text)
+        scores, parse_failed = FaithEvalFilter._extract_scores_from_json(text)
+        for key in FAITH_KEYS:
+            assert scores[key] == 0.0
+        assert parse_failed is True
+
+    def test_extract_scores_invalid_json(self) -> None:
+        """Malformed JSON falls back to all-zero scores and parse_failed is True."""
+        text = "{Fluency: bad}"
+        scores, parse_failed = FaithEvalFilter._extract_scores_from_json(text)
+        for key in FAITH_KEYS:
+            assert scores[key] == 0.0
+        assert parse_failed is True
+
+    def test_extract_scores_nested_json(self) -> None:
+        """Nested JSON objects (e.g. {"scores": {...}}) are balanced and parsed."""
+        text = (
+            'Response: {"scores": {"Fluency": 4, "Accuracy": 5, '
+            '"Idiomaticity": 3, "Terminology": 4, "Handling_of_Format": 5}}'
+        )
+        # The outer object is the match; FAITH keys are nested one deep so
+        # they won't be picked up at the top level, but parse_failed should
+        # still be False (we found and decoded valid JSON).
+        scores, parse_failed = FaithEvalFilter._extract_scores_from_json(text)
+        assert parse_failed is False
+        # All keys default to 0.0 since they live under "scores"
         for key in FAITH_KEYS:
             assert scores[key] == 0.0
 
-    def test_extract_scores_invalid_json(self) -> None:
-        """Malformed JSON falls back to all-zero scores."""
-        text = "{Fluency: bad}"
-        scores = FaithEvalFilter._extract_scores_from_json(text)
-        for key in FAITH_KEYS:
-            assert scores[key] == 0.0
+    def test_extract_scores_brace_inside_string_literal(self) -> None:
+        """A ``{`` that lives inside a string literal must not anchor the scan.
+
+        Regression test for F4: previously ``text.find('{')`` picked the brace
+        inside ``"{pre}"``, which produced an unbalanced candidate and failed
+        to parse -- yielding all-zero scores on otherwise valid responses.
+        """
+        text = 'message: "{pre}" scores: {"Fluency": 4, "Accuracy": 5}'
+        scores, parse_failed = FaithEvalFilter._extract_scores_from_json(text)
+        assert parse_failed is False
+        assert scores["Fluency"] == 4.0
+        assert scores["Accuracy"] == 5.0
 
     def test_filter_process_drops_low_scores(self, mock_client: MockAsyncLLMClient) -> None:
         """Rows with faith_avg below threshold are dropped."""
@@ -614,10 +673,9 @@ class TestFaithEvalFilterEnabled:
     def test_pipeline_with_faith_eval_score_only(self, mock_client: MockAsyncLLMClient) -> None:
         """Pipeline with enable_faith_eval=True builds stages correctly.
 
-        The FaithEvalFilter stage in the decomposed pipeline should respect
-        the filter_enabled setting.  Since TranslationPipeline does not
-        currently expose filter_enabled, we verify the stage can be configured
-        independently.
+        TranslationPipeline exposes ``filter_enabled`` and forwards it to
+        :class:`FaithEvalFilter`.  The default is ``True`` (drop rows below
+        threshold).
         """
         pipeline = TranslationPipeline(
             source_lang="en",
@@ -633,6 +691,19 @@ class TestFaithEvalFilterEnabled:
         assert isinstance(faith_stage, FaithEvalFilter)
         # Default is filter_enabled=True
         assert faith_stage.filter_enabled is True
+
+        # Explicitly passing filter_enabled=False is forwarded.
+        pipeline2 = TranslationPipeline(
+            source_lang="en",
+            target_lang="de",
+            client=mock_client,
+            model_name="test-model",
+            enable_faith_eval=True,
+            filter_enabled=False,
+        )
+        faith_stage2 = pipeline2.decompose()[3]
+        assert isinstance(faith_stage2, FaithEvalFilter)
+        assert faith_stage2.filter_enabled is False
 
 
 class TestDryRunMode:
@@ -960,6 +1031,55 @@ class TestOutputFormattingStage:
 
         assert "translated_text" in result_df.columns
         assert "translation_metadata" in result_df.columns
+
+    def test_raw_mode_uses_reassembly_helper_maps(self) -> None:
+        """Raw mode should prefer helper maps over the flat translated_text fallback."""
+        stage = OutputFormattingStage(
+            output_mode="raw",
+            target_lang="de",
+            output_field="translated_text",
+        )
+
+        df = pd.DataFrame(
+            {
+                "translated_text": ["ignored fallback"],
+                "_translation_map": [json.dumps({"question": "Hallo"})],
+                "_segmented_translation_map": [
+                    json.dumps({"question": [{"src": "Hello", "tgt": "Hallo"}]})
+                ],
+            }
+        )
+        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        result = stage.process(batch)
+        result_df = result.to_pandas()
+
+        meta = json.loads(result_df["translation_metadata"].iloc[0])
+        assert meta["translation"]["question"] == "Hallo"
+        assert meta["segmented_translation"]["question"][0]["tgt"] == "Hallo"
+        assert "_translation_map" not in result_df.columns
+        assert "_segmented_translation_map" not in result_df.columns
+
+    def test_replaced_mode_drops_faith_helper_columns(self) -> None:
+        """Formatting should clean up FAITH helper columns when present."""
+        stage = OutputFormattingStage(
+            output_mode="replaced",
+            target_lang="de",
+            output_field="translated_text",
+        )
+
+        df = pd.DataFrame(
+            {
+                "translated_text": ["Hallo."],
+                "_faith_source_text": ["Hello."],
+                "_faith_translated_text": ["Hallo."],
+            }
+        )
+        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        result = stage.process(batch)
+        result_df = result.to_pandas()
+
+        assert "_faith_source_text" not in result_df.columns
+        assert "_faith_translated_text" not in result_df.columns
 
     def test_replaced_mode_no_metadata(self) -> None:
         """In 'replaced' mode, no translation_metadata column is added."""

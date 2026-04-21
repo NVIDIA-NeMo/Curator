@@ -22,7 +22,10 @@ import pandas as pd
 import pytest
 
 from nemo_curator.stages.text.translation.segmentation import SegmentationStage
+from nemo_curator.stages.text.translation.translate import TranslateStage
 from nemo_curator.tasks import DocumentBatch
+
+from .conftest import MockAsyncLLMClient
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +154,21 @@ class TestCoarseSegmentation:
         assert template[1] == "---"  # non-translatable
         assert template[2] == "***"  # non-translatable
         assert template[3] is None   # "Content" -> translatable
+
+    def test_coarse_json_blob_non_translatable(self) -> None:
+        """Machine-readable JSON lines should be preserved, not translated."""
+        text = 'Before\n{"tool":"lookup","payload":{"model":"DeepSeek V3"}}\nAfter'
+        stage = SegmentationStage(mode="coarse")
+        result = stage.process(_make_batch([text]))
+        df = result.to_pandas()
+
+        assert list(df["_seg_segments"]) == ["Before", "After"]
+
+        meta = _seg_metadata(result)
+        template = meta["template"]
+        assert template[0] is None
+        assert template[1] == '{"tool":"lookup","payload":{"model":"DeepSeek V3"}}'
+        assert template[2] is None
 
 
 # ---------------------------------------------------------------------------
@@ -287,3 +305,89 @@ class TestSegmentationGeneral:
 
         doc2 = df[df["_seg_doc_id"] == 2]["_seg_segments"].tolist()
         assert doc2 == ["Doc three line X", "Doc three line Y", "Doc three line Z"]
+
+
+# ---------------------------------------------------------------------------
+# F1 regression: passthrough + translatability filter in TranslateStage
+# ---------------------------------------------------------------------------
+
+
+class TestPassthroughTranslatabilityFilter:
+    """Regression tests for F1.
+
+    Segments emitted by the passthrough branch of SegmentationStage that
+    contain no translatable content (pure code / numeric / XML-tag text)
+    must flow through TranslateStage unchanged and without triggering an
+    LLM call.
+    """
+
+    def test_passthrough_pure_code_skips_llm(self) -> None:
+        """A code-only passthrough segment must NOT call the LLM."""
+        class CountingMockClient(MockAsyncLLMClient):
+            def __init__(self) -> None:
+                super().__init__()
+                self.call_count = 0
+
+            async def _query_model_impl(self, **kwargs):  # type: ignore[override]
+                self.call_count += 1
+                return await super()._query_model_impl(**kwargs)
+
+        client = CountingMockClient()
+        stage = TranslateStage(
+            client=client,
+            model_name="test-model",
+            source_lang="en",
+            target_lang="zh",
+            backend_type="llm",
+        )
+        stage._system_prompt = "You are a translator."
+        stage._user_template = "Translate {source_lang} to {target_lang}: {src}"
+        stage._initialized = True
+
+        # Pure-numeric and tag-only content: no alpha chars / tag-shaped.
+        # ``is_line_translatable_content`` returns False for both, so
+        # TranslateStage should short-circuit without calling the LLM.
+        code_block = "12345\n67890"
+        tag_only = "<hr/>"
+        json_blob = '{"tool":"lookup","payload":{"model":"DeepSeek V3"}}'
+        df = pd.DataFrame({"_seg_segments": [code_block, tag_only, json_blob]})
+        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+
+        result = stage.process(batch)
+        result_df = result.to_pandas()
+
+        # LLM must not have been called.
+        assert client.call_count == 0
+        # Segments pass through verbatim so reassembly offsets stay aligned.
+        assert result_df["_translated"].tolist() == [code_block, tag_only, json_blob]
+
+    def test_passthrough_real_text_still_calls_llm(self) -> None:
+        """A passthrough segment with translatable content still calls the LLM."""
+        class CountingMockClient(MockAsyncLLMClient):
+            def __init__(self) -> None:
+                super().__init__()
+                self.call_count = 0
+
+            async def _query_model_impl(self, **kwargs):  # type: ignore[override]
+                self.call_count += 1
+                return await super()._query_model_impl(**kwargs)
+
+        client = CountingMockClient()
+        stage = TranslateStage(
+            client=client,
+            model_name="test-model",
+            source_lang="en",
+            target_lang="zh",
+            backend_type="llm",
+        )
+        stage._system_prompt = "You are a translator."
+        stage._user_template = "Translate {source_lang} to {target_lang}: {src}"
+        stage._initialized = True
+
+        df = pd.DataFrame({"_seg_segments": ["Hello world"]})
+        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        result = stage.process(batch)
+        result_df = result.to_pandas()
+
+        assert client.call_count == 1
+        assert "mock translation" in result_df["_translated"].iloc[0]

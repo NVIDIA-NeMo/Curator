@@ -30,18 +30,12 @@ Dependencies:
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 
 from loguru import logger
 
+from ._retry import retry_with_backoff
 from .base import TranslationBackend
-
-# Suppress urllib3 connection-pool warnings under high concurrency.
-logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
-
-# Retry configuration
-MAX_RETRIES = 5
 
 
 class GoogleTranslationBackend(TranslationBackend):
@@ -110,7 +104,7 @@ class GoogleTranslationBackend(TranslationBackend):
 
         logger.info(
             "Google Cloud Translation client initialized "
-            "(api_version=%s, project=%s)",
+            "(api_version={}, project={})",
             self._api_version,
             self._project_id or "none (v2 mode)",
         )
@@ -137,7 +131,7 @@ class GoogleTranslationBackend(TranslationBackend):
             return False
         except Exception as exc:
             logger.warning(
-                "Google Cloud Translation health check failed: %s",
+                "Google Cloud Translation health check failed: {}",
                 exc,
             )
             return False
@@ -200,43 +194,44 @@ class GoogleTranslationBackend(TranslationBackend):
 
         The Google client is synchronous, so the actual API call is wrapped
         in ``run_in_executor``.
+
+        Non-retryable errors (400-class: invalid arguments, permission
+        denied, etc.) short-circuit the retry loop so misconfigurations
+        surface immediately instead of hanging on exponential backoff.
         """
         if not text or not text.strip():
             return ""
 
         loop = asyncio.get_running_loop()
 
-        for attempt in range(MAX_RETRIES):
-            try:
-                async with self._semaphore:
-                    return await loop.run_in_executor(
-                        None,
-                        self._translate_single_sync,
-                        text,
-                        source_lang,
-                        target_lang,
-                    )
-            except Exception as exc:
-                if attempt < MAX_RETRIES - 1:
-                    wait_time = 2 ** attempt
-                    logger.warning(
-                        "Google API error (attempt %d/%d): %s. "
-                        "Retrying in %ds...",
-                        attempt + 1,
-                        MAX_RETRIES,
-                        exc,
-                        wait_time,
-                    )
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.exception(
-                        "Google translation failed after %d attempts",
-                        MAX_RETRIES,
-                    )
-                    raise
+        # Import google.api_core exceptions lazily so the module still imports
+        # cleanly when google-cloud-translate is not installed.
+        try:
+            from google.api_core import exceptions as gcp_exc
 
-        # Should not be reached, but satisfy type-checkers.
-        return ""  # pragma: no cover
+            _NON_RETRYABLE: tuple[type[BaseException], ...] = (
+                gcp_exc.InvalidArgument,
+                gcp_exc.PermissionDenied,
+                gcp_exc.NotFound,
+                gcp_exc.Unauthenticated,
+                gcp_exc.FailedPrecondition,
+            )
+        except ImportError:
+            _NON_RETRYABLE = ()
+
+        async def _attempt() -> str:
+            async with self._semaphore:
+                return await loop.run_in_executor(
+                    None,
+                    self._translate_single_sync,
+                    text,
+                    source_lang,
+                    target_lang,
+                )
+
+        return await retry_with_backoff(
+            _attempt, backend_name="Google", non_retryable=_NON_RETRYABLE
+        )
 
     def _translate_single_sync(
         self,

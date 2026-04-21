@@ -12,14 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Output utility functions for the translation pipeline.
-
-Provides helpers for:
-- Building segment-level source/target pairs (Gap 3.2)
-- Constructing structured translation metadata (Gap 4.2)
-- Merging FAITH scores into metadata (Gap 5.2)
-- Reconstructing OpenAI-messages format with translations (Gap 5.4)
-"""
+"""Output helpers for translation metadata and message reconstruction."""
 
 from __future__ import annotations
 
@@ -28,70 +21,35 @@ import json
 from typing import Any
 
 
-def build_segment_pairs(segments: list[str], translations: list[str]) -> str:
-    """Build JSON-serialized list of src/tgt pairs.
-
-    Pairs each source segment with its corresponding translation.  If the
-    lists have different lengths, pairing stops at the shorter list.
-
-    Args:
-        segments: Source-language segments.
-        translations: Target-language translations (same order as *segments*).
-
-    Returns:
-        JSON string encoding a list of ``{"src": ..., "tgt": ...}`` dicts.
-
-    Example::
-
-        >>> build_segment_pairs(["Hello", "World"], ["Hola", "Mundo"])
-        '[{"src": "Hello", "tgt": "Hola"}, {"src": "World", "tgt": "Mundo"}]'
-    """
-    pairs = [{"src": s, "tgt": t} for s, t in zip(segments, translations)]
-    return json.dumps(pairs, ensure_ascii=False)
-
-
 def build_translation_metadata(
     target_lang: str,
-    translated_text: str,
+    translated_text: str | None = None,
     segment_pairs_json: str | None = None,
-    faith_scores: dict[str, Any] | None = None,
+    translation_map: dict[str, Any] | None = None,
+    segmented_translation_map: dict[str, Any] | None = None,
 ) -> str:
-    """Build a JSON-serialized translation metadata structure.
+    """Build Speaker-style translation metadata as JSON."""
+    if translation_map is None:
+        meta_translation: dict[str, Any] = {"content": translated_text or ""}
+    else:
+        meta_translation = translation_map
 
-    Follows Speaker's output convention::
+    if segmented_translation_map is None:
+        if segment_pairs_json is not None:
+            try:
+                meta_segmented: Any = json.loads(segment_pairs_json)
+            except (json.JSONDecodeError, TypeError):
+                meta_segmented = []
+        else:
+            meta_segmented = []
+    else:
+        meta_segmented = segmented_translation_map
 
-        {
-            "target_lang": "hi",
-            "translation": {"content": "reassembled translated text"},
-            "segmented_translation": [{"src": "...", "tgt": "..."}, ...],
-            "faith_scores": { ... }          # optional
-        }
-
-    Args:
-        target_lang: ISO 639-1 target language code.
-        translated_text: The fully reassembled translated text.
-        segment_pairs_json: Optional JSON string of segment pairs (from
-            :func:`build_segment_pairs`).  Decoded and embedded as a list.
-        faith_scores: Optional dict of FAITH evaluation scores to include.
-
-    Returns:
-        JSON string encoding the metadata structure.
-    """
     meta: dict[str, Any] = {
         "target_lang": target_lang,
-        "translation": {"content": translated_text},
+        "translation": meta_translation,
+        "segmented_translation": meta_segmented,
     }
-
-    if segment_pairs_json is not None:
-        try:
-            meta["segmented_translation"] = json.loads(segment_pairs_json)
-        except (json.JSONDecodeError, TypeError):
-            meta["segmented_translation"] = []
-    else:
-        meta["segmented_translation"] = []
-
-    if faith_scores is not None:
-        meta["faith_scores"] = faith_scores
 
     return json.dumps(meta, ensure_ascii=False)
 
@@ -100,17 +58,7 @@ def merge_faith_scores_into_metadata(
     metadata_json: str,
     faith_scores: dict[str, Any],
 ) -> str:
-    """Merge FAITH evaluation scores into an existing translation metadata JSON.
-
-    Args:
-        metadata_json: JSON string of existing translation metadata (from
-            :func:`build_translation_metadata`).
-        faith_scores: Dict of FAITH scores (e.g.
-            ``{"Fluency": 4.0, "Accuracy": 3.5, ...}``).
-
-    Returns:
-        Updated JSON string with ``"faith_scores"`` key added/overwritten.
-    """
+    """Merge FAITH scores into existing translation metadata."""
     try:
         meta = json.loads(metadata_json)
     except (json.JSONDecodeError, TypeError):
@@ -122,67 +70,63 @@ def merge_faith_scores_into_metadata(
 
 def reconstruct_messages_with_translation(
     original_messages: list[dict[str, Any]],
-    translated_text: str,
+    translated_text: Any,
     field_path: str = "content",
 ) -> list[dict[str, Any]]:
-    """Replace content in messages with translated text, return new messages.
-
-    For OpenAI-format message lists, this replaces the value at *field_path*
-    in each message dict with consecutive portions of *translated_text*.
-
-    When *translated_text* cannot be split into enough parts for all messages,
-    the full translated text is placed into the first message's field and the
-    remaining messages retain their original values.
-
-    Args:
-        original_messages: List of message dicts (e.g.
-            ``[{"role": "user", "content": "Hello"}, ...]``).
-        translated_text: The translated text to insert.  If it contains the
-            separator ``"\\n---\\n"`` it will be split across messages;
-            otherwise the entire string goes into the first message.
-        field_path: Dot-separated path to the field to replace within each
-            message dict (default ``"content"``).
-
-    Returns:
-        Deep copy of *original_messages* with the specified field replaced by
-        translated content.
-    """
+    """Return a copy of messages with translated content inserted."""
     if not original_messages:
         return []
 
     messages = copy.deepcopy(original_messages)
 
-    # Split translated text into per-message parts when a separator is present
-    separator = "\n---\n"
-    if separator in translated_text:
-        parts = translated_text.split(separator)
-    else:
-        parts = [translated_text]
+    structured_messages = _parse_structured_messages(translated_text)
+    if structured_messages is not None:
+        return structured_messages
 
-    # Resolve nested field_path (e.g. "content" or "nested.content")
+    translated_text_str = "" if translated_text is None else str(translated_text)
+
+    separator = "\n---\n"
+    if separator in translated_text_str:
+        parts = translated_text_str.split(separator)
+    else:
+        parts = [translated_text_str]
+
     path_keys = field_path.split(".")
 
     for idx, msg in enumerate(messages):
         if idx < len(parts):
             _set_nested(msg, path_keys, parts[idx])
-        # Messages beyond the available parts keep their original values
 
     return messages
 
 
 def _set_nested(obj: dict[str, Any], keys: list[str], value: Any) -> None:
-    """Set a value in a nested dict following the given key path.
-
-    Args:
-        obj: The dict to modify in place.
-        keys: List of string keys forming the path (e.g. ``["a", "b"]``
-            sets ``obj["a"]["b"]``).
-        value: The value to set at the terminal key.
-    """
+    """Set a nested value when the full path already exists."""
     for key in keys[:-1]:
         if key in obj and isinstance(obj[key], dict):
             obj = obj[key]
         else:
-            return  # path doesn't exist; skip silently
+            return
     if keys:
         obj[keys[-1]] = value
+
+
+def _parse_structured_messages(translated_text: Any) -> list[dict[str, Any]] | None:
+    """Return translated messages when they are already structured."""
+    if isinstance(translated_text, list):
+        if all(isinstance(item, dict) for item in translated_text):
+            return copy.deepcopy(translated_text)
+        return None
+
+    if isinstance(translated_text, str):
+        stripped = translated_text.strip()
+        if not stripped.startswith("["):
+            return None
+        try:
+            parsed = json.loads(stripped)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if isinstance(parsed, list) and all(isinstance(item, dict) for item in parsed):
+            return parsed
+
+    return None
