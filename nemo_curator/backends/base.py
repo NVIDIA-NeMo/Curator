@@ -84,10 +84,8 @@ class BaseStageAdapter:
         cached = self.stage.get_cached_output(tasks)
         if cached is not None:
             from loguru import logger as _logger
-            _logger.info(
-                f"Stage '{self.stage.name}': skipping — cached output found "
-                f"({len(cached)} tasks)"
-            )
+
+            _logger.info(f"Stage '{self.stage.name}': skipping — cached output found ({len(cached)} tasks)")
             return cached
 
         # Calculate input data size for timer
@@ -99,39 +97,8 @@ class BaseStageAdapter:
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
 
-        # ------------------------------------------------------------------
-        # source_files propagation (safety net)
-        # ------------------------------------------------------------------
-        # Guarantee every output task carries source_files, handling:
-        #   - 1:1 transforms that forgot to copy _metadata
-        #   - Fan-out (e.g. ImageReaderStage) — each child inherits parent's source_files
-        #   - Fan-in (N→M) — output gets the union of all inputs' source_files
-        input_source_files: set[str] = set()
-        for task in tasks:
-            input_source_files.update(task._metadata.get("source_files", []))
-
-        if input_source_files:
-            for result in results:
-                existing = set(result._metadata.get("source_files", []))
-                result._metadata["source_files"] = sorted(existing | input_source_files)
-
-        # ------------------------------------------------------------------
-        # Fan-out detection: write expected-count increment for checkpointing
-        # ------------------------------------------------------------------
-        # When a single input task (already tracking source_files) produces N > 1
-        # outputs, this is a secondary fan-out. We write one increment file per
-        # triggering input task so CheckpointManager can compute the total expected
-        # leaf count for that source partition (handles chained fan-outs correctly).
-        if self._write_checkpoint_mgr is not None and len(results) > 1:
-            for input_task in tasks:
-                src: list[str] = input_task._metadata.get("source_files", [])
-                if src:
-                    source_key = "|".join(sorted(src))
-                    self._write_checkpoint_mgr.write_expected_increment(
-                        source_key=source_key,
-                        triggering_task_id=input_task.task_id,
-                        increment=len(results) - 1,
-                    )
+        self._propagate_source_files(tasks, results)
+        self._record_checkpoint_events(tasks, results)
 
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
@@ -143,6 +110,78 @@ class BaseStageAdapter:
             task.add_stage_perf(stage_perf_stats)
 
         return results
+
+    def _propagate_source_files(self, tasks: list[Task], results: list[Task]) -> None:
+        """Stamp source_files onto output tasks without mixing separate source partitions.
+
+        Rules:
+        - Single input: all outputs inherit its source_files (covers fan-out safely).
+        - Multi-input, same partition: propagate the shared source_files.
+        - Multi-input, fan-in (results < inputs): union is intentional (dedup stages).
+        - Multi-input, mixed partitions, non-fan-in: skip to avoid corrupting partition identity.
+        """
+        input_source_files: set[str] = set()
+        for task in tasks:
+            input_source_files.update(task._metadata.get("source_files", []))
+
+        if not input_source_files or not results:
+            return
+
+        if len(tasks) == 1:
+            src = set(tasks[0]._metadata.get("source_files", []))
+            for result in results:
+                existing = set(result._metadata.get("source_files", []))
+                result._metadata["source_files"] = sorted(existing | src)
+            return
+
+        partition_keys = [
+            "|".join(sorted(t._metadata.get("source_files", []))) for t in tasks if t._metadata.get("source_files")
+        ]
+        unique_partitions = set(partition_keys)
+        if len(unique_partitions) <= 1 or len(results) < len(tasks):
+            for result in results:
+                existing = set(result._metadata.get("source_files", []))
+                result._metadata["source_files"] = sorted(existing | input_source_files)
+        else:
+            from loguru import logger as _logger
+
+            _logger.warning(
+                f"Stage '{self.stage.name}': batch contains tasks from "
+                f"{len(unique_partitions)} different source partitions. "
+                "source_files propagation skipped to avoid mixing partition identities. "
+                "Ensure the stage copies _metadata from input to output, or set batch_size=1."
+            )
+
+    def _record_checkpoint_events(self, tasks: list[Task], results: list[Task]) -> None:
+        """Write fan-out increments and filtered-task shards for checkpointing."""
+        if self._write_checkpoint_mgr is None:
+            return
+
+        if len(results) > len(tasks):
+            # True fan-out: only attributable when there is a single input task.
+            if len(tasks) == 1:
+                src_list: list[str] = tasks[0]._metadata.get("source_files", [])
+                if src_list:
+                    self._write_checkpoint_mgr.write_expected_increment(
+                        source_key="|".join(sorted(src_list)),
+                        triggering_task_id=tasks[0].task_id,
+                        increment=len(results) - 1,
+                    )
+            else:
+                from loguru import logger as _logger
+
+                _logger.warning(
+                    f"Stage '{self.stage.name}': fan-out detected from a {len(tasks)}-task batch. "
+                    "Checkpoint increment tracking skipped — set batch_size=1 on fan-out "
+                    "stages to enable accurate resumability for those partitions."
+                )
+
+        if not results:
+            # All inputs were filtered; record each so the partition completion count is reached.
+            for input_task in tasks:
+                src_filtered: list[str] = input_task._metadata.get("source_files", [])
+                if src_filtered:
+                    self._write_checkpoint_mgr.mark_filtered(input_task.task_id, src_filtered)
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup the stage on a node.
@@ -168,9 +207,7 @@ class BaseStageAdapter:
         if checkpoint_path:
             from nemo_curator.utils.checkpoint import CheckpointManager
 
-            storage_options: dict[str, Any] = getattr(
-                self.stage, "_checkpoint_storage_options", {}
-            ) or {}
+            storage_options: dict[str, Any] = getattr(self.stage, "_checkpoint_storage_options", {}) or {}
             self._write_checkpoint_mgr = CheckpointManager(checkpoint_path, storage_options)
 
     def teardown(self) -> None:

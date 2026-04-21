@@ -29,7 +29,7 @@ from nemo_curator.utils.file_utils import get_fs
 def _path_join(base: str, *parts: str) -> str:
     """Join path components, handling both local and remote (s3://, gs://) paths."""
     if "://" in base:
-        return "/".join([base.rstrip("/")] + list(parts))
+        return "/".join([base.rstrip("/"), *list(parts)])
     import os
 
     return os.path.join(base, *parts)
@@ -40,13 +40,15 @@ class CheckpointManager:
 
     Uses sharded files to avoid distributed write conflicts — one file per event:
 
-    - ``completed/{task_id}.json``: written by _CheckpointRecorderStage after each leaf task.
+    - ``completed/{source_key_hash}_{task_id}.json``: written by _CheckpointRecorderStage after each leaf task.
+    - ``filtered/{source_key_hash}_{task_id}.json``: written by BaseStageAdapter when a task is
+      dropped by a filter stage (produces 0 outputs). Counts toward the completion total so
+      partitions with some filtered tasks can still be marked complete.
     - ``expected_increments/{source_key_hash}_{task_id}.json``: written by BaseStageAdapter
-      whenever a stage produces N > 1 outputs from a single input that already has
-      ``source_files``. Each increment file stores ``increment = N - 1``.
+      whenever a single-input stage produces N > 1 outputs. Each increment file stores ``increment = N - 1``.
 
     On load, ``expected[source_key] = 1 + sum(increments_for_source_key)``.
-    ``is_task_completed()`` returns True when ``completed_count >= expected``.
+    ``is_task_completed()`` returns True when ``completed + filtered >= expected``.
 
     This correctly handles chained fan-outs: if Stage1 produces 10 from 1 partition
     and Stage2 produces 3 from each of those 10 batches, the partition is only marked
@@ -57,86 +59,100 @@ class CheckpointManager:
         self.checkpoint_path = checkpoint_path
         self.storage_options = storage_options or {}
         self._completed_path = _path_join(checkpoint_path, "completed")
+        self._filtered_path = _path_join(checkpoint_path, "filtered")
         self._increments_path = _path_join(checkpoint_path, "expected_increments")
         # Populated by load()
         self._expected: dict[str, int] = {}
         self._completed_counts: dict[str, int] = defaultdict(int)
+        self._filtered_counts: dict[str, int] = defaultdict(int)
 
     # ------------------------------------------------------------------
     # Read API
     # ------------------------------------------------------------------
 
-    def load(self) -> "CheckpointManager":
+    def load(self) -> CheckpointManager:
         """Read all shard files from the checkpoint directory.
 
-        Builds ``_expected`` and ``_completed_counts`` in memory.
+        Builds ``_expected``, ``_completed_counts``, and ``_filtered_counts`` in memory.
         Safe to call concurrently with writers (worst case: a newly written shard
         is missed and the task is processed again — never incorrect data).
         """
         fs = get_fs(self.checkpoint_path, self.storage_options)
-
-        # Load expected increments
-        self._expected = {}
-        if fs.exists(self._increments_path):
-            try:
-                increment_files = fs.ls(self._increments_path, detail=False)
-                for fpath in increment_files:
-                    if not str(fpath).endswith(".json"):
-                        continue
-                    try:
-                        with fsspec.open(fpath, "r", **self.storage_options) as f:
-                            data = json.load(f)
-                        source_key = data["source_key"]
-                        increment = int(data["increment"])
-                        self._expected[source_key] = self._expected.get(source_key, 1) + increment
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning(f"Checkpoint: failed to read increment file {fpath}: {e}")
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"Checkpoint: failed to list increment files: {e}")
-
-        # Load completed counts
-        self._completed_counts = defaultdict(int)
-        if fs.exists(self._completed_path):
-            try:
-                completed_files = fs.ls(self._completed_path, detail=False)
-                for fpath in completed_files:
-                    if not str(fpath).endswith(".json"):
-                        continue
-                    try:
-                        with fsspec.open(fpath, "r", **self.storage_options) as f:
-                            data = json.load(f)
-                        source_key = data["source_key"]
-                        self._completed_counts[source_key] += 1
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning(f"Checkpoint: failed to read completed file {fpath}: {e}")
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"Checkpoint: failed to list completed files: {e}")
+        self._expected = self._load_increments(fs)
+        self._completed_counts = self._load_shard_counts(fs, self._completed_path, "completed")
+        self._filtered_counts = self._load_shard_counts(fs, self._filtered_path, "filtered")
 
         total_completed = sum(self._completed_counts.values())
+        total_filtered = sum(self._filtered_counts.values())
         n_fanout_keys = sum(1 for v in self._expected.values() if v > 1)
         logger.info(
             f"Checkpoint loaded from {self.checkpoint_path}: "
             f"{total_completed} completed task shards, "
+            f"{total_filtered} filtered task shards, "
             f"{n_fanout_keys} source keys with secondary fan-outs"
         )
         return self
 
+    def _load_increments(self, fs: fsspec.AbstractFileSystem) -> dict[str, int]:
+        """Load expected-increment shards and return source_key → expected count."""
+        expected: dict[str, int] = {}
+        if not fs.exists(self._increments_path):
+            return expected
+        try:
+            for fpath in fs.ls(self._increments_path, detail=False):
+                if not str(fpath).endswith(".json"):
+                    continue
+                try:
+                    with fsspec.open(fpath, "r", **self.storage_options) as f:
+                        data = json.load(f)
+                    source_key = data["source_key"]
+                    expected[source_key] = expected.get(source_key, 1) + int(data["increment"])
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"Checkpoint: failed to read increment file {fpath}: {e}")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Checkpoint: failed to list increment files: {e}")
+        return expected
+
+    def _load_shard_counts(self, fs: fsspec.AbstractFileSystem, directory: str, label: str) -> defaultdict[str, int]:
+        """Count shards per source_key in *directory*; returns a defaultdict(int)."""
+        counts: defaultdict[str, int] = defaultdict(int)
+        if not fs.exists(directory):
+            return counts
+        try:
+            for fpath in fs.ls(directory, detail=False):
+                if not str(fpath).endswith(".json"):
+                    continue
+                try:
+                    with fsspec.open(fpath, "r", **self.storage_options) as f:
+                        data = json.load(f)
+                    counts[data["source_key"]] += 1
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"Checkpoint: failed to read {label} file {fpath}: {e}")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Checkpoint: failed to list {label} files: {e}")
+        return counts
+
     def get_completed_source_keys(self) -> frozenset[str]:
         """Return source_keys that have completed all expected leaf tasks."""
+        all_keys = set(self._completed_counts) | set(self._filtered_counts)
         return frozenset(
             key
-            for key in self._completed_counts
-            if self._completed_counts[key] >= self._expected.get(key, 1)
+            for key in all_keys
+            if self._completed_counts[key] + self._filtered_counts[key] >= self._expected.get(key, 1)
         )
 
     def is_task_completed(self, source_files: list[str]) -> bool:
-        """Return True if all expected leaf tasks for this source partition are done."""
+        """Return True if all expected leaf tasks for this source partition are done.
+
+        A task counts as done if it either completed the full pipeline or was
+        legitimately filtered at some stage (both recorded in their respective shards).
+        """
         if not source_files:
             return False
         source_key = "|".join(sorted(source_files))
         expected = self._expected.get(source_key, 1)
-        completed = self._completed_counts.get(source_key, 0)
-        return completed >= expected
+        done = self._completed_counts.get(source_key, 0) + self._filtered_counts.get(source_key, 0)
+        return done >= expected
 
     # ------------------------------------------------------------------
     # Write API
@@ -168,9 +184,23 @@ class CheckpointManager:
             },
         )
 
-    def write_expected_increment(
-        self, source_key: str, triggering_task_id: str, increment: int
-    ) -> None:
+    def mark_filtered(self, task_id: str, source_files: list[str]) -> None:
+        """Write a filtered shard for a task that was dropped by a filter stage.
+
+        Filtered tasks count toward the completion total so that a source partition
+        with some tasks filtered out can still be marked complete on resume.
+        Uses the same filename scheme as ``mark_completed`` for idempotency.
+        """
+        if not source_files:
+            return
+        source_key = "|".join(sorted(source_files))
+        source_key_hash = hashlib.sha256(source_key.encode()).hexdigest()[:16]
+        safe_task_id = task_id.replace("/", "_").replace(" ", "_").replace(":", "_")
+        filename = f"{source_key_hash}_{safe_task_id}.json"
+        path = _path_join(self._filtered_path, filename)
+        self._write_json(path, {"source_key": source_key})
+
+    def write_expected_increment(self, source_key: str, triggering_task_id: str, increment: int) -> None:
         """Write an expected-count increment shard.
 
         Called by BaseStageAdapter when it detects a fan-out:
@@ -180,9 +210,7 @@ class CheckpointManager:
         own file (unique filename = no races), and expected is summed on load.
         """
         key_hash = hashlib.sha256(source_key.encode()).hexdigest()[:16]
-        safe_task_id = (
-            triggering_task_id.replace("/", "_").replace(" ", "_").replace(":", "_")
-        )
+        safe_task_id = triggering_task_id.replace("/", "_").replace(" ", "_").replace(":", "_")
         filename = f"{key_hash}_{safe_task_id}.json"
         path = _path_join(self._increments_path, filename)
         self._write_json(path, {"source_key": source_key, "increment": increment})
@@ -192,9 +220,7 @@ class CheckpointManager:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def exists(
-        checkpoint_path: str, storage_options: dict[str, Any] | None = None
-    ) -> bool:
+    def exists(checkpoint_path: str, storage_options: dict[str, Any] | None = None) -> bool:
         """Return True if any checkpoint data exists at the given path."""
         try:
             fs = get_fs(checkpoint_path, storage_options or {})
@@ -218,7 +244,7 @@ class CheckpointManager:
         try:
             with fsspec.open(path, "w", **self.storage_options) as f:
                 json.dump(data, f)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.error(
                 f"Checkpoint: failed to write {path!r} — checkpoint shard lost. "
                 f"Error: {exc!r}. "

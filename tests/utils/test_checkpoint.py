@@ -28,19 +28,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-import pytest
-
+from nemo_curator.tasks import FileGroupTask
 from nemo_curator.utils.checkpoint import CheckpointManager, _path_join
-
-if TYPE_CHECKING:
-    pass
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _source_key(source_files: list[str]) -> str:
     return "|".join(sorted(source_files))
@@ -49,6 +44,7 @@ def _source_key(source_files: list[str]) -> str:
 # ---------------------------------------------------------------------------
 # _path_join
 # ---------------------------------------------------------------------------
+
 
 class TestPathJoin:
     def test_local_path(self):
@@ -65,6 +61,7 @@ class TestPathJoin:
 # ---------------------------------------------------------------------------
 # CheckpointManager — basic write/read cycle
 # ---------------------------------------------------------------------------
+
 
 class TestCheckpointManagerBasic:
     def test_exists_returns_false_for_nonexistent(self, tmp_path: Path):
@@ -123,31 +120,32 @@ class TestCheckpointManagerBasic:
 # CheckpointManager — single fan-out (1 source → N leaves)
 # ---------------------------------------------------------------------------
 
+
 class TestCheckpointManagerSingleFanOut:
     def test_single_fanout_not_complete_until_all_leaves_recorded(self, tmp_path: Path):
         """1 source → 5 leaves; after 4 completions, not done; after 5th, done."""
         ckpt_path = str(tmp_path / "ckpt")
         source = ["a.tar"]
-        N = 5
+        n = 5
 
-        # Write increment: source → N leaves
+        # Write increment: source → n leaves
         mgr_write = CheckpointManager(ckpt_path)
         mgr_write.write_expected_increment(
             source_key=_source_key(source),
             triggering_task_id="file_group_abc123",
-            increment=N - 1,  # 4
+            increment=n - 1,  # 4
         )
 
-        # Write N-1 completions
-        for i in range(N - 1):
+        # Write n-1 completions
+        for i in range(n - 1):
             mgr_write.mark_completed(f"leaf_task_{i}", source)
 
         mgr_read = CheckpointManager(ckpt_path).load()
-        # expected = 1 + (N-1) = N = 5; completed = 4 → not done
+        # expected = 1 + (n-1) = n = 5; completed = 4 → not done
         assert not mgr_read.is_task_completed(source)
 
         # Write the last completion
-        mgr_write.mark_completed(f"leaf_task_{N - 1}", source)
+        mgr_write.mark_completed(f"leaf_task_{n - 1}", source)
         mgr_read2 = CheckpointManager(ckpt_path).load()
         assert mgr_read2.is_task_completed(source)
 
@@ -165,10 +163,10 @@ class TestCheckpointManagerSingleFanOut:
         """7 out of 10 completed — should NOT be marked done."""
         ckpt_path = str(tmp_path / "ckpt")
         source = ["c.tar"]
-        N = 10
+        n = 10
 
         mgr = CheckpointManager(ckpt_path)
-        mgr.write_expected_increment(_source_key(source), "trig_task_xyz", N - 1)
+        mgr.write_expected_increment(_source_key(source), "trig_task_xyz", n - 1)
         for i in range(7):
             mgr.mark_completed(f"leaf_{i}", source)
 
@@ -179,6 +177,7 @@ class TestCheckpointManagerSingleFanOut:
 # ---------------------------------------------------------------------------
 # CheckpointManager — chained fan-outs
 # ---------------------------------------------------------------------------
+
 
 class TestCheckpointManagerChainedFanOut:
     def test_chained_fanout_correct_expected_count(self, tmp_path: Path):
@@ -241,6 +240,7 @@ class TestCheckpointManagerChainedFanOut:
 # CheckpointManager — get_completed_source_keys
 # ---------------------------------------------------------------------------
 
+
 class TestCheckpointManagerCompletedKeys:
     def test_completed_keys_returns_only_fully_done(self, tmp_path: Path):
         ckpt_path = str(tmp_path / "ckpt")
@@ -267,10 +267,10 @@ class TestCheckpointManagerCompletedKeys:
 # _CheckpointFilterStage
 # ---------------------------------------------------------------------------
 
+
 class TestCheckpointFilterStage:
-    def _make_task(self, task_id: str, source_files: list[str]):
+    def _make_task(self, task_id: str, source_files: list[str]) -> FileGroupTask:
         """Create a minimal FileGroupTask-like object for testing."""
-        from nemo_curator.tasks import FileGroupTask
         return FileGroupTask(
             task_id=task_id,
             dataset_name="test_ds",
@@ -312,6 +312,7 @@ class TestCheckpointFilterStage:
         stage.setup()
 
         from nemo_curator.tasks import FileGroupTask
+
         task = FileGroupTask(
             task_id="no_src",
             dataset_name="ds",
@@ -346,9 +347,11 @@ class TestCheckpointFilterStage:
 # _CheckpointRecorderStage
 # ---------------------------------------------------------------------------
 
+
 class TestCheckpointRecorderStage:
-    def _make_task(self, task_id: str, source_files: list[str]):
+    def _make_task(self, task_id: str, source_files: list[str]) -> FileGroupTask:
         from nemo_curator.tasks import FileGroupTask
+
         return FileGroupTask(
             task_id=task_id,
             dataset_name="test_ds",
@@ -389,6 +392,7 @@ class TestCheckpointRecorderStage:
         stage.setup()
 
         from nemo_curator.tasks import FileGroupTask
+
         task = FileGroupTask(
             task_id="no_src",
             dataset_name="ds",
@@ -463,6 +467,7 @@ class TestCheckpointRecorderStage:
 # FilePartitioningStage — hash-based task ID stability
 # ---------------------------------------------------------------------------
 
+
 class TestFilePartitioningHashTaskId:
     def test_task_id_stable_across_runs(self, tmp_path: Path):
         """Same file set → same task IDs regardless of invocation order."""
@@ -499,7 +504,7 @@ class TestFilePartitioningHashTaskId:
         empty = _EmptyTask(task_id="empty", dataset_name="ds", data=None, _metadata={})
 
         stage_orig = FilePartitioningStage(file_paths=files_a, files_per_partition=1)
-        stage_extended = FilePartitioningStage(file_paths=files_a + [file_new], files_per_partition=1)
+        stage_extended = FilePartitioningStage(file_paths=[*files_a, file_new], files_per_partition=1)
 
         result_orig = stage_orig.process(empty)
         result_extended = stage_extended.process(empty)
@@ -531,5 +536,440 @@ class TestFilePartitioningHashTaskId:
 
     def test_is_source_stage(self):
         from nemo_curator.stages.file_partitioning import FilePartitioningStage
+
         stage = FilePartitioningStage(file_paths=[])
         assert stage.is_source_stage() is True
+
+
+# ---------------------------------------------------------------------------
+# Bug-fix regression tests
+# ---------------------------------------------------------------------------
+
+
+class TestNoneReturnFromProcess:
+    """Bug 1: process() returning None must not crash process_batch()."""
+
+    def test_none_return_is_silently_dropped(self):
+        from dataclasses import dataclass
+
+        from nemo_curator.stages.base import ProcessingStage
+        from nemo_curator.stages.resources import Resources
+        from nemo_curator.tasks import Task
+
+        @dataclass
+        class _DummyTask(Task):
+            name: str = "dummy"
+
+            @property
+            def num_items(self) -> int:
+                return 1
+
+            def validate(self) -> bool:
+                return True
+
+        @dataclass
+        class _FilterAllStage(ProcessingStage):
+            name: str = "filter_all"
+            resources: Resources = None
+
+            def __post_init__(self):
+                if self.resources is None:
+                    self.resources = Resources(cpus=0.1)
+
+            def process(self, task):
+                return None  # Filter every task
+
+        stage = _FilterAllStage()
+        tasks = [_DummyTask(task_id=f"t{i}", dataset_name="ds", data=None) for i in range(3)]
+        results = stage.process_batch(tasks)
+        assert results == [], f"Expected empty list, got {results}"
+
+    def test_mixed_none_and_valid_returns(self):
+        from dataclasses import dataclass
+
+        from nemo_curator.stages.base import ProcessingStage
+        from nemo_curator.stages.resources import Resources
+        from nemo_curator.tasks import Task
+
+        @dataclass
+        class _DummyTask(Task):
+            name: str = "dummy"
+
+            @property
+            def num_items(self) -> int:
+                return 1
+
+            def validate(self) -> bool:
+                return True
+
+        @dataclass
+        class _KeepEvenStage(ProcessingStage):
+            name: str = "keep_even"
+            resources: Resources = None
+
+            def __post_init__(self):
+                if self.resources is None:
+                    self.resources = Resources(cpus=0.1)
+
+            def process(self, task):
+                idx = int(task.task_id[1:])
+                return task if idx % 2 == 0 else None
+
+        stage = _KeepEvenStage()
+        tasks = [_DummyTask(task_id=f"t{i}", dataset_name="ds", data=None) for i in range(4)]
+        results = stage.process_batch(tasks)
+        assert len(results) == 2
+        assert all(r is not None for r in results)
+        assert {r.task_id for r in results} == {"t0", "t2"}
+
+
+class TestFanOutDetection:
+    """Bug 2: fan-out increments must only fire when len(results) > len(tasks)."""
+
+    def test_batch_size_gt1_no_fanout_writes_no_increment(self, tmp_path):
+        """1:1 stage with batch_size=2 must NOT write any fan-out increment."""
+        from dataclasses import dataclass
+
+        from nemo_curator.backends.base import BaseStageAdapter
+        from nemo_curator.stages.base import ProcessingStage
+        from nemo_curator.stages.resources import Resources
+        from nemo_curator.tasks import Task
+        from nemo_curator.utils.checkpoint import CheckpointManager
+
+        @dataclass
+        class _DummyTask(Task):
+            name: str = "dummy"
+
+            @property
+            def num_items(self) -> int:
+                return 1
+
+            def validate(self) -> bool:
+                return True
+
+        @dataclass
+        class _IdentityStage(ProcessingStage):
+            name: str = "identity"
+            resources: Resources = None
+
+            def __post_init__(self):
+                if self.resources is None:
+                    self.resources = Resources(cpus=0.1)
+
+            def process(self, task):
+                return task
+
+        ckpt_path = str(tmp_path / "ckpt")
+        stage = _IdentityStage()
+        stage._checkpoint_path = ckpt_path
+        stage._checkpoint_storage_options = {}
+
+        adapter = BaseStageAdapter(stage)
+        mgr = CheckpointManager(ckpt_path)
+        adapter._write_checkpoint_mgr = mgr
+
+        src_a = ["file_a.jsonl"]
+        src_b = ["file_b.jsonl"]
+        tasks = [
+            _DummyTask(task_id="tA", dataset_name="ds", data=None, _metadata={"source_files": src_a}),
+            _DummyTask(task_id="tB", dataset_name="ds", data=None, _metadata={"source_files": src_b}),
+        ]
+        results = adapter.process_batch(tasks)
+
+        assert len(results) == 2
+        increments_dir = tmp_path / "ckpt" / "expected_increments"
+        assert not increments_dir.exists() or list(increments_dir.iterdir()) == []
+
+    def test_true_fanout_single_input_writes_increment(self, tmp_path):
+        """1→N stage with a single input task must write the correct increment."""
+        from dataclasses import dataclass
+
+        from nemo_curator.backends.base import BaseStageAdapter
+        from nemo_curator.stages.base import ProcessingStage
+        from nemo_curator.stages.resources import Resources
+        from nemo_curator.tasks import Task
+        from nemo_curator.utils.checkpoint import CheckpointManager
+
+        @dataclass
+        class _DummyTask(Task):
+            name: str = "dummy"
+
+            @property
+            def num_items(self) -> int:
+                return 1
+
+            def validate(self) -> bool:
+                return True
+
+        @dataclass
+        class _FanOutStage(ProcessingStage):
+            name: str = "fanout"
+            resources: Resources = None
+
+            def __post_init__(self):
+                if self.resources is None:
+                    self.resources = Resources(cpus=0.1)
+
+            def process(self, task):
+                return [_DummyTask(task_id=f"child_{i}", dataset_name="ds", data=None) for i in range(3)]
+
+        ckpt_path = str(tmp_path / "ckpt")
+        stage = _FanOutStage()
+        adapter = BaseStageAdapter(stage)
+        mgr = CheckpointManager(ckpt_path)
+        adapter._write_checkpoint_mgr = mgr
+
+        task = _DummyTask(
+            task_id="parent",
+            dataset_name="ds",
+            data=None,
+            _metadata={"source_files": ["archive.tar"]},
+        )
+        results = adapter.process_batch([task])
+
+        assert len(results) == 3
+        increments_dir = tmp_path / "ckpt" / "expected_increments"
+        shards = list(increments_dir.iterdir())
+        assert len(shards) == 1
+        data = json.loads(shards[0].read_text())
+        assert data["increment"] == 2  # 3 results - 1
+
+
+class TestSourceFilesPropagation:
+    """Bug 3: source_files must not mix across source partitions in multi-task batches."""
+
+    def test_single_input_propagates_to_all_outputs(self, tmp_path):
+        from dataclasses import dataclass
+
+        from nemo_curator.backends.base import BaseStageAdapter
+        from nemo_curator.stages.base import ProcessingStage
+        from nemo_curator.stages.resources import Resources
+        from nemo_curator.tasks import Task
+
+        @dataclass
+        class _DummyTask(Task):
+            name: str = "dummy"
+
+            @property
+            def num_items(self) -> int:
+                return 1
+
+            def validate(self) -> bool:
+                return True
+
+        @dataclass
+        class _FanOutStage(ProcessingStage):
+            name: str = "fanout"
+            resources: Resources = None
+
+            def __post_init__(self):
+                if self.resources is None:
+                    self.resources = Resources(cpus=0.1)
+
+            def process(self, task):
+                return [_DummyTask(task_id=f"c{i}", dataset_name="ds", data=None) for i in range(2)]
+
+        stage = _FanOutStage()
+        adapter = BaseStageAdapter(stage)
+        task = _DummyTask(
+            task_id="p",
+            dataset_name="ds",
+            data=None,
+            _metadata={"source_files": ["a.tar"]},
+        )
+        results = adapter.process_batch([task])
+        for r in results:
+            assert r._metadata["source_files"] == ["a.tar"]
+
+    def test_mixed_partition_batch_skips_propagation(self, tmp_path):
+        """Multi-task batch with different source_files must not merge partition identities."""
+        from dataclasses import dataclass
+
+        from nemo_curator.backends.base import BaseStageAdapter
+        from nemo_curator.stages.base import ProcessingStage
+        from nemo_curator.stages.resources import Resources
+        from nemo_curator.tasks import Task
+
+        @dataclass
+        class _DummyTask(Task):
+            name: str = "dummy"
+
+            @property
+            def num_items(self) -> int:
+                return 1
+
+            def validate(self) -> bool:
+                return True
+
+        @dataclass
+        class _IdentityStage(ProcessingStage):
+            name: str = "identity"
+            resources: Resources = None
+
+            def __post_init__(self):
+                if self.resources is None:
+                    self.resources = Resources(cpus=0.1)
+
+            def process(self, task):
+                return task
+
+        stage = _IdentityStage()
+        adapter = BaseStageAdapter(stage)
+        task_a = _DummyTask(task_id="a", dataset_name="ds", data=None, _metadata={"source_files": ["a.jsonl"]})
+        task_b = _DummyTask(task_id="b", dataset_name="ds", data=None, _metadata={"source_files": ["b.jsonl"]})
+        results = adapter.process_batch([task_a, task_b])
+
+        # Each result should retain its own source_files, not get the merged union
+        result_map = {r.task_id: r for r in results}
+        assert result_map["a"]._metadata.get("source_files") == ["a.jsonl"]
+        assert result_map["b"]._metadata.get("source_files") == ["b.jsonl"]
+
+    def test_fanin_stage_gets_union(self, tmp_path):
+        """Fan-in (N→1): output should get the union of all inputs' source_files."""
+        from dataclasses import dataclass
+
+        from nemo_curator.backends.base import BaseStageAdapter
+        from nemo_curator.stages.base import ProcessingStage
+        from nemo_curator.stages.resources import Resources
+        from nemo_curator.tasks import Task
+
+        @dataclass
+        class _DummyTask(Task):
+            name: str = "dummy"
+
+            @property
+            def num_items(self) -> int:
+                return 1
+
+            def validate(self) -> bool:
+                return True
+
+        @dataclass
+        class _FanInStage(ProcessingStage):
+            name: str = "fanin"
+            resources: Resources = None
+
+            def __post_init__(self):
+                if self.resources is None:
+                    self.resources = Resources(cpus=0.1)
+
+            def process(self, task):  # required by abstract base
+                return task
+
+            def process_batch(self, tasks):
+                return [_DummyTask(task_id="merged", dataset_name="ds", data=None)]
+
+        stage = _FanInStage()
+        adapter = BaseStageAdapter(stage)
+        tasks = [
+            _DummyTask(task_id=f"t{i}", dataset_name="ds", data=None, _metadata={"source_files": [f"f{i}.parquet"]})
+            for i in range(3)
+        ]
+        results = adapter.process_batch(tasks)
+        assert len(results) == 1
+        assert sorted(results[0]._metadata["source_files"]) == ["f0.parquet", "f1.parquet", "f2.parquet"]
+
+
+class TestFilteredTaskCheckpointing:
+    """Bug 4: tasks filtered by a stage must count toward partition completion."""
+
+    def test_mark_filtered_then_load(self, tmp_path):
+        from nemo_curator.utils.checkpoint import CheckpointManager
+
+        mgr = CheckpointManager(str(tmp_path / "ckpt"))
+        mgr.mark_filtered("task_1", ["a.tar"])
+        mgr2 = CheckpointManager(str(tmp_path / "ckpt")).load()
+        assert mgr2.is_task_completed(["a.tar"])
+
+    def test_filtered_counts_toward_fanout_expected(self, tmp_path):
+        """Fan-out expected=3, 2 complete + 1 filtered → partition done."""
+        from nemo_curator.utils.checkpoint import CheckpointManager
+
+        ckpt = str(tmp_path / "ckpt")
+        mgr = CheckpointManager(ckpt)
+        mgr.write_expected_increment(source_key="a.tar", triggering_task_id="parent", increment=2)
+        mgr.mark_completed("child_0", ["a.tar"])
+        mgr.mark_completed("child_1", ["a.tar"])
+        mgr.mark_filtered("child_2", ["a.tar"])
+
+        mgr2 = CheckpointManager(ckpt).load()
+        assert mgr2.is_task_completed(["a.tar"])
+
+    def test_partial_filtered_not_complete(self, tmp_path):
+        """Fan-out expected=3, only 1 complete + 1 filtered → NOT done."""
+        from nemo_curator.utils.checkpoint import CheckpointManager
+
+        ckpt = str(tmp_path / "ckpt")
+        mgr = CheckpointManager(ckpt)
+        mgr.write_expected_increment(source_key="a.tar", triggering_task_id="parent", increment=2)
+        mgr.mark_completed("child_0", ["a.tar"])
+        mgr.mark_filtered("child_1", ["a.tar"])
+        # child_2 is neither completed nor filtered
+
+        mgr2 = CheckpointManager(ckpt).load()
+        assert not mgr2.is_task_completed(["a.tar"])
+
+    def test_adapter_records_filtered_task(self, tmp_path):
+        """BaseStageAdapter must write a filtered shard when a task produces 0 outputs."""
+        from dataclasses import dataclass
+
+        from nemo_curator.backends.base import BaseStageAdapter
+        from nemo_curator.stages.base import ProcessingStage
+        from nemo_curator.stages.resources import Resources
+        from nemo_curator.tasks import Task
+        from nemo_curator.utils.checkpoint import CheckpointManager
+
+        @dataclass
+        class _DummyTask(Task):
+            name: str = "dummy"
+
+            @property
+            def num_items(self) -> int:
+                return 1
+
+            def validate(self) -> bool:
+                return True
+
+        @dataclass
+        class _DropAllStage(ProcessingStage):
+            name: str = "drop_all"
+            resources: Resources = None
+
+            def __post_init__(self):
+                if self.resources is None:
+                    self.resources = Resources(cpus=0.1)
+
+            def process(self, task):
+                return []
+
+        ckpt_path = str(tmp_path / "ckpt")
+        stage = _DropAllStage()
+        adapter = BaseStageAdapter(stage)
+        mgr = CheckpointManager(ckpt_path)
+        adapter._write_checkpoint_mgr = mgr
+
+        task = _DummyTask(
+            task_id="t1",
+            dataset_name="ds",
+            data=None,
+            _metadata={"source_files": ["f.tar"]},
+        )
+        results = adapter.process_batch([task])
+        assert results == []
+
+        filtered_dir = tmp_path / "ckpt" / "filtered"
+        shards = list(filtered_dir.iterdir())
+        assert len(shards) == 1
+        data = json.loads(shards[0].read_text())
+        assert data["source_key"] == "f.tar"
+
+    def test_get_completed_source_keys_includes_filtered_partitions(self, tmp_path):
+        from nemo_curator.utils.checkpoint import CheckpointManager
+
+        ckpt = str(tmp_path / "ckpt")
+        mgr = CheckpointManager(ckpt)
+        mgr.mark_filtered("dropped", ["only_filtered.tar"])
+
+        mgr2 = CheckpointManager(ckpt).load()
+        keys = mgr2.get_completed_source_keys()
+        assert "only_filtered.tar" in keys
