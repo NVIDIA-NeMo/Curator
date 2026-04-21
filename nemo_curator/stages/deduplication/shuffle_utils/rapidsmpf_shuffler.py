@@ -23,12 +23,13 @@ from rapidsmpf.integrations.cudf.partition import (
     unpack_and_concat,
     unspill_partitions,
 )
+from rapidsmpf.integrations.ray import RapidsMPFActor
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table, pylibcudf_to_cudf_dataframe
-from rapidsmpf.utils.ray_utils import BaseShufflingActor
 
 from nemo_curator.stages.deduplication.gpu_utils import align_down_to_256, get_device_free_memory
 
@@ -36,11 +37,10 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     import pylibcudf as plc
-    from rapidsmpf.shuffler import Shuffler
 
 
 # NOTE: This class is not intended to be instantiated directly but instead used as a Ray Actor class.
-class BulkRapidsMPFShuffler(BaseShufflingActor):  # pragma: no cover
+class BulkRapidsMPFShuffler(RapidsMPFActor):  # pragma: no cover
     """
     Class that performs a bulk shuffle operation.
     This class is compatible with Ray Actors communicating with each other using UCXX communication.
@@ -83,7 +83,6 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):  # pragma: no cover
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
     ):
-        super().__init__(nranks)
         self.shuffle_on = shuffle_on
         self.output_path = output_path
         self.total_nparts = total_nparts
@@ -114,6 +113,26 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):  # pragma: no cover
         self.read_kwargs = read_kwargs if read_kwargs is not None else {}
         self.write_kwargs = write_kwargs if write_kwargs is not None else {}
 
+        # In rapidsmpf 26.04 the Statistics object is owned by the actor/communicator
+        # (via its progress thread), so it must be fully constructed -- including the
+        # RmmResourceAdaptor used for memory profiling -- before calling super().__init__.
+        self.mr = RmmResourceAdaptor(
+            rmm.mr.PoolMemoryResource(
+                rmm.mr.CudaMemoryResource(),
+                initial_pool_size=self.rmm_pool_size,
+                maximum_pool_size=None,
+            )
+        )
+        rmm.mr.set_current_device_resource(self.mr)
+        memory_available = (
+            None
+            if self.spill_memory_limit is None
+            else {MemoryType.DEVICE: LimitAvailableMemory(self.mr, limit=self.spill_memory_limit)}
+        )
+        self.br = BufferResource(self.mr, memory_available=memory_available)
+
+        super().__init__(nranks, Statistics(enable=self.enable_statistics, mr=self.mr))
+
     def setup_worker(self, root_address_bytes: bytes) -> None:
         """
         Setup the UCXX communication and a shuffle operation.
@@ -124,37 +143,19 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):  # pragma: no cover
             Address of the root worker for UCXX initialization.
         """
         super().setup_worker(root_address_bytes)
-
-        # Initialize the RMM memory resource
-        mr = RmmResourceAdaptor(
-            rmm.mr.PoolMemoryResource(
-                rmm.mr.CudaMemoryResource(),
-                initial_pool_size=self.rmm_pool_size,
-                maximum_pool_size=None,
-            )
-        )
-        rmm.mr.set_current_device_resource(mr)
-        # Create a buffer resource that limits device memory if spill_memory_limit is set
-        memory_available = (
-            None
-            if self.spill_memory_limit is None
-            else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=self.spill_memory_limit)}
-        )
-        self.br = BufferResource(mr, memory_available=memory_available)
-        # Create a statistics object
-        self.stats = Statistics(enable=self.enable_statistics, mr=mr)
-        # Create a shuffler
-        self.shuffler: Shuffler = self.create_shuffler(
+        # The Shuffler no longer takes a progress_thread or statistics argument in
+        # rapidsmpf 26.04 -- both are owned by the communicator / actor.
+        self.shuffler: Shuffler = Shuffler(
+            self.comm,
             0,
             total_num_partitions=self.total_nparts,
-            buffer_resource=self.br,
-            statistics=self.stats,
+            br=self.br,
         )
 
     def cleanup(self) -> None:
         """Cleanup the UCXX communication and the shuffle operation."""
-        if self.enable_statistics and self.stats is not None:
-            self.comm.logger.info(self.stats.report())
+        if self.enable_statistics:
+            self.comm.logger.info(self.statistics.report())
         if self.shuffler is not None:
             self.shuffler.shutdown()
 
@@ -279,7 +280,6 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):  # pragma: no cover
                     packed_chunks,
                     br=self.br,
                     allow_overbooking=True,
-                    statistics=self.stats,
                 ),
                 br=self.br,
                 stream=DEFAULT_STREAM,
