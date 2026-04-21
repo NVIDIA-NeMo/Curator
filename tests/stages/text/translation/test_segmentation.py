@@ -21,8 +21,8 @@ import json
 import pandas as pd
 import pytest
 
-from nemo_curator.stages.text.translation.segmentation import SegmentationStage
-from nemo_curator.stages.text.translation.translate import TranslateStage
+from nemo_curator.stages.text.translation.stages.segmentation import SegmentationStage
+from nemo_curator.stages.text.translation.stages.translate import TranslateStage
 from nemo_curator.tasks import DocumentBatch
 
 from .conftest import MockAsyncLLMClient

@@ -1,7 +1,7 @@
 import sys
 from types import SimpleNamespace
 
-from nemo_curator.stages.text.translation._prompts import get_language_name
+from nemo_curator.stages.text.utils.text_utils import get_language_name
 
 
 class _LangResolver:

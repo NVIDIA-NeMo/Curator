@@ -12,16 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared prompt and language helpers for translation stages."""
+"""Shared prompt-loading helpers for translation stages."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import yaml
-from loguru import logger
 
-_PROMPT_DIR = Path(__file__).resolve().parent / "prompts"
+_PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 
 def load_prompt_template(filename: str) -> tuple[str, str]:
@@ -67,40 +66,3 @@ def load_prompt_template(filename: str) -> tuple[str, str]:
             f"Prompt template {prompt_path} is missing required keys: {missing}"
         )
     return data["system"], data["user"]
-
-
-def get_language_name(lang_code: str) -> str:
-    """Return a readable language name for an ISO code."""
-    if not lang_code:
-        return ""
-    try:
-        import iso639
-    except ImportError:
-        logger.warning(
-            "iso639 not installed; cannot resolve language name for code={}",
-            lang_code,
-        )
-        return lang_code
-
-    lang_ctor = getattr(iso639, "Lang", None)
-    if callable(lang_ctor):
-        try:
-            return lang_ctor(lang_code).name
-        except (KeyError, AttributeError, TypeError, ValueError):
-            pass
-
-    to_name = getattr(iso639, "to_name", None)
-    if callable(to_name):
-        try:
-            name = to_name(lang_code)
-        except Exception:  # pragma: no cover - defensive against third-party APIs
-            pass
-        else:
-            if isinstance(name, str) and name:
-                return name
-
-    logger.warning(
-        "Unknown language code {!r}; falling back to raw code in prompts.",
-        lang_code,
-    )
-    return lang_code

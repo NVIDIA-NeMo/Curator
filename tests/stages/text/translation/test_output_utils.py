@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 
-from nemo_curator.stages.text.translation.output_utils import (
+from nemo_curator.stages.text.translation.utils.metadata import (
     build_translation_metadata,
     merge_faith_scores_into_metadata,
     reconstruct_messages_with_translation,

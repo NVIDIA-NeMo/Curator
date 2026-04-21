@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from nemo_curator.stages.text.translation.translate import TranslateStage
+from nemo_curator.stages.text.translation.stages.translate import TranslateStage
 from nemo_curator.tasks import DocumentBatch
 
 from .conftest import MockAsyncLLMClient
@@ -222,7 +222,7 @@ class TestSetup:
     """Tests for setup() lifecycle."""
 
     @patch(
-        "nemo_curator.stages.text.translation.translate.load_prompt_template",
+        "nemo_curator.stages.text.translation.stages.translate.load_prompt_template",
         return_value=("system prompt", "user {source_lang} {target_lang} {src}"),
     )
     def test_setup_initializes_client(self, mock_load: MagicMock) -> None:
