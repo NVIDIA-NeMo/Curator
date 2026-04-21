@@ -138,6 +138,17 @@ Standardized return type for all deduplication workflows:
 - **Structured metadata**: Access per-stage timing (`total_time`, `identification_time`, and others), duplicate counts (`num_duplicates`, `num_duplicates_removed`), and output paths through `result.metadata`
 - **`TaskPerfUtils` compatibility**: `collect_stage_metrics()` and `aggregate_task_metrics()` now accept `WorkflowRunResult` directly
 
+### Megatron Tokenization Writer (PR #1259)
+
+Added `MegatronTokenizerWriter`, a writer stage that tokenizes text documents and produces the `.bin` and `.idx` files required by Megatron-LM for data loading during pretraining:
+
+- **Integrated tokenization**: Tokenize and export in a single pipeline step using any Hugging Face `AutoTokenizer`, replacing the need for Megatron's standalone `preprocess_data.py` script.
+- **Memory-efficient batching**: The `tokenization_batch_size` parameter controls how many documents are tokenized and written per batch, preventing out-of-memory errors on large datasets.
+- **Automatic dtype selection**: Uses 2-byte tokens (`uint16`) for vocabularies with 65,536 or fewer entries (such as GPT-2) and 4-byte tokens (`int32`) for larger vocabularies.
+- **Megatron-compatible output**: Produces `.bin` and `.idx` files directly compatible with Megatron-LM's `MMapIndexedDataset` data loader, including support for end-of-document token appending via `append_eod`.
+
+Learn more in the [Save and Export](/curate-text/save-export) documentation.
+
 ### Image Reader Ray Data Support (PR #1610)
 
 `ImageReaderStage` now works with `RayDataExecutor` in addition to `XennaExecutor`. The stage declares itself as a fanout stage, enabling Ray Data to repartition the multiple `ImageBatch` objects produced from each tar file across downstream workers for parallel processing.

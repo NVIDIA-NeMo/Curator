@@ -264,6 +264,9 @@ navigation:
                   - page: Code Processing
                     path: ./v26.04/pages/curate-text/process-data/specialized-processing/code.mdx
                     slug: code
+          - page: Save and Export
+            path: ./v26.04/pages/curate-text/save-export.mdx
+            slug: save-export
           - section: Synthetic Data
             slug: synthetic
             contents:
