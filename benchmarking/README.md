@@ -205,7 +205,45 @@ python benchmarking/run.py \
   --config machine_specific.yaml
 ```
 
-Files are merged in order. Later files override earlier ones for conflicting keys.
+Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys.
+
+**Merge behavior:**
+- **Scalar values** (strings, numbers, booleans): later file wins.
+- **Nested dicts**: merged recursively — only the keys present in the later file are updated.
+- **Lists of dicts** (e.g. `entries`, `requirements`, `sinks`): items are matched by their first key. If a matching item is found, it is merged recursively; if not, the item is appended.
+
+This makes it practical to write small override files that change only specific entries or requirements without duplicating the full configuration.
+
+**Example — overriding a single entry's timeout and requirements:**
+
+Base config (`nightly-benchmark.yaml`) defines many entries including:
+```yaml
+entries:
+  - name: domain_classification_xenna
+    timeout_s: 1400
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 3000
+```
+
+Override file (`my_overrides.yaml`) changes only that entry's timeout and requirement minimum:
+```yaml
+entries:
+  - name: domain_classification_xenna
+    timeout_s: 2000
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 2000
+```
+
+Running with both files:
+```bash
+python benchmarking/run.py \
+  --config nightly-benchmark.yaml \
+  --config my_overrides.yaml
+```
+
+Results in `domain_classification_xenna` using `timeout_s: 2000` and `min_value: 2000`, while all other entries remain unchanged.
 
 **Session naming:**
 
