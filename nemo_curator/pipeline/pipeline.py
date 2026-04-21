@@ -210,9 +210,7 @@ class Pipeline:
 
             abs_path = os.path.abspath(checkpoint_path)
             if abs_path != checkpoint_path:
-                logger.info(
-                    f"Checkpoint path {checkpoint_path!r} resolved to absolute path {abs_path!r}"
-                )
+                logger.info(f"Checkpoint path {checkpoint_path!r} resolved to absolute path {abs_path!r}")
             checkpoint_path = abs_path
 
         from nemo_curator.core.serve import is_inference_server_active
@@ -236,12 +234,24 @@ class Pipeline:
                     "The executor will schedule GPU stages on GPUs not held by Serve."
                 )
 
-        stages = (
-            self._with_checkpoint_stages(self.stages, checkpoint_path, checkpoint_storage_options)
-            if checkpoint_path
-            else self.stages
-        )
+        if checkpoint_path:
+            stages = self._with_checkpoint_stages(self.stages, checkpoint_path, checkpoint_storage_options)
+        else:
+            self._clear_checkpoint_attrs(self.stages)
+            stages = self.stages
         return executor.execute(stages, initial_tasks)
+
+    @staticmethod
+    def _clear_checkpoint_attrs(stages: list[ProcessingStage]) -> None:
+        """Remove checkpoint stamp attributes from stage objects.
+
+        Called when run() is invoked without checkpoint_path so that a prior
+        checkpoint-enabled run cannot leave stale _checkpoint_path attributes
+        that would cause BaseStageAdapter to create spurious CheckpointManagers.
+        """
+        for stage in stages:
+            stage.__dict__.pop("_checkpoint_path", None)
+            stage.__dict__.pop("_checkpoint_storage_options", None)
 
     def _with_checkpoint_stages(
         self,
@@ -256,7 +266,8 @@ class Pipeline:
         - Every stage gets ``_checkpoint_path`` and ``_checkpoint_storage_options`` set as
           instance attributes so ``BaseStageAdapter`` can write fan-out increment files.
 
-        This method does NOT mutate ``self.stages``, so calling ``run()`` again is safe.
+        Note: the stage objects in ``stages`` are mutated (checkpoint attrs stamped).
+        Call ``_clear_checkpoint_attrs`` to remove them when checkpointing is not active.
         """
         from nemo_curator.stages.checkpoint import (
             _CheckpointFilterStage,
