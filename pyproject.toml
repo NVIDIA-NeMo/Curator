@@ -287,6 +287,7 @@ override-dependencies = [
     "protobuf>=5.29.5,<7.0",  # Override nemo-toolkits constraint of ~=5.29.5; <7.0 due to ray serve FieldDescriptor API breakage
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
+    "vllm>=0.14.1,<0.16.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')", # ray[llm]==2.54 incompatible with vllm>=0.16.0 (renamed internal modules break LLMServer deployment)
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
 
