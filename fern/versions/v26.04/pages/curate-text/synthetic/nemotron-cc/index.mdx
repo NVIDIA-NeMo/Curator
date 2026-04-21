@@ -311,6 +311,7 @@ import os
 
 import data_designer.config as dd
 
+from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.nemotron_cc import DiverseQAStage
 
 model_config = dd.ModelConfig(
@@ -329,6 +330,7 @@ model_provider = dd.ModelProvider(
     api_key=os.environ["NVIDIA_API_KEY"],
 )
 
+pipeline = Pipeline(name="nemotron_cc_ndd_diverse_qa")
 pipeline.add_stage(
     DiverseQAStage(
         input_field="text",
