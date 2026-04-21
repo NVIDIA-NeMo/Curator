@@ -1,0 +1,136 @@
+# PNC with LLM Pipeline -- 1st-pass ASR (full pipeline)
+#
+# Mirrors generic-sdp yt_pnc_with_llm_after_first_pass_asr.yaml.
+#
+# Full pipeline:
+#   ManifestReader -> ResampleAudio -> PyAnnoteDiarization -> SplitLongAudio ->
+#   NeMoASRAligner (1st pass, full alignment) ->
+#   PNCwithvLLMInference (top-level text) -> CleanLLMOutput (alignment update) ->
+#   PNCwithBERT (fallback) ->
+#   JoinSplitAudioMetadata -> MergeAlignmentDiarization ->
+#   TorchSquimQualityMetrics -> BandwidthEstimation -> ManifestWriter
+#
+# 1st pass ASR runs with infer_segment_only=False and compute_timestamps=True,
+# producing top-level text_2 + alignment.  PNC is applied to the top-level text
+# (segments_key="__none__") and alignment words are updated (cer_threshold=0).
+#
+# Requires a GPU for diarization, ASR, and vLLM inference.
+
+input_manifest: ???
+final_manifest: ???
+workspace_dir: /tmp/pnc_llm_test
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+language_short: en
+hf_token: ""
+sample_rate: 16000
+max_segment_length: 40
+text_key: text_2
+pnc_text_key: text_2_pnc
+prompt_file: ???
+resources:
+  cpus: 1
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: "ResampleAudio"
+    resampled_audio_dir: ${resampled_audio_dir}
+    input_format: "wav"
+    target_sample_rate: ${sample_rate}
+    target_format: "wav"
+    target_nchannels: 1
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
+    name: "PyAnnoteDiarization"
+    hf_token: ${hf_token}
+    max_length: ${max_segment_length}
+    resources:
+      gpus: 0.75
+
+  - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
+    name: "SplitLongAudio"
+    suggested_max_len: ${max_segment_length}
+    min_len: 1.0
+    resources: ${resources}
+
+  # 1st pass ASR: full alignment with word timestamps
+  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+    name: "ASRAlignment_1stPass"
+    model_name: nvidia/stt_en_fastconformer_ctc_large
+    is_fastconformer: true
+    decoder_type: ctc
+    batch_size: 16
+    text_key: ${text_key}
+    infer_segment_only: false
+    compute_timestamps: true
+    resources:
+      gpus: 0.45
+
+  - _target_: nemo_curator.stages.audio.tagging.text.pnc.PNCwithvLLMInferenceStage
+    name: "PNCwithvLLM_1stPass"
+    text_key: ${text_key}
+    segments_key: "split_metadata"
+    prompt_file: ${prompt_file}
+    generation_field: ${pnc_text_key}
+    inference_batch_size: 2
+    model_params:
+      model: "Qwen/Qwen2.5-1.5B-Instruct"
+      tensor_parallel_size: 1
+      max_model_len: 1024
+      enable_chunked_prefill: true
+      max_num_batched_tokens: 2048
+      enforce_eager: false
+      dtype: float16
+      gpu_memory_utilization: 0.9
+      max_num_seqs: 2
+    sampling_params:
+      temperature: 0.0
+      top_p: 1.0
+      repetition_penalty: 1.05
+      seed: 42
+      max_tokens: 512
+    chat_template_params:
+      tokenize: false
+      add_generation_prompt: true
+    resources:
+      gpus: 1
+
+  # Clean LLM output + update alignment words (cer_threshold=0 for exact match)
+  - _target_: nemo_curator.stages.audio.tagging.text.pnc.CleanLLMOutputStage
+    name: "CleanLLMOutput_1stPass"
+    generation_field: ${pnc_text_key}
+    asr_pred_text_key: ${text_key}
+    cer_threshold: 0
+    punct_marks: ".,?"
+    vocab_set: "abcdefghijklmnopqrstuvwxyz' "
+    segments_key: "__none__"
+    update_alignment: true
+    alignment_key: "alignment"
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
+    name: "JoinSplitMetadata"
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
+    name: "MergeAlignmentDiar"
+    text_key: ${text_key}
+    words_key: "words"
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
+    name: "SquimMetrics"
+    resources:
+      gpus: 0.05
+
+  - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
+    name: "BandwidthEstimation"
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    name: "ManifestWriter"
+    output_path: ${final_manifest}

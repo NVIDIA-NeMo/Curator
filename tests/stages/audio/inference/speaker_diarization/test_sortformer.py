@@ -21,6 +21,7 @@ from nemo_curator.stages.audio.inference.sortformer import (
     _parse_sortformer_segments,
     _write_rttm,
 )
+
 from nemo_curator.tasks import AudioTask
 
 

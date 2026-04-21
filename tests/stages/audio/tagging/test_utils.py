@@ -12,7 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.audio.tagging.utils import add_non_speaker_segments
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from nemo_curator.stages.audio.tagging.utils import add_non_speaker_segments, load_vocab_file
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestAddNonSpeakerSegments:
@@ -74,3 +81,20 @@ class TestAddNonSpeakerSegments:
         assert len(no_speaker) >= 2
         for seg in no_speaker:
             assert seg["end"] - seg["start"] <= 2.0
+
+
+class TestLoadVocabFile:
+    def test_single_line(self, tmp_path: Path) -> None:
+        p = tmp_path / "v.txt"
+        p.write_text("abc xyz")
+        result = load_vocab_file(str(p))
+        assert "a" in result
+        assert " " in result
+
+    def test_multi_line(self, tmp_path: Path) -> None:
+        p = tmp_path / "v.txt"
+        p.write_text("a\nb\nc\n")
+        result = load_vocab_file(str(p))
+        assert "a" in result
+        assert "b" in result
+        assert "c" in result

@@ -1,0 +1,61 @@
+# PNC with LLM Pipeline — 2nd-pass ASR (segment-level PNC)
+#
+# After 2nd-pass ASR with infer_segment_only=True, each segment has text_2
+# but no word-level alignment.  PNC is applied per-segment.
+# Matches generic-sdp yt_pnc_with_llm_after_second_pass_asr.yaml.
+# Requires a GPU for vLLM inference.
+
+input_manifest: ???
+final_manifest: ???
+workspace_dir: /tmp/pnc_llm_test
+language_short: en
+text_key: text_2
+pnc_text_key: text_2_pnc
+prompt_file: ???
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.text.pnc.PNCwithvLLMInferenceStage
+    name: "PNCwithvLLM"
+    text_key: ${text_key}
+    prompt_file: ${prompt_file}
+    generation_field: ${pnc_text_key}
+    inference_batch_size: 2
+    model_params:
+      model: "Qwen/Qwen2.5-1.5B-Instruct"
+      tensor_parallel_size: 1
+      max_model_len: 1024
+      enable_chunked_prefill: true
+      max_num_batched_tokens: 2048
+      enforce_eager: false
+      dtype: float16
+      gpu_memory_utilization: 0.9
+      max_num_seqs: 2
+    sampling_params:
+      temperature: 0.0
+      top_p: 1.0
+      repetition_penalty: 1.05
+      seed: 42
+      max_tokens: 512
+    chat_template_params:
+      tokenize: false
+      add_generation_prompt: true
+    resources:
+      gpus: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.text.pnc.CleanLLMOutputStage
+    name: "CleanLLMOutput"
+    generation_field: ${pnc_text_key}
+    asr_pred_text_key: ${text_key}
+    cer_threshold: 0.01
+    punct_marks: ".,?"
+    vocab_set: "abcdefghijklmnopqrstuvwxyz' "
+    resources:
+      cpus: 1
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    name: "ManifestWriter"
+    output_path: ${final_manifest}

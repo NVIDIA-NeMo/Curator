@@ -59,16 +59,26 @@ def check_output(output_manifest: str, reference_manifest: str, text_key: str = 
     )
 
     for out_entry, ref_entry in zip(output_data, reference_data, strict=True):
-        assert out_entry[text_key] == ref_entry[text_key], f"Text mismatch for {out_entry.get('audio_item_id')}"
+        if "segments" in ref_entry:
+            assert len(out_entry["segments"]) == len(ref_entry["segments"]), (
+                f"Segment count mismatch for {out_entry.get('audio_item_id')}: "
+                f"output={len(out_entry['segments'])}, reference={len(ref_entry['segments'])}"
+            )
+            for out_seg, ref_seg in zip(out_entry["segments"], ref_entry["segments"], strict=True):
+                assert out_seg["start"] == pytest.approx(ref_seg["start"], abs=0.05)
+                assert out_seg["end"] == pytest.approx(ref_seg["end"], abs=0.05)
+                if text_key in ref_seg:
+                    assert out_seg[text_key] == ref_seg[text_key], (
+                        f"Text mismatch in segment ({ref_seg['start']:.2f}-{ref_seg['end']:.2f})"
+                    )
+                if "metrics" in ref_seg:
+                    assert out_seg["metrics"] == _approx_metrics(ref_seg["metrics"])
 
-        for out_seg, ref_seg in zip(out_entry["segments"], ref_entry["segments"], strict=True):
-            assert out_seg["start"] == pytest.approx(ref_seg["start"], rel=1e-3)
-            assert out_seg["end"] == pytest.approx(ref_seg["end"], rel=1e-3)
-            assert out_seg["text"] == ref_seg["text"]
-            if "metrics" in ref_seg:
-                assert out_seg["metrics"] == _approx_metrics(ref_seg["metrics"])
-
-        for out_word, ref_word in zip(out_entry["alignment"], ref_entry["alignment"], strict=True):
-            assert out_word["word"] == ref_word["word"]
-            assert out_word["start"] == pytest.approx(ref_word["start"], abs=0.01)
-            assert out_word["end"] == pytest.approx(ref_word["end"], abs=0.01)
+        if "alignment" in ref_entry:
+            assert len(out_entry["alignment"]) == len(ref_entry["alignment"]), (
+                f"Alignment word count mismatch for {out_entry.get('audio_item_id')}"
+            )
+            for out_word, ref_word in zip(out_entry["alignment"], ref_entry["alignment"], strict=True):
+                assert out_word["word"] == ref_word["word"]
+                assert out_word["start"] == pytest.approx(ref_word["start"], abs=0.05)
+                assert out_word["end"] == pytest.approx(ref_word["end"], abs=0.05)

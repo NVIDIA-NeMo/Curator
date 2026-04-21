@@ -14,6 +14,33 @@
 
 from typing import Any
 
+from loguru import logger
+
+
+def load_vocab_file(filepath: str) -> set[str]:
+    """Read a vocabulary file and return its characters as a set.
+
+    The file can be in one of two formats:
+
+    * **one-char-per-line** — each line holds a single allowed character
+      (blank lines are treated as the space character).
+    * **single line** — the entire first line is treated as the character set.
+    """
+    with open(filepath) as f:
+        content = f.read()
+    lines = content.splitlines()
+    if len(lines) <= 1:
+        return set(content.strip())
+    chars: set[str] = set()
+    for line in lines:
+        ch = line.strip()
+        if ch == "":
+            chars.add(" ")
+        else:
+            chars.add(ch)
+    logger.info(f"Loaded {len(chars)} vocab characters from {filepath}")
+    return chars
+
 
 def add_non_speaker_segments(
     segments: list[dict[str, Any]],
