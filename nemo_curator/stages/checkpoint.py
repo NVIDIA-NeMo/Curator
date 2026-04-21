@@ -50,12 +50,12 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
     name: str = "_checkpoint_filter"
     resources: Resources = field(default_factory=lambda: Resources(cpus=0.1))
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
+    _LOG_TRUNCATE_FILES = 3
+
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         from nemo_curator.utils.checkpoint import CheckpointManager
 
-        self._checkpoint_mgr = CheckpointManager(
-            self.checkpoint_path, self.storage_options
-        ).load()
+        self._checkpoint_mgr = CheckpointManager(self.checkpoint_path, self.storage_options).load()
         completed_keys = self._checkpoint_mgr.get_completed_source_keys()
         if completed_keys:
             logger.info(
@@ -71,9 +71,10 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
             # Can't make a checkpoint decision without source_files — pass through
             return [task]
         if self._checkpoint_mgr.is_task_completed(source_files):
+            n = self._LOG_TRUNCATE_FILES
             logger.info(
                 f"Checkpoint: skipping completed partition (task_id={task.task_id!r}, "
-                f"files={source_files[:3]}{'...' if len(source_files) > 3 else ''})"
+                f"files={source_files[:n]}{'...' if len(source_files) > n else ''})"
             )
             return []
         return [task]
@@ -95,20 +96,21 @@ class _CheckpointRecorderStage(ProcessingStage[Task, Task]):
     name: str = "_checkpoint_recorder"
     resources: Resources = field(default_factory=lambda: Resources(cpus=0.1))
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
+    _LOG_TRUNCATE_FILES = 2
+
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         from nemo_curator.utils.checkpoint import CheckpointManager
 
         # Write-only — no need to load existing state
-        self._checkpoint_mgr = CheckpointManager(
-            self.checkpoint_path, self.storage_options
-        )
+        self._checkpoint_mgr = CheckpointManager(self.checkpoint_path, self.storage_options)
 
     def process(self, task: Task) -> Task:
         source_files: list[str] = task._metadata.get("source_files", [])
         if source_files:
+            n = self._LOG_TRUNCATE_FILES
             logger.debug(
                 f"Checkpoint recorder: writing shard for task {task.task_id!r} "
-                f"(source_files={source_files[:2]}{'...' if len(source_files) > 2 else ''})"
+                f"(source_files={source_files[:n]}{'...' if len(source_files) > n else ''})"
             )
             self._checkpoint_mgr.mark_completed(task.task_id, source_files)
         else:

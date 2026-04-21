@@ -122,8 +122,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         KMeans writes to centroid={k}/ subdirectories. We check if ANY centroid
         directory exists in output_path as a proxy for completion.
         """
-        import os
-
         from nemo_curator.utils.file_utils import get_fs
 
         try:
@@ -131,8 +129,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             fs = get_fs(self.output_path, storage_options)
             if fs.exists(self.output_path) and fs.ls(self.output_path):
                 logger.info(
-                    f"KMeansReadFitWriteStage: output directory {self.output_path} "
-                    "already populated, skipping."
+                    f"KMeansReadFitWriteStage: output directory {self.output_path} already populated, skipping."
                 )
                 return [
                     _EmptyTask(
@@ -142,8 +139,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
                         _metadata=input_tasks[0]._metadata if input_tasks else {},
                     )
                 ]
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"KMeansReadFitWriteStage: could not check cached output: {e}")
         return None
 
     def process(self, task: FileGroupTask) -> _EmptyTask:
