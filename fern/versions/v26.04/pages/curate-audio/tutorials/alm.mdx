@@ -180,11 +180,14 @@ python main.py \
 
 Test the pipeline with the included sample data:
 
+Run this command from the repository root so the fixture path matches what the in-repo `tutorials/audio/alm/README.md` uses:
+
 ```bash
-python main.py \
+# From the NeMo-Curator repo root
+python tutorials/audio/alm/main.py \
   --config-path . \
   --config-name pipeline \
-  manifest_path=../../../tests/fixtures/audio/alm/sample_input.jsonl \
+  manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
   output_dir=./sample_output
 ```
 
@@ -195,11 +198,12 @@ python main.py \
 
 ## Understanding the Results
 
-After the pipeline completes, the output JSONL file contains one line per input entry with the following fields:
+After the pipeline completes, the output JSONL file contains one line per input entry. The example below highlights the most common fields; real output also includes the pre-filter candidate `windows` list and additional duration and diagnostic counters (`dur_lost_bw`, `dur_lost_sr`, `audio_sample_rate`, `manifest_filepath`) that are omitted here for brevity.
 
 ```json
 {
   "audio_filepath": "/path/to/audio.wav",
+  "windows": ["<all candidate windows from the builder stage>"],
   "filtered_windows": [
     {
       "segments": [
@@ -219,15 +223,19 @@ After the pipeline completes, the output JSONL file contains one line per input 
     "lost_sr": 0,
     "lost_spk": 12,
     "lost_win": 8,
-    "lost_no_spkr": 2
+    "lost_no_spkr": 2,
+    "lost_next_seg_bm": 1
   }
 }
 ```
 
 **Key output fields:**
+- `windows`: All candidate windows produced by `ALMDataBuilderStage` before overlap filtering (preserved so you can compare pre- and post-filter results)
 - `filtered_windows`: Windows that passed both quality and overlap filtering
 - `speaker_durations`: Top five speakers by duration within each window, zero-padded to length five
 - `filtered_dur`: Total duration of all filtered windows for this entry
+- `filtered_dur_list`: Duration of each individual filtered window
+- `total_dur_window`: Total duration of all input windows before filtering
 - `stats`: Breakdown of why segments were excluded (bandwidth, sample rate, speaker count, window constraints)
 - `truncation_events`: Number of segments that were truncated to fit within the maximum window duration
 
@@ -241,6 +249,8 @@ The `stats` dictionary helps diagnose low pipeline yield:
 | `lost_sr` | Entries below minimum sample rate | Lower `min_sample_rate` or resample input audio |
 | `lost_spk` | Windows outside speaker count range | Widen `min_speakers` and `max_speakers` range |
 | `lost_win` | Windows outside duration tolerance | Increase `tolerance` or adjust `target_window_duration` |
+| `lost_no_spkr` | Window growth blocked by a segment without a speaker label (sub-category of `lost_win`) | Improve upstream diarization or filter out unlabeled segments before curation |
+| `lost_next_seg_bm` | Window growth blocked by a low-bandwidth segment (sub-category of `lost_win`) | Lower `min_bandwidth` if the blocked segments are otherwise acceptable |
 
 ## Customization Examples
 

@@ -109,7 +109,8 @@ The `stats` dictionary contains the following counters:
 | `lost_sr` | Entries excluded for low sample rate |
 | `lost_spk` | Windows excluded for speaker count outside range |
 | `lost_win` | Windows excluded for duration outside tolerance |
-| `lost_no_spkr` | Segments excluded for having no speaker label |
+| `lost_no_spkr` | Windows lost where growth was blocked by a segment without a speaker label (sub-category of `lost_win`) |
+| `lost_next_seg_bm` | Windows lost where growth was blocked by a low-bandwidth segment (sub-category of `lost_win`) |
 
 ## Best Practices
 

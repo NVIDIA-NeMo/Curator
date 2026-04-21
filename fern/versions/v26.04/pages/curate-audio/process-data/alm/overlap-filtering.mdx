@@ -18,8 +18,8 @@ The stage processes each `AudioTask` independently:
 
 1. Extracts the `windows` list produced by `ALMDataBuilderStage`
 2. Sorts windows by start time
-3. Compares consecutive pairs and calculates the overlap ratio (overlap duration divided by the shorter window duration)
-4. When the overlap ratio exceeds the threshold, keeps the window closest to `target_duration`
+3. For each window, compares it against every later window whose start falls before its end — all pairs that overlap in time, not only adjacent ones — and calculates the overlap ratio (overlap duration divided by the shorter window duration)
+4. When the overlap ratio meets the threshold, greedily removes the window whose duration is further from `target_duration`
 5. Writes filtered results back to the task
 
 ## Parameters
@@ -34,8 +34,8 @@ The stage processes each `AudioTask` independently:
 | Value | Behavior | Typical Use Case |
 |-------|----------|------------------|
 | 0 | Remove any overlapping windows | Maximum deduplication, smallest output |
-| 50 | Remove windows with greater than 50% overlap | Balanced yield and diversity |
-| 100 | Keep all windows regardless of overlap | No filtering, maximum output |
+| 50 | Remove windows with 50% or more overlap | Balanced yield and diversity |
+| 100 | Keep all windows except fully-contained duplicates (ratio = 1.0) | Minimum filtering, largest output |
 
 ## Basic Usage
 
@@ -74,7 +74,7 @@ overlap_filter = ALMDataOverlapStage(
 
 ## Output Fields
 
-The stage adds the following fields to each `AudioTask`:
+The stage adds the following user-facing fields to each `AudioTask`:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -82,6 +82,9 @@ The stage adds the following fields to each `AudioTask`:
 | `filtered_dur` | float | Total duration of filtered windows in seconds |
 | `filtered_dur_list` | list | Duration of each individual filtered window |
 | `total_dur_window` | float | Total duration of all input windows before filtering |
+| `manifest_filepath` | str | Source manifest path carried through from the builder stage |
+
+The stage also writes several intermediate fields (`total_dur_list_window`, `total_dur_list_window_timestamps`, `filtered`, `swift_filepath`) that are primarily used for internal bookkeeping. The original `windows` list produced by `ALMDataBuilderStage` is preserved so downstream consumers can compare pre- and post-filter results.
 
 ## Tuning the Overlap Threshold
 

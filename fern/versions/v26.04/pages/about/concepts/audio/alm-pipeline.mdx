@@ -52,21 +52,19 @@ Each valid window contains a `segments` list and a `speaker_durations` array (to
 
 ### Loss Tracking
 
-The builder stage tracks why segments are excluded through a `stats` dictionary on each output task. Loss categories include bandwidth below threshold (`lost_bw`), sample rate below threshold (`lost_sr`), speaker count outside range (`lost_spk`), and window duration outside tolerance (`lost_win`). These statistics help diagnose pipeline yield and tune parameters.
+The builder stage tracks why segments are excluded through a `stats` dictionary on each output task. Top-level loss categories include bandwidth below threshold (`lost_bw`), sample rate below threshold (`lost_sr`), speaker count outside range (`lost_spk`), and window duration outside tolerance (`lost_win`). Two additional sub-categories describe why a window's growth stopped inside `lost_win`: `lost_no_spkr` (blocked by a segment without a speaker label) and `lost_next_seg_bm` (blocked by a low-bandwidth segment). These statistics help diagnose pipeline yield and tune parameters.
 
 ## Overlap Filtering
 
-`ALMDataOverlapStage` removes redundant windows that share too much audio content. The stage sorts windows by start time and calculates the overlap ratio between consecutive pairs.
+`ALMDataOverlapStage` removes redundant windows that share too much audio content. The stage sorts windows by start time and, for each window, compares it against every later window whose start falls before its end — all pairs that overlap in time, not only adjacent ones. When a pair's overlap ratio reaches the threshold, the stage greedily removes the window whose duration is further from `target_duration`.
 
 The `overlap_percentage` parameter controls filtering aggressiveness:
 
 | Value | Behavior | Use Case |
 |-------|----------|----------|
 | 0 | Remove any overlapping windows | Maximum deduplication |
-| 50 | Remove windows with greater than 50% overlap | Balanced filtering |
-| 100 | Keep all windows regardless of overlap | No filtering |
-
-When two windows overlap beyond the threshold, the stage keeps the window whose duration is closest to `target_duration` and discards the other.
+| 50 | Remove windows with 50% or more overlap | Balanced filtering |
+| 100 | Keep all windows except fully-contained duplicates | Minimum filtering |
 
 ## Manifest I/O
 
@@ -108,11 +106,12 @@ Each line of the input JSONL manifest must contain the following fields:
 
 ### Output
 
-Each line of the output JSONL manifest contains the original fields plus pipeline results:
+Each line of the output JSONL manifest contains the original fields plus pipeline results. The example below highlights the most common fields; the actual output also carries pre-filter candidate `windows`, the input manifest path, and additional duration and diagnostic counters:
 
 ```json
 {
   "audio_filepath": "/path/to/audio.wav",
+  "windows": ["<all candidate windows from the builder stage>"],
   "filtered_windows": [
     {
       "segments": [{"start": 0.0, "end": 5.2, "speaker": "speaker_0"}],
@@ -130,10 +129,15 @@ Each line of the output JSONL manifest contains the original fields plus pipelin
     "lost_sr": 0,
     "lost_spk": 12,
     "lost_win": 8,
-    "lost_no_spkr": 2
+    "lost_no_spkr": 2,
+    "lost_next_seg_bm": 1
   }
 }
 ```
+
+<Note>
+Real output also includes additional duration and diagnostic fields (for example, `dur_lost_bw`, `dur_lost_sr`, `audio_sample_rate`, `manifest_filepath`) that are omitted here for brevity.
+</Note>
 
 ## Related Topics
 
