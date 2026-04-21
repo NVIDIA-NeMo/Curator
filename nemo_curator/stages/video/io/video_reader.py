@@ -255,6 +255,15 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         """Initialize the parent CompositeStage after dataclass initialization."""
         super().__init__()
         self.name = "video_reader"
+        if not is_remote_url(self.input_video_path):
+            path = Path(self.input_video_path)
+            if not path.exists():
+                msg = f"Video directory does not exist: {self.input_video_path}"
+                raise FileNotFoundError(msg)
+            video_extensions = (".mp4", ".mov", ".avi", ".mkv", ".webm")
+            if not any(next(path.rglob(f"*{ext}"), None) is not None for ext in video_extensions):
+                msg = f"No video files found in: {self.input_video_path}"
+                raise FileNotFoundError(msg)
 
     def decompose(self) -> list[ProcessingStage]:
         """Decompose into constituent execution stages.
