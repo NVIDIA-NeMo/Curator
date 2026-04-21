@@ -63,7 +63,7 @@ dependencies = [
     "openai>=1.0.0",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data]==2.54",
+    "ray[default,data]>=2.54",
     "torch",
     "transformers",
 ]
@@ -73,7 +73,7 @@ cuda12 = [
     "gpustat",
     "nvidia-ml-py",
 ]
-vllm = ["vllm>=0.14.1,<0.16.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
+vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
 inference_server = [
@@ -82,6 +82,7 @@ inference_server = [
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "ray[serve,llm]==2.54",
+    "vllm<0.16.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # Installs CPU + GPU text curation modules

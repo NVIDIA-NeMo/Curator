@@ -5243,7 +5243,7 @@ requires-dist = [
     { name = "pypdfium2", marker = "extra == 'interleaved-cpu'" },
     { name = "raft-dask-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "rapidsmpf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
-    { name = "ray", extras = ["data", "default"], specifier = "==2.54" },
+    { name = "ray", extras = ["data", "default"], specifier = ">=2.54" },
     { name = "ray", extras = ["llm", "serve"], marker = "extra == 'inference-server'", specifier = "==2.54" },
     { name = "resiliparse", marker = "extra == 'text-cpu'" },
     { name = "s3fs", marker = "extra == 'interleaved-cpu'", specifier = ">=2024.12.0" },
@@ -5270,8 +5270,9 @@ requires-dist = [
     { name = "torchvision", marker = "(platform_machine != 'x86_64' and extra == 'video-cpu') or (sys_platform == 'darwin' and extra == 'video-cpu')", index = "https://pypi.org/simple" },
     { name = "trafilatura", marker = "extra == 'text-cpu'", specifier = "==2.0.0" },
     { name = "transformers" },
+    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'inference-server'", specifier = "<0.16.0" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'math-cuda12'", specifier = ">=0.13" },
-    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'vllm'", specifier = ">=0.14.1,<0.16.0" },
+    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'vllm'", specifier = ">=0.14.1" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
 ]
 provides-extras = ["cuda12", "vllm", "inference-server", "deduplication-cuda12", "audio-common", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "math-cpu", "math-cuda12", "interleaved-cpu", "interleaved-cuda12", "sdg-cpu", "sdg-cuda12", "all"]
