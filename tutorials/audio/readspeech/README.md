@@ -245,20 +245,6 @@ The script also generates an `extraction_summary.json` with statistics including
 
 **Storage**: ~11 GB (4.88 GB download + 6.3 GB extracted WAV files; archive is deleted after extraction).
 
-## Known Issues
-
-### SIGSEGV in Ray StageWorker during model loading (NVBUG 6078008)
-
-On certain hardware configurations, Ray actors may crash with a `SIGSEGV` during GPU model initialization due to a thread-safety issue in Ray's bundled gRPC library. This is not a Curator code issue.
-
-**Workaround**: Set these environment variables before running the pipeline:
-
-```bash
-export OTEL_SDK_DISABLED=true
-export OTEL_METRICS_EXPORTER=none
-export OTEL_TRACES_EXPORTER=none
-```
-
 ## Troubleshooting
 
 | Issue | Solution |
@@ -267,7 +253,7 @@ export OTEL_TRACES_EXPORTER=none
 | `AF_UNIX path length` error | `export RAY_TMPDIR=/tmp` |
 | CUDA out of memory | Disable some filters or use `--max-samples` |
 | Download interrupted | Re-run pipeline; it skips already-downloaded files |
-| SIGSEGV / actor crash during model load | See [Known Issues](#known-issues) above — set `OTEL_SDK_DISABLED=true` |
+| SIGSEGV / actor crash during model load | See [Known Issues](../README.md#known-issues) — set `OTEL_SDK_DISABLED=true` |
 
 ## Citation
 
