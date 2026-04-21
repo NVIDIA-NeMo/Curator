@@ -37,8 +37,11 @@ Architecture:
         → reads qwen3_prediction_s2, flags wrong language / low confidence
     RegexSubstitutionStage (CPU)
         → reads qwen3_prediction_s2, applies regex rules, writes cleaned_text
+    PnCRestorationStage (GPU, text-only LLM)
+        → checks sentence completeness, restores punctuation/capitalisation
+        → writes pnc_text (or copies cleaned_text if incomplete)
     ALMManifestWriterStage (CPU)
-        → writes JSONL output with cleaned_text field
+        → writes JSONL output with pnc_text / cleaned_text field
 
 Usage:
     python run_pipeline.py \\
@@ -67,6 +70,8 @@ from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReade
 from nemo_curator.stages.audio.text_filtering import (
     FastTextLIDStage,
     InitializeFieldsStage,
+    PnCContentGuardStage,
+    PnCRestorationStage,
     RegexSubstitutionStage,
     WhisperHallucinationStage,
 )
@@ -117,6 +122,26 @@ def main():
     tf.add_argument("--max_char_rate", type=float, default=40.0,
                     help="Min chars/s above which text is considered impossibly dense.")
 
+    pnc = ap.add_argument_group("PnC restoration")
+    pnc.add_argument("--pnc_model_id", type=str, default="Qwen/Qwen3.5-35B-A3B",
+                     help="Model ID for PnC restoration LLM.")
+    pnc.add_argument("--pnc_prompt", type=str, default=None,
+                     help="PnC restoration prompt (use {text} placeholder). Read from --pnc_prompt_file if set.")
+    pnc.add_argument("--pnc_prompt_file", type=str, default=None,
+                     help="Read PnC restoration prompt from file.")
+    pnc.add_argument("--completeness_prompt", type=str, default=None,
+                     help="Completeness check prompt (use {text} placeholder).")
+    pnc.add_argument("--pnc_tensor_parallel_size", type=int, default=2,
+                     help="Tensor parallel size for PnC model.")
+    pnc.add_argument("--pnc_batch_size", type=int, default=64,
+                     help="Batch size for PnC restoration stage.")
+    pnc.add_argument("--pnc_max_model_len", type=int, default=8192,
+                     help="Max model length for PnC model.")
+    pnc.add_argument("--pnc_max_num_seqs", type=int, default=64,
+                     help="Max concurrent sequences for PnC model.")
+    pnc.add_argument("--skip_pnc", action="store_true", default=False,
+                     help="Skip PnC restoration stage entirely.")
+
     args = ap.parse_args()
 
     prompt = args.prompt
@@ -136,6 +161,11 @@ def main():
                 system_prompt = f.read().strip()
         else:
             system_prompt = args.system_prompt
+
+    pnc_prompt_text = args.pnc_prompt
+    if args.pnc_prompt_file:
+        with open(args.pnc_prompt_file, encoding="utf-8") as f:
+            pnc_prompt_text = f.read().strip()
 
     pipeline = Pipeline(
         name="qwen_omni_inference",
@@ -159,7 +189,7 @@ def main():
                 gpu_memory_utilization=args.gpu_memory_utilization,
                 prep_workers=args.prep_workers,
                 pred_text_key="qwen3_prediction_s1",
-                followup_text_key="qwen3_prediction_s2",
+                disfluency_text_key="qwen3_prediction_s2",
             ),
             WhisperHallucinationStage(
                 common_hall_file=args.hall_phrases,
@@ -181,6 +211,22 @@ def main():
                 text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
                 output_text_key="cleaned_text",
             ),
+            *([PnCRestorationStage(
+                model_id=args.pnc_model_id,
+                text_key="cleaned_text",
+                output_text_key="pnc_text",
+                tensor_parallel_size=args.pnc_tensor_parallel_size,
+                batch_size=args.pnc_batch_size,
+                max_model_len=args.pnc_max_model_len,
+                max_num_seqs=args.pnc_max_num_seqs,
+                **({"pnc_prompt": pnc_prompt_text} if pnc_prompt_text else {}),
+                **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
+            ),
+            PnCContentGuardStage(
+                text_key="cleaned_text",
+                pnc_text_key="pnc_text",
+                rejected_text_key="to_be_removed_text",
+            )] if not args.skip_pnc else []),
             ALMManifestWriterStage(
                 output_path=args.output,
             ),
