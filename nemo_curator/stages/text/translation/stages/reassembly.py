@@ -24,7 +24,7 @@ import pandas as pd
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.text.translation.field_utils import (
+from nemo_curator.stages.text.translation.utils.field_paths import (
     is_wildcard_path,
     parse_structured_value,
     set_nested_fields,

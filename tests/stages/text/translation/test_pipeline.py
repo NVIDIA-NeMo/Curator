@@ -22,20 +22,22 @@ import pandas as pd
 import pytest
 
 from nemo_curator.models.client.llm_client import GenerationConfig
-from nemo_curator.stages.text.translation.faith_eval import (
+from nemo_curator.stages.text.translation.evaluation.faith import (
     FAITH_KEYS,
     FaithEvalFilter,
     _SCORE_COLUMNS,
 )
 from nemo_curator.stages.text.translation.pipeline import (
+    TranslationPipeline,
+)
+from nemo_curator.stages.text.translation.stages.formatting import (
     OutputFormattingStage,
     ScoreMergeStage,
     SegmentPairCaptureStage,
-    TranslationPipeline,
 )
-from nemo_curator.stages.text.translation.reassembly import ReassemblyStage
-from nemo_curator.stages.text.translation.segmentation import SegmentationStage
-from nemo_curator.stages.text.translation.translate import TranslateStage
+from nemo_curator.stages.text.translation.stages.reassembly import ReassemblyStage
+from nemo_curator.stages.text.translation.stages.segmentation import SegmentationStage
+from nemo_curator.stages.text.translation.stages.translate import TranslateStage
 from nemo_curator.tasks import DocumentBatch
 
 from .conftest import MockAsyncLLMClient

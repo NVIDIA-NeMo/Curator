@@ -20,7 +20,7 @@ import json
 
 import pytest
 
-from nemo_curator.stages.text.translation.field_utils import (
+from nemo_curator.stages.text.translation.utils.field_paths import (
     extract_nested_fields,
     is_wildcard_path,
     normalize_text_field,

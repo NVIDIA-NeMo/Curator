@@ -36,8 +36,11 @@ from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConf
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch
 
-from ._async_utils import run_async_safe
-from ._prompts import get_language_name, load_prompt_template
+from nemo_curator.stages.text.translation.utils.async_utils import run_async_safe
+from nemo_curator.stages.text.translation.utils.prompt_loader import (
+    load_prompt_template,
+)
+from nemo_curator.stages.text.utils.text_utils import get_language_name
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata

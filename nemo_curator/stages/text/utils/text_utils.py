@@ -21,6 +21,8 @@ from collections.abc import Callable
 from io import StringIO
 from itertools import groupby
 
+from loguru import logger
+
 
 def get_word_splitter(language: str) -> Callable[[str], list[str]]:
     """
@@ -216,3 +218,40 @@ def get_words(text: str) -> tuple[list[str], list[int]]:
         if words[0] == "":
             words = words[1:]
     return words, word_start_char_positions
+
+
+def get_language_name(lang_code: str) -> str:
+    """Return a readable language name for an ISO code."""
+    if not lang_code:
+        return ""
+    try:
+        import iso639
+    except ImportError:
+        logger.warning(
+            "iso639 not installed; cannot resolve language name for code={}",
+            lang_code,
+        )
+        return lang_code
+
+    lang_ctor = getattr(iso639, "Lang", None)
+    if callable(lang_ctor):
+        try:
+            return lang_ctor(lang_code).name
+        except (KeyError, AttributeError, TypeError, ValueError):
+            pass
+
+    to_name = getattr(iso639, "to_name", None)
+    if callable(to_name):
+        try:
+            name = to_name(lang_code)
+        except Exception:  # pragma: no cover - defensive against third-party APIs
+            pass
+        else:
+            if isinstance(name, str) and name:
+                return name
+
+    logger.warning(
+        "Unknown language code {!r}; falling back to raw code in prompts.",
+        lang_code,
+    )
+    return lang_code
