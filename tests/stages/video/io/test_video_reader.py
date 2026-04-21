@@ -577,7 +577,7 @@ class TestVideoReader:
         mock_instance.is_file.return_value = True
         mock_instance.suffix = ".txt"
         with patch("nemo_curator.stages.video.io.video_reader.Path", return_value=mock_instance), pytest.raises(
-            FileNotFoundError, match="Not a supported video file"
+            FileNotFoundError, match="Not a supported video file.*Supported formats"
         ):
             VideoReader(input_video_path="/data/document.txt")
 

@@ -263,7 +263,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
             video_extensions = (".mp4", ".mov", ".avi", ".mkv", ".webm")
             if path.is_file():
                 if path.suffix.lower() not in video_extensions:
-                    msg = f"Not a supported video file: {self.input_video_path}"
+                    msg = f"Not a supported video file: {self.input_video_path}. Supported formats: {', '.join(video_extensions)}"
                     raise FileNotFoundError(msg)
             elif not any(next(path.rglob(f"*{ext}"), None) is not None for ext in video_extensions):
                 msg = f"No video files found in: {self.input_video_path}"
