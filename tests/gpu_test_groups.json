@@ -17,7 +17,7 @@
   },
   "sdg": {
     "extras": ["sdg_cuda12"],
-    "paths": ["tests/stages/synthetic", "tests/core/test_serve.py"]
+    "paths": ["tests/stages/synthetic", "tests/core/serve/ray_serve/test_integration.py"]
   },
   "video": {
     "extras": ["video_cuda12"],
