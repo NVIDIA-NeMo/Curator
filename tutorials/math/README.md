@@ -632,13 +632,6 @@ These prompts convert source text into multi-turn dialogue formats, based on the
 
 ## Troubleshooting
 
-### No GPUs Detected
-
-If `nvidia-smi` shows GPUs but the pipeline logs "No gpus found":
-```bash
-uv pip install --force-reinstall pynvml
-```
-
 ### 0 URLs Matched in CC Index Lookup (Step 1)
 
 - Verify your CC Index parquet files follow the required hive-partitioned directory structure: `<base_path>/crawl=CC-MAIN-YYYY-WW/subset=warc/*.parquet`
