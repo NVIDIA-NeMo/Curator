@@ -37,7 +37,7 @@ authors = [
 ]
 description = "Scalable Data Preprocessing Tool for Training Large Language Models"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<=3.13"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
@@ -86,13 +86,12 @@ inference_server = [
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
-    "cudf-cu12==26.02.*",
-    "cuml-cu12==26.02.*",
-    #"scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
-    "pylibcugraph-cu12==26.02.*",
-    "pylibraft-cu12==26.02.*",
-    "raft-dask-cu12==26.02.*",
-    "rapidsmpf-cu12==26.02.*",
+    "cudf-cu12==26.4.*",
+    "cuml-cu12==26.4.*",
+    "pylibcugraph-cu12==26.4.*",
+    "pylibraft-cu12==26.4.*",
+    "raft-dask-cu12==26.4.*",
+    "rapidsmpf-cu12==26.4.*",
 ]
 
 audio_common = [
@@ -301,7 +300,7 @@ explicit = true
 
 [[tool.uv.index]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl/cu128"
+url = "https://download.pytorch.org/whl/cu129"
 explicit = true
 
 [tool.uv.sources]
