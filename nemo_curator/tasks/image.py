@@ -79,41 +79,19 @@ class ImageTaskData:
     is_valid: bool = True
     error: str | None = None
 
-    @staticmethod
-    def _to_dict_value(value: Any) -> Any:
-        if value is None:
-            return None
-        if isinstance(value, (str, int, float, bool)):
-            return value
-        if dataclasses.is_dataclass(value):
-            if hasattr(value, "to_dict"):
-                return value.to_dict()
-            else:
-                return dataclasses.asdict(value)
-        if isinstance(value, Path):
-            return str(value)
-        if isinstance(value, list):
-            return [ImageTaskData._to_dict_value(item) for item in value]
-        if isinstance(value, dict):
-            return {k: ImageTaskData._to_dict_value(v) for k, v in value.items()}
-        return value
-    
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            field.name: self._to_dict_value(getattr(self, field.name))
-            for field in dataclasses.fields(self)
-        }
+        """Convert to dictionary for JSON serialization.
+
+        Path objects are left as-is; callers should use default=str when
+        passing to json.dumps to handle Path → str conversion.
+        """
+        return dataclasses.asdict(self)
 
 @dataclass(kw_only=True)
 class SingleDataTask(Task[T], Generic[T]):
     """Task that contains a single data item."""
     data: T
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {"data": self.data.to_dict()}
-    
     def validate(self) -> bool:
         """Validate the task data."""
         return True

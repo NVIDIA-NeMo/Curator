@@ -19,6 +19,7 @@ os.environ.setdefault("GRPC_ENABLE_FORK_SUPPORT", "1")
 from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.synthetic.omni.io import (
@@ -252,6 +253,16 @@ def parse_args() -> argparse.Namespace:
         default=0.10,
         help="Probability of dense dump conversation for complete-OCR images (default: 0.10).",
     )
+    parser.add_argument(
+        "--metrics-dir",
+        type=str,
+        default=None,
+        help=(
+            "Directory used by start_prometheus_grafana.py. "
+            "If Prometheus/Grafana are running here, Ray metrics will be wired in automatically. "
+            "Defaults to the per-user temp directory."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -278,12 +289,17 @@ def main() -> None:
 
     logger.info("\n" + pipeline.describe())
 
+    client = RayClient(metrics_dir=args.metrics_dir)
+    client.start()
+
     executor = XennaExecutor()
 
     logger.info("Starting OCR pipeline...")
     start = time.perf_counter()
     output_tasks = pipeline.run(executor)
     elapsed = time.perf_counter() - start
+
+    client.stop()
 
     logger.info(f"Pipeline completed in {elapsed:.1f}s ({elapsed / 60:.1f} min)")
     logger.info(f"Tasks processed: {len(output_tasks)}")

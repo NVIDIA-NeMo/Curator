@@ -1068,7 +1068,7 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
             data["image_path"] = self._get_image_path_str(task.data.image_path)
             # Keep empty lists/strings/False (e.g. OCR may legitimately be []).
             # Only drop fields that are explicitly None, and always omit is_valid.
-            self._file.write(json.dumps({k: v for k, v in data.items() if v is not None and k != "is_valid"}) + "\n")
+            self._file.write(json.dumps({k: v for k, v in data.items() if v is not None and k != "is_valid"}, default=str) + "\n")
         else:
             if self.valid_only:
                 self._skipped_count += 1
@@ -1076,7 +1076,7 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
             else:
                 data = task.data.to_dict()
                 data["image_path"] = self._get_image_path_str(task.data.image_path)
-                self._file.write(json.dumps({k: v for k, v in data.items() if v is not None and k != "is_valid"}) + "\n")
+                self._file.write(json.dumps({k: v for k, v in data.items() if v is not None and k != "is_valid"}, default=str) + "\n")
         self._file.flush()  # Flush after each write for safety
         self._saved_count += 1
         return task

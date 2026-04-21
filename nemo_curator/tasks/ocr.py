@@ -39,15 +39,8 @@ class OCRDenseWord:
     bbox_match: int | None = None    # Gemini bbox fit score 0-10
     text_errors: int | None = None   # Gemini transcription error count
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "bbox_2d": list(self.bbox_2d),
-            "text_content": self.text_content,
-            "quad": self.quad,
-            "valid": self.valid,
-            "bbox_match": self.bbox_match,
-            "text_errors": self.text_errors,
-        }
+    def __post_init__(self) -> None:
+        self.bbox_2d = list(self.bbox_2d)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "OCRDenseWord":
