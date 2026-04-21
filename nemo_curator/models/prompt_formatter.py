@@ -18,12 +18,14 @@ import numpy as np
 import torch
 from transformers import AutoProcessor
 
+from nemo_curator.models.nemotron_3_nano_omni import _HF_MODEL_ID as _NEMOTRON_3_NANO_OMNI_HF_ID
 from nemo_curator.models.nemotron_h_vl import _NEMOTRON_VARIANTS_INFO
 
-# Mapping of variants to their HuggingFace model IDs
-VARIANT_MAPPING: dict[str, str] = {
+# Mapping of variants to their HuggingFace model IDs (None = local checkpoint, path supplied at runtime)
+VARIANT_MAPPING: dict[str, str | None] = {
     "qwen": "Qwen/Qwen2.5-VL-7B-Instruct",
     **_NEMOTRON_VARIANTS_INFO,
+    "nemotron-3-nano-omni": _NEMOTRON_3_NANO_OMNI_HF_ID,
 }
 
 
@@ -31,14 +33,16 @@ class PromptFormatter:
     """Unified prompt formatter for VLM models using HuggingFace AutoProcessor.
 
     Supports both Qwen and Nemotron model variants. Uses AutoProcessor.from_pretrained()
-    to load the appropriate tokenizer and chat template from HuggingFace Hub.
+    to load the appropriate tokenizer and chat template from HuggingFace Hub or a local path.
     """
 
-    def __init__(self, prompt_variant: str):
+    def __init__(self, prompt_variant: str, model_path: str | None = None):
         """Initialize the prompt formatter.
 
         Args:
-            prompt_variant: Model variant to use (e.g., "qwen", "nemotron", "nemotron-fp8").
+            prompt_variant: Model variant to use (e.g., "qwen", "nemotron", "nemotron-3-nano-omni").
+            model_path: Path to a local checkpoint directory. Required when VARIANT_MAPPING
+                maps the variant to None (e.g., "nemotron-3-nano-omni").
         """
         if prompt_variant not in VARIANT_MAPPING:
             msg = f"Invalid prompt variant: {prompt_variant}. Valid variants are: {', '.join(VARIANT_MAPPING.keys())}"
@@ -47,9 +51,17 @@ class PromptFormatter:
         self.prompt_variant = prompt_variant
         self.text_prompt = None
 
-        # Load processor from HuggingFace (auto-downloads and caches)
+        # Resolve processor source: HF hub ID or local path
         hf_model_id = VARIANT_MAPPING[prompt_variant]
-        self.processor = AutoProcessor.from_pretrained(hf_model_id, trust_remote_code=True)
+        if hf_model_id is None:
+            if not model_path:
+                msg = f"model_path is required for variant '{prompt_variant}' (no HuggingFace hub ID)"
+                raise ValueError(msg)
+            processor_source = model_path
+        else:
+            processor_source = hf_model_id
+
+        self.processor = AutoProcessor.from_pretrained(processor_source, trust_remote_code=True)
 
     def generate_inputs(
         self,
@@ -117,10 +129,16 @@ class PromptFormatter:
             {"role": "user", "content": [{"type": "text", "text": f"<video>\n{prompt}"}]},
         ]
 
+        # Omni model has a thinking-enabled chat template; disable it for captioning
+        template_kwargs: dict[str, Any] = {}
+        if self.prompt_variant == "nemotron-3-nano-omni":
+            template_kwargs["enable_thinking"] = False
+
         formatted_prompt = self.processor.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True,
+            **template_kwargs,
         )
 
         # Handle video metadata (vLLM's Nemotron processor requires this tuple format)

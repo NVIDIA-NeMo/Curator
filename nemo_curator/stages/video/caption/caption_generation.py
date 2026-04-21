@@ -19,6 +19,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.models.nemotron_3_nano_omni import Nemotron3NanoOmni
 from nemo_curator.models.nemotron_h_vl import NemotronHVL
 from nemo_curator.models.qwen_vl import QwenVL
 from nemo_curator.stages.base import ProcessingStage
@@ -65,6 +66,14 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 disable_mmcache=self.disable_mmcache,
                 **self.vllm_kwargs,
             )
+        elif self.model_variant == "nemotron-3-nano-omni":
+            self.model = Nemotron3NanoOmni(
+                model_dir=self.model_dir,
+                caption_batch_size=self.caption_batch_size,
+                max_output_tokens=self.max_output_tokens,
+                stage2_prompt_text=self.stage2_prompt_text,
+                verbose=self.verbose,
+            )
         elif self.model_variant.startswith("nemotron"):
             self.model = NemotronHVL(
                 model_dir=self.model_dir,
@@ -83,6 +92,8 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
         if self.model_variant == "qwen":
             QwenVL.download_weights_on_node(self.model_dir)
+        elif self.model_variant == "nemotron-3-nano-omni":
+            Nemotron3NanoOmni.download_weights_on_node(self.model_dir)
         elif self.model_variant.startswith("nemotron"):
             NemotronHVL.download_weights_on_node(self.model_dir, variant=self.model_variant)
         self._initialize_model()

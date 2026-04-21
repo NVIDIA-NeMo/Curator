@@ -165,6 +165,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
         pipeline.add_stage(
             CaptionPreparationStage(
                 model_variant=args.captioning_algorithm,
+                model_dir=args.model_dir,
                 prompt_variant=args.captioning_prompt_variant,
                 prompt_text=args.captioning_prompt_text,
                 sampling_fps=args.captioning_sampling_fps,
@@ -274,6 +275,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
             "  - Cosmos-Embed1: For embeddings (--embedding-algorithm cosmos-embed1-*)\n"
             "  - Qwen2.5-VL: For captioning (--captioning-algorithm qwen)\n"
             "  - Nemotron Nano VL: For captioning (--captioning-algorithm nemotron[-bf16|-fp8|-nvfp4])\n"
+            "  - Nemotron 3 Nano Omni: For captioning (--captioning-algorithm nemotron-3-nano-omni; pass local checkpoint path as --model-dir)\n"
             "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
             "Default: ./models\n"
             "Example: --model-dir /path/to/models or --model-dir ./models"
@@ -557,13 +559,14 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         "--captioning-algorithm",
         type=str,
         default="qwen",
-        choices=["qwen", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"],
+        choices=["qwen", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4", "nemotron-3-nano-omni"],
         help=(
             "Captioning algorithm to use. Options:\n"
             "  - qwen: Qwen2.5-VL-7B-Instruct (default)\n"
             "  - nemotron / nemotron-bf16: Nemotron Nano 12B v2 VL BF16 (auto-downloaded from HF)\n"
             "  - nemotron-fp8: Nemotron Nano 12B v2 VL FP8 quantized\n"
-            "  - nemotron-nvfp4: Nemotron Nano 12B v2 VL NVFP4-QAD quantized"
+            "  - nemotron-nvfp4: Nemotron Nano 12B v2 VL NVFP4-QAD quantized\n"
+            "  - nemotron-3-nano-omni: Nemotron 3 Nano Omni (pass local checkpoint path via --model-dir)"
         ),
     )
     parser.add_argument(

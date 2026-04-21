@@ -17,7 +17,7 @@ from itertools import zip_longest
 
 from loguru import logger
 
-from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.prompt_formatter import PromptFormatter
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks.video import VideoTask, _Window
@@ -78,6 +78,7 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that prepares captions for video processing."""
 
     model_variant: str = "qwen"
+    model_dir: str = ""
     prompt_variant: str = "default"
     prompt_text: str | None = None
     verbose: bool = False
@@ -106,9 +107,20 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                 self.model_does_preprocess = True
             self._skip_intermediate_resize = True
 
+    def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        # Pre-warm the AutoProcessor trust_remote_code module cache once (sequentially)
+        # before parallel workers start. Without this, concurrent workers race to write
+        # the same transformers_modules cache files, causing partial-load AttributeErrors.
+        PromptFormatter(
+            self.model_variant,
+            model_path=self.model_dir if self.model_dir else None,
+        )
+
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        # PromptFormatter uses AutoProcessor from HuggingFace (auto-downloads/caches)
-        self.prompt_formatter = PromptFormatter(self.model_variant)
+        self.prompt_formatter = PromptFormatter(
+            self.model_variant,
+            model_path=self.model_dir if self.model_dir else None,
+        )
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data

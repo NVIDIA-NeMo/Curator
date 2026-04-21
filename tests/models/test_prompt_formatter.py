@@ -28,7 +28,11 @@ class TestPromptFormatterVariantMapping:
 
     def test_variant_mapping_contains_all_variants(self) -> None:
         """Test that all expected variants are in mapping."""
-        expected_variants = {"qwen", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"}
+        expected_variants = {
+            "qwen",
+            "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4",
+            "nemotron-3-nano-omni",
+        }
         assert set(VARIANT_MAPPING.keys()) == expected_variants
 
     def test_variant_mapping_qwen_hf_id(self) -> None:
@@ -41,6 +45,10 @@ class TestPromptFormatterVariantMapping:
         assert VARIANT_MAPPING["nemotron-bf16"] == "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16"
         assert VARIANT_MAPPING["nemotron-fp8"] == "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-FP8"
         assert VARIANT_MAPPING["nemotron-nvfp4"] == "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD"
+
+    def test_variant_mapping_nemotron_3_nano_omni_is_none_until_public(self) -> None:
+        """nemotron-3-nano-omni maps to None (local-only) until the model is publicly released."""
+        assert VARIANT_MAPPING["nemotron-3-nano-omni"] is None
 
 
 class TestPromptFormatterQwen:
@@ -329,3 +337,59 @@ class TestPromptFormatterConvertToNumpy:
 
         assert isinstance(result, np.ndarray)
         assert result.dtype == np.uint8
+
+
+class TestPromptFormatterNemotron3NanoOmni:
+    """Test cases for PromptFormatter with the nemotron-3-nano-omni variant."""
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_initialization_uses_local_path_when_hf_id_is_none(self, mock_processor_class: Mock) -> None:
+        """When VARIANT_MAPPING maps the variant to None, model_path is used as the processor source."""
+        mock_processor_class.from_pretrained.return_value = Mock()
+        local_path = "/aot/checkpoints/nemotron_3_nano_omni"
+
+        formatter = PromptFormatter(prompt_variant="nemotron-3-nano-omni", model_path=local_path)
+
+        assert formatter.prompt_variant == "nemotron-3-nano-omni"
+        mock_processor_class.from_pretrained.assert_called_once_with(local_path, trust_remote_code=True)
+
+    def test_initialization_raises_without_model_path(self) -> None:
+        """ValueError is raised when variant maps to None but no model_path is provided."""
+        with pytest.raises(ValueError, match="model_path is required for variant 'nemotron-3-nano-omni'"):
+            PromptFormatter(prompt_variant="nemotron-3-nano-omni")
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_generate_inputs_passes_enable_thinking_false(self, mock_processor_class: Mock) -> None:
+        """apply_chat_template receives enable_thinking=False to suppress thinking mode."""
+        mock_processor_instance = Mock()
+        mock_processor_class.from_pretrained.return_value = mock_processor_instance
+        mock_processor_instance.apply_chat_template.return_value = "omni_prompt"
+
+        formatter = PromptFormatter(
+            prompt_variant="nemotron-3-nano-omni",
+            model_path="/aot/checkpoints/nemotron_3_nano_omni",
+        )
+        result = formatter.generate_inputs(prompt="Describe the video")
+
+        assert result["prompt"] == "omni_prompt"
+        _, kwargs = mock_processor_instance.apply_chat_template.call_args
+        assert kwargs.get("enable_thinking") is False
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_generate_inputs_message_format(self, mock_processor_class: Mock) -> None:
+        """nemotron-3-nano-omni uses the same system+user message format as other Nemotron variants."""
+        mock_processor_instance = Mock()
+        mock_processor_class.from_pretrained.return_value = mock_processor_instance
+        mock_processor_instance.apply_chat_template.return_value = "prompt"
+
+        formatter = PromptFormatter(
+            prompt_variant="nemotron-3-nano-omni",
+            model_path="/aot/checkpoints/nemotron_3_nano_omni",
+        )
+        formatter.generate_inputs(prompt="What is in the video?")
+
+        messages = mock_processor_instance.apply_chat_template.call_args[0][0]
+        assert len(messages) == 2
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "user"
+        assert "<video>\nWhat is in the video?" in messages[1]["content"][0]["text"]
