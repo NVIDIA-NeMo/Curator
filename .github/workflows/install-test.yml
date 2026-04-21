@@ -52,7 +52,7 @@ jobs:
     outputs:
       cuda_base_image: ${{ steps.cuda_config.outputs.base_image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Extract CUDA config
@@ -75,7 +75,7 @@ jobs:
       matrix:
         installer: [pip, uv]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -83,7 +83,7 @@ jobs:
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -191,7 +191,7 @@ jobs:
 
       - name: Upload status artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cpu-status-${{ matrix.installer }}
           path: cpu-status/
@@ -213,13 +213,18 @@ jobs:
     name: "GPU Extras Individual - Install Only (${{ matrix.installer }}) - Py3.12"
     steps:
       - name: Install dependencies for setup-python
-        run: apt-get update && apt-get install -y --no-install-recommends git curl
+        run: |
+          for i in 1 2 3; do
+            apt-get update && apt-get install -y --no-install-recommends git curl && break
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -313,7 +318,7 @@ jobs:
 
       - name: Upload status artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gpu-status-${{ matrix.installer }}
           path: gpu-status/
@@ -341,11 +346,11 @@ jobs:
   #     - name: Install dependencies for setup-python
   #       run: apt-get update && apt-get install -y --no-install-recommends git curl
 
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v6
   #       with:
   #         submodules: recursive
 
-  #     - uses: actions/setup-python@v5
+  #     - uses: actions/setup-python@v6
   #       with:
   #         python-version: "${{ matrix.python-version }}"
 
@@ -413,7 +418,7 @@ jobs:
     runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
     name: "ALL Extras - Install + Import (uv) - Py3.12"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -426,7 +431,11 @@ jobs:
 
           cat > ${{ github.workspace }}/.run_install.sh << 'SCRIPT'
           set -e
-          apt-get update && apt-get install -y --no-install-recommends git curl
+          for i in 1 2 3; do
+            apt-get update && apt-get install -y --no-install-recommends git curl && break
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
           curl -LsSf https://astral.sh/uv/install.sh | sh
           export PATH="/root/.local/bin:$PATH"
           uv sync --locked --link-mode copy --extra all --python 3.12 2>&1 | tee install.log
@@ -471,7 +480,7 @@ jobs:
     steps:
       - name: Download CPU status artifacts
         continue-on-error: true  # May not exist if job was skipped
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: cpu-status-*
           merge-multiple: true
@@ -479,7 +488,7 @@ jobs:
 
       - name: Download GPU status artifacts
         continue-on-error: true  # May not exist if job was skipped
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: gpu-status-*
           merge-multiple: true

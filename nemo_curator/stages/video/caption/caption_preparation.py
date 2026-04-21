@@ -77,7 +77,7 @@ def _get_prompt(
 class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that prepares captions for video processing."""
 
-    model_variant: str = "qwen"
+    model_variant: str = "qwen2.5"
     prompt_variant: str = "default"
     prompt_text: str | None = None
     verbose: bool = False
@@ -95,7 +95,19 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
+    def __post_init__(self) -> None:
+        self._skip_intermediate_resize = False
+        if self.model_variant.startswith("nemotron"):
+            if not self.model_does_preprocess:
+                logger.warning(
+                    f"model_variant={self.model_variant!r}: overriding model_does_preprocess=True. "
+                    "Nemotron uses vLLM's internal preprocessing; CLIP normalization must not be applied beforehand."
+                )
+                self.model_does_preprocess = True
+            self._skip_intermediate_resize = True
+
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        # PromptFormatter uses AutoProcessor from HuggingFace (auto-downloads/caches)
         self.prompt_formatter = PromptFormatter(self.model_variant)
 
     def process(self, task: VideoTask) -> VideoTask:
@@ -115,6 +127,7 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     sampling_fps=self.sampling_fps,
                     model_does_preprocess=self.model_does_preprocess,
                     preprocess_dtype=self.preprocess_dtype,
+                    skip_resize=self._skip_intermediate_resize,
                     return_bytes=self.generate_previews,
                     num_threads=max(int(self.resources.cpus), 1),
                 ),
@@ -127,19 +140,20 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     llm_input = self.prompt_formatter.generate_inputs(
                         prompt=prompt,
                         video_inputs=window_frames,
+                        fps=self.sampling_fps,
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.error(f"Error in Caption preparation: {e}")
                     clip.errors[f"{self.model_variant}_input"] = str(e)
                     continue
 
-                clip.windows.append(
-                    _Window(
-                        window_frame_info.start,
-                        window_frame_info.end,
-                        mp4_bytes=window_bytes,
-                        qwen_llm_input=llm_input,
-                    ),
+                window = _Window(
+                    window_frame_info.start,
+                    window_frame_info.end,
+                    mp4_bytes=window_bytes,
                 )
+                window.llm_inputs[self.model_variant] = llm_input
+
+                clip.windows.append(window)
 
         return task

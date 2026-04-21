@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ from nemo_curator.utils.file_utils import (
     get_all_file_paths_and_size_under,
     get_all_file_paths_under,
     infer_dataset_name_from_path,
+    parse_bytes_string_to_int,
 )
 
 if TYPE_CHECKING:
@@ -190,6 +191,35 @@ class TestGetAllFilePathsAndSizeUnder:
         ]
         assert result == expected
 
+    def test_files_with_paths_sorted(self, tmp_path: Path):
+        """Test that files are returned with sizes and sorted by path."""
+        root = tmp_path / "sized_files"
+
+        # Create files with different sizes
+        files_with_sizes = [
+            (root / "large.jsonl", 100),
+            (root / "small.jsonl", 10),
+            (root / "medium.jsonl", 50),
+        ]
+
+        for file_path, size in files_with_sizes:
+            _write_test_file(file_path, size_bytes=size)
+
+        result = get_all_file_paths_and_size_under(
+            str(root),
+            recurse_subdirectories=False,
+            keep_extensions=[".jsonl"],
+            sort_by_size=False,
+        )
+
+        # Should be sorted by path (alphabetical)
+        expected = [
+            (str(root / "large.jsonl"), 100),
+            (str(root / "medium.jsonl"), 50),
+            (str(root / "small.jsonl"), 10),
+        ]
+        assert result == expected
+
     def test_with_recursion_and_filtering(self, tmp_path: Path):
         """Test recursive traversal with extension filtering and size info."""
         root = tmp_path / "nested_sized"
@@ -229,57 +259,7 @@ class TestGetAllFilePathsAndSizeUnder:
 class TestFilePartitioningStageGetters:
     """Test cases for FilePartitioningStage private methods."""
 
-    def test_get_file_list_directory_input(self, tmp_path: Path):
-        """Test _get_file_list with directory input."""
-        root = tmp_path / "stage_test"
-
-        # Create files with default extensions
-        files_to_create = [
-            (root / "file1.jsonl", "{}"),
-            (root / "file2.json", "{}"),
-            (root / "file3.parquet", "{}"),
-            (root / "file4.txt", "text"),  # Should be filtered out
-            (root / "nested" / "file5.jsonl", "{}"),
-        ]
-
-        for file_path, content in files_to_create:
-            _write_test_file(file_path, content)
-
-        stage = FilePartitioningStage(file_paths=str(root))
-        result = stage._get_file_list()
-
-        # Should include jsonl, json, parquet files (default extensions)
-        expected_files = [
-            str(root / "file1.jsonl"),
-            str(root / "file2.json"),
-            str(root / "file3.parquet"),
-            str(root / "nested" / "file5.jsonl"),
-        ]
-        assert sorted(result) == sorted(expected_files)
-
-    def test_get_file_list_custom_extensions(self, tmp_path: Path):
-        """Test _get_file_list with custom file extensions."""
-        root = tmp_path / "custom_ext"
-
-        files_to_create = [
-            (root / "file1.txt", "text"),
-            (root / "file2.jsonl", "NA"),  # Should be filtered out
-            (root / "file3.log", "log"),
-        ]
-
-        for file_path, content in files_to_create:
-            _write_test_file(file_path, content)
-
-        stage = FilePartitioningStage(file_paths=str(root), file_extensions=[".txt", ".log"])
-        result = stage._get_file_list()
-
-        expected_files = [
-            str(root / "file1.txt"),
-            str(root / "file3.log"),
-        ]
-        assert sorted(result) == sorted(expected_files)
-
-    def test_get_file_list_with_sizes_directory_sorted(self, tmp_path: Path):
+    def test_get_file_list_with_sizes_directory_sort_by_size(self, tmp_path: Path):
         """Test _get_file_list_with_sizes with directory input."""
         root = tmp_path / "sized_stage_test"
 
@@ -294,6 +274,7 @@ class TestFilePartitioningStageGetters:
             _write_test_file(file_path, size_bytes=size)
 
         stage = FilePartitioningStage(file_paths=str(root))
+        # Default is to sort by size
         result = stage._get_file_list_with_sizes()
 
         # Should be sorted by size (ascending)
@@ -305,27 +286,29 @@ class TestFilePartitioningStageGetters:
         ]
         assert result == expected
 
-    def test_get_file_list_with_sizes_list_input(self, tmp_path: Path):
-        """Test _get_file_list_with_sizes with list input preserves order."""
+    def test_get_file_list_with_sizes_directory_sort_by_path(self, tmp_path: Path):
+        """Test _get_file_list_with_sizes with directory input and sort_by_size=False."""
+        root = tmp_path / "sized_stage_test"
+
         files_with_sizes = [
-            (tmp_path / "file1.jsonl", 30),
-            (tmp_path / "file2.jsonl", 10),
-            (tmp_path / "file3.jsonl", 20),
+            (root / "large.jsonl", 80),
+            (root / "small.json", 20),
+            (root / "medium.parquet", 50),
+            (root / "nested" / "tiny.jsonl", 5),
         ]
 
         for file_path, size in files_with_sizes:
             _write_test_file(file_path, size_bytes=size)
 
-        # Test with specific order
-        file_paths = [str(files_with_sizes[1][0]), str(files_with_sizes[2][0]), str(files_with_sizes[0][0])]
-        stage = FilePartitioningStage(file_paths=file_paths)
-        result = stage._get_file_list_with_sizes()
+        stage = FilePartitioningStage(file_paths=str(root))
+        result = stage._get_file_list_with_sizes(sort_by_size=False)
 
-        # Should preserve input order for list input
+        # Should be sorted by path (alphabetical)
         expected = [
-            (str(files_with_sizes[1][0]), 10),
-            (str(files_with_sizes[2][0]), 20),
-            (str(files_with_sizes[0][0]), 30),
+            (str(root / "large.jsonl"), 80),
+            (str(root / "medium.parquet"), 50),
+            (str(root / "nested" / "tiny.jsonl"), 5),
+            (str(root / "small.json"), 20),
         ]
         assert result == expected
 
@@ -334,7 +317,17 @@ class TestFilePartitioningStageGetters:
         stage = FilePartitioningStage(file_paths=123)  # Invalid type
 
         with pytest.raises(TypeError, match="Invalid file paths"):
-            stage._get_file_list()
-
-        with pytest.raises(TypeError, match="Invalid file paths"):
             stage._get_file_list_with_sizes()
+
+    def test_parse_bytes_string_to_int(self):
+        """Test parse_bytes_string_to_int method."""
+        assert parse_bytes_string_to_int("100B") == 100
+        assert parse_bytes_string_to_int("1KB") == 1000
+        assert parse_bytes_string_to_int("1KiB") == 1024
+        assert parse_bytes_string_to_int("1MB") == 1000 * 1000
+        assert parse_bytes_string_to_int("1MiB") == 1024 * 1024
+        assert parse_bytes_string_to_int("1GB") == 1000 * 1000 * 1000
+        assert parse_bytes_string_to_int("1GiB") == 1024 * 1024 * 1024
+        assert parse_bytes_string_to_int("2TB") == 2 * 1000 * 1000 * 1000 * 1000
+        assert parse_bytes_string_to_int("2TiB") == 2 * 1024 * 1024 * 1024 * 1024
+        assert parse_bytes_string_to_int("100") == 100  # No unit defaults to bytes

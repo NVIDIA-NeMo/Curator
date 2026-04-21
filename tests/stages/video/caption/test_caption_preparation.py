@@ -75,7 +75,7 @@ class TestCaptionPreparationStage:
     def setup_method(self):
         """Set up test fixtures."""
         self.stage = CaptionPreparationStage(
-            model_variant="qwen",
+            model_variant="qwen2.5",
             prompt_variant="default",
             prompt_text="Custom test prompt",
             verbose=True,
@@ -90,7 +90,7 @@ class TestCaptionPreparationStage:
     def test_init_default_values(self):
         """Test initialization with default values."""
         stage = CaptionPreparationStage()
-        assert stage.model_variant == "qwen"
+        assert stage.model_variant == "qwen2.5"
         assert stage.prompt_variant == "default"
         assert stage.prompt_text is None
         assert stage.verbose is False
@@ -120,7 +120,7 @@ class TestCaptionPreparationStage:
 
         self.stage.setup()
 
-        mock_prompt_formatter.assert_called_once_with("qwen")
+        mock_prompt_formatter.assert_called_once_with("qwen2.5")
         assert self.stage.prompt_formatter == mock_formatter
 
     def test_setup_with_worker_metadata(self):
@@ -128,7 +128,7 @@ class TestCaptionPreparationStage:
         with patch("nemo_curator.stages.video.caption.caption_preparation.PromptFormatter") as mock_formatter:
             worker_metadata = WorkerMetadata(worker_id="test")
             self.stage.setup(worker_metadata)
-            mock_formatter.assert_called_once_with("qwen")
+            mock_formatter.assert_called_once_with("qwen2.5")
 
     def _create_test_video_task(self) -> VideoTask:
         """Create a test VideoTask with sample data."""
@@ -216,11 +216,11 @@ class TestCaptionPreparationStage:
             assert window1.start_frame == 0
             assert window1.end_frame == 10
             assert window1.mp4_bytes == b"window1_bytes"
-            # Check structure of qwen_llm_input (can't compare tensors directly)
-            assert "prompt" in window1.qwen_llm_input
-            assert "multi_modal_data" in window1.qwen_llm_input
-            assert window1.qwen_llm_input["prompt"] == "test formatted prompt"
-            assert "video" in window1.qwen_llm_input["multi_modal_data"]
+            # Check structure of llm_inputs["qwen2.5"] (can't compare tensors directly)
+            assert "prompt" in window1.llm_inputs["qwen2.5"]
+            assert "multi_modal_data" in window1.llm_inputs["qwen2.5"]
+            assert window1.llm_inputs["qwen2.5"]["prompt"] == "test formatted prompt"
+            assert "video" in window1.llm_inputs["qwen2.5"]["multi_modal_data"]
 
     @patch("nemo_curator.stages.video.caption.caption_preparation.logger")
     def test_process_clip_without_buffer(self, mock_logger: Mock):
@@ -281,7 +281,7 @@ class TestCaptionPreparationStage:
             mock_logger.error.assert_called_with("Error in Caption preparation: Formatter error")
 
             # Verify error was set on clip
-            assert result.data.clips[0].errors["qwen_input"] == "Formatter error"
+            assert result.data.clips[0].errors["qwen2.5_input"] == "Formatter error"
 
             # Verify no windows were created for the failed clip
             assert len(result.data.clips[0].windows) == 0
@@ -417,3 +417,59 @@ class TestCaptionPreparationStage:
 
             # Verify formatter was not called
             mock_formatter.generate_inputs.assert_not_called()
+
+
+class TestCaptionPreparationStageNemotron:
+    """Test cases for CaptionPreparationStage with Nemotron variants.
+
+    Note: Nemotron now uses AutoProcessor from HuggingFace, same as Qwen.
+    """
+
+    def test_init_nemotron_variant(self):
+        """Test initialization with nemotron variant."""
+        stage = CaptionPreparationStage(model_variant="nemotron")
+        assert stage.model_variant == "nemotron"
+
+    def test_init_nemotron_fp8_variant(self):
+        """Test initialization with nemotron-fp8 variant."""
+        stage = CaptionPreparationStage(model_variant="nemotron-fp8")
+        assert stage.model_variant == "nemotron-fp8"
+
+    def test_init_nemotron_nvfp4_variant(self):
+        """Test initialization with nemotron-nvfp4 variant."""
+        stage = CaptionPreparationStage(model_variant="nemotron-nvfp4")
+        assert stage.model_variant == "nemotron-nvfp4"
+
+    @patch("nemo_curator.stages.video.caption.caption_preparation.PromptFormatter")
+    def test_setup_nemotron_variant(self, mock_prompt_formatter: Mock):
+        """Test setup method with nemotron variant uses PromptFormatter."""
+        mock_formatter = Mock()
+        mock_prompt_formatter.return_value = mock_formatter
+
+        stage = CaptionPreparationStage(model_variant="nemotron")
+        stage.setup()
+
+        mock_prompt_formatter.assert_called_once_with("nemotron")
+        assert stage.prompt_formatter == mock_formatter
+
+    @patch("nemo_curator.stages.video.caption.caption_preparation.PromptFormatter")
+    def test_setup_nemotron_fp8_variant(self, mock_prompt_formatter: Mock):
+        """Test setup method with nemotron-fp8 variant."""
+        mock_formatter = Mock()
+        mock_prompt_formatter.return_value = mock_formatter
+
+        stage = CaptionPreparationStage(model_variant="nemotron-fp8")
+        stage.setup()
+
+        mock_prompt_formatter.assert_called_once_with("nemotron-fp8")
+
+    @patch("nemo_curator.stages.video.caption.caption_preparation.PromptFormatter")
+    def test_setup_nemotron_nvfp4_variant(self, mock_prompt_formatter: Mock):
+        """Test setup method with nemotron-nvfp4 variant."""
+        mock_formatter = Mock()
+        mock_prompt_formatter.return_value = mock_formatter
+
+        stage = CaptionPreparationStage(model_variant="nemotron-nvfp4")
+        stage.setup()
+
+        mock_prompt_formatter.assert_called_once_with("nemotron-nvfp4")

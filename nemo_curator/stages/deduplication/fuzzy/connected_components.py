@@ -21,7 +21,7 @@ from pylibcugraph import GraphProperties, MGGraph, ResourceHandle
 from pylibcugraph import weakly_connected_components as pylibcugraph_wcc
 from pylibcugraph.comms.comms_wrapper import init_subcomms as c_init_subcomms
 
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICATE_GROUP_FIELD
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
