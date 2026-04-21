@@ -280,12 +280,12 @@ From here, the user may opt to use `num_mixtures > 1` and repeat steps 6 and 7 w
 
 To follow the [Nemotron-CLIMB paper](https://arxiv.org/pdf/2504.13161) exactly:
 
-a. Run steps 1-7, generating 64 data mixtures in step 5 and training a single proxy model per data mixture (64 models total).
-b. Run step 8 to fit a predictor on the benchmarks from the 64 models. Generate 32 more mixtures.
-c. Re-run steps 6 and 7 with the 32 data mixtures.
-d. Re-run step 8 to fit a predictor using current and past benchmarks (64 + 32 = 96 total). Generate 16 more mixtures.
-e. Re-run steps 6 and 7 with the 16 data mixtures.
-f. Re-run step 8 to fit a predictor using current and past benchmarks (96 + 16 = 112 total). Generate 1 more mixture.
-g. Use the final data mixture for full-scale LLM training.
+- Run steps 1-7, generating 64 data mixtures in step 5 and training a single proxy model per data mixture (64 models total).
+- Run step 8 to fit a predictor on the benchmarks from the 64 models. Generate 32 more mixtures.
+- Re-run steps 6 and 7 with the 32 data mixtures.
+- Re-run step 8 to fit a predictor using current and past benchmarks (64 + 32 = 96 total). Generate 16 more mixtures.
+- Re-run steps 6 and 7 with the 16 data mixtures.
+- Re-run step 8 to fit a predictor using current and past benchmarks (96 + 16 = 112 total). Generate 1 more mixture.
+- Use the final data mixture for full-scale LLM training.
 
 By iteratively refining the data mixture across three rounds (64 -> 32 -> 16 -> 1), the predictor is trained on an increasingly rich set of mixture-performance pairs, resulting in a more accurate estimate of the optimal data mixture. The final mixture can then be used to train a full-scale LLM with a data composition that is empirically grounded in downstream benchmark performance.
