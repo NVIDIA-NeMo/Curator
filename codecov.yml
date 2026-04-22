@@ -20,4 +20,4 @@ ignore:
   - "tutorials/**"
   - "benchmarking/**"
 fixes:
-  - "/workspace/::"
+  - "/opt/Curator/::"

@@ -253,6 +253,7 @@ The script also generates an `extraction_summary.json` with statistics including
 | `AF_UNIX path length` error | `export RAY_TMPDIR=/tmp` |
 | CUDA out of memory | Disable some filters or use `--max-samples` |
 | Download interrupted | Re-run pipeline; it skips already-downloaded files |
+| SIGSEGV / actor crash during model load | See [Known Issues](../README.md#known-issues) — set `OTEL_SDK_DISABLED=true` |
 
 ## Citation
 
