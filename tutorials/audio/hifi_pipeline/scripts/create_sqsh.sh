@@ -30,7 +30,8 @@ for img in "${IMAGES[@]}"; do
     fi
 
     echo "=== ${NAME}: importing from nvcr.io/${NGC_ORG}/${img} ==="
-    enroot import --output "${SQSH}" "docker://nvcr.io/${NGC_ORG}/${img}"
+    # gzip compression: default is -noD (uncompressed data), which produces huge sqsh files
+    ENROOT_SQUASH_OPTIONS="-comp gzip" enroot import --output "${SQSH}" "docker://nvcr.io/${NGC_ORG}/${img}"
     echo "    -> ${SQSH} ($(du -h "${SQSH}" | cut -f1))"
     echo
 done

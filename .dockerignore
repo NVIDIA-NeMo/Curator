@@ -1,0 +1,12 @@
+output/
+output_*/
+.git/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+*.sqsh

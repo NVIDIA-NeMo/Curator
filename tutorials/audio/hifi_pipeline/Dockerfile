@@ -34,9 +34,16 @@ RUN /opt/curator_venv/bin/pip install --no-cache-dir . && \
     /opt/curator_venv/bin/pip install --no-cache-dir \
     -r tutorials/audio/hifi_pipeline/requirements.txt && \
     /opt/curator_venv/bin/pip install --no-cache-dir \
-    nemo_toolkit[asr] huggingface_hub openai && \
+    nemo_toolkit[asr] huggingface_hub openai aistore && \
     /opt/curator_venv/bin/pip install --no-cache-dir \
     torch==2.7.0 --index-url https://download.pytorch.org/whl/cu126
+
+# Bake SED checkpoint (same as nemo container, so transcribe container can also run SED if needed)
+RUN mkdir -p /opt/checkpoints && \
+    curl -fsSL -o /opt/checkpoints/Cnn14_DecisionLevelMax.pth \
+        'https://zenodo.org/record/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth'
+
+ENV PANN_CKPT=/opt/checkpoints/Cnn14_DecisionLevelMax.pth
 
 COPY tutorials/audio/hifi_pipeline/entrypoint.sh /opt/entrypoint.sh
 RUN chmod +x /opt/entrypoint.sh

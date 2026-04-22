@@ -29,9 +29,16 @@ RUN pip install --no-cache-dir . && \
     pip install --no-cache-dir \
     'nemo_toolkit[asr]' \
     torchlibrosa librosa soundfile pyyaml \
-    huggingface_hub openai && \
+    huggingface_hub openai aistore && \
     pip install --no-cache-dir \
     'torch==2.6.0' 'torchaudio==2.6.0' 'torchvision==0.21.0'
 
+# Bake in PANNs CNN14 SED checkpoint (~313MB)
+RUN mkdir -p /opt/checkpoints && \
+    curl -fsSL -o /opt/checkpoints/Cnn14_DecisionLevelMax.pth \
+        'https://zenodo.org/record/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth' && \
+    ls -lh /opt/checkpoints/
+
+ENV PANN_CKPT=/opt/checkpoints/Cnn14_DecisionLevelMax.pth
 ENV PYTHONPATH=/opt/Curator
 ENTRYPOINT ["python", "/opt/Curator/tutorials/audio/hifi_pipeline/run_pipeline.py"]

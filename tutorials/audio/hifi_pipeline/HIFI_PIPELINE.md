@@ -48,7 +48,7 @@ docker run --gpus all --ipc=host --shm-size=8g \
   curator-hifi-pipeline \
   --input_manifest /data/manifest.jsonl \
   --stages sed,sed_post,segment,diarize,transcribe,embed,cluster,utmos \
-  --sed_checkpoint /models/Cnn14_DecisionLevelMax.pth \
+  --sed_checkpoint /opt/checkpoints/Cnn14_DecisionLevelMax.pth \
   --language Ru
 
 # Run (in-process vLLM via XennaExecutor)
@@ -158,7 +158,7 @@ python run_pipeline.py \
     --output_dir /data/output \
     --stages sed,sed_post,segment,diarize,transcribe,embed,group_video,cluster,utmos \
     --language Ru \
-    --sed_checkpoint /models/Cnn14_DecisionLevelMax.pth \
+    --sed_checkpoint /opt/checkpoints/Cnn14_DecisionLevelMax.pth \
     --vllm_host localhost --vllm_port 8200 \
     --omni_model Qwen/Qwen3-Omni-30B-A3B-Instruct \
     --llm_model Qwen/Qwen3-30B-A3B-Instruct \

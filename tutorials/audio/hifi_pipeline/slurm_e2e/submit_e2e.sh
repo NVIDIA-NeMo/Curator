@@ -77,14 +77,14 @@ echo
 # ---- Stage definitions ----
 # STAGE_NAME|CONTAINER|PARTITION|GPUS|MEM|TIME|INPUT_DIR|OUTPUT_DIR|EXTRA_ARGS
 STAGES=(
-    "sed|${CONT_NEMO}|batch_singlenode|1|64G|00:30:00|${GRANARY}/${SUB}|${WORK}/e2e_output/${SUB}/sed|--sed_checkpoint /models/Cnn14_DecisionLevelMax.pth"
-    "sed_post|${CONT_NEMO}|batch_singlenode|0|32G|00:15:00|${WORK}/e2e_output/${SUB}/sed|${WORK}/e2e_output/${SUB}/sed_post|"
-    "segment|${CONT_NEMO}|batch_singlenode|0|32G|00:15:00|${WORK}/e2e_output/${SUB}/sed_post|${WORK}/e2e_output/${SUB}/segment|"
+    "sed|${CONT_NEMO}|batch_singlenode|1|64G|00:30:00|${GRANARY}/${SUB}|${WORK}/e2e_output/${SUB}/sed|--sed_checkpoint /opt/checkpoints/Cnn14_DecisionLevelMax.pth"
+    "sed_post|${CONT_NEMO}|cpu_short|0|32G|00:15:00|${WORK}/e2e_output/${SUB}/sed|${WORK}/e2e_output/${SUB}/sed_post|"
+    "segment|${CONT_NEMO}|cpu_short|0|32G|00:15:00|${WORK}/e2e_output/${SUB}/sed_post|${WORK}/e2e_output/${SUB}/segment|"
     "diarize|${CONT_NEMO}|batch_singlenode|1|64G|00:30:00|${WORK}/e2e_output/${SUB}/segment|${WORK}/e2e_output/${SUB}/diarize|"
     "transcribe|${CONT_VLLM}|batch_singlenode|2|128G|00:30:00|${WORK}/e2e_output/${SUB}/diarize|${WORK}/e2e_output/${SUB}/transcribe|--language Ru --tensor_parallel_size 2"
     "embed|${CONT_NEMO}|batch_singlenode|1|64G|00:30:00|${WORK}/e2e_output/${SUB}/transcribe|${WORK}/e2e_output/${SUB}/embeddings|"
-    "group_video|${CONT_NEMO}|batch_singlenode|0|32G|00:10:00|${WORK}/e2e_output/${SUB}/transcribe|${WORK}/e2e_output/${SUB}/grouped|"
-    "cluster|${CONT_NEMO}|batch_singlenode|0|64G|00:30:00|${WORK}/e2e_output/${SUB}/grouped|${WORK}/e2e_output/${SUB}/clustered|--embedding_dir ${WORK}/e2e_output/${SUB}/embeddings"
+    "group_video|${CONT_NEMO}|cpu_short|0|32G|00:10:00|${WORK}/e2e_output/${SUB}/transcribe|${WORK}/e2e_output/${SUB}/grouped|"
+    "cluster|${CONT_NEMO}|cpu_short|0|64G|00:30:00|${WORK}/e2e_output/${SUB}/grouped|${WORK}/e2e_output/${SUB}/clustered|--embedding_dir ${WORK}/e2e_output/${SUB}/embeddings"
     "utmos|${CONT_UTMOS}|batch_singlenode|1|64G|00:30:00|${WORK}/e2e_output/${SUB}/clustered|${WORK}/e2e_output/${SUB}/utmos|"
 )
 
