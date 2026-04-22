@@ -130,6 +130,8 @@ def _download_parts(output_path: Path, parts: list[str]) -> list[str]:
         if filepath.exists() and filepath.stat().st_size > 0:
             logger.info(f"  [{i}/{num_parts}] Already downloaded: {filename} ({filepath.stat().st_size / (1024**3):.2f} GB)")
         else:
+            if filepath.exists():
+                filepath.unlink()
             logger.info(f"  [{i}/{num_parts}] Downloading {filename}...")
             download_file(url, str(output_path), verbose=True)
             logger.info(f"  [{i}/{num_parts}] Downloaded: {filepath.stat().st_size / (1024**3):.2f} GB")
@@ -153,19 +155,23 @@ def _combine_and_extract(output_path: Path, downloaded_files: list[str]) -> bool
     logger.info(f"Combined archive: {combined_archive.stat().st_size / (1024**3):.2f} GB")
     logger.info("Extracting...")
 
-    result = subprocess.run(  # noqa: S603
-        ["tar", "-xzf", str(combined_archive), "-C", str(output_path), "--ignore-zeros"],  # noqa: S607
-        capture_output=True, text=True, check=False,
-    )
-    if result.returncode not in (0, 2):
-        logger.error(f"Extraction failed (exit code {result.returncode}): {result.stderr[:500]}")
-        return False
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["tar", "-xzf", str(combined_archive), "-C", str(output_path), "--ignore-zeros"],  # noqa: S607
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            logger.error(f"Extraction failed (exit code {result.returncode}): {result.stderr[:500]}")
+            return False
 
-    for fpath in downloaded_files:
-        os.remove(fpath)
-    os.remove(str(combined_archive))
-    logger.info("Cleaned up archive files")
-    return True
+        for fpath in downloaded_files:
+            os.remove(fpath)
+        logger.info("Cleaned up part files")
+        return True
+    finally:
+        if combined_archive.exists():
+            os.remove(str(combined_archive))
+            logger.info(f"Cleaned up combined archive: {combined_archive.name}")
 
 
 def download_dataset(output_path: Path, num_parts: int = 1) -> bool:

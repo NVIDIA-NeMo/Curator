@@ -697,6 +697,7 @@ entries:
   - name: audio_readspeech_xenna
     enabled: true
     script: audio_readspeech_benchmark.py
+    timeout_s: 14400  # 4 hours; full dataset with all filters takes ~3.24h on 4×A100
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
