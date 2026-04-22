@@ -37,7 +37,7 @@ class TestCaptionGenerationStage:
         """Set up test fixtures."""
         self.stage = CaptionGenerationStage(
             model_dir="test/models",
-            model_variant="qwen",
+            model_variant="qwen2.5",
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
@@ -50,7 +50,7 @@ class TestCaptionGenerationStage:
     def test_init_default_values(self):
         """Test initialization with default values."""
         stage = CaptionGenerationStage()
-        assert stage.model_variant == "qwen"
+        assert stage.model_variant == "qwen2.5"
         assert stage.caption_batch_size == 16
         assert stage.fp8 is False
         assert stage.max_output_tokens == 512
@@ -81,7 +81,7 @@ class TestCaptionGenerationStage:
 
         mock_qwen_vl.assert_called_once_with(
             model_dir="test/models",
-            model_variant="qwen",
+            model_variant="qwen2.5",
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
@@ -116,12 +116,12 @@ class TestCaptionGenerationStage:
         window1 = _Window(
             start_frame=0,
             end_frame=10,
-            llm_inputs={"qwen": {"prompt": "test prompt 1", "multi_modal_data": {"video": "test_data_1"}}},
+            llm_inputs={"qwen2.5": {"prompt": "test prompt 1", "multi_modal_data": {"video": "test_data_1"}}},
         )
         window2 = _Window(
             start_frame=10,
             end_frame=20,
-            llm_inputs={"qwen": {"prompt": "test prompt 2", "multi_modal_data": {"video": "test_data_2"}}},
+            llm_inputs={"qwen2.5": {"prompt": "test prompt 2", "multi_modal_data": {"video": "test_data_2"}}},
         )
         clip1.windows = [window1, window2]
 
@@ -131,7 +131,7 @@ class TestCaptionGenerationStage:
         window3 = _Window(
             start_frame=0,
             end_frame=15,
-            llm_inputs={"qwen": {"prompt": "test prompt 3", "multi_modal_data": {"video": "test_data_3"}}},
+            llm_inputs={"qwen2.5": {"prompt": "test prompt 3", "multi_modal_data": {"video": "test_data_3"}}},
         )
         clip2.windows = [window3]
 
@@ -160,14 +160,14 @@ class TestCaptionGenerationStage:
         assert kwargs["batch_size"] == 2
 
         # Verify captions were assigned
-        assert result.data.clips[0].windows[0].caption["qwen"] == "Caption 1"
-        assert result.data.clips[0].windows[1].caption["qwen"] == "Caption 2"
-        assert result.data.clips[1].windows[0].caption["qwen"] == "Caption 3"
+        assert result.data.clips[0].windows[0].caption["qwen2.5"] == "Caption 1"
+        assert result.data.clips[0].windows[1].caption["qwen2.5"] == "Caption 2"
+        assert result.data.clips[1].windows[0].caption["qwen2.5"] == "Caption 3"
 
         # Verify cleanup
         for clip in result.data.clips:
             for window in clip.windows:
-                assert "qwen" not in window.llm_inputs
+                assert "qwen2.5" not in window.llm_inputs
                 assert window.mp4_bytes is None
 
     def test_process_with_verbose_logging(self):
@@ -185,7 +185,7 @@ class TestCaptionGenerationStage:
         window = _Window(
             start_frame=0,
             end_frame=5,
-            llm_inputs={"qwen": {"prompt": "test", "multi_modal_data": {"video": "data"}}},
+            llm_inputs={"qwen2.5": {"prompt": "test", "multi_modal_data": {"video": "data"}}},
         )
         clip.windows = [window]
         video.clips = [clip]
@@ -237,8 +237,8 @@ class TestCaptionGenerationStage:
         self.stage.process(task)
 
         # Verify error was logged and set
-        mock_logger.error.assert_called_once_with(f"Clip {clip.uuid} window 0 has no prepared inputs for qwen.")
-        assert clip.errors["window-0"] == "no_qwen_input"
+        mock_logger.error.assert_called_once_with(f"Clip {clip.uuid} window 0 has no prepared inputs for qwen2.5.")
+        assert clip.errors["window-0"] == "no_qwen2.5_input"
 
     def test_assign_captions(self):
         """Test _assign_captions method."""
@@ -260,9 +260,9 @@ class TestCaptionGenerationStage:
 
         self.stage._assign_captions(video, mapping, captions)
 
-        assert video.clips[0].windows[0].caption["qwen"] == "Caption for clip1 window1"
-        assert video.clips[0].windows[1].caption["qwen"] == "Caption for clip1 window2"
-        assert video.clips[1].windows[0].caption["qwen"] == "Caption for clip2 window1"
+        assert video.clips[0].windows[0].caption["qwen2.5"] == "Caption for clip1 window1"
+        assert video.clips[0].windows[1].caption["qwen2.5"] == "Caption for clip1 window2"
+        assert video.clips[1].windows[0].caption["qwen2.5"] == "Caption for clip2 window1"
 
     @patch("nemo_curator.stages.video.caption.caption_generation.logger")
     def test_assign_captions_with_logging(self, mock_logger: Mock):
@@ -304,7 +304,7 @@ class TestCaptionGenerationStage:
         window = _Window(
             start_frame=0,
             end_frame=5,
-            llm_inputs={"qwen": {"prompt": "test", "multi_modal_data": {"video": "data"}}},
+            llm_inputs={"qwen2.5": {"prompt": "test", "multi_modal_data": {"video": "data"}}},
         )
         clip.windows = [window]
         video.clips = [clip]
@@ -435,7 +435,7 @@ def preparation_stage() -> CaptionPreparationStage:
     from nemo_curator.stages.video.caption.caption_preparation import CaptionPreparationStage
 
     stage = CaptionPreparationStage(
-        model_variant="qwen",
+        model_variant="qwen2.5",
         prompt_variant="default",
         sampling_fps=2.0,
         window_size=256,
@@ -454,7 +454,7 @@ def generation_stage():
     model_dir = os.environ.get("CURATOR_TEST_MODEL_DIR", "")
     stage = CaptionGenerationStage(
         model_dir=model_dir,
-        model_variant="qwen",
+        model_variant="qwen2.5",
         caption_batch_size=1,
         fp8=False,
         max_output_tokens=64,
@@ -506,7 +506,7 @@ class TestQwenCaptionPipelineIntegration:
         clip = task.data.clips[0]
         request.cls.prep_clip = clip
         # Capture raw vLLM inputs before generation clears them
-        request.cls.raw_inputs = [w.llm_inputs["qwen"] for w in clip.windows if "qwen" in w.llm_inputs]
+        request.cls.raw_inputs = [w.llm_inputs["qwen2.5"] for w in clip.windows if "qwen2.5" in w.llm_inputs]
 
         # --- generation stage ---
         task = generation_stage.process(task)
@@ -534,10 +534,10 @@ class TestQwenCaptionPipelineIntegration:
         assert len(clip.windows) == len(self.raw_inputs), "Window count changed after generation"
 
         for i, window in enumerate(clip.windows):
-            caption = window.caption.get("qwen")
-            assert caption is not None, f"Window {i}: caption key 'qwen' not set"
+            caption = window.caption.get("qwen2.5")
+            assert caption is not None, f"Window {i}: caption key 'qwen2.5' not set"
             assert isinstance(caption, str), f"Window {i}: caption is not a str"
             assert len(caption.strip()) > 0, f"Window {i}: caption is blank"
 
         for i, window in enumerate(clip.windows):
-            assert "qwen" not in window.llm_inputs, f"Window {i}: qwen_llm_input not cleared after generation"
+            assert "qwen2.5" not in window.llm_inputs, f"Window {i}: qwen2.5 llm_input not cleared after generation"

@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from loguru import logger
 from transformers import AutoTokenizer
@@ -37,25 +38,46 @@ except ImportError:
 
 from nemo_curator.models.base import ModelInterface
 
-_QWEN_LM_MODEL_ID = "Qwen/Qwen2.5-14B-Instruct"
-_QWEN_LM_MODEL_REVISION = "cf98f3b"
+_QWEN_LM_VARIANTS_INFO: Final = {
+    "qwen2.5": ("Qwen/Qwen2.5-14B-Instruct", "cf98f3b"),
+    "qwen3": ("Qwen/Qwen3-14B", "f8c293d"),
+}
+
+
+def _weights_complete(model_dir_path: Path) -> bool:
+    single_file = model_dir_path / "model.safetensors"
+    if single_file.exists():
+        return True
+    index_file = model_dir_path / "model.safetensors.index.json"
+    if not index_file.exists():
+        return False
+    try:
+        with open(index_file) as f:
+            index_data = json.load(f)
+        shard_names = set(index_data.get("weight_map", {}).values())
+        return bool(shard_names) and all((model_dir_path / s).exists() for s in shard_names)
+    except (json.JSONDecodeError, OSError):
+        return False
 
 
 class QwenLM(ModelInterface):
     """Qwen language model."""
 
     def model_id_names(self) -> list[str]:
-        return [_QWEN_LM_MODEL_ID]
+        model_id, _ = _QWEN_LM_VARIANTS_INFO[self.model_variant]
+        return [model_id]
 
     def __init__(
         self,
         model_dir: str = "",
+        model_variant: str = "qwen2.5",
         caption_batch_size: int = 1,
         fp8: bool = False,
         max_output_tokens: int = 512,
         **vllm_kwargs,
     ):
         self.model_dir = model_dir
+        self.model_variant = model_variant
         self.caption_batch_size = caption_batch_size
         self.fp8 = fp8
         self.max_output_tokens = max_output_tokens
@@ -66,7 +88,8 @@ class QwenLM(ModelInterface):
             msg = "vllm is required for QwenLM model but is not installed. Please install vllm: pip install vllm"
             raise ImportError(msg)
 
-        self.weight_file = str(Path(self.model_dir) / _QWEN_LM_MODEL_ID)
+        model_id, _ = _QWEN_LM_VARIANTS_INFO[self.model_variant]
+        self.weight_file = str(Path(self.model_dir) / model_id)
         self.llm = LLM(
             model=self.weight_file,
             quantization="fp8" if self.fp8 else None,
@@ -87,15 +110,17 @@ class QwenLM(ModelInterface):
         return [result.outputs[0].text for result in results]
 
     @classmethod
-    def download_weights_on_node(cls, model_dir: str) -> None:
+    def download_weights_on_node(cls, model_dir: str, variant: str = "qwen2.5") -> None:
         """Download the weights for the QwenLM model on the node."""
-        model_dir_path = Path(model_dir) / _QWEN_LM_MODEL_ID
+        model_id, revision = _QWEN_LM_VARIANTS_INFO[variant]
+        model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
-        if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
+        if _weights_complete(model_dir_path):
+            logger.info(f"QwenLM weights already present at: {model_dir_path}")
             return
         download_model_from_hf(
-            model_id=_QWEN_LM_MODEL_ID,
+            model_id=model_id,
             local_dir=model_dir_path,
-            revision=_QWEN_LM_MODEL_REVISION,
+            revision=revision,
         )
         logger.info(f"QwenLM weights downloaded to: {model_dir_path}")

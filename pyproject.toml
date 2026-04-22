@@ -82,6 +82,7 @@ inference_server = [
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "ray[serve,llm]>=2.54",
+    "vllm<0.16.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # Installs CPU + GPU text curation modules
@@ -217,7 +218,7 @@ interleaved_cuda12 = [
 
 # Synthetic Data Generation (SDG) Dependencies
 sdg_cpu = [
-    "data-designer==0.4.0",
+    "data-designer==0.5.5",
 ]
 
 sdg_cuda12 = [
@@ -272,7 +273,7 @@ constraint-dependencies = [
     "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
     "nbconvert>=7.17.0", # Address CVE GHSA-xm59-rqc7-hhvf
     "pillow>=12.1.1", # Address CVE GHSA-cfh3-3jmp-rvhc
-    "protobuf>=5.29.6", # Address CVE GHSA-8qvm-5x2c-j2w7
+    "protobuf>=5.29.6,<7.0", # Address CVE GHSA-8qvm-5x2c-j2w7; <7.0 due to ray serve FieldDescriptor API breakage
     "pyasn1>=0.6.2", # Address CVE GHSA-63vm-454h-vhhq
     "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
@@ -281,13 +282,14 @@ constraint-dependencies = [
     "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
+    "fsspec>=2025.3.0", # required for nemo-toolkit[asr]==2.7.2 (fsspec==2024.12.0), override due to data-designer-engine==0.5.5 requires >=2025.3.0
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
     "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
-    "protobuf>=5.29.5,<6.0",  # Override nemo-toolkits ~=5.29.5; cap <6 for wandb protobuf stub compat
+    "protobuf>=5.29.5,<7.0",  # Override nemo-toolkits constraint of ~=5.29.5; <7.0 due to ray serve FieldDescriptor API breakage
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
     "torch>=2.8.0,<=2.9.1", # Override whisperx's torch<2.9.dev0 for vllm compat
