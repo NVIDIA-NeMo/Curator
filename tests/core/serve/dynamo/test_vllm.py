@@ -245,13 +245,21 @@ class TestLaunchDisaggReplicas:
             assert "VLLM_NIXL_SIDE_CHANNEL_PORT" in call["subprocess_env"]
             assert call["subprocess_env"]["PYTHONHASHSEED"] == "0"
 
-        # Only prefill publishes KV events; decode stays silent.
+        # Every disagg worker always receives ``--kv-events-config`` — even
+        # decode, which sets ``enable_kv_cache_events=False`` — so Dynamo's
+        # args.py does not auto-bind port 20080 and cause per-node
+        # collisions between decode workers.
         decode_args = captured_spawn[0]["python_args"]
         prefill_args = captured_spawn[1]["python_args"]
+
         assert "--kv-events-config" in prefill_args
         prefill_kv = json.loads(prefill_args[prefill_args.index("--kv-events-config") + 1])
         assert prefill_kv["enable_kv_cache_events"] is True
-        assert "--kv-events-config" not in decode_args
+
+        assert "--kv-events-config" in decode_args
+        decode_kv = json.loads(decode_args[decode_args.index("--kv-events-config") + 1])
+        assert decode_kv["enable_kv_cache_events"] is False
+        assert "endpoint" not in decode_kv
 
     def test_role_level_engine_kwargs_override_base(self, captured_spawn: list[dict[str, Any]]) -> None:
         mc = DynamoVLLMModelConfig(

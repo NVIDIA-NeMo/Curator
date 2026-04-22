@@ -435,12 +435,18 @@ def _launch_disagg_role(  # noqa: PLR0913
         # Global-enough seed so concurrent workers on one node don't collide.
         nixl_port = get_free_port_in_bundle(pg, 0, _DISAGG_NIXL_PORT_SEED + worker_index)
 
-        role_args: list[str] = []
-        if publishes_kv_events:
-            kv_events_config = build_worker_kv_events_config(
-                model_config, pg=pg, bundle_index=0, port_seed=_DISAGG_KV_EVENTS_PORT_SEED + i, enabled=True
-            )
-            role_args += ["--kv-events-config", kv_events_config]
+        # Always pass an explicit ``--kv-events-config``. Decode workers set
+        # ``enable_kv_cache_events=False`` — without the flag, Dynamo's
+        # args.py auto-creates a KVEventsConfig bound to ``tcp://*:20080``
+        # when ``prefix_caching`` is enabled (vLLM >=0.16 default), causing
+        # every decode worker on the same node to fight over that port.
+        kv_events_config = build_worker_kv_events_config(
+            model_config,
+            pg=pg,
+            bundle_index=0,
+            port_seed=_DISAGG_KV_EVENTS_PORT_SEED + i,
+            enabled=publishes_kv_events,
+        )
 
         python_args: list[str] = [
             "-m",
@@ -461,7 +467,8 @@ def _launch_disagg_role(  # noqa: PLR0913
             role,
             "--kv-transfer-config",
             kv_transfer_config,
-            *role_args,
+            "--kv-events-config",
+            kv_events_config,
         ]
         python_args += engine_kwargs_to_cli_flags(engine_kwargs)
         python_args += engine_kwargs_to_cli_flags(model_config.dynamo_kwargs)
