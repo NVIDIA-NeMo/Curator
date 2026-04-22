@@ -84,7 +84,7 @@ NeMo Curator is the foundation for building advanced, open post-training dataset
 **LANL and NVIDIA Collaboration:**
 Los Alamos National Laboratory (LANL) and NVIDIA are collaborating on a multiphase process to develop a co-scientist for ICF hypothesis generation. This showcases two agents LANL is developing to address two of the toughest challenges in science today: inertial confinement fusion (ICF) hypothesis generation and cancer treatment. NeMo Curator handles data curation for these workflows.
 
-**Nemotron & Synthetic Data:**
+**Nemotron and Synthetic Data:**
 
 NeMo Curator is used to build Nemotron datasets through advanced synthetic data generation pipelines (see [Nemotron-CC Pipelines](../curate-text/synthetic/nemotron-cc/index.md)). These pipelines enable:
 
