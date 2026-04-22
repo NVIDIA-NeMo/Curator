@@ -205,6 +205,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 CaptionEnhancementStage(
                     model_dir=args.model_dir,
                     model_variant=args.enhance_captions_algorithm,
+                    captioning_model_variant=args.captioning_algorithm,
                     prompt_variant=args.enhance_captioning_prompt_variant,
                     prompt_text=args.enhance_captions_prompt_text,
                     model_batch_size=args.enhance_captions_batch_size,
@@ -272,7 +273,8 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
             "Required models depend on selected algorithms:\n"
             "  - TransNetV2: For scene detection (--splitting-algorithm transnetv2)\n"
             "  - Cosmos-Embed1: For embeddings (--embedding-algorithm cosmos-embed1-*)\n"
-            "  - Qwen2.5-VL: For captioning (--captioning-algorithm qwen)\n"
+            "  - Qwen2.5-VL: For captioning (--captioning-algorithm qwen2.5)\n"
+            "  - Qwen3-VL: For captioning (--captioning-algorithm qwen3)\n"
             "  - Nemotron Nano VL: For captioning (--captioning-algorithm nemotron[-bf16|-fp8|-nvfp4])\n"
             "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
             "Default: ./models\n"
@@ -556,11 +558,12 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     parser.add_argument(
         "--captioning-algorithm",
         type=str,
-        default="qwen",
-        choices=["qwen", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"],
+        default="qwen2.5",
+        choices=["qwen2.5", "qwen3", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"],
         help=(
             "Captioning algorithm to use. Options:\n"
-            "  - qwen: Qwen2.5-VL-7B-Instruct (default)\n"
+            "  - qwen2.5: Qwen2.5-VL-7B-Instruct (default)\n"
+            "  - qwen3: Qwen3-VL-8B-Instruct\n"
             "  - nemotron / nemotron-bf16: Nemotron Nano 12B v2 VL BF16 (auto-downloaded from HF)\n"
             "  - nemotron-fp8: Nemotron Nano 12B v2 VL FP8 quantized\n"
             "  - nemotron-nvfp4: Nemotron Nano 12B v2 VL NVFP4-QAD quantized"
@@ -644,7 +647,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         action="store_true",
         default=False,
         help=(
-            "Whether to use fp8 weights for Qwen VL model. "
+            "Whether to use fp8 weights for Qwen2.5/Qwen3 VL model. "
             "Note: For Nemotron, use --captioning-algorithm nemotron-fp8 instead."
         ),
     )
@@ -671,8 +674,8 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     parser.add_argument(
         "--enhance-captions-algorithm",
         type=str,
-        default="qwen",
-        choices=["qwen"],
+        default="qwen2.5",
+        choices=["qwen2.5", "qwen3"],
         help="Caption enhancement algorithm to use.",
     )
     parser.add_argument(
