@@ -54,12 +54,27 @@ Explore the foundational concepts and terminology used across NeMo Curator.
 Learn about text data curation, covering data loading and processing (filtering, deduplication, classification).
 :::
 
-:::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` Image Curation Concepts
+:link: about-concepts-image
+:link-type: ref
 
----
+Explore key concepts for image data curation, including scalable loading, processing (embedding, classification, filtering, deduplication), and dataset export.
+:::
 
+:::{grid-item-card} {octicon}`video;1.5em;sd-mr-1` Video Curation Concepts
+:link: about-concepts-video
+:link-type: ref
 
----
+Discover video data curation concepts, such as distributed processing, pipeline stages, execution modes, and efficient data flow.
+:::
+
+:::{grid-item-card} {octicon}`unmute;1.5em;sd-mr-1` Audio Curation Concepts
+:link: about-concepts-audio
+:link-type: ref
+
+Learn about speech data curation, ASR inference, quality assessment, and audio-text integration workflows.
+:::
+
+::::
 
 # Curator in Action: Nemotron & Scientific LLMs
 
@@ -78,8 +93,6 @@ NeMo Curator is used to build Nemotron datasets through advanced synthetic data 
 
 **SES AI Chemistry LLM:**
 To train their Chemistry LLM on 35B tokens from 17M scientific papers, SES AI used NVIDIA DGX Cloud with NeMo and NeMo Curator. To achieve higher model accuracy, the SES team used NeMo Curator features such as exact deduplication, numbers filter, word count filter, repeated lines filter, and non-alphanumeric filter. The outcome is a customized model that is more accurate than its base version in ranking molecules and providing actionable insights, accelerating discovery at an unprecedented rate.
-
----
 :link: about-concepts-image
 :link-type: ref
 
