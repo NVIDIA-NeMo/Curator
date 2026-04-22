@@ -17,10 +17,13 @@
   },
   "sdg": {
     "extras": ["sdg_cuda12"],
+    "paths": ["tests/stages/synthetic"]
+  },
+  "serve": {
+    "extras": ["inference_server"],
     "paths": [
-      "tests/stages/synthetic",
       "tests/core/serve/ray_serve/test_integration.py",
-      "tests/core/serve/integration/test_dynamo.py",
+      "tests/core/serve/dynamo/test_integration.py",
       "tests/core/serve/test_placement.py",
       "tests/core/serve/test_subprocess_mgr.py"
     ]
