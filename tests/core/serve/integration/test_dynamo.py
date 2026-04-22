@@ -12,16 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""GPU integration tests for the Dynamo backend (aggregated path only).
-
-Disaggregated serving and the cross-model validator coverage land in PR 5.
-"""
+"""GPU integration tests for the Dynamo backend (aggregated + disaggregated)."""
 
 from __future__ import annotations
 
 import pytest
 
 from nemo_curator.core.serve import (
+    DynamoRoleConfig,
     DynamoServerConfig,
     DynamoVLLMModelConfig,
     InferenceServer,
@@ -118,20 +116,50 @@ class TestDynamoRestartAfterStop:
             server2.stop()
 
 
+def _make_disagg_server() -> InferenceServer:
+    """Build a single-model disagg Dynamo server (1 prefill + 1 decode, each TP=1)."""
+    engine_kwargs = {
+        "tensor_parallel_size": 1,
+        "max_model_len": 512,
+        "enforce_eager": True,
+    }
+    model = DynamoVLLMModelConfig(
+        model_identifier=INTEGRATION_TEST_MODEL,
+        mode="disagg",
+        engine_kwargs=engine_kwargs,
+        prefill=DynamoRoleConfig(num_replicas=1),
+        decode=DynamoRoleConfig(num_replicas=1),
+    )
+    return InferenceServer(
+        models=[model],
+        backend=DynamoServerConfig(),
+        health_check_timeout_s=600,
+    )
+
+
 @pytest.mark.gpu
-class TestDynamoRejectsDisagg:
-    """PR 4 ships aggregated-only; disagg must raise cleanly until PR 5 wires it up."""
+class TestDynamoDisaggregated:
+    """End-to-end: real Dynamo frontend + etcd + NATS + 1 prefill + 1 decode worker."""
 
-    def test_disagg_mode_raises_notimplemented(self, shared_ray_cluster: str) -> None:
-        from nemo_curator.core.serve import DynamoRoleConfig
+    def test_disagg_serves_chat_completions(self, shared_ray_cluster: str) -> None:
+        from openai import OpenAI
 
-        model = DynamoVLLMModelConfig(
-            model_identifier=INTEGRATION_TEST_MODEL,
-            mode="disagg",
-            prefill=DynamoRoleConfig(num_replicas=1),
-            decode=DynamoRoleConfig(num_replicas=1),
-        )
-        server = InferenceServer(models=[model], backend=DynamoServerConfig())
-        with pytest.raises(NotImplementedError, match="Disaggregated serving"):
-            server.start()
+        server = _make_disagg_server()
+        server.start()
+        try:
+            assert is_inference_server_active()
+            client = OpenAI(base_url=server.endpoint, api_key="na")
+            model_ids = {m.id for m in client.models.list()}
+            assert INTEGRATION_TEST_MODEL in model_ids
+
+            response = client.chat.completions.create(
+                model=INTEGRATION_TEST_MODEL,
+                messages=[{"role": "user", "content": "Say hi."}],
+                max_tokens=16,
+                temperature=0.0,
+            )
+            assert response.choices
+            assert response.choices[0].message.content
+        finally:
+            server.stop()
         assert not is_inference_server_active()

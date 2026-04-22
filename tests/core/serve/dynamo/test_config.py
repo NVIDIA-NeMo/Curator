@@ -37,6 +37,13 @@ class TestDynamoRouterConfig:
         with pytest.raises(ValueError, match="kv_events=True is only meaningful when mode='kv'"):
             DynamoRouterConfig(mode="round_robin", kv_events=True)
 
+    def test_rejects_reserved_router_kwargs(self) -> None:
+        # router_mode / router_kv_events are typed fields — using them in router_kwargs is a silent conflict.
+        with pytest.raises(ValueError, match="router_mode"):
+            DynamoRouterConfig(router_kwargs={"router_mode": "kv"})
+        with pytest.raises(ValueError, match="router_kv_events"):
+            DynamoRouterConfig(mode="kv", router_kwargs={"router_kv_events": True})
+
 
 class TestDynamoVLLMModelConfig:
     def test_post_init(self) -> None:

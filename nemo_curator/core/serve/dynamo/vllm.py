@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Dynamo vLLM worker launch helpers for aggregated serving."""
+"""Dynamo vLLM worker launch helpers for aggregated and disaggregated serving."""
 
 from __future__ import annotations
 
@@ -38,6 +38,8 @@ from nemo_curator.core.serve.placement import (
 from nemo_curator.core.serve.subprocess_mgr import ManagedSubprocess
 
 if TYPE_CHECKING:
+    from typing import Literal
+
     from ray.util.placement_group import PlacementGroup
 
     from nemo_curator.core.serve.dynamo.config import DynamoVLLMModelConfig
@@ -48,6 +50,16 @@ if TYPE_CHECKING:
 # installed ai-dynamo — required because ai-dynamo's CLI surface tracks
 # a specific vLLM version.
 DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {"uv": ["ai-dynamo[vllm]"]}
+
+# Default KV-cache transfer configuration for disagg — NixlConnector is the
+# production path; ``kv_both`` makes each worker both send and receive KV
+# blocks so roles can be swapped without reconfiguring.
+DEFAULT_KV_TRANSFER_CONFIG: dict[str, Any] = {"kv_connector": "NixlConnector", "kv_role": "kv_both"}
+
+# Port seed offsets for disagg worker per-bundle port allocation. Worker index
+# is added so concurrent workers on the same node don't collide.
+_DISAGG_KV_EVENTS_PORT_SEED = 20081
+_DISAGG_NIXL_PORT_SEED = 20097
 
 
 def dynamo_runtime_env(model_config: DynamoVLLMModelConfig) -> dict[str, Any]:
@@ -60,6 +72,51 @@ def merge_model_runtime_envs(models: list[DynamoVLLMModelConfig]) -> dict[str, A
     envs = [m.runtime_env for m in models if m.runtime_env]
     user_merged = reduce(BaseModelConfig.merge_runtime_envs, envs) if envs else None
     return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, user_merged)
+
+
+def resolve_disagg_role_config(
+    model_config: DynamoVLLMModelConfig, role: Literal["prefill", "decode"]
+) -> tuple[int, dict[str, Any]]:
+    """Resolve ``(num_replicas, engine_kwargs)`` for one disagg role.
+
+    Role-level ``engine_kwargs`` merges over the model-wide
+    ``engine_kwargs`` so users can override only what they need per role
+    (for example a smaller TP on decode).
+    """
+    if model_config.mode != "disagg":
+        msg = f"resolve_disagg_role_config requires mode='disagg'; got mode={model_config.mode!r}"
+        raise ValueError(msg)
+    role_cfg = model_config.prefill if role == "prefill" else model_config.decode
+    if role_cfg is None:
+        msg = f"mode='disagg' requires both prefill and decode; {role!r} is not configured"
+        raise ValueError(msg)
+    merged_engine_kwargs = {**model_config.engine_kwargs, **role_cfg.engine_kwargs}
+    return role_cfg.num_replicas, merged_engine_kwargs
+
+
+def plan_disagg_shape(
+    tp_size: int,
+    *,
+    role: Literal["prefill", "decode"],
+    worker_index: int,
+    model_name: str,
+    topology: list[dict[str, Any]] | None = None,
+) -> ReplicaBundleSpec:
+    """Plan a single-bundle PG spec for one disagg worker.
+
+    Disagg does not support multi-node TP — each role's TP group must fit
+    on one node. Raise early if ``plan_replica_bundle_shape`` hands back
+    a multi-bundle (multi-node) spec.
+    """
+    spec = plan_replica_bundle_shape(tp_size, _topology=topology)
+    if spec.is_multi_node:
+        msg = (
+            f"Disaggregated serving does not support multi-node TP. "
+            f"Model '{model_name}' {role} worker {worker_index} requires TP={tp_size} "
+            f"which cannot fit on a single node. Reduce tensor_parallel_size for this role."
+        )
+        raise ValueError(msg)
+    return spec
 
 
 def aggregated_model_uses_exact_kv_events(
@@ -271,3 +328,170 @@ def _launch_vllm_worker(  # noqa: PLR0913
         subprocess_env=base_env,
         runtime_env=dynamo_runtime_env(model_config),
     )
+
+
+def launch_disagg_replicas(  # noqa: PLR0913
+    model_config: DynamoVLLMModelConfig,
+    *,
+    base_env: dict[str, str],
+    namespace: str,
+    request_plane: str,
+    event_plane: str,
+    runtime_dir: str,
+    actor_name_prefix: str,
+    topology: list[dict[str, Any]] | None = None,
+) -> tuple[list[PlacementGroup], list[ManagedSubprocess], list[dict[str, Any]]]:
+    """Plan PGs and launch every worker actor for one disagg model.
+
+    Each role (prefill/decode) becomes its own pool of single-bundle PGs
+    so roles can scale independently. Only the prefill pool publishes KV
+    events (decode reads them via Nixl). KV transfer defaults to
+    NixlConnector with ``kv_both`` unless the user overrides via
+    ``DynamoVLLMModelConfig.kv_transfer_config``.
+    """
+    replica_pgs: list[PlacementGroup] = []
+    worker_actors: list[ManagedSubprocess] = []
+    entries: list[dict[str, Any]] = []
+
+    kv_transfer_config = json.dumps(model_config.kv_transfer_config or DEFAULT_KV_TRANSFER_CONFIG)
+    model_name = model_config.resolved_model_name
+    component = model_name_to_component(model_name)
+
+    num_prefill, prefill_ek = resolve_disagg_role_config(model_config, "prefill")
+    num_decode, decode_ek = resolve_disagg_role_config(model_config, "decode")
+    prefill_tp = prefill_ek.get("tensor_parallel_size", 1)
+    decode_tp = decode_ek.get("tensor_parallel_size", 1)
+
+    worker_index = 0
+    # Decode first (Dynamo example convention). Only prefill publishes KV events.
+    for role, num_workers, role_ek, publishes_kv_events in (
+        ("decode", num_decode, decode_ek, False),
+        ("prefill", num_prefill, prefill_ek, True),
+    ):
+        role_pgs, role_actors, role_entries, worker_index = _launch_disagg_role(
+            model_config,
+            base_env=base_env,
+            role=role,
+            num_workers=num_workers,
+            engine_kwargs=role_ek,
+            publishes_kv_events=publishes_kv_events,
+            namespace=namespace,
+            request_plane=request_plane,
+            event_plane=event_plane,
+            component=component,
+            kv_transfer_config=kv_transfer_config,
+            worker_index_start=worker_index,
+            runtime_dir=runtime_dir,
+            actor_name_prefix=actor_name_prefix,
+            topology=topology,
+        )
+        replica_pgs.extend(role_pgs)
+        worker_actors.extend(role_actors)
+        entries.extend(role_entries)
+
+    total_gpus = num_decode * decode_tp + num_prefill * prefill_tp
+    tp_desc = f"TP={decode_tp}" if decode_tp == prefill_tp else f"prefill_TP={prefill_tp}, decode_TP={decode_tp}"
+    logger.info(
+        f"Disaggregated '{model_name}': {num_decode} decode + {num_prefill} prefill "
+        f"workers launched ({total_gpus} GPUs total, {tp_desc})"
+    )
+
+    return replica_pgs, worker_actors, entries
+
+
+def _launch_disagg_role(  # noqa: PLR0913
+    model_config: DynamoVLLMModelConfig,
+    *,
+    base_env: dict[str, str],
+    role: Literal["prefill", "decode"],
+    num_workers: int,
+    engine_kwargs: dict[str, Any],
+    publishes_kv_events: bool,
+    namespace: str,
+    request_plane: str,
+    event_plane: str,
+    component: str,
+    kv_transfer_config: str,
+    worker_index_start: int,
+    runtime_dir: str,
+    actor_name_prefix: str,
+    topology: list[dict[str, Any]] | None,
+) -> tuple[list[PlacementGroup], list[ManagedSubprocess], list[dict[str, Any]], int]:
+    """Launch the N workers for a single disagg role (prefill or decode)."""
+    tp_size = engine_kwargs.get("tensor_parallel_size", 1)
+    model_name = model_config.resolved_model_name
+
+    replica_pgs: list[PlacementGroup] = []
+    worker_actors: list[ManagedSubprocess] = []
+    entries: list[dict[str, Any]] = []
+    worker_index = worker_index_start
+
+    for i in range(num_workers):
+        spec = plan_disagg_shape(tp_size, role=role, worker_index=i, model_name=model_name, topology=topology)
+        pg_name = f"{actor_name_prefix}_pg_{component}_{role}_{i}"
+        pg = build_replica_pg(spec, name=pg_name)
+        replica_pgs.append(pg)
+
+        # Global-enough seed so concurrent workers on one node don't collide.
+        nixl_port = get_free_port_in_bundle(pg, 0, _DISAGG_NIXL_PORT_SEED + worker_index)
+
+        role_args: list[str] = []
+        if publishes_kv_events:
+            kv_events_config = build_worker_kv_events_config(
+                model_config, pg=pg, bundle_index=0, port_seed=_DISAGG_KV_EVENTS_PORT_SEED + i, enabled=True
+            )
+            role_args += ["--kv-events-config", kv_events_config]
+
+        python_args: list[str] = [
+            "-m",
+            "dynamo.vllm",
+            "--model",
+            model_config.model_identifier,
+            "--served-model-name",
+            model_name,
+            "--endpoint",
+            dynamo_endpoint(namespace, component, role=role),
+            "--discovery-backend",
+            "etcd",
+            "--request-plane",
+            request_plane,
+            "--event-plane",
+            event_plane,
+            "--disaggregation-mode",
+            role,
+            "--kv-transfer-config",
+            kv_transfer_config,
+            *role_args,
+        ]
+        python_args += engine_kwargs_to_cli_flags(engine_kwargs)
+        python_args += engine_kwargs_to_cli_flags(model_config.dynamo_kwargs)
+
+        label = build_worker_actor_name(model_name, i, 0, tp_size, role=role)
+        logger.info(f"Disagg {role} worker {i}: {spec.per_node_gpus} GPU(s), nixl_port={nixl_port}")
+        proc = ManagedSubprocess.spawn(
+            label,
+            pg,
+            0,
+            num_gpus=spec.per_node_gpus,
+            python_args=python_args,
+            runtime_dir=runtime_dir,
+            actor_name_prefix=actor_name_prefix,
+            subprocess_env={**base_env, "VLLM_NIXL_SIDE_CHANNEL_PORT": str(nixl_port), "PYTHONHASHSEED": "0"},
+            runtime_env=dynamo_runtime_env(model_config),
+        )
+        worker_actors.append(proc)
+        entries.append(
+            {
+                "model": model_name,
+                "replica": i,
+                "mode": "disagg",
+                "role": role,
+                "gpus_per_node": spec.per_node_gpus,
+                "nnodes": 1,
+                "multi_node": False,
+                "master_addr": None,
+            }
+        )
+        worker_index += 1
+
+    return replica_pgs, worker_actors, entries, worker_index
