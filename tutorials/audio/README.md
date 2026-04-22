@@ -23,7 +23,7 @@ Hands-on tutorials for curating audio data with NeMo Curator. Complete working e
 
 ## Known Issues
 
-### SIGSEGV in Ray StageWorker during model loading (NVBUG 6078008)
+### SIGSEGV in Ray StageWorker during model loading
 
 In some environments, and under certain timing conditions, Ray workers may crash with a `SIGSEGV` during GPU model initialization. This is not a NeMo Curator code issue: it comes from a thread-safety problem in the gRPC version bundled with Ray. Any GPU pipeline (audio, text, image, or video) that loads models through Ray actors can hit the same failure.
 
