@@ -721,7 +721,7 @@ entries:
           - num_output_segments
           - time_taken_s
         ping_on_failure:
-          - U03C41SNADV  # Aaftab V
+          - U07EVDG9FBK  # Shubham Bhawsar
     requirements:
       - metric: is_success
         exact_value: true
@@ -750,7 +750,7 @@ entries:
           - num_output_segments
           - time_taken_s
         ping_on_failure:
-          - U03C41SNADV  # Aaftab V
+          - U07EVDG9FBK  # Shubham Bhawsar
     requirements:
       - metric: is_success
         exact_value: true
