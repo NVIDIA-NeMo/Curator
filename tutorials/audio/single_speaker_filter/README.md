@@ -78,6 +78,12 @@ python tutorials/audio/single_speaker_filter/run.py \
 
 `<output-dir>/checkpoints/` — per-stage checkpoint directories for resume support.
 
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| SIGSEGV / actor crash during model load | See [Known Issues](../README.md#known-issues) — set `OTEL_SDK_DISABLED=true` |
+
 ## Streaming configuration
 
 All frame values are in 80ms units. See the [callhome_diar tutorial](../callhome_diar/README.md) for latency trade-off configurations.
