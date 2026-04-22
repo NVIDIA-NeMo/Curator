@@ -703,10 +703,13 @@ entries:
       --raw-data-dir={dataset:read_speech,wav}
       --no-auto-download
       --executor=xenna
-      --max-samples=5000
+      --max-samples=-1
       --sample-rate=48000
+      --enable-vad
+      --enable-sigmos
       --enable-utmos
       --enable-band-filter
+      --enable-speaker-separation
     ray:
       num_cpus: 64
       num_gpus: 4
