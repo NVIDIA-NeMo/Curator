@@ -28,7 +28,7 @@ NeMo Curator, part of the NVIDIA NeMo software suite for managing the AI agent l
 
 NeMo Curator speeds up data curation by using modern hardware and distributed computing frameworks. You can process data efficiently—from a single laptop to a multi-node GPU cluster. With modular pipelines, advanced filtering, and easy integration with machine learning operations (MLOps) tools, leading organizations trust NeMo Curator.
 
-- **Text Curation**: Uses a pipeline-based architecture with modular processing stages running on Ray. Data flows through data download, extraction, language detection, rule-based quality filtering, deduplication (exact, fuzzy and semantic) and model based quality filtering.
+- **Text Curation**: Uses a pipeline-based architecture with modular processing stages running on Ray. Data flows through data download, extraction, language detection, rule-based quality filtering, deduplication (exact, fuzzy, and semantic), and model-based quality filtering.
 - **Image Curation**: Uses pipeline-based architecture with modular stages for loading, embedding generation, classification (aesthetic, NSFW), filtering, and export workflows. Supports distributed processing with optional GPU acceleration.
 - **Video Curation**: Employs Ray-based pipelines to split long videos into clips using fixed stride or scene-change detection, with optional encoding, filtering, embedding generation, and deduplication for large-scale video processing.
 - **Audio Curation**: Provides ASR inference using models, quality assessment through Word Error Rate (WER) calculation, duration analysis, and integration with text curation workflows for speech data processing.
