@@ -14,6 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# This script uses lm_eval to run benchmarks on the models:
+# git clone --depth 1 https://github.com/EleutherAI/lm-evaluation-harness
+# cd lm-evaluation-harness
+# pip install -e .
+# TODO: Add lm_eval path
+
 set -xeuo pipefail
 
 if [ $# -lt 4 ]; then

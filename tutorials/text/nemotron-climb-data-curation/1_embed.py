@@ -50,8 +50,7 @@ def main(args: argparse.Namespace) -> None:
 
     pipeline.add_stage(reader(file_paths=args.input_path, files_per_partition=1))
 
-    if args.id_field is not None:
-        pipeline.add_stage(AddId(id_field=args.id_field))
+    pipeline.add_stage(AddId(id_field=args.id_field))
 
     if args.embedding_model == _EMBEDDING_MODEL and args.max_seq_length is None:
         args.max_seq_length = _EMBEDDING_MODEL_MAX_SEQ_LENGTH
@@ -97,7 +96,7 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--input-filetype", type=str, required=True, choices=["jsonl", "parquet"])
 
     # ID args
-    parser.add_argument("--id-field", type=str, default=None)
+    parser.add_argument("--id-field", type=str, required=True)
 
     # Embedding model args
     parser.add_argument("--embedding-model", type=str, default=_EMBEDDING_MODEL)
