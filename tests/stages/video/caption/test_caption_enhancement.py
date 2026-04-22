@@ -34,7 +34,7 @@ class TestCaptionEnhancementStage:
         """Set up test fixtures."""
         self.stage = CaptionEnhancementStage(
             model_dir="test/models",
-            model_variant="qwen",
+            model_variant="qwen2.5",
             prompt_variant="default",
             model_batch_size=2,
             fp8=False,
@@ -45,7 +45,8 @@ class TestCaptionEnhancementStage:
     def test_init_default_values(self):
         """Test initialization with default values."""
         stage = CaptionEnhancementStage()
-        assert stage.model_variant == "qwen"
+        assert stage.model_variant == "qwen2.5"
+        assert stage.captioning_model_variant == "qwen2.5"
         assert stage.prompt_variant == "default"
         assert stage.prompt_text is None
         assert stage.model_batch_size == 128
@@ -59,7 +60,7 @@ class TestCaptionEnhancementStage:
         custom_prompt = "Custom enhancement prompt"
         stage = CaptionEnhancementStage(
             model_dir="custom/models",
-            model_variant="qwen",
+            model_variant="qwen2.5",
             prompt_variant="av-surveillance",
             prompt_text=custom_prompt,
             model_batch_size=64,
@@ -68,7 +69,7 @@ class TestCaptionEnhancementStage:
             verbose=True,
         )
         assert stage.model_dir == "custom/models"
-        assert stage.model_variant == "qwen"
+        assert stage.model_variant == "qwen2.5"
         assert stage.prompt_variant == "av-surveillance"
         assert stage.prompt_text == custom_prompt
         assert stage.model_batch_size == 64
@@ -109,6 +110,7 @@ class TestCaptionEnhancementStage:
 
         mock_qwen_lm.assert_called_once_with(
             model_dir="test/models",
+            model_variant="qwen2.5",
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
@@ -142,11 +144,11 @@ class TestCaptionEnhancementStage:
 
         # Add windows with existing captions
         window1 = _Window(start_frame=0, end_frame=5)
-        window1.caption = {"qwen": "A person walks down the street"}
+        window1.caption = {"qwen2.5": "A person walks down the street"}
         window1.enhanced_caption = {}
 
         window2 = _Window(start_frame=5, end_frame=10)
-        window2.caption = {"qwen": "The person enters a building"}
+        window2.caption = {"qwen2.5": "The person enters a building"}
         window2.enhanced_caption = {}
 
         clip1.windows = [window1, window2]
@@ -155,7 +157,7 @@ class TestCaptionEnhancementStage:
 
         # Add window with caption
         window3 = _Window(start_frame=10, end_frame=15)
-        window3.caption = {"qwen": "Cars drive by on the road"}
+        window3.caption = {"qwen2.5": "Cars drive by on the road"}
         window3.enhanced_caption = {}
         clip2.windows = [window3]
 
@@ -298,7 +300,7 @@ class TestCaptionEnhancementStage:
 
         for i in range(3):
             window = _Window(start_frame=i * 10, end_frame=(i + 1) * 10)
-            window.caption = {"qwen": f"Caption {i + 1}"}
+            window.caption = {"qwen2.5": f"Caption {i + 1}"}
             window.enhanced_caption = {}
             clip.windows.append(window)
 
@@ -345,7 +347,7 @@ class TestCaptionEnhancementStage:
         video = Video(input_video=pathlib.Path("test.mp4"))
         clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 10.0), buffer=b"test")
         window = _Window(start_frame=0, end_frame=5)
-        window.caption = {"qwen": "Original caption"}
+        window.caption = {"qwen2.5": "Original caption"}
         window.enhanced_caption = {}
         clip.windows = [window]
         video.clips = [clip]
@@ -416,7 +418,7 @@ class TestGetEnhancePrompt:
 def _make_task_with_captions(captions: list[str], task_id: str = "enhancement-test") -> VideoTask:
     """Build a VideoTask with pre-populated window captions, bypassing all video stages."""
     windows = [
-        _Window(start_frame=i * 10, end_frame=(i + 1) * 10, caption={"qwen": cap}) for i, cap in enumerate(captions)
+        _Window(start_frame=i * 10, end_frame=(i + 1) * 10, caption={"qwen2.5": cap}) for i, cap in enumerate(captions)
     ]
     clip = Clip(uuid=uuid4(), source_video=task_id, span=(0.0, float(len(captions) * 10)))
     clip.windows = windows

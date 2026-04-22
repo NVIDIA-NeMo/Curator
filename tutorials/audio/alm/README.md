@@ -522,6 +522,10 @@ tests/stages/audio/alm/
 
 ## Troubleshooting
 
+| Issue | Solution |
+|-------|----------|
+| SIGSEGV / actor crash during model load | See [Known Issues](../README.md#known-issues) — set `OTEL_SDK_DISABLED=true` |
+
 ### No Windows Generated
 
 - Check that `audio_sample_rate >= min_sample_rate`
