@@ -49,6 +49,10 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
     storage_options: dict[str, Any] = field(default_factory=dict)
     name: str = "_checkpoint_filter"
     resources: Resources = field(default_factory=lambda: Resources(cpus=0.1))
+    _max_actors: int = 32
+
+    def num_workers(self) -> int:
+        return self._max_actors
 
     _LOG_TRUNCATE_FILES = 3
 
