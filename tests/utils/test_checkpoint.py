@@ -401,8 +401,8 @@ class TestCheckpointRecorderStage:
         )
         stage.process(task)
 
-        completed_dir = Path(ckpt_path) / "completed"
-        assert not completed_dir.exists() or len(list(completed_dir.glob("*.json"))) == 0
+        ckpt_dir = Path(ckpt_path)
+        assert not ckpt_dir.exists() or len(list(ckpt_dir.glob("*.json"))) == 0
 
     def test_recorder_multiple_tasks_writes_multiple_shards(self, tmp_path: Path):
         from nemo_curator.stages.checkpoint import _CheckpointRecorderStage
@@ -416,15 +416,14 @@ class TestCheckpointRecorderStage:
             task = self._make_task(f"leaf_{i}", source)
             stage.process(task)
 
-        # 5 separate shard files written
-        completed_dir = Path(ckpt_path) / "completed"
-        shards = list(completed_dir.glob("*.json"))
-        assert len(shards) == 5
+        # One file per source (not per task)
+        ckpt_dir = Path(ckpt_path)
+        shards = list(ckpt_dir.glob("*.json"))
+        assert len(shards) == 1
 
-        # All point to the same source_key
-        for shard in shards:
-            data = json.loads(shard.read_text())
-            assert data["source_key"] == _source_key(source)
+        data = json.loads(shards[0].read_text())
+        assert data["source_key"] == _source_key(source)
+        assert len(data["completed"]) == 5
 
     def test_recorder_no_collision_across_sources(self, tmp_path: Path):
         """Regression test: tasks with the SAME task_id from DIFFERENT source partitions
@@ -449,11 +448,11 @@ class TestCheckpointRecorderStage:
             stage.process(self._make_task(f"image_batch_{batch_id}", source_a))
             stage.process(self._make_task(f"image_batch_{batch_id}", source_b))
 
-        # 4 distinct files must exist (not 2)
-        completed_dir = Path(ckpt_path) / "completed"
-        shards = list(completed_dir.glob("*.json"))
-        assert len(shards) == 4, (
-            f"Expected 4 shard files but got {len(shards)}. "
+        # 2 files — one per source (no collision between sources with same task_ids)
+        ckpt_dir = Path(ckpt_path)
+        shards = list(ckpt_dir.glob("*.json"))
+        assert len(shards) == 2, (
+            f"Expected 2 source files but got {len(shards)}. "
             "Likely collision: tasks from different source partitions overwrote each other."
         )
 
@@ -677,8 +676,8 @@ class TestFanOutDetection:
         results = adapter.process_batch(tasks)
 
         assert len(results) == 2
-        increments_dir = tmp_path / "ckpt" / "expected_increments"
-        assert not increments_dir.exists() or list(increments_dir.iterdir()) == []
+        ckpt_dir = tmp_path / "ckpt"
+        assert not ckpt_dir.exists() or len(list(ckpt_dir.glob("*.json"))) == 0
 
     def test_true_fanout_single_input_writes_increment(self, tmp_path):
         """1→N stage with a single input task must write the correct increment."""
@@ -728,11 +727,12 @@ class TestFanOutDetection:
         results = adapter.process_batch([task])
 
         assert len(results) == 3
-        increments_dir = tmp_path / "ckpt" / "expected_increments"
-        shards = list(increments_dir.iterdir())
+        ckpt_dir = tmp_path / "ckpt"
+        shards = list(ckpt_dir.glob("*.json"))
         assert len(shards) == 1
         data = json.loads(shards[0].read_text())
-        assert data["increment"] == 2  # 3 results - 1
+        assert len(data["increments"]) == 1
+        assert data["increments"][0]["increment"] == 2  # 3 results - 1
 
 
 class TestSourceFilesPropagation:
@@ -957,11 +957,12 @@ class TestFilteredTaskCheckpointing:
         results = adapter.process_batch([task])
         assert results == []
 
-        filtered_dir = tmp_path / "ckpt" / "filtered"
-        shards = list(filtered_dir.iterdir())
+        ckpt_dir = tmp_path / "ckpt"
+        shards = list(ckpt_dir.glob("*.json"))
         assert len(shards) == 1
         data = json.loads(shards[0].read_text())
         assert data["source_key"] == "f.tar"
+        assert "t1" in data["filtered"]
 
     def test_get_completed_source_keys_includes_filtered_partitions(self, tmp_path):
         from nemo_curator.utils.checkpoint import CheckpointManager
