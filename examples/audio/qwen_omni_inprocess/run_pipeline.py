@@ -68,6 +68,7 @@ from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterS
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
 from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
 from nemo_curator.stages.audio.text_filtering import (
+    AbbreviationConcatStage,
     FastTextLIDStage,
     InitializeFieldsStage,
     PnCContentGuardStage,
@@ -209,6 +210,10 @@ def main():
             RegexSubstitutionStage(
                 regex_params_yaml=args.regex_yaml,
                 text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
+                output_text_key="cleaned_text",
+            ),
+            AbbreviationConcatStage(
+                text_key="cleaned_text",
                 output_text_key="cleaned_text",
             ),
             *([PnCRestorationStage(
