@@ -57,7 +57,6 @@ constraints = [
 ]
 overrides = [
     { name = "apex", marker = "sys_platform == 'never'" },
-    { name = "diskcache", marker = "sys_platform == 'never'" },
     { name = "distance", marker = "sys_platform == 'never'" },
     { name = "fsspec", specifier = ">=2025.3.0" },
     { name = "huggingface-hub", specifier = ">=0.34,<1.0" },
@@ -5345,7 +5344,7 @@ asr = [
     { name = "braceexpand" },
     { name = "cloudpickle" },
     { name = "datasets" },
-    { name = "diskcache", marker = "sys_platform == 'never'" },
+    { name = "diskcache" },
     { name = "editdistance" },
     { name = "einops" },
     { name = "fiddle" },
@@ -9947,7 +9946,7 @@ dependencies = [
     { name = "cloudpickle" },
     { name = "compressed-tensors" },
     { name = "depyf" },
-    { name = "diskcache", marker = "sys_platform == 'never'" },
+    { name = "diskcache" },
     { name = "einops" },
     { name = "fastapi", extra = ["standard"] },
     { name = "filelock" },
