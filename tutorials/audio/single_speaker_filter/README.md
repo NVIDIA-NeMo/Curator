@@ -6,7 +6,7 @@ The pipeline includes **per-task hash-based checkpointing** — if a run is inte
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - NeMo Curator installed (see [installation guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
 - NVIDIA GPU(s) with at least 8 GB VRAM (e.g. V100, A100, H100, or RTX 3090+)
 

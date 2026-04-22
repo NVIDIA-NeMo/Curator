@@ -6,7 +6,7 @@ Inference runs in parallel via `Pipeline` + `XennaExecutor` for high throughput.
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - NeMo Curator installed (see [installation guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
 - [`sox`](https://sox.sourceforge.net/) command-line tool (for stereo-to-mono conversion; install via `apt install sox`, `brew install sox`, or `conda install -c conda-forge sox`)
 - CallHome English dataset with `.wav` files and `eng/*.cha` ground-truth annotations
