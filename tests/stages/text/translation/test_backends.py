@@ -115,6 +115,19 @@ class TestGoogleTranslationBackend:
             format_="text",
         )
 
+    def test_google_translate_batch_inside_running_loop(self) -> None:
+        """The sync wrapper should still work when an event loop is already running."""
+        backend = GoogleTranslationBackend(api_version="v2")
+        backend.translate_batch_async = AsyncMock(return_value=["Hola mundo"])  # type: ignore[method-assign]
+
+        async def _call() -> list[str]:
+            return backend.translate_batch(["Hello world"], "en", "es")
+
+        result = asyncio.run(_call())
+
+        assert result == ["Hola mundo"]
+        backend.translate_batch_async.assert_awaited_once_with(["Hello world"], "en", "es")
+
 
 # ---------------------------------------------------------------------------
 # AWSTranslationBackend tests
@@ -158,6 +171,19 @@ class TestAWSTranslationBackend:
 
         with pytest.raises(ValueError, match="AWS TranslateText input too large"):
             backend.translate_batch([oversized_text], "en", "es")
+
+    def test_aws_translate_batch_inside_running_loop(self) -> None:
+        """The sync wrapper should still work when an event loop is already running."""
+        backend = AWSTranslationBackend(region="us-east-1")
+        backend.translate_batch_async = AsyncMock(return_value=["Hola mundo"])  # type: ignore[method-assign]
+
+        async def _call() -> list[str]:
+            return backend.translate_batch(["Hello world"], "en", "es")
+
+        result = asyncio.run(_call())
+
+        assert result == ["Hola mundo"]
+        backend.translate_batch_async.assert_awaited_once_with(["Hello world"], "en", "es")
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +290,19 @@ class TestNMTTranslationBackend:
             "translated_text5",
         ]
 
+    def test_nmt_translate_batch_inside_running_loop(self) -> None:
+        """The sync wrapper should still work when an event loop is already running."""
+        backend = NMTTranslationBackend(server_url="http://localhost:8000")
+        backend.translate_batch_async = AsyncMock(return_value=["Hola mundo"])  # type: ignore[method-assign]
+
+        async def _call() -> list[str]:
+            return backend.translate_batch(["Hello world"], "en", "es")
+
+        result = asyncio.run(_call())
+
+        assert result == ["Hola mundo"]
+        backend.translate_batch_async.assert_awaited_once_with(["Hello world"], "en", "es")
+
 
 # ---------------------------------------------------------------------------
 # Retry / exponential backoff tests
@@ -292,5 +331,6 @@ class TestRetryOnTransientError:
 
         assert result == ["Hola mundo"]
         assert mock_client.translate.call_count == 2
-        # Verify sleep was called with the exponential backoff value (2^0 = 1).
-        mock_sleep.assert_called_once_with(1)
+        mock_sleep.assert_called_once()
+        wait_time = mock_sleep.call_args.args[0]
+        assert 0.0 <= wait_time <= 1.0

@@ -39,6 +39,7 @@ import asyncio
 
 from loguru import logger
 
+from ..utils.async_utils import run_async_safe
 from ._retry import retry_with_backoff
 from .base import TranslationBackend
 
@@ -140,8 +141,8 @@ class NMTTranslationBackend(TranslationBackend):
         Splits *texts* into sub-batches of ``self._batch_size``, posts each
         to the NMT server, and collects results.
         """
-        return asyncio.run(
-            self.translate_batch_async(texts, source_lang, target_lang)
+        return run_async_safe(
+            lambda: self.translate_batch_async(texts, source_lang, target_lang)
         )
 
     # --------------------------------------------------------------------- #

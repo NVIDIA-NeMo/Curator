@@ -31,9 +31,11 @@ from nemo_curator.stages.text.translation.pipeline import (
     TranslationPipeline,
 )
 from nemo_curator.stages.text.translation.stages.formatting import (
+    MergeSkippedStage,
     OutputFormattingStage,
     ScoreMergeStage,
     SegmentPairCaptureStage,
+    SkipTranslatedStage,
 )
 from nemo_curator.stages.text.translation.stages.reassembly import ReassemblyStage
 from nemo_curator.stages.text.translation.stages.segmentation import SegmentationStage
@@ -386,7 +388,7 @@ class TestFaithEvalFilter:
         assert "tgt" in in_cols
 
         _, out_cols = stage.outputs()
-        assert set(out_cols) == set(_SCORE_COLUMNS)
+        assert set(out_cols) == set(_SCORE_COLUMNS + ["faith_parse_failed"])
 
 
 # ---------------------------------------------------------------------------
@@ -821,6 +823,40 @@ class TestSkipTranslated:
         # All rows should have been (re)translated
         assert len(result_df) == 3
         assert all(len(t) > 0 for t in result_df["translated_text"])
+
+    def test_merge_skipped_reads_batch_metadata(self) -> None:
+        """Skipped-row state should travel with the batch, not the stage instance."""
+        df = pd.DataFrame(
+            {
+                "id": [100, 200, 300],
+                "text": ["Already translated", "Needs work", "Needs more work"],
+                "translated_text": ["Bereits uebersetzt", "", ""],
+            }
+        )
+        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+
+        skip_stage = SkipTranslatedStage()
+        skipped_batch = skip_stage.process(batch)
+
+        remaining_df = skipped_batch.to_pandas().copy()
+        remaining_df["translated_text"] = ["Neu eins", "Neu zwei"]
+        translated_batch = DocumentBatch(
+            data=remaining_df,
+            dataset_name=skipped_batch.dataset_name,
+            task_id=skipped_batch.task_id,
+            _metadata=skipped_batch._metadata,
+        )
+
+        merged = MergeSkippedStage().process(translated_batch)
+        merged_df = merged.to_pandas()
+
+        assert list(merged_df["id"]) == [100, 200, 300]
+        assert list(merged_df["translated_text"]) == [
+            "Bereits uebersetzt",
+            "Neu eins",
+            "Neu zwei",
+        ]
+        assert "_skip_translated_state" not in merged._metadata
 
 
 class TestOutputMode:

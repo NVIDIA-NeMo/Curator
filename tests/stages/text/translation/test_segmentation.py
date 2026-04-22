@@ -17,10 +17,13 @@
 from __future__ import annotations
 
 import json
+import sys
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
+from nemo_curator.stages.text.translation.stages import segmentation as segmentation_module
 from nemo_curator.stages.text.translation.stages.segmentation import SegmentationStage
 from nemo_curator.stages.text.translation.stages.translate import TranslateStage
 from nemo_curator.tasks import DocumentBatch
@@ -43,7 +46,11 @@ def _make_batch(texts: list[str], **extra_columns: list) -> DocumentBatch:
 
 def _seg_metadata(batch: DocumentBatch, row: int = 0) -> dict:
     """Parse the _seg_metadata JSON from a result row."""
-    return json.loads(batch.to_pandas().iloc[row]["_seg_metadata"])
+    metadata = json.loads(batch.to_pandas().iloc[row]["_seg_metadata"])
+    field_metadatas = metadata.get("field_metadatas")
+    if isinstance(field_metadatas, list) and len(field_metadatas) == 1:
+        return field_metadatas[0]
+    return metadata
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +284,34 @@ class TestSegmentationGeneral:
         resource_kind, output_cols = stage.outputs()
         assert resource_kind == ["data"]
         assert set(output_cols) == {"_seg_segments", "_seg_metadata", "_seg_doc_id"}
+
+    def test_long_text_uses_separate_spacy_cache_entry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Long-text handling should not mutate the default cached spaCy model."""
+
+        class FakeNLP:
+            def __init__(self) -> None:
+                self.max_length = 5
+
+            def __call__(self, text: str) -> SimpleNamespace:
+                return SimpleNamespace(
+                    sents=[SimpleNamespace(start_char=0, end_char=len(text))]
+                )
+
+        fake_spacy = SimpleNamespace(load=lambda _name: FakeNLP())
+        monkeypatch.setitem(sys.modules, "spacy", fake_spacy)
+        segmentation_module._nlp_cache.clear()
+
+        default_nlp = segmentation_module._get_spacy_nlp("en")
+        assert default_nlp.max_length == 5
+
+        units = segmentation_module.split_into_sentences_with_structure(
+            "This text is longer than five characters.",
+            src_lang="en",
+        )
+
+        assert units == [("This text is longer than five characters.", "")]
+        assert segmentation_module._get_spacy_nlp("en").max_length == 5
+        assert ("en_core_web_sm", 10_000_000) in segmentation_module._nlp_cache
 
     def test_multiple_documents(self) -> None:
         """Batch with multiple rows assigns unique _seg_doc_id per document."""

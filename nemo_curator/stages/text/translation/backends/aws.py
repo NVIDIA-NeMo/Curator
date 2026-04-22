@@ -40,6 +40,7 @@ import os
 
 from loguru import logger
 
+from ..utils.async_utils import run_async_safe
 from ._retry import retry_with_backoff
 from .base import TranslationBackend
 
@@ -139,10 +140,10 @@ class AWSTranslationBackend(TranslationBackend):
     ) -> list[str]:
         """Translate a batch of texts synchronously.
 
-        Delegates to :meth:`translate_batch_async` via ``asyncio.run``.
+        Delegates to :meth:`translate_batch_async` through the safe async bridge.
         """
-        return asyncio.run(
-            self.translate_batch_async(texts, source_lang, target_lang)
+        return run_async_safe(
+            lambda: self.translate_batch_async(texts, source_lang, target_lang)
         )
 
     # --------------------------------------------------------------------- #

@@ -70,9 +70,11 @@ def set_nested_fields(record: dict[str, Any], path: str, values: list[str]) -> d
 
         if key == "*":
             if isinstance(obj, list):
-                for item in obj:
+                for idx, item in enumerate(obj):
                     if not rest:
-                        pass
+                        if isinstance(item, str) and value_index[0] < len(values):
+                            obj[idx] = values[value_index[0]]
+                            value_index[0] += 1
                     else:
                         _set(item, rest)
             return

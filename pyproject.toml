@@ -150,7 +150,15 @@ text_cpu = [
     # Modifiers
     "ftfy",
     # Embedders
-    "sentence-transformers"
+    "sentence-transformers",
+    # Translation
+    "aiohttp>=3.13.3",
+    "boto3>=1.35",
+    "google-cloud-translate",
+    "iso639-lang>=2.6.0",
+    "requests",
+    "sacrebleu>=2.6.0",
+    "spacy>=3.8,<3.9",
 ]
 
 text_cuda12 = [

@@ -77,10 +77,10 @@ results = pipeline.run()
 
 Structured translation works directly on nested records.
 
-- `text_field="messages.*.content"` extracts every message content string from the record
-- valid JSON objects and arrays are treated as non-translatable content and are preserved verbatim
-- when `output_mode="replaced"`, translated values are written back into the original field path
-- when `output_mode="raw"` or `output_mode="both"`, Curator also emits translation metadata with whole-text and segmented mappings
+- Setting `text_field="messages.*.content"` extracts every message content string from the record
+- Valid JSON objects and arrays are treated as non-translatable content and are preserved verbatim
+- When `output_mode="replaced"`, translated values are written back into the original field path
+- When `output_mode="raw"` or `output_mode="both"`, Curator also emits translation metadata with whole-text and segmented mappings
 
 This makes the pipeline suitable for chat-style records where natural-language turns should be translated but tool payloads should remain untouched.
 
@@ -90,7 +90,7 @@ This makes the pipeline suitable for chat-style records where natural-language t
 
 - `segmentation_mode="coarse"` keeps line-level splitting with code-block awareness
 - `segmentation_mode="fine"` uses sentence-level segmentation with structure preservation
-- `min_segment_chars` lets you explicitly bypass segmentation for short text instead of relying on a hidden cutoff
+- `min_segment_chars` lets you explicitly bypass segmentation for short text rather than relying on an implicit cutoff
 - `preserve_segment_pairs=True` stores source/target segment pairs for debugging and evaluation
 - `reconstruct_messages=True` rebuilds translated message lists for structured chat-style inputs
 
@@ -116,7 +116,7 @@ FAITH scores are merged into the output when `output_mode="raw"` or `output_mode
 
 ### Round-Trip Metrics
 
-Backtranslation is composed from a second translation pass with reversed languages, followed by `TextQualityMetricStage`:
+Backtranslation uses a second translation pass with reversed languages, followed by `TextQualityMetricStage`:
 
 ```python
 from nemo_curator.stages.text.translation import TextQualityMetricStage, TranslationPipeline
@@ -163,5 +163,5 @@ For non-LLM backends, pass backend-specific settings through `backend_config`.
 
 ## Notes
 
-- The translation package is designed for pipeline execution. Avoid converting large datasets to Pandas on the driver just to orchestrate translation.
+- The translation package is designed for pipeline execution. Avoid converting large datasets to pandas on the driver just to orchestrate translation.
 - For structured inputs, wildcard paths and nested paths are first-class inputs to the library. You do not need to flatten records manually before calling `TranslationPipeline`.

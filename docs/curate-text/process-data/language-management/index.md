@@ -25,7 +25,7 @@ NeMo Curator provides robust tools for managing multilingual text datasets throu
 
 ---
 
-## How it Works
+## How It Works
 
 Language management in NeMo Curator typically follows this pattern using the Pipeline API:
 
