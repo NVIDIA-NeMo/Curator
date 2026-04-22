@@ -101,9 +101,10 @@ class TestDynamoBackendValidateUniqueModelNames:
             DynamoBackend._validate_unique_model_names(models)
 
 
-class TestResolveEffectiveRouterMode:
-    def test_explicit_mode_is_honored(self) -> None:
-        models = [
+class TestResolveEffectiveRouter:
+    @staticmethod
+    def _disagg_models() -> list[DynamoVLLMModelConfig]:
+        return [
             DynamoVLLMModelConfig(
                 model_identifier="m",
                 mode="disagg",
@@ -111,23 +112,39 @@ class TestResolveEffectiveRouterMode:
                 decode=DynamoRoleConfig(num_replicas=1),
             ),
         ]
-        # Even though a disagg model is present, explicit mode wins.
-        assert DynamoBackend._resolve_effective_router_mode(models, "round_robin") == "round_robin"
 
-    def test_auto_picks_kv_for_disagg(self) -> None:
-        models = [
-            DynamoVLLMModelConfig(
-                model_identifier="m",
-                mode="disagg",
-                prefill=DynamoRoleConfig(num_replicas=1),
-                decode=DynamoRoleConfig(num_replicas=1),
-            ),
-        ]
-        assert DynamoBackend._resolve_effective_router_mode(models, None) == "kv"
+    def test_explicit_mode_is_honored(self) -> None:
+        # Even with a disagg model present, explicit router.mode wins and
+        # router.kv_events is passed through untouched (no auto-enable).
+        router = DynamoRouterConfig(mode="round_robin")
+        mode, kv_events = DynamoBackend._resolve_effective_router(self._disagg_models(), router)
+        assert mode == "round_robin"
+        assert kv_events is False
+
+    def test_auto_picks_kv_and_auto_enables_kv_events_for_disagg(self) -> None:
+        # router.mode=None + any disagg model → auto-pick "kv" AND
+        # auto-enable kv_events so the frontend consumes what prefill
+        # workers publish unconditionally.
+        router = DynamoRouterConfig()  # mode=None, kv_events=False defaults
+        mode, kv_events = DynamoBackend._resolve_effective_router(self._disagg_models(), router)
+        assert mode == "kv"
+        assert kv_events is True
+
+    def test_explicit_kv_with_kv_events_false_is_honored(self) -> None:
+        # User set mode="kv" themselves and left kv_events=False (approx
+        # tree-based routing). We must NOT auto-flip kv_events just because
+        # a disagg model is also present — respect the explicit choice.
+        router = DynamoRouterConfig(mode="kv", kv_events=False)
+        mode, kv_events = DynamoBackend._resolve_effective_router(self._disagg_models(), router)
+        assert mode == "kv"
+        assert kv_events is False
 
     def test_aggregated_only_leaves_mode_unset(self) -> None:
         models = [DynamoVLLMModelConfig(model_identifier="m")]
-        assert DynamoBackend._resolve_effective_router_mode(models, None) is None
+        router = DynamoRouterConfig()
+        mode, kv_events = DynamoBackend._resolve_effective_router(models, router)
+        assert mode is None
+        assert kv_events is False
 
 
 # ---------------------------------------------------------------------------
@@ -274,16 +291,25 @@ class TestDynamoBackendLaunchFrontend:
         assert "--router-kv-events" not in python_args
         assert "--no-router-kv-events" not in python_args
 
-    def test_effective_router_mode_override_is_honored(self, captured_spawn: list[dict[str, Any]]) -> None:
-        """Auto-resolve path: caller passes ``effective_router_mode="kv"`` even
-        though ``router.mode`` is ``None`` (because a disagg model forced the
-        auto-pick). The emitted CLI should use the override and the
-        ``--[no-]router-kv-events`` flag should still drive off ``router.kv_events``."""
+    def test_effective_router_overrides_are_honored(self, captured_spawn: list[dict[str, Any]]) -> None:
+        """Auto-resolve path: ``_deploy_and_healthcheck`` passes both resolved
+        values in. The CLI must use them, regardless of what ``router.mode``
+        / ``router.kv_events`` were in the config (typical case: config says
+        ``mode=None, kv_events=False`` defaults and the resolver picked
+        ``"kv"`` + ``True`` because a disagg model is present).
+        """
         backend_cfg = DynamoServerConfig(router=DynamoRouterConfig(mode=None, kv_events=False))
         backend = self._make_backend(backend_cfg)
 
-        backend._launch_frontend(port=9999, base_env={}, backend_cfg=backend_cfg, effective_router_mode="kv")
+        backend._launch_frontend(
+            port=9999,
+            base_env={},
+            backend_cfg=backend_cfg,
+            effective_router_mode="kv",
+            effective_router_kv_events=True,
+        )
 
         python_args = captured_spawn[0]["python_args"]
         assert python_args[python_args.index("--router-mode") + 1] == "kv"
-        assert "--no-router-kv-events" in python_args
+        assert "--router-kv-events" in python_args
+        assert "--no-router-kv-events" not in python_args

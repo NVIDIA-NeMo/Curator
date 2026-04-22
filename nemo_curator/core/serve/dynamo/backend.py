@@ -77,7 +77,7 @@ from nemo_curator.core.utils import ignore_ray_head_node
 if TYPE_CHECKING:
     from ray.util.placement_group import PlacementGroup
 
-    from nemo_curator.core.serve.dynamo.config import DynamoVLLMModelConfig
+    from nemo_curator.core.serve.dynamo.config import DynamoRouterConfig, DynamoVLLMModelConfig
     from nemo_curator.core.serve.server import InferenceServer
 
 
@@ -199,9 +199,9 @@ class DynamoBackend(InferenceBackend):
 
         base_env = {"ETCD_ENDPOINTS": etcd_endpoint, "NATS_SERVER": nats_url}
 
-        # Auto-resolve router.mode=None → "kv" when any model is disagg, so the
-        # frontend actually consumes the KV events that prefill workers publish.
-        effective_router_mode = self._resolve_effective_router_mode(self._models, backend_cfg.router.mode)
+        effective_router_mode, effective_router_kv_events = self._resolve_effective_router(
+            self._models, backend_cfg.router
+        )
 
         expected_models: set[str] = set()
         placements: list[dict[str, Any]] = []
@@ -234,7 +234,7 @@ class DynamoBackend(InferenceBackend):
                     runtime_dir=self._runtime_dir,
                     actor_name_prefix=self._actor_name_prefix,
                     router_mode=effective_router_mode,
-                    router_kv_events=backend_cfg.router.kv_events,
+                    router_kv_events=effective_router_kv_events,
                     topology=topology,
                 )
             self._replica_pgs.extend(pgs)
@@ -256,6 +256,7 @@ class DynamoBackend(InferenceBackend):
             base_env,
             backend_cfg=backend_cfg,
             effective_router_mode=effective_router_mode,
+            effective_router_kv_events=effective_router_kv_events,
             runtime_env=merge_model_runtime_envs(self._models),
         )
 
@@ -267,16 +268,24 @@ class DynamoBackend(InferenceBackend):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _resolve_effective_router_mode(models: list[DynamoVLLMModelConfig], explicit_mode: str | None) -> str | None:
-        """Auto-pick ``"kv"`` when the caller left ``router.mode=None`` and any
-        model is disagg; otherwise honor the explicit mode (or leave unset so
-        Dynamo's own default — round-robin — kicks in).
+    def _resolve_effective_router(
+        models: list[DynamoVLLMModelConfig],
+        router: DynamoRouterConfig,
+    ) -> tuple[str | None, bool]:
+        """Resolve ``(router_mode, router_kv_events)`` for the frontend.
+
+        - ``mode``: honor ``router.mode`` if set; otherwise auto-pick ``"kv"``
+          when any model uses ``mode="disagg"``, else leave unset so the
+          Dynamo frontend falls back to its own ``round_robin`` default.
+        - ``kv_events``: when we auto-pick ``mode="kv"`` we also auto-enable
+          ``kv_events`` so the router consumes what prefill workers publish
+          unconditionally in disagg. If the user set ``router.mode`` explicitly
+          (to any value) we honor their ``router.kv_events`` as-is.
         """
-        if explicit_mode is not None:
-            return explicit_mode
-        if any(m.mode == "disagg" for m in models):
-            return "kv"
-        return None
+        mode = router.mode if router.mode is not None else ("kv" if any(m.mode == "disagg" for m in models) else None)
+        mode_was_auto_picked = router.mode is None and mode == "kv"
+        kv_events = True if mode_was_auto_picked else router.kv_events
+        return mode, kv_events
 
     @staticmethod
     def _validate_unique_model_names(models: list[DynamoVLLMModelConfig]) -> None:
@@ -417,29 +426,32 @@ class DynamoBackend(InferenceBackend):
     # Frontend
     # ------------------------------------------------------------------
 
-    def _launch_frontend(
+    def _launch_frontend(  # noqa: PLR0913
         self,
         port: int,
         base_env: dict[str, str],
         *,
         backend_cfg: DynamoServerConfig,
         effective_router_mode: str | None = None,
+        effective_router_kv_events: bool | None = None,
         runtime_env: dict[str, Any] | None = None,
     ) -> ManagedSubprocess:
         """Launch the Dynamo frontend bound to the infra node.
 
-        Emits ``--router-mode`` and ``--[no-]router-kv-events`` from the typed
-        :class:`DynamoRouterConfig` fields; anything else in ``router_kwargs``
-        (``router_temperature``, ``router_ttl_secs`` …) is forwarded verbatim
-        via snake-to-kebab CLI flag translation.
+        Emits ``--router-mode`` and ``--[no-]router-kv-events`` from the
+        resolved values; anything else in ``router_kwargs`` (``temperature``,
+        ``ttl_secs`` …) is forwarded verbatim via snake-to-kebab CLI flag
+        translation.
 
-        ``effective_router_mode`` lets the caller pass in an auto-resolved mode
-        (e.g. ``"kv"`` when any model is disagg); falls back to the typed
-        ``router.mode`` field when None.
+        ``effective_router_mode`` / ``effective_router_kv_events`` let
+        ``_deploy_and_healthcheck`` pass in auto-resolved values (e.g.
+        ``"kv"`` + ``True`` when any model is disagg). When either is
+        ``None`` the corresponding typed ``router`` field is used verbatim.
         """
         frontend_env = dict(base_env)
         router = backend_cfg.router
         router_mode = effective_router_mode if effective_router_mode is not None else router.mode
+        router_kv_events = effective_router_kv_events if effective_router_kv_events is not None else router.kv_events
         if router_mode:
             # Dynamo KV-aware routing depends on a stable Python hash seed so
             # prefix hashes agree across processes.
@@ -462,7 +474,7 @@ class DynamoBackend(InferenceBackend):
         if router_mode:
             python_args.extend(["--router-mode", router_mode])
         if router_mode == "kv":
-            python_args.append("--router-kv-events" if router.kv_events else "--no-router-kv-events")
+            python_args.append("--router-kv-events" if router_kv_events else "--no-router-kv-events")
         python_args.extend(engine_kwargs_to_cli_flags(router.router_kwargs))
 
         logger.info(f"Starting Dynamo frontend on port {port}")
