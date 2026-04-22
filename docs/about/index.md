@@ -81,8 +81,8 @@ Learn about speech data curation, ASR inference, quality assessment, and audio-t
 
 NeMo Curator is the foundation for building advanced, open post-training datasets powering domain-specific LLMs such as Nemotron and Chemistry LLMs for scientific discovery.
 
-**LANL & NVIDIA Collaboration:**
-LANL and NVIDIA are collaborating on a multiphase process to develop a co-scientist for ICF fusion hypothesis generation. This showcases two agents being developed by Los Alamos National Laboratories (LANL) to address two of the toughest challenges in science today: inertial confinement fusion (ICF) hypothesis generation and cancer treatment. NeMo Curator is used for data curation in these workflows.
+**LANL and NVIDIA Collaboration:**
+Los Alamos National Laboratory (LANL) and NVIDIA are collaborating on a multiphase process to develop a co-scientist for ICF hypothesis generation. This showcases two agents LANL is developing to address two of the toughest challenges in science today: inertial confinement fusion (ICF) hypothesis generation and cancer treatment. NeMo Curator handles data curation for these workflows.
 
 **Nemotron & Synthetic Data:**
 
