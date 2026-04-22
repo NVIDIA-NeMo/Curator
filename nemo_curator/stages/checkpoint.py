@@ -53,6 +53,9 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
 
     _LOG_TRUNCATE_FILES = 3
 
+    def num_workers(self) -> int:
+        return self._max_actors
+
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers": self._max_actors}
 
