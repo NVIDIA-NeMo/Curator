@@ -23,7 +23,7 @@ from nemo_curator.tasks import AudioTask
 def _make_stage(tmp_path: Path, phrases: list[str]) -> WhisperHallucinationStage:
     p = tmp_path / "phrases.txt"
     p.write_text("\n".join(phrases), encoding="utf-8")
-    stage = WhisperHallucinationStage(common_hall_file=str(p))
+    stage = WhisperHallucinationStage(common_hall_file=str(p), text_key="cleaned_text")
     stage.setup()
     return stage
 
@@ -81,7 +81,7 @@ def test_frequent_phrase_strips_trailing_comma(tmp_path: Path) -> None:
 def test_setup_called_lazily_when_skipped(tmp_path: Path) -> None:
     p = tmp_path / "phrases.txt"
     p.write_text("Thank you\n", encoding="utf-8")
-    stage = WhisperHallucinationStage(common_hall_file=str(p))
+    stage = WhisperHallucinationStage(common_hall_file=str(p), text_key="cleaned_text")
     task = AudioTask(data={"cleaned_text": "Thank you", "skip_me": ""})
     result = stage.process(task)
     assert result.data["skip_me"] == "Hallucination"

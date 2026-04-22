@@ -29,7 +29,7 @@ def _write_rules(tmp_path: Path, rules: list[dict]) -> str:
 
 def test_applies_substitution(tmp_path: Path) -> None:
     rules_path = _write_rules(tmp_path, [{"pattern": "\u2019", "repl": "'"}])
-    stage = RegexSubstitutionStage(regex_params_yaml=rules_path)
+    stage = RegexSubstitutionStage(regex_params_yaml=rules_path, text_key="cleaned_text")
     stage.setup()
     task = AudioTask(data={"cleaned_text": "it\u2019s fine", "skip_me": ""})
     result = stage.process(task)
@@ -39,7 +39,7 @@ def test_applies_substitution(tmp_path: Path) -> None:
 
 def test_empty_text_after_rules_sets_skip_me(tmp_path: Path) -> None:
     rules_path = _write_rules(tmp_path, [{"pattern": r"\w+", "repl": ""}])
-    stage = RegexSubstitutionStage(regex_params_yaml=rules_path)
+    stage = RegexSubstitutionStage(regex_params_yaml=rules_path, text_key="cleaned_text")
     stage.setup()
     task = AudioTask(data={"cleaned_text": "hello", "skip_me": ""})
     result = stage.process(task)
@@ -48,7 +48,7 @@ def test_empty_text_after_rules_sets_skip_me(tmp_path: Path) -> None:
 
 def test_whitespace_only_sets_skip_me(tmp_path: Path) -> None:
     rules_path = _write_rules(tmp_path, [{"pattern": r"\S+", "repl": ""}])
-    stage = RegexSubstitutionStage(regex_params_yaml=rules_path)
+    stage = RegexSubstitutionStage(regex_params_yaml=rules_path, text_key="cleaned_text")
     stage.setup()
     task = AudioTask(data={"cleaned_text": "hello world", "skip_me": ""})
     result = stage.process(task)
@@ -57,7 +57,7 @@ def test_whitespace_only_sets_skip_me(tmp_path: Path) -> None:
 
 def test_non_empty_text_preserves_skip_me_empty(tmp_path: Path) -> None:
     rules_path = _write_rules(tmp_path, [{"pattern": r"bad", "repl": "good"}])
-    stage = RegexSubstitutionStage(regex_params_yaml=rules_path)
+    stage = RegexSubstitutionStage(regex_params_yaml=rules_path, text_key="cleaned_text")
     stage.setup()
     task = AudioTask(data={"cleaned_text": "bad word", "skip_me": ""})
     result = stage.process(task)
@@ -67,7 +67,7 @@ def test_non_empty_text_preserves_skip_me_empty(tmp_path: Path) -> None:
 
 def test_strips_extra_whitespace(tmp_path: Path) -> None:
     rules_path = _write_rules(tmp_path, [])
-    stage = RegexSubstitutionStage(regex_params_yaml=rules_path)
+    stage = RegexSubstitutionStage(regex_params_yaml=rules_path, text_key="cleaned_text")
     stage.setup()
     task = AudioTask(data={"cleaned_text": "hello   world", "skip_me": ""})
     result = stage.process(task)
@@ -82,7 +82,7 @@ def test_multiple_rules_applied_in_order(tmp_path: Path) -> None:
             {"pattern": r"\s+", "repl": " "},
         ],
     )
-    stage = RegexSubstitutionStage(regex_params_yaml=rules_path)
+    stage = RegexSubstitutionStage(regex_params_yaml=rules_path, text_key="cleaned_text")
     stage.setup()
     task = AudioTask(data={"cleaned_text": "word\u2014word", "skip_me": ""})
     result = stage.process(task)
@@ -91,7 +91,7 @@ def test_multiple_rules_applied_in_order(tmp_path: Path) -> None:
 
 def test_setup_called_lazily_when_skipped(tmp_path: Path) -> None:
     rules_path = _write_rules(tmp_path, [{"pattern": "\u2019", "repl": "'"}])
-    stage = RegexSubstitutionStage(regex_params_yaml=rules_path)
+    stage = RegexSubstitutionStage(regex_params_yaml=rules_path, text_key="cleaned_text")
     task = AudioTask(data={"cleaned_text": "it\u2019s fine", "skip_me": ""})
     result = stage.process(task)
     assert result.data["cleaned_text"] == "it's fine"
@@ -99,7 +99,7 @@ def test_setup_called_lazily_when_skipped(tmp_path: Path) -> None:
 
 def test_non_string_text_returns_task_unchanged(tmp_path: Path) -> None:
     rules_path = _write_rules(tmp_path, [{"pattern": r"\w+", "repl": ""}])
-    stage = RegexSubstitutionStage(regex_params_yaml=rules_path)
+    stage = RegexSubstitutionStage(regex_params_yaml=rules_path, text_key="cleaned_text")
     stage.setup()
     task = AudioTask(data={"cleaned_text": None, "skip_me": ""})
     result = stage.process(task)
@@ -114,7 +114,7 @@ def test_requires_regex_params_yaml() -> None:
 
 def test_preserves_existing_skip_me_on_empty_result(tmp_path: Path) -> None:
     rules_path = _write_rules(tmp_path, [{"pattern": r"\w+", "repl": ""}])
-    stage = RegexSubstitutionStage(regex_params_yaml=rules_path)
+    stage = RegexSubstitutionStage(regex_params_yaml=rules_path, text_key="cleaned_text")
     stage.setup()
     task = AudioTask(data={"cleaned_text": "hello", "skip_me": "Hallucination"})
     result = stage.process(task)

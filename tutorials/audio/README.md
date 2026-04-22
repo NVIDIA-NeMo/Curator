@@ -12,6 +12,7 @@ Hands-on tutorials for curating audio data with NeMo Curator. Complete working e
 |----------|-------------|-------|
 | **[FLEURS Dataset](fleurs/)** | Complete pipeline for multilingual speech data | `pipeline.py`, `run.py`, `pipeline.yaml` |
 | **[ALM Data Pipeline](alm/)** | Create training windows for Audio Language Models | `main.py`, `pipeline.yaml` |
+| **[Granary v2 Postprocessing](granary_v2_postprocessing/)** | Text cleaning, hallucination detection, and LID filtering for ASR manifests | `post_processing_pipeline.py`, `common.yaml`, `en.txt` |
 
 ## Documentation Links
 

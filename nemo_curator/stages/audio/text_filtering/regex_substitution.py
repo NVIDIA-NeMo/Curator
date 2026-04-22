@@ -66,7 +66,7 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
         logger.info(f"RegexSubstitutionStage: loaded {len(self._rules)} rules from {self.regex_params_yaml}")
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.text_key]
+        return [], [self.text_key, self.skip_me_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_text_key, self.skip_me_key]

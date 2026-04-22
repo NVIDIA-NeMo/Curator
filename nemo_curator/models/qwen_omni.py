@@ -180,7 +180,7 @@ class QwenOmni(ModelInterface):
         return messages
 
     def _build_turn2_messages(self, waveform: np.ndarray, pred_text: str) -> list[dict[str, Any]]:
-        """Build Turn 2 messages: full Turn 1 conversation history + follow-up promt."""
+        """Build Turn 2 messages: full Turn 1 conversation history + follow-up prompt."""
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
             messages.append({"role": "system", "content": [{"type": "text", "text": self.system_prompt}]})

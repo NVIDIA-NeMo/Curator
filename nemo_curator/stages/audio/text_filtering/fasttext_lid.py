@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import urllib.request
 from dataclasses import dataclass, field
@@ -117,7 +118,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data[self.skip_me_key] = "Empty text"
             return task
         result_str = self._lid.score_document(text)
-        score_list = eval(result_str)  # noqa: S307  — output of our own FastText model
+        score_list = ast.literal_eval(result_str)
         prob = float(score_list[0])
         lang = str(score_list[1]).lower()
         if not task.data[self.skip_me_key]:

@@ -22,6 +22,7 @@ from nemo_curator.tasks import AudioTask
 
 def _make_stage(label: str, prob: float, **kwargs: object) -> FastTextLIDStage:
     """Create a stage with a mocked FastTextLangId that returns the given label/prob."""
+    kwargs.setdefault("text_key", "cleaned_text")
     stage = FastTextLIDStage(model_path="/fake/model.bin", **kwargs)
     mock_lid = MagicMock()
     mock_lid.score_document.return_value = str([prob, label])
@@ -63,7 +64,7 @@ def test_default_min_lang_prob_is_80_percent() -> None:
 
 
 def test_empty_text_sets_skip_me_without_calling_model() -> None:
-    stage = FastTextLIDStage(model_path="/fake/model.bin")
+    stage = FastTextLIDStage(model_path="/fake/model.bin", text_key="cleaned_text")
     mock_lid = MagicMock()
     stage._lid = mock_lid
     task = AudioTask(data={"cleaned_text": "   ", "skip_me": ""})
@@ -80,7 +81,7 @@ def test_preserves_existing_skip_me_reason() -> None:
 
 
 def test_preserves_existing_skip_me_on_empty_text() -> None:
-    stage = FastTextLIDStage(model_path="/fake/model.bin")
+    stage = FastTextLIDStage(model_path="/fake/model.bin", text_key="cleaned_text")
     mock_lid = MagicMock()
     stage._lid = mock_lid
     task = AudioTask(data={"cleaned_text": "   ", "skip_me": "Hallucination"})

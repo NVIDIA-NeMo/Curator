@@ -65,9 +65,22 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "common_hall_file is required for WhisperHallucinationStage"
             raise ValueError(msg)
 
+    @staticmethod
+    def _strip_frequency_count(line: str) -> str:
+        """Strip optional trailing frequency count from a phrase line.
+
+        Community hallucination lists often include counts, e.g.
+        ``"Thank you 1297"`` → ``"Thank you"``.
+        """
+        parts = line.rsplit(maxsplit=1)
+        has_trailing_count = len(parts) > 1 and parts[1].lstrip("-").isdigit()
+        if has_trailing_count:
+            return parts[0]
+        return line
+
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         with open(self.common_hall_file, encoding="utf-8") as f:
-            phrases = {line.strip() for line in f if line.strip()}
+            phrases = {self._strip_frequency_count(line.strip()) for line in f if line.strip()}
         self._phrases = phrases
         self._setup_called = True
         logger.info(f"WhisperHallucinationStage: loaded {len(phrases)} phrases from {self.common_hall_file}")
