@@ -90,7 +90,7 @@ def ensure_cudnn_loaded() -> bool:
         try:
             ctypes.cdll.LoadLibrary(lib_path)
             logger.debug("Pre-loaded %s", lib_path)
-        except OSError:  # noqa: PERF203
+        except OSError:
             logger.warning("Failed to load %s", lib_path, exc_info=True)
 
     _cudnn_loaded = True
