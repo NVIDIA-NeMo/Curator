@@ -294,6 +294,7 @@ override-dependencies = [
     "torch>=2.8.0", # Override whisperx's torch~=2.8.0 upper bound for vllm compat
     "torchaudio>=2.8.0", # Override whisperx's torchaudio~=2.8.0 upper bound for vllm compat
     "torchvision>=0.23.0", # Match torch>=2.8.0 lower bound
+    "torchcodec>=0.9.0", # Must match torch 2.9.x per torchcodec compatibility table
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
