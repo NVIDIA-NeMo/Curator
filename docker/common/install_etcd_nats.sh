@@ -27,7 +27,6 @@ for i in "$@"; do
         --NATS_VERSION=?*) NATS_VERSION="${i#*=}";;
         *) ;;
     esac
-    shift
 done
 
 ARCH=$(uname -m)
