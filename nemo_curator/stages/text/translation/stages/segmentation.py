@@ -66,22 +66,30 @@ SPACY_LANG_MODELS: dict[str, str] = {
 }
 SPACY_FALLBACK_MODEL: str = "xx_sent_ud_sm"
 
-# Cache for loaded spaCy models (keyed by model name)
-_nlp_cache: dict[str, Any] = {}
+# Cache for loaded spaCy models. Variants with a custom ``max_length`` are
+# cached separately so callers do not mutate shared model instances.
+_nlp_cache: dict[tuple[str, int | None], Any] = {}
+
+def _resolve_spacy_model_name(src_lang: str = "en") -> str:
+    """Resolve the spaCy model name for the given language."""
+    return SPACY_LANG_MODELS.get(src_lang, SPACY_FALLBACK_MODEL)
 
 
-def _get_spacy_nlp(src_lang: str = "en") -> Any:
+def _get_spacy_nlp(src_lang: str = "en", *, max_length: int | None = None) -> Any:
     """Lazy-load a spaCy model for the given source language.
 
     Args:
         src_lang: ISO 639-1 language code (e.g. ``'en'``, ``'de'``, ``'hi'``).
+        max_length: Optional override for ``nlp.max_length`` on the cached
+            instance created for this call.
 
     Returns:
         A loaded spaCy ``Language`` model appropriate for *src_lang*.
     """
-    model_name = SPACY_LANG_MODELS.get(src_lang, SPACY_FALLBACK_MODEL)
+    model_name = _resolve_spacy_model_name(src_lang)
+    cache_key = (model_name, max_length)
 
-    if model_name not in _nlp_cache:
+    if cache_key not in _nlp_cache:
         import spacy
 
         try:
@@ -93,12 +101,19 @@ def _get_spacy_nlp(src_lang: str = "en") -> Any:
             )
             model_name = SPACY_FALLBACK_MODEL
             nlp = spacy.load(model_name)
+            cache_key = (model_name, max_length)
 
-        nlp.max_length = 10_000_000  # Handle very long texts (10M chars)
-        _nlp_cache[model_name] = nlp
-        logger.info(f"spaCy model '{model_name}' loaded for lang '{src_lang}' with max_length: {nlp.max_length}")
+        if max_length is not None:
+            nlp.max_length = max_length
+        _nlp_cache[cache_key] = nlp
+        logger.info(
+            "spaCy model '{}' loaded for lang '{}'{}",
+            model_name,
+            src_lang,
+            f" with max_length: {nlp.max_length}" if max_length is not None else "",
+        )
 
-    return _nlp_cache[model_name]
+    return _nlp_cache[cache_key]
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +131,8 @@ def split_into_sentences_with_structure(text: str, src_lang: str = "en") -> list
         src_lang: ISO 639-1 language code for loading the appropriate spaCy model.
     """
     nlp = _get_spacy_nlp(src_lang)
+    if len(text) > nlp.max_length:
+        nlp = _get_spacy_nlp(src_lang, max_length=max(10_000_000, len(text) + 1))
 
     # Custom regex pattern for special characters that should be treated as separators
     special_separator_pattern = (

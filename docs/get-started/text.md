@@ -112,7 +112,7 @@ For this example, you need sample JSONL files in `~/nemo_curator/data/sample/`. 
 ```
 
 ```{tip}
-**Set your HuggingFace token** to avoid rate limiting when downloading models or datasets:
+**Set your Hugging Face token** to avoid rate limiting when downloading models or datasets:
 
     export HF_TOKEN="your_token_here"
 

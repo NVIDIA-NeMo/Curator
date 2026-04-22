@@ -173,6 +173,17 @@ class TestSetNestedFields:
         assert result["messages"][0]["role"] == "user"
         assert result["messages"][1]["role"] == "assistant"
 
+    def test_terminal_wildcard_round_trip(self) -> None:
+        """A terminal wildcard path such as ``messages.*`` replaces string list items."""
+        record = {"messages": ["Hello", "Hi there"]}
+
+        extracted = extract_nested_fields(record, "messages.*")
+        assert extracted == ["Hello", "Hi there"]
+
+        result = set_nested_fields(record, "messages.*", ["Hallo", "Guten Tag"])
+        assert result["messages"] == ["Hallo", "Guten Tag"]
+        assert record["messages"] == ["Hello", "Hi there"]
+
     def test_original_not_mutated(self) -> None:
         """set_nested_fields makes a deep copy; original is unchanged."""
         record = {
@@ -289,11 +300,11 @@ class TestParseStructuredValue:
         result = parse_structured_value(s)
         assert result is None
 
-    def test_json_array_returns_none(self) -> None:
-        """A JSON array is not a dict, so returns None."""
+    def test_json_array_returns_list(self) -> None:
+        """A JSON array should round-trip as structured data."""
         s = '[1, 2, 3]'
         result = parse_structured_value(s)
-        assert result is None
+        assert result == [1, 2, 3]
 
     def test_integer_returns_none(self) -> None:
         result = parse_structured_value(42)

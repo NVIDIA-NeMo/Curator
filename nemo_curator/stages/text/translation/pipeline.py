@@ -116,12 +116,12 @@ class TranslationPipeline(CompositeStage[DocumentBatch, DocumentBatch]):
             self.text_field
         )
 
-        skip_stage: SkipTranslatedStage | None = None
         if self.skip_translated:
-            skip_stage = SkipTranslatedStage(
-                translation_column=self.translation_column,
+            stages.append(
+                SkipTranslatedStage(
+                    translation_column=self.translation_column,
+                )
             )
-            stages.append(skip_stage)
 
         stages.append(
             SegmentationStage(
@@ -156,8 +156,8 @@ class TranslationPipeline(CompositeStage[DocumentBatch, DocumentBatch]):
             )
         )
 
-        if self.skip_translated and skip_stage is not None:
-            stages.append(MergeSkippedStage(skip_stage=skip_stage))
+        if self.skip_translated:
+            stages.append(MergeSkippedStage())
 
         if self.enable_faith_eval:
             faith_model = self.faith_model_name or self.model_name

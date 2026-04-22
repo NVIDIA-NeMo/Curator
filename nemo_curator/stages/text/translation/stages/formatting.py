@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 import pandas as pd
@@ -31,6 +31,8 @@ from nemo_curator.stages.text.translation.utils.metadata import (
 )
 from nemo_curator.tasks import DocumentBatch
 
+_SKIP_TRANSLATED_METADATA_KEY = "_skip_translated_state"
+
 
 @dataclass
 class SkipTranslatedStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -38,9 +40,7 @@ class SkipTranslatedStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     name: str = "SkipTranslatedStage"
     translation_column: str = "translated_text"
-
-    _skipped_rows: list[dict[str, Any]] = field(init=False, repr=False, default_factory=list)
-    _original_order_col: str = field(init=False, repr=False, default="_skip_original_idx")
+    original_order_col: str = "_skip_original_idx"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -51,6 +51,8 @@ class SkipTranslatedStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         """Remove already-translated rows and stash them for later merge."""
         df = batch.to_pandas().copy()
+        metadata = dict(batch._metadata)
+        metadata.pop(_SKIP_TRANSLATED_METADATA_KEY, None)
 
         if self.translation_column not in df.columns:
             logger.info(
@@ -58,21 +60,33 @@ class SkipTranslatedStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 self.translation_column,
                 len(df),
             )
-            self._skipped_rows = []
-            return batch
+            return DocumentBatch(
+                task_id=batch.task_id,
+                dataset_name=batch.dataset_name,
+                data=df,
+                _metadata=metadata,
+                _stage_perf=batch._stage_perf,
+            )
 
-        df[self._original_order_col] = range(len(df))
+        df[self.original_order_col] = range(len(df))
         has_translation = df[self.translation_column].notna() & (
             df[self.translation_column].astype(str).str.strip() != ""
         )
 
         skipped_df = df[has_translation]
         remaining_df = df[~has_translation].reset_index(drop=True)
-        self._skipped_rows = skipped_df.to_dict(orient="records")
+        skipped_rows = skipped_df.to_dict(orient="records")
+
+        if skipped_rows:
+            metadata[_SKIP_TRANSLATED_METADATA_KEY] = {
+                "rows": skipped_rows,
+                "order_col": self.original_order_col,
+                "translation_column": self.translation_column,
+            }
 
         logger.info(
             "SkipTranslatedStage: skipping {} already-translated rows, processing {} rows",
-            len(self._skipped_rows),
+            len(skipped_rows),
             len(remaining_df),
         )
 
@@ -80,7 +94,7 @@ class SkipTranslatedStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=remaining_df,
-            _metadata=batch._metadata,
+            _metadata=metadata,
             _stage_perf=batch._stage_perf,
         )
 
@@ -90,7 +104,6 @@ class MergeSkippedStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """Re-merge previously skipped rows back into the translated batch."""
 
     name: str = "MergeSkippedStage"
-    skip_stage: SkipTranslatedStage | None = None
 
     _COLUMN_DEFAULTS: ClassVar[dict[str, object]] = {
         "faith_fluency": 0.0,
@@ -116,8 +129,11 @@ class MergeSkippedStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         """Merge stashed rows back and restore original order."""
-        if self.skip_stage is None or not self.skip_stage._skipped_rows:
-            df = batch.to_pandas()
+        df = batch.to_pandas()
+        metadata = dict(batch._metadata)
+        skip_state = metadata.pop(_SKIP_TRANSLATED_METADATA_KEY, None)
+
+        if not skip_state or not skip_state.get("rows"):
             order_col = "_skip_original_idx"
             if order_col in df.columns:
                 df = df.drop(columns=[order_col])
@@ -125,14 +141,13 @@ class MergeSkippedStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 task_id=batch.task_id,
                 dataset_name=batch.dataset_name,
                 data=df,
-                _metadata=batch._metadata,
+                _metadata=metadata,
                 _stage_perf=batch._stage_perf,
             )
 
-        df = batch.to_pandas()
-        skipped_df = pd.DataFrame(self.skip_stage._skipped_rows)
-        order_col = self.skip_stage._original_order_col
-        translation_column = self.skip_stage.translation_column
+        skipped_df = pd.DataFrame(skip_state["rows"])
+        order_col = str(skip_state["order_col"])
+        translation_column = str(skip_state["translation_column"])
 
         for col in df.columns:
             if col in skipped_df.columns:
@@ -158,7 +173,7 @@ class MergeSkippedStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=merged,
-            _metadata=batch._metadata,
+            _metadata=metadata,
             _stage_perf=batch._stage_perf,
         )
 

@@ -14,7 +14,7 @@ Process text data you've loaded through NeMo Curator's {ref}`pipeline architectu
 
 NeMo Curator provides a comprehensive suite of tools for processing text data as part of the AI training pipeline. These tools help you analyze, transform, and filter your text datasets to ensure high-quality input for language model training.
 
-## How it Works
+## How It Works
 
 NeMo Curator's text processing capabilities are organized into five main categories:
 
