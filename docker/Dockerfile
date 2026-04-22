@@ -34,11 +34,6 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV DEBIAN_FRONTEND=noninteractive
 # gnupg upgrade Address CVE-2025-68973
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.12-dev \
-    python3 \
-    python3-dev \
-    python3-venv \
-    python-is-python3\
     curl \
     git \
     vim && \
@@ -56,7 +51,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_CACHE_DIR=/opt/uv_cache
 ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
-RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages --seed
+RUN uv venv ${UV_PROJECT_ENVIRONMENT} --python 3.13 --seed
 
 FROM build AS nemo_curator_dep
 
@@ -97,7 +92,7 @@ RUN if python3 -c "import wandb" 2>/dev/null; then \
         GRPC_VERSION=1.79.3 && \
         GO_VERSION=1.26.1 && \
         WANDB_VERSION=$(python3 -c "import wandb; print(wandb.__version__)") && \
-        WANDB_CORE_BIN=/opt/venv/lib/python3.12/site-packages/wandb/bin/wandb-core && \
+        WANDB_CORE_BIN=/opt/venv/lib/python3.13/site-packages/wandb/bin/wandb-core && \
         curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /tmp -xz && \
         export PATH="/tmp/go/bin:$PATH" && \
         export GOPATH=/tmp/gopath && \
