@@ -54,6 +54,7 @@ Explore the foundational concepts and terminology used across NeMo Curator.
 Learn about text data curation, covering data loading and processing (filtering, deduplication, classification).
 :::
 
+:::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` Image Curation Concepts
 :link: about-concepts-image
 :link-type: ref
 
