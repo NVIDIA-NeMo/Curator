@@ -77,7 +77,7 @@ Learn about speech data curation, ASR inference, quality assessment, and audio-t
 
 ::::
 
-# Curator in Action: Nemotron & Scientific LLMs
+## Curator in Action: Nemotron and Scientific LLMs
 
 NeMo Curator is the foundation for building advanced, open post-training datasets powering domain-specific LLMs such as Nemotron and Chemistry LLMs for scientific discovery.
 
