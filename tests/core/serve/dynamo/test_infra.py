@@ -16,7 +16,42 @@ from __future__ import annotations
 
 import pytest
 
-from nemo_curator.core.serve.dynamo.infra import build_worker_actor_name, engine_kwargs_to_cli_flags
+from nemo_curator.core.serve.dynamo.infra import (
+    build_worker_actor_name,
+    dynamo_endpoint,
+    engine_kwargs_to_cli_flags,
+    model_name_to_component,
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("Qwen3-0.6B", "qwen3_0_6b"),
+        ("Qwen/Qwen3-0.6B", "qwen_qwen3_0_6b"),
+        ("meta-llama/Llama-3.1-8B", "meta_llama_llama_3_1_8b"),
+        ("simple", "simple"),
+    ],
+)
+def test_model_name_to_component(name: str, expected: str) -> None:
+    assert model_name_to_component(name) == expected
+
+
+def test_model_name_to_component_rejects_empty_slug() -> None:
+    with pytest.raises(ValueError, match="empty component slug"):
+        model_name_to_component("---")
+
+
+@pytest.mark.parametrize(
+    ("namespace", "component", "role", "expected"),
+    [
+        ("curator", "qwen", None, "dyn://curator.qwen.generate"),
+        ("curator", "qwen", "decode", "dyn://curator.qwen_decode.generate"),
+        ("curator", "qwen", "prefill", "dyn://curator.qwen_prefill.generate"),
+    ],
+)
+def test_dynamo_endpoint(namespace: str, component: str, role: str | None, expected: str) -> None:
+    assert dynamo_endpoint(namespace, component, role=role) == expected
 
 
 @pytest.mark.parametrize(

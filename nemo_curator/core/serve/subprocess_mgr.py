@@ -29,14 +29,16 @@ that process group.
 
 Teardown is driver-initiated (see ``graceful_stop_actors``): SIGTERM on
 the subprocess group -> bounded wait -> escalated SIGKILL on the same
-group -> ``ray.kill`` for the actor itself. A Python ``atexit`` hook
-inside the actor covers the clean-exit path; hard kills (``ray.kill``,
-PG removal, SIGKILL) bypass atexit, which is why
-``graceful_stop_actors`` does the SIGKILL step explicitly before
-falling through to ``ray.kill``.
+group -> ``ray.kill`` for the actor itself. ``ray.kill`` on its own
+SIGKILLs the actor process but leaves the launcher subprocess (which
+was Popen'd by the actor) reparented to init and alive, so the
+killpg-first ordering is required; it is not about the atexit hook.
 
-Placement-group construction, bundle-level helpers, and the orphan PG
-sweep live in ``placement``.
+Backends that use the ``with ray.init()`` attach/detach pattern around
+start/stop must refresh stored ``ActorHandle`` references between the
+two sessions -- see ``reacquire_detached_actor_handles`` below. The
+companion orphan sweeper ``sweep_orphan_actors_by_prefix`` matches
+``remove_named_pgs_with_prefix`` in ``placement``.
 """
 
 from __future__ import annotations
@@ -63,6 +65,21 @@ from nemo_curator.core.serve.constants import (
     SIGKILL_WAIT_S,
     SIGTERM_WAIT_S,
 )
+
+# ---------------------------------------------------------------------------
+# Naming
+# ---------------------------------------------------------------------------
+
+
+def _detached_actor_name(prefix: str, label: str) -> str:
+    """Assemble the Ray detached-actor name for a given *prefix* and *label*.
+
+    Both ``ManagedSubprocess.spawn`` (when naming a new actor) and
+    ``reacquire_detached_actor_handles`` (when re-looking it up in a later
+    session) must agree on this formula, so it lives in one place.
+    """
+    return f"{prefix}_{label}" if prefix else label
+
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -119,19 +136,18 @@ class ManagedSubprocess:
         """Create a detached Ray actor bound to ``pg``'s bundle *bundle_index* and launch its subprocess.
 
         Pass *command* for binary subprocesses (etcd, nats) or *python_args*
-        for Python module invocations (``["-m", "dynamo.vllm", ...]``). When
-        *python_args* is used, the actor prepends its own ``sys.executable``
+        for Python module invocations (``["-m", "dynamo.vllm", ...]``).
+        When *python_args* is used, the actor prepends its own ``sys.executable``
         -- which inside a ``runtime_env`` points to the isolated virtualenv's
         Python, not the driver's. This ensures subprocesses load packages
-        from the runtime_env (e.g. the correct vLLM version).
+        from the runtime_env.
 
         The actor class is created per-call with ``__name__`` set to *label*,
         so the Ray dashboard shows descriptive names.
 
         The subprocess inherits the actor's ``os.environ`` (raylet env +
         ``runtime_env`` contributions). *subprocess_env* adds targeted
-        overrides on top (e.g. ``ETCD_ENDPOINTS``, ``NATS_SERVER``,
-        ``CUDA_VISIBLE_DEVICES``).
+        overrides on top (e.g. ``CUDA_VISIBLE_DEVICES``).
 
         Args:
             label: Human-readable label (used for actor naming, class naming, logs).
@@ -159,7 +175,7 @@ class ManagedSubprocess:
         actor_cls = _define_subprocess_actor(label)
 
         log_file = os.path.join(runtime_dir, f"{label}.log") if runtime_dir else None
-        actor_name = f"{actor_name_prefix}_{label}" if actor_name_prefix else label
+        actor_name = _detached_actor_name(actor_name_prefix, label)
 
         if runtime_env:
             merged_runtime_env = {**runtime_env}
@@ -281,13 +297,12 @@ def _define_subprocess_actor(actor_type: str = "SubprocessActor") -> type:  # no
        resolves on exit so ``ray.wait`` can be used for liveness.
     3. ``stop`` / ``force_sigkill_subprocess`` reap that process group.
 
-    Teardown is driver-initiated via ``graceful_stop_actors``. The only
-    actor-side teardown piece we register is a standard Python ``atexit``
-    hook: if the actor process ever exits cleanly (e.g. the raylet shuts
-    it down through normal channels), the hook reaps the subprocess
-    group. ``atexit`` does not run on hard kill (``ray.kill``, PG
-    removal, SIGKILL), which is why callers must go through
-    ``graceful_stop_actors`` / ``ManagedSubprocess.stop`` first.
+    Teardown is driver-initiated via ``graceful_stop_actors`` so the
+    actor can ``killpg`` its subprocess group before ``ray.kill`` hard-kills
+    the actor process itself -- otherwise the Popen-launched child
+    reparents to init and keeps running. A Python ``atexit`` hook is
+    registered as a backup for clean actor exits (e.g. a normal raylet
+    shutdown); it does not fire on ``ray.kill`` / PG removal / SIGKILL.
     """
     import ray
 
@@ -481,23 +496,134 @@ def graceful_stop_actors(
        multi-node without any driver-side connectivity assumption.
     3. ``ray.kill(actor)`` -- tear down the actor itself.
 
-    Without the step-2 escalation, ``ray.kill`` can orphan subprocesses
-    because it bypasses the actor's ``atexit`` hook.
+    Step 2 matters because ``ray.kill`` SIGKILLs the actor process; its
+    Popen child (the launcher) reparents to init and keeps running, and
+    that launcher's own children (e.g. vLLM EngineCore) stay alive too.
+    Sending ``killpg`` first ensures the whole subprocess tree is gone
+    before the actor itself is torn down. Each dispatch is guarded
+    individually so a single invalid handle (e.g. a stale
+    cross-``ray.init()``-session handle) does not abort the batch.
     """
     if not labeled_actors:
         return
     import ray
 
     wait = timeout_s if timeout_s is not None else SIGTERM_WAIT_S + SIGKILL_WAIT_S + 5
-    refs = [actor.stop.remote() for _, actor in labeled_actors]
-    with contextlib.suppress(Exception):
-        ray.wait(refs, num_returns=len(refs), timeout=wait)
+    refs = [_dispatch_actor_stop(label, actor) for label, actor in labeled_actors]
+    valid_refs = [r for r in refs if r is not None]
+    if valid_refs:
+        with contextlib.suppress(Exception):
+            ray.wait(valid_refs, num_returns=len(valid_refs), timeout=wait)
+
     for (label, actor), ref in zip(labeled_actors, refs, strict=True):
-        try:
-            ray.get(ref, timeout=0)
-        except Exception:  # noqa: BLE001 - any failure here means escalate
-            logger.debug(f"{label} actor stop() did not drain in time, SIGKILL-ing subprocess group")
+        if not _actor_stop_drained(ref):
+            logger.debug(f"{label} actor.stop did not drain; escalating to host-side SIGKILL")
             with contextlib.suppress(Exception):
                 ray.get(actor.force_sigkill_subprocess.remote(), timeout=SIGKILL_WAIT_S)
         with contextlib.suppress(Exception):
             ray.kill(actor, no_restart=True)
+
+
+def _dispatch_actor_stop(label: str, actor: ActorHandle) -> ObjectRef | None:
+    """Best-effort dispatch of ``actor.stop.remote()`` for one actor."""
+    try:
+        return actor.stop.remote()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"{label} actor.stop.remote() dispatch failed: {exc}")
+        return None
+
+
+def _actor_stop_drained(ref: ObjectRef | None) -> bool:
+    """Return True iff the actor-side ``stop()`` completed successfully."""
+    if ref is None:
+        return False
+    import ray
+
+    try:
+        ray.get(ref, timeout=0)
+    except Exception:  # noqa: BLE001
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Cross-session helpers: refreshing handles + sweeping orphans by prefix
+# ---------------------------------------------------------------------------
+
+
+def reacquire_detached_actor_handles(
+    procs: list[ManagedSubprocess],
+    *,
+    actor_name_prefix: str,
+    namespace: str,
+) -> list[ManagedSubprocess]:
+    """Refresh each ``proc.actor`` in place by re-looking up its detached actor.
+
+    ``ActorHandle`` objects are pinned to the Ray job that created them, so
+    any handle stored across a ``with ray.init()`` boundary raises
+    ``ActorHandleNotFoundError`` on ``.remote()``. Backends that use the
+    start/stop attach-detach pattern must re-acquire their handles inside
+    the stop-side ``with ray.init()`` before calling any actor method.
+
+    Actor names follow the ``ManagedSubprocess.spawn`` convention:
+    ``f"{actor_name_prefix}_{label}"``, or just ``label`` when the prefix
+    is empty.
+
+    Returns a filtered list containing only procs whose actor was
+    successfully re-acquired; entries whose actor is already gone are
+    dropped so callers can safely pass the result to
+    ``ManagedSubprocess.stop_many``.
+    """
+    import ray
+
+    refreshed: list[ManagedSubprocess] = []
+    for proc in procs:
+        actor_name = _detached_actor_name(actor_name_prefix, proc.label)
+        try:
+            proc.actor = ray.get_actor(actor_name, namespace=namespace)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"Could not re-acquire detached actor {actor_name!r}: {exc}")
+            continue
+        refreshed.append(proc)
+    return refreshed
+
+
+def sweep_orphan_actors_by_prefix(*, prefix: str, namespace: str) -> int:
+    """Graceful-stop any ALIVE detached actor whose name starts with *prefix*.
+
+    Intended for orphan cleanup after a driver restart: detached actors
+    outlive the driver that created them, so a reconnecting driver (in the
+    same *namespace*) can list them by name, re-acquire handles, and reap
+    them + their subprocess trees via ``graceful_stop_actors``. Returns the
+    number of orphans reaped. Mirrors ``remove_named_pgs_with_prefix`` in
+    ``placement``.
+    """
+    try:
+        from ray.util.state import list_actors
+    except ImportError:
+        return 0
+
+    import ray
+
+    try:
+        alive = list_actors(filters=[("state", "=", "ALIVE")])
+    except Exception:  # noqa: BLE001
+        logger.debug("Could not list actors for orphan sweep")
+        return 0
+
+    stale: list[tuple[str, ActorHandle]] = []
+    for entry in alive:
+        name = getattr(entry, "name", "") or ""
+        if not name.startswith(prefix):
+            continue
+        try:
+            actor = ray.get_actor(name, namespace=namespace)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"Orphan-actor lookup for {name!r} failed: {exc}")
+            continue
+        stale.append((name, actor))
+
+    if stale:
+        logger.info(f"Sweeping {len(stale)} orphan actor(s) with prefix {prefix!r}")
+        graceful_stop_actors(stale)
+    return len(stale)

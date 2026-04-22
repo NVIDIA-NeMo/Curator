@@ -22,6 +22,7 @@ infrastructure there stays reusable and free of Dynamo conventions
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Any, Literal
 
 from nemo_curator.core.serve.constants import PLACEMENT_GROUP_READY_TIMEOUT_S, WORKER_NODE_LABEL
@@ -30,6 +31,26 @@ from nemo_curator.core.utils import ignore_ray_head_node
 
 if TYPE_CHECKING:
     from ray.util.placement_group import PlacementGroup
+
+
+def model_name_to_component(name: str) -> str:
+    """Sanitize *name* into a valid Dynamo component slug.
+
+    Dynamo endpoints use ``dyn://namespace.component.endpoint`` where dots
+    are delimiters, so any dotted identifier in the model name has to be
+    flattened. Generic across engines (vLLM, SGLang, ...).
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    if not slug:
+        msg = f"Model name {name!r} produces an empty component slug after sanitization."
+        raise ValueError(msg)
+    return slug
+
+
+def dynamo_endpoint(namespace: str, component: str, role: str | None = None) -> str:
+    """Build the ``dyn://namespace.component.endpoint`` URI a Dynamo worker registers under."""
+    suffix = f"_{role}" if role else ""
+    return f"dyn://{namespace}.{component}{suffix}.generate"
 
 
 def build_infra_pg(

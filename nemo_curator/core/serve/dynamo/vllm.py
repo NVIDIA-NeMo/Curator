@@ -17,14 +17,18 @@
 from __future__ import annotations
 
 import json
-import re
 from functools import reduce
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from nemo_curator.core.serve.base import BaseModelConfig
-from nemo_curator.core.serve.dynamo.infra import build_worker_actor_name, engine_kwargs_to_cli_flags
+from nemo_curator.core.serve.dynamo.infra import (
+    build_worker_actor_name,
+    dynamo_endpoint,
+    engine_kwargs_to_cli_flags,
+    model_name_to_component,
+)
 from nemo_curator.core.serve.placement import (
     build_replica_pg,
     get_bundle_node_ip,
@@ -44,26 +48,6 @@ if TYPE_CHECKING:
 # installed ai-dynamo — required because ai-dynamo's CLI surface tracks
 # a specific vLLM version.
 DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {"uv": ["ai-dynamo[vllm]"]}
-
-
-def model_name_to_component(name: str) -> str:
-    """Sanitize *name* into a valid Dynamo component slug.
-
-    Dynamo endpoints use ``dyn://namespace.component.endpoint`` where
-    dots are delimiters, so any dotted identifier in the model name has
-    to be flattened.
-    """
-    slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
-    if not slug:
-        msg = f"Model name {name!r} produces an empty component slug after sanitization."
-        raise ValueError(msg)
-    return slug
-
-
-def dynamo_endpoint(namespace: str, component: str, role: str | None = None) -> str:
-    """Build the ``dyn://namespace.component.endpoint`` URI a Dynamo worker registers under."""
-    suffix = f"_{role}" if role else ""
-    return f"dyn://{namespace}.{component}{suffix}.generate"
 
 
 def dynamo_runtime_env(model_config: DynamoVLLMModelConfig) -> dict[str, Any]:

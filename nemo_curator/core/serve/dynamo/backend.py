@@ -63,7 +63,8 @@ from nemo_curator.core.serve.subprocess_mgr import (
     SubprocessError,
     _check_binary,
     _wait_for_port,
-    graceful_stop_actors,
+    reacquire_detached_actor_handles,
+    sweep_orphan_actors_by_prefix,
 )
 from nemo_curator.core.utils import ignore_ray_head_node
 
@@ -80,9 +81,10 @@ class DynamoBackend(InferenceBackend):
     - ``start()`` enters the ``nemo_curator_dynamo`` namespace, sweeps any
       leftover actors + PGs from a prior driver session, then deploys
       infra → workers → frontend and blocks on a ``/v1/models`` health check.
-    - ``stop()`` reconnects to the same namespace, parallel-stops every actor
-      (SIGTERM → SIGKILL escalation inside ``graceful_stop_actors``), and
-      removes the replica + infra PGs.
+    - ``stop()`` re-enters the same namespace in a fresh Ray session; because
+      ``ActorHandle`` objects do not survive a ``ray.shutdown()`` boundary,
+      the stored handles are refreshed by name before the parallel
+      SIGTERM → SIGKILL teardown runs. Replica + infra PGs are then removed.
     """
 
     def __init__(self, server: InferenceServer) -> None:
@@ -152,15 +154,16 @@ class DynamoBackend(InferenceBackend):
         try:
             with ray.init(namespace=NEMO_CURATOR_DYNAMO_NAMESPACE, ignore_reinit_error=True):
                 self._teardown_actors_and_pgs()
-                # Safety net for PGs left behind when atexit didn't run
-                # (e.g. Jupyter kernel restart). Guard against an empty
-                # prefix — an early-failing ``start()`` (e.g. ``mode="disagg"``)
-                # leaves ``_pg_name_prefix`` unset, and ``remove_named_pgs_with_prefix("")``
-                # would match every PG in the namespace.
+                # Safety net for PGs left behind when the driver crashed
+                # between start() and stop(). Guard against an empty prefix
+                # -- an early-failing ``start()`` (e.g. ``mode="disagg"``)
+                # leaves ``_pg_name_prefix`` unset, and
+                # ``remove_named_pgs_with_prefix("")`` would match every
+                # PG in the namespace.
                 if self._pg_name_prefix:
                     remove_named_pgs_with_prefix(self._pg_name_prefix)
         except Exception:  # noqa: BLE001
-            logger.debug("Could not connect to Ray during Dynamo shutdown (cluster may be gone)")
+            logger.warning("Dynamo backend shutdown hit an error (cluster may be gone)", exc_info=True)
 
         self._cleanup_runtime_dir()
         self._server._host = "localhost"
@@ -478,9 +481,19 @@ class DynamoBackend(InferenceBackend):
     # ------------------------------------------------------------------
 
     def _teardown_actors_and_pgs(self) -> None:
-        """Parallel-stop every actor, then release the placement groups."""
-        procs = self._all_actor_procs()
-        ManagedSubprocess.stop_many(procs)
+        """Parallel-stop every actor, then release the placement groups.
+
+        ``ActorHandle`` objects stored on ``self`` during ``start()`` belong to
+        that session's Ray job and are invalid here (``stop()`` opened its own
+        ``with ray.init()``), so the handles are refreshed by detached-actor
+        name before any ``.remote()`` call is issued.
+        """
+        refreshed = reacquire_detached_actor_handles(
+            self._all_actor_procs(),
+            actor_name_prefix=self._actor_name_prefix,
+            namespace=NEMO_CURATOR_DYNAMO_NAMESPACE,
+        )
+        ManagedSubprocess.stop_many(refreshed)
 
         self._frontend_actor = None
         self._worker_actors.clear()
@@ -498,40 +511,17 @@ class DynamoBackend(InferenceBackend):
             self._infra_pg = None
 
     def _sweep_orphan_actors(self) -> None:
-        """Graceful-stop leftover detached actors matching our PG name prefix.
+        """Reap any detached actors left behind by a prior driver session.
 
         ``remove_named_pgs_with_prefix`` force-kills actors scheduled into
-        the reaped PGs; that skips their ``atexit`` hook and orphans the
-        subprocess tree. Sweeping named actors first lets ``graceful_stop_actors``
-        SIGTERM the process groups cleanly.
+        the reaped PGs, which would orphan the subprocess tree; sweeping
+        named actors first lets ``graceful_stop_actors`` ``killpg`` each
+        process group cleanly.
         """
-        try:
-            from ray.util.state import list_actors
-        except ImportError:
-            return
-
-        try:
-            alive = list_actors(filters=[("state", "=", "ALIVE")])
-        except Exception:  # noqa: BLE001
-            logger.debug("Could not list actors for orphan sweep")
-            return
-
-        prefix = self._pg_name_prefix
-        stale: list[tuple[str, Any]] = []
-        for entry in alive:
-            name = getattr(entry, "name", "") or ""
-            if not name.startswith(prefix):
-                continue
-            try:
-                actor = ray.get_actor(name, namespace=NEMO_CURATOR_DYNAMO_NAMESPACE)
-            except Exception as exc:  # noqa: BLE001
-                logger.debug(f"Orphan-actor lookup for {name!r} failed: {exc}")
-                continue
-            stale.append((name, actor))
-
-        if stale:
-            logger.info(f"Sweeping {len(stale)} orphan Dynamo actor(s) from a prior session")
-            graceful_stop_actors(stale)
+        sweep_orphan_actors_by_prefix(
+            prefix=self._pg_name_prefix,
+            namespace=NEMO_CURATOR_DYNAMO_NAMESPACE,
+        )
 
     def _cleanup_runtime_dir(self) -> None:
         if self._runtime_dir is None:
