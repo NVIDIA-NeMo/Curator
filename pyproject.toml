@@ -107,7 +107,7 @@ audio_common = [
     "transformers",
     "accelerate",
     "pyannote-audio>=4.0.0",
-    "whisperx==3.8.4",
+    "whisperx>=3.8.4",
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",
@@ -291,10 +291,10 @@ override-dependencies = [
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "protobuf>=5.29.5,<7.0",  # Override nemo-toolkits constraint of ~=5.29.5; <7.0 due to ray serve FieldDescriptor API breakage
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
+    "torch>=2.8.0", # Override whisperx's torch~=2.8.0 upper bound for vllm compat
+    "torchaudio>=2.8.0", # Override whisperx's torchaudio~=2.8.0 upper bound for vllm compat
+    "torchvision>=0.23.0", # Match torch>=2.8.0 lower bound
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
-    "torch>=2.8.0,<=2.9.1", # Override whisperx's torch<2.9.dev0 for vllm compat
-    "torchaudio>=2.8.0,<=2.9.1", # Override whisperx's torchaudio<2.9.dev0 for vllm compat
-    "torchvision>=0.23.0,<=0.24.1", # Must match torch>=2.8.0,<=2.9.1
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
 
