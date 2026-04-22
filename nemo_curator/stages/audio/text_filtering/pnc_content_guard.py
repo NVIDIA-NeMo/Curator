@@ -45,9 +45,9 @@ class PnCContentGuardStage(ProcessingStage[AudioTask, AudioTask]):
     * The bad PnC output is saved to ``rejected_text_key`` for debugging.
     """
 
-    text_key: str = "cleaned_text"
-    pnc_text_key: str = "pnc_text"
-    rejected_text_key: str = "to_be_removed_text"
+    text_key: str = "text"
+    pnc_text_key: str = "text"
+    rejected_text_key: str = "rejected_pnc_text"
     name: str = "PnCContentGuard"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 

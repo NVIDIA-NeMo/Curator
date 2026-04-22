@@ -19,7 +19,9 @@ Runs Qwen3-Omni-30B-A3B-Instruct directly inside the Curator pipeline
 for maximum throughput with zero network overhead.
 
 After inference, the pipeline applies text-level post-processing:
-hallucination detection, language ID filtering, regex cleaning.
+hallucination detection, language ID filtering, regex cleaning,
+abbreviation normalisation, and LLM-based punctuation/capitalisation
+restoration with a content-safety guard.
 
 Architecture:
     NemoTarredAudioReader (CPU, parallel)
@@ -37,19 +39,18 @@ Architecture:
         → reads qwen3_prediction_s2, flags wrong language / low confidence
     RegexSubstitutionStage (CPU)
         → reads qwen3_prediction_s2, applies regex rules, writes cleaned_text
-    PnCRestorationStage (GPU, text-only LLM)
-        → checks sentence completeness, restores punctuation/capitalisation
-        → writes pnc_text (or copies cleaned_text if incomplete)
+    AbbreviationConcatStage (CPU)
+        → reads cleaned_text, re-joins split abbreviations (e.g. "U. S." → "U.S.")
+        → writes abbreviated_text
+    PnCRestorationStage (GPU, text-only LLM) [optional, --skip_pnc]
+        → reads abbreviated_text, restores punctuation/capitalisation
+        → writes pnc_text (or copies abbreviated_text if incomplete)
+    PnCContentGuardStage (CPU) [optional, --skip_pnc]
+        → compares cleaned_text with pnc_text after normalisation
+        → reverts pnc_text when the LLM added/removed/substituted words
     ALMManifestWriterStage (CPU)
-        → writes JSONL output with pnc_text / cleaned_text field
+        → writes JSONL output
 
-Usage:
-    python run_pipeline.py \\
-        --data_config /path/to/granary_config.yaml \\
-        --corpus yodas \\
-        --hall_phrases /path/to/hall_phrases.txt \\
-        --regex_yaml /path/to/common.yaml \\
-        --output /path/to/output.jsonl
 """
 
 import os
@@ -214,11 +215,12 @@ def main():
             ),
             AbbreviationConcatStage(
                 text_key="cleaned_text",
-                output_text_key="cleaned_text",
+                output_text_key="abbreviated_text",
+                language=args.target_lang,
             ),
             *([PnCRestorationStage(
                 model_id=args.pnc_model_id,
-                text_key="cleaned_text",
+                text_key="abbreviated_text",
                 output_text_key="pnc_text",
                 tensor_parallel_size=args.pnc_tensor_parallel_size,
                 batch_size=args.pnc_batch_size,
@@ -228,9 +230,9 @@ def main():
                 **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
             ),
             PnCContentGuardStage(
-                text_key="cleaned_text",
+                text_key="abbreviated_text",
                 pnc_text_key="pnc_text",
-                rejected_text_key="to_be_removed_text",
+                rejected_text_key="rejected_pnc_text",
             )] if not args.skip_pnc else []),
             ALMManifestWriterStage(
                 output_path=args.output,

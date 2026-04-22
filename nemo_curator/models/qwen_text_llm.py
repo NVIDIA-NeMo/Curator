@@ -64,7 +64,7 @@ class QwenTextLLM(ModelInterface):
         system_prompt: str | None = None,
         max_model_len: int = 4096,
         max_num_seqs: int = 16,
-        gpu_memory_utilization: float = 0.95,
+        gpu_memory_utilization: float = 0.8,
         tensor_parallel_size: int | None = None,
         max_output_tokens: int = 512,
         temperature: float = 0.0,
