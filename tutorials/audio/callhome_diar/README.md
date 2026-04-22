@@ -111,6 +111,12 @@ pipeline = Pipeline(
 results = pipeline.run(executor=XennaExecutor())
 ```
 
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| SIGSEGV / actor crash during model load | See [Known Issues](../README.md#known-issues) — set `OTEL_SDK_DISABLED=true` |
+
 ## Model limitations
 
 - Maximum 4 speakers per recording
