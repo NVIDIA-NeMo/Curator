@@ -127,6 +127,10 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
             if len(original_ranges) == 1:
                 result = self._build_output_item(item, original_ranges[0])
             else:
+                logger.warning(
+                    f"[TimestampMapper] No overlapping mappings for task {task.task_id} "
+                    f"[{concat_start}-{concat_end}ms], dropping"
+                )
                 return []
         else:
             result = self._build_output_item_no_mapping(item)
