@@ -37,7 +37,7 @@ except ImportError:
         pass
 
 
-_QWEN_TEXT_MODEL_ID = "Qwen/Qwen3.5-35B-A3B"
+_QWEN_TEXT_MODEL_ID = "Qwen/Qwen3.5-35B-A3B-FP8"
 _MAX_SAMPLE_LOG = 5
 
 

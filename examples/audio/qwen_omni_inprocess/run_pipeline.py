@@ -124,7 +124,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                     help="Min chars/s above which text is considered impossibly dense.")
 
     pnc = ap.add_argument_group("PnC restoration")
-    pnc.add_argument("--pnc_model_id", type=str, default="Qwen/Qwen3.5-35B-A3B",
+    pnc.add_argument("--pnc_model_id", type=str, default="Qwen/Qwen3.5-35B-A3B-FP8",
                      help="Model ID for PnC restoration LLM.")
     pnc.add_argument("--pnc_prompt", type=str, default=None,
                      help="PnC restoration prompt (use {text} placeholder). Read from --pnc_prompt_file if set.")
