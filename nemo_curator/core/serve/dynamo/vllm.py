@@ -444,7 +444,7 @@ def _launch_disagg_role(  # noqa: PLR0913
             model_config,
             pg=pg,
             bundle_index=0,
-            port_seed=_DISAGG_KV_EVENTS_PORT_SEED + i,
+            port_seed=_DISAGG_KV_EVENTS_PORT_SEED + worker_index,
             enabled=publishes_kv_events,
         )
 
