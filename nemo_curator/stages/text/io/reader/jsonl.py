@@ -154,7 +154,7 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             msg = f"Assigned-ID range [{min_id}, {max_id}] ({expected} ids) does not match {len(tasks)} tasks"
             msg += f" from {file_paths}"
             raise RuntimeError(msg)
-        for next_id, task in zip(range(min_id, max_id + 1), tasks):
+        for next_id, task in zip(range(min_id, max_id + 1), tasks, strict=False):
             task.data[CURATOR_DEDUP_ID_STR] = next_id
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
