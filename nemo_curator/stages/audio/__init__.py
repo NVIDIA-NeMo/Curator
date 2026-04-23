@@ -30,19 +30,19 @@ __all__ = [
     "ALMDataOverlapStage",
     "AudioDataFilterStage",
     "BandFilterStage",
+    "FastTextLIDStage",
+    "FinalizeFieldsStage",
     "GetAudioDurationStage",
+    "InitializeFieldsStage",
     "MonoConversionStage",
     "PreserveByValueStage",
+    "RegexSubstitutionStage",
     "SIGMOSFilterStage",
     "SegmentConcatenationStage",
     "SpeakerSeparationStage",
     "TimestampMapperStage",
     "UTMOSFilterStage",
     "VADSegmentationStage",
-    "FastTextLIDStage",
-    "FinalizeFieldsStage",
-    "InitializeFieldsStage",
-    "RegexSubstitutionStage",
     "WhisperHallucinationStage",
 ]
 
@@ -68,9 +68,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type:
     if name in _LAZY_IMPORTS:
         module_path, attr = _LAZY_IMPORTS[name]
         module = _importlib.import_module(module_path)
         return getattr(module, attr)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

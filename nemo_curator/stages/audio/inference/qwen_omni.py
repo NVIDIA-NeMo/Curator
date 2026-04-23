@@ -15,14 +15,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.qwen_omni import QwenOmni
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
 @dataclass
@@ -171,5 +174,5 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data[self.disfluency_text_key] = disfl
             task.data.pop(self.waveform_key, None)
 
-        logger.info("QwenOmni: generated %d predictions (turn2=%s)", len(pred_texts), bool(self.followup_prompt))
+        logger.info(f"QwenOmni: generated {len(pred_texts)} predictions (turn2={bool(self.followup_prompt)})")
         return tasks
