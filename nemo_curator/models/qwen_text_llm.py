@@ -239,7 +239,7 @@ class QwenTextLLM(ModelInterface):
     # Generation
     # ------------------------------------------------------------------
 
-    def generate(  # noqa: C901
+    def generate(
         self,
         texts: list[str],
     ) -> tuple[list[bool], list[str]]:
