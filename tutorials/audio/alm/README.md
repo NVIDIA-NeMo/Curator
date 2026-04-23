@@ -558,17 +558,16 @@ The ALM stages can be composed with upstream and downstream NeMo Curator audio s
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReaderStage
+from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
 from nemo_curator.stages.audio.alm.alm_data_builder import ALMDataBuilderStage
 from nemo_curator.stages.audio.alm.alm_data_overlap import ALMDataOverlapStage
 
 pipeline = Pipeline(
     name="custom-alm",
     stages=[
-        ALMManifestReaderStage(manifest_paths=["data.jsonl"]),
+        ALMManifestReader(manifest_path=["data.jsonl"]),
         ALMDataBuilderStage(target_window_duration=120.0),
         ALMDataOverlapStage(overlap_percentage=50),
-        # Add downstream stages: sharding, feature extraction, etc.
     ],
 )
 ```
