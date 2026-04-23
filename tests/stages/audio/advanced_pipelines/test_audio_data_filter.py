@@ -27,6 +27,7 @@ from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.config impor
     load_config,
 )
 from nemo_curator.stages.audio.filtering import BandFilterStage, SIGMOSFilterStage, UTMOSFilterStage
+from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
 from nemo_curator.stages.audio.preprocessing import MonoConversionStage, SegmentConcatenationStage
 from nemo_curator.stages.audio.segmentation import SpeakerSeparationStage, VADSegmentationStage
 
@@ -203,8 +204,9 @@ class TestDecomposeStageCount:
             "speaker_separation": {"enable": False},
         })
         stages = stage.decompose()
-        assert len(stages) == 1
+        assert len(stages) == 2
         assert isinstance(stages[0], MonoConversionStage)
+        assert isinstance(stages[1], TimestampMapperStage)
 
     def test_decompose_no_speaker_no_second_pass(self) -> None:
         stage = AudioDataFilterStage(config={
