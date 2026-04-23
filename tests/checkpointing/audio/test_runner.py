@@ -15,7 +15,7 @@
 # limitations under the License.
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from nemo_curator.backends.base import BaseExecutor
@@ -32,7 +32,11 @@ from nemo_curator.tasks import AudioTask, EmptyTask
 
 
 class LocalExecutor(BaseExecutor):
-    def execute(self, stages, initial_tasks=None):
+    def execute(
+        self,
+        stages: list[ProcessingStage],
+        initial_tasks: list[AudioTask] | None = None,
+    ) -> list[AudioTask]:
         tasks = initial_tasks or [EmptyTask]
         for stage in stages:
             tasks = stage.process_batch(tasks)
@@ -44,7 +48,7 @@ class ReaderStage(ProcessingStage):
     emitted_tasks: list[AudioTask]
     name: str = "reader_stage"
 
-    def process(self, _task):
+    def process(self, _task: object) -> list[AudioTask]:
         return [
             AudioTask(
                 task_id=task.task_id,

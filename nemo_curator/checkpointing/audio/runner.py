@@ -17,17 +17,20 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.io import AudioToDocumentStage, MaterializeTarredAudioStage
-from nemo_curator.tasks import AudioTask
 from nemo_curator.tasks.audio_task import ensure_sample_key
 
 from .store import SampleCheckpointRecord, StageCheckpointStore, fingerprint_stage
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import BaseExecutor
+    from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.tasks import AudioTask
 
 
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -99,7 +102,7 @@ class AudioCheckpointRunner:
             return tail_pipeline.run(executor=self.executor, initial_tasks=current_tasks)
         return current_tasks
 
-    def _prepare_stages(self, stages: list[Any]) -> list[Any]:  # noqa: ANN401
+    def _prepare_stages(self, stages: list[ProcessingStage]) -> list[ProcessingStage]:
         prepared = list(stages)
         materialization_dir = self._effective_materialization_dir()
         if materialization_dir is None:
@@ -110,14 +113,14 @@ class AudioCheckpointRunner:
                 stage.materialization_dir = materialization_dir
         return prepared
 
-    def _split_stages(self, stages: list[Any]) -> tuple[list[Any], list[Any]]:  # noqa: ANN401
+    def _split_stages(self, stages: list[ProcessingStage]) -> tuple[list[ProcessingStage], list[ProcessingStage]]:
         for index, stage in enumerate(stages):
             if isinstance(stage, AudioToDocumentStage):
                 return stages[:index], stages[index:]
         return stages, []
 
     def _run_audio_stage(
-        self, stage: Any, input_tasks: list[AudioTask]  # noqa: ANN401
+        self, stage: ProcessingStage, input_tasks: list[AudioTask]
     ) -> tuple[list[AudioTask], list[SampleCheckpointRecord]]:
         try:
             return self._run_single_stage(stage, input_tasks), []
@@ -131,28 +134,38 @@ class AudioCheckpointRunner:
             outputs: list[AudioTask] = []
             failed_records: list[SampleCheckpointRecord] = []
             for task in input_tasks:
-                try:
-                    outputs.extend(self._run_single_stage(stage, [task]))
-                except Exception as task_error:
+                stage_outputs, failed_record = self._run_single_task_with_retry(stage, task)
+                outputs.extend(stage_outputs)
+                if failed_record is not None:
                     failed_records.append(
-                        SampleCheckpointRecord(
-                            sample_key=ensure_sample_key(task),
-                            status="failed_retriable",
-                            task=None,
-                            error_type=type(task_error).__name__,
-                            error_message=str(task_error),
-                        )
+                        failed_record
                     )
             return outputs, failed_records
 
-    def _run_single_stage(self, stage: Any, initial_tasks: list[AudioTask] | None) -> list[AudioTask]:  # noqa: ANN401
+    def _run_single_task_with_retry(
+        self,
+        stage: ProcessingStage,
+        task: AudioTask,
+    ) -> tuple[list[AudioTask], SampleCheckpointRecord | None]:
+        try:
+            return self._run_single_stage(stage, [task]), None
+        except Exception as task_error:  # noqa: BLE001
+            return [], SampleCheckpointRecord(
+                sample_key=ensure_sample_key(task),
+                status="failed_retriable",
+                task=None,
+                error_type=type(task_error).__name__,
+                error_message=str(task_error),
+            )
+
+    def _run_single_stage(self, stage: ProcessingStage, initial_tasks: list[AudioTask] | None) -> list[AudioTask]:
         stage_pipeline = Pipeline(name=f"checkpoint_stage_{stage._name}", stages=[stage])
         results = stage_pipeline.run(executor=self.executor, initial_tasks=initial_tasks)
         if results is None:
             return []
         return results
 
-    def _write_pipeline_metadata(self, stages: list[Any]) -> None:  # noqa: ANN401
+    def _write_pipeline_metadata(self, stages: list[ProcessingStage]) -> None:
         payload = {
             "pipeline_name": self.pipeline.name,
             "description": self.pipeline.description,

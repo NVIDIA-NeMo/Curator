@@ -20,11 +20,12 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any, Literal
-
-from nemo_curator.tasks import AudioTask
+from typing import TYPE_CHECKING, Any, Literal
 
 from .serialization import dump_audio_task_manifest, load_audio_task_manifest, serialize_audio_task
+
+if TYPE_CHECKING:
+    from nemo_curator.tasks import AudioTask
 
 RecordStatus = Literal["done", "filtered", "failed_retriable", "failed_permanent"]
 
