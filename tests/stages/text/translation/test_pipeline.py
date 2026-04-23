@@ -25,11 +25,11 @@ from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.stages.text.translation.evaluation.faith import (
     FAITH_KEYS,
     FaithEvalFilter,
+    FaithThresholdFilterStage,
     _SCORE_COLUMNS,
 )
 from nemo_curator.stages.text.translation.pipeline import TranslationStage
 from nemo_curator.stages.text.translation.stages import (
-    CaptureSegmentPairsStage,
     FormatTranslationOutputStage,
     MergeFaithScoresStage,
     RestoreSkippedRowsStage,
@@ -135,6 +135,34 @@ class TestTranslationStageDecompose:
         assert stages[3].source_text_field == "_faith_source_text"
         assert stages[3].translated_text_field == "_faith_translated_text"
         assert isinstance(stages[4], FormatTranslationOutputStage)
+
+    def test_decompose_segment_level_faith_scores_before_reassembly(
+        self,
+        mock_client: MockAsyncLLMClient,
+    ) -> None:
+        """Segment-level FAITH should score exploded rows before reassembly."""
+        pipeline = TranslationStage(
+            source_lang="en",
+            target_lang="de",
+            client=mock_client,
+            model_name="translate-model",
+            enable_faith_eval=True,
+            segment_level=True,
+            filter_enabled=True,
+        )
+
+        stages = pipeline.decompose()
+
+        assert len(stages) == 5
+        assert isinstance(stages[0], SegmentationStage)
+        assert isinstance(stages[1], SegmentTranslationStage)
+        assert isinstance(stages[2], FaithEvalFilter)
+        assert stages[2].source_text_field == "_seg_segments"
+        assert stages[2].translated_text_field == "_translated"
+        assert stages[2].filter_enabled is False
+        assert isinstance(stages[3], ReassemblyStage)
+        assert stages[3].aggregate_faith_scores is True
+        assert isinstance(stages[4], FaithThresholdFilterStage)
 
     def test_segmentation_stage_inherits_config(self, mock_client: MockAsyncLLMClient) -> None:
         """SegmentationStage receives text_field and source_lang from the pipeline."""
@@ -928,90 +956,103 @@ class TestPartialTranslationRecovery:
         assert len(result_df["_translated"].iloc[2]) > 0
 
 
-class TestFaithEvalAverageScores:
-    """Tests for FaithEvalFilter._average_scores (segment-level scoring helper)."""
+class TestFaithThresholdFilterStage:
+    """Tests for filtering aggregated FAITH scores after reassembly."""
 
-    def test_average_scores_basic(self) -> None:
-        """Averaging two score dicts produces correct values."""
-        scores = [
-            {"Fluency": 4.0, "Accuracy": 5.0, "Idiomaticity": 3.0, "Terminology": 4.0, "Handling_of_Format": 5.0},
-            {"Fluency": 2.0, "Accuracy": 3.0, "Idiomaticity": 1.0, "Terminology": 2.0, "Handling_of_Format": 3.0},
-        ]
-        result = FaithEvalFilter._average_scores(scores)
-        assert result["Fluency"] == pytest.approx(3.0, abs=0.01)
-        assert result["Accuracy"] == pytest.approx(4.0, abs=0.01)
-
-    def test_average_scores_empty_list(self) -> None:
-        """Empty input returns all zeros."""
-        result = FaithEvalFilter._average_scores([])
-        for key in FAITH_KEYS:
-            assert result[key] == 0.0
-
-    def test_average_scores_skips_zeros(self) -> None:
-        """Zero-scored dimensions are excluded from the average."""
-        scores = [
-            {"Fluency": 4.0, "Accuracy": 0.0, "Idiomaticity": 3.0, "Terminology": 0.0, "Handling_of_Format": 5.0},
-            {"Fluency": 2.0, "Accuracy": 4.0, "Idiomaticity": 0.0, "Terminology": 0.0, "Handling_of_Format": 3.0},
-        ]
-        result = FaithEvalFilter._average_scores(scores)
-        # Fluency: (4+2)/2 = 3.0, Accuracy: only 4.0 counts, Idiomaticity: only 3.0
-        assert result["Fluency"] == pytest.approx(3.0, abs=0.01)
-        assert result["Accuracy"] == pytest.approx(4.0, abs=0.01)
-        assert result["Idiomaticity"] == pytest.approx(3.0, abs=0.01)
-        # Terminology: all zeros -> 0.0
-        assert result["Terminology"] == 0.0
-
-
-# ---------------------------------------------------------------------------
-# CaptureSegmentPairsStage tests
-# ---------------------------------------------------------------------------
-
-
-class TestCaptureSegmentPairsStage:
-    """Tests for CaptureSegmentPairsStage."""
-
-    def test_capture_creates_pairs_column(self) -> None:
-        """Verify _seg_translation_pairs column is created with correct JSON."""
-        stage = CaptureSegmentPairsStage()
-
+    def test_filter_stage_drops_low_scores(self) -> None:
+        """Rows below the threshold should be removed."""
+        stage = FaithThresholdFilterStage(threshold=4.0)
         df = pd.DataFrame(
             {
-                "_seg_segments": ["Hello", "World", "Goodbye"],
-                "_translated": ["Hallo", "Welt", "Auf Wiedersehen"],
-                "_seg_doc_id": [0, 0, 1],
-                "text": ["orig1", "orig1", "orig2"],
+                "translated_text": ["a", "b"],
+                "faith_avg": [4.5, 3.0],
+                "faith_parse_failed": [False, False],
             }
         )
         batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
-        assert "_seg_translation_pairs" in result_df.columns
-        # First row of doc 0 should have the full pairs for that doc
-        pairs_doc0 = json.loads(result_df["_seg_translation_pairs"].iloc[0])
-        assert len(pairs_doc0) == 2
-        assert pairs_doc0[0] == {"src": "Hello", "tgt": "Hallo"}
-        assert pairs_doc0[1] == {"src": "World", "tgt": "Welt"}
-        # Second row of doc 0 should have empty list (only first row carries pairs)
-        assert json.loads(result_df["_seg_translation_pairs"].iloc[1]) == []
-        # First row of doc 1
-        pairs_doc1 = json.loads(result_df["_seg_translation_pairs"].iloc[2])
-        assert len(pairs_doc1) == 1
-        assert pairs_doc1[0] == {"src": "Goodbye", "tgt": "Auf Wiedersehen"}
+        assert len(result_df) == 1
+        assert result_df["translated_text"].iloc[0] == "a"
 
-    def test_capture_empty_batch(self) -> None:
-        """An empty batch passes through without errors."""
-        stage = CaptureSegmentPairsStage()
+
+class TestReassemblyFaithAggregation:
+    """Tests for aggregating segment-level FAITH scores during reassembly."""
+
+    def test_reassembly_aggregates_segment_scores(self) -> None:
+        """Segment-level FAITH scores should be averaged per document."""
+        metadata = {
+            "mode": "coarse",
+            "field_path": "text",
+            "template": [None, None],
+            "leading_spaces": ["", ""],
+            "original_stripped_lines": ["Hello", "World"],
+        }
         df = pd.DataFrame(
             {
-                "_seg_segments": pd.Series(dtype="str"),
-                "_translated": pd.Series(dtype="str"),
-                "_seg_doc_id": pd.Series(dtype="int"),
+                "_seg_doc_id": [0, 0],
+                "_seg_metadata": [json.dumps(metadata), json.dumps(metadata)],
+                "_seg_segments": ["Hello", "World"],
+                "_translated": ["Hallo", "Welt"],
+                "faith_fluency": [4.0, 2.0],
+                "faith_accuracy": [5.0, 3.0],
+                "faith_idiomaticity": [0.0, 4.0],
+                "faith_terminology": [4.0, 0.0],
+                "faith_handling_of_format": [5.0, 3.0],
+                "faith_parse_failed": [False, True],
+            }
+        )
+        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        stage = ReassemblyStage(aggregate_faith_scores=True)
+
+        result = stage.process(batch).to_pandas()
+
+        assert len(result) == 1
+        assert result["faith_fluency"].iloc[0] == pytest.approx(3.0, abs=0.01)
+        assert result["faith_accuracy"].iloc[0] == pytest.approx(4.0, abs=0.01)
+        assert result["faith_idiomaticity"].iloc[0] == pytest.approx(4.0, abs=0.01)
+        assert result["faith_terminology"].iloc[0] == pytest.approx(4.0, abs=0.01)
+        assert result["faith_handling_of_format"].iloc[0] == pytest.approx(4.0, abs=0.01)
+        assert result["faith_avg"].iloc[0] == pytest.approx(3.8, abs=0.01)
+        assert bool(result["faith_parse_failed"].iloc[0]) is True
+        segment_scores = json.loads(result["faith_segment_scores"].iloc[0])
+        assert len(segment_scores) == 2
+
+    def test_filter_stage_keeps_parse_failed_rows(self) -> None:
+        """Parse failures should survive filtering for downstream inspection."""
+        stage = FaithThresholdFilterStage(threshold=4.0)
+        df = pd.DataFrame(
+            {
+                "translated_text": ["a", "b"],
+                "faith_avg": [2.0, 2.0],
+                "faith_parse_failed": [True, False],
             }
         )
         batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
         result = stage.process(batch)
-        assert "_seg_translation_pairs" in result.to_pandas().columns
+        result_df = result.to_pandas()
+
+        assert len(result_df) == 1
+        assert result_df["translated_text"].iloc[0] == "a"
+
+    def test_filter_stage_keeps_not_scored_rows(self) -> None:
+        """Rows with no scored segments should survive threshold filtering."""
+        stage = FaithThresholdFilterStage(threshold=4.0)
+        df = pd.DataFrame(
+            {
+                "translated_text": ["a", "b"],
+                "faith_avg": [0.0, 3.0],
+                "faith_parse_failed": [False, False],
+                "faith_segment_scores": ["[]", '[{"Fluency": 3.0}]'],
+            }
+        )
+        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        result = stage.process(batch)
+        result_df = result.to_pandas()
+
+        assert len(result_df) == 1
+        assert result_df["translated_text"].iloc[0] == "a"
 
 
 # ---------------------------------------------------------------------------

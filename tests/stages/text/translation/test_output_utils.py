@@ -45,13 +45,12 @@ class TestBuildTranslationMetadata:
         # Default empty segmented_translation when not provided
         assert parsed["segmented_translation"] == []
 
-    def test_with_segment_pairs(self) -> None:
-        """Segment pairs JSON is decoded and embedded as a list."""
-        pairs_json = json.dumps([{"src": "Hello", "tgt": "Hola"}])
+    def test_with_segmented_translation_map(self) -> None:
+        """Segmented translation mappings are embedded as provided."""
         result = build_translation_metadata(
             target_lang="es",
             translated_text="Hola",
-            segment_pairs_json=pairs_json,
+            segmented_translation_map=[{"src": "Hello", "tgt": "Hola"}],
         )
         parsed = json.loads(result)
         assert len(parsed["segmented_translation"]) == 1
@@ -70,12 +69,11 @@ class TestBuildTranslationMetadata:
         parsed = json.loads(result)
         assert "faith_scores" not in parsed
 
-    def test_invalid_segment_pairs_json(self) -> None:
-        """Invalid JSON for segment pairs falls back to empty list."""
+    def test_without_segmented_translation_map(self) -> None:
+        """Omitting segmented translation data falls back to an empty list."""
         result = build_translation_metadata(
             target_lang="fr",
             translated_text="test",
-            segment_pairs_json="not valid json",
         )
         parsed = json.loads(result)
         assert parsed["segmented_translation"] == []
