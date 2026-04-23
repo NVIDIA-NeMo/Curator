@@ -109,6 +109,9 @@ class QwenOmni(ModelInterface):
             self.max_num_seqs,
         )
 
+        # SECURITY: trust_remote_code=True is required by Qwen3-Omni's custom
+        # modeling code on HuggingFace.  Changing model_id to an untrusted
+        # repository will execute that repository's Python code in the worker.
         self._llm = LLM(
             model=self.model_id,
             trust_remote_code=True,

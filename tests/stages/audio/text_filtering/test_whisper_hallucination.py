@@ -71,7 +71,8 @@ def test_frequent_phrase_strips_punctuation(tmp_path: Path) -> None:
     assert result.data["skip_me"] == "Hallucination"
 
 
-def test_frequent_phrase_strips_trailing_comma(tmp_path: Path) -> None:
+def test_frequent_phrase_prefix_match_with_trailing_comma(tmp_path: Path) -> None:
+    """Phrases >= 8 chars match as prefixes, so 'Thank you,' matches 'Thank you'."""
     stage = _make_stage(tmp_path, ["Thank you"])
     task = AudioTask(data={"cleaned_text": "Thank you,", "skip_me": ""})
     result = stage.process(task)
@@ -116,6 +117,20 @@ def test_phrases_file_strips_frequency_count(tmp_path: Path) -> None:
     assert "Thank you" in stage._phrases
     assert "Amen" in stage._phrases
     assert "Yeah" in stage._phrases
+
+
+def test_empty_text_flagged_as_empty_not_hallucination(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, ["Thank you"])
+    task = AudioTask(data={"cleaned_text": "", "skip_me": "", "duration": 5.0})
+    result = stage.process(task)
+    assert result.data["skip_me"] == "Empty text"
+
+
+def test_whitespace_only_text_flagged_as_empty(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path, [])
+    task = AudioTask(data={"cleaned_text": "   ", "skip_me": "", "duration": 3.0})
+    result = stage.process(task)
+    assert result.data["skip_me"] == "Empty text"
 
 
 def test_requires_common_hall_file() -> None:

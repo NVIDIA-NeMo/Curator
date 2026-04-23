@@ -142,6 +142,13 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         words = text.split()
         duration = task.data.get(self.duration_key, 0.0) or 0.0
 
+        if not words:
+            self._n_processed += 1
+            if not task.data[self.skip_me_key]:
+                task.data[self.skip_me_key] = "Empty text"
+                self._n_flagged += 1
+            return task
+
         repeated = self._repeated_ngrams(words)
         long_w = self._long_word(words)
         phrase = self._frequent_single_word(text)
