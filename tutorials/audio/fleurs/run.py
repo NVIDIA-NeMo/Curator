@@ -12,10 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
+
 import hydra
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 
 _EXECUTOR_FACTORIES = {
@@ -26,8 +29,6 @@ _EXECUTOR_FACTORIES = {
 
 def _create_executor(backend: str) -> object:
     module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
-    import importlib
-
     mod = importlib.import_module(module_path)
     return getattr(mod, class_name)()
 
@@ -45,23 +46,29 @@ def main(cfg: DictConfig) -> None:
     """
     Prepare pipeline and run YAML pipeline.
     """
-    logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
-    pipeline = create_pipeline_from_yaml(cfg)
+    ray_client = RayClient()
+    ray_client.start()
 
-    logger.info(pipeline.describe())
-    logger.info("\n" + "=" * 50 + "\n")
+    try:
+        logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
+        pipeline = create_pipeline_from_yaml(cfg)
 
-    backend = cfg.get("backend", "xenna")
-    if backend not in _EXECUTOR_FACTORIES:
-        msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
-        raise ValueError(msg)
-    logger.info(f"Using backend: {backend}")
-    executor = _create_executor(backend)
+        logger.info(pipeline.describe())
+        logger.info("\n" + "=" * 50 + "\n")
 
-    logger.info("Starting pipeline execution...")
-    pipeline.run(executor)
+        backend = cfg.get("backend", "xenna")
+        if backend not in _EXECUTOR_FACTORIES:
+            msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
+            raise ValueError(msg)
+        logger.info(f"Using backend: {backend}")
+        executor = _create_executor(backend)
 
-    logger.info("\nPipeline completed!")
+        logger.info("Starting pipeline execution...")
+        pipeline.run(executor)
+
+        logger.info("\nPipeline completed!")
+    finally:
+        ray_client.stop()
 
 
 if __name__ == "__main__":
