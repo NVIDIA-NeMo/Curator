@@ -75,6 +75,7 @@ documentation: |
 
 input_manifest: ???
 final_manifest: ???
+backend: xenna
 workspace_dir: /tmp/tagging_workspace
 resampled_audio_dir: ${workspace_dir}/audio_resampled
 language_short: en

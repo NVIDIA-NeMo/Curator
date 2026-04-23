@@ -43,7 +43,7 @@ class MergeAlignmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     Example:
         .. code-block:: yaml
 
-            - _target_: generic_curator.processors.MergeAlignmentDiarizationStage
+            - _target_: nemo_curator.stages.audio.tagging.merge_alignment_diarization.MergeAlignmentDiarizationStage
               text_key: "text"
               words_key: "words"
     """

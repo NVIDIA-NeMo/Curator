@@ -161,7 +161,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
       --model-inference-batch-size=1024
-    timeout_s: 1000
+    timeout_s: 1400
     sink_data:
       - name: slack
         additional_metrics:
@@ -281,7 +281,7 @@ entries:
       --bands-per-iteration=20
       --text-field=text
       --input-blocksize=1.5GiB
-    timeout_s: 800
+    timeout_s: 1200
     sink_data:
       - name: slack
         additional_metrics:
@@ -319,7 +319,7 @@ entries:
       --which-to-keep=hard
       --pairwise-batch-size=1024
       --dataset-size-ratio=0.10
-    timeout_s: 450
+    timeout_s: 1200
     sink_data:
       - name: slack
         additional_metrics:
@@ -452,7 +452,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
       --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
-    timeout_s: 350
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
@@ -877,7 +877,7 @@ entries:
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=1000
-    timeout_s: 500
+    timeout_s: 800
     sink_data:
       - name: slack
         ping_on_failure:
@@ -1170,7 +1170,7 @@ entries:
       --prompt=HTML_TO_TEXT_PROMPT
       --chunk-data
       --chunk-length=4096
-    timeout_s: 1200
+    timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:

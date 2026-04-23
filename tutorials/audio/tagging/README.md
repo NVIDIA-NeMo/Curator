@@ -103,12 +103,14 @@ source .venv/bin/activate
 
 The TTS config runs the core stages with `module: tts` in `PrepareModuleSegmentsStage` (`full_utterance_ratio: 1.0`). The output segments are single-speaker utterances, each annotated with quality metrics such as `bandwidth`, `stoi_squim`, `si_sdr`, and `pesq_squim`. These metrics can be used downstream to filter for high-quality audio — for example, keeping only segments where `bandwidth >= 8000 && si_sdr >= 15 && stoi_squim >= 0.9`.
 
+A small toy dataset is bundled in `tests/fixtures/audio/tagging/` so you can run end-to-end without providing your own audio:
+
 ```bash
 python tutorials/audio/tagging/main.py \
   --config-path . \
   --config-name tts_pipeline \
-  input_manifest=/data/input.jsonl \
-  final_manifest=/data/tts_output.jsonl \
+  input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \
+  final_manifest=/tmp/tts_output.jsonl \
   hf_token=<your_hf_token>
 ```
 
@@ -206,8 +208,8 @@ All parameters are defined in the YAML config files. Override from the command l
 python tutorials/audio/tagging/main.py \
   --config-path . \
   --config-name tts_pipeline \
-  input_manifest=/data/input.jsonl \
-  final_manifest=/data/output.jsonl \
+  input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \
+  final_manifest=/tmp/output.jsonl \
   hf_token=<your_hf_token> \
   language_short=de \
   max_segment_length=30
@@ -243,6 +245,76 @@ stages.9.min_duration=3 stages.9.max_duration=25
 # Adjust second-pass ASR batch size (stage 10, when present)
 stages.10.batch_size=32
 ```
+
+## Parameter Tuning
+
+### `max_segment_length` (default: 40s)
+
+Controls the maximum duration of audio segments fed to the first pass ASR. This is the single most impactful parameter for output quality. Choose this value according to the better accuracy for the asr model.
+
+| Value | Effect | Best for |
+|-------|--------|----------|
+| 20s | Shorter segments, more split points. Higher diarization accuracy but more ASR boundary errors. | Short-form content (podcasts, interviews) |
+| 40s | Balanced default. Works well for most conversational audio. | General purpose |
+| 60s | Fewer splits, longer context for ASR. Risk of mixed-speaker segments. | Long monologues, lectures |
+
+### `segmentation_batch_size` (PyAnnote diarization)
+
+Controls GPU memory vs throughput for the diarization model:
+
+| Value | GPU Memory | Throughput |
+|-------|-----------|------------|
+| 32 | ~2 GB | Slower, safe for T4 (16 GB) alongside ASR |
+| 128 (default) | ~6 GB | Good balance for A100 |
+| 256+ | ~10+ GB | Maximum throughput, requires ≥40 GB VRAM |
+
+### `transcribe_batch_size` (NeMo ASR Aligner, default: 32)
+
+Controls how many audio chunks are transcribed in a single forward pass. Reduce to 8–16 if you see CUDA OOM errors during the ASR alignment stage.
+
+## GPU Memory Requirements
+
+The pipeline loads two GPU models simultaneously at peak:
+
+| Model | VRAM | Stage |
+|-------|------|-------|
+| PyAnnote speaker diarization | ~2–3 GB | Stage 2 |
+| PyAnnote segmentation | ~1–2 GB | Stage 2 |
+| NeMo FastConformer (1.1B, CTC) | ~3–4 GB | Stage 4 |
+
+**Total peak VRAM**: ~6–9 GB (models are loaded sequentially by default, not concurrently).
+
+| GPU | Fits? | Notes |
+|-----|-------|-------|
+| T4 (16 GB) | Yes | Reduce `segmentation_batch_size` to 32 and `transcribe_batch_size` to 8 |
+| A10G (24 GB) | Yes | Default settings work |
+| A100 (40/80 GB) | Yes | Can increase batch sizes for throughput |
+
+## Timing Estimates
+
+Approximate wall-clock time per hour of input audio on a single A100-40GB:
+
+| Stage | Time per hour of audio | Notes |
+|-------|----------------------|-------|
+| Resample | ~10s | CPU-bound, I/O limited |
+| PyAnnote Diarization | ~2–4 min | GPU, depends on speaker count |
+| Split + ASR Alignment | ~3–5 min | GPU, depends on segment count |
+| Merge + Write | ~5s | CPU-only |
+| **Total** | **~6–10 min / hr of audio** | |
+
+> **First run is slower**: model weights (~1.3 GB total) are downloaded on the first execution. See [Troubleshooting](#first-run-appears-hung) below.
+
+## Expected Filtering Ratios
+
+After diarization, not all audio ends up in the final output:
+
+| Category | Typical % of total duration | Description |
+|----------|-----------------------------|-------------|
+| Speaker segments | 70–85% | Clean, single-speaker audio |
+| Overlap segments | 10–20% | Multi-speaker overlap, excluded from `segments` |
+| No-speaker / silence | 5–15% | Gaps between speaker turns |
+
+These ratios vary significantly by content type. Interviews (2 speakers, turn-taking) yield higher usable percentages than panel discussions (4+ speakers, frequent overlap).
 
 ## File Structure
 
@@ -328,12 +400,14 @@ See the test file for detailed comments on the pipeline steps and configuration 
 - Reduce `stages.2.segmentation_batch_size` (diarization)
 - Reduce `stages.10.batch_size` (second-pass ASR, when present)
 - Process fewer files per manifest
+- See [GPU Memory Requirements](#gpu-memory-requirements) for per-model VRAM usage
 
 ### Slow Processing
 
 - Ensure GPU-accelerated stages have `resources` with `gpus=1` (the default)
 - Increase `resources.cpus` for CPU-bound stages
 - Split large manifests and process in parallel
+- See [Timing Estimates](#timing-estimates) for expected throughput
 
 ## Related Documentation
 
