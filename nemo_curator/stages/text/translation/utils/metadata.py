@@ -24,7 +24,6 @@ from typing import Any
 def build_translation_metadata(
     target_lang: str,
     translated_text: str | None = None,
-    segment_pairs_json: str | None = None,
     translation_map: dict[str, Any] | None = None,
     segmented_translation_map: dict[str, Any] | None = None,
 ) -> str:
@@ -34,16 +33,7 @@ def build_translation_metadata(
     else:
         meta_translation = translation_map
 
-    if segmented_translation_map is None:
-        if segment_pairs_json is not None:
-            try:
-                meta_segmented: Any = json.loads(segment_pairs_json)
-            except (json.JSONDecodeError, TypeError):
-                meta_segmented = []
-        else:
-            meta_segmented = []
-    else:
-        meta_segmented = segmented_translation_map
+    meta_segmented: Any = segmented_translation_map if segmented_translation_map is not None else []
 
     meta: dict[str, Any] = {
         "target_lang": target_lang,

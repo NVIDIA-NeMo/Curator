@@ -63,7 +63,6 @@ pipeline.add_stage(
         text_field="messages.*.content",
         output_field="translated_text",
         output_mode="both",
-        preserve_segment_pairs=True,
         reconstruct_messages=True,
         enable_faith_eval=True,
         faith_threshold=2.5,
@@ -91,7 +90,7 @@ This makes the pipeline suitable for chat-style records where natural-language t
 - `segmentation_mode="coarse"` keeps line-level splitting with code-block awareness
 - `segmentation_mode="fine"` uses sentence-level segmentation with structure preservation
 - `min_segment_chars` lets you explicitly bypass segmentation for short text rather than relying on an implicit cutoff
-- `preserve_segment_pairs=True` stores source/target segment pairs for debugging and evaluation
+- `segment_level=True` runs FAITH on exploded segment rows before reassembly, which avoids long-context scoring requests
 - `reconstruct_messages=True` rebuilds translated message lists for structured chat-style inputs
 
 ## DocumentBatch Walkthrough
@@ -117,7 +116,6 @@ TranslationStage(
     source_lang="en",
     target_lang="hi",
     segmentation_mode="coarse",
-    preserve_segment_pairs=True,
     enable_faith_eval=True,
     segment_level=True,
     output_mode="raw",
@@ -181,13 +179,21 @@ id | _seg_segments                    | _translated
 7  | It reduces KV-cache memory.      | यह KV-cache मेमोरी को कम करता है।
 ```
 
-### 3. CaptureSegmentPairsStage
+### 3. FaithEvalFilter
 
-When `preserve_segment_pairs=True`, the batch gains:
+When `enable_faith_eval=True` and `segment_level=True`, FAITH runs on the exploded segment rows before reassembly.
 
-- `_seg_translation_pairs`
+New columns:
 
-This is a JSON list of `{"src": ..., "tgt": ...}` pairs for the document. The first segment row for a document carries the full list, and later segment rows carry `[]`. This keeps the information available for later scoring and metadata construction without duplicating it on every surviving row after reassembly.
+- `faith_fluency`
+- `faith_accuracy`
+- `faith_idiomaticity`
+- `faith_terminology`
+- `faith_handling_of_format`
+- `faith_avg`
+- `faith_parse_failed`
+
+Each row is scored independently. Filtering does not happen yet, because dropping segment rows before reassembly would corrupt the reconstructed document.
 
 ### 4. ReassemblyStage
 
@@ -209,6 +215,8 @@ Added document-level columns:
 - `translation_errors`
 - `_translation_map`
 - `_segmented_translation_map`
+- `faith_segment_scores` when segment-level FAITH is enabled
+- aggregated `faith_*` columns when segment-level FAITH is enabled
 
 Example output:
 
@@ -227,24 +235,14 @@ Important details:
 - `translation_time` is the sum of the segment-level translation times.
 - `translation_errors` joins any non-empty segment errors.
 - `_translation_map` and `_segmented_translation_map` are helper columns used later to build `translation_metadata`.
+- When segment-level FAITH is enabled, reassembly also averages the per-segment FAITH scores into document-level `faith_*` columns and writes the raw per-segment list to `faith_segment_scores`.
 - For structured fields such as `messages.*.content`, reassembly writes translations back into the nested structure instead of only returning a flat string.
 
-### 5. FaithEvalFilter
+### 5. FaithThresholdFilterStage
 
-When `enable_faith_eval=True`, FAITH scores are added to the document-level batch.
+When `segment_level=True` and filtering is enabled, the threshold filter runs after reassembly on aggregated document-level FAITH scores.
 
-New columns:
-
-- `faith_fluency`
-- `faith_accuracy`
-- `faith_idiomaticity`
-- `faith_terminology`
-- `faith_handling_of_format`
-- `faith_avg`
-- `faith_parse_failed`
-- `faith_segment_scores` when `segment_level=True`
-
-If filtering is enabled, rows below `faith_threshold` may be dropped here.
+Rows with `faith_avg < faith_threshold` are dropped here, while rows with parse failures or rows with no scored segments are preserved.
 
 ### 6. FormatTranslationOutputStage
 
@@ -262,7 +260,6 @@ When `output_mode="raw"`, the final translated text column is dropped after meta
 
 This stage also drops internal helper columns such as:
 
-- `_seg_translation_pairs`
 - `_translation_map`
 - `_segmented_translation_map`
 - `_faith_source_text`

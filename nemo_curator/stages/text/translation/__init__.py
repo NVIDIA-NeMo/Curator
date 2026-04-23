@@ -1,4 +1,7 @@
-from nemo_curator.stages.text.translation.evaluation.faith import FaithEvalFilter
+from nemo_curator.stages.text.translation.evaluation.faith import (
+    FaithEvalFilter,
+    FaithThresholdFilterStage,
+)
 from nemo_curator.stages.text.translation.evaluation.text_quality import (
     TextQualityMetricStage,
     compute_text_quality_metric,
@@ -22,6 +25,7 @@ from nemo_curator.stages.text.translation.utils.metadata import (
 
 __all__ = [
     "FaithEvalFilter",
+    "FaithThresholdFilterStage",
     "ReassemblyStage",
     "SegmentTranslationStage",
     "SegmentationStage",

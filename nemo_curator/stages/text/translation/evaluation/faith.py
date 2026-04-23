@@ -53,7 +53,7 @@ _SCORE_COLUMNS = [
 
 @dataclass
 class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
-    """LLM-based translation quality filter using the FAITH metric.
+    """LLM-based translation quality scorer using the FAITH metric.
 
     For each row in the incoming ``DocumentBatch``, this stage:
     1. Formats a FAITH evaluation prompt with source and translated text.
@@ -61,11 +61,6 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     3. Parses the response for 5 FAITH dimension scores.
     4. Computes ``faith_avg`` (mean of the 5 scores).
     5. Optionally drops rows where ``faith_avg < threshold`` (when ``filter_enabled=True``).
-
-    When ``segment_level=True`` and a ``_seg_translation_pairs`` column is present,
-    each document's segment pairs are scored independently and per-document averages
-    are computed via ``_average_scores()``.  Both ``faith_avg`` and (optionally)
-    ``faith_segment_scores`` columns are produced.
 
     Parameters
     ----------
@@ -88,12 +83,6 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         When ``True`` (default), rows with ``faith_avg < threshold`` are dropped.
         When ``False``, all rows are kept with their scores attached, enabling
         downstream score analysis before committing to a threshold.
-    segment_level : bool
-        When ``True``, look for a ``_seg_translation_pairs`` column containing
-        JSON-serialized ``[{"src": ..., "tgt": ...}, ...]`` pairs per document.
-        Each segment is scored independently, and document-level scores are
-        computed as the average across segments.  Falls back to whole-document
-        scoring if the column is absent.
     generation_config : GenerationConfig | None
         LLM generation parameters. Defaults to ``temperature=0.0, max_tokens=256``.
     """
@@ -107,7 +96,6 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     translated_text_field: str = "translated_text"
     threshold: float = 2.5
     filter_enabled: bool = True
-    segment_level: bool = False
     generation_config: GenerationConfig | None = None
     max_concurrent_requests: int = 64
 
@@ -128,13 +116,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], [self.source_text_field, self.translated_text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        # process() always writes faith_parse_failed, and additionally writes
-        # faith_segment_scores when segment_level=True.  Declare both so the
-        # stage contract matches what downstream stages can rely on.
-        out_cols = list(_SCORE_COLUMNS) + ["faith_parse_failed"]
-        if self.segment_level:
-            out_cols.append("faith_segment_scores")
-        return ["data"], out_cols
+        return ["data"], list(_SCORE_COLUMNS) + ["faith_parse_failed"]
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Initialize the LLM client and load prompt templates.
@@ -158,21 +140,13 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             self._initialized = True
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
-        """Score each translation and filter rows below threshold.
-
-        When ``segment_level=True`` and a ``_seg_translation_pairs`` column exists,
-        each document's segment pairs are individually scored by the LLM and the
-        per-document result is the average across segments.  Otherwise, whole-document
-        scoring is used.
-
-        When ``filter_enabled=False``, all rows are kept regardless of their
-        ``faith_avg`` score.
-        """
+        """Score each translation row and filter rows below threshold."""
         df = batch.to_pandas().copy()
 
         if df.empty:
             for col in _SCORE_COLUMNS:
                 df[col] = pd.Series(dtype="float64")
+            df["faith_parse_failed"] = pd.Series(dtype="bool")
             return DocumentBatch(
                 task_id=batch.task_id,
                 dataset_name=batch.dataset_name,
@@ -184,8 +158,8 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         num_docs = len(df)
         logger.info("FaithEvalFilter: evaluating {} documents", num_docs)
 
-        all_scores, segment_scores_json, parse_failed_flags = self._score_batch(df)
-        self._attach_score_columns(df, all_scores, segment_scores_json, parse_failed_flags)
+        all_scores, parse_failed_flags = self._score_batch(df)
+        self._attach_score_columns(df, all_scores, parse_failed_flags)
         self._log_batch_scores(df)
         df = self._filter_rows(df)
 
@@ -200,32 +174,42 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _score_batch(
         self,
         df: pd.DataFrame,
-    ) -> tuple[list[dict], list[str] | None, list[bool]]:
-        """Run either document-level or segment-level FAITH scoring."""
-        if self.segment_level and "_seg_translation_pairs" in df.columns:
-            return self._score_segments(df)
+    ) -> tuple[list[dict], list[bool]]:
+        """Run FAITH scoring for each row in the batch."""
+        nonempty_mask = df.apply(
+            lambda row: bool(str(row.get(self.source_text_field, "")).strip())
+            or bool(str(row.get(self.translated_text_field, "")).strip()),
+            axis=1,
+        )
 
-        if self.segment_level:
-            logger.info(
-                "segment_level=True but '_seg_translation_pairs' column not found; "
-                "falling back to whole-document scoring"
-            )
+        zero_scores = {key: 0.0 for key in FAITH_KEYS}
+        all_scores = [dict(zero_scores) for _ in range(len(df))]
+        parse_failed_flags = [False] * len(df)
 
-        responses = self._score_all(df)
+        if not nonempty_mask.any():
+            return all_scores, parse_failed_flags
+
+        responses = self._score_all(df.loc[nonempty_mask].reset_index(drop=True))
         parsed = [self._extract_scores_from_json(response) for response in responses]
-        return [scores for scores, _ in parsed], None, [failed for _, failed in parsed]
+
+        parsed_offset = 0
+        for row_idx, should_score in enumerate(nonempty_mask.tolist()):
+            if not should_score:
+                continue
+            scores, failed = parsed[parsed_offset]
+            all_scores[row_idx] = scores
+            parse_failed_flags[row_idx] = failed
+            parsed_offset += 1
+
+        return all_scores, parse_failed_flags
 
     def _attach_score_columns(
         self,
         df: pd.DataFrame,
         all_scores: list[dict],
-        segment_scores_json: list[str] | None,
         parse_failed_flags: list[bool],
     ) -> None:
         """Write parsed FAITH scores back onto the DataFrame."""
-        if segment_scores_json is not None:
-            df["faith_segment_scores"] = segment_scores_json
-
         df["faith_fluency"] = [scores["Fluency"] for scores in all_scores]
         df["faith_accuracy"] = [scores["Accuracy"] for scores in all_scores]
         df["faith_idiomaticity"] = [scores["Idiomaticity"] for scores in all_scores]
@@ -266,10 +250,6 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
         return filtered_df
 
-    # ------------------------------------------------------------------
-    # Per-segment scoring
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _compute_faith_avg(scores: dict) -> float:
         """Compute ``faith_avg`` as the mean of non-zero per-dimension scores.
@@ -291,125 +271,6 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         if not non_zero:
             return 0.0
         return float(sum(non_zero) / len(non_zero))
-
-    @staticmethod
-    def _average_scores(segment_scores: list[dict]) -> dict:
-        """Average FAITH scores across segments.
-
-        Only positive scores (> 0) contribute to the average so that
-        segments where a dimension was not applicable (scored 0) do not
-        drag down the mean.
-
-        Parameters
-        ----------
-        segment_scores : list[dict]
-            Per-segment score dictionaries with FAITH_KEYS.
-
-        Returns
-        -------
-        dict
-            Averaged score dictionary with the same FAITH_KEYS, rounded to
-            2 decimal places.
-        """
-        if not segment_scores:
-            return {k: 0.0 for k in FAITH_KEYS}
-        averaged: dict[str, float] = {}
-        for key in FAITH_KEYS:
-            values = [s.get(key, 0.0) for s in segment_scores if s.get(key, 0.0) > 0]
-            averaged[key] = round(sum(values) / len(values), 2) if values else 0.0
-        return averaged
-
-    def _score_segments(self, df: pd.DataFrame) -> tuple[list[dict], list[str], list[bool]]:
-        """Score each document by evaluating its individual segment pairs.
-
-        Reads ``_seg_translation_pairs`` (JSON-serialized list of
-        ``{"src": ..., "tgt": ...}`` dicts) from each row, issues one LLM
-        request per segment, and averages the scores per document.
-
-        Parameters
-        ----------
-        df : pd.DataFrame
-            DataFrame with a ``_seg_translation_pairs`` column.
-
-        Returns
-        -------
-        tuple[list[dict], list[str], list[bool]]
-            ``(doc_scores, segment_scores_json, parse_failed_flags)`` where
-            *doc_scores* is a list of averaged score dicts (one per row),
-            *segment_scores_json* is a list of JSON-serialized per-segment
-            score lists (one per row), and *parse_failed_flags* marks rows
-            where at least one segment response failed to parse as JSON.
-        """
-        all_pairs, doc_segment_counts = self._collect_segment_pairs(df)
-
-        total_segments = len(all_pairs)
-        logger.info(
-            "FaithEvalFilter: segment_level scoring -- {} total segments across {} documents",
-            total_segments,
-            len(df),
-        )
-
-        # Score all segments in bulk
-        all_segment_scores: list[dict] = []
-        all_segment_parse_failed: list[bool] = []
-        if total_segments > 0:
-            segment_df = pd.DataFrame(
-                {self.source_text_field: [p[0] for p in all_pairs],
-                 self.translated_text_field: [p[1] for p in all_pairs]},
-            )
-            responses = self._score_all(segment_df)
-            for r in responses:
-                scores, failed = self._extract_scores_from_json(r)
-                all_segment_scores.append(scores)
-                all_segment_parse_failed.append(failed)
-
-        return self._rebuild_document_scores(
-            all_segment_scores,
-            all_segment_parse_failed,
-            doc_segment_counts,
-        )
-
-    @staticmethod
-    def _collect_segment_pairs(df: pd.DataFrame) -> tuple[list[tuple[str, str]], list[int]]:
-        """Flatten ``_seg_translation_pairs`` into a batch-scoring worklist."""
-        all_pairs: list[tuple[str, str]] = []
-        doc_segment_counts: list[int] = []
-
-        for _, row in df.iterrows():
-            raw = row["_seg_translation_pairs"]
-            if isinstance(raw, str):
-                raw_stripped = raw.strip()
-                pairs: list[dict] = json.loads(raw_stripped) if raw_stripped else []
-            else:
-                pairs = raw or []
-
-            doc_segment_counts.append(len(pairs))
-            all_pairs.extend((pair["src"], pair["tgt"]) for pair in pairs)
-
-        return all_pairs, doc_segment_counts
-
-    def _rebuild_document_scores(
-        self,
-        all_segment_scores: list[dict],
-        all_segment_parse_failed: list[bool],
-        doc_segment_counts: list[int],
-    ) -> tuple[list[dict], list[str], list[bool]]:
-        """Fold bulk segment scores back into per-document outputs."""
-        doc_scores: list[dict] = []
-        segment_scores_json: list[str] = []
-        parse_failed_flags: list[bool] = []
-        offset = 0
-
-        for count in doc_segment_counts:
-            seg_scores = all_segment_scores[offset : offset + count]
-            seg_failed = all_segment_parse_failed[offset : offset + count]
-            offset += count
-
-            doc_scores.append(self._average_scores(seg_scores))
-            segment_scores_json.append(json.dumps(seg_scores, ensure_ascii=False))
-            parse_failed_flags.append(any(seg_failed))
-
-        return doc_scores, segment_scores_json, parse_failed_flags
 
     # ------------------------------------------------------------------
     # LLM interaction helpers
@@ -592,3 +453,46 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             else:
                 normalized[key] = 0.0
         return normalized, False
+
+
+@dataclass
+class FaithThresholdFilterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Filter document rows using precomputed FAITH scores."""
+
+    name: str = "FaithThresholdFilterStage"
+    threshold: float = 2.5
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], ["faith_avg", "faith_parse_failed"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], ["faith_avg", "faith_parse_failed"]
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        """Drop rows below the FAITH threshold while preserving parse failures."""
+        df = batch.to_pandas().copy()
+        if df.empty:
+            return batch
+
+        pre_filter_count = len(df)
+        not_scored_mask = pd.Series(False, index=df.index)
+        if "faith_segment_scores" in df.columns:
+            not_scored_mask = df["faith_segment_scores"].astype(str).str.strip() == "[]"
+
+        keep_mask = (df["faith_avg"] >= self.threshold) | df["faith_parse_failed"] | not_scored_mask
+        filtered_df = df[keep_mask].reset_index(drop=True)
+        num_filtered = pre_filter_count - len(filtered_df)
+        logger.info(
+            "FaithThresholdFilterStage: filtered {}/{} documents below threshold {}",
+            num_filtered,
+            pre_filter_count,
+            self.threshold,
+        )
+
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=filtered_df,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )

@@ -38,7 +38,6 @@ class FormatTranslationOutputStage(ProcessingStage[DocumentBatch, DocumentBatch]
     output_mode: str = "replaced"
     target_lang: str = "zh"
     output_field: str = "translated_text"
-    preserve_segment_pairs: bool = False
     reconstruct_messages: bool = False
     messages_field: str = "messages"
     messages_content_field: str = "content"
@@ -74,7 +73,6 @@ class FormatTranslationOutputStage(ProcessingStage[DocumentBatch, DocumentBatch]
         columns_to_drop = [
             col
             for col in (
-                "_seg_translation_pairs",
                 "_translation_map",
                 "_segmented_translation_map",
                 "_faith_source_text",
@@ -99,10 +97,6 @@ class FormatTranslationOutputStage(ProcessingStage[DocumentBatch, DocumentBatch]
         for idx in range(len(df)):
             row = df.iloc[idx]
             translated_text = row.get(self.output_field, "")
-            segment_pairs_json: str | None = None
-            if self.preserve_segment_pairs and "_seg_translation_pairs" in df.columns:
-                segment_pairs_json = str(row["_seg_translation_pairs"])
-
             translation_map = self._parse_optional_json_object(row.get("_translation_map"))
             segmented_translation_map = self._parse_optional_json_object(
                 row.get("_segmented_translation_map")
@@ -112,7 +106,6 @@ class FormatTranslationOutputStage(ProcessingStage[DocumentBatch, DocumentBatch]
                 build_translation_metadata(
                     target_lang=self.target_lang,
                     translated_text=translated_text,
-                    segment_pairs_json=segment_pairs_json,
                     translation_map=translation_map,
                     segmented_translation_map=segmented_translation_map,
                 )

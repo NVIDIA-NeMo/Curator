@@ -106,7 +106,7 @@ class RestoreSkippedRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         "faith_handling_of_format": 0.0,
         "faith_avg": 0.0,
         "faith_parse_failed": False,
-        "_seg_translation_pairs": "[]",
+        "faith_segment_scores": "[]",
         "_translation_time": 0.0,
         "_translation_error": "",
         "translation_time": 0.0,

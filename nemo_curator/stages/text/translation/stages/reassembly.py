@@ -40,6 +40,14 @@ _INTERNAL_COLUMNS = {
     "_translation_error",
 }
 
+_FAITH_SCORE_COLUMNS = {
+    "faith_fluency": "Fluency",
+    "faith_accuracy": "Accuracy",
+    "faith_idiomaticity": "Idiomaticity",
+    "faith_terminology": "Terminology",
+    "faith_handling_of_format": "Handling_of_Format",
+}
+
 
 @dataclass
 class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -51,6 +59,7 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     replace_source_fields: bool = False
     emit_metadata_helpers: bool = False
     emit_faith_helpers: bool = False
+    aggregate_faith_scores: bool = False
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["_translated", "_seg_metadata", "_seg_doc_id"]
@@ -61,6 +70,19 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             out_cols.extend(["_translation_map", "_segmented_translation_map"])
         if self.emit_faith_helpers:
             out_cols.extend(["_faith_source_text", "_faith_translated_text"])
+        if self.aggregate_faith_scores:
+            out_cols.extend(
+                [
+                    "faith_fluency",
+                    "faith_accuracy",
+                    "faith_idiomaticity",
+                    "faith_terminology",
+                    "faith_handling_of_format",
+                    "faith_avg",
+                    "faith_parse_failed",
+                    "faith_segment_scores",
+                ]
+            )
         return ["data"], out_cols
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
@@ -99,6 +121,8 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 if self.emit_metadata_helpers:
                     out_row["_translation_map"] = json.dumps({}, ensure_ascii=False)
                     out_row["_segmented_translation_map"] = json.dumps({}, ensure_ascii=False)
+                if self.aggregate_faith_scores:
+                    self._write_aggregated_faith_scores(out_row, group)
                 result_rows.append(out_row)
                 continue
 
@@ -136,6 +160,8 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             if self.emit_faith_helpers:
                 out_row["_faith_source_text"] = faith_source_text
                 out_row["_faith_translated_text"] = faith_translated_text
+            if self.aggregate_faith_scores:
+                self._write_aggregated_faith_scores(out_row, group)
 
             result_rows.append(out_row)
 
@@ -264,6 +290,64 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _leaf_field_key(field_path: str) -> str:
         """Return the metadata key for *field_path*."""
         return field_path.split(".")[-1]
+
+    @classmethod
+    def _write_aggregated_faith_scores(
+        cls,
+        out_row: dict[str, Any],
+        group: pd.DataFrame,
+    ) -> None:
+        """Aggregate segment-level FAITH scores into one document-level record."""
+        if not set(_FAITH_SCORE_COLUMNS).issubset(group.columns):
+            out_row["faith_fluency"] = 0.0
+            out_row["faith_accuracy"] = 0.0
+            out_row["faith_idiomaticity"] = 0.0
+            out_row["faith_terminology"] = 0.0
+            out_row["faith_handling_of_format"] = 0.0
+            out_row["faith_avg"] = 0.0
+            out_row["faith_parse_failed"] = False
+            out_row["faith_segment_scores"] = "[]"
+            return
+
+        segment_scores: list[dict[str, float]] = []
+        for _, row in group.iterrows():
+            segment_scores.append(
+                {
+                    faith_key: float(row.get(column_name, 0.0) or 0.0)
+                    for column_name, faith_key in _FAITH_SCORE_COLUMNS.items()
+                }
+            )
+
+        averaged_scores = cls._average_faith_scores(segment_scores)
+        out_row["faith_fluency"] = averaged_scores["Fluency"]
+        out_row["faith_accuracy"] = averaged_scores["Accuracy"]
+        out_row["faith_idiomaticity"] = averaged_scores["Idiomaticity"]
+        out_row["faith_terminology"] = averaged_scores["Terminology"]
+        out_row["faith_handling_of_format"] = averaged_scores["Handling_of_Format"]
+        out_row["faith_avg"] = cls._compute_faith_avg(averaged_scores)
+        out_row["faith_parse_failed"] = bool(group.get("faith_parse_failed", pd.Series(dtype=bool)).any())
+        out_row["faith_segment_scores"] = json.dumps(segment_scores, ensure_ascii=False)
+
+    @staticmethod
+    def _average_faith_scores(segment_scores: list[dict[str, float]]) -> dict[str, float]:
+        """Average FAITH scores across segments, ignoring zero-valued dimensions."""
+        if not segment_scores:
+            return {key: 0.0 for key in _FAITH_SCORE_COLUMNS.values()}
+
+        averaged: dict[str, float] = {}
+        for faith_key in _FAITH_SCORE_COLUMNS.values():
+            values = [score.get(faith_key, 0.0) for score in segment_scores if score.get(faith_key, 0.0) > 0]
+            averaged[faith_key] = round(sum(values) / len(values), 2) if values else 0.0
+        return averaged
+
+    @staticmethod
+    def _compute_faith_avg(scores: dict[str, float]) -> float:
+        """Compute ``faith_avg`` as the mean of non-zero FAITH dimensions."""
+        values = [float(scores.get(key, 0.0)) for key in _FAITH_SCORE_COLUMNS.values()]
+        non_zero = [value for value in values if value > 0]
+        if not non_zero:
+            return 0.0
+        return float(sum(non_zero) / len(non_zero))
 
     @staticmethod
     def _build_segment_pairs(metadata: dict[str, Any], translated_segments: list[str]) -> list[dict[str, str]]:

@@ -22,9 +22,11 @@ from loguru import logger
 
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.stages.text.translation.evaluation.faith import FaithEvalFilter
+from nemo_curator.stages.text.translation.evaluation.faith import (
+    FaithEvalFilter,
+    FaithThresholdFilterStage,
+)
 from nemo_curator.stages.text.translation.stages import (
-    CaptureSegmentPairsStage,
     FormatTranslationOutputStage,
     MergeFaithScoresStage,
     SegmentTranslationStage,
@@ -71,7 +73,6 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
     segment_level: bool = False
     filter_enabled: bool = True
 
-    preserve_segment_pairs: bool = False
     output_mode: str = "replaced"
     merge_scores: bool = False
     reconstruct_messages: bool = False
@@ -99,22 +100,25 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
                 "score merging will be skipped"
             )
 
-        if self.segment_level and not self.preserve_segment_pairs:
-            raise ValueError(
-                "segment_level=True requires preserve_segment_pairs=True "
-                "so that CaptureSegmentPairsStage writes the "
-                "'_seg_translation_pairs' column consumed by FaithEvalFilter."
-            )
-
         super().__init__()
         self.stages = self._build_stages()
 
     def _build_stages(self) -> list[ProcessingStage]:
         """Construct the ordered list of sub-stages."""
         stages: list[ProcessingStage] = []
-        faith_helper_needed = self.enable_faith_eval and _needs_structured_faith_helpers(
-            self.text_field
+        faith_helper_needed = (
+            self.enable_faith_eval
+            and not self.segment_level
+            and _needs_structured_faith_helpers(self.text_field)
         )
+        use_segment_level_faith = self.enable_faith_eval and self.segment_level
+        use_document_level_faith = self.enable_faith_eval and not self.segment_level
+
+        if use_segment_level_faith and self.client is None and self.backend_type == "llm":
+            logger.warning(
+                "segment_level=True enables pre-reassembly FAITH scoring; "
+                "configure an LLM client to evaluate segment rows."
+            )
 
         if self.skip_translated:
             stages.append(
@@ -143,8 +147,20 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
             )
         )
 
-        if self.preserve_segment_pairs:
-            stages.append(CaptureSegmentPairsStage())
+        if use_segment_level_faith:
+            faith_model = self.faith_model_name or self.model_name
+            stages.append(
+                FaithEvalFilter(
+                    client=self.client,
+                    model_name=faith_model,
+                    source_lang=self.source_lang,
+                    target_lang=self.target_lang,
+                    source_text_field="_seg_segments",
+                    translated_text_field="_translated",
+                    threshold=self.faith_threshold,
+                    filter_enabled=False,
+                )
+            )
 
         stages.append(
             ReassemblyStage(
@@ -153,13 +169,17 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
                 replace_source_fields=self.output_mode in ("replaced", "both"),
                 emit_metadata_helpers=self.output_mode in ("raw", "both"),
                 emit_faith_helpers=faith_helper_needed,
+                aggregate_faith_scores=use_segment_level_faith,
             )
         )
+
+        if use_segment_level_faith and self.filter_enabled:
+            stages.append(FaithThresholdFilterStage(threshold=self.faith_threshold))
 
         if self.skip_translated:
             stages.append(RestoreSkippedRowsStage())
 
-        if self.enable_faith_eval:
+        if use_document_level_faith:
             faith_model = self.faith_model_name or self.model_name
             faith_source_field = (
                 "_faith_source_text" if faith_helper_needed else self.text_field
@@ -178,14 +198,12 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
                     translated_text_field=faith_translated_field,
                     threshold=self.faith_threshold,
                     filter_enabled=self.filter_enabled,
-                    segment_level=self.segment_level,
                 ),
             )
 
         needs_formatting = (
             self.output_mode != "replaced"
             or self.reconstruct_messages
-            or self.preserve_segment_pairs
             or faith_helper_needed
         )
         if needs_formatting:
@@ -194,7 +212,6 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
                     output_mode=self.output_mode,
                     target_lang=self.target_lang,
                     output_field=self.output_field,
-                    preserve_segment_pairs=self.preserve_segment_pairs,
                     reconstruct_messages=self.reconstruct_messages,
                     messages_field=self.messages_field,
                     messages_content_field=self.messages_content_field,
