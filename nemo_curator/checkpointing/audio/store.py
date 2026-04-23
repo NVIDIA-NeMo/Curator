@@ -38,19 +38,21 @@ def _utcnow() -> str:
 
 def _normalize_for_json(value: Any) -> Any:  # noqa: ANN401
     if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, dict):
-        return {str(key): _normalize_for_json(item) for key, item in sorted(value.items())}
-    if isinstance(value, (list, tuple)):
-        return [_normalize_for_json(item) for item in value]
-    if isinstance(value, set):
+        normalized = value
+    elif isinstance(value, dict):
+        normalized = {str(key): _normalize_for_json(item) for key, item in sorted(value.items())}
+    elif isinstance(value, (list, tuple)):
+        normalized = [_normalize_for_json(item) for item in value]
+    elif isinstance(value, set):
         normalized_items = [_normalize_for_json(item) for item in value]
-        return sorted(normalized_items, key=repr)
-    if hasattr(value, "to_dict"):
-        return _normalize_for_json(value.to_dict())
-    if hasattr(value, "__dict__"):
-        return _normalize_for_json(vars(value))
-    return repr(value)
+        normalized = sorted(normalized_items, key=repr)
+    elif hasattr(value, "to_dict"):
+        normalized = _normalize_for_json(value.to_dict())
+    elif hasattr(value, "__dict__"):
+        normalized = _normalize_for_json(vars(value))
+    else:
+        normalized = repr(value)
+    return normalized
 
 
 def fingerprint_stage(stage: Any) -> str:  # noqa: ANN401
@@ -123,7 +125,7 @@ class StageCheckpointStore:
             "error_message": str(error),
             "updated_at": _utcnow(),
         }
-        _write_json_atomic(self.stage_json_path, payload)
+        write_json_atomic(self.stage_json_path, payload)
 
     def write_stage_result(
         self,
@@ -159,7 +161,7 @@ class StageCheckpointStore:
 
         record_payloads = [record.to_dict() for record in records]
         dump_audio_task_manifest(output_tasks, self.output_manifest_path)
-        _write_jsonl_atomic(self.records_path, record_payloads)
+        write_jsonl_atomic(self.records_path, record_payloads)
 
         status_payload = {
             "stage_index": self.stage_index,
@@ -172,4 +174,4 @@ class StageCheckpointStore:
             "failed_count": sum(record.status.startswith("failed_") for record in records),
             "updated_at": _utcnow(),
         }
-        _write_json_atomic(self.stage_json_path, status_payload)
+        write_json_atomic(self.stage_json_path, status_payload)
