@@ -169,13 +169,55 @@ stages:
     compute_timestamps: False
     resources: ${resources}
 
+  # Optional: PNC with vLLM after 2nd-pass ASR.
+  # Uncomment the two stages below and change hypothesis_text_key in ComputeWER
+  # to "${pnc_text_key}_cleaned" to use LLM-based punctuation and capitalization.
+  # See tutorials/audio/tagging/README.md for details.
+  #
+  # - _target_: nemo_curator.stages.audio.tagging.text.pnc.PNCwithvLLMInferenceStage
+  #   name: "PNCwithvLLM_2ndPass"
+  #   text_key: ${text_key2}
+  #   prompt_file: ${prompt_file}
+  #   generation_field: ${pnc_text_key}
+  #   inference_batch_size: 2
+  #   model_params:
+  #     model: "Qwen/Qwen2.5-1.5B-Instruct"
+  #     tensor_parallel_size: 1
+  #     max_model_len: 1024
+  #     enable_chunked_prefill: true
+  #     max_num_batched_tokens: 2048
+  #     enforce_eager: false
+  #     dtype: float16
+  #     gpu_memory_utilization: 0.9
+  #     max_num_seqs: 2
+  #   sampling_params:
+  #     temperature: 0.0
+  #     top_p: 1.0
+  #     repetition_penalty: 1.05
+  #     seed: 42
+  #     max_tokens: 512
+  #   chat_template_params:
+  #     tokenize: false
+  #     add_generation_prompt: true
+  #   resources:
+  #     gpus: 1
+  #
+  # - _target_: nemo_curator.stages.audio.tagging.text.pnc.CleanLLMOutputStage
+  #   name: "CleanLLMOutput_2ndPass"
+  #   generation_field: ${pnc_text_key}
+  #   asr_pred_text_key: ${text_key2}
+  #   cer_threshold: 0.01
+  #   punct_marks: ".,?"
+  #   vocab_set: "abcdefghijklmnopqrstuvwxyz' "
+  #   resources: ${resources}
+
   - _target_: nemo_curator.stages.audio.tagging.ComputeWERStage
     name: "ComputeWER"
     language: ${language_short}
-    hypothesis_text_key: ${text_key1}
-    reference_text_key: ${text_key2}
+    hypothesis_text_key: ${text_key2}  # use "${pnc_text_key}_cleaned" if PNC stages above are enabled
+    reference_text_key: ${text_key1}
     pnc_chars: ".?,"
-    compute_pnc_wer: False
+    compute_pnc_wer: false
     resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
