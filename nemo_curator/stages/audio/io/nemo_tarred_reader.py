@@ -26,11 +26,10 @@ import json
 import os
 import re
 import tarfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
 
-import numpy as np
 import soundfile as sf
 from loguru import logger
 
@@ -40,7 +39,6 @@ except ModuleNotFoundError:
     RayStageSpecKeys = None
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -87,7 +85,8 @@ def _open_tar(tar_path: str, s3_endpoint_url: str | None = None) -> tarfile.TarF
         fileobj = open_best(pipe_path, mode="rb")
     else:
         if not os.path.exists(tar_path):
-            raise FileNotFoundError(f"Tar file not found: {tar_path}")
+            msg = f"Tar file not found: {tar_path}"
+            raise FileNotFoundError(msg)
         fileobj = open_best(tar_path, mode="rb")
     return tarfile.open(fileobj=fileobj, mode="r|*")
 
@@ -111,6 +110,7 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     name: str = "nemo_tar_shard_discovery"
     yaml_path: str = ""
     corpus_filter: list[str] | None = None
+    output_dir: str | None = None
 
     def __post_init__(self) -> None:
         if not self.yaml_path:
@@ -126,20 +126,80 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers_per_node": 1}
 
+    def _scan_completed_shards(self) -> set[str]:
+        """Scan output_dir recursively for .done marker files and return completed shard keys.
+
+        Keys are relative paths like ``yodas/0_from_captions/en/sharded_manifests/manifest_42``.
+        """
+        if not self.output_dir:
+            return set()
+        completed: set[str] = set()
+        if not os.path.isdir(self.output_dir):
+            return completed
+        for root, _dirs, files in os.walk(self.output_dir):
+            for fname in files:
+                if fname.endswith(".jsonl.done"):
+                    rel = os.path.relpath(os.path.join(root, fname), self.output_dir)
+                    shard_key = rel[:-len(".jsonl.done")]
+                    completed.add(shard_key)
+        return completed
+
+    @staticmethod
+    def _manifest_to_rel_path(manifest_path: str, corpus: str) -> str:
+        """Extract relative output path from a manifest path, starting at the corpus name.
+
+        Example::
+
+            manifest_path = "/data/yodas/0_from_captions/en/sharded_manifests/manifest_42.jsonl"
+            corpus = "yodas"
+            → "yodas/0_from_captions/en/sharded_manifests/manifest_42"
+
+        The ``.jsonl`` extension is stripped so it can be used as a shard key.
+        """
+        parts = manifest_path.replace("\\", "/").split("/")
+        parts_lower = [p.lower() for p in parts]
+        corpus_lower = corpus.lower()
+        matches = [i for i, p in enumerate(parts_lower) if p == corpus_lower]
+        if len(matches) == 0:
+            msg = (
+                f"Corpus name '{corpus}' not found in manifest path: {manifest_path}. "
+                f"The YAML 'corpus' field must match a directory component in the manifest path (case-insensitive)."
+            )
+            raise ValueError(msg)
+        if len(matches) > 1:
+            msg = (
+                f"Corpus name '{corpus}' appears {len(matches)} times in manifest path: {manifest_path}. "
+                f"It must appear exactly once for unambiguous path extraction."
+            )
+            raise ValueError(msg)
+        idx = matches[0]
+        rel = "/".join(parts[idx:])
+        if rel.endswith(".jsonl"):
+            rel = rel[:-len(".jsonl")]
+        elif rel.endswith(".json"):
+            rel = rel[:-len(".json")]
+        return rel
+
     def process(self, _task: _EmptyTask) -> list[FileGroupTask]:
         import yaml
+
+        completed = self._scan_completed_shards()
+        if completed:
+            logger.info(f"Checkpoint: {len(completed)} shards already completed, will skip them")
+            logger.info(f"Completed shard keys (first 10): {sorted(completed)[:10]}")
 
         with open(self.yaml_path) as f:
             config = yaml.safe_load(f)
 
         tasks: list[FileGroupTask] = []
+        skipped = 0
         for group in config:
             for cfg in group.get("input_cfg", []):
                 corpus = cfg.get("corpus", "unknown")
                 if self.corpus_filter and corpus not in self.corpus_filter:
                     continue
                 if cfg.get("type", "nemo_tarred") != "nemo_tarred":
-                    logger.warning("Skipping non-nemo_tarred corpus %s (type=%s)", corpus, cfg.get("type"))
+                    logger.warning(f"Skipping non-nemo_tarred corpus {corpus} (type={cfg.get('type')})")
                     continue
                 manifest_paths = _expand_nemo_path(cfg["manifest_filepath"])
                 tar_paths = _expand_nemo_path(cfg["tarred_audio_filepaths"])
@@ -149,19 +209,27 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                         f"{len(manifest_paths)} manifests vs {len(tar_paths)} tars"
                     )
                     raise ValueError(msg)
-                for i, (mp, tp) in enumerate(zip(manifest_paths, tar_paths)):
+                for mp, tp in zip(manifest_paths, tar_paths, strict=False):
+                    shard_key = self._manifest_to_rel_path(mp, corpus)
+                    if shard_key in completed:
+                        skipped += 1
+                        continue
+                    if self.output_dir:
+                        partial = os.path.join(self.output_dir, f"{shard_key}.jsonl")
+                        if os.path.exists(partial):
+                            os.remove(partial)
+                            logger.info(f"Removed partial output for {shard_key}")
                     tasks.append(
                         FileGroupTask(
-                            task_id=f"{corpus}_{i}",
+                            task_id=shard_key,
                             dataset_name=corpus,
                             data=[mp, tp],
-                            reader_config={"corpus": corpus, "shard_idx": i},
+                            reader_config={"corpus": corpus, "shard_key": shard_key},
                         )
                     )
 
         logger.info(
-            "NemoTarShardDiscoveryStage: found %d shards (corpus_filter=%s)",
-            len(tasks), self.corpus_filter,
+            f"NemoTarShardDiscoveryStage: found {len(tasks)} shards, skipped {skipped} completed (corpus_filter={self.corpus_filter})"
         )
         return tasks
 
@@ -198,7 +266,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["waveform", "sample_rate"]
+        return ["data"], ["waveform", "sample_rate", "corpus", "num_channels"]
 
     def ray_stage_spec(self) -> dict[str, Any]:
         if RayStageSpecKeys is not None:
@@ -218,12 +286,11 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         manifest_path, tar_path = task.data[0], task.data[1]
         corpus = task.reader_config.get("corpus", "unknown")
-        shard_idx = task.reader_config.get("shard_idx", 0)
-        shard_key = f"{corpus}_{shard_idx}"
+        shard_key = task.reader_config.get("shard_key", task.task_id)
 
         manifest = self._read_manifest(manifest_path)
 
-        logger.info("Reading shard %s: %s (%d manifest entries)", shard_key, tar_path, len(manifest))
+        logger.info(f"Reading shard {shard_key}: {tar_path} ({len(manifest)} manifest entries)")
 
         tar = _open_tar(tar_path, self.s3_endpoint_url)
         results: list[AudioTask] = []
@@ -237,8 +304,10 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             try:
                 audio, sample_rate = sf.read(BytesIO(raw_audio), dtype="float32")
             except Exception:
-                logger.warning("Skipping corrupt audio %s in %s", tar_info.name, tar_path)
+                logger.warning(f"Skipping corrupt audio {tar_info.name} in {tar_path}")
                 continue
+
+            num_channels = audio.shape[1] if audio.ndim > 1 else 1
 
             # Convert to mono 1-D array
             if audio.ndim > 1:
@@ -247,6 +316,8 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             entry = dict(manifest[tar_info.name])
             entry["waveform"] = audio
             entry["sample_rate"] = sample_rate
+            entry["num_channels"] = num_channels
+            entry["corpus"] = corpus
 
             results.append(
                 AudioTask(
@@ -259,7 +330,12 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             )
 
         tar.close()
-        logger.info("Shard %s: emitted %d AudioTasks", shard_key, len(results))
+
+        shard_total = len(results)
+        for result_task in results:
+            result_task._metadata["_shard_total"] = shard_total
+
+        logger.info(f"Shard {shard_key}: emitted {shard_total} AudioTasks")
         return results
 
 
@@ -290,6 +366,7 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     corpus_filter: list[str] | None = None
     filepath_key: str = "audio_filepath"
     s3_endpoint_url: str | None = None
+    output_dir: str | None = None
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -301,6 +378,7 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
             NemoTarShardDiscoveryStage(
                 yaml_path=self.yaml_path,
                 corpus_filter=self.corpus_filter,
+                output_dir=self.output_dir,
             ),
             NemoTarShardReaderStage(
                 filepath_key=self.filepath_key,
