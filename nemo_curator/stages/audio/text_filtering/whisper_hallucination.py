@@ -26,11 +26,10 @@ from nemo_curator.tasks import AudioTask
 class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     """Detect common Whisper hallucination patterns and flag entries.
 
-    Five checks are applied:
+    Four checks are applied:
     - Repeated n-grams: low lexical diversity (unique-word ratio <= threshold).
     - Long word: an abnormally long word or a word much longer than its neighbours.
     - Frequent single phrase: the full transcript matches a known hallucination phrase.
-    - Low char rate: word-chars / duration <= char_rate_threshold (sparse text over long audio).
     - High char rate: word-chars / duration > max_char_rate (impossible speech rate; short audio
       with dense confabulated text, e.g. Whisper generating a full sentence over 0.1 s).
 
@@ -42,7 +41,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     unique_words_threshold: float = 0.4
     long_word_threshold: int = 25
     long_word_rel_threshold: float = 3.0
-    char_rate_threshold: float = 4.0
     max_char_rate: float = 40.0
     duration_key: str = "duration"
     text_key: str = "pred_text"
@@ -100,12 +98,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             for phrase in self._phrases
         )
 
-    def _low_char_rate(self, words: list[str], duration: float) -> bool:
-        if duration <= 0:
-            return False
-        chars = sum(len(w) for w in words)
-        return chars / duration <= self.char_rate_threshold
-
     def _high_char_rate(self, words: list[str], duration: float) -> bool:
         if duration <= 0:
             return False
@@ -124,11 +116,10 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         repeated = self._repeated_ngrams(words)
         long_w = self._long_word(words)
         phrase = self._frequent_single_word(text)
-        low_rate = self._low_char_rate(words, duration)
         high_rate = self._high_char_rate(words, duration)
 
         self._n_processed += 1
-        if repeated or long_w or phrase or low_rate or high_rate:
+        if repeated or long_w or phrase or high_rate:
             self._n_flagged += 1
             reasons = [
                 name
@@ -136,7 +127,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
                     ("repeated_ngrams", repeated),
                     ("long_word", long_w),
                     ("phrase_match", phrase),
-                    ("low_char_rate", low_rate),
                     ("high_char_rate", high_rate),
                 ]
                 if hit

@@ -120,8 +120,6 @@ def main() -> None:
                     help="Absolute character length above which a word is flagged as abnormally long.")
     tf.add_argument("--long_word_rel_threshold", type=float, default=3.0,
                     help="Relative length ratio for long-word hallucination detection.")
-    tf.add_argument("--char_rate_threshold", type=float, default=4.0,
-                    help="Max chars/s below which text is considered too sparse.")
     tf.add_argument("--max_char_rate", type=float, default=40.0,
                     help="Min chars/s above which text is considered impossibly dense.")
 
@@ -206,7 +204,6 @@ def main() -> None:
                 unique_words_threshold=args.unique_words_threshold,
                 long_word_threshold=args.long_word_threshold,
                 long_word_rel_threshold=args.long_word_rel_threshold,
-                char_rate_threshold=args.char_rate_threshold,
                 max_char_rate=args.max_char_rate,
             ),
             FastTextLIDStage(
