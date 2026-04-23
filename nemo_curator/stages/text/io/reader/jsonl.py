@@ -149,7 +149,12 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             return
 
         min_id, max_id = ray.get(self.id_generator.get_batch_range.remote(file_paths, None))
-        for next_id, task in zip(range(min_id, max_id + 1), tasks, strict=True):
+        expected = max_id - min_id + 1
+        if expected != len(tasks):
+            msg = f"Assigned-ID range [{min_id}, {max_id}] ({expected} ids) does not match {len(tasks)} tasks"
+            msg += f" from {file_paths}"
+            raise RuntimeError(msg)
+        for next_id, task in zip(range(min_id, max_id + 1), tasks):
             task.data[CURATOR_DEDUP_ID_STR] = next_id
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:

@@ -270,6 +270,29 @@ class TestJsonlAudioReader:
         assigned_ids = [audio_task.data[CURATOR_DEDUP_ID_STR] for audio_task in assigned]
         assert assigned_ids == [0, 1]
 
+    @pytest.mark.usefixtures("ray_client_with_id_generator")
+    def test_audio_stage_assign_ids_raises_on_task_count_mismatch(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "audio_ids_mismatch.jsonl"
+        manifest.write_text(
+            "\n".join(
+                [
+                    json.dumps({"audio_filepath": "a.wav", "text": "alpha"}),
+                    json.dumps({"audio_filepath": "b.wav", "text": "beta"}),
+                ]
+            )
+        )
+        task = FileGroupTask(task_id="audio_task", dataset_name="audio_dataset", data=[str(manifest)], _metadata={})
+
+        generation_stage = JsonlAudioReaderStage(_generate_ids=True)
+        generation_stage.setup()
+        generation_stage.process(task)
+
+        assign_stage = JsonlAudioReaderStage(_assign_ids=True, fields=["audio_filepath"])
+        assign_stage.setup()
+
+        with pytest.raises(RuntimeError, match=r"Assigned-ID range \[0, 1\] \(2 ids\) does not match 1 tasks"):
+            assign_stage.process(task)
+
     def test_audio_stage_generate_ids_no_actor_error(self) -> None:
         stage = JsonlAudioReaderStage(_generate_ids=True)
 
