@@ -66,6 +66,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         temperature: Sampling temperature (0.0 = greedy).
         top_k: Top-k sampling parameter.
         prep_workers: Thread-pool size for parallel prompt preprocessing.
+        batch_size: Number of tasks per ``process_batch`` call.
     """
 
     name: str = "PnCRestoration"
@@ -89,6 +90,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     temperature: float = 0.0
     top_k: int = 1
     prep_workers: int = 8
+    batch_size: int = 64
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     def __post_init__(self) -> None:
