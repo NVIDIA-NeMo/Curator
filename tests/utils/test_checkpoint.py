@@ -29,6 +29,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import ray
+
 from nemo_curator.tasks import FileGroupTask
 from nemo_curator.utils.checkpoint import CheckpointManager, _path_join
 
@@ -974,3 +976,72 @@ class TestFilteredTaskCheckpointing:
         mgr2 = CheckpointManager(ckpt).load()
         keys = mgr2.get_completed_source_keys()
         assert "only_filtered.tar" in keys
+
+
+# ---------------------------------------------------------------------------
+# Ray actor concurrency
+# ---------------------------------------------------------------------------
+
+
+@ray.remote
+def _remote_write_increment(actor, source_key: str, batch_id: int) -> None:
+    import ray
+
+    ray.get(actor.write_expected_increment.remote(source_key, f"batch_{batch_id}", 1))
+
+
+@ray.remote
+def _remote_mark_filtered(actor, task_id: str, source_files: list) -> None:
+    import ray
+
+    ray.get(actor.mark_filtered.remote(task_id, source_files))
+
+
+class TestCheckpointActorConcurrency:
+    """Verify the Ray actor serializes concurrent writes with no lost updates."""
+
+    def test_concurrent_increments_are_all_recorded(self, tmp_path):
+        """20 parallel write_expected_increment calls must all land in the JSON file."""
+        import ray
+
+        from nemo_curator.utils.checkpoint import CheckpointManager, get_or_create_checkpoint_actor
+
+        ray.init(ignore_reinit_error=True)
+        try:
+            ckpt_path = str(tmp_path / "ckpt")
+            actor = get_or_create_checkpoint_actor(ckpt_path)
+            source_key = "concurrent.tar"
+            n = 20
+
+            ray.get([_remote_write_increment.remote(actor, source_key, i) for i in range(n)])
+
+            mgr = CheckpointManager(ckpt_path).load()
+            # expected = 1 + n x 1 = 21; all n increments must be recorded
+            assert mgr._expected.get(source_key, 1) == 1 + n
+        finally:
+            ray.shutdown()
+
+    def test_concurrent_mark_filtered_are_all_recorded(self, tmp_path):
+        """20 parallel mark_filtered calls must all be written without clobbering each other."""
+        import ray
+
+        from nemo_curator.utils.checkpoint import CheckpointManager, get_or_create_checkpoint_actor
+
+        ray.init(ignore_reinit_error=True)
+        try:
+            ckpt_path = str(tmp_path / "ckpt")
+            actor = get_or_create_checkpoint_actor(ckpt_path)
+            source = ["shared.tar"]
+            source_key = _source_key(source)
+            n = 20
+
+            # Write increment so the completion threshold is high enough
+            ray.get(actor.write_expected_increment.remote(source_key, "parent", n - 1))
+            # Concurrently mark n tasks as filtered
+            ray.get([_remote_mark_filtered.remote(actor, f"task_{i}", source) for i in range(n)])
+
+            mgr = CheckpointManager(ckpt_path).load()
+            assert mgr._filtered_counts[source_key] == n
+            assert mgr.is_task_completed(source)
+        finally:
+            ray.shutdown()

@@ -306,32 +306,32 @@ def get_or_create_checkpoint_actor(
         msg = "Ray is not installed; cannot create a checkpoint actor."
         raise RuntimeError(msg)
     name = "nemo_curator_ckpt_" + hashlib.sha256(checkpoint_path.encode()).hexdigest()[:16]
-    return _CheckpointWriterActor.options(name=name, get_if_exists=True).remote(  # type: ignore[union-attr]
-        checkpoint_path, storage_options or {}
-    )
+    return _CheckpointWriterActor.options(  # type: ignore[union-attr]
+        name=name,
+        get_if_exists=True,
+        lifetime="detached",  # owned by GCS, not by the creating worker — survives worker shutdown
+    ).remote(checkpoint_path, storage_options or {})
 
 
 class _CheckpointActorProxy:
     """Drop-in replacement for CheckpointManager's write API backed by a Ray actor.
 
-    All calls block (``ray.get``) so the write is committed before control
-    returns to the caller, preserving ordering guarantees.
+    Calls are fire-and-forget (no ``ray.get``), which avoids blocking async actor
+    event loops (Xenna stage workers are async).  The actor's single-threaded
+    queue still serializes all writes — correctness is preserved.  A hard crash
+    of the Ray cluster between the fire and the actor processing it would lose
+    that one write, but since all stages are idempotent that task is simply
+    re-processed on resume.
     """
 
     def __init__(self, actor: object) -> None:
         self._actor = actor
 
     def mark_completed(self, task_id: str, source_files: list[str]) -> None:
-        import ray
-
-        ray.get(self._actor.mark_completed.remote(task_id, source_files))
+        self._actor.mark_completed.remote(task_id, source_files)  # type: ignore[union-attr]
 
     def mark_filtered(self, task_id: str, source_files: list[str]) -> None:
-        import ray
-
-        ray.get(self._actor.mark_filtered.remote(task_id, source_files))
+        self._actor.mark_filtered.remote(task_id, source_files)  # type: ignore[union-attr]
 
     def write_expected_increment(self, source_key: str, triggering_task_id: str, increment: int) -> None:
-        import ray
-
-        ray.get(self._actor.write_expected_increment.remote(source_key, triggering_task_id, increment))
+        self._actor.write_expected_increment.remote(source_key, triggering_task_id, increment)  # type: ignore[union-attr]
