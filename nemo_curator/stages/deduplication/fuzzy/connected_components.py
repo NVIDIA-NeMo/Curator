@@ -135,7 +135,7 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
             edge_type_array=None,
             num_arrays=1,
             store_transposed=False,
-            symmetrize=False,
+            symmetrize=True,
             do_expensive_check=False,
             drop_multi_edges=True,
         )
