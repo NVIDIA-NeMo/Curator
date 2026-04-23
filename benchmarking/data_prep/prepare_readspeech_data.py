@@ -175,8 +175,38 @@ def _download_parts(output_path: Path, parts: list[str]) -> list[str]:
     return downloaded_files
 
 
-def _combine_and_extract(output_path: Path, downloaded_files: list[str]) -> bool:
-    """Combine split archive parts, extract, and clean up."""
+def _validate_tar_result(result: subprocess.CompletedProcess, output_path: Path, is_partial: bool) -> bool:
+    """Check tar exit code and verify WAV files were extracted."""
+    if is_partial:
+        all_wavs = collect_all_wavs(output_path)
+        if not all_wavs:
+            logger.error(f"Partial extraction produced no WAV files (tar exit code {result.returncode}): {result.stderr[:500]}")
+            return False
+        if result.returncode != 0:
+            logger.info(
+                f"tar exited with code {result.returncode} (expected for partial archive). "
+                f"Successfully extracted {len(all_wavs)} WAV files before truncation point."
+            )
+        return True
+
+    if result.returncode not in _TAR_OK_RETURNCODES:
+        logger.error(f"Extraction failed (exit code {result.returncode}): {result.stderr[:500]}")
+        return False
+    if result.returncode == 1:
+        logger.warning(f"tar reported non-fatal differences (exit code 1): {result.stderr[:200]}")
+    return True
+
+
+def _combine_and_extract(output_path: Path, downloaded_files: list[str], is_partial: bool = False) -> bool:
+    """Combine split archive parts, extract, and clean up.
+
+    Args:
+        output_path: Directory to extract into.
+        downloaded_files: List of part file paths to combine.
+        is_partial: If True, fewer than all 21 parts are being combined, so the gzip
+            stream will be truncated. Tolerates non-zero tar exit codes as long as
+            WAV files are produced.
+    """
     combined_archive = output_path / "read_speech.tgz"
     logger.info(f"Combining {len(downloaded_files)} parts into {combined_archive.name}...")
     with open(str(combined_archive), "wb") as outfile:
@@ -189,30 +219,19 @@ def _combine_and_extract(output_path: Path, downloaded_files: list[str]) -> bool
                     outfile.write(chunk)
 
     logger.info(f"Combined archive: {combined_archive.stat().st_size / (1024**3):.2f} GB")
-    logger.info("Extracting...")
+    if is_partial:
+        logger.info("Partial extraction: archive is truncated (not all 21 parts). Extracting as much as possible...")
+    else:
+        logger.info("Extracting...")
 
     try:
         result = subprocess.run(  # noqa: S603
-            ["tar", "-xzf", str(combined_archive), "-C", str(output_path), "--ignore-zeros"],  # noqa: S607
+            ["tar", "-xzf", str(combined_archive), "-C", str(output_path),  # noqa: S607
+             "--ignore-zeros", "--warning=no-alone-zero-block"],
             capture_output=True, text=True, check=False,
         )
-        if result.returncode not in _TAR_OK_RETURNCODES:
-            logger.error(f"Extraction failed (exit code {result.returncode}): {result.stderr[:500]}")
-            retained_gb = sum(
-                os.path.getsize(f) for f in downloaded_files if os.path.exists(f)
-            ) / (1024**3)
-            logger.info(
-                f"Part files retained on disk for retry ({retained_gb:.1f} GB across "
-                f"{len(downloaded_files)} files). Delete manually to free space.",
-            )
+        if not _validate_tar_result(result, output_path, is_partial):
             return False
-
-        if result.returncode == 1:
-            # tar returns 1 when files differ (e.g. mtime changed during read);
-            # extraction of the archive contents itself is still valid.
-            logger.warning(
-                f"tar reported non-fatal differences (exit code 1): {result.stderr[:200]}",
-            )
 
         for fpath in downloaded_files:
             os.remove(fpath)
@@ -245,7 +264,8 @@ def download_dataset(output_path: Path, num_parts: int = 1) -> bool:
         os.makedirs(str(output_path), exist_ok=True)
         downloaded_files = _download_parts(output_path, parts)
 
-        if not _combine_and_extract(output_path, downloaded_files):
+        is_partial = num_parts < len(DNS_READSPEECH_PARTS)
+        if not _combine_and_extract(output_path, downloaded_files, is_partial=is_partial):
             return False
 
         all_wavs = collect_all_wavs(output_path)
