@@ -525,7 +525,10 @@ class MaterializeTarredAudioStage(ProcessingStage[AudioTask, AudioTask]):
     def _should_segment(self, task: AudioTask, member_name: str) -> bool:
         if not self.segment_if_offset_present:
             return False
-        original_path = task.data.get(self.audio_filepath_key, "")
+        original_path = task.data.get(
+            self.manifest_audio_filepath_key,
+            task.data.get(self.audio_filepath_key, ""),
+        )
         offset = float(task.data.get(self.offset_key, 0.0) or 0.0)
         return member_name != original_path or offset > 0.0 or task.data.get(self.duration_key) is not None
 

@@ -317,6 +317,30 @@ class TestTarredAudioMaterialization:
         with wave.open(temp_path.as_posix(), "rb") as wav_file:
             assert wav_file.getnframes() == 8000  # 0.5 sec at 16kHz
 
+    def test_materialize_retry_keeps_member_mode_after_audio_filepath_mutation(self, tmp_path: Path) -> None:
+        tar_path = tmp_path / "audio_0.tar"
+        raw_audio = b"not-a-real-wav"
+        _write_tar(tar_path, {"sample.wav": raw_audio})
+
+        task = AudioTask(
+            task_id="t1",
+            dataset_name="ds",
+            data={
+                "audio_filepath": str(tmp_path / "stale_temp.wav"),
+                "_manifest_audio_filepath": "sample.wav",
+                "_tar_path": str(tar_path),
+                "_tar_member": "sample.wav",
+            },
+        )
+
+        materialize = MaterializeTarredAudioStage(temp_dir=str(tmp_path / "tmp"))
+        [materialized] = materialize.process_batch([task])
+
+        temp_path = Path(materialized.data["_temporary_audio_path"])
+        assert temp_path.exists()
+        assert temp_path.read_bytes() == raw_audio
+        assert materialized.data["_materialization_mode"] == "member"
+
     def test_materialize_segment_raises_for_offset_past_audio_end(self, tmp_path: Path) -> None:
         tar_path = tmp_path / "audio_0.tar"
         _write_tar(tar_path, {"sample.wav": _make_wav_bytes(duration_sec=0.25)})
