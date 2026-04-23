@@ -47,8 +47,9 @@ def test_drops_default_keys() -> None:
         }
     )
     result = stage.process(task)
-    for key in ("answer", "source_lang", "target_lang", "decodercontext", "emotion", "diarize"):
+    for key in ("answer", "target_lang", "decodercontext", "emotion", "diarize"):
         assert key not in result.data
+    assert result.data["source_lang"] == "en"
     assert result.data["duration"] == 3.5
     assert result.data["granary_v1_prediction"] == "t"
 
