@@ -14,9 +14,7 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -25,23 +23,13 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.io import AudioToDocumentStage, MaterializeTarredAudioStage
 from nemo_curator.tasks.audio_task import ensure_sample_key
 
+from .io_utils import write_json_atomic
 from .store import SampleCheckpointRecord, StageCheckpointStore, fingerprint_stage
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import BaseExecutor
     from nemo_curator.stages.base import ProcessingStage
     from nemo_curator.tasks import AudioTask
-
-
-def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as temp:
-        json.dump(payload, temp, indent=2, sort_keys=True)
-        temp.flush()
-        temp_path = Path(temp.name)
-    temp_path.replace(path)
-
-
 class AudioCheckpointRunner:
     """Run an audio pipeline stage-by-stage with checkpointing."""
 
@@ -175,7 +163,7 @@ class AudioCheckpointRunner:
             "materialization_dir": self._effective_materialization_dir(),
             "stages": [stage._name for stage in stages],
         }
-        _write_json_atomic(self.checkpoint_dir / "pipeline.json", payload)
+        write_json_atomic(self.checkpoint_dir / "pipeline.json", payload)
 
     def _link_stages_via_io(self) -> bool:
         return bool(self.pipeline.config.get("link_stages_via_io", False))

@@ -19,9 +19,11 @@ import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING, Any, Literal
 
+from nemo_curator.tasks.audio_task import ensure_sample_key
+
+from .io_utils import write_json_atomic, write_jsonl_atomic
 from .serialization import dump_audio_task_manifest, load_audio_task_manifest, serialize_audio_task
 
 if TYPE_CHECKING:
@@ -39,33 +41,16 @@ def _normalize_for_json(value: Any) -> Any:  # noqa: ANN401
         return value
     if isinstance(value, dict):
         return {str(key): _normalize_for_json(item) for key, item in sorted(value.items())}
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, (list, tuple)):
         return [_normalize_for_json(item) for item in value]
+    if isinstance(value, set):
+        normalized_items = [_normalize_for_json(item) for item in value]
+        return sorted(normalized_items, key=repr)
     if hasattr(value, "to_dict"):
         return _normalize_for_json(value.to_dict())
     if hasattr(value, "__dict__"):
         return _normalize_for_json(vars(value))
     return repr(value)
-
-
-def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    _write_text_atomic(path, json.dumps(payload, indent=2, sort_keys=True))
-
-
-def _write_jsonl_atomic(path: Path, payloads: list[dict[str, Any]]) -> None:
-    text = "\n".join(json.dumps(payload, sort_keys=True) for payload in payloads)
-    if text:
-        text += "\n"
-    _write_text_atomic(path, text)
-
-
-def _write_text_atomic(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as temp:
-        temp.write(text)
-        temp.flush()
-        temp_path = Path(temp.name)
-    temp_path.replace(path)
 
 
 def fingerprint_stage(stage: Any) -> str:  # noqa: ANN401
@@ -147,6 +132,12 @@ class StageCheckpointStore:
         output_tasks: list[AudioTask],
         failed_records: list[SampleCheckpointRecord] | None = None,
     ) -> None:
+        for task in output_tasks:
+            ensure_sample_key(task)
+        if input_tasks is not None:
+            for task in input_tasks:
+                ensure_sample_key(task)
+
         failed_records = failed_records or []
         failed_by_key = {record.sample_key: record for record in failed_records}
         output_by_key = {task.sample_key: task for task in output_tasks}

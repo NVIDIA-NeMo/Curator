@@ -19,7 +19,10 @@ from pathlib import Path
 from typing import Any
 
 from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks.audio_task import ensure_sample_key
 from nemo_curator.utils.performance_utils import StagePerfStats
+
+from .io_utils import write_text_atomic
 
 
 def serialize_audio_task(task: AudioTask) -> dict[str, Any]:
@@ -28,7 +31,7 @@ def serialize_audio_task(task: AudioTask) -> dict[str, Any]:
         "task_id": task.task_id,
         "dataset_name": task.dataset_name,
         "data": dict(task.data),
-        "sample_key": task.sample_key,
+        "sample_key": ensure_sample_key(task),
         "filepath_key": task.filepath_key,
         "_metadata": task._metadata,
         "_stage_perf": [perf.to_dict() for perf in task._stage_perf],
@@ -51,11 +54,10 @@ def deserialize_audio_task(payload: dict[str, Any]) -> AudioTask:
 def dump_audio_task_manifest(tasks: list[AudioTask], path: str | Path) -> None:
     """Write tasks as JSONL manifest."""
     manifest_path = Path(path)
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     text = "\n".join(json.dumps(serialize_audio_task(task), sort_keys=True) for task in tasks)
     if text:
         text += "\n"
-    manifest_path.write_text(text)
+    write_text_atomic(manifest_path, text)
 
 
 def load_audio_task_manifest(path: str | Path) -> list[AudioTask]:

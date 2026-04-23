@@ -26,6 +26,7 @@ from nemo_curator.checkpointing.audio.serialization import (
     load_audio_task_manifest,
     serialize_audio_task,
 )
+from nemo_curator.checkpointing.audio.store import StageCheckpointStore, fingerprint_stage
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask
@@ -85,6 +86,20 @@ class FailingStage(ProcessingStage[AudioTask, AudioTask]):
         return task
 
 
+@dataclass
+class SetConfigStage(ProcessingStage[AudioTask, AudioTask]):
+    values: set[str]
+    name: str = "set_config_stage"
+
+    def process(self, task: AudioTask) -> AudioTask:
+        return task
+
+    def get_config(self) -> dict[str, object]:
+        config = super().get_config()
+        config["values"] = self.values
+        return config
+
+
 def _make_audio_task(sample_key: str) -> AudioTask:
     return AudioTask(
         task_id=sample_key,
@@ -104,6 +119,13 @@ def test_serialization_manifest_roundtrip(tmp_path: Path) -> None:
     assert [task.sample_key for task in restored] == ["sample-a", "sample-b"]
     assert restored[0].data["audio_filepath"] == "sample-a.wav"
     assert deserialize_audio_task(serialize_audio_task(tasks[0])).sample_key == "sample-a"
+
+
+def test_stage_fingerprint_is_stable_for_sets() -> None:
+    first = SetConfigStage(values={"alpha", "beta"})
+    second = SetConfigStage(values={"beta", "alpha"})
+
+    assert fingerprint_stage(first) == fingerprint_stage(second)
 
 
 def test_runner_skips_completed_stages_on_rerun(tmp_path: Path) -> None:
@@ -154,3 +176,20 @@ def test_runner_records_failed_samples_when_ignore_failed_enabled(tmp_path: Path
         "good": "done",
         "bad": "failed_retriable",
     }
+
+
+def test_store_ensures_sample_keys_before_filtered_accounting(tmp_path: Path) -> None:
+    task = AudioTask(task_id="task-a", dataset_name="dataset", data={"audio_filepath": "a.wav"})
+    store = StageCheckpointStore(
+        checkpoint_dir=tmp_path / "checkpoints",
+        stage_index=0,
+        stage_name="reader_stage",
+        config_fingerprint="fingerprint",
+    )
+
+    store.write_stage_result(input_tasks=[task], output_tasks=[])
+
+    records = [json.loads(line) for line in store.records_path.read_text().splitlines() if line.strip()]
+    assert len(records) == 1
+    assert records[0]["status"] == "filtered"
+    assert records[0]["sample_key"]
