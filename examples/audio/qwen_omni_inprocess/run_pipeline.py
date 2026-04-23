@@ -31,22 +31,22 @@ Performance features (adapted from cross-modality best practices):
 
 Architecture:
     NemoTarredAudioReader (CPU, parallel)
-        → streams NeMo-tarred shards from S3/local via lhotse
-        → decodes audio in memory, emits AudioTask with waveform arrays
+        -> streams NeMo-tarred shards from S3/local via lhotse
+        -> decodes audio in memory, emits AudioTask with waveform arrays
     InitializeFieldsStage (CPU)
-        → renames text → granary_v1_prediction, sets skip_me = ""
-        → drops prompt-engineering fields (answer, source_lang, …)
-    InferenceQwenOmniStage (GPU, TP=2 → 4 workers on 8 GPUs)
-        → resamples to 16 kHz, batched vLLM inference
-        → outputs qwen3_prediction_s1, qwen3_prediction_s2
+        -> renames text -> granary_v1_prediction, sets skip_me = ""
+        -> drops prompt-engineering fields (answer, source_lang, ...)
+    InferenceQwenOmniStage (GPU, TP=2, 4 workers on 8 GPUs)
+        -> resamples to 16 kHz, batched vLLM inference
+        -> outputs qwen3_prediction_s1, qwen3_prediction_s2
     WhisperHallucinationStage (CPU)
-        → reads qwen3_prediction_s2, flags hallucination patterns
+        -> reads qwen3_prediction_s2, flags hallucination patterns
     FastTextLIDStage (CPU)
-        → reads qwen3_prediction_s2, flags wrong language / low confidence
+        -> reads qwen3_prediction_s2, flags wrong language / low confidence
     RegexSubstitutionStage (CPU)
-        → reads qwen3_prediction_s2, applies regex rules, writes cleaned_text
+        -> reads qwen3_prediction_s2, applies regex rules, writes cleaned_text
     ALMManifestWriterStage (CPU)
-        → writes JSONL output with cleaned_text field
+        -> writes JSONL output with cleaned_text field
 
 Usage:
     python run_pipeline.py \\
@@ -65,6 +65,30 @@ Usage:
         --regex_yaml /path/to/common.yaml \\
         --output /path/to/output.jsonl \\
         --fp8 --enforce_eager --max_retries 5 --inference_chunk_size 16
+
+Production tips:
+    - **Pre-download model weights** before launching the pipeline to
+      avoid multiple workers downloading simultaneously::
+
+          huggingface-cli download Qwen/Qwen3-Omni-30B-A3B-Instruct
+          # or mount a pre-populated $HF_HOME inside your container
+
+    - **batch_size=32 is a good default.** Empirical testing on YODAS
+      (8xGPU, tp=2) showed that varying batch_size (1 -> 32 -> 512) had
+      negligible impact on throughput.  The vLLM-specific args
+      (``--fp8``, ``--enforce_eager``, ``--mm_cache_gb``) gave ~10%
+      relative improvement — tune those first.
+
+    - **Single-node only.** This in-process approach loads vLLM inside
+      each GPU worker and is optimised for single-node multi-GPU (dp x tp).
+      For multi-node deployments, use the ``InferenceServer`` abstraction
+      with Ray Serve, which handles replica management and supports gRPC
+      zero-copy transport.  See ``nemo_curator.core.serve``.
+
+    - **Monitoring.** The stage logs per-batch timing metrics via
+      ``_log_metrics`` (t1_prep_s, t1_inference_s, t2_prep_s,
+      t2_inference_s).  For production, pair with Prometheus + Grafana
+      on the Ray cluster for real-time throughput dashboards.
 """
 
 import os

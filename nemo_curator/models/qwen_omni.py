@@ -56,11 +56,25 @@ class QwenOmni(ModelInterface):
 
     Performance knobs (learned from video/text/interleaved modalities):
 
-    - ``fp8``: halves KV-cache memory → larger effective batches.
+    - ``fp8``: halves KV-cache memory, larger effective batches.
     - ``enforce_eager``: skip CUDA-graph compilation for faster cold start.
     - ``max_num_batched_tokens``: controls vLLM's internal chunked-prefill.
     - ``mm_cache_gb``: cache preprocessed multimodal tokens across requests.
     - ``max_retries``: auto-reset the vLLM engine on transient CUDA errors.
+
+    Future optimisation opportunity -- **async prep/inference overlap**:
+
+    The current ``generate()`` flow is sequential:
+    ``prep_batch -> inference_t1 -> prep_turn2 -> inference_t2``.  Each
+    phase blocks on the previous.  The ``ThreadPoolExecutor`` parallelises
+    *within* a prep phase, but prep and inference never overlap across
+    batches.  A double-buffering pattern -- where batch N+1's audio
+    preprocessing runs on CPU while batch N's inference runs on GPU --
+    could hide prep latency entirely and close the remaining throughput
+    gap observed between raw vLLM (600 hrs/hr) and Curator in-process
+    (468 hrs/hr -> ~515 with vLLM arg tuning) on YODAS 8xGPU benchmarks.
+    This requires changes at the stage/executor level (e.g. an async
+    generator or prefetch queue feeding ``process_batch``).
     """
 
     def __init__(  # noqa: PLR0913

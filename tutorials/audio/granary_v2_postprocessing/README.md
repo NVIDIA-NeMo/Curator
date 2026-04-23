@@ -189,6 +189,18 @@ echo "Done: $DONE / $TOTAL  (remaining: $((TOTAL - DONE)))"
 - **Throughput estimate**: ~50k–100k entries/min on a 32-core CPU node (bottlenecked by FastText LID and regex processing)
 - FastText model loading happens once per worker in `setup()` — first-batch latency is higher
 
+### When paired with Qwen3-Omni inference
+
+When this pipeline runs downstream of `InferenceQwenOmniStage` (see `examples/audio/qwen_omni_inprocess/`), the GPU inference stage is the bottleneck — text filtering adds negligible overhead. Key tuning guidance from production benchmarks on YODAS (8x GPU, tp=2):
+
+| Knob | Impact |
+|---|---|
+| `--fp8` + `--enforce_eager` + `--mm_cache_gb` | ~10% relative throughput gain (vLLM-specific args dominate) |
+| `--batch_size` (1 → 32 → 512) | Negligible impact — 32 is a good default |
+| Pre-download model to `$HF_HOME` | Avoids multi-worker download races on shared clusters |
+
+For multi-node scale (O(million) hours), use the `InferenceServer` abstraction with Ray Serve instead of in-process vLLM. See `nemo_curator.core.serve`.
+
 ### Expected filtering ratios
 
 Filtering ratios depend heavily on ASR quality and audio domain. Typical ranges on Granary v2 English data:
