@@ -47,7 +47,7 @@ class PnCContentGuardStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     text_key: str = "text"
-    pnc_text_key: str = "text"
+    pnc_text_key: str = "pnc_text"
     rejected_text_key: str = "rejected_pnc_text"
     skip_me_key: str = "_skip_me"
     name: str = "PnCContentGuard"

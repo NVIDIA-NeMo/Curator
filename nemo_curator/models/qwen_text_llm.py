@@ -38,8 +38,6 @@ except ImportError:
 
 
 _QWEN_TEXT_MODEL_ID = "Qwen/Qwen3.5-35B-A3B-FP8"
-_MAX_SAMPLE_LOG = 5
-
 
 class QwenTextLLM(ModelInterface):
     """Text-only Qwen LLM via vLLM for two-step PnC restoration.
@@ -57,7 +55,12 @@ class QwenTextLLM(ModelInterface):
         self,
         model_id: str = _QWEN_TEXT_MODEL_ID,
         completeness_prompt: str = (
-            "Is the following text a complete sentence? Answer only 'yes' or 'no'.\n\nText: {text}"
+            "The following text is a transcript segment from an audio recording. "
+            "It may be a complete, self-contained utterance or thought, "
+            "or it may be cut off mid-sentence or mid-idea.\n\n"
+            'Determine if the text is complete and self-contained (i.e., not cut off). '
+            'Answer only "yes" or "no".\n\n'
+            "Text: {text}"
         ),
         pnc_prompt: str = (
             "Restore proper punctuation and capitalization to the following text. "
@@ -66,7 +69,7 @@ class QwenTextLLM(ModelInterface):
         system_prompt: str | None = None,
         max_model_len: int = 4096,
         max_num_seqs: int = 16,
-        gpu_memory_utilization: float = 0.8,
+        gpu_memory_utilization: float = 0.95,
         tensor_parallel_size: int | None = None,
         max_output_tokens: int = 512,
         temperature: float = 0.0,
@@ -139,7 +142,7 @@ class QwenTextLLM(ModelInterface):
 
     def teardown(self) -> None:
         if self._prep_pool is not None:
-            self._prep_pool.shutdown(wait=False)
+            self._prep_pool.shutdown(wait=True)
             self._prep_pool = None
         del self._llm
         self._llm = None
@@ -282,11 +285,8 @@ class QwenTextLLM(ModelInterface):
         )
 
         complete_indices: list[int] = []
-        sample_answers: list[str] = []
         for idx, out in zip(s1_valid_indices, step1_outputs, strict=False):
             answer = out.outputs[0].text.strip()
-            if len(sample_answers) < _MAX_SAMPLE_LOG:
-                sample_answers.append(repr(answer))
             if self._is_yes(answer):
                 is_complete[idx] = True
                 complete_indices.append(idx)

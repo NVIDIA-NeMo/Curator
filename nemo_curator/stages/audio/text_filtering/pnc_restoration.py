@@ -75,7 +75,12 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     output_text_key: str = "pnc_text"
     skip_me_key: str = "_skip_me"
     completeness_prompt: str = (
-        "Is the following text a complete sentence? Answer only 'yes' or 'no'.\n\nText: {text}"
+        "The following text is a transcript segment from an audio recording. "
+        "It may be a complete, self-contained utterance or thought, "
+        "or it may be cut off mid-sentence or mid-idea.\n\n"
+        'Determine if the text is complete and self-contained (i.e., not cut off). '
+        'Answer only "yes" or "no".\n\n'
+        "Text: {text}"
     )
     pnc_prompt: str = (
         "Restore proper punctuation and capitalization to the following text. "
