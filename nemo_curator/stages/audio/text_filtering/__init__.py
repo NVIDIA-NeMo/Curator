@@ -19,6 +19,7 @@ from nemo_curator.stages.audio.text_filtering.disfluency_wer_guard import Disflu
 from nemo_curator.stages.audio.text_filtering.fasttext_lid import FastTextLIDStage
 from nemo_curator.stages.audio.text_filtering.finalize_fields import FinalizeFieldsStage
 from nemo_curator.stages.audio.text_filtering.initialize_fields import InitializeFieldsStage
+from nemo_curator.stages.audio.text_filtering.itn_restoration import ITNRestorationStage
 from nemo_curator.stages.audio.text_filtering.pnc_content_guard import PnCContentGuardStage
 from nemo_curator.stages.audio.text_filtering.pnc_restoration import PnCRestorationStage
 from nemo_curator.stages.audio.text_filtering.regex_substitution import RegexSubstitutionStage
@@ -29,6 +30,7 @@ __all__ = [
     "DisfluencyWerGuardStage",
     "FastTextLIDStage",
     "FinalizeFieldsStage",
+    "ITNRestorationStage",
     "InitializeFieldsStage",
     "PnCContentGuardStage",
     "PnCRestorationStage",

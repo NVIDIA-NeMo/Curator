@@ -48,6 +48,11 @@ Architecture:
     PnCContentGuardStage (CPU) [optional, --skip_pnc]
         → compares cleaned_text with pnc_text after normalisation
         → reverts pnc_text when the LLM added/removed/substituted words
+    ITNRestorationStage (GPU, text-only LLM) [optional, --enable_itn]
+        → reads pnc_text (or abbreviated_text if PnC skipped)
+        → converts spoken-form to written form (numbers, dates, symbols)
+        → validates output, falls back to input on hallucination
+        → writes itn_text
     ALMManifestWriterStage (CPU)
         → writes JSONL output
 
@@ -72,6 +77,7 @@ from nemo_curator.stages.audio.text_filtering import (
     AbbreviationConcatStage,
     DisfluencyWerGuardStage,
     FastTextLIDStage,
+    ITNRestorationStage,
     InitializeFieldsStage,
     PnCContentGuardStage,
     PnCRestorationStage,
@@ -144,6 +150,26 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                      help="Thread pool size for PnC prompt preprocessing.")
     pnc.add_argument("--skip_pnc", action="store_true", default=False,
                      help="Skip PnC restoration stage entirely.")
+
+    itn = ap.add_argument_group("ITN (inverse text normalization)")
+    itn.add_argument("--enable_itn", action="store_true",
+                     help="Enable ITN stage after PnC restoration.")
+    itn.add_argument("--itn_model_id", type=str, default="Qwen/Qwen3.5-35B-A3B-FP8",
+                     help="Model for ITN inference.")
+    itn.add_argument("--itn_prompt_file", type=str, default=None,
+                     help="ITN system prompt file. Uses bundled default if not set.")
+    itn.add_argument("--itn_text_key", type=str, default=None,
+                     help="Input key for ITN (default: pnc_text if PnC enabled, abbreviated_text otherwise).")
+    itn.add_argument("--itn_output_key", type=str, default="itn_text",
+                     help="Output key for ITN result.")
+    itn.add_argument("--itn_batch_size", type=int, default=64,
+                     help="Batch size for ITN inference.")
+    itn.add_argument("--itn_tensor_parallel_size", type=int, default=None,
+                     help="TP size for ITN model (None = auto-detect).")
+    itn.add_argument("--itn_max_output_tokens", type=int, default=4096,
+                     help="Max tokens to generate per ITN sample.")
+    itn.add_argument("--itn_no_validation", action="store_true",
+                     help="Disable ITN output validation.")
     return ap
 
 
@@ -172,6 +198,11 @@ def main() -> None:
     if args.pnc_prompt_file:
         with open(args.pnc_prompt_file, encoding="utf-8") as f:
             pnc_prompt_text = f.read().strip()
+
+    itn_prompt_text = None
+    if args.itn_prompt_file:
+        with open(args.itn_prompt_file, encoding="utf-8") as f:
+            itn_prompt_text = f.read().strip()
 
     pipeline = Pipeline(
         name="qwen_omni_inference",
@@ -244,6 +275,17 @@ def main() -> None:
                 pnc_text_key="pnc_text",
                 rejected_text_key="rejected_pnc_text",
             )] if not args.skip_pnc else []),
+
+            *([ITNRestorationStage(
+                model_id=args.itn_model_id,
+                prompt_text=itn_prompt_text,
+                text_key=args.itn_text_key or ("pnc_text" if not args.skip_pnc else "abbreviated_text"),
+                output_text_key=args.itn_output_key,
+                tensor_parallel_size=args.itn_tensor_parallel_size,
+                max_output_tokens=args.itn_max_output_tokens,
+                batch_size=args.itn_batch_size,
+                enable_validation=not args.itn_no_validation,
+            )] if args.enable_itn else []),
 
             ShardedManifestWriterStage(
                 output_dir=args.output_dir,
