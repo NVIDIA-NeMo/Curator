@@ -55,12 +55,12 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
       downloaded to ``~/.cache/nemo_curator/fasttext/`` on first use.
     """
 
+    name: str = "FastTextLID"
     model_path: str = ""
     target_lang: str = "en"
     min_lang_prob: float = 0.8
     text_key: str = "pred_text"
     skip_me_key: str = "skip_me"
-    name: str = "FastTextLID"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     _lid: Any = field(default=None, init=False, repr=False)

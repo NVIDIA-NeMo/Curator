@@ -46,11 +46,11 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     ``skip_me`` when they flag an entry (e.g. ``"Hallucination"``).
     """
 
+    name: str = "InitializeFields"
     skip_me_key: str = "skip_me"
     original_text_key: str = "text"
     granary_v1_key: str = "granary_v1_prediction"
     drop_keys: list[str] = field(default_factory=lambda: list(_DEFAULT_DROP_KEYS))
-    name: str = "InitializeFields"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def inputs(self) -> tuple[list[str], list[str]]:
