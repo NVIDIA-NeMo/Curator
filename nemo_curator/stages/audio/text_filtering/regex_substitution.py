@@ -42,7 +42,7 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
     regex_params_yaml: str = ""
     text_key: str = "pred_text"
     output_text_key: str = "cleaned_text"
-    skip_me_key: str = "skip_me"
+    skip_me_key: str = "_skip_me"
     name: str = "RegexSubstitution"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -66,13 +66,10 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_text_key, self.skip_me_key]
 
-    def process(self, task: AudioTask) -> AudioTask:
-        if not self._setup_called:
-            logger.warning(
-                f"RegexSubstitutionStage ({self.name}): setup() was not called before process(). "
-                "Calling setup() now — check that your executor invokes setup() on each worker."
-            )
-            self.setup()
+    def _process_single(self, task: AudioTask) -> AudioTask:
+        if task.data.get(self.skip_me_key, ""):
+            task.data.setdefault(self.output_text_key, task.data.get(self.text_key, ""))
+            return task
         text = task.data[self.text_key]
         if not isinstance(text, str):
             return task
@@ -84,3 +81,21 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
         if not text and not task.data[self.skip_me_key]:
             task.data[self.skip_me_key] = "Empty after regex cleaning"
         return task
+
+    def process(self, task: AudioTask) -> AudioTask:
+        if not self._setup_called:
+            logger.warning(
+                f"RegexSubstitutionStage ({self.name}): setup() was not called before process(). "
+                "Calling setup() now — check that your executor invokes setup() on each worker."
+            )
+            self.setup()
+        return self._process_single(task)
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        if not self._setup_called:
+            logger.warning(
+                f"RegexSubstitutionStage ({self.name}): setup() was not called before process_batch(). "
+                "Calling setup() now — check that your executor invokes setup() on each worker."
+            )
+            self.setup()
+        return [self._process_single(task) for task in tasks]

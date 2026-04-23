@@ -218,7 +218,7 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
     text_key: str = "text"
     output_text_key: str = "abbreviated_text"
     abbreviations_key: str = "abbreviations"
-    skip_me_key: str = "skip_me"
+    skip_me_key: str = "_skip_me"
     language: str = "en"
     name: str = "AbbreviationConcat"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
@@ -229,7 +229,7 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_text_key, self.abbreviations_key]
 
-    def process(self, task: AudioTask) -> AudioTask:
+    def _process_single(self, task: AudioTask) -> AudioTask:
         skip = task.data.get(self.skip_me_key, "")
         if skip:
             task.data.setdefault(self.output_text_key, task.data.get(self.text_key, ""))
@@ -248,3 +248,9 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
         task.data[self.output_text_key] = result
         task.data[self.abbreviations_key] = found
         return task
+
+    def process(self, task: AudioTask) -> AudioTask:
+        return self._process_single(task)
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        return [self._process_single(task) for task in tasks]

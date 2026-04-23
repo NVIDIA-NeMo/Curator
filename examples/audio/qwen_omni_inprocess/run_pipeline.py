@@ -28,7 +28,7 @@ Architecture:
         → streams NeMo-tarred shards from S3/local via lhotse
         → decodes audio in memory, emits AudioTask with waveform arrays
     InitializeFieldsStage (CPU)
-        → renames text → granary_v1_prediction, sets skip_me = ""
+        → renames text → granary_v1_prediction, sets _skip_me = ""
         → drops prompt-engineering fields (answer, source_lang, …)
     InferenceQwenOmniStage (GPU, TP=2 → 4 workers on 8 GPUs)
         → resamples to 16 kHz, batched vLLM inference
@@ -70,6 +70,7 @@ from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
 from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
 from nemo_curator.stages.audio.text_filtering import (
     AbbreviationConcatStage,
+    DisfluencyWerGuardStage,
     FastTextLIDStage,
     InitializeFieldsStage,
     PnCContentGuardStage,
@@ -193,6 +194,11 @@ def main():
                 pred_text_key="qwen3_prediction_s1",
                 disfluency_text_key="qwen3_prediction_s2",
             ),
+            *([DisfluencyWerGuardStage(
+                ref_text_key="qwen3_prediction_s1",
+                hyp_text_key="qwen3_prediction_s2",
+                max_wer_pct=50.0,
+            )] if followup_prompt else []),
             WhisperHallucinationStage(
                 common_hall_file=args.hall_phrases,
                 text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",

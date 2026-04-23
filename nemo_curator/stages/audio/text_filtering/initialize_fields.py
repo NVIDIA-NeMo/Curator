@@ -47,7 +47,7 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     ``skip_me`` when they flag an entry (e.g. ``"Hallucination"``).
     """
 
-    skip_me_key: str = "skip_me"
+    skip_me_key: str = "_skip_me"
     original_text_key: str = "text"
     granary_v1_key: str = "granary_v1_prediction"
     drop_keys: list[str] = field(default_factory=lambda: list(_DEFAULT_DROP_KEYS))
@@ -70,3 +70,12 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
         for key in self.drop_keys:
             task.data.pop(key, None)
         return task
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        for task in tasks:
+            task.data[self.skip_me_key] = ""
+            if self.original_text_key and self.original_text_key in task.data:
+                task.data[self.granary_v1_key] = task.data.pop(self.original_text_key)
+            for key in self.drop_keys:
+                task.data.pop(key, None)
+        return tasks

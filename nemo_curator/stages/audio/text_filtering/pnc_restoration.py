@@ -69,7 +69,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     model_id: str = "Qwen/Qwen3.5-35B-A3B"
     text_key: str = "cleaned_text"
     output_text_key: str = "pnc_text"
-    skip_me_key: str = "skip_me"
+    skip_me_key: str = "_skip_me"
     completeness_prompt: str = (
         "Is the following text a complete sentence? Answer only 'yes' or 'no'.\n\nText: {text}"
     )

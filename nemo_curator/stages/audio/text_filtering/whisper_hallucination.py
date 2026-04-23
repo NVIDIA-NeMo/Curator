@@ -46,7 +46,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     max_char_rate: float = 40.0
     duration_key: str = "duration"
     text_key: str = "pred_text"
-    skip_me_key: str = "skip_me"
+    skip_me_key: str = "_skip_me"
     name: str = "WhisperHallucination"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -112,13 +112,9 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         chars = sum(len(w) for w in words)
         return chars / duration > self.max_char_rate
 
-    def process(self, task: AudioTask) -> AudioTask:
-        if not self._setup_called:
-            logger.warning(
-                f"WhisperHallucinationStage ({self.name}): setup() was not called before process(). "
-                "Calling setup() now — check that your executor invokes setup() on each worker."
-            )
-            self.setup()
+    def _process_single(self, task: AudioTask) -> AudioTask:
+        if task.data.get(self.skip_me_key, ""):
+            return task
         text = task.data[self.text_key]
         if not isinstance(text, str):
             return task
@@ -151,6 +147,24 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             if not task.data[self.skip_me_key]:
                 task.data[self.skip_me_key] = "Hallucination"
         return task
+
+    def process(self, task: AudioTask) -> AudioTask:
+        if not self._setup_called:
+            logger.warning(
+                f"WhisperHallucinationStage ({self.name}): setup() was not called before process(). "
+                "Calling setup() now — check that your executor invokes setup() on each worker."
+            )
+            self.setup()
+        return self._process_single(task)
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        if not self._setup_called:
+            logger.warning(
+                f"WhisperHallucinationStage ({self.name}): setup() was not called before process_batch(). "
+                "Calling setup() now — check that your executor invokes setup() on each worker."
+            )
+            self.setup()
+        return [self._process_single(task) for task in tasks]
 
     def teardown(self) -> None:
         logger.info(

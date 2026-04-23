@@ -27,8 +27,8 @@ _PUNCT_TABLE = str.maketrans("", "", string.punctuation)
 
 
 def _words_match(a: str, b: str) -> bool:
-    """True when *a* and *b* differ only in punctuation and capitalisation."""
-    normalise = lambda t: t.strip().lower().translate(_PUNCT_TABLE).split()
+    """True when *a* and *b* differ only in punctuation, capitalisation, or spacing."""
+    normalise = lambda t: t.lower().translate(_PUNCT_TABLE).replace(" ", "")
     return normalise(a) == normalise(b)
 
 
@@ -48,6 +48,7 @@ class PnCContentGuardStage(ProcessingStage[AudioTask, AudioTask]):
     text_key: str = "text"
     pnc_text_key: str = "text"
     rejected_text_key: str = "rejected_pnc_text"
+    skip_me_key: str = "_skip_me"
     name: str = "PnCContentGuard"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -57,7 +58,10 @@ class PnCContentGuardStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.pnc_text_key, self.rejected_text_key]
 
-    def process(self, task: AudioTask) -> AudioTask:
+    def _process_single(self, task: AudioTask) -> AudioTask:
+        if task.data.get(self.skip_me_key, ""):
+            task.data.setdefault(self.rejected_text_key, "")
+            return task
         original = task.data.get(self.text_key, "")
         pnc = task.data.get(self.pnc_text_key, "")
 
@@ -68,3 +72,9 @@ class PnCContentGuardStage(ProcessingStage[AudioTask, AudioTask]):
             task.data[self.rejected_text_key] = ""
 
         return task
+
+    def process(self, task: AudioTask) -> AudioTask:
+        return self._process_single(task)
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        return [self._process_single(task) for task in tasks]
