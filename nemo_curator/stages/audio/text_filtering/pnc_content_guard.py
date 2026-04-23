@@ -17,8 +17,6 @@ from __future__ import annotations
 import string
 from dataclasses import dataclass, field
 
-from loguru import logger
-
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -26,10 +24,13 @@ from nemo_curator.tasks import AudioTask
 _PUNCT_TABLE = str.maketrans("", "", string.punctuation)
 
 
+def _normalise(t: str) -> str:
+    return t.lower().translate(_PUNCT_TABLE).replace(" ", "")
+
+
 def _words_match(a: str, b: str) -> bool:
     """True when *a* and *b* differ only in punctuation, capitalisation, or spacing."""
-    normalise = lambda t: t.lower().translate(_PUNCT_TABLE).replace(" ", "")
-    return normalise(a) == normalise(b)
+    return _normalise(a) == _normalise(b)
 
 
 @dataclass

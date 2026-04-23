@@ -81,7 +81,7 @@ from nemo_curator.stages.audio.text_filtering import (
 from nemo_curator.stages.resources import Resources
 
 
-def main() -> None:
+def _build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="QwenOmni in-process vLLM pipeline")
     ap.add_argument("--data_config", type=str, required=True, help="Granary YAML data config.")
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
@@ -144,8 +144,11 @@ def main() -> None:
                      help="Thread pool size for PnC prompt preprocessing.")
     pnc.add_argument("--skip_pnc", action="store_true", default=False,
                      help="Skip PnC restoration stage entirely.")
+    return ap
 
-    args = ap.parse_args()
+
+def main() -> None:
+    args = _build_arg_parser().parse_args()
 
     prompt = args.prompt
     if args.prompt_file:

@@ -35,7 +35,7 @@ import argparse
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def measure(path: str, duration_key: str = "duration") -> tuple[int, float]:
@@ -61,7 +61,7 @@ def parse_inference_time_from_log(log_path: str) -> float | None:
             m = ts_pattern.search(line)
             if not m:
                 continue
-            ts = datetime.strptime(m.group(1)[:19], "%Y-%m-%d %H:%M:%S")
+            ts = datetime.strptime(m.group(1)[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
             if first_ts is None:
                 first_ts = ts
             last_ts = ts
@@ -83,7 +83,7 @@ def print_results(count: int, audio: float, inference_time: float) -> None:
     print("=" * 50)
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser(description="Measure realtime factor from output JSONL")
     ap.add_argument("output_file", help="Path to the output JSONL file")
     ap.add_argument("--interval", type=int, default=60, help="Seconds between snapshots for live mode (default: 60)")
@@ -123,7 +123,7 @@ def main():
     print(f"Waiting {args.interval}s ...")
     time.sleep(args.interval)
 
-    print(f"Taking snapshot 2 ...")
+    print("Taking snapshot 2 ...")
     count2, audio2 = measure(args.output_file, args.duration_key)
     ts2 = time.time()
     print(f"  Utterances: {count2:,}  |  Audio: {audio2/3600:.1f}h")
@@ -136,7 +136,7 @@ def main():
     if d_count == 0:
         print("No new utterances. Pipeline may have finished or stalled.")
         print(f"Total: {count2:,} utterances, {audio2/3600:.1f}h audio")
-        print(f"\nTip: For completed runs, use --slurm-log <file> or --wall-time <seconds>")
+        print("\nTip: For completed runs, use --slurm-log <file> or --wall-time <seconds>")
         return
 
     realtime = d_audio / dt

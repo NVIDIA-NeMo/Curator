@@ -15,11 +15,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+
 from nemo_curator.models.qwen_text_llm import QwenTextLLM
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -32,9 +34,9 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
 
     Two-step process per text entry:
 
-    1. **Completeness check** – ask the model whether the text is a
+    1. **Completeness check** - ask the model whether the text is a
        complete sentence (via ``completeness_prompt``).
-    2. **PnC restoration** – if complete, send the text with
+    2. **PnC restoration** - if complete, send the text with
        ``pnc_prompt`` and write the restored output to
        ``output_text_key`` (default ``"pnc_text"``).  If incomplete,
        copy the original ``text_key`` value as-is.
@@ -178,7 +180,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
 
         is_complete, pnc_texts = self._model.generate(eligible_texts)
 
-        for idx, complete, pnc_text in zip(eligible_indices, is_complete, pnc_texts):
+        for idx, _complete, pnc_text in zip(eligible_indices, is_complete, pnc_texts, strict=False):
             tasks[idx].data[self.output_text_key] = pnc_text
 
         n_restored = sum(is_complete)

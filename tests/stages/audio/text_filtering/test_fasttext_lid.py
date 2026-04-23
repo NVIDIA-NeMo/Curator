@@ -112,7 +112,7 @@ def test_known_model_name_checks_cache(tmp_path: object) -> None:
         patch("nemo_curator.stages.audio.text_filtering.fasttext_lid._DEFAULT_CACHE_DIR", str(tmp_path)),
         patch("urllib.request.urlretrieve") as mock_dl,
     ):
-        mock_dl.side_effect = lambda url, path: open(path, "w").close()  # noqa: SIM115
+        mock_dl.side_effect = lambda _url, path: open(path, "w").close()
         resolved = stage._resolve_model_path()
     assert resolved.endswith("lid.176.ftz")
 

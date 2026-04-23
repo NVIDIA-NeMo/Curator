@@ -106,7 +106,7 @@ def _strip_particles(raw: str, particles: frozenset[str]) -> str:
 
 def _is_mixed_case_pair(letters: str) -> bool:
     """True for a 2-letter mix of lower+upper like 'xI' or 'Ia' — not a real abbreviation."""
-    return len(letters) == 2 and letters[0].islower() != letters[1].islower()
+    return len(letters) == _MIN_PARTS and letters[0].islower() != letters[1].islower()
 
 
 def _is_double_i(raw: str) -> bool:

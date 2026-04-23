@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field  # noqa: I001
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
