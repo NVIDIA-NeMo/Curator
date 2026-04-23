@@ -63,6 +63,33 @@ class BaseInterleavedAnnotatorStage(ProcessingStage[InterleavedBatch, Interleave
             _stage_perf=task._stage_perf,
         )
 
+    def iter_materialized_bytes(
+        self, task: InterleavedBatch, df: pd.DataFrame, row_mask: pd.Series
+    ) -> Iterator[tuple[int, bytes | None]]:
+        """Yield ``(row_index, bytes)`` for masked rows after materialization.
+
+        Only the masked subset is materialized, avoiding redundant I/O for
+        the full task.
+        """
+        masked_indices = df[row_mask].index.tolist()
+        if not masked_indices:
+            return
+        temp_task = InterleavedBatch(
+            task_id=task.task_id,
+            dataset_name=task.dataset_name,
+            data=df.loc[masked_indices],
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )
+        materialized_df = materialize_task_binary_content(temp_task).to_pandas().reset_index(drop=True)
+        if "binary_content" not in materialized_df.columns:
+            for idx in masked_indices:
+                yield idx, None
+            return
+        for i, idx in enumerate(masked_indices):
+            row_bytes = materialized_df.iloc[i]["binary_content"]
+            yield idx, bytes(row_bytes) if isinstance(row_bytes, (bytes, bytearray)) else None
+
 
 @dataclass
 class BaseInterleavedFilterStage(BaseInterleavedAnnotatorStage, ABC):
@@ -92,33 +119,6 @@ class BaseInterleavedFilterStage(BaseInterleavedAnnotatorStage, ABC):
         keep_mask &= self.content_keep_mask(task, df)
         return keep_mask
 
-    def iter_materialized_bytes(
-        self, task: InterleavedBatch, df: pd.DataFrame, row_mask: pd.Series
-    ) -> Iterator[tuple[int, bytes | None]]:
-        """Yield ``(row_index, bytes)`` for masked rows after materialization.
-
-        Only the masked subset is materialized, avoiding redundant I/O for
-        the full task.
-        """
-        masked_indices = df[row_mask].index.tolist()
-        if not masked_indices:
-            return
-        temp_task = InterleavedBatch(
-            task_id=task.task_id,
-            dataset_name=task.dataset_name,
-            data=df.loc[masked_indices],
-            _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
-        )
-        materialized_df = materialize_task_binary_content(temp_task).to_pandas().reset_index(drop=True)
-        if "binary_content" not in materialized_df.columns:
-            for idx in masked_indices:
-                yield idx, None
-            return
-        for i, idx in enumerate(masked_indices):
-            row_bytes = materialized_df.iloc[i]["binary_content"]
-            yield idx, bytes(row_bytes) if isinstance(row_bytes, (bytes, bytearray)) else None
-
     def annotate(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.DataFrame:
         filtered = df[self.keep_mask(task, df)].copy()
         content_mask = filtered["modality"] != "metadata"
@@ -130,6 +130,29 @@ class BaseInterleavedFilterStage(BaseInterleavedAnnotatorStage, ABC):
         orphan_mask = (~content_mask) & (~filtered["sample_id"].isin(content_sample_ids))
         filtered = filtered[~orphan_mask]
         return filtered.sort_values(["sample_id", "position"])
+
+
+@dataclass
+class BaseInterleavedScoreFilterStage(BaseInterleavedAnnotatorStage, ABC):
+    """Base stage that only adds score columns; no row dropping or reordering in :meth:`annotate`.
+
+    Subclasses implement :meth:`annotation_columns` to return ``dict[column_name, Series]``
+    aligned to ``df.index``. :meth:`annotate` copies the frame, assigns score columns, and leaves
+    all original columns and row order unchanged.
+
+    """
+
+    name: str = "base_interleaved_score_filter"
+
+    @abstractmethod
+    def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
+        """Per-row score columns aligned to ``df.index``."""
+
+    def annotate(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.DataFrame:
+        out = df.copy()
+        for col_name, series in self.annotation_columns(task, out).items():
+            out[col_name] = series.reindex(out.index)
+        return out
 
 
 @dataclass
