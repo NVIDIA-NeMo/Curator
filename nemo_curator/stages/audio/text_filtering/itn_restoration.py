@@ -49,35 +49,65 @@ _DEFAULT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "itn_prompt
 
 _ALPHA_RE = re.compile(r"[a-zA-Z]+")
 _ROMAN_RE = re.compile(r"^[ivxlcdm]+$", re.IGNORECASE)
-_VALID_ITN_ALPHA = frozenset({
-    "st", "nd", "rd", "th",
-    "dr", "mr", "mrs", "ms", "prof", "sr", "jr",
-    "ave", "blvd", "ln", "ct", "pl",
-    "n", "s", "e", "w", "ne", "nw", "se", "sw",
-    "kg", "km", "cm", "mm", "mg", "lb", "lbs", "oz",
-    "ft", "mi", "ml", "mph", "h", "g", "m", "l",
-    "am", "pm",
-    "vs", "dept", "inc", "corp", "ltd", "co", "no",
-})
+_VALID_ITN_ALPHA = frozenset(
+    {
+        "st",
+        "nd",
+        "rd",
+        "th",
+        "dr",
+        "mr",
+        "mrs",
+        "ms",
+        "prof",
+        "sr",
+        "jr",
+        "ave",
+        "blvd",
+        "ln",
+        "ct",
+        "pl",
+        "n",
+        "s",
+        "e",
+        "w",
+        "ne",
+        "nw",
+        "se",
+        "sw",
+        "kg",
+        "km",
+        "cm",
+        "mm",
+        "mg",
+        "lb",
+        "lbs",
+        "oz",
+        "ft",
+        "mi",
+        "ml",
+        "mph",
+        "h",
+        "g",
+        "m",
+        "l",
+        "am",
+        "pm",
+        "vs",
+        "dept",
+        "inc",
+        "corp",
+        "ltd",
+        "co",
+        "no",
+    }
+)
+
+_MIN_WORDS_FOR_DELETION_CHECK = 8
+_MAX_DELETION_RATIO = 0.3
 
 
-def _validate_itn_output(input_text: str, output_text: str) -> tuple[bool, str]:
-    """Check that ITN output is a faithful conversion, not a hallucination.
-
-    Catches three failure modes:
-      1. Word insertion  — output has more words than input
-      2. Novel content   — output introduces alphabetic words not in input
-      3. Excessive deletion — output dropped >50 % of words (summarisation)
-    """
-    in_words = input_text.lower().split()
-    out_words = output_text.lower().split()
-
-    if not in_words or not out_words:
-        return True, "ok"
-
-    if len(out_words) > len(in_words):
-        return False, f"word_count_increase ({len(in_words)}->{len(out_words)})"
-
+def _check_novel_words(in_words: list[str], out_words: list[str]) -> list[str]:
     in_alpha: set[str] = set()
     for w in in_words:
         for part in _ALPHA_RE.findall(w):
@@ -92,11 +122,25 @@ def _validate_itn_output(input_text: str, output_text: str) -> tuple[bool, str]:
             if _ROMAN_RE.match(p):
                 continue
             novel.append(p)
+    return novel
 
+
+def _validate_itn_output(input_text: str, output_text: str) -> tuple[bool, str]:
+    """Check that ITN output is a faithful conversion, not a hallucination."""
+    in_words = input_text.lower().split()
+    out_words = output_text.lower().split()
+
+    if not in_words or not out_words:
+        return True, "ok"
+
+    if len(out_words) > len(in_words):
+        return False, f"word_count_increase ({len(in_words)}->{len(out_words)})"
+
+    novel = _check_novel_words(in_words, out_words)
     if novel:
         return False, f"novel_words: {novel}"
 
-    if len(in_words) >= 8 and len(out_words) < len(in_words) * 0.3:
+    if len(in_words) >= _MIN_WORDS_FOR_DELETION_CHECK and len(out_words) < len(in_words) * _MAX_DELETION_RATIO:
         return False, f"excessive_deletion ({len(in_words)}->{len(out_words)})"
 
     return True, "ok"
@@ -199,11 +243,14 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
 
         from nemo_curator.utils.gpu_utils import get_gpu_count
 
-        tp = self.tensor_parallel_size if self.tensor_parallel_size else get_gpu_count()
+        tp = self.tensor_parallel_size or get_gpu_count()
 
         logger.info(
             "ITN: loading %s (tp=%d, max_model_len=%d, kv_cache_dtype=%s)",
-            self.model_id, tp, self.max_model_len, self.kv_cache_dtype,
+            self.model_id,
+            tp,
+            self.max_model_len,
+            self.kv_cache_dtype,
         )
 
         self._llm = LLM(
