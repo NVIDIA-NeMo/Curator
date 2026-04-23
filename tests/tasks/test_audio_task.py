@@ -17,7 +17,12 @@
 from pathlib import Path
 
 from nemo_curator.tasks import AudioTask
-from nemo_curator.tasks.audio_task import build_audio_sample_key
+from nemo_curator.tasks.audio_task import (
+    build_audio_sample_key,
+    carry_sample_key,
+    derive_child_sample_key,
+    ensure_sample_key,
+)
 
 
 def test_audio_task_stores_dict() -> None:
@@ -69,3 +74,42 @@ def test_build_audio_sample_key_is_stable_for_same_identity() -> None:
 
     assert first == second
     assert first
+
+
+def test_ensure_sample_key_derives_and_caches_key() -> None:
+    task = AudioTask(dataset_name="dataset", data={"audio_filepath": "/a.wav"})
+
+    first = ensure_sample_key(task)
+    second = ensure_sample_key(task)
+
+    assert first == second
+    assert task.sample_key == first
+
+
+def test_carry_sample_key_prefers_parent_key() -> None:
+    task = AudioTask(data={"audio_filepath": "/a.wav"}, sample_key="parent-key")
+
+    assert carry_sample_key(task) == "parent-key"
+
+
+def test_derive_child_sample_key_is_stable_and_unique() -> None:
+    task = AudioTask(dataset_name="dataset", data={"audio_filepath": "/a.wav"})
+
+    first = derive_child_sample_key(
+        task,
+        child_kind="segment",
+        child_identity={"segment_index": 0, "offset": 0.0, "duration": 1.0},
+    )
+    second = derive_child_sample_key(
+        task,
+        child_kind="segment",
+        child_identity={"duration": 1.0, "offset": 0.0, "segment_index": 0},
+    )
+    third = derive_child_sample_key(
+        task,
+        child_kind="segment",
+        child_identity={"segment_index": 1, "offset": 1.0, "duration": 1.0},
+    )
+
+    assert first == second
+    assert first != third

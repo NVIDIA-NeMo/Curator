@@ -1,0 +1,152 @@
+# modality: audio
+#
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.checkpointing.audio import AudioCheckpointRunner
+from nemo_curator.checkpointing.audio.serialization import (
+    deserialize_audio_task,
+    dump_audio_task_manifest,
+    load_audio_task_manifest,
+    serialize_audio_task,
+)
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask, EmptyTask
+
+
+class LocalExecutor(BaseExecutor):
+    def execute(self, stages, initial_tasks=None):
+        tasks = initial_tasks or [EmptyTask]
+        for stage in stages:
+            tasks = stage.process_batch(tasks)
+        return tasks
+
+
+@dataclass
+class ReaderStage(ProcessingStage):
+    emitted_tasks: list[AudioTask]
+    name: str = "reader_stage"
+
+    def process(self, _task):
+        return [
+            AudioTask(
+                task_id=task.task_id,
+                dataset_name=task.dataset_name,
+                data=dict(task.data),
+                sample_key=task.sample_key,
+            )
+            for task in self.emitted_tasks
+        ]
+
+
+@dataclass
+class CountingStage(ProcessingStage[AudioTask, AudioTask]):
+    calls: int = 0
+    field_name: str = "counted"
+    name: str = "counting_stage"
+
+    def process(self, task: AudioTask) -> AudioTask:
+        self.calls += 1
+        task.data[self.field_name] = True
+        return task
+
+
+@dataclass
+class FailingStage(ProcessingStage[AudioTask, AudioTask]):
+    bad_key: str = "bad"
+    name: str = "failing_stage"
+
+    def process(self, task: AudioTask) -> AudioTask:
+        if task.sample_key == self.bad_key:
+            msg = f"boom for {task.sample_key}"
+            raise RuntimeError(msg)
+        task.data["processed"] = True
+        return task
+
+
+def _make_audio_task(sample_key: str) -> AudioTask:
+    return AudioTask(
+        task_id=sample_key,
+        dataset_name="dataset",
+        data={"audio_filepath": f"{sample_key}.wav"},
+        sample_key=sample_key,
+    )
+
+
+def test_serialization_manifest_roundtrip(tmp_path: Path) -> None:
+    tasks = [_make_audio_task("sample-a"), _make_audio_task("sample-b")]
+    manifest_path = tmp_path / "manifest.jsonl"
+
+    dump_audio_task_manifest(tasks, manifest_path)
+    restored = load_audio_task_manifest(manifest_path)
+
+    assert [task.sample_key for task in restored] == ["sample-a", "sample-b"]
+    assert restored[0].data["audio_filepath"] == "sample-a.wav"
+    assert deserialize_audio_task(serialize_audio_task(tasks[0])).sample_key == "sample-a"
+
+
+def test_runner_skips_completed_stages_on_rerun(tmp_path: Path) -> None:
+    reader = ReaderStage(emitted_tasks=[_make_audio_task("sample-a"), _make_audio_task("sample-b")])
+    counting = CountingStage()
+
+    pipeline = Pipeline(name="checkpoint_test", stages=[reader, counting])
+    runner = AudioCheckpointRunner(
+        pipeline=pipeline,
+        checkpoint_dir=str(tmp_path / "checkpoints"),
+        executor=LocalExecutor(),
+    )
+
+    first = runner.run()
+    second = runner.run()
+
+    assert first is not None
+    assert second is not None
+    assert [task.data["counted"] for task in first] == [True, True]
+    assert [task.data["counted"] for task in second] == [True, True]
+    assert counting.calls == 2
+
+
+def test_runner_records_failed_samples_when_ignore_failed_enabled(tmp_path: Path) -> None:
+    reader = ReaderStage(emitted_tasks=[_make_audio_task("good"), _make_audio_task("bad")])
+    failing = FailingStage()
+
+    pipeline = Pipeline(name="checkpoint_failures", stages=[reader, failing])
+    runner = AudioCheckpointRunner(
+        pipeline=pipeline,
+        checkpoint_dir=str(tmp_path / "checkpoints"),
+        executor=LocalExecutor(),
+        ignore_failed=True,
+    )
+
+    results = runner.run()
+
+    assert results is not None
+    assert [task.sample_key for task in results] == ["good"]
+    stage_json = json.loads((tmp_path / "checkpoints" / "01_failing_stage" / "stage.json").read_text())
+    assert stage_json["failed_count"] == 1
+
+    records_path = tmp_path / "checkpoints" / "01_failing_stage" / "records" / "shard_00000.jsonl"
+    records = [json.loads(line) for line in records_path.read_text().splitlines() if line.strip()]
+    statuses = {record["sample_key"]: record["status"] for record in records}
+
+    assert statuses == {
+        "good": "done",
+        "bad": "failed_retriable",
+    }

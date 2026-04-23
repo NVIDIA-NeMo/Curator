@@ -12,7 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .audio_task import AudioTask
+from .audio_task import (
+    AudioTask,
+    build_audio_sample_key,
+    carry_sample_key,
+    derive_child_sample_key,
+    ensure_sample_key,
+)
 from .document import DocumentBatch
 from .file_group import FileGroupTask
 from .image import ImageBatch, ImageObject
@@ -21,8 +27,12 @@ from .tasks import EmptyTask, Task, _EmptyTask
 
 __all__ = [
     "AudioTask",
+    "build_audio_sample_key",
+    "carry_sample_key",
     "DocumentBatch",
+    "derive_child_sample_key",
     "EmptyTask",
+    "ensure_sample_key",
     "FileGroupTask",
     "ImageBatch",
     "ImageObject",

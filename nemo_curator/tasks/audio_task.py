@@ -90,6 +90,42 @@ def build_audio_sample_key(
     return hashlib.sha256(identity_json.encode("utf-8")).hexdigest()
 
 
+def ensure_sample_key(task: "AudioTask") -> str:
+    """Return the task sample key, deriving a root key when missing."""
+    if task.sample_key:
+        return task.sample_key
+    task.sample_key = build_audio_sample_key(task.data, dataset_name=task.dataset_name)
+    return task.sample_key
+
+
+def carry_sample_key(parent_task: "AudioTask", *, data: Mapping[str, Any] | None = None) -> str:
+    """Carry forward the same sample identity for a 1:1 transform."""
+    if parent_task.sample_key:
+        return parent_task.sample_key
+    if data is not None:
+        return build_audio_sample_key(data, dataset_name=parent_task.dataset_name)
+    return ensure_sample_key(parent_task)
+
+
+def derive_child_sample_key(
+    parent_task: "AudioTask",
+    *,
+    child_kind: str,
+    child_identity: Mapping[str, Any],
+) -> str:
+    """Derive a deterministic child sample key for fan-out outputs."""
+    payload = {
+        "parent_sample_key": ensure_sample_key(parent_task),
+        "child_kind": child_kind,
+        "child_identity": {
+            key: _normalize_sample_key_value(value)
+            for key, value in sorted(child_identity.items())
+        },
+    }
+    payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+
+
 @dataclass
 class AudioTask(Task[dict]):
     """A single audio manifest entry.
