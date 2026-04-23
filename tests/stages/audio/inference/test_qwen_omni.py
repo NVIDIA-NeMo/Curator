@@ -45,6 +45,7 @@ def patch_qwen_model() -> Generator[tuple[MagicMock, MagicMock]]:
     mock_model_instance.generate.return_value = (
         ["transcribed text"],
         ["refined text"],
+        {"batch_size": 1.0, "t1_prep_s": 0.01, "t1_inference_s": 0.5},
     )
 
     with patch(
@@ -155,6 +156,7 @@ def test_process_batch_populates_predictions(
     mock_instance.generate.return_value = (
         ["hello world"],
         ["hello world refined"],
+        {"batch_size": 1.0, "t1_inference_s": 0.1},
     )
 
     stage = _make_stage(followup_prompt="Refine.")
@@ -172,7 +174,7 @@ def test_process_batch_without_followup(
     patch_qwen_model: tuple[MagicMock, MagicMock],
 ) -> None:
     _, mock_instance = patch_qwen_model
-    mock_instance.generate.return_value = (["text"], [None])
+    mock_instance.generate.return_value = (["text"], [None], {"batch_size": 1.0})
 
     stage = _make_stage(followup_prompt=None)
     stage.setup(None)
@@ -205,6 +207,7 @@ def test_process_batch_multi_task(
     mock_instance.generate.return_value = (
         ["a", "b", "c"],
         ["a2", "b2", "c2"],
+        {"batch_size": 3.0, "t1_inference_s": 0.3, "t2_inference_s": 0.2},
     )
 
     stage = _make_stage(followup_prompt="Refine.")
@@ -248,3 +251,91 @@ def test_field_order_compliance() -> None:
     assert names[0] == "name"
     assert names[-1] == "batch_size"
     assert names[-2] == "resources"
+
+
+# ---------------------------------------------------------------------------
+# New performance parameters passthrough
+# ---------------------------------------------------------------------------
+
+
+def test_fp8_passthrough(
+    patch_qwen_model: tuple[MagicMock, MagicMock],
+) -> None:
+    mock_cls, _ = patch_qwen_model
+    stage = _make_stage(fp8=True)
+    stage.setup(None)
+    call_kwargs = mock_cls.call_args[1]
+    assert call_kwargs["fp8"] is True
+
+
+def test_enforce_eager_passthrough(
+    patch_qwen_model: tuple[MagicMock, MagicMock],
+) -> None:
+    mock_cls, _ = patch_qwen_model
+    stage = _make_stage(enforce_eager=True)
+    stage.setup(None)
+    call_kwargs = mock_cls.call_args[1]
+    assert call_kwargs["enforce_eager"] is True
+
+
+def test_max_retries_passthrough(
+    patch_qwen_model: tuple[MagicMock, MagicMock],
+) -> None:
+    mock_cls, _ = patch_qwen_model
+    stage = _make_stage(max_retries=5)
+    stage.setup(None)
+    call_kwargs = mock_cls.call_args[1]
+    assert call_kwargs["max_retries"] == 5
+
+
+def test_inference_chunk_size_passthrough(
+    patch_qwen_model: tuple[MagicMock, MagicMock],
+) -> None:
+    mock_cls, _ = patch_qwen_model
+    stage = _make_stage(inference_chunk_size=16)
+    stage.setup(None)
+    call_kwargs = mock_cls.call_args[1]
+    assert call_kwargs["inference_chunk_size"] == 16
+
+
+def test_mm_cache_gb_passthrough(
+    patch_qwen_model: tuple[MagicMock, MagicMock],
+) -> None:
+    mock_cls, _ = patch_qwen_model
+    stage = _make_stage(mm_cache_gb=8.0)
+    stage.setup(None)
+    call_kwargs = mock_cls.call_args[1]
+    assert call_kwargs["mm_cache_gb"] == 8.0
+
+
+def test_default_disable_log_stats(
+    patch_qwen_model: tuple[MagicMock, MagicMock],
+) -> None:
+    mock_cls, _ = patch_qwen_model
+    stage = _make_stage()
+    stage.setup(None)
+    call_kwargs = mock_cls.call_args[1]
+    assert call_kwargs["disable_log_stats"] is True
+
+
+# ---------------------------------------------------------------------------
+# Metrics are recorded via _log_metrics
+# ---------------------------------------------------------------------------
+
+
+def test_process_batch_records_metrics(
+    patch_qwen_model: tuple[MagicMock, MagicMock],
+) -> None:
+    _, mock_instance = patch_qwen_model
+    mock_instance.generate.return_value = (
+        ["text"],
+        ["refined"],
+        {"batch_size": 1.0, "t1_prep_s": 0.01, "t1_inference_s": 0.5, "t2_inference_s": 0.3},
+    )
+
+    stage = _make_stage(followup_prompt="Refine.")
+    stage.setup(None)
+    stage.process_batch([_make_task()])
+
+    assert hasattr(stage, "_custom_metrics")
+    assert stage._custom_metrics["t1_inference_s"] == 0.5

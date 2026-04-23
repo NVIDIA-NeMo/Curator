@@ -46,6 +46,21 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     Overrides ``process_batch`` for batched GPU inference with
     thread-pool-parallel preprocessing.
 
+    Performance parameters (from cross-modality analysis):
+
+    - ``fp8``: FP8 quantisation halves KV-cache memory, enabling larger
+      effective batches (adapted from video ``QwenVL``).
+    - ``enforce_eager``: skip CUDA-graph compilation for faster cold start
+      (adapted from interleaved ``NemotronParseInferenceStage``).
+    - ``max_num_batched_tokens``: vLLM chunked-prefill control
+      (adapted from video ``QwenVL``).
+    - ``mm_cache_gb``: cache preprocessed multimodal tokens across
+      requests (adapted from video ``QwenVL``).
+    - ``max_retries``: auto-reset the vLLM engine on transient CUDA
+      errors (adapted from interleaved ``NemotronParseInferenceStage``).
+    - ``inference_chunk_size``: split very large batches to avoid vLLM
+      OOM (adapted from video ``QwenVL`` batch chunking).
+
     Args:
         model_id: HuggingFace model identifier.
         prompt_text: User prompt sent alongside the audio.
@@ -62,6 +77,14 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         temperature: Sampling temperature (0.0 = greedy).
         top_k: Top-k sampling parameter.
         prep_workers: Thread-pool size for parallel audio preprocessing.
+        fp8: Enable FP8 quantisation for lower memory and higher throughput.
+        enforce_eager: Skip CUDA graph compilation (faster startup).
+        max_num_batched_tokens: vLLM chunked-prefill budget.
+        mm_cache_gb: Multimodal processor cache size in GB.
+        disable_log_stats: Suppress vLLM per-request logging overhead.
+        max_retries: Engine-reset retry attempts on transient failures.
+        inference_chunk_size: Max inputs per vLLM.generate call.
+            ``None`` sends the full batch (vLLM handles scheduling).
     """
 
     name: str = "QwenOmni_inference"
@@ -81,6 +104,13 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     temperature: float = 0.0
     top_k: int = 1
     prep_workers: int = 8
+    fp8: bool = False
+    enforce_eager: bool = False
+    max_num_batched_tokens: int | None = None
+    mm_cache_gb: float = 4.0
+    disable_log_stats: bool = True
+    max_retries: int = 3
+    inference_chunk_size: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
 
@@ -104,6 +134,13 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
             temperature=self.temperature,
             top_k=self.top_k,
             prep_workers=self.prep_workers,
+            fp8=self.fp8,
+            enforce_eager=self.enforce_eager,
+            max_num_batched_tokens=self.max_num_batched_tokens,
+            mm_cache_gb=self.mm_cache_gb,
+            disable_log_stats=self.disable_log_stats,
+            max_retries=self.max_retries,
+            inference_chunk_size=self.inference_chunk_size,
         )
 
     # ------------------------------------------------------------------
@@ -171,7 +208,9 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         waveforms = [t.data[self.waveform_key] for t in tasks]
         sample_rates = [t.data[self.sample_rate_key] for t in tasks]
 
-        pred_texts, disfluency_texts = self._model.generate(waveforms, sample_rates)
+        pred_texts, disfluency_texts, metrics = self._model.generate(waveforms, sample_rates)
+
+        del waveforms, sample_rates
 
         for task, pred, disfl in zip(tasks, pred_texts, disfluency_texts, strict=True):
             task.data[self.pred_text_key] = pred
@@ -179,5 +218,5 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data[self.disfluency_text_key] = disfl
             task.data.pop(self.waveform_key, None)
 
-        logger.info("QwenOmni: generated %d predictions (turn2=%s)", len(pred_texts), bool(self.followup_prompt))
+        self._log_metrics(metrics)
         return tasks
