@@ -218,6 +218,7 @@ Evaluate the proxy models using [LM Evaluation Harness](https://github.com/Eleut
 
 ```bash
 bash 7_evaluate.sh \
+    /path/to/lm-evaluation-harness \
     /path/to/Megatron-LM \
     /path/to/megatron_exp \
     /path/to/lm_eval_results \
@@ -238,8 +239,9 @@ The script requires Megatron to be installed. Here is an example for how to set 
 - Install `lm-eval` as instructed above.
 - `bash /path/to/Curator/tutorials/text/nemotron-climb-data-curation/7_evaluate.sh ...`
 
-The above script looks for 4 inputs in order:
+The above script looks for 5 inputs in order:
 
+- `LM_EVAL_PATH` (`/path/to/lm-evaluation-harness`): The path to the LM Evaluation Harness directory.
 - `MEGATRON_PATH` (`/path/to/Megatron-LM`): The path to the Megatron-LM directory.
 - `BASE_CKPT_DIR` (`/path/to/megatron_exp`): The path to the trained proxy models from step 6, with subdirectories `/path/to/megatron_exp/n1`, `/path/to/megatron_exp/n2`, etc. per model.
 - `RESULTS_DIR` (`/path/to/lm_eval_results`): The path to save the benchmarking results.

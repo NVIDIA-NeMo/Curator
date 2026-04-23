@@ -14,28 +14,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This script uses lm_eval to run benchmarks on the models:
-# git clone --depth 1 https://github.com/EleutherAI/lm-evaluation-harness
-# cd lm-evaluation-harness
-# pip install -e .
-# TODO: Add lm_eval path
-
 set -xeuo pipefail
 
-if [ $# -lt 4 ]; then
-  echo "Usage: $0 <megatron_path> <base_ckpt_dir> <results_dir> <tokenizer_model>"
+if [ $# -lt 5 ]; then
+  echo "Usage: $0 <lm_eval_path> <megatron_path> <base_ckpt_dir> <results_dir> <tokenizer_model>"
   exit 1
 fi
 
 # Hack: auto-detect number of GPUs
 NUM_GPUS=$(nvidia-smi -L | wc -l)
 
-export MEGATRON_PATH=$1
+# Path to the lm-evaluation-harness directory
+export LM_EVAL_PATH=$1
 
-BASE_CKPT_DIR=$2
-RESULTS_DIR=$3
-TOKENIZER_MODEL=$4
+# Path to the Megatron-LM directory
+export MEGATRON_PATH=$2
+
+# Path to the Megatron-LM checkpoints
+# This directory should contain subdirectories named n{i} that contain the checkpoints for the proxy models
+# e.g., n1, n2, etc.
+BASE_CKPT_DIR=$3
+
+# Path to save the results. It will create corresponding subdirectories named n{i} to save the results for each proxy model n{i}
+RESULTS_DIR=$4
 mkdir -p "$RESULTS_DIR"
+
+# Path to the tokenizer model file, e.g., tokenizer.model
+TOKENIZER_MODEL=$5
 
 TASKS="arc_easy,hellaswag,piqa"
 
@@ -62,7 +67,7 @@ for MODEL_DIR in "${MODEL_DIRS[@]}"; do
     mkdir -p "$OUT_DIR"
 
     # If needed, update the tokenizer_type and seq_length arguments to match the values used in 6_train.sh
-    torchrun --nproc_per_node="$NUM_GPUS" -m lm_eval \
+    PYTHONPATH=$LM_EVAL_PATH torchrun --nproc_per_node="$NUM_GPUS" -m lm_eval \
         --model megatron_lm \
         --model_args "load=${CKPT_PATH},tokenizer_type=Llama2Tokenizer,tokenizer_model=${TOKENIZER_MODEL},seq_length=1024,devices=${NUM_GPUS}" \
         --tasks "$TASKS" \
