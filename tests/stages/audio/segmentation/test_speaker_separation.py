@@ -19,7 +19,10 @@ import torch
 from pydub import AudioSegment
 
 from nemo_curator.stages.audio.segmentation.speaker_separation import SpeakerSeparationStage
-from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import SpeakerSeparator
+from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import (
+    SpeakerResult,
+    SpeakerSeparator,
+)
 from nemo_curator.tasks import AudioTask
 
 
@@ -43,8 +46,8 @@ class TestSpeakerSeparationStage:
 
         separator = MagicMock()
         speaker_data = {
-            "speaker_0": (_make_audio_segment(3000), 3.0),
-            "speaker_1": (_make_audio_segment(4000), 4.0),
+            "speaker_0": SpeakerResult(_make_audio_segment(3000), 3.0, [(0.0, 3.0)]),
+            "speaker_1": SpeakerResult(_make_audio_segment(4000), 4.0, [(0.0, 4.0)]),
         }
         separator.get_speaker_audio_data.return_value = speaker_data
         stage._separator = separator
@@ -58,7 +61,7 @@ class TestSpeakerSeparationStage:
             assert "speaker_id" in r.data
             assert "num_speakers" in r.data
             assert r.data["num_speakers"] == 2
-            assert "duration_sec" in r.data
+            assert "duration" in r.data
 
     @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
     def test_process_output_keys(self, mock_init: MagicMock) -> None:
@@ -66,7 +69,7 @@ class TestSpeakerSeparationStage:
 
         separator = MagicMock()
         separator.get_speaker_audio_data.return_value = {
-            "spk_0": (_make_audio_segment(5000), 5.0),
+            "spk_0": SpeakerResult(_make_audio_segment(5000), 5.0, [(0.0, 5.0)]),
         }
         stage._separator = separator
 
@@ -76,7 +79,7 @@ class TestSpeakerSeparationStage:
         item = result[0].data
         assert item["speaker_id"] == "spk_0"
         assert item["num_speakers"] == 1
-        assert item["duration_sec"] == 5.0
+        assert item["duration"] == 5.0
         assert "waveform" in item
         assert "sample_rate" in item
 
@@ -86,8 +89,8 @@ class TestSpeakerSeparationStage:
 
         separator = MagicMock()
         separator.get_speaker_audio_data.return_value = {
-            "speaker_0": (_make_audio_segment(5000), 5.0),
-            "speaker_1": (_make_audio_segment(1000), 1.0),
+            "speaker_0": SpeakerResult(_make_audio_segment(5000), 5.0, [(0.0, 5.0)]),
+            "speaker_1": SpeakerResult(_make_audio_segment(1000), 1.0, [(0.0, 1.0)]),
         }
         stage._separator = separator
 
