@@ -63,6 +63,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         max_output_tokens: Maximum tokens to generate per sample.
         temperature: Sampling temperature (0.0 = greedy).
         top_k: Top-k sampling parameter.
+        prep_workers: Thread-pool size for parallel prompt preprocessing.
     """
 
     name: str = "PnCRestoration"
@@ -85,6 +86,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     max_output_tokens: int = 512
     temperature: float = 0.0
     top_k: int = 1
+    prep_workers: int = 8
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 64
 
@@ -107,6 +109,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             max_output_tokens=self.max_output_tokens,
             temperature=self.temperature,
             top_k=self.top_k,
+            prep_workers=self.prep_workers,
         )
 
     # ------------------------------------------------------------------

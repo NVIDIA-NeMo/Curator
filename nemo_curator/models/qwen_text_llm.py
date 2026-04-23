@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import gc
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from loguru import logger
@@ -69,6 +70,7 @@ class QwenTextLLM(ModelInterface):
         max_output_tokens: int = 512,
         temperature: float = 0.0,
         top_k: int = 1,
+        prep_workers: int = 8,
     ):
         self.model_id = model_id
         self.completeness_prompt = completeness_prompt
@@ -81,10 +83,12 @@ class QwenTextLLM(ModelInterface):
         self.max_output_tokens = max_output_tokens
         self.temperature = temperature
         self.top_k = top_k
+        self.prep_workers = prep_workers
 
         self._llm: LLM | None = None
         self._sampling_params: SamplingParams | None = None
         self._short_sampling_params: SamplingParams | None = None
+        self._prep_pool: ThreadPoolExecutor | None = None
 
     @property
     def model_id_names(self) -> list[str]:
@@ -128,9 +132,14 @@ class QwenTextLLM(ModelInterface):
             max_tokens=8,
         )
 
+        self._prep_pool = ThreadPoolExecutor(max_workers=self.prep_workers)
+
         logger.info("QwenTextLLM model loaded")
 
     def teardown(self) -> None:
+        if self._prep_pool is not None:
+            self._prep_pool.shutdown(wait=False)
+            self._prep_pool = None
         del self._llm
         self._llm = None
         self._sampling_params = None
@@ -193,14 +202,24 @@ class QwenTextLLM(ModelInterface):
     ) -> tuple[list[int], list[dict[str, Any]]]:
         """Prepare a batch, filtering out items that fail preprocessing.
 
+        Uses a thread pool for parallel prompt tokenisation when available.
+
         Returns:
             ``(valid_indices, valid_inputs)`` — parallel lists of the
             original indices and their corresponding vLLM input dicts.
         """
+        batch_texts = [texts[i] for i in indices]
+
+        if self._prep_pool is not None:
+            results = list(
+                self._prep_pool.map(self._prepare_single, batch_texts, [prompt_template] * len(indices)),
+            )
+        else:
+            results = [self._prepare_single(t, prompt_template) for t in batch_texts]
+
         valid_indices: list[int] = []
         valid_inputs: list[dict[str, Any]] = []
-        for i in indices:
-            inp = self._prepare_single(texts[i], prompt_template)
+        for i, inp in zip(indices, results):
             if inp is not None:
                 valid_indices.append(i)
                 valid_inputs.append(inp)

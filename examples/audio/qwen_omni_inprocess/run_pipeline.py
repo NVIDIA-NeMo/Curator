@@ -140,6 +140,8 @@ def main() -> None:
                      help="Max model length for PnC model.")
     pnc.add_argument("--pnc_max_num_seqs", type=int, default=64,
                      help="Max concurrent sequences for PnC model.")
+    pnc.add_argument("--pnc_prep_workers", type=int, default=8,
+                     help="Thread pool size for PnC prompt preprocessing.")
     pnc.add_argument("--skip_pnc", action="store_true", default=False,
                      help="Skip PnC restoration stage entirely.")
 
@@ -230,6 +232,7 @@ def main() -> None:
                 batch_size=args.pnc_batch_size,
                 max_model_len=args.pnc_max_model_len,
                 max_num_seqs=args.pnc_max_num_seqs,
+                prep_workers=args.pnc_prep_workers,
                 **({"pnc_prompt": pnc_prompt_text} if pnc_prompt_text else {}),
                 **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
             ),
