@@ -65,6 +65,7 @@ COPY docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
 
+
 FROM nemo_curator_dep AS nemo_curator
 
 ARG CURATOR_EXTRA=all
@@ -76,7 +77,11 @@ COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
 # Install Curator
-RUN uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache && \
+RUN if [ -n "${CURATOR_EXTRA}" ]; then \
+        uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \
+    else \
+        uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
+    fi && \
     find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
     # Address GHSA-72hv-8253-57qq: jackson-core bundled in ray_dist.jar (jackson-core 2.16.1 < 2.18.6)
     # Ray's Java support is not used; deleting the JAR removes the vulnerable jackson-core classes.
@@ -88,21 +93,25 @@ RUN uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS}
 
 # Patch wandb-core: bump google.golang.org/grpc from 1.79.2 to 1.79.3 (CVE fix)
 ARG TARGETARCH
-RUN GRPC_VERSION=1.79.3 && \
-    GO_VERSION=1.26.1 && \
-    WANDB_VERSION=$(python3 -c "import wandb; print(wandb.__version__)") && \
-    WANDB_CORE_BIN=/opt/venv/lib/python3.12/site-packages/wandb/bin/wandb-core && \
-    curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /tmp -xz && \
-    export PATH="/tmp/go/bin:$PATH" && \
-    export GOPATH=/tmp/gopath && \
-    git clone --depth 1 --branch "v${WANDB_VERSION}" https://github.com/wandb/wandb.git /tmp/wandb-src && \
-    cd /tmp/wandb-src/core && \
-    go get google.golang.org/grpc@v${GRPC_VERSION} && \
-    go mod tidy && \
-    go mod vendor && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" \
-        -o "${WANDB_CORE_BIN}" ./cmd/wandb-core/ && \
-    rm -rf /tmp/wandb-src /tmp/go /tmp/gopath
+RUN if python3 -c "import wandb" 2>/dev/null; then \
+        GRPC_VERSION=1.79.3 && \
+        GO_VERSION=1.26.1 && \
+        WANDB_VERSION=$(python3 -c "import wandb; print(wandb.__version__)") && \
+        WANDB_CORE_BIN=/opt/venv/lib/python3.12/site-packages/wandb/bin/wandb-core && \
+        curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /tmp -xz && \
+        export PATH="/tmp/go/bin:$PATH" && \
+        export GOPATH=/tmp/gopath && \
+        git clone --depth 1 --branch "v${WANDB_VERSION}" https://github.com/wandb/wandb.git /tmp/wandb-src && \
+        cd /tmp/wandb-src/core && \
+        go get google.golang.org/grpc@v${GRPC_VERSION} && \
+        go mod tidy && \
+        go mod vendor && \
+        CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" \
+            -o "${WANDB_CORE_BIN}" ./cmd/wandb-core/ && \
+        rm -rf /tmp/wandb-src /tmp/go /tmp/gopath; \
+    else \
+        echo "wandb not installed, skipping CVE patch"; \
+    fi
 
 COPY . /opt/Curator
 

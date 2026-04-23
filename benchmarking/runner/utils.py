@@ -183,3 +183,49 @@ def human_readable_bytes_repr(size: int) -> str:
                 return f"{int(size)} {suffix}"
             return f"{value:.2f} {suffix}"
     return "0 B"
+
+
+def get_gpu_stats() -> dict:
+    """
+    Query GPU stats using gpustat and return memory information and process info for each available GPU.
+
+    Returns:
+        dict: Keys are GPU indices; values are dicts containing:
+            - "memory_total" (int): Total GPU memory in MiB.
+            - "memory_used" (int): Used GPU memory in MiB.
+            - "processes" (list[dict]): List of processes using the GPU, each with keys:
+                "username", "command", "gpu_memory_usage", "pid".
+    """
+    # utils.py is also imported in scripts that run before the Curator
+    # environment is set up, so import gpustat lazily.
+    import gpustat
+
+    query = gpustat.new_query()
+    query_data = {}
+    for gpu in query:
+        # Only include certain fields from the process data.
+        process_data = [
+            {k: p.get(k) for k in ["username", "command", "gpu_memory_usage", "pid"]} for p in gpu.processes
+        ]
+        query_data[gpu.index] = {
+            "memory_total": gpu.memory_total,
+            "memory_used": gpu.memory_used,
+            "processes": process_data,
+        }
+    return query_data
+
+
+def log_gpu_stats(gpu_stats: dict, warn_if_in_use: bool = False) -> None:
+    """Log GPU memory usage for each GPU as a percentage of total memory.
+
+    Args:
+        gpu_stats: Dictionary as returned by get_gpu_stats().
+        warn_if_in_use: If True, emit a warning for any GPU with memory_used > 0.
+    """
+    for gpu_id, stats in gpu_stats.items():
+        pct_used = stats["memory_used"] / stats["memory_total"] * 100
+        logger.info(f"GPU {gpu_id} : {pct_used:.1f}%")
+        if warn_if_in_use and stats["memory_used"] > 0:
+            logger.warning(
+                f"GPU {gpu_id} has {stats['memory_used']} MiB ({pct_used:.1f}% of total) used before benchmark started"
+            )
