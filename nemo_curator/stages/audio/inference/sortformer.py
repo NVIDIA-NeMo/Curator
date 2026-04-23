@@ -18,7 +18,6 @@ import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-import torch
 from huggingface_hub import snapshot_download
 from loguru import logger
 from nemo.collections.asr.models import SortformerEncLabelModel
@@ -176,9 +175,9 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
         if pos_enc is None or not hasattr(pos_enc, "extend_pe"):
             logger.warning("pos_enc not found or no extend_pe method — skipping extension")
             return
-        device = next(self.diar_model.parameters()).device
+        params = next(self.diar_model.parameters())
         try:
-            pos_enc.extend_pe(max_len, device, torch.float32)
+            pos_enc.extend_pe(max_len, params.device, params.dtype)
             logger.info(f"Extended encoder pos_enc to max_len={max_len} for long-form audio")
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Could not extend pos_enc: {e}")

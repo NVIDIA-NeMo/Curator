@@ -22,7 +22,6 @@ per-file segment counts, and throughput.
 import argparse
 import time
 import traceback
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -60,7 +59,6 @@ def _collect_diarization_metrics(tasks: list, elapsed_s: float) -> dict[str, Any
 
 
 def run_audio_sortformer_benchmark(
-    benchmark_results_path: str,
     manifest_path: str,
     model_name: str,
     rttm_out_dir: str | None = None,
@@ -68,8 +66,6 @@ def run_audio_sortformer_benchmark(
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the audio Sortformer diarization benchmark and collect metrics."""
-    benchmark_results_path = Path(benchmark_results_path)
-
     logger.info("Starting audio Sortformer diarization benchmark")
     logger.info(f"Executor: {executor}")
     logger.info(f"Model: {model_name}")
