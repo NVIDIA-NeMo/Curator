@@ -87,10 +87,10 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
 
     Uses the NeMo SortformerEncLabelModel for end-to-end neural speaker
     diarization with streaming support. See:
-    https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2
+    https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1
 
     Args:
-        model_name: Hugging Face model id. Defaults to "nvidia/diar_streaming_sortformer_4spk-v2".
+        model_name: Hugging Face model id. Defaults to "nvidia/diar_streaming_sortformer_4spk-v2.1".
         model_path: Local path to a .nemo checkpoint file; if set, takes precedence over model_name.
         cache_dir: Directory for caching downloaded model weights. Defaults to HF hub default.
         diar_model: Pre-loaded SortformerEncLabelModel; if provided, setup() is a no-op.
@@ -98,6 +98,7 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
         diar_segments_key: Key in output data for diarization segments list. Defaults to "diar_segments".
         rttm_out_dir: Optional directory to write RTTM files. Defaults to None.
         chunk_len: Streaming chunk size in 80 ms frames. Defaults to 340 (~30.4 s latency).
+        chunk_left_context: Left context frames. Defaults to 1.
         chunk_right_context: Right context frames. Defaults to 40.
         fifo_len: FIFO queue size in frames. Defaults to 40.
         spkcache_update_period: Speaker cache update period in frames. Defaults to 300.
@@ -106,7 +107,7 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
         name: Stage name. Defaults to "Sortformer_inference".
     """
 
-    model_name: str = "nvidia/diar_streaming_sortformer_4spk-v2"
+    model_name: str = "nvidia/diar_streaming_sortformer_4spk-v2.1"
     model_path: str | None = None
     cache_dir: str | None = None
     diar_model: Any | None = None
@@ -114,6 +115,7 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
     diar_segments_key: str = "diar_segments"
     rttm_out_dir: str | None = None
     chunk_len: int = 340
+    chunk_left_context: int = 1
     chunk_right_context: int = 40
     fifo_len: int = 40
     spkcache_update_period: int = 300
@@ -126,34 +128,59 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
-        """Pre-download model weights on the node so actors load from cache."""
+        """Pre-download model weights on the node so workers load from cache."""
         if self.model_path is not None:
             return
-        try:
-            repo_dir = snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
-            nemo_files = [f for f in os.listdir(repo_dir) if f.endswith(".nemo")]
-            if nemo_files:
-                self.model_path = os.path.join(repo_dir, nemo_files[0])
-            else:
-                logger.warning(f"No .nemo file found in {repo_dir}; setup() will fail")
-        except Exception:  # noqa: BLE001
-            logger.info(f"Could not pre-cache {self.model_name}; actors will download on first use")
+        snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
+
+    def _resolve_model_path(self) -> str:
+        """Resolve the path to the .nemo checkpoint from the HF cache."""
+        if self.model_path is not None:
+            return self.model_path
+        repo_dir = snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
+        nemo_files = sorted(f for f in os.listdir(repo_dir) if f.endswith(".nemo"))
+        if not nemo_files:
+            msg = f"No .nemo file found in {repo_dir} for model {self.model_name}"
+            raise FileNotFoundError(msg)
+        return os.path.join(repo_dir, nemo_files[0])
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Load Sortformer model from Hugging Face or a local .nemo file."""
         if self.diar_model is not None:
             self.diar_model.eval()
             self._configure_streaming()
+            self._extend_pos_enc_for_long_audio()
             return
 
+        resolved_path = self._resolve_model_path()
         self.diar_model = SortformerEncLabelModel.restore_from(
-            restore_path=self.model_path,
+            restore_path=resolved_path,
             map_location="cuda",
             strict=False,
         )
 
         self.diar_model.eval()
         self._configure_streaming()
+        self._extend_pos_enc_for_long_audio()
+
+    def _extend_pos_enc_for_long_audio(self, max_len: int = 30000) -> None:
+        """Extend RelPositionalEncoding buffer to handle long audio files.
+
+        NeMo's streaming Sortformer initialises pos_enc sized for one chunk (~35
+        conformer frames). Files longer than a few seconds overflow it at inference
+        time. extend_pe() is a NeMo method that resizes the buffer safely — it just
+        isn't called automatically. max_len=30000 covers ~1000 s at any subsampling.
+        """
+        pos_enc = getattr(getattr(self.diar_model, "encoder", None), "pos_enc", None)
+        if pos_enc is None or not hasattr(pos_enc, "extend_pe"):
+            logger.warning("pos_enc not found or no extend_pe method — skipping extension")
+            return
+        params = next(self.diar_model.parameters())
+        try:
+            pos_enc.extend_pe(max_len, params.device, params.dtype)
+            logger.info(f"Extended encoder pos_enc to max_len={max_len} for long-form audio")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Could not extend pos_enc: {e}")
 
     def _configure_streaming(self) -> None:
         """Apply streaming configuration to the loaded model."""
@@ -161,7 +188,9 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
         sm.chunk_len = self.chunk_len
         sm.chunk_right_context = self.chunk_right_context
         sm.fifo_len = self.fifo_len
-        sm.spkcache_update_period = self.spkcache_update_period
+        sm.chunk_left_context = self.chunk_left_context
+        if hasattr(sm, "spkcache_update_period"):
+            sm.spkcache_update_period = self.spkcache_update_period
         sm.spkcache_len = self.spkcache_len
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -189,9 +218,7 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
 
         file_path = task.data[self.filepath_key]
         sess_name = task.data.get("session_name")
-        resolved_sess_name = (
-            sess_name if sess_name is not None else os.path.splitext(os.path.basename(file_path))[0]
-        )
+        resolved_sess_name = sess_name if sess_name is not None else os.path.splitext(os.path.basename(file_path))[0]
 
         all_segments = self.diarize([file_path])
         segments = all_segments[0]
