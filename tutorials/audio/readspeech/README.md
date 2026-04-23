@@ -83,7 +83,7 @@ python pipeline.py \
 
 - **Source**: [Microsoft DNS Challenge](https://github.com/microsoft/DNS-Challenge)
 - **Format**: WAV files (mono or stereo), 48,000 Hz
-- **License**: CC BY 4.0
+- **License**: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - **Download size**: 4.88 GB (compressed)
 - **Extracted size**: 6.3 GB
 - **Files**: 14,279 WAV files
@@ -365,13 +365,13 @@ The script also generates an `extraction_summary.json` with statistics including
 | Mono Conversion    | No            | CPU-only             | —                    | scipy/soundfile                                               |
 | VAD (Silero)       | No            | `cpus=1.0, gpus=0.1` | negligible          | Silero VAD is lightweight; runs well on CPU                   |
 | Band Filter        | No            | `cpus=1.0, gpus=0.0` | —                   | scikit-learn Random Forest, always CPU                        |
-| UTMOS              | No            | `cpus=1.0, gpus=0.2` | ~1.4 GB             | PyTorch; uses GPU if available, falls back to CPU             |
-| SIGMOS             | No            | `cpus=1.0, gpus=0.2` | ~1.4 GB             | ONNX model (P.804); uses GPU if available, falls back to CPU |
-| Speaker Separation | No            | `cpus=1.0, gpus=0.4` | ~1.4 GB             | Sortformer NeMo model; CPU supported but significantly slower |
+| UTMOS              | No            | `cpus=1.0, gpus=0.1` | ~1.4 GB             | PyTorch; uses GPU if available, falls back to CPU             |
+| SIGMOS             | No            | `cpus=1.0, gpus=0.1` | ~1.4 GB             | ONNX model (P.804); uses GPU if available, falls back to CPU |
+| Speaker Separation | No            | `cpus=1.0, gpus=0.3` | ~1.4 GB             | Sortformer NeMo model; CPU supported but significantly slower |
 
 > **Measured on NVIDIA A100-SXM4-80GB** with 5,000 samples, all filters enabled. Sustained VRAM: **~6.3 GB** (all models loaded concurrently in streaming mode). GPU utilization: **23–92%** sustained during processing. In batch/sequential mode, VRAM is not cumulative — each stage loads its model, processes, then releases GPU memory.
 >
-> Default GPU resource allocations total **0.9 GPU** (0.1 + 0.2 + 0.2 + 0.4), allowing all stages to run concurrently on a single GPU. If you have multiple GPUs, you can increase fractional allocations for faster scheduling.
+> Default GPU resource allocations total **0.9 GPU** for the main branch (VAD `0.1` + UTMOS `0.1` + SIGMOS `0.1` + Speaker Separation `0.3`). When `--enable-speaker-separation` is set, `AudioDataFilterStage.decompose()` instantiates a **duplicated post-speaker filter branch** (VAD `0.1` + Band `0.0` + UTMOS `0.1` + SIGMOS `0.1` = **+0.3 GPU**), so the peak fractional allocation across all stages is **0.9 GPU** — safely within a single GPU. All fractions can be raised in [`default_config.yaml`](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/audio/advanced_pipelines/audio_data_filter/default_config.yaml) for faster scheduling on multi-GPU nodes.
 
 **No stage strictly requires a GPU** — all stages fall back to CPU if CUDA is unavailable. However, GPU is strongly recommended for UTMOS, SIGMOS, and Speaker Separation as CPU inference is significantly slower. Band Filter and VAD run efficiently on CPU.
 
@@ -471,5 +471,5 @@ The output manifest follows the standard NeMo audio manifest format (`audio_file
 
 ## License
 
-- **DNS Challenge Dataset**: CC BY 4.0
+- **DNS Challenge Dataset**: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - **NeMo Curator**: Apache License 2.0
