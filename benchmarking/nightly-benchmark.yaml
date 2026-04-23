@@ -635,6 +635,34 @@ entries:
       - metric: throughput_images_per_sec
         min_value: 3.0
 
+  - name: audio_sortformer_xenna
+    enabled: false
+    script: audio_sortformer_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --manifest-path={datasets_path}/sortformer_diarization/manifest.jsonl
+      --model-name=nvidia/diar_streaming_sortformer_4spk-v2.1
+      --rttm-out-dir={session_entry_dir}/scratch/rttm
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_files_processed
+          - throughput_files_per_sec
+          - real_time_factor
+          - total_segments_detected
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      - metric: is_success
+        exact_value: true
+      - metric: num_files_processed
+        min_value: 1
+
   - name: audio_fleurs_xenna
     enabled: true
     script: audio_fleurs_benchmark.py
