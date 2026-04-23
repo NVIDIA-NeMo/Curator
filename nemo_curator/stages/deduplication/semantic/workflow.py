@@ -362,6 +362,8 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         pairwise_executor: BaseExecutor | None = None,
         checkpoint_path: str | None = None,
         checkpoint_storage_options: dict | None = None,
+        kmeans_checkpoint_path: str | None = None,
+        pairwise_checkpoint_path: str | None = None,
     ) -> WorkflowRunResult:
         """
         Run the complete semantic deduplication pipeline.
@@ -390,7 +392,7 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             kmeans_start_time = time.time()
             kmeans_results = self._run_kmeans_stage(
                 kmeans_executor,
-                checkpoint_path=checkpoint_path,
+                checkpoint_path=kmeans_checkpoint_path or checkpoint_path,
                 checkpoint_storage_options=checkpoint_storage_options,
             )
             kmeans_end_time = time.time()
@@ -404,7 +406,7 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             pairwise_start_time = time.time()
             pairwise_results = self._run_pairwise_stage(
                 pairwise_executor,
-                checkpoint_path=checkpoint_path,
+                checkpoint_path=pairwise_checkpoint_path or checkpoint_path,
                 checkpoint_storage_options=checkpoint_storage_options,
             )
             pairwise_end_time = time.time()

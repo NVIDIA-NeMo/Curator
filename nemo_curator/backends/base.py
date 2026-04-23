@@ -201,14 +201,26 @@ class BaseStageAdapter:
             worker_metadata (WorkerMetadata, optional): Information about the worker
         """
         self.stage.setup(worker_metadata)
-        # If the pipeline was started with checkpoint_path, initialise a write-only
-        # CheckpointManager for fan-out increment tracking.
         checkpoint_path: str | None = getattr(self.stage, "_checkpoint_path", None)
         if checkpoint_path:
-            from nemo_curator.utils.checkpoint import CheckpointManager
-
             storage_options: dict[str, Any] = getattr(self.stage, "_checkpoint_storage_options", {}) or {}
-            self._write_checkpoint_mgr = CheckpointManager(checkpoint_path, storage_options)
+            try:
+                import ray
+
+                if ray.is_initialized():
+                    from nemo_curator.utils.checkpoint import _CheckpointActorProxy, get_or_create_checkpoint_actor
+
+                    self._write_checkpoint_mgr = _CheckpointActorProxy(
+                        get_or_create_checkpoint_actor(checkpoint_path, storage_options)
+                    )
+                else:
+                    from nemo_curator.utils.checkpoint import CheckpointManager
+
+                    self._write_checkpoint_mgr = CheckpointManager(checkpoint_path, storage_options)
+            except ImportError:
+                from nemo_curator.utils.checkpoint import CheckpointManager
+
+                self._write_checkpoint_mgr = CheckpointManager(checkpoint_path, storage_options)
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""

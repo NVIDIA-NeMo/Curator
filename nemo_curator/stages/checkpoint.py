@@ -106,10 +106,23 @@ class _CheckpointRecorderStage(ProcessingStage[Task, Task]):
     _LOG_TRUNCATE_FILES = 2
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        from nemo_curator.utils.checkpoint import CheckpointManager
+        try:
+            import ray
 
-        # Write-only — no need to load existing state
-        self._checkpoint_mgr = CheckpointManager(self.checkpoint_path, self.storage_options)
+            if ray.is_initialized():
+                from nemo_curator.utils.checkpoint import _CheckpointActorProxy, get_or_create_checkpoint_actor
+
+                self._checkpoint_mgr = _CheckpointActorProxy(
+                    get_or_create_checkpoint_actor(self.checkpoint_path, self.storage_options)
+                )
+            else:
+                from nemo_curator.utils.checkpoint import CheckpointManager
+
+                self._checkpoint_mgr = CheckpointManager(self.checkpoint_path, self.storage_options)
+        except ImportError:
+            from nemo_curator.utils.checkpoint import CheckpointManager
+
+            self._checkpoint_mgr = CheckpointManager(self.checkpoint_path, self.storage_options)
 
     def process(self, task: Task) -> Task:
         source_files: list[str] = task._metadata.get("source_files", [])

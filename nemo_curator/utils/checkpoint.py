@@ -50,12 +50,10 @@ class CheckpointManager:
           "increments": [{"triggering_task_id": "file_group_abc", "increment": 9}]
         }
 
-    Writes use read-modify-write.  ``mark_completed`` is called only from the
-    single-actor ``_CheckpointRecorderStage``, so those writes are sequential.
-    ``mark_filtered`` and ``write_expected_increment`` are called from parallel
-    ``BaseStageAdapter`` actors; a rare concurrent-write race may drop one update,
-    causing at most one task to be re-processed on resume (acceptable — all stages
-    are idempotent).
+    All writes are serialized through a Ray named actor (``_CheckpointWriterActor``)
+    when Ray is initialized, eliminating concurrent-write races across parallel
+    ``BaseStageAdapter`` workers.  When Ray is not available (e.g., unit tests),
+    the write methods are called directly on this class.
 
     Completion check: ``len(completed) + len(filtered) >= 1 + sum(increments)``.
     This handles chained fan-outs: if Stage1 produces 10 from 1 partition and
@@ -261,3 +259,79 @@ class CheckpointManager:
                 "shared filesystem accessible to all Ray workers. "
                 "The pipeline will continue but this task will be re-processed on resume."
             )
+
+
+# ---------------------------------------------------------------------------
+# Ray actor — serializes all checkpoint writes
+# ---------------------------------------------------------------------------
+
+try:
+    import ray as _ray
+
+    @_ray.remote(num_cpus=0.1)
+    class _CheckpointWriterActor:
+        """Single Ray actor that serializes all checkpoint writes.
+
+        Ray actors are single-threaded, so concurrent calls from multiple
+        BaseStageAdapter workers are queued and executed one at a time —
+        no read-modify-write races are possible.
+        """
+
+        def __init__(self, checkpoint_path: str, storage_options: dict[str, Any]) -> None:
+            self._mgr = CheckpointManager(checkpoint_path, storage_options)
+
+        def mark_completed(self, task_id: str, source_files: list[str]) -> None:
+            self._mgr.mark_completed(task_id, source_files)
+
+        def mark_filtered(self, task_id: str, source_files: list[str]) -> None:
+            self._mgr.mark_filtered(task_id, source_files)
+
+        def write_expected_increment(self, source_key: str, triggering_task_id: str, increment: int) -> None:
+            self._mgr.write_expected_increment(source_key, triggering_task_id, increment)
+
+except ImportError:
+    _CheckpointWriterActor = None  # type: ignore[assignment,misc]
+
+
+def get_or_create_checkpoint_actor(
+    checkpoint_path: str,
+    storage_options: dict[str, Any] | None = None,
+) -> object:
+    """Return the named checkpoint writer actor, creating it if it doesn't exist yet.
+
+    Using ``get_if_exists=True`` makes this safe to call concurrently from
+    multiple ``BaseStageAdapter.setup()`` calls — only one actor is created.
+    """
+    if _CheckpointWriterActor is None:
+        msg = "Ray is not installed; cannot create a checkpoint actor."
+        raise RuntimeError(msg)
+    name = "nemo_curator_ckpt_" + hashlib.sha256(checkpoint_path.encode()).hexdigest()[:16]
+    return _CheckpointWriterActor.options(name=name, get_if_exists=True).remote(  # type: ignore[union-attr]
+        checkpoint_path, storage_options or {}
+    )
+
+
+class _CheckpointActorProxy:
+    """Drop-in replacement for CheckpointManager's write API backed by a Ray actor.
+
+    All calls block (``ray.get``) so the write is committed before control
+    returns to the caller, preserving ordering guarantees.
+    """
+
+    def __init__(self, actor: object) -> None:
+        self._actor = actor
+
+    def mark_completed(self, task_id: str, source_files: list[str]) -> None:
+        import ray
+
+        ray.get(self._actor.mark_completed.remote(task_id, source_files))
+
+    def mark_filtered(self, task_id: str, source_files: list[str]) -> None:
+        import ray
+
+        ray.get(self._actor.mark_filtered.remote(task_id, source_files))
+
+    def write_expected_increment(self, source_key: str, triggering_task_id: str, increment: int) -> None:
+        import ray
+
+        ray.get(self._actor.write_expected_increment.remote(source_key, triggering_task_id, increment))
