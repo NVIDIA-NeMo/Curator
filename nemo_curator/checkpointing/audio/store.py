@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from nemo_curator.tasks.audio_task import ensure_sample_key
 
-from .io_utils import write_json_atomic, write_jsonl_atomic
+from .io_utils import normalize_for_json, write_json_atomic, write_jsonl_atomic
 from .serialization import dump_audio_task_manifest, load_audio_task_manifest, serialize_audio_task
 
 if TYPE_CHECKING:
@@ -34,31 +34,10 @@ RecordStatus = Literal["done", "filtered", "failed_retriable", "failed_permanent
 
 def _utcnow() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
-
-
-def _normalize_for_json(value: Any) -> Any:  # noqa: ANN401
-    if value is None or isinstance(value, (str, int, float, bool)):
-        normalized = value
-    elif isinstance(value, dict):
-        normalized = {str(key): _normalize_for_json(item) for key, item in sorted(value.items())}
-    elif isinstance(value, (list, tuple)):
-        normalized = [_normalize_for_json(item) for item in value]
-    elif isinstance(value, set):
-        normalized_items = [_normalize_for_json(item) for item in value]
-        normalized = sorted(normalized_items, key=repr)
-    elif hasattr(value, "to_dict"):
-        normalized = _normalize_for_json(value.to_dict())
-    elif hasattr(value, "__dict__"):
-        normalized = _normalize_for_json(vars(value))
-    else:
-        normalized = repr(value)
-    return normalized
-
-
 def fingerprint_stage(stage: Any) -> str:  # noqa: ANN401
     payload = {
         "class_name": type(stage).__name__,
-        "config": _normalize_for_json(stage.get_config()),
+        "config": normalize_for_json(stage.get_config()),
     }
     payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(payload_json.encode("utf-8")).hexdigest()

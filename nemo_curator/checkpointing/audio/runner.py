@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -23,7 +24,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.io import AudioToDocumentStage, MaterializeTarredAudioStage
 from nemo_curator.tasks.audio_task import ensure_sample_key
 
-from .io_utils import write_json_atomic
+from .io_utils import normalize_for_json, write_json_atomic
 from .store import SampleCheckpointRecord, StageCheckpointStore, fingerprint_stage
 
 if TYPE_CHECKING:
@@ -91,14 +92,17 @@ class AudioCheckpointRunner:
         return current_tasks
 
     def _prepare_stages(self, stages: list[ProcessingStage]) -> list[ProcessingStage]:
-        prepared = list(stages)
+        prepared: list[ProcessingStage] = []
         materialization_dir = self._effective_materialization_dir()
-        if materialization_dir is None:
-            return prepared
-
-        for stage in prepared:
-            if isinstance(stage, MaterializeTarredAudioStage) and stage.materialization_dir is None:
-                stage.materialization_dir = materialization_dir
+        for stage in stages:
+            if (
+                materialization_dir is not None
+                and isinstance(stage, MaterializeTarredAudioStage)
+                and stage.materialization_dir is None
+            ):
+                prepared.append(replace(stage, materialization_dir=materialization_dir))
+                continue
+            prepared.append(stage)
         return prepared
 
     def _split_stages(self, stages: list[ProcessingStage]) -> tuple[list[ProcessingStage], list[ProcessingStage]]:
@@ -157,7 +161,7 @@ class AudioCheckpointRunner:
         payload = {
             "pipeline_name": self.pipeline.name,
             "description": self.pipeline.description,
-            "config": self.pipeline.config,
+            "config": normalize_for_json(self.pipeline.config),
             "ignore_failed": self.ignore_failed,
             "link_stages_via_io": self._link_stages_via_io(),
             "materialization_dir": self._effective_materialization_dir(),

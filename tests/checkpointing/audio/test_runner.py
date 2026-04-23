@@ -28,6 +28,7 @@ from nemo_curator.checkpointing.audio.serialization import (
 )
 from nemo_curator.checkpointing.audio.store import StageCheckpointStore, fingerprint_stage
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.io import MaterializeTarredAudioStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask
 
@@ -126,6 +127,41 @@ def test_stage_fingerprint_is_stable_for_sets() -> None:
     second = SetConfigStage(values={"beta", "alpha"})
 
     assert fingerprint_stage(first) == fingerprint_stage(second)
+
+
+def test_runner_normalizes_pipeline_config_before_writing_metadata(tmp_path: Path) -> None:
+    pipeline = Pipeline(
+        name="checkpoint_test",
+        stages=[],
+        config={"link_stages_via_io": True, "values": {"beta", "alpha"}},
+    )
+    runner = AudioCheckpointRunner(
+        pipeline=pipeline,
+        checkpoint_dir=str(tmp_path / "checkpoints"),
+        executor=LocalExecutor(),
+    )
+
+    runner._write_pipeline_metadata([])
+
+    payload = json.loads((tmp_path / "checkpoints" / "pipeline.json").read_text())
+    assert payload["config"]["values"] == ["alpha", "beta"]
+
+
+def test_prepare_stages_does_not_mutate_materialization_stage(tmp_path: Path) -> None:
+    stage = MaterializeTarredAudioStage()
+    pipeline = Pipeline(name="checkpoint_test", stages=[stage])
+    runner = AudioCheckpointRunner(
+        pipeline=pipeline,
+        checkpoint_dir=str(tmp_path / "checkpoints"),
+        executor=LocalExecutor(),
+        materialization_dir=str(tmp_path / "materialized"),
+    )
+
+    prepared = runner._prepare_stages([stage])
+
+    assert stage.materialization_dir is None
+    assert isinstance(prepared[0], MaterializeTarredAudioStage)
+    assert prepared[0].materialization_dir == str(tmp_path / "materialized")
 
 
 def test_runner_skips_completed_stages_on_rerun(tmp_path: Path) -> None:

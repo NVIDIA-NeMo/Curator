@@ -20,6 +20,25 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 
 
+def normalize_for_json(value: Any) -> Any:  # noqa: ANN401
+    if value is None or isinstance(value, (str, int, float, bool)):
+        normalized = value
+    elif isinstance(value, dict):
+        normalized = {str(key): normalize_for_json(item) for key, item in sorted(value.items())}
+    elif isinstance(value, (list, tuple)):
+        normalized = [normalize_for_json(item) for item in value]
+    elif isinstance(value, set):
+        normalized_items = [normalize_for_json(item) for item in value]
+        normalized = sorted(normalized_items, key=repr)
+    elif hasattr(value, "to_dict"):
+        normalized = normalize_for_json(value.to_dict())
+    elif hasattr(value, "__dict__"):
+        normalized = normalize_for_json(vars(value))
+    else:
+        normalized = repr(value)
+    return normalized
+
+
 def write_text_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as temp:
