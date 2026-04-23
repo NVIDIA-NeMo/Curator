@@ -29,7 +29,6 @@ from pathlib import Path
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-from sklearn.cluster import KMeans
 from utils import get_token_distribution
 
 SEED = 42
@@ -129,10 +128,8 @@ def fit_predictor(df: pd.DataFrame, domain_names: list[str], target_column: str)
     x_test = test_df_config[test_df_config.columns[0:]].to_numpy()
     y_test = test_df_target[test_df_target.columns[0:]].to_numpy()
 
-    # TODO: Compare these against the paper
     # Train the predictor
     hyper_params = {
-        "task": "train",
         "boosting_type": "gbdt",
         "objective": "regression",
         "metric": ["l1", "l2"],
@@ -140,6 +137,10 @@ def fit_predictor(df: pd.DataFrame, domain_names: list[str], target_column: str)
         "seed": 42,
         "learning_rate": 1e-2,
         "verbosity": -1,
+        "reg_alpha": 1.0,
+        "reg_lambda": 1.0,
+        "max_depth": 4,
+        "min_child_samples": 5,
     }
 
     gbm = lgb.LGBMRegressor(**hyper_params)
@@ -150,22 +151,18 @@ def fit_predictor(df: pd.DataFrame, domain_names: list[str], target_column: str)
         eval_set=[(x_test, y_test)],
         eval_metric="l2",
         callbacks=[
-            lgb.early_stopping(stopping_rounds=3, verbose=False),
+            lgb.early_stopping(stopping_rounds=20, verbose=False),
         ],
     )
 
 
-# TODO: Compare this against the paper
 def generate_mixtures(
     num_mixtures: int, output_path: str, samples: np.ndarray, simulation: np.ndarray, domain_paths: list[str]
 ) -> None:
     if num_mixtures == 1:
-        # Take the average of top-k simulated data mixtures as the optimal data mixture
-        k = 128
-        top_k_samples = samples[np.argsort(simulation)[-k:]]
-
-        # Get the optimal data mixture by taking the average of top-k samples
-        optimal_data_mixture = np.mean(top_k_samples, axis=0)
+        # Get the single best predicted data mixture
+        best_idx = np.argmax(simulation)
+        optimal_data_mixture = samples[best_idx]
 
         # Save n1.sh file
         with open(os.path.join(output_path, "n1.sh"), "w") as f:
@@ -178,22 +175,16 @@ def generate_mixtures(
                         f.write(f"{formatted} {path}\n")
             f.write("EOF\n")
     else:
-        k_pool = num_mixtures * num_mixtures
+        k_pool = max(num_mixtures * num_mixtures, 128)
         top_pool = samples[np.argsort(simulation)[-k_pool:]]
-
-        # Cluster the top-k samples into diverse mixtures
-        km = KMeans(n_clusters=num_mixtures, random_state=SEED)
-        km.fit(top_pool)
-        diverse_mixtures = km.cluster_centers_
-        # Renormalize since centroids may not sum to exactly 1
-        diverse_mixtures /= diverse_mixtures.sum(axis=1, keepdims=True)
+        chosen_mixtures = top_pool[np.random.choice(len(top_pool), size=num_mixtures, replace=False)]
 
         # Save n1.sh, ..., n{args.num_mixtures}.sh files for each diverse mixture
         for i in range(num_mixtures):
             with open(os.path.join(output_path, f"n{i + 1}.sh"), "w") as f:
                 f.write("#!/bin/bash\n")
                 f.write("cat <<EOF\n")
-                for path, weight in zip(domain_paths, diverse_mixtures[i], strict=True):
+                for path, weight in zip(domain_paths, chosen_mixtures[i], strict=True):
                     if weight > 0:
                         formatted = f"{weight:.4f}".rstrip("0").rstrip(".")
                         if formatted != "0":
@@ -211,6 +202,7 @@ def main(args: argparse.Namespace) -> None:
     # Grab file names without extension (these are the domain names)
     domain_names = [file.stem for file in bin_files]
 
+    # TODO: Load the benchmark results for several iterations of training and evaluation
     if args.input_path is not None and args.mixtures_path is not None:
         df = load_benchmark_results(
             input_path=args.input_path,
