@@ -21,6 +21,14 @@ for maximum throughput with zero network overhead.
 After inference, the pipeline applies text-level post-processing:
 hallucination detection, language ID filtering, regex cleaning.
 
+Performance features (adapted from cross-modality best practices):
+    - FP8 quantisation (``--fp8``) halves KV-cache memory
+    - CUDA-graph skip (``--enforce_eager``) for faster cold start
+    - Batch chunking (``--inference_chunk_size``) prevents vLLM OOM
+    - Engine retry/reset (``--max_retries``) survives transient CUDA errors
+    - Multimodal processor cache (``--mm_cache_gb``) avoids re-processing
+    - Per-batch timing metrics logged via ``_log_metrics``
+
 Architecture:
     NemoTarredAudioReader (CPU, parallel)
         → streams NeMo-tarred shards from S3/local via lhotse
@@ -47,6 +55,16 @@ Usage:
         --hall_phrases /path/to/hall_phrases.txt \\
         --regex_yaml /path/to/common.yaml \\
         --output /path/to/output.jsonl
+
+    With FP8 and retry for production scale:
+
+    python run_pipeline.py \\
+        --data_config /path/to/granary_config.yaml \\
+        --corpus yodas \\
+        --hall_phrases /path/to/hall_phrases.txt \\
+        --regex_yaml /path/to/common.yaml \\
+        --output /path/to/output.jsonl \\
+        --fp8 --enforce_eager --max_retries 5 --inference_chunk_size 16
 """
 
 import os
@@ -91,6 +109,19 @@ def main() -> None:  # noqa: PLR0915
     ap.add_argument("--max_num_seqs", type=int, default=16)
     ap.add_argument("--gpu_memory_utilization", type=float, default=0.95)
     ap.add_argument("--prep_workers", type=int, default=16, help="Thread pool size for audio preprocessing.")
+    ap.add_argument("--fp8", action="store_true", help="Enable FP8 quantisation (halves KV-cache memory).")
+    ap.add_argument("--enforce_eager", action="store_true", help="Skip CUDA graph compilation for faster cold start.")
+    ap.add_argument(
+        "--max_num_batched_tokens", type=int, default=None, help="vLLM chunked-prefill budget (None = vLLM default)."
+    )
+    ap.add_argument("--mm_cache_gb", type=float, default=4.0, help="Multimodal processor cache size in GB.")
+    ap.add_argument("--max_retries", type=int, default=3, help="Engine-reset retries on transient CUDA failures.")
+    ap.add_argument(
+        "--inference_chunk_size",
+        type=int,
+        default=None,
+        help="Max inputs per vLLM.generate call (None = full batch).",
+    )
     ap.add_argument("--s3_endpoint_url", type=str, default=None)
     ap.add_argument(
         "--execution_mode", type=str, default="streaming", choices=["streaming", "batch"], help="Xenna execution mode."
@@ -178,6 +209,12 @@ def main() -> None:  # noqa: PLR0915
                 max_num_seqs=args.max_num_seqs,
                 gpu_memory_utilization=args.gpu_memory_utilization,
                 prep_workers=args.prep_workers,
+                fp8=args.fp8,
+                enforce_eager=args.enforce_eager,
+                max_num_batched_tokens=args.max_num_batched_tokens,
+                mm_cache_gb=args.mm_cache_gb,
+                max_retries=args.max_retries,
+                inference_chunk_size=args.inference_chunk_size,
                 pred_text_key="qwen3_prediction_s1",
                 disfluency_text_key="qwen3_prediction_s2",
             ),

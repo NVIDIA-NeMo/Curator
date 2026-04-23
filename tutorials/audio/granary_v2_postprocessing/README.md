@@ -235,7 +235,7 @@ from nemo_curator.stages.audio.text_filtering import (
 )
 ```
 
-See `examples/audio/qwen_omni_inprocess/run_pipeline.py` for an example that chains the full Qwen3-Omni inference pipeline with these text filtering stages.
+See `examples/audio/qwen_omni_inprocess/run_pipeline.py` for an end-to-end example that chains `NemoTarredAudioReader` → `InferenceQwenOmniStage` (GPU, with FP8 quantisation, engine retry, and batch chunking) → these text filtering stages → JSONL output.
 
 ## Hallucination Detection Details
 
