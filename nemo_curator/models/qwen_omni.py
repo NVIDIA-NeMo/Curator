@@ -145,8 +145,8 @@ class QwenOmni(ModelInterface):
             import torch
 
             torch.cuda.empty_cache()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("CUDA cache clear skipped: {}", e)
 
     # ------------------------------------------------------------------
     # Input preparation
@@ -206,7 +206,7 @@ class QwenOmni(ModelInterface):
             messages = self._build_messages(waveform_16k)
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning(f"Failed to preprocess audio, skipping (waveform shape={waveform.shape}, sr={sample_rate})")
             return None
 
@@ -241,7 +241,7 @@ class QwenOmni(ModelInterface):
             messages = self._build_turn2_messages(waveform_16k, pred_text)
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning(f"Failed to preprocess Turn 2 audio (shape={waveform_16k.shape})")
             return None
 

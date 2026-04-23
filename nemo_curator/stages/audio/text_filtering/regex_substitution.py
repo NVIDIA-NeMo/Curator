@@ -54,7 +54,7 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "regex_params_yaml is required for RegexSubstitutionStage"
             raise ValueError(msg)
 
-    def setup(self, worker_metadata: Any = None) -> None:
+    def setup(self, _worker_metadata: object | None = None) -> None:
         with open(self.regex_params_yaml, encoding="utf-8") as f:
             self._rules = yaml.safe_load(f)
         self._setup_called = True

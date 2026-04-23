@@ -49,13 +49,13 @@ _LANG_CHAR_CLASS: dict[str, str] = {
     "hr": r"[A-Za-zČĆĐŠŽčćđšž]",
     "sl": r"[A-Za-zČŠŽčšž]",
     # Cyrillic
-    "ru": r"[А-ЯЁа-яё]",
-    "bg": r"[А-Яа-я]",
-    "uk": r"[А-ЯҐЄІЇа-яґєії]",
-    "sr": r"[А-ЯЂЈЉЊЋЏа-яђјљњћџ]",
-    "mk": r"[А-Яа-яѓѕѝ]",
+    "ru": r"[А-ЯЁа-яё]",  # noqa: RUF001
+    "bg": r"[А-Яа-я]",  # noqa: RUF001
+    "uk": r"[А-ЯҐЄІЇа-яґєії]",  # noqa: RUF001
+    "sr": r"[А-ЯЂЈЉЊЋЏа-яђјљњћџ]",  # noqa: RUF001
+    "mk": r"[А-Яа-яѓѕѝ]",  # noqa: RUF001
     # Greek
-    "el": r"[Α-Ωα-ω]",
+    "el": r"[Α-Ωα-ω]",  # noqa: RUF001
 }
 
 # Per-language single-letter particles to strip at match edges.
@@ -70,12 +70,17 @@ _LANG_PARTICLES: dict[str, frozenset[str]] = {
 _CONTRACTION_SUFFIXES = frozenset({"m", "ll", "ve", "d", "re", "ma"})
 _VOWELS = frozenset("AEIOUaeiou")
 
+_TAIL_SLICE = 2       # last N elements checked for DNA/RNA guard
+_MIN_PARTS = 2        # abbreviation needs at least this many parts
+_PLURAL_SUFFIX_LEN = 2  # "Xs" has 2 chars
+_MULTI_CHAR_LEN = 3   # parts with >= 3 chars are not single letters
+
 
 @functools.lru_cache(maxsize=32)
 def _get_pattern(lang: str) -> re.Pattern:
     cc = _LANG_CHAR_CLASS.get(lang, _LANG_CHAR_CLASS["en"])
     return re.compile(
-        r"(?<![\w'‘’ʼ])"  # not preceded by word char or apostrophe
+        r"(?<![\w’’’ʼ])"  # noqa: RUF001  # not preceded by word char or apostrophe
         r"(" + cc + r"(?:[ ]" + cc + r"){1,}"  # 2+ spaced single letters
         r"(?:(?<=[A-Z])s)?)"              # optional ASCII plural 's' after uppercase
         r"(?!\w)"                         # not followed by a word character
@@ -90,11 +95,11 @@ def _strip_particles(raw: str, particles: frozenset[str]) -> str:
     if parts[0] in particles:
         parts = parts[1:]
     if parts and parts[-1] in particles:
-        _KEEP_TRAILING = (["D", "N"], ["R", "N"])  # DNA, RNA
+        keep_trailing = (["D", "N"], ["R", "N"])  # DNA, RNA
         preceding = [p.upper() for p in parts[:-1]]
-        if preceding[-2:] not in _KEEP_TRAILING:
+        if preceding[-_TAIL_SLICE:] not in keep_trailing:
             parts = parts[:-1]
-    if len(parts) < 2:
+    if len(parts) < _MIN_PARTS:
         return raw
     return " ".join(parts)
 
@@ -104,41 +109,41 @@ def _is_mixed_case_pair(letters: str) -> bool:
     return len(letters) == 2 and letters[0].islower() != letters[1].islower()
 
 
-def _is_double_I(raw: str) -> bool:
+def _is_double_i(raw: str) -> bool:
     """True when the match is exactly two uppercase 'I' letters ("I I")."""
     return raw == "I I"
 
 
-def _join_letters(match: re.Match, particles: frozenset[str]) -> str:
+def _join_letters(match: re.Match, particles: frozenset[str]) -> str:  # noqa: C901, PLR0911
     """Remove spaces between matched single letters, skipping false positives."""
     raw = match.group(0)
-    if _is_double_I(raw):
+    if _is_double_i(raw):
         return raw
 
     parts = raw.split(" ")
-    if any(len(p) >= 3 for p in parts):
+    if any(len(p) >= _MULTI_CHAR_LEN for p in parts):
         return raw
 
     # "Is", "As", "Os" etc. are words, not plural abbreviation suffixes — pop and reattach.
     tail = ""
-    if (len(parts) >= 2
-            and len(parts[-1]) == 2
+    if (len(parts) >= _MIN_PARTS
+            and len(parts[-1]) == _PLURAL_SUFFIX_LEN
             and parts[-1][1] == "s"
             and parts[-1][0] in _VOWELS):
         tail = " " + parts.pop()
-        if len(parts) < 2:
+        if len(parts) < _MIN_PARTS:
             return raw
         raw = " ".join(parts)
 
-    if sum(1 for p in parts if len(p) == 1) < 2:
+    if sum(1 for p in parts if len(p) == 1) < _MIN_PARTS:
         has_plural_suffix = any(
-            len(p) == 2 and p[1] == "s" and p[0].lower() not in "aeiou"
+            len(p) == _PLURAL_SUFFIX_LEN and p[1] == "s" and p[0].lower() not in "aeiou"
             for p in parts
         )
         if not has_plural_suffix:
             return raw
 
-    if len(parts) == 2 and particles and any(p in particles for p in parts):
+    if len(parts) == _MIN_PARTS and particles and any(p in particles for p in parts):
         return raw
 
     letters = raw.replace(" ", "")
@@ -150,7 +155,7 @@ def _join_letters(match: re.Match, particles: frozenset[str]) -> str:
     stripped = _strip_particles(raw, particles)
     if stripped == raw:
         return letters + tail
-    if len(stripped.replace(" ", "")) < 2:
+    if len(stripped.replace(" ", "")) < _MIN_PARTS:
         return raw
 
     prefix = raw[: raw.index(stripped[0])]
@@ -181,13 +186,13 @@ def concat_abbreviations(text: str, language: str = "en") -> tuple[str, list[str
             end = match.end()
             if (replaced
                     and replaced[-1].upper() == "I"
-                    and len(replaced) >= 3
+                    and len(replaced) >= _MULTI_CHAR_LEN
                     and end < len(text)
-                    and text[end] in "'‘’ʼ"):
+                    and text[end] in "’’’ʼ"):  # noqa: RUF001
                 after = text[end + 1 : end + 4].lower()
                 if any(after.startswith(s) for s in _CONTRACTION_SUFFIXES):
                     replaced = replaced[:-1]
-            abbrev = replaced.strip().rstrip("'s").rstrip("’s")
+            abbrev = replaced.strip().rstrip("’s").rstrip("’s")  # noqa: RUF001
             if abbrev:
                 found.append(abbrev)
         return replaced

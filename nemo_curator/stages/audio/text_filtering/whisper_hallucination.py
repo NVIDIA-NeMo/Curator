@@ -13,8 +13,6 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Any
-
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
@@ -58,7 +56,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "common_hall_file is required for WhisperHallucinationStage"
             raise ValueError(msg)
 
-    def setup(self, worker_metadata: Any = None) -> None:
+    def setup(self, _worker_metadata: object | None = None) -> None:
         with open(self.common_hall_file, encoding="utf-8") as f:
             phrases = {line.strip() for line in f if line.strip()}
         self._phrases = phrases

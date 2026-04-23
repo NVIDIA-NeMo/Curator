@@ -82,7 +82,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
         )
         raise ValueError(msg)
 
-    def setup(self, worker_metadata: Any = None) -> None:
+    def setup(self, _worker_metadata: object | None = None) -> None:
         from nemo_curator.stages.text.filters.fasttext.fasttext_filters import FastTextLangId
 
         resolved = self._resolve_model_path()

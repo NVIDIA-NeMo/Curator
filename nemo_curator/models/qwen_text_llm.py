@@ -38,16 +38,17 @@ except ImportError:
 
 
 _QWEN_TEXT_MODEL_ID = "Qwen/Qwen3.5-35B-A3B"
+_MAX_SAMPLE_LOG = 5
 
 
 class QwenTextLLM(ModelInterface):
     """Text-only Qwen LLM via vLLM for two-step PnC restoration.
 
-    Step 1 – Completeness check: asks the model whether a given text
+    Step 1 - Completeness check: asks the model whether a given text
     is a complete sentence.  If the answer is "no", the original text
     is returned unchanged.
 
-    Step 2 – PnC restoration: sends the text with a user-supplied
+    Step 2 - PnC restoration: sends the text with a user-supplied
     prompt that instructs the model to restore punctuation and
     capitalisation.
     """
@@ -149,8 +150,8 @@ class QwenTextLLM(ModelInterface):
             import torch
 
             torch.cuda.empty_cache()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("CUDA cache clear skipped: {}", e)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -182,7 +183,7 @@ class QwenTextLLM(ModelInterface):
             return tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True, enable_thinking=False,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             return user_text
 
     def _prepare_single(self, text: str, prompt_template: str) -> dict[str, Any] | None:
@@ -190,7 +191,7 @@ class QwenTextLLM(ModelInterface):
         try:
             user_text = prompt_template.format(text=text)
             return {"prompt": self._format_prompt(user_text)}
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning("Failed to prepare prompt for text (len={}), skipping", len(text))
             return None
 
@@ -219,7 +220,7 @@ class QwenTextLLM(ModelInterface):
 
         valid_indices: list[int] = []
         valid_inputs: list[dict[str, Any]] = []
-        for i, inp in zip(indices, results):
+        for i, inp in zip(indices, results, strict=False):
             if inp is not None:
                 valid_indices.append(i)
                 valid_inputs.append(inp)
@@ -235,7 +236,7 @@ class QwenTextLLM(ModelInterface):
     # Generation
     # ------------------------------------------------------------------
 
-    def generate(
+    def generate(  # noqa: C901
         self,
         texts: list[str],
     ) -> tuple[list[bool], list[str]]:
@@ -282,9 +283,9 @@ class QwenTextLLM(ModelInterface):
 
         complete_indices: list[int] = []
         sample_answers: list[str] = []
-        for idx, out in zip(s1_valid_indices, step1_outputs):
+        for idx, out in zip(s1_valid_indices, step1_outputs, strict=False):
             answer = out.outputs[0].text.strip()
-            if len(sample_answers) < 5:
+            if len(sample_answers) < _MAX_SAMPLE_LOG:
                 sample_answers.append(repr(answer))
             if self._is_yes(answer):
                 is_complete[idx] = True
@@ -315,7 +316,7 @@ class QwenTextLLM(ModelInterface):
             s2_valid_inputs, sampling_params=self._sampling_params, use_tqdm=False,
         )
 
-        for idx, out in zip(s2_valid_indices, step2_outputs):
+        for idx, out in zip(s2_valid_indices, step2_outputs, strict=False):
             restored = out.outputs[0].text.strip()
             if restored:
                 pnc_texts[idx] = restored

@@ -180,7 +180,7 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             rel = rel[:-len(".json")]
         return rel
 
-    def process(self, _task: _EmptyTask) -> list[FileGroupTask]:
+    def process(self, _task: _EmptyTask) -> list[FileGroupTask]:  # noqa: C901
         import yaml
 
         completed = self._scan_completed_shards()
@@ -276,10 +276,10 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     def _read_manifest(self, path: str) -> dict[str, dict]:
         entries: dict[str, dict] = {}
         with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    entry = json.loads(line)
+            for raw_line in f:
+                stripped = raw_line.strip()
+                if stripped:
+                    entry = json.loads(stripped)
                     entries[entry[self.filepath_key]] = entry
         return entries
 
@@ -303,7 +303,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             raw_audio = tar.extractfile(tar_info).read()
             try:
                 audio, sample_rate = sf.read(BytesIO(raw_audio), dtype="float32")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 logger.warning(f"Skipping corrupt audio {tar_info.name} in {tar_path}")
                 continue
 
