@@ -18,10 +18,8 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-
 _DEFAULT_DROP_KEYS: list[str] = [
     "answer",
-    "source_lang",
     "target_lang",
     "decodercontext",
     "emotion",

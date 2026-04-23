@@ -73,7 +73,7 @@ from nemo_curator.stages.audio.text_filtering import (
 from nemo_curator.stages.resources import Resources
 
 
-def main() -> None:
+def main() -> None:  # noqa: PLR0915
     ap = argparse.ArgumentParser(description="QwenOmni in-process vLLM pipeline")
     ap.add_argument("--data_config", type=str, required=True, help="Granary YAML data config.")
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
@@ -91,6 +91,10 @@ def main() -> None:
     ap.add_argument("--max_num_seqs", type=int, default=16)
     ap.add_argument("--gpu_memory_utilization", type=float, default=0.95)
     ap.add_argument("--prep_workers", type=int, default=16, help="Thread pool size for audio preprocessing.")
+    ap.add_argument("--source_lang_key", type=str, default="source_lang",
+                    help="Manifest key holding per-sample language code. "
+                         "Used for prompt interpolation ({language} placeholder) and per-sample LID filtering. "
+                         "Set to empty string to disable.")
     ap.add_argument("--s3_endpoint_url", type=str, default=None)
     ap.add_argument("--execution_mode", type=str, default="streaming",
                     choices=["streaming", "batch"], help="Xenna execution mode.")
@@ -159,6 +163,7 @@ def main() -> None:
                 max_num_seqs=args.max_num_seqs,
                 gpu_memory_utilization=args.gpu_memory_utilization,
                 prep_workers=args.prep_workers,
+                source_lang_key=args.source_lang_key,
                 pred_text_key="qwen3_prediction_s1",
                 disfluency_text_key="qwen3_prediction_s2",
             ),
@@ -175,6 +180,7 @@ def main() -> None:
                 model_path=args.fasttext_model,
                 text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
                 target_lang=args.target_lang,
+                source_lang_key=args.source_lang_key,
                 min_lang_prob=args.min_lang_prob,
             ),
             RegexSubstitutionStage(

@@ -51,6 +51,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
 
     model_path: str = ""
     target_lang: str = "en"
+    source_lang_key: str = ""
     min_lang_prob: float = 0.8
     text_key: str = "pred_text"
     skip_me_key: str = "skip_me"
@@ -82,7 +83,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
         )
         raise ValueError(msg)
 
-    def setup(self, worker_metadata: Any = None) -> None:
+    def setup(self, worker_metadata: object = None) -> None:  # noqa: ARG002
         from nemo_curator.stages.text.filters.fasttext.fasttext_filters import FastTextLangId
 
         resolved = self._resolve_model_path()
@@ -115,8 +116,11 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
         score_list = eval(result_str)  # noqa: S307  — output of our own FastText model
         prob = float(score_list[0])
         lang = str(score_list[1]).lower()
+        expected = self.target_lang
+        if self.source_lang_key and self.source_lang_key in task.data:
+            expected = task.data[self.source_lang_key]
         if not task.data[self.skip_me_key]:
-            if lang != self.target_lang.lower():
+            if lang != expected.lower():
                 task.data[self.skip_me_key] = "Wrong language"
             elif prob < self.min_lang_prob:
                 task.data[self.skip_me_key] = "Low probability of language"
