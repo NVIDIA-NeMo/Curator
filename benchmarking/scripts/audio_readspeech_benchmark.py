@@ -22,6 +22,7 @@ Can be invoked standalone or through the benchmarking framework.
 """
 
 import argparse
+import inspect
 import time
 import traceback
 from pathlib import Path
@@ -71,7 +72,6 @@ def run_readspeech_benchmark(  # noqa: PLR0913, PLR0915
     enable_speaker_separation: bool = False,
     speaker_exclude_overlaps: bool = True,
     speaker_min_duration: float = 0.8,
-    **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the ReadSpeech audio curation benchmark and collect metrics."""
 
@@ -238,10 +238,9 @@ def main() -> int:
                         help="Batch size for manifest creation (default: 1)")
     parser.add_argument("--sample-rate", type=int, default=48000,
                         help="Target sample rate (default: 48000)")
-    parser.add_argument("--auto-download", action="store_true", default=True,
-                        help="Auto-download dataset if missing (default: True)")
     parser.add_argument("--no-auto-download", dest="auto_download", action="store_false",
-                        help="Disable automatic download")
+                        help="Disable automatic dataset download (default: enabled)")
+    parser.set_defaults(auto_download=True)
 
     parser.add_argument("--enable-vad", action="store_true",
                         help="Enable VAD segmentation")
@@ -275,10 +274,10 @@ def main() -> int:
 
     parser.add_argument("--enable-speaker-separation", action="store_true",
                         help="Enable speaker separation")
-    parser.add_argument("--speaker-exclude-overlaps", action="store_true", default=True,
-                        help="Exclude overlapping speech (default: True)")
     parser.add_argument("--no-speaker-exclude-overlaps", dest="speaker_exclude_overlaps",
-                        action="store_false", help="Allow overlapping speaker segments")
+                        action="store_false",
+                        help="Allow overlapping speaker segments (default: excluded)")
+    parser.set_defaults(speaker_exclude_overlaps=True)
     parser.add_argument("--speaker-min-duration", type=float, default=0.8,
                         help="Min speaker segment duration in seconds (default: 0.8)")
 
@@ -297,7 +296,15 @@ def main() -> int:
         "tasks": [],
     }
     try:
-        result_dict.update(run_readspeech_benchmark(**vars(args)))
+        # Pass only the argparse fields that match run_readspeech_benchmark's
+        # signature. Combined with removing the function's **kwargs sink, this
+        # means: (a) any future argparse-only flag (e.g. a script-local --debug)
+        # is intentionally filtered out here, and (b) any function parameter
+        # that drifts away from its argparse counterpart now raises TypeError
+        # loudly instead of being silently swallowed.
+        sig = inspect.signature(run_readspeech_benchmark)
+        known_params = {k: v for k, v in vars(args).items() if k in sig.parameters}
+        result_dict.update(run_readspeech_benchmark(**known_params))
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
     except Exception as e:
         error_traceback = traceback.format_exc()

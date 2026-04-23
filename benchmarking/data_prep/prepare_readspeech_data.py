@@ -46,12 +46,21 @@ import argparse
 import os
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 from loguru import logger
 
 from nemo_curator.stages.audio.datasets.file_utils import download_file
 from nemo_curator.stages.audio.datasets.readspeech import CreateInitialManifestReadSpeechStage
+
+# tar exit codes: 0 = success, 1 = "some files differ" (harmless for extraction,
+# typically caused by timestamps changing during read), 2 = fatal error.
+_TAR_OK_RETURNCODES = (0, 1)
+# HEAD-request timeout (seconds) used to validate that a previously-downloaded
+# part is the same size as the remote object. Short on purpose - if the network
+# is slow we'd rather skip the check than block the prep script.
+_HEAD_REQUEST_TIMEOUT_S = 30
 
 DNS_READSPEECH_BASE_URL = (
     "https://dnschallengepublic.blob.core.windows.net/dns5archive/"
@@ -118,6 +127,18 @@ def _download_single_part(output_path: Path) -> bool:
     return True
 
 
+def _get_remote_size(url: str) -> int | None:
+    """Return Content-Length (bytes) for ``url`` via a HEAD request, or None if unavailable."""
+    try:
+        request = urllib.request.Request(url, method="HEAD")  # noqa: S310
+        with urllib.request.urlopen(request, timeout=_HEAD_REQUEST_TIMEOUT_S) as response:  # noqa: S310
+            length = response.headers.get("Content-Length")
+            return int(length) if length else None
+    except Exception as e:
+        logger.warning(f"  Could not fetch remote size for {url}: {e}")
+        return None
+
+
 def _download_parts(output_path: Path, parts: list[str]) -> list[str]:
     """Download archive parts, skipping already-downloaded ones. Returns list of file paths."""
     downloaded_files = []
@@ -128,13 +149,28 @@ def _download_parts(output_path: Path, parts: list[str]) -> list[str]:
         filepath = output_path / filename
 
         if filepath.exists() and filepath.stat().st_size > 0:
-            logger.info(f"  [{i}/{num_parts}] Already downloaded: {filename} ({filepath.stat().st_size / (1024**3):.2f} GB)")
-        else:
-            if filepath.exists():
+            local_size = filepath.stat().st_size
+            remote_size = _get_remote_size(url)
+            if remote_size is not None and local_size != remote_size:
+                logger.warning(
+                    f"  [{i}/{num_parts}] Partial/corrupt download detected: "
+                    f"{filename} is {local_size / (1024**3):.2f} GB on disk but the "
+                    f"server reports {remote_size / (1024**3):.2f} GB. Re-downloading.",
+                )
                 filepath.unlink()
-            logger.info(f"  [{i}/{num_parts}] Downloading {filename}...")
-            download_file(url, str(output_path), verbose=True)
-            logger.info(f"  [{i}/{num_parts}] Downloaded: {filepath.stat().st_size / (1024**3):.2f} GB")
+            else:
+                size_note = (
+                    f"{local_size / (1024**3):.2f} GB"
+                    if remote_size is None
+                    else f"{local_size / (1024**3):.2f} GB, size matches server"
+                )
+                logger.info(f"  [{i}/{num_parts}] Already downloaded: {filename} ({size_note})")
+                downloaded_files.append(str(filepath))
+                continue
+
+        logger.info(f"  [{i}/{num_parts}] Downloading {filename}...")
+        download_file(url, str(output_path), verbose=True)
+        logger.info(f"  [{i}/{num_parts}] Downloaded: {filepath.stat().st_size / (1024**3):.2f} GB")
         downloaded_files.append(str(filepath))
     return downloaded_files
 
@@ -160,9 +196,23 @@ def _combine_and_extract(output_path: Path, downloaded_files: list[str]) -> bool
             ["tar", "-xzf", str(combined_archive), "-C", str(output_path), "--ignore-zeros"],  # noqa: S607
             capture_output=True, text=True, check=False,
         )
-        if result.returncode != 0:
+        if result.returncode not in _TAR_OK_RETURNCODES:
             logger.error(f"Extraction failed (exit code {result.returncode}): {result.stderr[:500]}")
+            retained_gb = sum(
+                os.path.getsize(f) for f in downloaded_files if os.path.exists(f)
+            ) / (1024**3)
+            logger.info(
+                f"Part files retained on disk for retry ({retained_gb:.1f} GB across "
+                f"{len(downloaded_files)} files). Delete manually to free space.",
+            )
             return False
+
+        if result.returncode == 1:
+            # tar returns 1 when files differ (e.g. mtime changed during read);
+            # extraction of the archive contents itself is still valid.
+            logger.warning(
+                f"tar reported non-fatal differences (exit code 1): {result.stderr[:200]}",
+            )
 
         for fpath in downloaded_files:
             os.remove(fpath)
