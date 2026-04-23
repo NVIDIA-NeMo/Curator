@@ -18,11 +18,10 @@ import logging
 
 from loguru import logger
 
+from nemo_curator.stages.text.translation.backends._retry import MAX_RETRIES
 from nemo_curator.stages.text.translation.backends.base import TranslationBackend
 
 logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
-
-MAX_RETRIES = 5
 
 __all__ = [
     "MAX_RETRIES",

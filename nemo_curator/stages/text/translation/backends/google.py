@@ -29,17 +29,14 @@ Dependencies:
 
 from __future__ import annotations
 
-import asyncio
 import os
 
 from loguru import logger
 
-from ..utils.async_utils import run_async_safe
-from ._retry import retry_with_backoff
-from .base import TranslationBackend
+from .base import ExecutorTranslationBackend
 
 
-class GoogleTranslationBackend(TranslationBackend):
+class GoogleTranslationBackend(ExecutorTranslationBackend):
     """Google Cloud Translation backend (v2 and v3 APIs).
 
     Args:
@@ -49,6 +46,8 @@ class GoogleTranslationBackend(TranslationBackend):
         api_version: ``"v2"`` (default) or ``"v3"``.
         max_concurrent_requests: Semaphore size for async concurrency.
     """
+
+    backend_name = "Google Cloud Translation"
 
     def __init__(
         self,
@@ -114,124 +113,19 @@ class GoogleTranslationBackend(TranslationBackend):
         """Release client resources."""
         self._client = None
 
-    def check_server(self) -> bool:
-        """Check if the Google Cloud Translation service is reachable.
-
-        Performs a test translation of "Hello" to verify credentials and
-        API access are configured correctly.
-
-        Returns:
-            True if the test translation succeeds, False otherwise.
-        """
-        try:
-            result = self._translate_single_sync("Hello", "en", "es")
-            if result:
-                logger.info("Google Cloud Translation health check passed")
-                return True
-            logger.warning("Google Cloud Translation health check returned empty result")
-            return False
-        except Exception as exc:
-            logger.warning(
-                "Google Cloud Translation health check failed: {}",
-                exc,
-            )
-            return False
-
-    # --------------------------------------------------------------------- #
-    #  Synchronous interface
-    # --------------------------------------------------------------------- #
-
-    def translate_batch(
-        self,
-        texts: list[str],
-        source_lang: str,
-        target_lang: str,
-    ) -> list[str]:
-        """Translate a batch of texts synchronously.
-
-        Delegates to :meth:`translate_batch_async` through the safe async bridge.
-        """
-        return run_async_safe(
-            lambda: self.translate_batch_async(texts, source_lang, target_lang)
-        )
-
-    # --------------------------------------------------------------------- #
-    #  Asynchronous interface
-    # --------------------------------------------------------------------- #
-
-    async def translate_batch_async(
-        self,
-        texts: list[str],
-        source_lang: str,
-        target_lang: str,
-    ) -> list[str]:
-        """Translate a batch of texts asynchronously.
-
-        Creates one task per text, gated by the concurrency semaphore.
-        """
-        if not texts:
-            return []
-
-        if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(self.max_concurrent_requests)
-
-        tasks = [
-            self._translate_single_async(text, source_lang, target_lang)
-            for text in texts
-        ]
-        return list(await asyncio.gather(*tasks))
-
-    # --------------------------------------------------------------------- #
-    #  Internal helpers
-    # --------------------------------------------------------------------- #
-
-    async def _translate_single_async(
-        self,
-        text: str,
-        source_lang: str,
-        target_lang: str,
-    ) -> str:
-        """Translate a single text with semaphore gating and retry logic.
-
-        The Google client is synchronous, so the actual API call is wrapped
-        in ``run_in_executor``.
-
-        Non-retryable errors (400-class: invalid arguments, permission
-        denied, etc.) short-circuit the retry loop so misconfigurations
-        surface immediately instead of hanging on exponential backoff.
-        """
-        if not text or not text.strip():
-            return ""
-
-        loop = asyncio.get_running_loop()
-
-        # Import google.api_core exceptions lazily so the module still imports
-        # cleanly when google-cloud-translate is not installed.
+    def _non_retryable_exceptions(self) -> tuple[type[BaseException], ...]:
+        """Return 400-class Google API errors that should not be retried."""
         try:
             from google.api_core import exceptions as gcp_exc
-
-            _NON_RETRYABLE: tuple[type[BaseException], ...] = (
-                gcp_exc.InvalidArgument,
-                gcp_exc.PermissionDenied,
-                gcp_exc.NotFound,
-                gcp_exc.Unauthenticated,
-                gcp_exc.FailedPrecondition,
-            )
         except ImportError:
-            _NON_RETRYABLE = ()
+            return ()
 
-        async def _attempt() -> str:
-            async with self._semaphore:
-                return await loop.run_in_executor(
-                    None,
-                    self._translate_single_sync,
-                    text,
-                    source_lang,
-                    target_lang,
-                )
-
-        return await retry_with_backoff(
-            _attempt, backend_name="Google", non_retryable=_NON_RETRYABLE
+        return (
+            gcp_exc.InvalidArgument,
+            gcp_exc.PermissionDenied,
+            gcp_exc.NotFound,
+            gcp_exc.Unauthenticated,
+            gcp_exc.FailedPrecondition,
         )
 
     def _translate_single_sync(

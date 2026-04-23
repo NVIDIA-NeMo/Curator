@@ -39,7 +39,6 @@ import asyncio
 
 from loguru import logger
 
-from ..utils.async_utils import run_async_safe
 from ._retry import retry_with_backoff
 from .base import TranslationBackend
 
@@ -127,25 +126,6 @@ class NMTTranslationBackend(TranslationBackend):
             logger.debug("NMT aiohttp session closed")
 
     # --------------------------------------------------------------------- #
-    #  Synchronous interface
-    # --------------------------------------------------------------------- #
-
-    def translate_batch(
-        self,
-        texts: list[str],
-        source_lang: str,
-        target_lang: str,
-    ) -> list[str]:
-        """Translate a batch of texts synchronously.
-
-        Splits *texts* into sub-batches of ``self._batch_size``, posts each
-        to the NMT server, and collects results.
-        """
-        return run_async_safe(
-            lambda: self.translate_batch_async(texts, source_lang, target_lang)
-        )
-
-    # --------------------------------------------------------------------- #
     #  Asynchronous interface
     # --------------------------------------------------------------------- #
 
@@ -162,9 +142,7 @@ class NMTTranslationBackend(TranslationBackend):
         """
         if not texts:
             return []
-
-        if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(self.max_concurrent_requests)
+        self._get_semaphore()
 
         # Split into sub-batches.
         sub_batches = [
@@ -208,6 +186,7 @@ class NMTTranslationBackend(TranslationBackend):
     ) -> list[str]:
         """Translate a single sub-batch with semaphore gating and retries."""
         session = await self._get_session()
+        semaphore = self._get_semaphore()
 
         payload = {
             "texts": texts,
@@ -216,7 +195,7 @@ class NMTTranslationBackend(TranslationBackend):
         }
 
         async def _attempt() -> list[str]:
-            async with self._semaphore:
+            async with semaphore:
                 async with session.post(
                     f"{self._server_url}/translate",
                     json=payload,

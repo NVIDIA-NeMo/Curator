@@ -27,8 +27,7 @@ from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
-from . import MAX_RETRIES
-
+MAX_RETRIES = 5
 # Upper cap on a single backoff sleep, in seconds.
 _MAX_BACKOFF_SECONDS = 60.0
 

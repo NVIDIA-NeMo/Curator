@@ -3,10 +3,10 @@ from nemo_curator.stages.text.translation.evaluation.text_quality import (
     TextQualityMetricStage,
     compute_text_quality_metric,
 )
-from nemo_curator.stages.text.translation.pipeline import TranslationPipeline
+from nemo_curator.stages.text.translation.pipeline import TranslationStage
 from nemo_curator.stages.text.translation.stages.reassembly import ReassemblyStage
 from nemo_curator.stages.text.translation.stages.segmentation import SegmentationStage
-from nemo_curator.stages.text.translation.stages.translate import TranslateStage
+from nemo_curator.stages.text.translation.stages.translate import SegmentTranslationStage
 from nemo_curator.stages.text.translation.utils.field_paths import (
     extract_nested_fields,
     is_wildcard_path,
@@ -23,10 +23,10 @@ from nemo_curator.stages.text.translation.utils.metadata import (
 __all__ = [
     "FaithEvalFilter",
     "ReassemblyStage",
+    "SegmentTranslationStage",
     "SegmentationStage",
     "TextQualityMetricStage",
-    "TranslateStage",
-    "TranslationPipeline",
+    "TranslationStage",
     "build_translation_metadata",
     "compute_text_quality_metric",
     "extract_nested_fields",

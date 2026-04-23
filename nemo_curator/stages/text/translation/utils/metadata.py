@@ -28,7 +28,7 @@ def build_translation_metadata(
     translation_map: dict[str, Any] | None = None,
     segmented_translation_map: dict[str, Any] | None = None,
 ) -> str:
-    """Build Speaker-style translation metadata as JSON."""
+    """Build translation metadata as JSON."""
     if translation_map is None:
         meta_translation: dict[str, Any] = {"content": translated_text or ""}
     else:

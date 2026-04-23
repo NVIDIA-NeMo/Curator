@@ -14,14 +14,13 @@
 
 """SegmentationStage -- splits documents into translatable segments.
 
-Ported from ``speaker/src/speaker/core/translate/translate_jsonl.py``.
 Supports two modes:
 
 * **coarse** -- line-level splitting with code-block awareness.
 * **fine** -- sentence-level splitting via spaCy with exact-structure preservation.
 
-Multi-field and wildcard-path support (Gaps 1.1 / 1.2) allows translating
-nested structures such as ``messages.*.content`` without manual flattening.
+Multi-field and wildcard-path support allows translating nested structures
+such as ``messages.*.content`` without manual flattening.
 """
 
 from __future__ import annotations
@@ -44,7 +43,7 @@ from nemo_curator.stages.text.translation.utils.field_paths import (
 from nemo_curator.tasks.document import DocumentBatch
 
 # ---------------------------------------------------------------------------
-# spaCy language model registry (ported verbatim from Speaker)
+# spaCy language model registry
 # ---------------------------------------------------------------------------
 
 SPACY_LANG_MODELS: dict[str, str] = {
@@ -117,7 +116,7 @@ def _get_spacy_nlp(src_lang: str = "en", *, max_length: int | None = None) -> An
 
 
 # ---------------------------------------------------------------------------
-# Sentence splitting with structure preservation (ported verbatim)
+# Sentence splitting with structure preservation
 # ---------------------------------------------------------------------------
 
 def split_into_sentences_with_structure(text: str, src_lang: str = "en") -> list[tuple[str, str]]:
@@ -320,84 +319,23 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         all_rows: list[dict[str, Any]] = []
 
-        # -- statistics counters (Gap 2.1) --
         total_docs = len(df)
         total_segments = 0
         docs_with_zero_segments = 0
 
         for doc_idx, (_row_idx, row) in enumerate(df.iterrows()):
-            original_cols = row.to_dict()
+            doc_rows, doc_segment_count = self._segment_document(
+                row=row,
+                field_paths=field_paths,
+                doc_idx=doc_idx,
+            )
+            all_rows.extend(doc_rows)
 
-            # --- Gap 9.2: skipme support ---
-            if self.skipme_field is not None and self.skipme_field in original_cols:
-                skipme_val = original_cols[self.skipme_field]
-                if skipme_val != 0 and skipme_val is not None:
-                    # Pass the document through without segmentation.
-                    skip_meta = json.dumps({"mode": "skip"}, ensure_ascii=False)
-                    out_row = dict(original_cols)
-                    out_row["_seg_segments"] = ""
-                    out_row["_seg_metadata"] = skip_meta
-                    out_row["_seg_doc_id"] = doc_idx
-                    all_rows.append(out_row)
-                    docs_with_zero_segments += 1
-                    continue
-
-            # Collect texts from all field paths for this document.
-            all_segments: list[str] = []
-            field_metadatas: list[dict[str, Any]] = []
-
-            for field_path in field_paths:
-                texts = self._extract_texts(row, field_path)
-                for text in texts:
-                    if self.min_segment_chars > 0 and len(text) < self.min_segment_chars:
-                        # Passthrough: text is short enough to translate as one block.
-                        # Preserves full context (lists, markdown, structure).
-                        # Always emit a segment to keep metadata count and segment
-                        # count in lock-step (see reassembly._count_segments_in_meta
-                        # which returns 1 for any passthrough entry).
-                        meta = {
-                            "mode": "passthrough",
-                            "field_path": field_path,
-                            "original_text": text,
-                        }
-                        field_metadatas.append(meta)
-                        all_segments.append(text)
-                    elif self.mode == "fine":
-                        segments, meta_json = self._segment_fine(text)
-                        meta = json.loads(meta_json)
-                        meta["field_path"] = field_path
-                        field_metadatas.append(meta)
-                        all_segments.extend(segments)
-                    else:
-                        segments, meta_json = self._segment_coarse(text)
-                        meta = json.loads(meta_json)
-                        meta["field_path"] = field_path
-                        field_metadatas.append(meta)
-                        all_segments.extend(segments)
-
-            # Build the combined metadata envelope.
-            combined_metadata = {
-                "field_metadatas": field_metadatas,
-            }
-            combined_json = json.dumps(combined_metadata, ensure_ascii=False)
-
-            if not all_segments:
+            if doc_segment_count == 0:
                 docs_with_zero_segments += 1
-                out_row = dict(original_cols)
-                out_row["_seg_segments"] = ""
-                out_row["_seg_metadata"] = combined_json
-                out_row["_seg_doc_id"] = doc_idx
-                all_rows.append(out_row)
             else:
-                total_segments += len(all_segments)
-                for segment in all_segments:
-                    out_row = dict(original_cols)
-                    out_row["_seg_segments"] = segment
-                    out_row["_seg_metadata"] = combined_json
-                    out_row["_seg_doc_id"] = doc_idx
-                    all_rows.append(out_row)
+                total_segments += doc_segment_count
 
-        # -- Gap 2.1: log segmentation statistics --
         avg_segs = total_segments / max(total_docs - docs_with_zero_segments, 1)
         logger.info(
             f"SegmentationStage: {total_docs} documents | "
@@ -418,8 +356,102 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             _stage_perf=batch._stage_perf,
         )
 
+    def _segment_document(
+        self,
+        *,
+        row: pd.Series,
+        field_paths: list[str],
+        doc_idx: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Segment a single source document and emit exploded output rows."""
+        original_cols = row.to_dict()
+
+        skipped_row = self._build_skip_output_row(original_cols, doc_idx)
+        if skipped_row is not None:
+            return [skipped_row], 0
+
+        segments, field_metadatas = self._collect_document_segments(row, field_paths)
+        metadata_json = self._build_metadata_json(field_metadatas)
+        return self._build_output_rows(original_cols, segments, metadata_json, doc_idx), len(segments)
+
+    def _build_skip_output_row(
+        self,
+        original_cols: dict[str, Any],
+        doc_idx: int,
+    ) -> dict[str, Any] | None:
+        """Return a passthrough row when ``skipme_field`` marks the document."""
+        if self.skipme_field is None or self.skipme_field not in original_cols:
+            return None
+
+        skipme_val = original_cols[self.skipme_field]
+        if skipme_val == 0 or skipme_val is None:
+            return None
+
+        out_row = dict(original_cols)
+        out_row["_seg_segments"] = ""
+        out_row["_seg_metadata"] = json.dumps({"mode": "skip"}, ensure_ascii=False)
+        out_row["_seg_doc_id"] = doc_idx
+        return out_row
+
+    def _collect_document_segments(
+        self,
+        row: pd.Series,
+        field_paths: list[str],
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        """Collect translated segments and metadata for all requested field paths."""
+        all_segments: list[str] = []
+        field_metadatas: list[dict[str, Any]] = []
+
+        for field_path in field_paths:
+            texts = self._extract_texts(row, field_path)
+            for text in texts:
+                segments, metadata = self._segment_text(text, field_path)
+                field_metadatas.append(metadata)
+                all_segments.extend(segments)
+
+        return all_segments, field_metadatas
+
+    def _segment_text(self, text: str, field_path: str) -> tuple[list[str], dict[str, Any]]:
+        """Segment one extracted text value and attach its field path."""
+        if self.min_segment_chars > 0 and len(text) < self.min_segment_chars:
+            return [text], {
+                "mode": "passthrough",
+                "field_path": field_path,
+                "original_text": text,
+            }
+
+        segment_fn = self._segment_fine if self.mode == "fine" else self._segment_coarse
+        segments, meta_json = segment_fn(text)
+        metadata = json.loads(meta_json)
+        metadata["field_path"] = field_path
+        return segments, metadata
+
+    @staticmethod
+    def _build_metadata_json(field_metadatas: list[dict[str, Any]]) -> str:
+        """Serialize the per-field metadata envelope for one source document."""
+        return json.dumps({"field_metadatas": field_metadatas}, ensure_ascii=False)
+
+    @staticmethod
+    def _build_output_rows(
+        original_cols: dict[str, Any],
+        segments: list[str],
+        metadata_json: str,
+        doc_idx: int,
+    ) -> list[dict[str, Any]]:
+        """Create exploded output rows for the segmented document."""
+        row_segments = segments or [""]
+        return [
+            {
+                **original_cols,
+                "_seg_segments": segment,
+                "_seg_metadata": metadata_json,
+                "_seg_doc_id": doc_idx,
+            }
+            for segment in row_segments
+        ]
+
     # ------------------------------------------------------------------
-    # Text extraction helpers (Gap 1.1 / 1.2)
+    # Text extraction helpers
     # ------------------------------------------------------------------
 
     @staticmethod

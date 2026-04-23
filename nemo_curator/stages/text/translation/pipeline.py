@@ -23,16 +23,16 @@ from loguru import logger
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.text.translation.evaluation.faith import FaithEvalFilter
-from nemo_curator.stages.text.translation.stages.formatting import (
-    MergeSkippedStage,
-    OutputFormattingStage,
-    ScoreMergeStage,
-    SegmentPairCaptureStage,
-    SkipTranslatedStage,
+from nemo_curator.stages.text.translation.stages import (
+    CaptureSegmentPairsStage,
+    FormatTranslationOutputStage,
+    MergeFaithScoresStage,
+    SegmentTranslationStage,
+    ReassemblyStage,
+    SegmentationStage,
+    RestoreSkippedRowsStage,
+    SkipExistingTranslationsStage,
 )
-from nemo_curator.stages.text.translation.stages.reassembly import ReassemblyStage
-from nemo_curator.stages.text.translation.stages.segmentation import SegmentationStage
-from nemo_curator.stages.text.translation.stages.translate import TranslateStage
 from nemo_curator.tasks import DocumentBatch
 
 _VALID_OUTPUT_MODES = {"replaced", "raw", "both"}
@@ -46,10 +46,10 @@ def _needs_structured_faith_helpers(text_field: str | list[str]) -> bool:
 
 
 @dataclass(kw_only=True)
-class TranslationPipeline(CompositeStage[DocumentBatch, DocumentBatch]):
-    """Compose segmentation, translation, reassembly, and optional scoring."""
+class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
+    """Composite stage for document translation and optional quality scoring."""
 
-    name: str = "TranslationPipeline"
+    name: str = "TranslationStage"
 
     source_lang: str = "en"
     target_lang: str = "zh"
@@ -102,7 +102,7 @@ class TranslationPipeline(CompositeStage[DocumentBatch, DocumentBatch]):
         if self.segment_level and not self.preserve_segment_pairs:
             raise ValueError(
                 "segment_level=True requires preserve_segment_pairs=True "
-                "so that SegmentPairCaptureStage writes the "
+                "so that CaptureSegmentPairsStage writes the "
                 "'_seg_translation_pairs' column consumed by FaithEvalFilter."
             )
 
@@ -118,7 +118,7 @@ class TranslationPipeline(CompositeStage[DocumentBatch, DocumentBatch]):
 
         if self.skip_translated:
             stages.append(
-                SkipTranslatedStage(
+                SkipExistingTranslationsStage(
                     translation_column=self.translation_column,
                 )
             )
@@ -132,7 +132,7 @@ class TranslationPipeline(CompositeStage[DocumentBatch, DocumentBatch]):
             )
         )
         stages.append(
-            TranslateStage(
+            SegmentTranslationStage(
                 client=self.client,
                 model_name=self.model_name,
                 source_lang=self.source_lang,
@@ -144,7 +144,7 @@ class TranslationPipeline(CompositeStage[DocumentBatch, DocumentBatch]):
         )
 
         if self.preserve_segment_pairs:
-            stages.append(SegmentPairCaptureStage())
+            stages.append(CaptureSegmentPairsStage())
 
         stages.append(
             ReassemblyStage(
@@ -157,7 +157,7 @@ class TranslationPipeline(CompositeStage[DocumentBatch, DocumentBatch]):
         )
 
         if self.skip_translated:
-            stages.append(MergeSkippedStage())
+            stages.append(RestoreSkippedRowsStage())
 
         if self.enable_faith_eval:
             faith_model = self.faith_model_name or self.model_name
@@ -190,7 +190,7 @@ class TranslationPipeline(CompositeStage[DocumentBatch, DocumentBatch]):
         )
         if needs_formatting:
             stages.append(
-                OutputFormattingStage(
+                FormatTranslationOutputStage(
                     output_mode=self.output_mode,
                     target_lang=self.target_lang,
                     output_field=self.output_field,
@@ -202,7 +202,7 @@ class TranslationPipeline(CompositeStage[DocumentBatch, DocumentBatch]):
             )
 
         if self.enable_faith_eval and self.merge_scores and self.output_mode in ("raw", "both"):
-            stages.append(ScoreMergeStage())
+            stages.append(MergeFaithScoresStage())
 
         return stages
 

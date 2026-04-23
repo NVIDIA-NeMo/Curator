@@ -12,15 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-FaithEvalFilter -- LLM-based translation quality scoring using the FAITH metric.
-
-Scores translations on 5 dimensions (Fluency, Accuracy, Idiomaticity,
-Terminology, Handling_of_Format) and filters rows below a configurable
-average threshold.
-
-Ported from Speaker's faith_eval.py with Curator-native interfaces.
-"""
+"""FAITH-based translation quality scoring and optional filtering."""
 
 from __future__ import annotations
 
@@ -192,48 +184,58 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         num_docs = len(df)
         logger.info("FaithEvalFilter: evaluating {} documents", num_docs)
 
-        use_segment_scoring = (
-            self.segment_level and "_seg_translation_pairs" in df.columns
+        all_scores, segment_scores_json, parse_failed_flags = self._score_batch(df)
+        self._attach_score_columns(df, all_scores, segment_scores_json, parse_failed_flags)
+        self._log_batch_scores(df)
+        df = self._filter_rows(df)
+
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=df,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
         )
 
-        parse_failed_flags: list[bool]
-        if use_segment_scoring:
-            all_scores, segment_scores_json, parse_failed_flags = self._score_segments(df)
+    def _score_batch(
+        self,
+        df: pd.DataFrame,
+    ) -> tuple[list[dict], list[str] | None, list[bool]]:
+        """Run either document-level or segment-level FAITH scoring."""
+        if self.segment_level and "_seg_translation_pairs" in df.columns:
+            return self._score_segments(df)
+
+        if self.segment_level:
+            logger.info(
+                "segment_level=True but '_seg_translation_pairs' column not found; "
+                "falling back to whole-document scoring"
+            )
+
+        responses = self._score_all(df)
+        parsed = [self._extract_scores_from_json(response) for response in responses]
+        return [scores for scores, _ in parsed], None, [failed for _, failed in parsed]
+
+    def _attach_score_columns(
+        self,
+        df: pd.DataFrame,
+        all_scores: list[dict],
+        segment_scores_json: list[str] | None,
+        parse_failed_flags: list[bool],
+    ) -> None:
+        """Write parsed FAITH scores back onto the DataFrame."""
+        if segment_scores_json is not None:
             df["faith_segment_scores"] = segment_scores_json
-        else:
-            if self.segment_level:
-                logger.info(
-                    "segment_level=True but '_seg_translation_pairs' column not found; "
-                    "falling back to whole-document scoring"
-                )
-            # Whole-document scoring (original behaviour)
-            responses = self._score_all(df)
-            parsed = [self._extract_scores_from_json(r) for r in responses]
-            all_scores = [p[0] for p in parsed]
-            parse_failed_flags = [p[1] for p in parsed]
 
-        # Attach per-dimension score columns
-        df["faith_fluency"] = [s["Fluency"] for s in all_scores]
-        df["faith_accuracy"] = [s["Accuracy"] for s in all_scores]
-        df["faith_idiomaticity"] = [s["Idiomaticity"] for s in all_scores]
-        df["faith_terminology"] = [s["Terminology"] for s in all_scores]
-        df["faith_handling_of_format"] = [s["Handling_of_Format"] for s in all_scores]
-
-        # "zero means not applicable": compute faith_avg as the mean of the
-        # non-zero per-dimension scores for that row.  If every dimension is
-        # zero, faith_avg is 0.0.  Both doc-level and segment-level paths
-        # route through ``_compute_faith_avg`` so the semantics stay in
-        # lockstep.  We feed the FAITH_KEYS-keyed ``all_scores`` dicts in
-        # directly rather than re-reading the score columns we just wrote,
-        # so the helper is the single source of truth for both paths.
-        df["faith_avg"] = [self._compute_faith_avg(s) for s in all_scores]
-
-        # Track rows where the LLM response could not be parsed as JSON so
-        # downstream users can distinguish genuinely low-quality translations
-        # from scoring-pipeline failures.
+        df["faith_fluency"] = [scores["Fluency"] for scores in all_scores]
+        df["faith_accuracy"] = [scores["Accuracy"] for scores in all_scores]
+        df["faith_idiomaticity"] = [scores["Idiomaticity"] for scores in all_scores]
+        df["faith_terminology"] = [scores["Terminology"] for scores in all_scores]
+        df["faith_handling_of_format"] = [scores["Handling_of_Format"] for scores in all_scores]
+        df["faith_avg"] = [self._compute_faith_avg(scores) for scores in all_scores]
         df["faith_parse_failed"] = parse_failed_flags
 
-        # Log average scores across the batch
+    def _log_batch_scores(self, df: pd.DataFrame) -> None:
+        """Log aggregate FAITH scores and parse-failure counts."""
         avg_batch_scores = {col: round(df[col].mean(), 3) for col in _SCORE_COLUMNS}
         logger.info("FaithEvalFilter: average batch scores: {}", avg_batch_scores)
 
@@ -246,29 +248,23 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
                 len(df),
             )
 
-        # Filter rows below threshold (when enabled).  Parse-failed rows are
-        # always retained so users can debug LLM-side bugs.
-        if self.filter_enabled:
-            pre_filter_count = len(df)
-            keep_mask = (df["faith_avg"] >= self.threshold) | df["faith_parse_failed"]
-            df = df[keep_mask].reset_index(drop=True)
-            num_filtered = pre_filter_count - len(df)
-            logger.info(
-                "FaithEvalFilter: filtered {}/{} documents below threshold {}",
-                num_filtered,
-                pre_filter_count,
-                self.threshold,
-            )
-        else:
+    def _filter_rows(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply threshold filtering while preserving parse-failed rows."""
+        if not self.filter_enabled:
             logger.info("FaithEvalFilter: filter_enabled=False, keeping all {} documents", len(df))
+            return df
 
-        return DocumentBatch(
-            task_id=batch.task_id,
-            dataset_name=batch.dataset_name,
-            data=df,
-            _metadata=batch._metadata,
-            _stage_perf=batch._stage_perf,
+        pre_filter_count = len(df)
+        keep_mask = (df["faith_avg"] >= self.threshold) | df["faith_parse_failed"]
+        filtered_df = df[keep_mask].reset_index(drop=True)
+        num_filtered = pre_filter_count - len(filtered_df)
+        logger.info(
+            "FaithEvalFilter: filtered {}/{} documents below threshold {}",
+            num_filtered,
+            pre_filter_count,
+            self.threshold,
         )
+        return filtered_df
 
     # ------------------------------------------------------------------
     # Per-segment scoring
@@ -303,9 +299,6 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         Only positive scores (> 0) contribute to the average so that
         segments where a dimension was not applicable (scored 0) do not
         drag down the mean.
-
-        Ported from ``speaker/src/speaker/core/translate/faith_eval.py``
-        ``FaithEvaluationTask.average_scores``.
 
         Parameters
         ----------
@@ -347,23 +340,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             score lists (one per row), and *parse_failed_flags* marks rows
             where at least one segment response failed to parse as JSON.
         """
-        # Flatten all segment pairs across all documents for bulk LLM scoring
-        all_pairs: list[tuple[str, str]] = []      # (src, tgt)
-        doc_segment_counts: list[int] = []          # number of segments per doc
-
-        for _, row in df.iterrows():
-            raw = row["_seg_translation_pairs"]
-            # Tolerant parsing: rows filled in by MergeSkippedStage may carry
-            # an empty string (or None) for skipped/untranslated documents.
-            # ``json.loads("")`` would crash -- treat empty/None as "no pairs".
-            if isinstance(raw, str):
-                raw_stripped = raw.strip()
-                pairs: list[dict] = json.loads(raw_stripped) if raw_stripped else []
-            else:
-                pairs = raw or []
-            doc_segment_counts.append(len(pairs))
-            for pair in pairs:
-                all_pairs.append((pair["src"], pair["tgt"]))
+        all_pairs, doc_segment_counts = self._collect_segment_pairs(df)
 
         total_segments = len(all_pairs)
         logger.info(
@@ -386,17 +363,49 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
                 all_segment_scores.append(scores)
                 all_segment_parse_failed.append(failed)
 
-        # Split back per-document and average
+        return self._rebuild_document_scores(
+            all_segment_scores,
+            all_segment_parse_failed,
+            doc_segment_counts,
+        )
+
+    @staticmethod
+    def _collect_segment_pairs(df: pd.DataFrame) -> tuple[list[tuple[str, str]], list[int]]:
+        """Flatten ``_seg_translation_pairs`` into a batch-scoring worklist."""
+        all_pairs: list[tuple[str, str]] = []
+        doc_segment_counts: list[int] = []
+
+        for _, row in df.iterrows():
+            raw = row["_seg_translation_pairs"]
+            if isinstance(raw, str):
+                raw_stripped = raw.strip()
+                pairs: list[dict] = json.loads(raw_stripped) if raw_stripped else []
+            else:
+                pairs = raw or []
+
+            doc_segment_counts.append(len(pairs))
+            all_pairs.extend((pair["src"], pair["tgt"]) for pair in pairs)
+
+        return all_pairs, doc_segment_counts
+
+    def _rebuild_document_scores(
+        self,
+        all_segment_scores: list[dict],
+        all_segment_parse_failed: list[bool],
+        doc_segment_counts: list[int],
+    ) -> tuple[list[dict], list[str], list[bool]]:
+        """Fold bulk segment scores back into per-document outputs."""
         doc_scores: list[dict] = []
         segment_scores_json: list[str] = []
         parse_failed_flags: list[bool] = []
         offset = 0
+
         for count in doc_segment_counts:
-            seg_scores = all_segment_scores[offset: offset + count]
-            seg_failed = all_segment_parse_failed[offset: offset + count]
+            seg_scores = all_segment_scores[offset : offset + count]
+            seg_failed = all_segment_parse_failed[offset : offset + count]
             offset += count
-            averaged = self._average_scores(seg_scores)
-            doc_scores.append(averaged)
+
+            doc_scores.append(self._average_scores(seg_scores))
             segment_scores_json.append(json.dumps(seg_scores, ensure_ascii=False))
             parse_failed_flags.append(any(seg_failed))
 
@@ -479,7 +488,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         return results
 
     # ------------------------------------------------------------------
-    # Score parsing (ported from Speaker faith_eval.py)
+    # Score parsing
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -556,9 +565,6 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         A score of ``0.0`` follows the "zero means not applicable" convention
         (see :meth:`_average_scores`).
-
-        Ported from ``speaker/src/speaker/core/translate/faith_eval.py``
-        ``FaithEvaluationTask.extract_scores_from_json``.
 
         Returns:
             Tuple of ``(scores, parse_failed)`` where ``scores`` is a dict

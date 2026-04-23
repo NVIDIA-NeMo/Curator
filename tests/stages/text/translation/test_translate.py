@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for TranslateStage."""
+"""Unit tests for SegmentTranslationStage."""
 
 from __future__ import annotations
 
@@ -21,7 +21,9 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from nemo_curator.stages.text.translation.stages.translate import TranslateStage
+from nemo_curator.stages.text.translation.stages.translate import (
+    SegmentTranslationStage,
+)
 from nemo_curator.tasks import DocumentBatch
 
 from .conftest import MockAsyncLLMClient
@@ -37,28 +39,28 @@ class TestUnwrapTranslation:
 
     def test_unwrap_translation_both_brackets(self) -> None:
         """Both brackets present -- extract the inner text."""
-        result = TranslateStage._unwrap_translation("text \u3018translated\u3019 more")
+        result = SegmentTranslationStage._unwrap_translation("text \u3018translated\u3019 more")
         assert result == "translated"
 
     def test_unwrap_translation_left_only(self) -> None:
         """Only the left bracket present -- return everything after it."""
-        result = TranslateStage._unwrap_translation("text \u3018translated")
+        result = SegmentTranslationStage._unwrap_translation("text \u3018translated")
         assert result == "translated"
 
     def test_unwrap_translation_no_brackets(self) -> None:
         """No brackets at all -- return the text unchanged."""
-        result = TranslateStage._unwrap_translation("plain text")
+        result = SegmentTranslationStage._unwrap_translation("plain text")
         assert result == "plain text"
 
     def test_unwrap_translation_empty(self) -> None:
         """Empty string -- return empty string."""
-        result = TranslateStage._unwrap_translation("")
+        result = SegmentTranslationStage._unwrap_translation("")
         assert result == ""
 
     def test_unwrap_nested_brackets(self) -> None:
         """Multiple bracket pairs -- rfind picks the last left bracket."""
         text = "prefix \u3018first\u3019 middle \u3018second\u3019 suffix"
-        result = TranslateStage._unwrap_translation(text)
+        result = SegmentTranslationStage._unwrap_translation(text)
         # rfind finds the last \u3018, which is before "second", and the last
         # \u3019 is after "second". So we get "second".
         assert result == "second"
@@ -75,7 +77,7 @@ class TestBuildMessages:
     def test_build_messages(self) -> None:
         """Verify message list structure with system + user roles."""
         client = MockAsyncLLMClient()
-        stage = TranslateStage(
+        stage = SegmentTranslationStage(
             client=client,
             model_name="test-model",
             source_lang="en",
@@ -106,7 +108,7 @@ class TestProcessLLMBackend:
     def test_process_llm_backend(self) -> None:
         """Mock AsyncLLMClient -- verify _translated column is populated."""
         client = MockAsyncLLMClient()
-        stage = TranslateStage(
+        stage = SegmentTranslationStage(
             client=client,
             model_name="test-model",
             source_lang="en",
@@ -160,7 +162,7 @@ class TestProcessNonLLMBackend:
 
         mock_backend.translate_batch_async = MagicMock(side_effect=_fake_async)
 
-        stage = TranslateStage(
+        stage = SegmentTranslationStage(
             client=None,
             backend_type="google",
             source_lang="en",
@@ -200,7 +202,7 @@ class TestInputsOutputs:
     def test_inputs_outputs(self) -> None:
         """Verify column declarations match the plan."""
         client = MockAsyncLLMClient()
-        stage = TranslateStage(
+        stage = SegmentTranslationStage(
             client=client,
             model_name="test-model",
         )
@@ -229,7 +231,7 @@ class TestSetup:
         """Verify setup() calls client.setup()."""
         client = MockAsyncLLMClient()
         client.setup = MagicMock()
-        stage = TranslateStage(
+        stage = SegmentTranslationStage(
             client=client,
             model_name="test-model",
         )
@@ -251,7 +253,7 @@ class TestFieldDefaults:
     def test_semaphore_field(self) -> None:
         """Verify max_concurrent_requests field exists and defaults to 64."""
         client = MockAsyncLLMClient()
-        stage = TranslateStage(
+        stage = SegmentTranslationStage(
             client=client,
             model_name="test-model",
         )
@@ -269,7 +271,7 @@ class TestValidation:
     def test_client_none_for_llm_raises(self) -> None:
         """backend_type='llm' with client=None raises ValueError."""
         with pytest.raises(ValueError, match="requires a non-None 'client'"):
-            TranslateStage(
+            SegmentTranslationStage(
                 client=None,
                 backend_type="llm",
                 model_name="test-model",

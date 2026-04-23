@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Integration tests for the TranslationPipeline CompositeStage and FaithEvalFilter."""
+"""Integration tests for the TranslationStage composite stage and FaithEvalFilter."""
 
 from __future__ import annotations
 
@@ -27,35 +27,35 @@ from nemo_curator.stages.text.translation.evaluation.faith import (
     FaithEvalFilter,
     _SCORE_COLUMNS,
 )
-from nemo_curator.stages.text.translation.pipeline import (
-    TranslationPipeline,
-)
-from nemo_curator.stages.text.translation.stages.formatting import (
-    MergeSkippedStage,
-    OutputFormattingStage,
-    ScoreMergeStage,
-    SegmentPairCaptureStage,
-    SkipTranslatedStage,
+from nemo_curator.stages.text.translation.pipeline import TranslationStage
+from nemo_curator.stages.text.translation.stages import (
+    CaptureSegmentPairsStage,
+    FormatTranslationOutputStage,
+    MergeFaithScoresStage,
+    RestoreSkippedRowsStage,
+    SkipExistingTranslationsStage,
 )
 from nemo_curator.stages.text.translation.stages.reassembly import ReassemblyStage
 from nemo_curator.stages.text.translation.stages.segmentation import SegmentationStage
-from nemo_curator.stages.text.translation.stages.translate import TranslateStage
+from nemo_curator.stages.text.translation.stages.translate import (
+    SegmentTranslationStage,
+)
 from nemo_curator.tasks import DocumentBatch
 
 from .conftest import MockAsyncLLMClient
 
 
 # ---------------------------------------------------------------------------
-# TranslationPipeline.decompose() tests
+# TranslationStage.decompose() tests
 # ---------------------------------------------------------------------------
 
 
-class TestTranslationPipelineDecompose:
+class TestTranslationStageDecompose:
     """Tests for the CompositeStage decompose behaviour."""
 
     def test_decompose_without_faith_eval(self, mock_client: MockAsyncLLMClient) -> None:
         """Pipeline without FAITH eval decomposes into 3 stages."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -64,12 +64,12 @@ class TestTranslationPipelineDecompose:
         stages = pipeline.decompose()
         assert len(stages) == 3
         assert isinstance(stages[0], SegmentationStage)
-        assert isinstance(stages[1], TranslateStage)
+        assert isinstance(stages[1], SegmentTranslationStage)
         assert isinstance(stages[2], ReassemblyStage)
 
     def test_decompose_with_faith_eval(self, mock_client: MockAsyncLLMClient) -> None:
         """Pipeline with FAITH eval decomposes into 4 stages."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -79,13 +79,13 @@ class TestTranslationPipelineDecompose:
         stages = pipeline.decompose()
         assert len(stages) == 4
         assert isinstance(stages[0], SegmentationStage)
-        assert isinstance(stages[1], TranslateStage)
+        assert isinstance(stages[1], SegmentTranslationStage)
         assert isinstance(stages[2], ReassemblyStage)
         assert isinstance(stages[3], FaithEvalFilter)
 
     def test_decompose_faith_eval_uses_faith_model_name(self, mock_client: MockAsyncLLMClient) -> None:
         """When faith_model_name is set, FaithEvalFilter uses it instead of model_name."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -100,7 +100,7 @@ class TestTranslationPipelineDecompose:
 
     def test_decompose_faith_eval_fallback_to_model_name(self, mock_client: MockAsyncLLMClient) -> None:
         """When faith_model_name is empty, FaithEvalFilter uses model_name."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -118,7 +118,7 @@ class TestTranslationPipelineDecompose:
         mock_client: MockAsyncLLMClient,
     ) -> None:
         """Structured paths should route FAITH through reassembly helper columns."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -134,11 +134,11 @@ class TestTranslationPipelineDecompose:
         assert isinstance(stages[3], FaithEvalFilter)
         assert stages[3].source_text_field == "_faith_source_text"
         assert stages[3].translated_text_field == "_faith_translated_text"
-        assert isinstance(stages[4], OutputFormattingStage)
+        assert isinstance(stages[4], FormatTranslationOutputStage)
 
     def test_segmentation_stage_inherits_config(self, mock_client: MockAsyncLLMClient) -> None:
         """SegmentationStage receives text_field and source_lang from the pipeline."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="fr",
             target_lang="en",
             client=mock_client,
@@ -153,9 +153,9 @@ class TestTranslationPipelineDecompose:
         assert seg.mode == "fine"
 
     def test_translate_stage_inherits_config(self, mock_client: MockAsyncLLMClient) -> None:
-        """TranslateStage receives language and backend config from the pipeline."""
+        """SegmentTranslationStage receives language and backend config from the stage."""
         gen_cfg = GenerationConfig(temperature=0.5)
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="ja",
             client=mock_client,
@@ -164,7 +164,7 @@ class TestTranslationPipelineDecompose:
             backend_type="llm",
         )
         tr = pipeline.decompose()[1]
-        assert isinstance(tr, TranslateStage)
+        assert isinstance(tr, SegmentTranslationStage)
         assert tr.source_lang == "en"
         assert tr.target_lang == "ja"
         assert tr.model_name == "m"
@@ -172,7 +172,7 @@ class TestTranslationPipelineDecompose:
 
     def test_reassembly_stage_inherits_config(self, mock_client: MockAsyncLLMClient) -> None:
         """ReassemblyStage receives text_field and output_field from the pipeline."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -189,7 +189,7 @@ class TestTranslationPipelineDecompose:
 
     def test_composite_stage_process_raises(self, mock_client: MockAsyncLLMClient) -> None:
         """CompositeStage.process() must raise RuntimeError (never executed directly)."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -202,7 +202,7 @@ class TestTranslationPipelineDecompose:
 
     def test_pipeline_inputs_outputs(self, mock_client: MockAsyncLLMClient) -> None:
         """inputs() delegates to first stage, outputs() to last stage."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -405,7 +405,7 @@ class TestEndToEndMock:
 
     def test_pipeline_columns_flow(self, mock_client: MockAsyncLLMClient, sample_batch: DocumentBatch) -> None:
         """Running decomposed stages sequentially produces the expected columns."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -416,7 +416,7 @@ class TestEndToEndMock:
         stages = pipeline.decompose()
         assert len(stages) == 4
 
-        # We cannot fully run SegmentationStage and TranslateStage without
+        # We cannot fully run SegmentationStage and SegmentTranslationStage without
         # Dev 1 and Dev 2's implementations being present.  Instead, we
         # verify that the pipeline *decomposes* correctly and that the last
         # stage (FaithEvalFilter) can process a pre-built DataFrame.
@@ -447,7 +447,7 @@ class TestEndToEndMock:
     def test_full_e2e_all_four_stages(self, mock_client: MockAsyncLLMClient) -> None:
         """True end-to-end test: run all 4 stages sequentially.
 
-        Exercises: SegmentationStage -> TranslateStage -> ReassemblyStage ->
+        Exercises: SegmentationStage -> SegmentTranslationStage -> ReassemblyStage ->
         FaithEvalFilter, verifying that columns flow correctly through every
         stage and no data is silently lost.
         """
@@ -464,7 +464,7 @@ class TestEndToEndMock:
         batch = DocumentBatch(data=df, dataset_name="e2e-test", task_id="1")
 
         # -- Decompose pipeline with faith eval enabled ----------------------
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -493,7 +493,7 @@ class TestEndToEndMock:
 
         # -- Stage 2: Translation -------------------------------------------
         tr_stage = stages[1]
-        assert isinstance(tr_stage, TranslateStage)
+        assert isinstance(tr_stage, SegmentTranslationStage)
         tr_stage.setup()
         result = tr_stage.process(result)
         tr_df = result.to_pandas()
@@ -558,7 +558,7 @@ class TestEndToEndMock:
         )
         batch = DocumentBatch(data=df, dataset_name="e2e-empty-test", task_id="1")
 
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -590,7 +590,7 @@ class TestEndToEndMock:
         )
         batch = DocumentBatch(data=df, dataset_name="e2e-index-test", task_id="1")
 
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -677,11 +677,11 @@ class TestFaithEvalFilterEnabled:
     def test_pipeline_with_faith_eval_score_only(self, mock_client: MockAsyncLLMClient) -> None:
         """Pipeline with enable_faith_eval=True builds stages correctly.
 
-        TranslationPipeline exposes ``filter_enabled`` and forwards it to
+        TranslationStage exposes ``filter_enabled`` and forwards it to
         :class:`FaithEvalFilter`.  The default is ``True`` (drop rows below
         threshold).
         """
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -697,7 +697,7 @@ class TestFaithEvalFilterEnabled:
         assert faith_stage.filter_enabled is True
 
         # Explicitly passing filter_enabled=False is forwarded.
-        pipeline2 = TranslationPipeline(
+        pipeline2 = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -711,11 +711,11 @@ class TestFaithEvalFilterEnabled:
 
 
 class TestDryRunMode:
-    """Tests for Gap 10.3: TranslateStage with dry_run=True."""
+    """Tests for Gap 10.3: SegmentTranslationStage with dry_run=True."""
 
     def test_dry_run_returns_empty_translations(self, mock_client: MockAsyncLLMClient) -> None:
         """With dry_run=True, process() returns empty translations without calling the LLM."""
-        stage = TranslateStage(
+        stage = SegmentTranslationStage(
             client=mock_client,
             model_name="test-model",
             source_lang="en",
@@ -745,7 +745,7 @@ class TestDryRunMode:
 
     def test_dry_run_produces_timing_columns(self, mock_client: MockAsyncLLMClient) -> None:
         """dry_run=True produces _translation_time and _translation_error columns."""
-        stage = TranslateStage(
+        stage = SegmentTranslationStage(
             client=mock_client,
             model_name="test-model",
             source_lang="en",
@@ -768,7 +768,7 @@ class TestDryRunMode:
 
     def test_dry_run_field_defaults_to_false(self) -> None:
         """dry_run defaults to False."""
-        stage = TranslateStage(
+        stage = SegmentTranslationStage(
             client=MockAsyncLLMClient(),
             model_name="test-model",
         )
@@ -782,7 +782,7 @@ class TestSkipTranslated:
         self, mock_client: MockAsyncLLMClient, batch_with_existing_translations: DocumentBatch
     ) -> None:
         """With skip_translated=True, rows with existing translations are preserved as-is."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -806,7 +806,7 @@ class TestSkipTranslated:
         self, mock_client: MockAsyncLLMClient, batch_with_existing_translations: DocumentBatch
     ) -> None:
         """With skip_translated=False, all rows are retranslated."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -835,7 +835,7 @@ class TestSkipTranslated:
         )
         batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
 
-        skip_stage = SkipTranslatedStage()
+        skip_stage = SkipExistingTranslationsStage()
         skipped_batch = skip_stage.process(batch)
 
         remaining_df = skipped_batch.to_pandas().copy()
@@ -847,7 +847,7 @@ class TestSkipTranslated:
             _metadata=skipped_batch._metadata,
         )
 
-        merged = MergeSkippedStage().process(translated_batch)
+        merged = RestoreSkippedRowsStage().process(translated_batch)
         merged_df = merged.to_pandas()
 
         assert list(merged_df["id"]) == [100, 200, 300]
@@ -856,7 +856,7 @@ class TestSkipTranslated:
             "Neu eins",
             "Neu zwei",
         ]
-        assert "_skip_translated_state" not in merged._metadata
+        assert "_skipped_rows_state" not in merged._metadata
 
 
 class TestOutputMode:
@@ -864,7 +864,7 @@ class TestOutputMode:
 
     def test_output_mode_both(self, mock_client: MockAsyncLLMClient) -> None:
         """With output_mode='both', output has both raw metadata and replaced text."""
-        pipeline = TranslationPipeline(
+        pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
             client=mock_client,
@@ -899,7 +899,7 @@ class TestPartialTranslationRecovery:
         not raise exceptions, so we verify the basic flow completes.  A more
         thorough test would inject a failing mock for specific segments.
         """
-        stage = TranslateStage(
+        stage = SegmentTranslationStage(
             client=mock_client,
             model_name="test-model",
             source_lang="en",
@@ -963,16 +963,16 @@ class TestFaithEvalAverageScores:
 
 
 # ---------------------------------------------------------------------------
-# SegmentPairCaptureStage tests
+# CaptureSegmentPairsStage tests
 # ---------------------------------------------------------------------------
 
 
-class TestSegmentPairCaptureStage:
-    """Tests for SegmentPairCaptureStage."""
+class TestCaptureSegmentPairsStage:
+    """Tests for CaptureSegmentPairsStage."""
 
     def test_capture_creates_pairs_column(self) -> None:
         """Verify _seg_translation_pairs column is created with correct JSON."""
-        stage = SegmentPairCaptureStage()
+        stage = CaptureSegmentPairsStage()
 
         df = pd.DataFrame(
             {
@@ -1001,7 +1001,7 @@ class TestSegmentPairCaptureStage:
 
     def test_capture_empty_batch(self) -> None:
         """An empty batch passes through without errors."""
-        stage = SegmentPairCaptureStage()
+        stage = CaptureSegmentPairsStage()
         df = pd.DataFrame(
             {
                 "_seg_segments": pd.Series(dtype="str"),
@@ -1015,16 +1015,16 @@ class TestSegmentPairCaptureStage:
 
 
 # ---------------------------------------------------------------------------
-# OutputFormattingStage tests
+# FormatTranslationOutputStage tests
 # ---------------------------------------------------------------------------
 
 
-class TestOutputFormattingStage:
-    """Tests for OutputFormattingStage."""
+class TestFormatTranslationOutputStage:
+    """Tests for FormatTranslationOutputStage."""
 
     def test_raw_mode_creates_metadata_drops_translated(self) -> None:
         """In 'raw' mode, translation_metadata is created and translated_text is dropped."""
-        stage = OutputFormattingStage(
+        stage = FormatTranslationOutputStage(
             output_mode="raw",
             target_lang="de",
             output_field="translated_text",
@@ -1050,7 +1050,7 @@ class TestOutputFormattingStage:
 
     def test_both_mode_keeps_both_columns(self) -> None:
         """In 'both' mode, both translated_text and translation_metadata are present."""
-        stage = OutputFormattingStage(
+        stage = FormatTranslationOutputStage(
             output_mode="both",
             target_lang="de",
             output_field="translated_text",
@@ -1072,7 +1072,7 @@ class TestOutputFormattingStage:
 
     def test_raw_mode_uses_reassembly_helper_maps(self) -> None:
         """Raw mode should prefer helper maps over the flat translated_text fallback."""
-        stage = OutputFormattingStage(
+        stage = FormatTranslationOutputStage(
             output_mode="raw",
             target_lang="de",
             output_field="translated_text",
@@ -1099,7 +1099,7 @@ class TestOutputFormattingStage:
 
     def test_replaced_mode_drops_faith_helper_columns(self) -> None:
         """Formatting should clean up FAITH helper columns when present."""
-        stage = OutputFormattingStage(
+        stage = FormatTranslationOutputStage(
             output_mode="replaced",
             target_lang="de",
             output_field="translated_text",
@@ -1121,7 +1121,7 @@ class TestOutputFormattingStage:
 
     def test_replaced_mode_no_metadata(self) -> None:
         """In 'replaced' mode, no translation_metadata column is added."""
-        stage = OutputFormattingStage(
+        stage = FormatTranslationOutputStage(
             output_mode="replaced",
             target_lang="de",
             output_field="translated_text",
@@ -1143,16 +1143,16 @@ class TestOutputFormattingStage:
 
 
 # ---------------------------------------------------------------------------
-# ScoreMergeStage tests
+# MergeFaithScoresStage tests
 # ---------------------------------------------------------------------------
 
 
-class TestScoreMergeStage:
-    """Tests for ScoreMergeStage."""
+class TestMergeFaithScoresStage:
+    """Tests for MergeFaithScoresStage."""
 
     def test_merge_scores_into_metadata(self) -> None:
         """FAITH scores are merged into the translation_metadata JSON."""
-        stage = ScoreMergeStage()
+        stage = MergeFaithScoresStage()
 
         metadata = json.dumps({"target_lang": "de", "translation": {"content": "Hallo."}})
         df = pd.DataFrame(
@@ -1177,7 +1177,7 @@ class TestScoreMergeStage:
 
     def test_merge_scores_no_faith_columns(self) -> None:
         """When no FAITH columns exist, the stage is a no-op."""
-        stage = ScoreMergeStage()
+        stage = MergeFaithScoresStage()
 
         metadata = json.dumps({"target_lang": "de"})
         df = pd.DataFrame({"translation_metadata": [metadata], "text": ["Hello"]})
