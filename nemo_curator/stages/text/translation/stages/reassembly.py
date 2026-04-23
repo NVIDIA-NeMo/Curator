@@ -262,12 +262,12 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     @staticmethod
     def _leaf_field_key(field_path: str) -> str:
-        """Return the Speaker-style metadata key for *field_path*."""
+        """Return the metadata key for *field_path*."""
         return field_path.split(".")[-1]
 
     @staticmethod
     def _build_segment_pairs(metadata: dict[str, Any], translated_segments: list[str]) -> list[dict[str, str]]:
-        """Build Speaker-style ``[{src, tgt}, ...]`` pairs for one field entry."""
+        """Build ``[{src, tgt}, ...]`` pairs for one field entry."""
         mode = metadata.get("mode", "coarse")
         if mode == "passthrough":
             original_text = metadata.get("original_text", "")

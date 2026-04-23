@@ -12,27 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Abstract base class for non-LLM translation backends (Google, AWS, NMT).
-
-Unlike Speaker's TranslationBackend which manages file I/O, this ABC operates
-purely on lists of strings. It translates text in memory and returns results
-directly, fitting Curator's DataFrame-based processing model.
-"""
+"""Base classes for non-LLM translation backends."""
 
 import asyncio
 from abc import ABC, abstractmethod
+
+from loguru import logger
+
+from ..utils.async_utils import run_async_safe
+from ._retry import retry_with_backoff
 
 
 class TranslationBackend(ABC):
     """Backend ABC for non-LLM translation (Google, AWS, NMT).
 
-    Unlike Speaker's version, this does NOT do file I/O.
-    It translates lists of strings and returns lists of strings.
+    This interface operates on in-memory text lists and returns translated
+    text lists. It does not manage file I/O.
 
     All subclasses must implement:
         - setup(): Initialize client connections and async infrastructure.
-        - translate_batch(): Synchronous batch translation.
         - translate_batch_async(): Asynchronous batch translation.
         - check_server(): Verify backend service is available.
         - close(): Cleanup resources (optional override).
@@ -71,7 +69,6 @@ class TranslationBackend(ABC):
         """
         ...
 
-    @abstractmethod
     def translate_batch(
         self,
         texts: list[str],
@@ -88,7 +85,9 @@ class TranslationBackend(ABC):
         Returns:
             Translated texts in the same order as input.
         """
-        ...
+        return run_async_safe(
+            lambda: self.translate_batch_async(texts, source_lang, target_lang)
+        )
 
     @abstractmethod
     async def translate_batch_async(
@@ -115,3 +114,102 @@ class TranslationBackend(ABC):
         Override in subclasses that hold open connections.
         """
         pass
+
+    def _get_semaphore(self) -> asyncio.Semaphore:
+        """Return the per-backend semaphore, creating it lazily per event loop."""
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self.max_concurrent_requests)
+        return self._semaphore
+
+
+class ExecutorTranslationBackend(TranslationBackend):
+    """Common base for backends with a synchronous single-text SDK call.
+
+    AWS Translate and Google Cloud Translate both expose synchronous client
+    methods. This class centralizes the common async bridge, retry wrapper,
+    and lightweight health check so those backends only define setup and the
+    actual single-text translation call.
+    """
+
+    backend_name: str = "backend"
+    health_check_text: str = "Hello"
+    health_check_source_lang: str = "en"
+    health_check_target_lang: str = "es"
+
+    def check_server(self) -> bool:
+        """Check backend reachability with a tiny translation request."""
+        try:
+            result = self._translate_single_sync(
+                self.health_check_text,
+                self.health_check_source_lang,
+                self.health_check_target_lang,
+            )
+        except Exception as exc:
+            logger.warning("{} health check failed: {}", self.backend_name, exc)
+            return False
+
+        if result:
+            logger.info("{} health check passed", self.backend_name)
+            return True
+
+        logger.warning("{} health check returned empty result", self.backend_name)
+        return False
+
+    async def translate_batch_async(
+        self,
+        texts: list[str],
+        source_lang: str,
+        target_lang: str,
+    ) -> list[str]:
+        """Translate texts concurrently via the sync single-text SDK call."""
+        if not texts:
+            return []
+
+        tasks = [
+            self._translate_single_async(text, source_lang, target_lang)
+            for text in texts
+        ]
+        return list(await asyncio.gather(*tasks))
+
+    async def _translate_single_async(
+        self,
+        text: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> str:
+        """Translate a single text using an executor-backed sync SDK call."""
+        if not text or not text.strip():
+            return ""
+
+        loop = asyncio.get_running_loop()
+        semaphore = self._get_semaphore()
+
+        async def _attempt() -> str:
+            async with semaphore:
+                return await loop.run_in_executor(
+                    None,
+                    self._translate_single_sync,
+                    text,
+                    source_lang,
+                    target_lang,
+                )
+
+        return await retry_with_backoff(
+            _attempt,
+            backend_name=self.backend_name,
+            non_retryable=self._non_retryable_exceptions(),
+        )
+
+    def _non_retryable_exceptions(self) -> tuple[type[BaseException], ...]:
+        """Return exception types that should bypass retry/backoff."""
+        return ()
+
+    @abstractmethod
+    def _translate_single_sync(
+        self,
+        text: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> str:
+        """Translate one text synchronously."""
+        ...

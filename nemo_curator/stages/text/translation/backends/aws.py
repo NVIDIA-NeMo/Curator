@@ -35,20 +35,17 @@ Notes:
 
 from __future__ import annotations
 
-import asyncio
 import os
 
 from loguru import logger
 
-from ..utils.async_utils import run_async_safe
-from ._retry import retry_with_backoff
-from .base import TranslationBackend
+from .base import ExecutorTranslationBackend
 
 # AWS Translate hard limit per TranslateText call (bytes, UTF-8).
 AWS_MAX_BYTES_PER_REQUEST = 10_000
 
 
-class AWSTranslationBackend(TranslationBackend):
+class AWSTranslationBackend(ExecutorTranslationBackend):
     """AWS Translate backend.
 
     Args:
@@ -57,6 +54,8 @@ class AWSTranslationBackend(TranslationBackend):
             ``"us-east-2"`` fallback.
         max_concurrent_requests: Semaphore size for async concurrency.
     """
+
+    backend_name = "AWS Translate"
 
     def __init__(
         self,
@@ -105,110 +104,9 @@ class AWSTranslationBackend(TranslationBackend):
         """Release client resources."""
         self._client = None
 
-    def check_server(self) -> bool:
-        """Check if the AWS Translate service is reachable.
-
-        Performs a test translation of "Hello" to verify credentials and
-        API access are configured correctly.
-
-        Returns:
-            True if the test translation succeeds, False otherwise.
-        """
-        try:
-            result = self._translate_single_sync("Hello", "en", "es")
-            if result:
-                logger.info("AWS Translate health check passed")
-                return True
-            logger.warning("AWS Translate health check returned empty result")
-            return False
-        except Exception as exc:
-            logger.warning(
-                "AWS Translate health check failed: {}",
-                exc,
-            )
-            return False
-
-    # --------------------------------------------------------------------- #
-    #  Synchronous interface
-    # --------------------------------------------------------------------- #
-
-    def translate_batch(
-        self,
-        texts: list[str],
-        source_lang: str,
-        target_lang: str,
-    ) -> list[str]:
-        """Translate a batch of texts synchronously.
-
-        Delegates to :meth:`translate_batch_async` through the safe async bridge.
-        """
-        return run_async_safe(
-            lambda: self.translate_batch_async(texts, source_lang, target_lang)
-        )
-
-    # --------------------------------------------------------------------- #
-    #  Asynchronous interface
-    # --------------------------------------------------------------------- #
-
-    async def translate_batch_async(
-        self,
-        texts: list[str],
-        source_lang: str,
-        target_lang: str,
-    ) -> list[str]:
-        """Translate a batch of texts asynchronously.
-
-        Creates one task per text, gated by the concurrency semaphore.
-        """
-        if not texts:
-            return []
-
-        if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(self.max_concurrent_requests)
-
-        tasks = [
-            self._translate_single_async(text, source_lang, target_lang)
-            for text in texts
-        ]
-        return list(await asyncio.gather(*tasks))
-
-    # --------------------------------------------------------------------- #
-    #  Internal helpers
-    # --------------------------------------------------------------------- #
-
-    async def _translate_single_async(
-        self,
-        text: str,
-        source_lang: str,
-        target_lang: str,
-    ) -> str:
-        """Translate a single text with semaphore gating and retry logic.
-
-        The boto3 client is synchronous, so the actual API call is wrapped
-        in ``run_in_executor``.
-
-        Raises:
-            ValueError: If input text exceeds the AWS 10KB UTF-8 limit
-                (non-retryable).
-        """
-        if not text or not text.strip():
-            return ""
-
-        loop = asyncio.get_running_loop()
-
-        async def _attempt() -> str:
-            async with self._semaphore:
-                return await loop.run_in_executor(
-                    None,
-                    self._translate_single_sync,
-                    text,
-                    source_lang,
-                    target_lang,
-                )
-
-        return await retry_with_backoff(
-            _attempt, backend_name="AWS", non_retryable=(ValueError,)
-        )
+    def _non_retryable_exceptions(self) -> tuple[type[BaseException], ...]:
+        """Treat client-side size validation as a hard failure."""
+        return (ValueError,)
 
     def _translate_single_sync(
         self,

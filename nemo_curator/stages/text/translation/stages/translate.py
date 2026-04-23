@@ -36,18 +36,18 @@ from nemo_curator.stages.text.utils.text_utils import get_language_name
 from .segmentation import is_line_translatable_content
 
 # ---------------------------------------------------------------------------
-# TranslateStage
+# SegmentTranslationStage
 # ---------------------------------------------------------------------------
 
 
 @dataclass
-class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
-    """Translate text segments produced by :class:`SegmentationStage`.
+class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Translate segments emitted by :class:`SegmentationStage`.
 
     Reads ``_seg_segments`` and writes ``_translated``.
     """
 
-    name: str = "TranslateStage"
+    name: str = "SegmentTranslationStage"
     client: AsyncLLMClient | None = None
     model_name: str = ""
     source_lang: str = "en"
@@ -75,7 +75,7 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def __post_init__(self) -> None:
         if self.backend_type == "llm":
             if self.client is None:
-                msg = "TranslateStage requires a non-None 'client' (AsyncLLMClient) when backend_type='llm'"
+                msg = "SegmentTranslationStage requires a non-None 'client' (AsyncLLMClient) when backend_type='llm'"
                 raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -292,17 +292,7 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         try:
             start = time.time()
-            if hasattr(self._backend, "translate_batch_async"):
-                backend = self._backend
-                result = run_async_safe(
-                    lambda: backend.translate_batch_async(
-                        translate_segments, self.source_lang, self.target_lang
-                    )
-                )
-            else:
-                result = self._backend.translate_batch(
-                    translate_segments, self.source_lang, self.target_lang
-                )
+            result = self._call_backend_batch(translate_segments)
             elapsed = time.time() - start
 
             if len(result) != len(translate_segments):
@@ -332,15 +322,7 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 continue
             start = time.time()
             try:
-                if hasattr(self._backend, "translate_batch_async"):
-                    backend = self._backend
-                    src = self.source_lang
-                    tgt = self.target_lang
-                    result = run_async_safe(
-                        lambda: backend.translate_batch_async([seg], src, tgt)
-                    )
-                else:
-                    result = self._backend.translate_batch([seg], self.source_lang, self.target_lang)
+                result = self._call_backend_batch([seg])
                 elapsed = time.time() - start
                 translated[idx] = result[0] if result else ""
                 timings[idx] = elapsed
@@ -357,6 +339,23 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 errors[idx] = str(exc)
 
         return translated, timings, errors
+
+    def _call_backend_batch(self, segments: list[str]) -> list[str]:
+        """Invoke the configured non-LLM backend for one batch of segments."""
+        if hasattr(self._backend, "translate_batch_async"):
+            backend = self._backend
+            return run_async_safe(
+                lambda: backend.translate_batch_async(
+                    segments,
+                    self.source_lang,
+                    self.target_lang,
+                )
+            )
+        return self._backend.translate_batch(  # type: ignore[union-attr]
+            segments,
+            self.source_lang,
+            self.target_lang,
+        )
 
     # ------------------------------------------------------------------
     # Prompt construction
@@ -379,7 +378,7 @@ class TranslateStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         ]
 
     # ------------------------------------------------------------------
-    # Response parsing (ported from Speaker)
+    # Response parsing
     # ------------------------------------------------------------------
 
     @staticmethod

@@ -25,7 +25,9 @@ import pytest
 
 from nemo_curator.stages.text.translation.stages import segmentation as segmentation_module
 from nemo_curator.stages.text.translation.stages.segmentation import SegmentationStage
-from nemo_curator.stages.text.translation.stages.translate import TranslateStage
+from nemo_curator.stages.text.translation.stages.translate import (
+    SegmentTranslationStage,
+)
 from nemo_curator.tasks import DocumentBatch
 
 from .conftest import MockAsyncLLMClient
@@ -343,7 +345,7 @@ class TestSegmentationGeneral:
 
 
 # ---------------------------------------------------------------------------
-# F1 regression: passthrough + translatability filter in TranslateStage
+# F1 regression: passthrough + translatability filter in SegmentTranslationStage
 # ---------------------------------------------------------------------------
 
 
@@ -352,7 +354,7 @@ class TestPassthroughTranslatabilityFilter:
 
     Segments emitted by the passthrough branch of SegmentationStage that
     contain no translatable content (pure code / numeric / XML-tag text)
-    must flow through TranslateStage unchanged and without triggering an
+    must flow through SegmentTranslationStage unchanged and without triggering an
     LLM call.
     """
 
@@ -368,7 +370,7 @@ class TestPassthroughTranslatabilityFilter:
                 return await super()._query_model_impl(**kwargs)
 
         client = CountingMockClient()
-        stage = TranslateStage(
+        stage = SegmentTranslationStage(
             client=client,
             model_name="test-model",
             source_lang="en",
@@ -381,7 +383,7 @@ class TestPassthroughTranslatabilityFilter:
 
         # Pure-numeric and tag-only content: no alpha chars / tag-shaped.
         # ``is_line_translatable_content`` returns False for both, so
-        # TranslateStage should short-circuit without calling the LLM.
+        # SegmentTranslationStage should short-circuit without calling the LLM.
         code_block = "12345\n67890"
         tag_only = "<hr/>"
         json_blob = '{"tool":"lookup","payload":{"model":"DeepSeek V3"}}'
@@ -408,7 +410,7 @@ class TestPassthroughTranslatabilityFilter:
                 return await super()._query_model_impl(**kwargs)
 
         client = CountingMockClient()
-        stage = TranslateStage(
+        stage = SegmentTranslationStage(
             client=client,
             model_name="test-model",
             source_lang="en",
