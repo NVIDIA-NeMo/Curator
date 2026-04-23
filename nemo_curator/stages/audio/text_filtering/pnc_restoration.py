@@ -88,7 +88,6 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     top_k: int = 1
     prep_workers: int = 8
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
-    batch_size: int = 64
 
     def __post_init__(self) -> None:
         self._model: QwenTextLLM | None = None
