@@ -31,7 +31,6 @@ from utils import setup_executor, write_benchmark_results
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
 from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
-from nemo_curator.stages.resources import Resources
 
 
 def _collect_diarization_metrics(tasks: list, elapsed_s: float) -> dict[str, Any]:
@@ -60,11 +59,10 @@ def _collect_diarization_metrics(tasks: list, elapsed_s: float) -> dict[str, Any
     }
 
 
-def run_audio_sortformer_benchmark(  # noqa: PLR0913
+def run_audio_sortformer_benchmark(
     benchmark_results_path: str,
     manifest_path: str,
     model_name: str,
-    gpus: int,
     rttm_out_dir: str | None = None,
     executor: str = "xenna",
     **kwargs,  # noqa: ARG001
@@ -76,7 +74,6 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     logger.info(f"Executor: {executor}")
     logger.info(f"Model: {model_name}")
     logger.info(f"Manifest: {manifest_path}")
-    logger.info(f"GPUs: {gpus}")
 
     executor_obj = setup_executor(executor)
     pipeline = Pipeline(
@@ -89,7 +86,7 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
         InferenceSortformerStage(
             model_name=model_name,
             rttm_out_dir=rttm_out_dir,
-        ).with_(resources=Resources(gpus=gpus)),
+        ),
     )
 
     t0 = time.perf_counter()
@@ -108,7 +105,6 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
             "executor": executor,
             "manifest_path": manifest_path,
             "model_name": model_name,
-            "gpus": gpus,
             "rttm_out_dir": rttm_out_dir,
         },
         "metrics": metrics,
@@ -126,7 +122,6 @@ def main() -> int:
         help="HF Sortformer model id",
     )
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
-    parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs to use")
     parser.add_argument("--rttm-out-dir", default=None, help="Optional directory to write RTTM output files")
 
     args = parser.parse_args()

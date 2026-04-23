@@ -639,7 +639,6 @@ entries:
       --manifest-path={datasets_path}/sortformer_diarization/manifest.jsonl
       --model-name=nvidia/diar_streaming_sortformer_4spk-v2.1
       --rttm-out-dir={session_entry_dir}/scratch/rttm
-      --gpus=1
     timeout_s: 1800
     sink_data:
       - name: slack

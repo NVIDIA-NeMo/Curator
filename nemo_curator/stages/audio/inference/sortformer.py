@@ -18,6 +18,7 @@ import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import torch
 from huggingface_hub import snapshot_download
 from loguru import logger
 from nemo.collections.asr.models import SortformerEncLabelModel
@@ -104,7 +105,6 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
         spkcache_update_period: Speaker cache update period in frames. Defaults to 300.
         spkcache_len: Speaker cache size in frames. Defaults to 188.
         inference_batch_size: Batch size passed to diarize(). Defaults to 1.
-        batch_duration: Maximum total audio duration (seconds) per lhotse batch. Defaults to 100000.
         name: Stage name. Defaults to "Sortformer_inference".
     """
 
@@ -122,7 +122,6 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
     spkcache_update_period: int = 300
     spkcache_len: int = 188
     inference_batch_size: int = 1
-    batch_duration: int = 100000
     name: str = "Sortformer_inference"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=8.0))
@@ -130,21 +129,16 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
-        """Pre-download model weights on the node so actors load from cache."""
+        """Pre-download model weights on the node so workers load from cache."""
         if self.model_path is not None:
             return
-        try:
-            self._cached_repo_dir = snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
-        except Exception:  # noqa: BLE001
-            logger.info(f"Could not pre-cache {self.model_name}; workers will download on first use")
+        snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
 
     def _resolve_model_path(self) -> str:
-        """Resolve the path to the .nemo checkpoint, downloading if needed."""
+        """Resolve the path to the .nemo checkpoint from the HF cache."""
         if self.model_path is not None:
             return self.model_path
-        repo_dir = getattr(self, "_cached_repo_dir", None) or snapshot_download(
-            repo_id=self.model_name, cache_dir=self.cache_dir
-        )
+        repo_dir = snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
         nemo_files = sorted(f for f in os.listdir(repo_dir) if f.endswith(".nemo"))
         if not nemo_files:
             msg = f"No .nemo file found in {repo_dir} for model {self.model_name}"
@@ -178,8 +172,6 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
         time. extend_pe() is a NeMo method that resizes the buffer safely — it just
         isn't called automatically. max_len=30000 covers ~1000 s at any subsampling.
         """
-        import torch
-
         pos_enc = getattr(getattr(self.diar_model, "encoder", None), "pos_enc", None)
         if pos_enc is None or not hasattr(pos_enc, "extend_pe"):
             logger.warning("pos_enc not found or no extend_pe method — skipping extension")
