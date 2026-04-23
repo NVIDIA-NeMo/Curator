@@ -167,14 +167,14 @@ def main(args: argparse.Namespace) -> None:
     pipeline = create_image_embedding_pipeline(args)
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
-    pipeline.run(checkpoint_path=args.checkpoint_dir)
+    pipeline.run(checkpoint_path=os.path.join(args.checkpoint_dir, "image_embedding") if args.checkpoint_dir else None)
 
     # Step 2.2: Create image deduplication pipeline (pairwise executor is XennaExecutor by default)
     print("Step 2.2: Running image deduplication pipeline...")
     start_time = time.time()
     pipeline = create_embedding_deduplication_workflow(args)
     print("\n" + "=" * 50 + "\n")
-    pipeline.run(checkpoint_path=args.checkpoint_dir)
+    pipeline.run(checkpoint_path=os.path.join(args.checkpoint_dir, "embedding_deduplication") if args.checkpoint_dir else None)
 
     # Step 2.3: Create image deduplication pipeline
     print("Step 2.3: Running image deduplication pipeline...")
@@ -182,7 +182,7 @@ def main(args: argparse.Namespace) -> None:
     pipeline = create_image_deduplication_pipeline(args)
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
-    pipeline.run(checkpoint_path=args.checkpoint_dir)
+    pipeline.run(checkpoint_path=os.path.join(args.checkpoint_dir, "image_deduplication") if args.checkpoint_dir else None)
 
     end_time = time.time()
 
