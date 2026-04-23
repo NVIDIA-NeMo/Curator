@@ -52,16 +52,16 @@ def main(args: argparse.Namespace) -> None:
 
     pipeline.add_stage(AddId(id_field=args.id_field))
 
-    if args.embedding_model == _EMBEDDING_MODEL and args.max_seq_length is None:
-        args.max_seq_length = _EMBEDDING_MODEL_MAX_SEQ_LENGTH
-
-    if args.embedding_model == _EMBEDDING_MODEL and args.transformers_init_kwargs == {}:
-        args.transformers_init_kwargs = {"trust_remote_code": True}
+    if args.embedding_model == _EMBEDDING_MODEL:
+        if args.max_seq_length is None:
+            args.max_seq_length = _EMBEDDING_MODEL_MAX_SEQ_LENGTH
+        if args.transformers_init_kwargs == {}:
+            args.transformers_init_kwargs = {"trust_remote_code": True}
 
     pipeline.add_stage(
         EmbeddingCreatorStage(
             model_identifier=args.embedding_model,
-            use_sentence_transformer=True,
+            use_sentence_transformer=args.use_sentence_transformer,
             text_field=args.text_field,
             embedding_field=args.embedding_field,
             cache_dir=args.cache_dir,
@@ -105,7 +105,7 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--embedding-field", type=str, default="embeddings")
     parser.add_argument("--cache-dir", type=str, default=None)
     parser.add_argument("--max-chars", type=int, default=None)
-    parser.add_argument("--max-seq-length", type=str, default=None)
+    parser.add_argument("--max-seq-length", type=int, default=None)
     parser.add_argument("--padding-side", type=str, default="right")
     parser.add_argument(
         "--embedding-pooling", type=str, default="mean_pooling", choices=["mean_pooling", "last_token"]

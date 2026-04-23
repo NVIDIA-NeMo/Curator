@@ -17,14 +17,11 @@ import json
 import os
 import shutil
 
-from merge_datasets import (
-    main as merge_tokenized_files,  # TODO: Update import path when https://github.com/NVIDIA-NeMo/Curator/pull/1427 is merged
-)
-
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer.megatron_tokenizer import MegatronTokenizerWriter
+from nemo_curator.utils.merge_file_prefixes import merge_file_prefixes
 
 
 def main(args: argparse.Namespace) -> None:
@@ -48,6 +45,7 @@ def main(args: argparse.Namespace) -> None:
 
         centroid = centroid_path.split("/")[-1].split("=")[1]
         cache_path = os.path.join(args.output_path, "cache")
+        os.makedirs(cache_path, exist_ok=True)
         writer_path = os.path.join(cache_path, f"domain_{centroid}")
 
         # Use Curator pipeline to tokenize the data
@@ -68,7 +66,7 @@ def main(args: argparse.Namespace) -> None:
 
         # Merge the tokenized files into a single bin/idx file
         result_path = os.path.join(args.output_path, f"domain_{centroid}")
-        merge_tokenized_files(input_dir=writer_path, output_prefix=result_path)
+        merge_file_prefixes(input_dir=writer_path, output_prefix=result_path)
 
         # Remove individual tokenized files in favor of the merged bin/idx file
         shutil.rmtree(cache_path)

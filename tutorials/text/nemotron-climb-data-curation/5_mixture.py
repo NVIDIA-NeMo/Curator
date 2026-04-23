@@ -41,7 +41,7 @@ def generate_train_group(groups: list[str], weights: list[float], precision: int
     """
 
     # Remove ".bin" from the end of the group names
-    groups = [group.rstrip(".bin") for group in groups]
+    groups = [group.removesuffix(".bin") for group in groups]
 
     # Round the weights to the precision
     weights = [round(weight, precision) for weight in weights]

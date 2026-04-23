@@ -129,6 +129,7 @@ def fit_predictor(df: pd.DataFrame, domain_names: list[str], target_column: str)
     x_test = test_df_config[test_df_config.columns[0:]].to_numpy()
     y_test = test_df_target[test_df_target.columns[0:]].to_numpy()
 
+    # TODO: Compare these against the paper
     # Train the predictor
     hyper_params = {
         "task": "train",
@@ -154,13 +155,14 @@ def fit_predictor(df: pd.DataFrame, domain_names: list[str], target_column: str)
     )
 
 
+# TODO: Compare this against the paper
 def generate_mixtures(
     num_mixtures: int, output_path: str, samples: np.ndarray, simulation: np.ndarray, domain_paths: list[str]
 ) -> None:
     if num_mixtures == 1:
         # Take the average of top-k simulated data mixtures as the optimal data mixture
         k = 128
-        top_k_samples = samples[np.argsort(simulation)[0:k]]
+        top_k_samples = samples[np.argsort(simulation)[-k:]]
 
         # Get the optimal data mixture by taking the average of top-k samples
         optimal_data_mixture = np.mean(top_k_samples, axis=0)
@@ -177,7 +179,7 @@ def generate_mixtures(
             f.write("EOF\n")
     else:
         k_pool = num_mixtures * num_mixtures
-        top_pool = samples[np.argsort(simulation)[:k_pool]]
+        top_pool = samples[np.argsort(simulation)[-k_pool:]]
 
         # Cluster the top-k samples into diverse mixtures
         km = KMeans(n_clusters=num_mixtures, random_state=SEED)
