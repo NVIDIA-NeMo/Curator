@@ -14,43 +14,39 @@
 
 """Qwen3-Omni audio transcription + text filtering pipeline.
 
-Runs Qwen3-Omni-30B-A3B-Instruct directly inside the Curator pipeline
-(no external HTTP server). Each GPU worker loads its own vLLM engine
-for maximum throughput with zero network overhead.
-
-After inference, the pipeline applies text-level post-processing:
-hallucination detection, language ID filtering, regex cleaning,
-abbreviation normalisation, and LLM-based punctuation/capitalisation
-restoration with a content-safety guard.
+Runs Qwen3-Omni directly inside the Curator pipeline with optional
+QwenASR hallucination recovery (``--asr_model_id``) and LLM-based
+punctuation/capitalisation restoration (``--skip_pnc`` to disable).
 
 Architecture:
-    NemoTarredAudioReader (CPU, parallel)
-        → streams NeMo-tarred shards from S3/local via lhotse
-        → decodes audio in memory, emits AudioTask with waveform arrays
+    NemoTarredAudioReader (CPU)
+        → streams NeMo-tarred shards, decodes audio in memory
     InitializeFieldsStage (CPU)
-        → renames text → granary_v1_prediction, sets _skip_me = ""
-        → drops prompt-engineering fields (answer, source_lang, …)
-    InferenceQwenOmniStage (GPU, TP=2 → 4 workers on 8 GPUs)
-        → resamples to 16 kHz, batched vLLM inference
-        → outputs qwen3_prediction_s1, qwen3_prediction_s2
+        → sets _skip_me = "", renames text → granary_v1_prediction
+    InferenceQwenOmniStage (GPU, TP=2)
+        → batched vLLM inference, outputs qwen3_prediction_s1/s2
+    [optional] DisfluencyWerGuardStage (CPU)
+        → compares Turn 1 vs Turn 2 WER
     WhisperHallucinationStage (CPU)
-        → reads qwen3_prediction_s2, flags hallucination patterns
+        → flags hallucination patterns, sets _skip_me
+    [optional] InferenceQwenASRStage (GPU)
+        → re-transcribes only hallucinated samples with Qwen3-ASR
+    [optional] WhisperHallucinationStage (CPU)
+        → checks QwenASR output; recovers or confirms hallucination
+    SelectBestPredictionStage (CPU)
+        → picks ASR prediction if recovered, else omni prediction
     FastTextLIDStage (CPU)
-        → reads qwen3_prediction_s2, flags wrong language / low confidence
+        → flags wrong language / low confidence
     RegexSubstitutionStage (CPU)
-        → reads qwen3_prediction_s2, applies regex rules, writes cleaned_text
+        → applies regex rules, writes cleaned_text
     AbbreviationConcatStage (CPU)
-        → reads cleaned_text, re-joins split abbreviations (e.g. "U. S." → "U.S.")
-        → writes abbreviated_text
-    PnCRestorationStage (GPU, text-only LLM) [optional, --skip_pnc]
-        → reads abbreviated_text, restores punctuation/capitalisation
-        → writes pnc_text (or copies abbreviated_text if incomplete)
-    PnCContentGuardStage (CPU) [optional, --skip_pnc]
-        → compares cleaned_text with pnc_text after normalisation
-        → reverts pnc_text when the LLM added/removed/substituted words
-    ALMManifestWriterStage (CPU)
-        → writes JSONL output
-
+        → re-joins split abbreviations, writes abbreviated_text
+    [optional] PnCRestorationStage (GPU, text-only LLM)
+        → restores punctuation/capitalisation, writes pnc_text
+    [optional] PnCContentGuardStage (CPU)
+        → reverts pnc_text when the LLM changed words
+    ShardedManifestWriterStage (CPU)
+        → writes per-shard JSONL output with .done markers
 """
 
 import os
@@ -66,6 +62,7 @@ from loguru import logger
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
+from nemo_curator.stages.audio.inference.qwen_asr import InferenceQwenASRStage
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
 from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
 from nemo_curator.stages.audio.text_filtering import (
@@ -78,6 +75,7 @@ from nemo_curator.stages.audio.text_filtering import (
     RegexSubstitutionStage,
     WhisperHallucinationStage,
 )
+from nemo_curator.stages.audio.text_filtering.select_best_prediction import SelectBestPredictionStage
 from nemo_curator.stages.resources import Resources
 
 
@@ -144,6 +142,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                      help="Thread pool size for PnC prompt preprocessing.")
     pnc.add_argument("--skip_pnc", action="store_true", default=False,
                      help="Skip PnC restoration stage entirely.")
+
+    asr = ap.add_argument_group("QwenASR hallucination recovery")
+    asr.add_argument("--asr_model_id", type=str, default=None,
+                     help="QwenASR model ID or local path. If set, enables hallucination recovery.")
+    asr.add_argument("--asr_language", type=str, default=None, help="Language hint for QwenASR.")
+    asr.add_argument("--asr_batch_size", type=int, default=128)
+    asr.add_argument("--asr_gpu_memory_utilization", type=float, default=0.7)
+    asr.add_argument("--asr_max_new_tokens", type=int, default=4096)
     return ap
 
 
@@ -173,61 +179,101 @@ def main() -> None:
         with open(args.pnc_prompt_file, encoding="utf-8") as f:
             pnc_prompt_text = f.read().strip()
 
-    pipeline = Pipeline(
-        name="qwen_omni_inference",
-        stages=[
-            NemoTarredAudioReader(
-                yaml_path=args.data_config,
-                corpus_filter=args.corpus,
-                s3_endpoint_url=args.s3_endpoint_url,
-                output_dir=args.output_dir,
-            ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=4.0)}}),
-            InitializeFieldsStage(),
-            InferenceQwenOmniStage(
-                model_id=args.model_id,
-                prompt_text=prompt,
-                followup_prompt=followup_prompt,
-                system_prompt=system_prompt,
-                tensor_parallel_size=args.tensor_parallel_size,
-                batch_size=args.batch_size,
-                max_output_tokens=args.max_output_tokens,
-                max_model_len=args.max_model_len,
-                max_num_seqs=args.max_num_seqs,
-                gpu_memory_utilization=args.gpu_memory_utilization,
-                prep_workers=args.prep_workers,
-                pred_text_key="qwen3_prediction_s1",
-                disfluency_text_key="qwen3_prediction_s2",
+    omni_text_key = "qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1"
+
+    stages = [
+        NemoTarredAudioReader(
+            yaml_path=args.data_config,
+            corpus_filter=args.corpus,
+            s3_endpoint_url=args.s3_endpoint_url,
+            output_dir=args.output_dir,
+        ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=4.0)}}),
+        InitializeFieldsStage(),
+        InferenceQwenOmniStage(
+            model_id=args.model_id,
+            prompt_text=prompt,
+            followup_prompt=followup_prompt,
+            system_prompt=system_prompt,
+            tensor_parallel_size=args.tensor_parallel_size,
+            batch_size=args.batch_size,
+            max_output_tokens=args.max_output_tokens,
+            max_model_len=args.max_model_len,
+            max_num_seqs=args.max_num_seqs,
+            gpu_memory_utilization=args.gpu_memory_utilization,
+            prep_workers=args.prep_workers,
+            pred_text_key="qwen3_prediction_s1",
+            disfluency_text_key="qwen3_prediction_s2",
+            keep_waveform=bool(args.asr_model_id),
+        ),
+    ]
+
+    if followup_prompt:
+        stages.append(DisfluencyWerGuardStage(
+            ref_text_key="qwen3_prediction_s1",
+            hyp_text_key="qwen3_prediction_s2",
+            max_wer_pct=50.0,
+        ))
+
+    stages.append(WhisperHallucinationStage(
+        name="WhisperHallucination_omni",
+        common_hall_file=args.hall_phrases,
+        text_key=omni_text_key,
+        unique_words_threshold=args.unique_words_threshold,
+        long_word_threshold=args.long_word_threshold,
+        long_word_rel_threshold=args.long_word_rel_threshold,
+        max_char_rate=args.max_char_rate,
+    ))
+
+    if args.asr_model_id:
+        stages.extend([
+            InferenceQwenASRStage(
+                model_id=args.asr_model_id,
+                language=args.asr_language,
+                batch_size=args.asr_batch_size,
+                gpu_memory_utilization=args.asr_gpu_memory_utilization,
+                max_new_tokens=args.asr_max_new_tokens,
+                run_only_if_key="_skip_me",
             ),
-            *([DisfluencyWerGuardStage(
-                ref_text_key="qwen3_prediction_s1",
-                hyp_text_key="qwen3_prediction_s2",
-                max_wer_pct=50.0,
-            )] if followup_prompt else []),
             WhisperHallucinationStage(
+                name="WhisperHallucination_asr",
                 common_hall_file=args.hall_phrases,
-                text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
+                text_key="qwen3_asr_prediction",
+                overwrite=True,
+                recovery_value="Recovered:QwenASR",
                 unique_words_threshold=args.unique_words_threshold,
                 long_word_threshold=args.long_word_threshold,
                 long_word_rel_threshold=args.long_word_rel_threshold,
                 max_char_rate=args.max_char_rate,
             ),
-            FastTextLIDStage(
-                model_path=args.fasttext_model,
-                text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
-                target_lang=args.target_lang,
-                min_lang_prob=args.min_lang_prob,
-            ),
-            RegexSubstitutionStage(
-                regex_params_yaml=args.regex_yaml,
-                text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
-                output_text_key="cleaned_text",
-            ),
-            AbbreviationConcatStage(
-                text_key="cleaned_text",
-                output_text_key="abbreviated_text",
-                language=args.target_lang,
-            ),
-            *([PnCRestorationStage(
+        ])
+
+    stages.append(SelectBestPredictionStage(
+        primary_text_key=omni_text_key,
+        asr_text_key="qwen3_asr_prediction",
+    ))
+
+    stages.extend([
+        FastTextLIDStage(
+            model_path=args.fasttext_model,
+            text_key="best_prediction",
+            target_lang=args.target_lang,
+            min_lang_prob=args.min_lang_prob,
+        ),
+        RegexSubstitutionStage(
+            regex_params_yaml=args.regex_yaml,
+            text_key="best_prediction",
+            output_text_key="cleaned_text",
+        ),
+        AbbreviationConcatStage(
+            text_key="cleaned_text",
+            output_text_key="abbreviated_text",
+            language=args.target_lang,
+        ),
+    ])
+
+    if not args.skip_pnc:
+        stages.extend([
+            PnCRestorationStage(
                 model_id=args.pnc_model_id,
                 text_key="abbreviated_text",
                 output_text_key="pnc_text",
@@ -243,12 +289,14 @@ def main() -> None:
                 text_key="abbreviated_text",
                 pnc_text_key="pnc_text",
                 rejected_text_key="rejected_pnc_text",
-            )] if not args.skip_pnc else []),
-
-            ShardedManifestWriterStage(
-                output_dir=args.output_dir,
             ),
-        ],
+        ])
+
+    stages.append(ShardedManifestWriterStage(output_dir=args.output_dir))
+
+    pipeline = Pipeline(
+        name="qwen_omni_inference",
+        stages=stages,
     )
 
     logger.info(f"Pipeline: {pipeline.describe()}")

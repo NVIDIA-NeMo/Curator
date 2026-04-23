@@ -105,7 +105,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
         text = text.strip().replace("\n", " ")
         if not text:
             if not task.data[self.skip_me_key]:
-                task.data[self.skip_me_key] = "Empty text"
+                task.data[self.skip_me_key] = f"Empty text:{self.name}"
             return task
         result_str = self._lid.score_document(text)
         score_list = eval(result_str)  # noqa: S307  — output of our own FastText model
@@ -113,9 +113,9 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
         lang = str(score_list[1]).lower()
         if not task.data[self.skip_me_key]:
             if lang != self.target_lang.lower():
-                task.data[self.skip_me_key] = "Wrong language"
+                task.data[self.skip_me_key] = f"Wrong language:{self.name}"
             elif prob < self.min_lang_prob:
-                task.data[self.skip_me_key] = "Low probability of language"
+                task.data[self.skip_me_key] = f"Low probability of language:{self.name}"
         return task
 
     def process(self, task: AudioTask) -> AudioTask:

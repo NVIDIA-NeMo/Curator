@@ -32,8 +32,10 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     - High char rate: word-chars / duration > max_char_rate (impossible speech rate; short audio
       with dense confabulated text, e.g. Whisper generating a full sentence over 0.1 s).
 
-    If any check triggers and ``skip_me`` is still empty, it is set to
-    ``"Hallucination"`` (an already non-empty value is preserved).
+    When flagged, ``_skip_me`` is set to ``"Hallucination:{name}"`` to track
+    which stage instance produced the flag.  By default an already non-empty
+    value is preserved; set ``overwrite=True`` to allow overwriting (used by
+    the ASR recovery hallucination re-check).
     """
 
     common_hall_file: str = ""
@@ -44,6 +46,8 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     duration_key: str = "duration"
     text_key: str = "pred_text"
     skip_me_key: str = "_skip_me"
+    overwrite: bool = False
+    recovery_value: str = ""
     name: str = "WhisperHallucination"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -104,10 +108,10 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         return chars / duration > self.max_char_rate
 
     def _process_single(self, task: AudioTask) -> AudioTask:
-        if task.data.get(self.skip_me_key, ""):
+        if not self.overwrite and task.data.get(self.skip_me_key, ""):
             return task
         text = task.data[self.text_key]
-        if not isinstance(text, str):
+        if not isinstance(text, str) or not text.strip():
             return task
         words = text.split()
         duration = task.data.get(self.duration_key, 0.0) or 0.0
@@ -118,7 +122,8 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         high_rate = self._high_char_rate(words, duration)
 
         self._n_processed += 1
-        if repeated or long_w or phrase or high_rate:
+        is_hallucinated = repeated or long_w or phrase or high_rate
+        if is_hallucinated:
             self._n_flagged += 1
             reasons = [
                 name
@@ -133,8 +138,10 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             logger.debug(
                 f"[{self.name}] flagged ({','.join(reasons)}) dur={duration:.2f}s: {text[:80]!r}"
             )
-            if not task.data[self.skip_me_key]:
-                task.data[self.skip_me_key] = "Hallucination"
+            if self.overwrite or not task.data[self.skip_me_key]:
+                task.data[self.skip_me_key] = f"Hallucination:{self.name}"
+        elif self.overwrite:
+            task.data[self.skip_me_key] = self.recovery_value
         return task
 
     def process(self, task: AudioTask) -> AudioTask:

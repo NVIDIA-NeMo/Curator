@@ -81,6 +81,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     temperature: float = 0.0
     top_k: int = 1
     prep_workers: int = 8
+    keep_waveform: bool = False
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
 
@@ -172,7 +173,8 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
             task.data[self.pred_text_key] = pred
             if self.followup_prompt:
                 task.data[self.disfluency_text_key] = disfl
-            task.data.pop(self.waveform_key, None)
+            if not self.keep_waveform:
+                task.data.pop(self.waveform_key, None)
 
         logger.info(f"QwenOmni: generated {len(pred_texts)} predictions (turn2={bool(self.followup_prompt)})")
         return tasks
