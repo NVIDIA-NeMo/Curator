@@ -94,6 +94,8 @@ FLEURS language codes follow the dataset convention (e.g., `en_us`, `fr_fr`, `hy
 | `xenna` | Default. Cosmos-Xenna streaming engine with automatic worker allocation. | Most workloads, CI/nightly benchmarks. |
 | `ray_data` | Built on Ray Data `map_batches`. | Development, machines without Xenna GPU support. |
 
+Both backends run on top of Ray. The scripts use `RayClient` to manage the Ray cluster lifecycle (start/stop, port allocation, dashboard). `RayClient` is started before creating the executor and stopped in a `finally` block so the cluster is always cleaned up, regardless of which backend is selected.
+
 ### YAML config + Hydra
 
 The same pipeline can be run via `run.py` with Hydra-based configuration:
@@ -231,6 +233,8 @@ If your output is empty, the model likely does not support the target language.
 The FLEURS stages can be composed with other NeMo Curator audio stages:
 
 ```python
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
 from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
@@ -242,9 +246,15 @@ pipeline = Pipeline(
         CreateInitialManifestFleursStage(lang="en_us", split="dev", raw_data_dir="./data"),
         InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2"),
         GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer"),
-        # Add your custom stages here (e.g., speaker diarization, additional filtering)
     ],
 )
+
+ray_client = RayClient()
+ray_client.start()
+try:
+    pipeline.run(XennaExecutor())
+finally:
+    ray_client.stop()
 ```
 
 ## Troubleshooting

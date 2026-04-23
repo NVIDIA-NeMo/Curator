@@ -21,6 +21,7 @@ from loguru import logger
 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
@@ -72,21 +73,27 @@ def main(args: argparse.Namespace) -> None:
     logger.remove()
     logger.add(sys.stderr, level="DEBUG" if args.verbose else "INFO")
 
-    pipeline = create_audio_pipeline(args)
+    ray_client = RayClient()
+    ray_client.start()
 
-    # Print pipeline description
-    logger.info(pipeline.describe())
-    logger.info("\n" + "=" * 50 + "\n")
+    try:
+        pipeline = create_audio_pipeline(args)
 
-    # Create executor
-    executor = RayDataExecutor() if args.backend == "ray_data" else XennaExecutor()
+        # Print pipeline description
+        logger.info(pipeline.describe())
+        logger.info("\n" + "=" * 50 + "\n")
 
-    # Execute pipeline
-    logger.info("Starting pipeline execution...")
-    pipeline.run(executor)
+        # Create executor
+        executor = RayDataExecutor() if args.backend == "ray_data" else XennaExecutor()
 
-    # Print results
-    logger.info("\nPipeline completed!")
+        # Execute pipeline
+        logger.info("Starting pipeline execution...")
+        pipeline.run(executor)
+
+        # Print results
+        logger.info("\nPipeline completed!")
+    finally:
+        ray_client.stop()
 
 
 if __name__ == "__main__":

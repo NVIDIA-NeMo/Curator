@@ -27,6 +27,7 @@ from typing import Any
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
@@ -173,10 +174,15 @@ def main() -> int:
         },
         "tasks": [],
     }
+
+    ray_client = RayClient()
+    ray_client.start()
+
     try:
         results.update(run_audio_fleurs_benchmark(**vars(args)))
     finally:
         write_benchmark_results(results, args.benchmark_results_path)
+        ray_client.stop()
 
     return 0 if results["metrics"]["is_success"] else 1
 

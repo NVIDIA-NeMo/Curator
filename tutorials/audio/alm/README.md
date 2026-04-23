@@ -126,6 +126,8 @@ The pipeline supports two execution backends. Override via `backend=` on the com
 | `xenna` | Default executor. Uses Cosmos-Xenna streaming engine with automatic worker allocation. | Most workloads, CI/nightly benchmarks. |
 | `ray_data` | Executor built on Ray Data `map_batches`. | Development, machines where Xenna cannot detect GPUs, or when Ray Data integration is preferred. |
 
+Both backends run on top of Ray. The scripts use `RayClient` to manage the Ray cluster lifecycle (start/stop, port allocation, dashboard). `RayClient` is started before creating the executor and stopped in a `finally` block so the cluster is always cleaned up, regardless of which backend is selected.
+
 ### Running with Xenna (default)
 
 ```bash
@@ -557,6 +559,8 @@ These ratios depend heavily on your data. Conversations with many speakers and l
 The ALM stages can be composed with upstream and downstream NeMo Curator audio stages:
 
 ```python
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
 from nemo_curator.stages.audio.alm.alm_data_builder import ALMDataBuilderStage
@@ -570,6 +574,13 @@ pipeline = Pipeline(
         ALMDataOverlapStage(overlap_percentage=50),
     ],
 )
+
+ray_client = RayClient()
+ray_client.start()
+try:
+    pipeline.run(XennaExecutor())
+finally:
+    ray_client.stop()
 ```
 
 Natural pairings:
