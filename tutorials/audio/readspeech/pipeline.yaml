@@ -60,14 +60,6 @@ enable_speaker_separation: true
 speaker_exclude_overlaps: true
 speaker_min_duration: 0.8
 
-passthrough_keys:
-  - band_prediction
-  - utmos_mos
-  - sigmos_noise
-  - sigmos_ovrl
-  - speaker_id
-  - num_speakers
-
 processors:
   - _target_: nemo_curator.stages.audio.datasets.readspeech.CreateInitialManifestReadSpeechStage
     raw_data_dir: ${raw_data_dir}
@@ -100,8 +92,14 @@ processors:
         enable: ${enable_speaker_separation}
         exclude_overlaps: ${speaker_exclude_overlaps}
         min_duration: ${speaker_min_duration}
-      timestamp_mapper:
-        passthrough_keys: ${passthrough_keys}
+      # Empty config uses _DEFAULT_PASSTHROUGH_KEYS which includes:
+      #   speaker_id, num_speakers, speaking_duration, sample_rate,
+      #   utmos_mos, sigmos_noise, sigmos_ovrl, sigmos_sig, sigmos_col,
+      #   sigmos_disc, sigmos_loud, sigmos_reverb, band_prediction.
+      # To restrict output columns, set passthrough_keys explicitly:
+      #   timestamp_mapper:
+      #     passthrough_keys: [utmos_mos, sigmos_noise, sigmos_ovrl]
+      timestamp_mapper: {}
 
   - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
 
