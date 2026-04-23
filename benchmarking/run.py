@@ -120,7 +120,8 @@ def merge_config_files(config_files: list[Path]) -> dict:
     for config_file in config_files:
         with open(config_file) as f:
             for new_dict in yaml.full_load_all(f):
-                update_config(config_dict, new_dict)
+                if new_dict is not None:
+                    update_config(config_dict, new_dict)
     return config_dict
 
 
