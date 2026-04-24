@@ -36,6 +36,7 @@ def _make_task(duration_sec: float = 10.0, sample_rate: int = 48000) -> AudioTas
         data={"waveform": torch.randn(1, num_samples), "sample_rate": sample_rate},
         task_id="test",
         dataset_name="test",
+        sample_key="parent-sample",
     )
 
 
@@ -56,6 +57,9 @@ class TestSpeakerSeparationStage:
 
         assert isinstance(result, list)
         assert len(result) == 2
+        assert result[0].sample_key
+        assert result[1].sample_key
+        assert result[0].sample_key != result[1].sample_key
         for r in result:
             assert isinstance(r, AudioTask)
             assert "speaker_id" in r.data

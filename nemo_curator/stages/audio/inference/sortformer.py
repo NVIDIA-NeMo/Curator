@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks.audio_task import carry_sample_key
 
 
 def _parse_sortformer_segments(raw_segments: list) -> list[dict[str, Any]]:
@@ -234,6 +235,7 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
             dataset_name=task.dataset_name,
             filepath_key=task.filepath_key or self.filepath_key,
             data=output_data,
+            sample_key=carry_sample_key(task, data=output_data),
             _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )

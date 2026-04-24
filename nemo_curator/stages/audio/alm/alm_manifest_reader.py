@@ -29,6 +29,7 @@ from loguru import logger
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
+from nemo_curator.tasks.audio_task import build_audio_sample_key
 
 
 @dataclass
@@ -50,9 +51,13 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             with fs.open(resolved, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
+                        entry = json.loads(line.strip())
                         results.append(
                             AudioTask(
-                                data=json.loads(line.strip()),
+                                task_id=f"{task.task_id}_{count}",
+                                dataset_name=task.dataset_name,
+                                data=entry,
+                                sample_key=build_audio_sample_key(entry, dataset_name=task.dataset_name),
                                 _metadata=task._metadata,
                                 _stage_perf=list(task._stage_perf),
                             )

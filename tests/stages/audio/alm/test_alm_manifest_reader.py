@@ -43,6 +43,9 @@ class TestALMManifestReaderStage:
         assert all(isinstance(r, AudioTask) for r in result)
         assert result[0].data["audio_filepath"] == "a.wav"
         assert result[1].data["audio_filepath"] == "b.wav"
+        assert result[0].sample_key
+        assert result[1].sample_key
+        assert result[0].sample_key != result[1].sample_key
 
     def test_reads_multiple_manifests(self, tmp_path: Path) -> None:
         m1 = tmp_path / "m1.jsonl"

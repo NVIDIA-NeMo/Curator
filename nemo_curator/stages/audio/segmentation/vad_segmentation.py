@@ -52,6 +52,7 @@ from nemo_curator.stages.audio.common import ensure_waveform_2d, load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks.audio_task import derive_child_sample_key
 
 SILERO_SUPPORTED_RATES = {8000, 16000, 32000, 48000, 64000, 96000}
 SILERO_TARGET_RATE = 16000
@@ -274,6 +275,16 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
                     data=seg_data,
                     task_id=f"{task.task_id}_seg_{i}",
                     dataset_name=task.dataset_name,
+                    sample_key=derive_child_sample_key(
+                        task,
+                        child_kind="vad_segment",
+                        child_identity={
+                            "segment_index": i,
+                            "start_ms": seg_data["start_ms"],
+                            "end_ms": seg_data["end_ms"],
+                            "duration": seg_data["duration"],
+                        },
+                    ),
                 )
                 if task._metadata:
                     seg_task._metadata = dict(task._metadata)
