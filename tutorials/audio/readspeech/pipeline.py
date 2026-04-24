@@ -21,29 +21,62 @@ the AudioDataFilterStage for quality filtering and analysis.
 Dataset: Microsoft DNS Challenge 5 - Read Speech (Track 1 Headset)
 Source: https://github.com/microsoft/DNS-Challenge
 
-The pipeline:
-1. Creates initial manifest from read_speech WAV files (14,279 files at 48kHz)
-2. Applies AudioDataFilterStage (VAD, quality filters, speaker separation)
-3. Outputs filtered manifest with quality scores and timestamps
+Pipeline supports four topologies depending on which features are enabled:
+
+  Combo 1 (default, no flags):
+    MonoConversion -> Filters -> TimestampMapper -> JsonlWriter
+    Output: 1 row per file with whole-file quality scores.
+
+  Combo 2 (--enable-vad):
+    MonoConversion -> VAD(fan-out) -> Filters -> TimestampMapper -> JsonlWriter
+    Output: 1 row per speech segment with per-segment scores and timestamps.
+
+  Combo 3 (--enable-speaker-separation):
+    MonoConversion -> Filters -> SpeakerSep(fan-out) -> Filters -> TimestampMapper
+    Output: 1 row per speaker with diarization timestamps and per-speaker scores.
+
+  Combo 4 (--enable-vad --enable-speaker-separation):
+    Full pipeline with SegmentConcat + TimestampMapper remapping.
+    Output: 1 row per speaker-segment with precise timestamps.
+
+Output control:
+  TimestampMapper uses a whitelist (passthrough_keys) to control which
+  fields appear in the JSONL output.  The default includes all built-in
+  filter scores (UTMOS, SIGMOS, BandFilter) and speaker metadata.
+  Non-serializable fields (waveform, segments) are always blocked.
+  To customize, set "passthrough_keys" in the timestamp_mapper config.
 
 Example:
     python pipeline.py --raw_data_dir /path/to/read_speech --enable-utmos --enable-vad
 """
 
 import argparse
+import importlib
 import os
 import shutil
 import sys
 
 from loguru import logger
 
-from nemo_curator.backends.ray_data import RayDataExecutor
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import AudioDataFilterStage
 from nemo_curator.stages.audio.datasets.readspeech import CreateInitialManifestReadSpeechStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
+
+_EXECUTOR_FACTORIES = {
+    "xenna": "nemo_curator.backends.xenna:XennaExecutor",
+    "ray_data": "nemo_curator.backends.ray_data:RayDataExecutor",
+}
+
+
+def _create_executor(backend: str, **kwargs) -> object:
+    if backend not in _EXECUTOR_FACTORIES:
+        msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
+        raise ValueError(msg)
+    module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
+    mod = importlib.import_module(module_path)
+    return getattr(mod, class_name)(**kwargs)
 
 
 def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -102,16 +135,10 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
                     "exclude_overlaps": args.speaker_exclude_overlaps,
                     "min_duration": args.speaker_min_duration,
                 },
-                "timestamp_mapper": {
-                    "passthrough_keys": [
-                        "band_prediction",
-                        "utmos_mos",
-                        "sigmos_noise",
-                        "sigmos_ovrl",
-                        "speaker_id",
-                        "num_speakers",
-                    ],
-                },
+                # Empty dict uses _DEFAULT_PASSTHROUGH_KEYS (all 13 built-in
+                # filter/speaker keys).  To restrict output columns, set e.g.:
+                #   "passthrough_keys": ["utmos_mos", "sigmos_noise", "sigmos_ovrl"]
+                "timestamp_mapper": {},
             }
         )
     )
@@ -182,6 +209,13 @@ Examples:
         default="xenna",
         help="Execution backend: 'xenna' (default) or 'ray_data'",
     )
+    parser.add_argument(
+        "--execution-mode",
+        type=str,
+        choices=["streaming", "batch"],
+        default="streaming",
+        help="Xenna execution mode: 'streaming' (concurrent stages, default) or 'batch' (sequential stages)",
+    )
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
     parser.add_argument("--enable-vad", action="store_true", help="Enable VAD segmentation")
     parser.add_argument("--vad-min-duration", type=float, default=2.0, help="Min VAD segment (sec)")
@@ -236,6 +270,9 @@ def _log_config(args: argparse.Namespace) -> None:
         enabled.append("SpeakerSep")
 
     logger.info(f"Enabled Filters: {enabled or ['none']}")
+    logger.info(f"Backend:         {args.backend}")
+    if args.backend == "xenna":
+        logger.info(f"Execution Mode:  {args.execution_mode}")
     logger.info("=" * 70)
 
 
@@ -257,10 +294,14 @@ def main() -> None:
     pipeline = create_readspeech_pipeline(args)
     logger.info(pipeline.describe())
 
-    logger.info("Starting pipeline execution...")
+    executor_kwargs = {}
+    if args.backend == "xenna":
+        executor_kwargs["config"] = {"execution_mode": args.execution_mode}
+    executor = _create_executor(args.backend, **executor_kwargs)
+
+    logger.info(f"Starting pipeline execution (backend: {args.backend})...")
 
     try:
-        executor = RayDataExecutor() if args.backend == "ray_data" else XennaExecutor(config={"execution_mode": "streaming"})
         pipeline.run(executor)
 
         logger.info(f"Results written to {args.output_dir}/*.jsonl")

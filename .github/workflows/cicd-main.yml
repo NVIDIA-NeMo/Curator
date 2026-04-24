@@ -320,6 +320,11 @@ jobs:
       matrix:
         flag: [unit-test, e2e]
     steps:
+      - name: Get PR info
+        id: get-pr-info
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@main
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -353,6 +358,7 @@ jobs:
           verbose: true
           flags: ${{ matrix.flag }}
           fail_ci_if_error: true
+          base_sha: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').base.sha }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v6

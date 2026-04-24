@@ -202,6 +202,7 @@ math_cuda12 = [
 # Multimodal / Interleaved Dependencies
 interleaved_cpu = [
     "albumentations",
+    "matplotlib",
     "open_clip_torch",
     "opencv-python",
     "Pillow",
