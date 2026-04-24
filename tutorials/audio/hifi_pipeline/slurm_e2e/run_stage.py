@@ -17,13 +17,14 @@ Stages: sed, sed_post, segment, diarize, transcribe, embed, group_video, cluster
 """
 from __future__ import annotations
 
+
 import argparse
 import io
 import json
 import os
-import sys
 import tarfile
 import tempfile
+import sys
 import time
 
 import numpy as np
@@ -249,6 +250,7 @@ def run_diarize(args, rows, audio_dict):
     from nemo_curator.tasks import AudioTask
 
     stage = InferenceSortformerStage()
+    stage.setup_on_node()
     stage.setup()
     print("Sortformer loaded")
 
@@ -421,8 +423,9 @@ def run_group_video(args, rows, audio_dict):
 
 def run_cluster(args, rows, audio_dict):
     """Per-video speaker clustering. Reads embeddings from --embedding_dir."""
+    from nemo_curator.stages.audio.preprocessing.group_by_video import extract_video_id
     from tutorials.audio.hifi_pipeline.slurm_speaker_id.cluster_by_video_v2 import (
-        extract_video_id, cluster_embeddings, speaker_confidence, l2_normalize,
+        cluster_embeddings, speaker_confidence, l2_normalize,
     )
     from collections import defaultdict
 

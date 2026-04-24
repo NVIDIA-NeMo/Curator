@@ -33,11 +33,22 @@ RUN pip install --no-cache-dir . && \
     pip install --no-cache-dir \
     'torch==2.6.0' 'torchaudio==2.6.0' 'torchvision==0.21.0'
 
-# Bake in PANNs CNN14 SED checkpoint (~313MB)
+# Bake in model checkpoints:
+#   PANNs CNN14 (~313MB) for SED
+#   Sortformer (~500MB) for diarization
+#   TitaNet-Large (~100MB) for speaker embeddings
 RUN mkdir -p /opt/checkpoints && \
     curl -fsSL -o /opt/checkpoints/Cnn14_DecisionLevelMax.pth \
-        'https://zenodo.org/record/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth' && \
-    ls -lh /opt/checkpoints/
+        'https://zenodo.org/record/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth'
+
+ENV HF_HOME=/opt/hf_cache
+RUN python -c "from huggingface_hub import snapshot_download; \
+    snapshot_download(repo_id='nvidia/diar_streaming_sortformer_4spk-v2')"
+
+RUN python -c "import nemo.collections.asr as nemo_asr; \
+    nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained('titanet_large')"
+
+RUN ls -lh /opt/checkpoints/ && du -sh /opt/hf_cache /root/.cache 2>/dev/null || true
 
 ENV PANN_CKPT=/opt/checkpoints/Cnn14_DecisionLevelMax.pth
 ENV PYTHONPATH=/opt/Curator

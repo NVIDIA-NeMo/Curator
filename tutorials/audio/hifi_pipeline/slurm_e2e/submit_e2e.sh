@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -z "$CORPUS" ]] && { echo "Usage: $0 --corpus <name> [--start-from <stage>] [--dry-run]"; exit 1; }
 
-# ---- Paths (set via environment or edit below) ----
+# ---- Paths ----
 WORK="${WORK:?Set WORK to your working directory}"
 GRANARY="${GRANARY:?Set GRANARY to your granary_filtered directory}"
 CURATOR="${CURATOR:?Set CURATOR to your NeMo Curator checkout}"
@@ -124,6 +124,15 @@ for stage_def in "${STAGES[@]}"; do
 
         JOB_SCRIPT="${LOG_DIR}/${STAGE}_${CHUNK_IDX}.sbatch"
 
+        # Pick python path: pipeline container uses venv, others use conda
+        if [[ "$CONTAINER" == *curator-hifi-pipeline* ]]; then
+            PY_PATH="/usr/bin/python3"
+            EXTRA_PYTHONPATH=":/opt/curator_venv/lib/python3.10/site-packages"
+        else
+            PY_PATH="/opt/conda/bin/python"
+            EXTRA_PYTHONPATH=""
+        fi
+
         # Build tar URL line
         TAR_LINE=""
         if [[ -n "$NEEDS_TAR" ]]; then
@@ -150,10 +159,10 @@ ${GPU_FLAG:+#SBATCH ${GPU_FLAG}}
 ${DEP_FLAG}
 
 export PYTHONUNBUFFERED=1
-export PYTHONPATH=${CURATOR}
-export HF_HOME=/tmp/hf_cache
+export PYTHONPATH=/opt/Curator${EXTRA_PYTHONPATH}
+export HF_HOME=${WORK}/hf_cache
 export UTMOSV2_CHACHE=${WORK}/utmosv2_cache
-export AIS_ENDPOINT=\${AIS_ENDPOINT:-http://localhost:51080}
+export AIS_ENDPOINT=${AIS_ENDPOINT:-http://localhost:51080}
 
 SHARD_ID=\$((${CHUNK_START} + \${SLURM_ARRAY_TASK_ID}))
 MANIFEST="${INPUT_DIR}/shard_\${SHARD_ID}.jsonl"
@@ -167,7 +176,7 @@ srun --export=ALL \\
      --container-image=${CONTAINER} \\
      --container-mounts="${MOUNTS}" \\
      --container-writable \\
-     /opt/conda/bin/python ${STAGE_PY} \\
+     ${PY_PATH} ${STAGE_PY} \\
         --stage ${STAGE} \\
         --manifest_path "\${MANIFEST}" \\
         ${TAR_LINE} \\
