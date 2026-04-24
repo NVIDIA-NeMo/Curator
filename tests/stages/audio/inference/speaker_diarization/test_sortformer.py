@@ -16,12 +16,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from nemo_curator.stages.audio.inference.sortformer import (
+from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import (
     InferenceSortformerStage,
     _parse_sortformer_segments,
     _write_rttm,
 )
-
 from nemo_curator.tasks import AudioTask
 
 
@@ -79,13 +78,13 @@ class TestWriteRttm:
 class TestInferenceSortformerStage:
     def test_setup_on_node_pre_caches_model(self) -> None:
         stage = InferenceSortformerStage(model_name="nvidia/diar_streaming_sortformer_4spk-v2")
-        with patch("nemo_curator.stages.audio.inference.sortformer.snapshot_download") as mock_dl:
+        with patch("nemo_curator.stages.audio.inference.speaker_diarization.sortformer.snapshot_download") as mock_dl:
             stage.setup_on_node()
             mock_dl.assert_called_once_with(repo_id="nvidia/diar_streaming_sortformer_4spk-v2", cache_dir=None)
 
     def test_setup_on_node_skips_for_local_path(self) -> None:
         stage = InferenceSortformerStage(model_path="/local/model.nemo")
-        with patch("nemo_curator.stages.audio.inference.sortformer.snapshot_download") as mock_dl:
+        with patch("nemo_curator.stages.audio.inference.speaker_diarization.sortformer.snapshot_download") as mock_dl:
             stage.setup_on_node()
             mock_dl.assert_not_called()
 

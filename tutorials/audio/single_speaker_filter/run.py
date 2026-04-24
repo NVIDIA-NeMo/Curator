@@ -47,12 +47,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from loguru import logger
-from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader, ManifestWriterStage
+from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 

@@ -86,11 +86,15 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-      - name: Install system dependencies for audio tests
+      - name: Install FFmpeg (needed by torchcodec, a transitive dep of sentence-transformers)
+        if: matrix.folder == 'stages-audio' || matrix.folder == 'stages-text' || matrix.folder == 'stages-deduplication'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Install audio-specific system dependencies
         if: matrix.folder == 'stages-audio'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg sox libsox-fmt-all
+          sudo apt-get install -y --no-install-recommends sox libsox-fmt-all
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
