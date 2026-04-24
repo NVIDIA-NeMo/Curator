@@ -27,6 +27,22 @@ from nemo_curator.tasks import AudioTask
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
+_LANG_CODE_TO_NAME: dict[str, str] = {
+    "en": "English", "de": "German", "es": "Spanish", "fr": "French",
+    "it": "Italian", "pt": "Portuguese", "nl": "Dutch", "ru": "Russian",
+    "pl": "Polish", "cs": "Czech", "ro": "Romanian", "hu": "Hungarian",
+    "el": "Greek", "fi": "Finnish", "da": "Danish", "sv": "Swedish",
+    "lt": "Lithuanian", "lv": "Latvian", "hr": "Croatian", "et": "Estonian",
+    "bg": "Bulgarian", "sk": "Slovak", "sl": "Slovenian", "mt": "Maltese",
+    "uk": "Ukrainian", "sr": "Serbian", "mk": "Macedonian", "no": "Norwegian",
+    "hi": "Hindi", "ta": "Tamil", "mr": "Marathi", "bn": "Bengali",
+    "kn": "Kannada", "te": "Telugu", "ml": "Malayalam", "gu": "Gujarati",
+    "ur": "Urdu", "pa": "Punjabi",
+    "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "ar": "Arabic",
+    "he": "Hebrew", "id": "Indonesian", "vi": "Vietnamese", "th": "Thai",
+    "tr": "Turkish", "fil": "Filipino", "tl": "Tagalog", "fa": "Persian",
+}
+
 
 @dataclass
 class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
@@ -71,6 +87,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     system_prompt: str | None = None
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
+    source_lang_key: str = "source_lang"
     pred_text_key: str = "qwen3_prediction_s1"
     disfluency_text_key: str = "qwen3_prediction_s2"
     max_model_len: int = 32768
@@ -166,8 +183,14 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
 
         waveforms = [t.data[self.waveform_key] for t in tasks]
         sample_rates = [t.data[self.sample_rate_key] for t in tasks]
+        languages: list[str | None] | None = None
+        if self.source_lang_key:
+            languages = [
+                _LANG_CODE_TO_NAME.get(code, code) if code else None
+                for code in (t.data.get(self.source_lang_key) for t in tasks)
+            ]
 
-        pred_texts, disfluency_texts = self._model.generate(waveforms, sample_rates)
+        pred_texts, disfluency_texts = self._model.generate(waveforms, sample_rates, languages)
 
         for task, pred, disfl in zip(tasks, pred_texts, disfluency_texts, strict=True):
             task.data[self.pred_text_key] = pred
