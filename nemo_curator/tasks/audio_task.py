@@ -66,8 +66,7 @@ def _normalize_sample_key_value(value: Any) -> Any:  # noqa: ANN401
 def _strip_known_extensions(path: str) -> str:
     name = os.path.basename(path)
     for suffix in (".jsonl", ".json", ".parquet", ".tar", ".gz", ".bz2", ".xz"):
-        if name.endswith(suffix):
-            name = name[: -len(suffix)]
+        name = name.removesuffix(suffix)
     return name
 
 
