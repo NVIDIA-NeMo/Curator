@@ -26,6 +26,7 @@ from .tasks import Task
 
 AUDIO_SAMPLE_KEY_FIELD = "sample_key"
 CHECKPOINT_SHARD_ID_KEY = "checkpoint_shard_id"
+MAX_CHECKPOINT_SHARD_ID_LEN = 80
 
 
 class _AttrDict(dict):
@@ -91,7 +92,7 @@ def build_checkpoint_shard_id(
         return normalized_files[0]
     if normalized_files:
         joined = "__".join(normalized_files)
-        if len(joined) <= 80:
+        if len(joined) <= MAX_CHECKPOINT_SHARD_ID_LEN:
             return joined
         digest = hashlib.sha256(";".join(source_files or []).encode("utf-8")).hexdigest()[:12]
         return f"{normalized_files[0]}__{normalized_files[-1]}__{digest}"
