@@ -34,6 +34,7 @@ import yaml
 from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm import (
     ALMDataBuilderStage,
@@ -246,11 +247,16 @@ def main() -> int:
         "metrics": {"is_success": False},
         "tasks": [],
     }
+
+    ray_client = RayClient()
+    ray_client.start()
+
     try:
         result_dict.update(run_alm_pipeline_benchmark(**run_args))
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path)
+        ray_client.stop()
     return success_code
 
 

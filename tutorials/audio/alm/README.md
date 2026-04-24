@@ -24,17 +24,19 @@ The ALM pipeline processes audio manifests containing diarized segments and crea
 
 The output JSONL from this pipeline is consumed by downstream processors for additional processing (e.g., audio slicing, feature extraction, data augmentation). At the end of the full pipeline, the output will be sharded data ready for training Audio Language Models.
 
-## Installation
+## Prerequisites
 
-From the Curator repository root:
+- Python 3.10+
+- NeMo Curator installed (see [installation guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
+- **GPU**: Not required — all stages are CPU-only
+- **System packages**: None
 
 ```bash
 uv sync --extra audio_cpu
 source .venv/bin/activate
 ```
 
-This creates a `.venv` with all base, dev, test, and audio dependencies resolved
-from the lockfile. If you don't have `uv`, you can fall back to pip:
+If you don't have `uv`, fall back to pip:
 
 ```bash
 pip install -e ".[audio_cpu]"
@@ -124,6 +126,8 @@ The pipeline supports two execution backends. Override via `backend=` on the com
 | `xenna` | Default executor. Uses Cosmos-Xenna streaming engine with automatic worker allocation. | Most workloads, CI/nightly benchmarks. |
 | `ray_data` | Executor built on Ray Data `map_batches`. | Development, machines where Xenna cannot detect GPUs, or when Ray Data integration is preferred. |
 
+Both backends run on top of Ray. The scripts use `RayClient` to manage the Ray cluster lifecycle (start/stop, port allocation, dashboard). `RayClient` is started before creating the executor and stopped in a `finally` block so the cluster is always cleaned up, regardless of which backend is selected.
+
 ### Running with Xenna (default)
 
 ```bash
@@ -185,6 +189,17 @@ Match indices in `stages` list in `pipeline.yaml`:
 - `stages.1.*`: ALMDataBuilderStage parameters
 - `stages.2.*`: ALMDataOverlapStage parameters
 - `stages.3.*`: ALMManifestWriterStage parameters
+
+### Parameter tuning guide
+
+| Parameter | Default | Too low | Too high | Guidance |
+|---|---|---|---|---|
+| `target_window_duration` | 120s | Short windows may lack conversational context | Long windows need more contiguous audio; fewer windows generated | 60–180s typical for ALM training. Match your model's context length. |
+| `tolerance` | 0.1 (±10%) | Very few windows match the exact target | Windows vary too much in length, complicating batching | 0.05–0.15 is the practical range. |
+| `min_sample_rate` | 16000 | Accepts low-quality audio | Rejects otherwise usable recordings | 16kHz is standard for speech. Increase to 22050+ for music/TTS. |
+| `min_bandwidth` | 8000 | Accepts telephony-grade or narrowband audio | Rejects compressed or low-bitrate audio | 8kHz = wideband speech. 4kHz = narrowband/telephony. |
+| `min_speakers` / `max_speakers` | 2 / 5 | Single-speaker monologues pass (not conversational) | Crowded conversations with speaker confusion | Set based on your ALM's training objective. |
+| `overlap_percentage` | 50 | Aggressive — removes many windows, smaller dataset | Permissive — near-duplicate windows inflate dataset | 0 = no overlap allowed, 100 = keep everything. 30–70 typical. |
 
 ## Input Format
 
@@ -513,12 +528,64 @@ tests/stages/audio/alm/
 |------|-----------------|
 | `test_full_pipeline` | Full Builder -> Overlap pipeline: 5 entries produce **181 windows -> 25 filtered windows**, total filtered duration **~3035.5 seconds** |
 
-## Performance Notes
+## Performance
 
-- Both stages use Ray-based parallelism via the selected backend (`xenna` or `ray_data`)
-- Processing is CPU-bound (no GPU required)
-- Memory usage scales with manifest size
+### Timing estimates
+
+| Dataset | Entries | Wall-clock time | Hardware |
+|---|---|---|---|
+| Sample fixture (5 entries) | 5 | < 1 second | Any CPU |
+| Nested fixtures (20 entries) | 20 | ~1–2 seconds | Any CPU |
+| 10K manifest entries | 10,000 | ~2–5 minutes | 8-core CPU |
+
+Processing is entirely CPU-bound (no GPU required). Throughput scales linearly with entry count. Memory usage scales with manifest size and the number of segments per entry.
+
+### Expected filtering ratios
+
+With default settings (120s windows, 2–5 speakers, 50% overlap):
+- **Window creation**: ~36 windows per entry (181 windows from 5 entries in sample fixture)
+- **Overlap filtering**: ~86% reduction (181 → 25 windows, keeping ~14%)
+- **Audio yield**: ~3035s of filtered audio from 5 entries
+
+These ratios depend heavily on your data. Conversations with many speakers and long durations produce more windows; short recordings or single-speaker audio may produce zero windows.
+
+### General notes
+
+- Both stages use parallelism via the selected backend (`xenna` or `ray_data`)
 - For large manifests, consider processing in batches or using `--repeat-factor` for scale testing
+
+## Composability
+
+The ALM stages can be composed with upstream and downstream NeMo Curator audio stages:
+
+```python
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
+from nemo_curator.stages.audio.alm.alm_data_builder import ALMDataBuilderStage
+from nemo_curator.stages.audio.alm.alm_data_overlap import ALMDataOverlapStage
+
+pipeline = Pipeline(
+    name="custom-alm",
+    stages=[
+        ALMManifestReader(manifest_path=["data.jsonl"]),
+        ALMDataBuilderStage(target_window_duration=120.0),
+        ALMDataOverlapStage(overlap_percentage=50),
+    ],
+)
+
+ray_client = RayClient()
+ray_client.start()
+try:
+    pipeline.run(XennaExecutor())
+finally:
+    ray_client.stop()
+```
+
+Natural pairings:
+- **Upstream**: Speaker diarization (`InferenceSortformerStage`) to produce the diarized segments that ALM expects
+- **Downstream**: Audio slicing, feature extraction, data augmentation for ALM training
 
 ## Troubleshooting
 

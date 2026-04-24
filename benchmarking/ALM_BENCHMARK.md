@@ -180,7 +180,8 @@ Both entries use the same pipeline parameters (repeat-factor=2000, 120s windows,
 
 ## Benchmark Results
 
-Results from running on a single workstation:
+Results from running on a single workstation. All scripts use `RayClient` for
+managed Ray cluster lifecycle (start/stop, port allocation, dashboard).
 
 **Machine specs:**
 - CPU: Intel Core i9-9900KF @ 3.60GHz (8 cores / 16 threads)
@@ -190,31 +191,35 @@ Results from running on a single workstation:
 
 **Small scale (5 entries, sample fixture):**
 
-| Metric | Value |
-|--------|-------|
-| Input entries | 5 |
-| Output entries | 5 |
-| Builder windows | 181 |
-| Filtered windows | 25 |
-| Total filtered duration | 3,035.50s |
-| Execution time | 21.25s |
-| Throughput (entries/sec) | 0.24 |
-| Throughput (windows/sec) | 8.52 |
+| Metric | Xenna | Ray Data |
+|--------|-------|----------|
+| Input entries | 5 | 5 |
+| Output entries | 5 | 5 |
+| Builder windows | 181 | 181 |
+| Filtered windows | 25 | 25 |
+| Total filtered duration | 3,035.50s | 3,035.50s |
+| Execution time | 23.18s | 11.60s |
+| Throughput (entries/sec) | 0.22 | 0.43 |
+| Throughput (windows/sec) | 7.81 | 15.60 |
 
 **Large scale (10,000 entries, repeat-factor=2000):**
 
-| Metric | Value |
-|--------|-------|
-| Input entries | 10,000 |
-| Output entries | 10,000 |
-| Builder windows | 362,000 |
-| Filtered windows | 50,000 |
-| Total filtered duration | 6,071,000s |
-| Execution time | 92.53s |
-| Throughput (entries/sec) | 108.08 |
-| Throughput (windows/sec) | 3,912.36 |
+| Metric | Xenna | Ray Data |
+|--------|-------|----------|
+| Input entries | 10,000 | 10,000 |
+| Output entries | 10,000 | 10,000 |
+| Builder windows | 362,000 | 362,000 |
+| Filtered windows | 50,000 | 50,000 |
+| Total filtered duration | 6,071,000s | 6,071,000s |
+| Execution time | 95.52s | 29.89s |
+| Throughput (entries/sec) | 104.69 | 334.56 |
+| Throughput (windows/sec) | 3,790.31 | 12,113.75 |
 
-The `repeat-factor` multiplies entries in-memory after reading (via `_RepeatEntriesStage`), so the manifest file is read only once. The pipeline scales well with XennaExecutor auto-allocating workers per stage via the CompositeStage reader (FilePartitioningStage + ALMManifestReaderStage).
+Both backends produce identical results. Ray Data is ~3× faster on this workstation
+due to lower scheduling overhead (see [AUDIO_PROFILING.md](AUDIO_PROFILING.md) for
+per-stage breakdown).
+
+The `repeat-factor` multiplies entries in-memory after reading (via `_RepeatEntriesStage`), so the manifest file is read only once. The pipeline scales well with both executors via the CompositeStage reader (FilePartitioningStage + ALMManifestReaderStage).
 
 ## Output Files
 
