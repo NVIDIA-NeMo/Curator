@@ -105,10 +105,15 @@ audio_common = [
     "librosa",
     "scipy",
     "pydub>=0.25.1",
+<<<<<<< HEAD
     "transformers",
     "accelerate",
     "pyannote-audio>=4.0.0",
     "whisperx>=3.8.4",
+=======
+    "nemo_toolkit[tts]",
+    "kaldialign",
+>>>>>>> 17a4a08c (Add synthetic audio sanity check skill)
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",
@@ -120,7 +125,8 @@ audio_cuda12 = [
     "nemo_curator[audio_common]",
     "nemo_curator[cuda12]",
     "nvidia-cudnn-cu12",
-    "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
+    "onnxruntime>=1.20.1,<1.24",                                       # Python bindings (split from GPU package in 1.21+)
+    "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",    # CUDA providers
     "torchcodec",
 ]
 
