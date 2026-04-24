@@ -12,11 +12,95 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import ctypes
 import math
+import os
 
 import torch
 from loguru import logger
 from transformers import AutoConfig
+
+# ---------------------------------------------------------------------------
+# cuDNN loader (used by ONNX Runtime stages such as SIGMOS)
+# ---------------------------------------------------------------------------
+
+_cudnn_loaded: bool = False
+
+
+def ensure_cudnn_loaded() -> bool:
+    """Discover and pre-load cuDNN from the ``nvidia-cudnn-cu12`` pip package.
+
+    ONNX Runtime relies on the system dynamic linker to locate
+    ``libcudnn*.so`` files, but pip-installed packages place them inside
+    the virtual-environment ``site-packages`` tree which is **not** on the
+    default library search path.
+
+    Call this function early — before any ``import onnxruntime`` — to make
+    those libraries visible to the linker.
+
+    This function is **idempotent**: repeated calls are cheap no-ops after
+    the first successful load.
+
+    Returns
+    -------
+    bool
+        ``True`` if cuDNN was successfully loaded (or was already loaded),
+        ``False`` otherwise.
+    """
+    global _cudnn_loaded  # noqa: PLW0603
+
+    if _cudnn_loaded:
+        return True
+
+    try:
+        import nvidia.cudnn
+    except ImportError:
+        logger.debug(
+            "nvidia-cudnn-cu12 is not installed; "
+            "cuDNN must be available on the system LD_LIBRARY_PATH for GPU inference."
+        )
+        return False
+
+    cudnn_lib_dir = os.path.join(next(iter(nvidia.cudnn.__path__)), "lib")
+    if not os.path.isdir(cudnn_lib_dir):
+        logger.warning("nvidia.cudnn package found but lib directory missing: {}", cudnn_lib_dir)
+        return False
+
+    ld_path = os.environ.get("LD_LIBRARY_PATH", "")
+    if cudnn_lib_dir not in ld_path:
+        os.environ["LD_LIBRARY_PATH"] = cudnn_lib_dir + (":" + ld_path if ld_path else "")
+
+    # Eagerly load cuDNN shared libraries into the process address space.
+    # Setting LD_LIBRARY_PATH alone is not enough once the process has started
+    # because the dynamic linker caches its search paths at startup.
+    # ONNX Runtime's CUDA provider uses dlopen() for sub-libraries like
+    # libcudnn_adv.so.9, so we must pre-load all of them.
+    import glob
+
+    cudnn_libs = sorted(glob.glob(os.path.join(cudnn_lib_dir, "libcudnn*.so*")))
+    if not cudnn_libs:
+        logger.warning("No libcudnn*.so* files found in %s", cudnn_lib_dir)
+        return False
+
+    # Load the main library first (other libs depend on it), then the rest.
+    # The main library matches "libcudnn.so.<version>" (no underscore after "libcudnn").
+    cudnn_libs.sort(key=lambda p: (not os.path.basename(p).startswith("libcudnn.so."), p))
+
+    for lib_path in cudnn_libs:
+        try:
+            ctypes.cdll.LoadLibrary(lib_path)
+            logger.debug("Pre-loaded %s", lib_path)
+        except OSError:  # noqa: PERF203
+            logger.warning("Failed to load %s", lib_path, exc_info=True)
+
+    _cudnn_loaded = True
+
+    return True
+
+
+# ---------------------------------------------------------------------------
+# GPU discovery helpers (used by vLLM / text inference stages)
+# ---------------------------------------------------------------------------
 
 
 def get_gpu_count() -> int:
@@ -37,9 +121,7 @@ def get_gpu_count() -> int:
         msg = "No CUDA GPUs detected. At least one GPU is required for vLLM inference."
         raise RuntimeError(msg)
     tp_size = 2 ** int(math.log2(count)) if count >= 2 else 1  # noqa: PLR2004
-    logger.info(
-        f"Detected {count} GPU(s), using tensor_parallel_size={tp_size}"
-    )
+    logger.info(f"Detected {count} GPU(s), using tensor_parallel_size={tp_size}")
     return tp_size
 
 

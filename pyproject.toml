@@ -82,6 +82,7 @@ inference_server = [
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "ray[serve,llm]>=2.54",
+    "vllm<0.16.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # Installs CPU + GPU text curation modules
@@ -101,6 +102,9 @@ audio_common = [
     "torchaudio",
     "onnx>=1.19.0",
     "silero-vad",
+    "librosa",
+    "scipy",
+    "pydub>=0.25.1",
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",
@@ -110,7 +114,7 @@ audio_cuda12 = [
     "nemo_curator[audio_common]",
     "nemo_curator[cuda12]",
     "nvidia-cudnn-cu12",
-    "onnxruntime-gpu>=1.20.1,<1.24",
+    "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
     "torchcodec",
 ]
 
@@ -193,13 +197,24 @@ math_cuda12 = [
 
 # Multimodal / Interleaved Dependencies
 interleaved_cpu = [
+    "albumentations",
+    "open_clip_torch",
+    "opencv-python",
     "Pillow",
+    "pypdfium2",
     "s3fs>=2024.12.0",
+    "timm",
+]
+
+interleaved_cuda12 = [
+    "nemo_curator[interleaved_cpu]",
+    "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
 ]
 
 # Synthetic Data Generation (SDG) Dependencies
 sdg_cpu = [
-    "data-designer==0.4.0",
+    "data-designer==0.5.5",
 ]
 
 sdg_cuda12 = [
@@ -213,7 +228,7 @@ all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
-    "nemo_curator[interleaved_cpu]",
+    "nemo_curator[interleaved_cuda12]",
     "nemo_curator[math_cuda12]",
     "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
@@ -254,8 +269,9 @@ constraint-dependencies = [
     "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
     "nbconvert>=7.17.0", # Address CVE GHSA-xm59-rqc7-hhvf
     "pillow>=12.1.1", # Address CVE GHSA-cfh3-3jmp-rvhc
-    "protobuf>=5.29.6", # Address CVE GHSA-8qvm-5x2c-j2w7
+    "protobuf>=5.29.6,<7.0", # Address CVE GHSA-8qvm-5x2c-j2w7; <7.0 due to ray serve FieldDescriptor API breakage
     "pyasn1>=0.6.2", # Address CVE GHSA-63vm-454h-vhhq
+    "pyopenssl>=26.0.0", # Address CVE GHSA-5pwr-322w-8jr4
     "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
@@ -263,13 +279,14 @@ constraint-dependencies = [
     "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
+    "fsspec>=2025.3.0", # required for nemo-toolkit[asr]==2.7.2 (fsspec==2024.12.0), override due to data-designer-engine==0.5.5 requires >=2025.3.0
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
     "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
-    "protobuf>=5.29.5",  # Override nemo-toolkits constraint of ~=5.29.5
+    "protobuf>=5.29.5,<7.0",  # Override nemo-toolkits constraint of ~=5.29.5; <7.0 due to ray serve FieldDescriptor API breakage
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
@@ -307,7 +324,7 @@ nixl = { index = "pypi" }
 nixl-cu12 = { index = "pypi" }
 
 [tool.coverage.paths]
-source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]
+source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curator/Curator/nemo_curator"]
 
 [tool.ruff]
 line-length = 119
@@ -364,6 +381,9 @@ fixable = ["ALL"]
 ]
 "fern/**/*.py" = [
     "INP001", # Fern CLI helper scripts; not an installable package
+]
+".github/scripts/**" = [
+    "INP001", # CI scripts; not an installable package
 ]
 
 [tool.pytest.ini_options]
