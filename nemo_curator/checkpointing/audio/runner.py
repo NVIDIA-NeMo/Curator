@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -114,18 +115,20 @@ class AudioCheckpointRunner:
     def _run_audio_stage(
         self, stage: ProcessingStage, input_tasks: list[AudioTask]
     ) -> tuple[list[AudioTask], list[SampleCheckpointRecord]]:
+        retry_tasks = deepcopy(input_tasks) if self.ignore_failed else None
         try:
             return self._run_single_stage(stage, input_tasks), []
         except Exception as error:
             if not self.ignore_failed:
                 raise
 
+            self._cleanup_retry_artifacts(input_tasks)
             logger.warning(
                 f"Stage {stage._name} failed for a batch of {len(input_tasks)} tasks, retrying one-by-one: {error}"
             )
             outputs: list[AudioTask] = []
             failed_records: list[SampleCheckpointRecord] = []
-            for task in input_tasks:
+            for task in retry_tasks or input_tasks:
                 stage_outputs, failed_record = self._run_single_task_with_retry(stage, task)
                 outputs.extend(stage_outputs)
                 if failed_record is not None:
@@ -142,6 +145,7 @@ class AudioCheckpointRunner:
         try:
             return self._run_single_stage(stage, [task]), None
         except Exception as task_error:  # noqa: BLE001
+            self._cleanup_retry_artifacts([task])
             return [], SampleCheckpointRecord(
                 sample_key=ensure_sample_key(task),
                 status="failed_retriable",
@@ -178,3 +182,15 @@ class AudioCheckpointRunner:
         if self._link_stages_via_io():
             return str(self.checkpoint_dir / "artifacts" / "materialized_audio")
         return None
+
+    def _cleanup_retry_artifacts(self, tasks: list[AudioTask]) -> None:
+        for task in tasks:
+            temp_path = task.data.get("_temporary_audio_path")
+            if not temp_path:
+                continue
+            path = Path(temp_path)
+            try:
+                if path.exists():
+                    path.unlink()
+            except OSError as error:
+                logger.warning(f"Failed to cleanup retry artifact {path}: {error}")

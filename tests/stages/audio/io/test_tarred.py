@@ -205,9 +205,13 @@ class TestTarredAudioMaterialization:
                 self.stdout = io.BytesIO(b"")
                 self.stderr = io.BytesIO(b"")
                 self._return_code = return_code
+                self.returncode = return_code
 
             def wait(self) -> int:
                 return self._return_code
+
+            def communicate(self) -> tuple[None, bytes]:
+                return None, self.stderr.read()
 
         pipe_stream = _PipeStream("dummy", allow_sigpipe=True)
         pipe_stream.process = _FakeProcess(return_code=141)  # type: ignore[assignment]
@@ -220,9 +224,13 @@ class TestTarredAudioMaterialization:
                 self.stdout = io.BytesIO(b"")
                 self.stderr = io.BytesIO(b"")
                 self._return_code = return_code
+                self.returncode = return_code
 
             def wait(self) -> int:
                 return self._return_code
+
+            def communicate(self) -> tuple[None, bytes]:
+                return None, self.stderr.read()
 
         pipe_stream = _PipeStream("dummy")
         pipe_stream.process = _FakeProcess(return_code=141)  # type: ignore[assignment]

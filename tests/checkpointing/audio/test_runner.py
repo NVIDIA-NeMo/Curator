@@ -88,6 +88,33 @@ class FailingStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 @dataclass
+class RetryTempArtifactStage(ProcessingStage[AudioTask, AudioTask]):
+    artifact_dir: str
+    name: str = "retry_temp_artifact_stage"
+
+    def process(self, task: AudioTask) -> AudioTask:
+        return task
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        if len(tasks) > 1:
+            for index, task in enumerate(tasks):
+                temp_path = Path(self.artifact_dir) / f"{task.task_id}_{index}.tmp"
+                temp_path.parent.mkdir(parents=True, exist_ok=True)
+                temp_path.write_text("artifact")
+                task.data["_temporary_audio_path"] = str(temp_path)
+                task.data["audio_filepath"] = str(temp_path)
+            msg = "batch failure after temp materialization"
+            raise RuntimeError(msg)
+
+        task = tasks[0]
+        if not task.data["audio_filepath"].startswith("manifest::"):
+            msg = f"expected pristine manifest path, got {task.data['audio_filepath']}"
+            raise RuntimeError(msg)
+        task.data["processed"] = True
+        return tasks
+
+
+@dataclass
 class SetConfigStage(ProcessingStage[AudioTask, AudioTask]):
     values: set[str]
     name: str = "set_config_stage"
@@ -212,6 +239,31 @@ def test_runner_records_failed_samples_when_ignore_failed_enabled(tmp_path: Path
         "good": "done",
         "bad": "failed_retriable",
     }
+
+
+def test_runner_retries_from_clean_task_snapshots_and_cleans_temp_artifacts(tmp_path: Path) -> None:
+    reader = ReaderStage(
+        emitted_tasks=[
+            AudioTask(task_id="a", dataset_name="dataset", data={"audio_filepath": "manifest::a"}, sample_key="a"),
+            AudioTask(task_id="b", dataset_name="dataset", data={"audio_filepath": "manifest::b"}, sample_key="b"),
+        ]
+    )
+    retry_stage = RetryTempArtifactStage(artifact_dir=str(tmp_path / "artifacts"))
+
+    pipeline = Pipeline(name="checkpoint_retry_cleanup", stages=[reader, retry_stage])
+    runner = AudioCheckpointRunner(
+        pipeline=pipeline,
+        checkpoint_dir=str(tmp_path / "checkpoints"),
+        executor=LocalExecutor(),
+        ignore_failed=True,
+    )
+
+    results = runner.run()
+
+    assert results is not None
+    assert [task.sample_key for task in results] == ["a", "b"]
+    assert [task.data["processed"] for task in results] == [True, True]
+    assert list((tmp_path / "artifacts").glob("*")) == []
 
 
 def test_store_ensures_sample_keys_before_filtered_accounting(tmp_path: Path) -> None:
