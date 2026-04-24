@@ -15,14 +15,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.io import AudioToDocumentStage, MaterializeTarredAudioStage
+from nemo_curator.stages.audio.io import AudioToDocumentStage
 from nemo_curator.tasks.audio_task import ensure_sample_key
 
 from .io_utils import normalize_for_json, write_json_atomic
@@ -42,13 +41,11 @@ class AudioCheckpointRunner:
         checkpoint_dir: str,
         executor: BaseExecutor | None = None,
         ignore_failed: bool = False,
-        materialization_dir: str | None = None,
     ) -> None:
         self.pipeline = pipeline
         self.checkpoint_dir = Path(checkpoint_dir)
         self.executor = executor
         self.ignore_failed = ignore_failed
-        self.materialization_dir = materialization_dir
 
     def run(self) -> list[Any] | None:
         self.pipeline.build()
@@ -93,18 +90,7 @@ class AudioCheckpointRunner:
         return current_tasks
 
     def _prepare_stages(self, stages: list[ProcessingStage]) -> list[ProcessingStage]:
-        prepared: list[ProcessingStage] = []
-        materialization_dir = self._effective_materialization_dir()
-        for stage in stages:
-            if (
-                materialization_dir is not None
-                and isinstance(stage, MaterializeTarredAudioStage)
-                and stage.materialization_dir is None
-            ):
-                prepared.append(replace(stage, materialization_dir=materialization_dir))
-                continue
-            prepared.append(stage)
-        return prepared
+        return list(stages)
 
     def _split_stages(self, stages: list[ProcessingStage]) -> tuple[list[ProcessingStage], list[ProcessingStage]]:
         for index, stage in enumerate(stages):
@@ -168,20 +154,12 @@ class AudioCheckpointRunner:
             "config": normalize_for_json(self.pipeline.config),
             "ignore_failed": self.ignore_failed,
             "link_stages_via_io": self._link_stages_via_io(),
-            "materialization_dir": self._effective_materialization_dir(),
             "stages": [stage._name for stage in stages],
         }
         write_json_atomic(self.checkpoint_dir / "pipeline.json", payload)
 
     def _link_stages_via_io(self) -> bool:
         return bool(self.pipeline.config.get("link_stages_via_io", False))
-
-    def _effective_materialization_dir(self) -> str | None:
-        if self.materialization_dir is not None:
-            return self.materialization_dir
-        if self._link_stages_via_io():
-            return str(self.checkpoint_dir / "artifacts" / "materialized_audio")
-        return None
 
     def _cleanup_retry_artifacts(self, tasks: list[AudioTask]) -> None:
         for task in tasks:
