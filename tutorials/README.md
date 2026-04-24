@@ -14,6 +14,7 @@ Hands-on tutorials for curating data across all modalities with NeMo Curator. Co
 | **[Image](image/)** | Computer vision and image processing | Aesthetic Classification, NSFW Detection, Deduplication |
 | **[Video](video/)** | Video processing and analysis | Clipping, Frame Extraction, Filtering |
 | **[Audio](audio/)** | Speech and audio data curation | FLEURS Dataset Processing |
+| **[Interleaved](interleaved/)** | Multimodal (text + image) data curation | Getting Started, PDF Extraction Pipeline (Nemotron-Parse) |
 
 ## Production Recipes
 

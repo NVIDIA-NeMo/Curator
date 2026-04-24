@@ -4845,6 +4845,7 @@ all = [
     { name = "justext" },
     { name = "librosa" },
     { name = "lxml" },
+    { name = "matplotlib" },
     { name = "mwparserfromhell" },
     { name = "nemo-toolkit", extra = ["asr"] },
     { name = "nixl-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -4974,6 +4975,7 @@ inference-server = [
 ]
 interleaved-cpu = [
     { name = "albumentations" },
+    { name = "matplotlib" },
     { name = "open-clip-torch" },
     { name = "opencv-python" },
     { name = "pillow" },
@@ -4984,6 +4986,7 @@ interleaved-cpu = [
 interleaved-cuda12 = [
     { name = "albumentations" },
     { name = "gpustat" },
+    { name = "matplotlib" },
     { name = "nvidia-ml-py" },
     { name = "open-clip-torch" },
     { name = "opencv-python" },
@@ -5182,6 +5185,7 @@ requires-dist = [
     { name = "librosa", marker = "extra == 'audio-common'" },
     { name = "loguru" },
     { name = "lxml", marker = "extra == 'text-cpu'" },
+    { name = "matplotlib", marker = "extra == 'interleaved-cpu'" },
     { name = "mecab-python3" },
     { name = "mwparserfromhell", marker = "extra == 'text-cpu'", specifier = "==0.6.5" },
     { name = "nemo-curator", extras = ["audio-common"], marker = "extra == 'audio-cpu'" },
