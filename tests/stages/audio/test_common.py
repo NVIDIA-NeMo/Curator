@@ -21,6 +21,9 @@ from unittest import mock
 
 import pytest
 
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
     ManifestReader,
@@ -315,10 +318,6 @@ class TestManifestReaderIntegration:
 
     def test_composite_end_to_end_with_directory(self) -> None:
         """End-to-end: ManifestReader composite with directory input through full pipeline."""
-        from nemo_curator.backends.xenna import XennaExecutor
-        from nemo_curator.pipeline import Pipeline
-        from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
-
         nested = ALM_FIXTURES_DIR / "nested_manifests"
 
         pipeline = Pipeline(name="test_dir_e2e", description="Directory discovery end-to-end test")
