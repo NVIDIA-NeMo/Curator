@@ -28,7 +28,7 @@ from loguru import logger
 from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
+from nemo_curator.stages.audio import ManifestReader
 from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
 
 
@@ -77,7 +77,7 @@ def run_audio_sortformer_benchmark(
         description="Streaming Sortformer speaker diarization inference.",
     )
 
-    pipeline.add_stage(ALMManifestReader(manifest_path=manifest_path))
+    pipeline.add_stage(ManifestReader(manifest_path=manifest_path))
     pipeline.add_stage(
         InferenceSortformerStage(
             model_name=model_name,
