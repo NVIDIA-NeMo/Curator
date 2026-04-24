@@ -155,6 +155,12 @@ sinks:
     drive_folder_id: ${GDRIVE_FOLDER_ID}
     service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
 
+# Optional: Global Ray settings inherited by all entries; per-entry ray sections override these values
+ray:
+  num_cpus: 64
+  num_gpus: 4
+  enable_object_spilling: false
+
 # Optional: Define datasets for template substitution
 datasets:
   - name: common_crawl
@@ -205,7 +211,45 @@ python benchmarking/run.py \
   --config machine_specific.yaml
 ```
 
-Files are merged in order. Later files override earlier ones for conflicting keys.
+Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys.
+
+**Merge behavior:**
+- **Scalar values** (strings, numbers, booleans): later file wins.
+- **Nested dicts**: merged recursively — only the keys present in the later file are updated.
+- **Lists of dicts** (e.g. `entries`, `requirements`, `sinks`): items are matched by their first key. If a matching item is found, it is merged recursively; if not, the item is appended.
+
+This makes it practical to write small override files that change only specific entries or requirements without duplicating the full configuration.
+
+**Example — overriding a single entry's timeout and requirements:**
+
+Base config (`nightly-benchmark.yaml`) defines many entries including:
+```yaml
+entries:
+  - name: domain_classification_xenna
+    timeout_s: 1400
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 3000
+```
+
+Override file (`my_overrides.yaml`) changes only that entry's timeout and requirement minimum:
+```yaml
+entries:
+  - name: domain_classification_xenna
+    timeout_s: 2000
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 2000
+```
+
+Running with both files:
+```bash
+python benchmarking/run.py \
+  --config nightly-benchmark.yaml \
+  --config my_overrides.yaml
+```
+
+Results in `domain_classification_xenna` using `timeout_s: 2000` and `min_value: 2000`, while all other entries remain unchanged.
 
 **Session naming:**
 
@@ -284,13 +328,22 @@ requirements:
     max_value: 64
 ```
 
-**ray**: Configures Ray resources for the entry:
+**ray**: Configures Ray resources. A global `ray` section can be defined at the top level of the configuration to set defaults inherited by all entries. Per-entry `ray` sections override individual keys from the global defaults.
 
+Global defaults (applies to all entries unless overridden):
 ```yaml
 ray:
   num_cpus: 64
   num_gpus: 4
-  enable_object_spilling: false  # Disable object spilling to local disk
+  enable_object_spilling: false
+```
+
+Per-entry override (only the differing keys need to be specified):
+```yaml
+entries:
+  - name: my_benchmark
+    ray:
+      num_gpus: 0  # overrides global num_gpus; num_cpus and enable_object_spilling inherit global values
 ```
 
 ---
