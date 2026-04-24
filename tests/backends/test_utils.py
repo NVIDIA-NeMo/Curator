@@ -26,6 +26,7 @@ from nemo_curator.backends import utils
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.backends.utils import (
     RayStageSpecKeys,
+    check_total_gpu_capacity,
     execute_setup_on_node,
     get_head_node_id,
     merge_executor_configs,
@@ -271,3 +272,24 @@ class TestRayStageSpecKeys:
         for key in invalid_keys:
             result = key not in enum_values
             assert result is True, f"Invalid key '{key}' should not be found in enum values"
+
+
+class TestCheckTotalGpuCapacity:
+    """``check_total_gpu_capacity`` reuses ``get_available_cpu_gpu_resources``
+    and raises when aggregate demand exceeds the cluster-available GPU count."""
+
+    @pytest.mark.parametrize(
+        ("available_gpus", "needed", "should_raise"),
+        [(8.0, 4, False), (8.0, 8, False), (8.0, 9, True), (0.0, 1, True)],
+    )
+    def test_capacity_check(self, available_gpus: float, needed: int, should_raise: bool) -> None:
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                "nemo_curator.backends.utils.get_available_cpu_gpu_resources",
+                lambda *, ignore_head_node=False: (0.0, available_gpus),  # noqa: ARG005
+            )
+            if should_raise:
+                with pytest.raises(RuntimeError, match=f"Need {needed} GPUs"):
+                    check_total_gpu_capacity(needed)
+            else:
+                check_total_gpu_capacity(needed)
