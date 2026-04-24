@@ -141,12 +141,16 @@ class UTMOSFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         self._ensure_model()
+        if self._model is None:
+            msg = "UTMOS model failed to load. Check network connectivity and torch.hub cache."
+            raise RuntimeError(msg)
 
     def teardown(self) -> None:
         self._model = None
         self._model_failed = False
         self._resamplers.clear()
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def _ensure_model(self) -> None:
         if self._model is not None:

@@ -44,7 +44,7 @@ except ImportError:
     SortformerEncLabelModel = None
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.common import resolve_waveform_from_item
 from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import SpeakerSeparator
 from nemo_curator.stages.base import ProcessingStage
@@ -118,7 +118,8 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
         if self._separator is not None:
             del self._separator
             self._separator = None
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     @staticmethod
     def _check_gpu_availability(gpus: float) -> None:
@@ -235,7 +236,7 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
             )
             raise RuntimeError(msg) from e
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"Skipping task {task.task_id}: {e}")
+            logger.exception(f"[SpeakerSeparation] Failed to process task {task.task_id}: {e}")
         finally:
             if waveform is not None:
                 del waveform

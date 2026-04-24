@@ -54,6 +54,10 @@ class GetAudioDurationStage(ProcessingStage[AudioTask, AudioTask]):
         audio_filepath = task.data[self.audio_filepath_key]
         try:
             raw, samplerate = self._soundfile.read(audio_filepath)
+            if samplerate <= 0:
+                logger.warning(f"Invalid sample rate ({samplerate}) in {audio_filepath}")
+                task.data[self.duration_key] = -1.0
+                return task
             task.data[self.duration_key] = raw.shape[0] / samplerate
         except self._soundfile.SoundFileError as e:
             logger.warning(str(e) + " file: " + audio_filepath)
