@@ -246,7 +246,7 @@ def main(args: argparse.Namespace) -> None:
 
     # Execute pipeline
     print("Starting pipeline execution...")
-    pipeline.run(executor)
+    pipeline.run(executor, checkpoint_path=args.checkpoint_dir)
 
     # Print results
     print("\nPipeline completed!")
@@ -719,6 +719,17 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         default="qwen_lm",
         choices=["qwen_lm"],
         help="Enhanced LLM models to use to improve captions",
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=str,
+        default=None,
+        help=(
+            "Path to checkpoint directory for pipeline resumability. "
+            "When provided, source video partitions that have already been fully "
+            "processed are skipped on restart. Must be on a shared filesystem "
+            "(NFS or object storage) for multi-node clusters."
+        ),
     )
     return parser
 
