@@ -89,6 +89,10 @@ datasets:
     formats:
     - type: "parquet"
       path: "{datasets_path}/cc_index_benchmark/cc_index"
+  - name: "read_speech"
+    formats:
+    - type: "wav"
+      path: "{datasets_path}/read_speech"
 default_timeout_s: 7200
 
 # Optional sinks
@@ -714,6 +718,77 @@ entries:
           - num_tasks_processed
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: is_success
+        exact_value: true
+
+  - name: audio_readspeech_xenna
+    enabled: true
+    script: audio_readspeech_benchmark.py
+    # Hang guard only (~4h). Full dataset with all filters runs ~3.24h on 4×A100.
+    # Performance regressions should be tracked via a `requirements` check on
+    # `time_taken_s` once a stable baseline is established (follow-up).
+    timeout_s: 14400
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:read_speech,wav}
+      --no-auto-download
+      --executor=xenna
+      --max-samples=-1
+      --sample-rate=48000
+      --enable-vad
+      --enable-sigmos
+      --enable-utmos
+      --enable-band-filter
+      --enable-speaker-separation
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_segments_per_sec
+          - num_output_segments
+          - time_taken_s
+        ping_on_failure:
+          - U07EVDG9FBK  # Shubham Bhawsar
+    requirements:
+      - metric: is_success
+        exact_value: true
+
+  - name: audio_readspeech_raydata
+    enabled: true
+    script: audio_readspeech_benchmark.py
+    # Hang guard only (~4h). Mirrors xenna config so the two executors are
+    # directly comparable on the same workload (full dataset, all filters).
+    timeout_s: 14400
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:read_speech,wav}
+      --no-auto-download
+      --executor=ray_data
+      --max-samples=-1
+      --sample-rate=48000
+      --enable-vad
+      --enable-sigmos
+      --enable-utmos
+      --enable-band-filter
+      --enable-speaker-separation
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_segments_per_sec
+          - num_output_segments
+          - time_taken_s
+        ping_on_failure:
+          - U07EVDG9FBK  # Shubham Bhawsar
     requirements:
       - metric: is_success
         exact_value: true
