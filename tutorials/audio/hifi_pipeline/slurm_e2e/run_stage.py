@@ -473,11 +473,136 @@ def run_cluster(args, rows, audio_dict):
     return rows
 
 
+def _patch_utmosv2_for_gpu():
+    import torch
+    from utmosv2.dataset._base import BaseDataset
+    from utmosv2.dataset._utils import extend_audio, select_random_start
+    from utmosv2.dataset import SSLExtDataset
+    import utmosv2.utils as utils
+    import utmosv2._core.model._common as common
+
+    class _GPURawAudioDataset(BaseDataset):
+        def __init__(self, cfg, data, phase, transform=None):
+            super().__init__(cfg, data, phase, transform)
+            self.ssl = SSLExtDataset(cfg, data, phase)
+            self.spec_audio_len = int(cfg.dataset.spec_frames.frame_sec * cfg.sr)
+            self.num_specs = len(cfg.dataset.specs)
+            self.num_frames = cfg.dataset.spec_frames.num_frames
+            self.mixup_inner = cfg.dataset.spec_frames.mixup_inner
+            self.mixup_alpha = cfg.dataset.spec_frames.mixup_alpha
+
+        def __getitem__(self, idx):
+            x1, d, target = self.ssl[idx]
+            y, _ = self._get_audio_and_mos(idx)
+            y = extend_audio(y, self.spec_audio_len, method="tile")
+            segments, lambdas = [], []
+            for _ in range(self.num_frames):
+                y1 = select_random_start(y, self.spec_audio_len)
+                for _ in range(self.num_specs):
+                    segments.append(torch.from_numpy(y1.copy()).float())
+                    if self.mixup_inner:
+                        y2 = select_random_start(y, self.spec_audio_len)
+                        segments.append(torch.from_numpy(y2.copy()).float())
+                        lambdas.append(np.random.beta(self.mixup_alpha, self.mixup_alpha))
+                    else:
+                        segments.append(torch.zeros(self.spec_audio_len))
+                        lambdas.append(1.0)
+            return (x1, torch.stack(segments),
+                    torch.tensor(lambdas, dtype=torch.float32), d, target)
+
+    _orig_get_dataset = utils.get_dataset
+
+    def _patched_get_dataset(cfg, data, phase, transform=None):
+        if cfg.dataset.name == "ssl_multispec_ext":
+            return _GPURawAudioDataset(cfg, data, phase, transform)
+        return _orig_get_dataset(cfg, data, phase, transform)
+
+    utils.get_dataset = _patched_get_dataset
+    common.get_dataset = _patched_get_dataset
+
+    def _patched_predict_impl(self, dataloader, num_repetitions, device, verbose):
+        from tqdm import tqdm
+        self._model.eval().to(device)
+        res = 0.0
+        for _rep in range(num_repetitions):
+            pred = []
+            pbar = tqdm(dataloader, disable=not verbose, total=len(dataloader),
+                        desc="Predicting: ")
+            with torch.no_grad():
+                for t in pbar:
+                    x = [v.to(device, non_blocking=True) for v in t[:-1]]
+                    with torch.amp.autocast("cuda"):
+                        output = self._model(*x).squeeze(1)
+                    pred.append(output.cpu().numpy())
+            res += np.concatenate(pred) / num_repetitions
+        return res
+
+    common.UTMOSv2ModelMixin._predict_impl = _patched_predict_impl
+
+
+def _build_gpu_spec_model(original_model, cfg):
+    import torch
+    import torch.nn as nn
+    import torchaudio
+
+    class _GPUSpecModel(nn.Module):
+        def __init__(self, original_model, cfg):
+            super().__init__()
+            self.cfg = cfg
+            self.ssl = original_model.ssl
+            self.spec_long = original_model.spec_long
+            self.fc = original_model.fc
+            self.num_dataset = getattr(original_model, "num_dataset", 10)
+            self.mel_transforms = nn.ModuleList([
+                torchaudio.transforms.MelSpectrogram(
+                    sample_rate=cfg.sr, n_fft=s.n_fft, hop_length=s.hop_length,
+                    win_length=s.win_length, n_mels=s.n_mels, power=2.0,
+                    pad_mode="constant", norm="slaney", mel_scale="slaney",
+                ) for s in cfg.dataset.specs
+            ])
+            self.spec_norms = [s.norm for s in cfg.dataset.specs]
+
+        def _audio_to_spec(self, audio, spec_idx):
+            spec = self.mel_transforms[spec_idx](audio)
+            log_spec = 10.0 * torch.log10(spec.clamp(min=1e-10))
+            ref_vals = 10.0 * torch.log10(
+                spec.reshape(spec.shape[0], -1).max(dim=1).values.clamp(min=1e-10))
+            log_spec = torch.clamp(log_spec - ref_vals[:, None, None], min=-80.0)
+            norm = self.spec_norms[spec_idx]
+            if norm is not None:
+                log_spec = (log_spec + norm) / norm
+            log_spec = log_spec.unsqueeze(1).expand(-1, 3, -1, -1)
+            return torch.nn.functional.interpolate(
+                log_spec, size=(512, 512), mode="bilinear", align_corners=False)
+
+        def forward(self, x1, segments, lambdas, d):
+            B = x1.shape[0]
+            zero_d = torch.zeros(B, self.num_dataset, device=x1.device)
+            ssl_out = self.ssl(x1, zero_d)
+            specs = []
+            si, li = 0, 0
+            for _ in range(self.cfg.dataset.spec_frames.num_frames):
+                for spi in range(len(self.cfg.dataset.specs)):
+                    s1 = self._audio_to_spec(segments[:, si], spi)
+                    s2 = self._audio_to_spec(segments[:, si + 1], spi)
+                    si += 2
+                    lmd = lambdas[:, li].reshape(-1, 1, 1, 1)
+                    li += 1
+                    specs.append(lmd * s1 + (1 - lmd) * s2)
+            x2 = torch.stack(specs, dim=1)
+            spec_out = self.spec_long(x2, zero_d)
+            return self.fc(torch.cat([ssl_out, spec_out, d], dim=1))
+
+    return _GPUSpecModel(original_model, cfg)
+
+
 def run_utmos(args, rows, audio_dict):
     """UTMOS scoring. Uses audio from tar (in-memory)."""
+    _patch_utmosv2_for_gpu()
     import utmosv2
     model = utmosv2.create_model(pretrained=True)
-    print("UTMOSv2 model loaded")
+    model._model = _build_gpu_spec_model(model._model, model._cfg)
+    print("UTMOSv2 model loaded (GPU specs)")
 
     with tempfile.TemporaryDirectory() as wav_dir:
         valid_indices = []
