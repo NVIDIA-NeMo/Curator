@@ -150,6 +150,8 @@ data/
 *.out
 *.err
 
+tutorials/audio/hifi_pipeline/SUBMISSION_GUIDE.md
+
 # Text Editor / IDE Files
 .vscode
 
