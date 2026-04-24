@@ -99,6 +99,7 @@ deduplication_cuda12 = [
 audio_common = [
     "nemo_toolkit[asr]>=2.7.2",
     "soundfile>=0.12.0",
+    "torchaudio",
     "onnx>=1.19.0",
     "silero-vad",
     "librosa",
@@ -120,6 +121,7 @@ audio_cuda12 = [
     "nemo_curator[cuda12]",
     "nvidia-cudnn-cu12",
     "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
+    "torchcodec",
 ]
 
 image_cpu = [
