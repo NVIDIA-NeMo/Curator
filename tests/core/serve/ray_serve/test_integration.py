@@ -51,8 +51,18 @@ def model_server(shared_ray_cluster: str) -> InferenceServer:  # noqa: ARG001
     server.start()
 
     yield server
-
     server.stop()
+
+
+@pytest.fixture(scope="class")
+def inference_gpu_uuids(model_server: InferenceServer) -> set[str]:  # noqa: ARG001
+    """Snapshot GPU UUIDs held by the running inference server.
+
+    Captured once per class so residual processes from sibling pipeline
+    runs (e.g. Ray Data actors that linger on the non-inference GPU)
+    don't pollute the set when a later executor variant runs.
+    """
+    return gpu_uuids_in_use()
 
 
 @pytest.mark.gpu
@@ -105,6 +115,7 @@ class TestRayServeIntegration:
     def test_pipeline_gpu_stage_uses_different_gpu_than_inference(
         self,
         model_server: InferenceServer,
+        inference_gpu_uuids: set[str],
         executor_import: tuple[str, str],
         executor_kwargs: dict[str, Any],
     ) -> None:
@@ -125,7 +136,6 @@ class TestRayServeIntegration:
         module_name, cls_name = executor_import
         executor_cls = getattr(importlib.import_module(module_name), cls_name)
 
-        inference_gpu_uuids = gpu_uuids_in_use()
         assert inference_gpu_uuids, "expected the Ray Serve vLLM worker to be visible in gpustat"
 
         initial_tasks = [

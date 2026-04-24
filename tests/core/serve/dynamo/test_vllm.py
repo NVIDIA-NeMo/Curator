@@ -198,6 +198,7 @@ class TestLaunchDisaggReplicas:
         model_config: DynamoVLLMModelConfig,
         *,
         topology: list[dict[str, Any]],
+        worker_index_offset: int = 0,
     ) -> None:
         """Run ``launch_disagg_replicas`` with real ``plan_replica_bundle_shape``;
         mock only the Ray PG + bundle-port plumbing. Ports are seed-stable so the
@@ -219,6 +220,7 @@ class TestLaunchDisaggReplicas:
                 runtime_dir="/tmp/rt",  # noqa: S108
                 actor_name_prefix="dynamo_default_abcd1234",
                 topology=topology,
+                worker_index_offset=worker_index_offset,
             )
 
     def test_decode_and_prefill_workers_launched(self, captured_spawn: list[dict[str, Any]]) -> None:
@@ -287,6 +289,33 @@ class TestLaunchDisaggReplicas:
         self._launch(mc, topology=_SINGLE_NODE_8GPU)
         nixl_ports = {c["subprocess_env"]["VLLM_NIXL_SIDE_CHANNEL_PORT"] for c in captured_spawn}
         assert len(nixl_ports) == 4
+
+    def test_worker_index_offset_isolates_port_seeds_across_models(self, captured_spawn: list[dict[str, Any]]) -> None:
+        """Two disagg models launched with a threaded offset don't share port seeds.
+
+        Without the offset, the first worker of every model lands on the
+        same Nixl seed (e.g. both 20097) and same-node placement risks a
+        bind race in ``get_free_port_in_bundle``. Simulates what
+        ``DynamoBackend`` does in ``start()`` across multiple disagg models.
+        """
+        mc_a = DynamoVLLMModelConfig(
+            model_identifier="Qwen/Qwen3-0.6B",
+            mode="disagg",
+            prefill=DynamoRoleConfig(num_replicas=1),
+            decode=DynamoRoleConfig(num_replicas=1),
+        )
+        mc_b = DynamoVLLMModelConfig(
+            model_identifier="meta-llama/Llama-3.2-1B",
+            mode="disagg",
+            prefill=DynamoRoleConfig(num_replicas=1),
+            decode=DynamoRoleConfig(num_replicas=1),
+        )
+        self._launch(mc_a, topology=_SINGLE_NODE_8GPU)
+        self._launch(mc_b, topology=_SINGLE_NODE_8GPU, worker_index_offset=len(captured_spawn))
+
+        nixl_ports = [c["subprocess_env"]["VLLM_NIXL_SIDE_CHANNEL_PORT"] for c in captured_spawn]
+        assert len(nixl_ports) == 4  # 2 per model
+        assert len(set(nixl_ports)) == 4, f"expected unique ports across models, got {nixl_ports}"
 
     def test_custom_kv_transfer_config_overrides_default(self, captured_spawn: list[dict[str, Any]]) -> None:
         mc = DynamoVLLMModelConfig(

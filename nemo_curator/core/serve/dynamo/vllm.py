@@ -340,6 +340,7 @@ def launch_disagg_replicas(  # noqa: PLR0913
     runtime_dir: str,
     actor_name_prefix: str,
     topology: list[dict[str, Any]] | None = None,
+    worker_index_offset: int = 0,
 ) -> tuple[list[PlacementGroup], list[ManagedSubprocess], list[dict[str, Any]]]:
     """Plan PGs and launch every worker actor for one disagg model.
 
@@ -348,6 +349,11 @@ def launch_disagg_replicas(  # noqa: PLR0913
     events (decode reads them via Nixl). KV transfer defaults to
     NixlConnector with ``kv_both`` unless the user overrides via
     ``DynamoVLLMModelConfig.kv_transfer_config``.
+
+    ``worker_index_offset`` lets the caller thread a global counter across
+    multiple disagg models so their port seeds don't overlap — without it,
+    the first worker of every model lands on the same Nixl/KV-events seed
+    and same-node placement risks a bind race.
     """
     replica_pgs: list[PlacementGroup] = []
     worker_actors: list[ManagedSubprocess] = []
@@ -362,7 +368,7 @@ def launch_disagg_replicas(  # noqa: PLR0913
     prefill_tp = prefill_ek.get("tensor_parallel_size", 1)
     decode_tp = decode_ek.get("tensor_parallel_size", 1)
 
-    worker_index = 0
+    worker_index = worker_index_offset
     # Decode first (Dynamo example convention). Only prefill publishes KV events.
     for role, num_workers, role_ek, publishes_kv_events in (
         ("decode", num_decode, decode_ek, False),

@@ -139,6 +139,17 @@ def single_gpu_server(shared_ray_cluster: str) -> Iterator[InferenceServer]:  # 
             server.stop()
 
 
+@pytest.fixture(scope="class")
+def inference_gpu_uuids(single_gpu_server: InferenceServer) -> set[str]:  # noqa: ARG001
+    """Snapshot GPU UUIDs held by the running Dynamo server.
+
+    Captured once per class so residual processes from sibling pipeline
+    runs (e.g. Ray Data actors that linger on the non-inference GPU)
+    don't pollute the set when a later executor variant runs.
+    """
+    return gpu_uuids_in_use()
+
+
 @pytest.mark.gpu
 @pytest.mark.usefixtures("single_gpu_server")
 class TestDynamoSingleGpuServer:
@@ -148,6 +159,7 @@ class TestDynamoSingleGpuServer:
     def test_pipeline_gpu_stage_uses_different_gpu_than_inference(
         self,
         single_gpu_server: InferenceServer,
+        inference_gpu_uuids: set[str],
         executor_import: tuple[str, str],
         executor_kwargs: dict[str, Any],
     ) -> None:
@@ -178,12 +190,6 @@ class TestDynamoSingleGpuServer:
         module_name, cls_name = executor_import
         executor_cls = getattr(importlib.import_module(module_name), cls_name)
 
-        # Snapshot inference's GPUs just before the pipeline runs. At this
-        # point the single_gpu_server fixture has already awaited
-        # ``/v1/models`` and any prior parametrization's Ray actors have
-        # been shut down by their executor, so the only process on our
-        # cluster's GPUs is the Dynamo EngineCore.
-        inference_gpu_uuids = gpu_uuids_in_use()
         assert inference_gpu_uuids, "expected the Dynamo worker to be visible in gpustat"
 
         initial_tasks = [

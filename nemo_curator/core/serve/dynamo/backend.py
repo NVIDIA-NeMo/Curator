@@ -205,6 +205,7 @@ class DynamoBackend(InferenceBackend):
 
         expected_models: set[str] = set()
         placements: list[dict[str, Any]] = []
+        disagg_worker_offset = 0
 
         for model_config in self._models:
             model_name = model_config.resolved_model_name
@@ -221,7 +222,9 @@ class DynamoBackend(InferenceBackend):
                     runtime_dir=self._runtime_dir,
                     actor_name_prefix=self._actor_name_prefix,
                     topology=topology,
+                    worker_index_offset=disagg_worker_offset,
                 )
+                disagg_worker_offset += len(entries)
             else:
                 tp_size = model_config.engine_kwargs.get("tensor_parallel_size", 1)
                 logger.info(f"Deploying model '{model_name}' (TP={tp_size}, replicas={model_config.num_replicas})")
