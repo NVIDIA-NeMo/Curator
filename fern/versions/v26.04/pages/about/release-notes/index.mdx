@@ -169,14 +169,6 @@ New four-stage pipeline for curating audio language model training data from dia
 
 Learn more in the [ALM Pipeline Concepts](/about/concepts/audio/alm-pipeline) documentation and the [ALM Tutorial](/curate-audio/tutorials/alm).
 
-### AudioBatch to AudioTask Redesign (PR #1608)
-
-Redesigned the audio task model from `AudioBatch` (list of dicts) to `AudioTask` (single dict), aligning the audio modality with the patterns used by video, text, and image:
-
-- **Single-entry task model**: Each `AudioTask` wraps one manifest entry instead of a batch, simplifying stage logic and enabling per-entry validation.
-- **Direct `ProcessingStage` subclassing**: All audio stages now subclass `ProcessingStage[AudioTask, AudioTask]` directly, removing the intermediate `AudioTaskStage` class.
-- **Configurable backend selection**: The FLEURS tutorial runner now supports both Xenna and Ray Data backends, matching the ALM runner introduced in PR #1419.
-
 ### Audio Stage-Wise Profiling (PR #1676)
 
 Added stage-wise profiling for FLEURS GPU and ALM CPU pipelines with benchmark scripts integrated into the nightly CI matrix:
