@@ -68,7 +68,7 @@ class StageCheckpointStore:
         self.root_dir = Path(self.checkpoint_dir)
         self.stage_dir = self.root_dir / f"{self.stage_index:02d}_{self.stage_name}"
         self.stage_json_path = self.stage_dir / "stage.json"
-        self.records_path = self.stage_dir / "records" / "shard_00000.jsonl"
+        self.records_path = self.stage_dir / "records" / "batch_00000.jsonl"
         self.output_manifest_path = self.stage_dir / "outputs" / "manifest.jsonl"
 
     def is_complete(self) -> bool:
