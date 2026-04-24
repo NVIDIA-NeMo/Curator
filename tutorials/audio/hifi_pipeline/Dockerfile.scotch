@@ -1,0 +1,47 @@
+# Curator SCOTCH (BIRCH + AHC) corpus-wide speaker-clustering stage.
+#
+# Reads per-shard embeddings (.npz) and manifests (.jsonl) from a shared
+# filesystem, writes per-shard clustered manifests + a cluster_config.json
+# sidecar. Pure CPU. No torch, no NeMo, no CUDA.
+#
+# Build:
+#   docker build -t curator-scotch -f tutorials/audio/hifi_pipeline/Dockerfile.scotch .
+#
+# Run:
+#   docker run --rm -v /data:/data curator-scotch \
+#     --manifest_dir /data/transcribe \
+#     --embedding_dir /data/embeddings \
+#     --output_dir /data/clustered_scotch \
+#     --num_shards 64
+
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+        'numpy>=1.26,<3' \
+        'scipy>=1.11,<2' \
+        'scikit-learn>=1.2,<2'
+
+COPY nemo_curator /opt/Curator/nemo_curator
+COPY tutorials/audio/hifi_pipeline/slurm_e2e/run_cluster_scotch.py \
+     /opt/scotch/run_cluster_scotch.py
+
+# Replace speaker_id barrel __init__.py with a blank file — upstream
+# eagerly imports SpeakerClusteringStage et al., which pull in loguru,
+# torch, and NeMo. The clustering submodule is pure numpy/scipy/sklearn
+# and does not need the barrel; importing submodules directly works.
+RUN : > /opt/Curator/nemo_curator/stages/audio/speaker_id/__init__.py
+
+ENV PYTHONPATH=/opt/Curator
+ENV PYTHONUNBUFFERED=1
+WORKDIR /opt/scotch
+
+RUN python -c "from nemo_curator.stages.audio.speaker_id.clustering.cluster_config import PRESETS; \
+               from nemo_curator.stages.audio.speaker_id.clustering.large_scale_clustering_and_scoring import cluster_embeddings_large_scale; \
+               assert 'librispeech-2026-04' in PRESETS, PRESETS"
+
+ENTRYPOINT ["python", "/opt/scotch/run_cluster_scotch.py"]

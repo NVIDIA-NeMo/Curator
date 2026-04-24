@@ -210,7 +210,6 @@ def _build_birch_tree(
         branching_factor=branching_factor,
         n_clusters=None,  # we run our own AHC on the leaf centroids
         compute_labels=False,  # avoid the (N, n_subclusters) blow-up in fit()
-        copy=False,
     )
 
     n = embeddings.shape[0]
