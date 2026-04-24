@@ -14,6 +14,15 @@ Hands-on tutorials for curating data across all modalities with NeMo Curator. Co
 | **[Image](image/)** | Computer vision and image processing | Aesthetic Classification, NSFW Detection, Deduplication |
 | **[Video](video/)** | Video processing and analysis | Clipping, Frame Extraction, Filtering |
 | **[Audio](audio/)** | Speech and audio data curation | FLEURS Dataset Processing |
+| **[Interleaved](interleaved/)** | Multimodal (text + image) data curation | Getting Started, PDF Extraction Pipeline (Nemotron-Parse) |
+
+## Production Recipes
+
+Complete, production-grade pipelines built on NeMo Curator:
+
+| Recipe | Description | Key Components |
+|--------|-------------|----------------|
+| [Nemotron-CC](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/data_curation/nemotron-cc) • [SDG tutorial (in-repo)](synthetic/nemotron_cc/) | Curate Common Crawl snapshots into an LLM-ready dataset, reproducing the [Nemotron-CC datasets](https://huggingface.co/datasets/nvidia/Nemotron-CC-v2) | `CommonCrawlDownloadExtractStage` • Language ID & Filtering • Exact/Fuzzy/Substring Dedup • Ensemble Quality Classification (1 fasttext + 2 FineWeb classifiers) • Synthetic Data Generation (4 tasks) |
 
 ## Core Concepts Example
 

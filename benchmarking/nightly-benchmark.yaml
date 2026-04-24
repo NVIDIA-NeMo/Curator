@@ -115,6 +115,12 @@ delete_scratch: true
 # for "ray start" to determine object store size.
 object_store_size: 536870912000  # 500GB
 
+# Global ray settings inherited by all entries. Per-entry ray sections override these values.
+ray:
+  num_cpus: 64
+  num_gpus: 4
+  enable_object_spilling: false
+
 entries:
   - name: domain_classification_raydata
     enabled: true
@@ -135,10 +141,7 @@ entries:
           - number_of_domains_predicted
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # Observed throughput of 2700 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
@@ -169,10 +172,7 @@ entries:
           - number_of_domains_predicted
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # Observed throughput of 2900 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
@@ -205,10 +205,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
           - U07JL5K0L10  # Praateek Mahajan
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # Observed throughput of 3945 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
@@ -235,10 +232,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
           - U07JL5K0L10  # Praateek Mahajan
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # Observed throughput of 4923 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
@@ -261,10 +255,7 @@ entries:
           - "num_duplicates"
         ping_on_failure:
           - UBDSVEQPL  # Ayush Dattagupta
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       - metric: num_duplicates
         exact_value: 64292856
@@ -291,10 +282,7 @@ entries:
           - connected_components_percent_time
         ping_on_failure:
           - UBDSVEQPL  # Ayush Dattagupta
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       - metric: num_duplicates
         # 59,226,133 is expected, ensure +/- 1%
@@ -332,10 +320,7 @@ entries:
           - pairwise_percent_time
         ping_on_failure:
           - U07JL5K0L10  # Praateek Mahajan
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       - metric: num_documents_processed
         exact_value: 312458951
@@ -368,9 +353,7 @@ entries:
           - UBDSVEQPL  # Ayush Dattagupta
           - U07JL5K0L10  # Praateek Mahajan
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       - metric: num_duplicates_removed
         exact_value: 59226133
@@ -400,9 +383,7 @@ entries:
           - UBDSVEQPL  # Ayush Dattagupta
           - U07JL5K0L10  # Praateek Mahajan
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       - metric: num_duplicates_removed
         exact_value: 59226133
@@ -428,9 +409,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
@@ -461,9 +440,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
@@ -496,9 +473,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
 
   - name: fasttext_filter_xenna
     enabled: true
@@ -521,9 +496,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
 
   - name: modifier_raydata
     enabled: true
@@ -541,9 +514,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
 
   - name: modifier_xenna
     enabled: true
@@ -561,9 +532,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
 
   - name: image_curation_raydata
     enabled: true
@@ -587,10 +556,7 @@ entries:
           - throughput_images_per_sec
         ping_on_failure:
           - U020C9VC05N  # Ao Tang
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_images_processed
@@ -620,16 +586,41 @@ entries:
           - throughput_images_per_sec
         ping_on_failure:
           - U020C9VC05N  # Ao Tang
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_images_processed
         exact_value: 3800
       - metric: throughput_images_per_sec
         min_value: 3.0
+
+  - name: audio_sortformer_xenna
+    enabled: false
+    script: audio_sortformer_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --manifest-path={datasets_path}/sortformer_diarization/manifest.jsonl
+      --model-name=nvidia/diar_streaming_sortformer_4spk-v2.1
+      --rttm-out-dir={session_entry_dir}/scratch/rttm
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_files_processed
+          - throughput_files_per_sec
+          - real_time_factor
+          - total_segments_detected
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      - metric: is_success
+        exact_value: true
+      - metric: num_files_processed
+        min_value: 1
 
   - name: audio_fleurs_xenna
     enabled: true
@@ -642,10 +633,7 @@ entries:
       --split=train
       --wer-threshold=5.5
       --gpus=1
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     sink_data:
       - name: slack
         # time_taken_s intentionally omitted: FLEURS includes dataset download
@@ -672,10 +660,7 @@ entries:
       --wer-threshold=5.5
       --gpus=1
       --executor=ray_data
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     sink_data:
       - name: slack
         # time_taken_s intentionally omitted: FLEURS includes dataset download
@@ -710,8 +695,6 @@ entries:
           - UGFRT88RE  # Vibhu Jawa
     ray:
       num_cpus: 16
-      num_gpus: 4
-      enable_object_spilling: false
     requirements:
       # Data integrity checks
       - metric: num_tar_files
@@ -741,8 +724,6 @@ entries:
           - UGFRT88RE  # Vibhu Jawa
     ray:
       num_cpus: 16
-      num_gpus: 4
-      enable_object_spilling: false
     requirements:
       # Data integrity checks
       - metric: num_tar_files
@@ -767,10 +748,7 @@ entries:
       - name: slack
         ping_on_failure:
           - U082G3E46R0  # Abhinav Garg
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
@@ -794,9 +772,7 @@ entries:
         ping_on_failure:
           - U082G3E46R0  # Abhinav Garg
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
@@ -822,10 +798,7 @@ entries:
       - name: slack
         ping_on_failure:
           - U082G3E46R0  # Abhinav Garg
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
@@ -848,8 +821,6 @@ entries:
     timeout_s: 700
     ray:
       num_cpus: 16
-      num_gpus: 4
-      enable_object_spilling: false
     sink_data:
       - name: slack
         additional_metrics:
@@ -882,10 +853,7 @@ entries:
       - name: slack
         ping_on_failure:
           - U082G3E46R0  # Abhinav Garg
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
@@ -916,9 +884,7 @@ entries:
         ping_on_failure:
           - UGFRT88RE  # Vibhu Jawa
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
 
   - name: multimodal_mint1t_xenna_materialize
     enabled: false
@@ -943,9 +909,7 @@ entries:
         ping_on_failure:
           - UGFRT88RE  # Vibhu Jawa
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
 
   - name: interleaved_filter_xenna
     enabled: false
@@ -970,10 +934,7 @@ entries:
           - materialize_error_count
         ping_on_failure:
           - UGFRT88RE
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
 
   - name: interleaved_filter_xenna_materialize
     enabled: false
@@ -998,10 +959,7 @@ entries:
           - materialize_error_count
         ping_on_failure:
           - UGFRT88RE
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
 
   - name: alm_pipeline_xenna
     enabled: true
@@ -1030,7 +988,6 @@ entries:
     ray:
       num_cpus: 8
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       - metric: is_success
         exact_value: true
@@ -1066,7 +1023,6 @@ entries:
     ray:
       num_cpus: 8
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       - metric: is_success
         exact_value: true
@@ -1094,9 +1050,7 @@ entries:
           - U07AZ1HPL1X  # Ranjit Rajan
           - U0849HBGCLD  # Sukrit Rao
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       - metric: num_input_documents
         exact_value: 1300
@@ -1122,10 +1076,7 @@ entries:
         ping_on_failure:
           - U07AZ1HPL1X  # Ranjit Rajan
           - U0849HBGCLD  # Sukrit Rao
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       - metric: num_input_documents
         exact_value: 1300
@@ -1155,10 +1106,7 @@ entries:
         ping_on_failure:
           - U07AZ1HPL1X  # Ranjit Rajan
           - U0849HBGCLD  # Sukrit Rao
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       - metric: num_input_documents
         exact_value: 1300
@@ -1186,9 +1134,7 @@ entries:
           - U07AZ1HPL1X  # Ranjit Rajan
           - U0849HBGCLD  # Sukrit Rao
     ray:
-      num_cpus: 64
       num_gpus: 8
-      enable_object_spilling: false
     requirements:
       - metric: total_matched_rows
         exact_value: 2384
