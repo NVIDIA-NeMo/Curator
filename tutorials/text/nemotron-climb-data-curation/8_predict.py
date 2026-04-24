@@ -177,7 +177,7 @@ def generate_mixtures(
     else:
         k_pool = max(num_mixtures * num_mixtures, 128)
         top_pool = samples[np.argsort(simulation)[-k_pool:]]
-        chosen_mixtures = top_pool[np.random.choice(len(top_pool), size=num_mixtures, replace=False)]
+        chosen_mixtures = top_pool[np.random.choice(len(top_pool), size=num_mixtures, replace=False)]  # noqa: NPY002
 
         # Save n1.sh, ..., n{args.num_mixtures}.sh files for each diverse mixture
         for i in range(num_mixtures):
