@@ -47,7 +47,7 @@ from loguru import logger
 from silero_vad import get_speech_timestamps, load_silero_vad
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.common import ensure_waveform_2d, load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
