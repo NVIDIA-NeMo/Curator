@@ -10,6 +10,10 @@ modality: "universal"
 
 # NeMo Curator Release Notes: 26.04
 
+<Warning>
+**Python 3.10 support will be removed in NeMo Curator 26.06.** The 26.04 release is the last release to support Python 3.10. Plan to upgrade your environments to Python 3.11 or 3.12 before installing 26.06. See [Deprecations](#deprecations) for details.
+</Warning>
+
 ## What's New in 26.04
 
 ### vLLM and Sentence Transformers Embedding Support (PR #1346)
@@ -296,6 +300,18 @@ Fixed a `deepcopy`/pickle crash in `MathContentExtractor` caused by unpickleable
 ### CommonCrawlWARCReader Serialization for Ray (PR #1604)
 
 Added `__getstate__`/`__setstate__` to `CommonCrawlWARCReader` for pickle compatibility with Ray executors. The `threading.Lock`, `requests.Session`, and boto3 S3 client are stripped during serialization and lazily reinitialized after deserialization.
+
+## Deprecations
+
+### Python 3.10 Support Will Be Removed in 26.06
+
+NeMo Curator 26.04 is the last release that supports Python 3.10. Beginning with **26.06**, Python 3.10 will no longer be a supported runtime, and install extras will target Python 3.11 and 3.12 only.
+
+- **Action required**: Upgrade your environments to Python 3.11 or 3.12 before installing 26.06.
+- **Affected surfaces**: PyPI install extras, the NeMo Curator container, and all Python APIs.
+- **Why**: Python 3.10 reaches end-of-life in October 2026, and several upstream dependencies (notably in the GPU and inference stacks) are dropping 3.10 support.
+
+If you are pinning a Python version in CI, Dockerfiles, or `uv` projects, update those pins now so you are ready for the 26.06 release.
 
 ## Breaking Changes
 
