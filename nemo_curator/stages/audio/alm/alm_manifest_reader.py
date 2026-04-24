@@ -29,7 +29,7 @@ from loguru import logger
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
-from nemo_curator.tasks.audio_task import build_audio_sample_key
+from nemo_curator.tasks.audio_task import build_audio_sample_key, ensure_checkpoint_shard_id
 
 
 @dataclass
@@ -45,6 +45,8 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         paths = task.data
         results: list[AudioTask] = []
+        task_metadata = dict(task._metadata)
+        task_metadata.setdefault("source_files", list(task.data))
         for manifest in paths:
             count = 0
             fs, resolved = url_to_fs(manifest)
@@ -52,16 +54,16 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 for line in f:
                     if line.strip():
                         entry = json.loads(line.strip())
-                        results.append(
-                            AudioTask(
-                                task_id=f"{task.task_id}_{count}",
-                                dataset_name=task.dataset_name,
-                                data=entry,
-                                sample_key=build_audio_sample_key(entry, dataset_name=task.dataset_name),
-                                _metadata=task._metadata,
-                                _stage_perf=list(task._stage_perf),
-                            )
+                        audio_task = AudioTask(
+                            task_id=f"{task.task_id}_{count}",
+                            dataset_name=task.dataset_name,
+                            data=entry,
+                            sample_key=build_audio_sample_key(entry, dataset_name=task.dataset_name),
+                            _metadata=dict(task_metadata),
+                            _stage_perf=list(task._stage_perf),
                         )
+                        ensure_checkpoint_shard_id(audio_task)
+                        results.append(audio_task)
                         count += 1
             logger.info(f"ALMManifestReaderStage: loaded {count} entries from {manifest}")
         return results

@@ -233,6 +233,9 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
             dataset_name=dataset_name,
             sample_key=carry_sample_key(parent_task, data=output_data),
         )
-        result_task._metadata = {"segment_mappings": mappings}
+        result_task._metadata = {
+            **parent_task._metadata,
+            "segment_mappings": mappings,
+        }
 
         return result_task

@@ -45,6 +45,8 @@ class TestALMManifestReaderStage:
         assert result[1].data["audio_filepath"] == "b.wav"
         assert result[0].sample_key
         assert result[1].sample_key
+        assert result[0]._metadata["checkpoint_shard_id"] == "input"
+        assert result[1]._metadata["checkpoint_shard_id"] == "input"
         assert result[0].sample_key != result[1].sample_key
 
     def test_reads_multiple_manifests(self, tmp_path: Path) -> None:

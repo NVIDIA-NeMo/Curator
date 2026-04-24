@@ -127,12 +127,13 @@ class SetConfigStage(ProcessingStage[AudioTask, AudioTask]):
         return config
 
 
-def _make_audio_task(sample_key: str) -> AudioTask:
+def _make_audio_task(sample_key: str, checkpoint_shard_id: str = "shard_0") -> AudioTask:
     return AudioTask(
         task_id=sample_key,
         dataset_name="dataset",
         data={"audio_filepath": f"{sample_key}.wav"},
         sample_key=sample_key,
+        _metadata={"checkpoint_shard_id": checkpoint_shard_id},
     )
 
 
@@ -212,7 +213,7 @@ def test_runner_records_failed_samples_when_ignore_failed_enabled(tmp_path: Path
     stage_json = json.loads((tmp_path / "checkpoints" / "01_failing_stage" / "stage.json").read_text())
     assert stage_json["failed_count"] == 1
 
-    records_path = tmp_path / "checkpoints" / "01_failing_stage" / "records" / "batch_00000.jsonl"
+    records_path = tmp_path / "checkpoints" / "01_failing_stage" / "records" / "shard_0.jsonl"
     records = [json.loads(line) for line in records_path.read_text().splitlines() if line.strip()]
     statuses = {record["sample_key"]: record["status"] for record in records}
 
@@ -258,7 +259,29 @@ def test_store_ensures_sample_keys_before_filtered_accounting(tmp_path: Path) ->
 
     store.write_stage_result(input_tasks=[task], output_tasks=[])
 
-    records = [json.loads(line) for line in store.records_path.read_text().splitlines() if line.strip()]
+    records_path = store.records_dir / "partition_unknown.jsonl"
+    records = [json.loads(line) for line in records_path.read_text().splitlines() if line.strip()]
     assert len(records) == 1
     assert records[0]["status"] == "filtered"
     assert records[0]["sample_key"]
+
+
+def test_store_writes_one_file_per_checkpoint_shard(tmp_path: Path) -> None:
+    store = StageCheckpointStore(
+        checkpoint_dir=tmp_path / "checkpoints",
+        stage_index=0,
+        stage_name="reader_stage",
+        config_fingerprint="fingerprint",
+    )
+    tasks = [
+        _make_audio_task("sample-a", checkpoint_shard_id="shard_0"),
+        _make_audio_task("sample-b", checkpoint_shard_id="shard_1"),
+    ]
+
+    store.write_stage_result(input_tasks=tasks, output_tasks=tasks)
+
+    output_files = sorted(path.name for path in store.outputs_dir.glob("*.jsonl"))
+    record_files = sorted(path.name for path in store.records_dir.glob("*.jsonl"))
+
+    assert output_files == ["shard_0.jsonl", "shard_1.jsonl"]
+    assert record_files == ["shard_0.jsonl", "shard_1.jsonl"]

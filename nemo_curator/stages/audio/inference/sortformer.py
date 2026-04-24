@@ -236,6 +236,6 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
             filepath_key=task.filepath_key or self.filepath_key,
             data=output_data,
             sample_key=carry_sample_key(task, data=output_data),
-            _metadata=task._metadata,
+            _metadata=dict(task._metadata),
             _stage_perf=task._stage_perf,
         )

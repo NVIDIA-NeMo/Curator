@@ -22,7 +22,7 @@ from loguru import logger
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.io import AudioToDocumentStage
-from nemo_curator.tasks.audio_task import ensure_sample_key
+from nemo_curator.tasks.audio_task import ensure_checkpoint_shard_id, ensure_sample_key
 
 from .io_utils import normalize_for_json, write_json_atomic
 from .store import SampleCheckpointRecord, StageCheckpointStore, fingerprint_stage
@@ -135,6 +135,7 @@ class AudioCheckpointRunner:
             return [], SampleCheckpointRecord(
                 sample_key=ensure_sample_key(task),
                 status="failed_retriable",
+                checkpoint_shard_id=ensure_checkpoint_shard_id(task),
                 task=None,
                 error_type=type(task_error).__name__,
                 error_message=str(task_error),

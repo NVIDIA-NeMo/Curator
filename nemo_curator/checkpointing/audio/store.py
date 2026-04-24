@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from nemo_curator.tasks.audio_task import ensure_sample_key
+from nemo_curator.tasks.audio_task import ensure_checkpoint_shard_id, ensure_sample_key
 
 from .io_utils import normalize_for_json, write_json_atomic, write_jsonl_atomic
 from .serialization import dump_audio_task_manifest, load_audio_task_manifest, serialize_audio_task
@@ -47,6 +47,7 @@ def fingerprint_stage(stage: Any) -> str:  # noqa: ANN401
 class SampleCheckpointRecord:
     sample_key: str
     status: RecordStatus
+    checkpoint_shard_id: str | None = None
     task: dict[str, Any] | None = None
     error_type: str | None = None
     error_message: str | None = None
@@ -68,11 +69,11 @@ class StageCheckpointStore:
         self.root_dir = Path(self.checkpoint_dir)
         self.stage_dir = self.root_dir / f"{self.stage_index:02d}_{self.stage_name}"
         self.stage_json_path = self.stage_dir / "stage.json"
-        self.records_path = self.stage_dir / "records" / "batch_00000.jsonl"
-        self.output_manifest_path = self.stage_dir / "outputs" / "manifest.jsonl"
+        self.records_dir = self.stage_dir / "records"
+        self.outputs_dir = self.stage_dir / "outputs"
 
     def is_complete(self) -> bool:
-        if not self.stage_json_path.exists() or not self.output_manifest_path.exists():
+        if not self.stage_json_path.exists():
             return False
         stage_payload = json.loads(self.stage_json_path.read_text())
         return (
@@ -81,17 +82,21 @@ class StageCheckpointStore:
         )
 
     def load_output_tasks(self) -> list[AudioTask]:
-        return load_audio_task_manifest(self.output_manifest_path)
+        tasks: list[AudioTask] = []
+        for manifest_path in sorted(self.outputs_dir.glob("*.jsonl")):
+            tasks.extend(load_audio_task_manifest(manifest_path))
+        return tasks
 
     def load_records(self) -> list[SampleCheckpointRecord]:
-        if not self.records_path.exists():
+        if not self.records_dir.exists():
             return []
         records: list[SampleCheckpointRecord] = []
-        with self.records_path.open("r", encoding="utf-8") as fin:
-            for line in fin:
-                if not line.strip():
-                    continue
-                records.append(SampleCheckpointRecord(**json.loads(line)))
+        for records_path in sorted(self.records_dir.glob("*.jsonl")):
+            with records_path.open("r", encoding="utf-8") as fin:
+                for line in fin:
+                    if not line.strip():
+                        continue
+                    records.append(SampleCheckpointRecord(**json.loads(line)))
         return records
 
     def mark_failed(self, error: Exception) -> None:
@@ -115,9 +120,11 @@ class StageCheckpointStore:
     ) -> None:
         for task in output_tasks:
             ensure_sample_key(task)
+            ensure_checkpoint_shard_id(task)
         if input_tasks is not None:
             for task in input_tasks:
                 ensure_sample_key(task)
+                ensure_checkpoint_shard_id(task)
 
         failed_records = failed_records or []
         failed_by_key = {record.sample_key: record for record in failed_records}
@@ -127,6 +134,7 @@ class StageCheckpointStore:
             SampleCheckpointRecord(
                 sample_key=task.sample_key,
                 status="done",
+                checkpoint_shard_id=ensure_checkpoint_shard_id(task),
                 task=serialize_audio_task(task),
             )
             for task in output_tasks
@@ -135,12 +143,25 @@ class StageCheckpointStore:
             for task in input_tasks:
                 if task.sample_key in output_by_key or task.sample_key in failed_by_key:
                     continue
-                records.append(SampleCheckpointRecord(sample_key=task.sample_key, status="filtered"))
+                records.append(
+                    SampleCheckpointRecord(
+                        sample_key=task.sample_key,
+                        status="filtered",
+                        checkpoint_shard_id=ensure_checkpoint_shard_id(task),
+                    )
+                )
         records.extend(failed_records)
 
-        record_payloads = [record.to_dict() for record in records]
-        dump_audio_task_manifest(output_tasks, self.output_manifest_path)
-        write_jsonl_atomic(self.records_path, record_payloads)
+        self._clear_jsonl_files(self.outputs_dir)
+        self._clear_jsonl_files(self.records_dir)
+        output_tasks_by_shard = self._group_tasks_by_shard(output_tasks)
+        for shard_id, shard_tasks in output_tasks_by_shard.items():
+            dump_audio_task_manifest(shard_tasks, self.outputs_dir / f"{shard_id}.jsonl")
+
+        records_by_shard = self._group_records_by_shard(records)
+        for shard_id, shard_records in records_by_shard.items():
+            record_payloads = [record.to_dict() for record in shard_records]
+            write_jsonl_atomic(self.records_dir / f"{shard_id}.jsonl", record_payloads)
 
         status_payload = {
             "stage_index": self.stage_index,
@@ -151,6 +172,31 @@ class StageCheckpointStore:
             "done_count": sum(record.status == "done" for record in records),
             "filtered_count": sum(record.status == "filtered" for record in records),
             "failed_count": sum(record.status.startswith("failed_") for record in records),
+            "shards": sorted(records_by_shard),
             "updated_at": _utcnow(),
         }
         write_json_atomic(self.stage_json_path, status_payload)
+
+    def _group_tasks_by_shard(self, tasks: list[AudioTask]) -> dict[str, list[AudioTask]]:
+        grouped: dict[str, list[AudioTask]] = {}
+        for task in tasks:
+            shard_id = ensure_checkpoint_shard_id(task)
+            grouped.setdefault(shard_id, []).append(task)
+        return grouped
+
+    def _group_records_by_shard(
+        self,
+        records: list[SampleCheckpointRecord],
+    ) -> dict[str, list[SampleCheckpointRecord]]:
+        grouped: dict[str, list[SampleCheckpointRecord]] = {}
+        for record in records:
+            shard_id = record.checkpoint_shard_id or "partition_unknown"
+            grouped.setdefault(shard_id, []).append(record)
+        return grouped
+
+    @staticmethod
+    def _clear_jsonl_files(directory: Path) -> None:
+        if not directory.exists():
+            return
+        for path in directory.glob("*.jsonl"):
+            path.unlink()
