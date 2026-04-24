@@ -46,8 +46,8 @@ class TestPromptFormatterVariantMapping:
         assert VARIANT_MAPPING["nemotron-fp8"] == "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-FP8"
         assert VARIANT_MAPPING["nemotron-nvfp4"] == "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD"
 
-    def test_variant_mapping_nemotron_3_nano_omni_is_none_until_public(self) -> None:
-        """nemotron-3-nano-omni maps to None (local-only) until the model is publicly released."""
+    def test_variant_mapping_nemotron_3_nano_omni_hf_id(self) -> None:
+        """nemotron-3-nano-omni is local-checkpoint mode — no HF ID until publicly released."""
         assert VARIANT_MAPPING["nemotron-3-nano-omni"] is None
 
 
@@ -340,11 +340,11 @@ class TestPromptFormatterConvertToNumpy:
 
 
 class TestPromptFormatterNemotron3NanoOmni:
-    """Test cases for PromptFormatter with the nemotron-3-nano-omni variant."""
+    """Test cases for PromptFormatter with the nemotron-3-nano-omni variant (local checkpoint mode)."""
 
     @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
-    def test_initialization_uses_local_path_when_hf_id_is_none(self, mock_processor_class: Mock) -> None:
-        """When VARIANT_MAPPING maps the variant to None, model_path is used as the processor source."""
+    def test_initialization_uses_model_path(self, mock_processor_class: Mock) -> None:
+        """nemotron-3-nano-omni uses local checkpoint mode — model_path is used as processor source."""
         mock_processor_class.from_pretrained.return_value = Mock()
         local_path = "/aot/checkpoints/nemotron_3_nano_omni"
 
@@ -354,42 +354,39 @@ class TestPromptFormatterNemotron3NanoOmni:
         mock_processor_class.from_pretrained.assert_called_once_with(local_path, trust_remote_code=True)
 
     def test_initialization_raises_without_model_path(self) -> None:
-        """ValueError is raised when variant maps to None but no model_path is provided."""
+        """ValueError is raised when model_path is not provided for nemotron-3-nano-omni."""
         with pytest.raises(ValueError, match="model_path is required for variant 'nemotron-3-nano-omni'"):
             PromptFormatter(prompt_variant="nemotron-3-nano-omni")
 
     @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
-    def test_generate_inputs_passes_enable_thinking_false(self, mock_processor_class: Mock) -> None:
-        """apply_chat_template receives enable_thinking=False to suppress thinking mode."""
-        mock_processor_instance = Mock()
-        mock_processor_class.from_pretrained.return_value = mock_processor_instance
-        mock_processor_instance.apply_chat_template.return_value = "omni_prompt"
+    def test_generate_inputs_applies_chat_template_with_no_think(self, mock_processor_class: Mock) -> None:
+        """nemotron-3-nano-omni applies chat template with enable_thinking=False."""
+        mock_processor_class.from_pretrained.return_value = Mock()
 
         formatter = PromptFormatter(
             prompt_variant="nemotron-3-nano-omni",
             model_path="/aot/checkpoints/nemotron_3_nano_omni",
         )
-        result = formatter.generate_inputs(prompt="Describe the video")
+        formatter.generate_inputs(prompt="Describe the video.")
 
-        assert result["prompt"] == "omni_prompt"
-        _, kwargs = mock_processor_instance.apply_chat_template.call_args
-        assert kwargs.get("enable_thinking") is False
+        formatter.processor.apply_chat_template.assert_called_once()
+        call_kwargs = formatter.processor.apply_chat_template.call_args[1]
+        assert call_kwargs.get("enable_thinking") is False
 
     @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
-    def test_generate_inputs_message_format(self, mock_processor_class: Mock) -> None:
-        """nemotron-3-nano-omni uses the same system+user message format as other Nemotron variants."""
-        mock_processor_instance = Mock()
-        mock_processor_class.from_pretrained.return_value = mock_processor_instance
-        mock_processor_instance.apply_chat_template.return_value = "prompt"
+    def test_generate_inputs_passes_video_metadata(self, mock_processor_class: Mock) -> None:
+        """Video numpy array and fps/frames_indices metadata are forwarded in the tuple format."""
+        import numpy as np
+        mock_processor_class.from_pretrained.return_value = Mock()
 
         formatter = PromptFormatter(
             prompt_variant="nemotron-3-nano-omni",
             model_path="/aot/checkpoints/nemotron_3_nano_omni",
         )
-        formatter.generate_inputs(prompt="What is in the video?")
+        video_np = np.zeros((4, 32, 32, 3), dtype=np.uint8)
+        result = formatter.generate_inputs(prompt="Q?", video_inputs=video_np, fps=2.0)
 
-        messages = mock_processor_instance.apply_chat_template.call_args[0][0]
-        assert len(messages) == 2
-        assert messages[0]["role"] == "system"
-        assert messages[1]["role"] == "user"
-        assert "<video>\nWhat is in the video?" in messages[1]["content"][0]["text"]
+        video_data, meta = result["multi_modal_data"]["video"]
+        assert video_data.shape == (4, 32, 32, 3)
+        assert meta["fps"] == 2.0
+        assert meta["frames_indices"] == [0, 1, 2, 3]

@@ -123,7 +123,6 @@ class PromptFormatter:
 
         Nemotron requires video metadata (fps, frames_indices) for vLLM processing.
         """
-        # Format messages for Nemotron
         messages = [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": [{"type": "text", "text": f"<video>\n{prompt}"}]},

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import multiprocessing
 from pathlib import Path
 from typing import Any, Final
@@ -40,8 +41,8 @@ except ImportError:
 # Once released, fill in the HF repo ID (e.g. "nvidia/Nemotron-3-Nano-Omni-...") and
 # optionally pin a revision below. Everything else (download, weight path, processor
 # resolution in PromptFormatter) will work automatically.
-_HF_MODEL_ID: Final[str | None] = None
-_HF_REVISION: Final[str | None] = None
+_HF_MODEL_ID: Final[str | None] = "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning"
+_HF_REVISION: Final[str | None] = "23d21acd455d9836d50c48570a329bde77e08ba4"
 
 # Constants for stage-2 prompt refinement
 _VIDEO_TAG_SPLIT_MAX = 1
@@ -101,12 +102,15 @@ class Nemotron3NanoOmni(ModelInterface):
         self.model = LLM(
             model=self.weight_file,
             trust_remote_code=True,
-            dtype="bfloat16",
             tensor_parallel_size=1,
             gpu_memory_utilization=0.9,
-            max_model_len=32768,
+            max_model_len=131072,
             limit_mm_per_prompt={"video": 1},
             video_pruning_rate=0,
+            # vLLM 0.15.1 doesn't auto-resolve mamba_ssm_cache_dtype for NemotronH_Nano_VL_V2
+            # (only for NemotronHForCausalLM). Without this, SSM state uses bfloat16 instead
+            # of float32, causing numerical instability.
+            mamba_ssm_cache_dtype="float32",
         )
 
         # Omni uses <|im_end|> as the turn terminator; thinking is disabled so no </think>
@@ -117,7 +121,7 @@ class Nemotron3NanoOmni(ModelInterface):
             stop=["<|im_end|>"],
         )
 
-        logger.info("Nemotron3NanoOmni initialized: TP=1, GPU_util=0.9, max_len=32768")
+        logger.info("Nemotron3NanoOmni initialized: TP=1, GPU_util=0.9, max_len=131072")
 
     def _refine_caption_prompt(self, original_prompt: str, refinement_text: str) -> str:
         if "<video>" not in original_prompt:
@@ -197,6 +201,7 @@ class Nemotron3NanoOmni(ModelInterface):
 
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
             logger.info(f"Nemotron3NanoOmni checkpoint already exists at: {model_dir_path}")
+            cls._patch_config(model_dir_path)
             return
 
         logger.info(f"Downloading Nemotron3NanoOmni from HuggingFace: {_HF_MODEL_ID}")
@@ -205,4 +210,51 @@ class Nemotron3NanoOmni(ModelInterface):
             local_dir=model_dir_path,
             revision=_HF_REVISION,
         )
+        cls._patch_config(model_dir_path)
         logger.info(f"Nemotron3NanoOmni weights downloaded to: {model_dir_path}")
+
+    @staticmethod
+    def _patch_config(model_dir_path: Path) -> None:
+        # --- Patch 1: config.json architecture name ---
+        # vLLM 0.15.1's built-in registry does not include NemotronH_Nano_Omni_Reasoning_V3
+        # (the name the HF checkpoint registers under), but does include NemotronH_Nano_VL_V2,
+        # which is structurally identical (same llm_config fields). We remap so vLLM finds
+        # the right model class.
+        # Safe to remove once the cluster upgrades to a vLLM version that natively registers
+        # NemotronH_Nano_Omni_Reasoning_V3 (added in vLLM nightly 2026-04 alongside
+        # NemotronH_Nano_VL_V2 in vllm/model_executor/models/registry.py).
+        cfg_path = model_dir_path / "config.json"
+        cfg = json.loads(cfg_path.read_text())
+        cfg["architectures"] = ["NemotronH_Nano_VL_V2"]
+        cfg["model_type"] = "NemotronH_Nano_VL_V2"
+        cfg_path.write_text(json.dumps(cfg, indent=2))
+        logger.info("Patched config.json: architectures -> NemotronH_Nano_VL_V2")
+
+        # --- Patch 2: configuration_nemotron_h.py dtype property ---
+        # vLLM accesses language_model.config.dtype at model init, but the HF checkpoint's
+        # NemotronHConfig class does not define a dtype property (only torch_dtype).
+        # We inject it so the checkpoint is self-contained without requiring manual edits.
+        # Must use self.__dict__.get("torch_dtype") rather than getattr(self, "torch_dtype"):
+        # transformers >=4.57 adds torch_dtype as a property forwarding to self.dtype, which
+        # would cause infinite recursion via getattr.
+        # Safe to remove once nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning adds a dtype
+        # property to NemotronHConfig in the upstream HF checkpoint.
+        nemotron_h_cfg_path = model_dir_path / "configuration_nemotron_h.py"
+        if nemotron_h_cfg_path.exists():
+            src = nemotron_h_cfg_path.read_text()
+            if "def dtype" not in src:
+                dtype_patch = '''
+    @property
+    def dtype(self):
+        import torch
+        dtype_str = self.__dict__.get("torch_dtype", "bfloat16")
+        if isinstance(dtype_str, str):
+            return getattr(torch, dtype_str, torch.bfloat16)
+        return dtype_str if dtype_str is not None else torch.bfloat16
+
+    @dtype.setter
+    def dtype(self, value):
+        pass
+'''
+                nemotron_h_cfg_path.write_text(src + dtype_patch)
+                logger.info("Patched configuration_nemotron_h.py: added dtype property")
