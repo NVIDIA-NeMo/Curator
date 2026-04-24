@@ -19,16 +19,24 @@ set -euo pipefail
 CORPUS=""
 DRY_RUN=false
 START_FROM="sed"
+CLUSTERING="per_video"
+SCOTCH_PRESET="librispeech-2026-04"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --corpus) CORPUS="$2"; shift 2;;
         --dry-run) DRY_RUN=true; shift;;
         --start-from) START_FROM="$2"; shift 2;;
+        --clustering) CLUSTERING="$2"; shift 2;;
+        --scotch-preset) SCOTCH_PRESET="$2"; shift 2;;
         *) echo "Unknown arg: $1"; exit 1;;
     esac
 done
-[[ -z "$CORPUS" ]] && { echo "Usage: $0 --corpus <name> [--start-from <stage>] [--dry-run]"; exit 1; }
+[[ -z "$CORPUS" ]] && { echo "Usage: $0 --corpus <name> [--start-from <stage>] [--clustering per_video|scotch] [--scotch-preset <name>] [--dry-run]"; exit 1; }
+case "$CLUSTERING" in
+    per_video|scotch) ;;
+    *) echo "--clustering must be 'per_video' or 'scotch', got: $CLUSTERING"; exit 1;;
+esac
 
 # ---- Paths ----
 WORK="${WORK:?Set WORK to your working directory}"
@@ -43,6 +51,8 @@ STAGE_PY="${WORK}/scripts/run_stage.py"
 CONT_NEMO="${SQSH_DIR}/curator-hifi-nemo-stages.sqsh"
 CONT_VLLM="${SQSH_DIR}/curator-hifi-pipeline.sqsh"
 CONT_UTMOS="${SQSH_DIR}/curator-utmos.sqsh"
+CONT_SCOTCH="${SQSH_DIR}/curator-scotch.sqsh"
+SCOTCH_PY="${WORK}/scripts/run_cluster_scotch.py"
 
 # ---- Corpus definitions ----
 declare -A CORPUS_SUB CORPUS_SHARDS CORPUS_TAR
@@ -72,10 +82,29 @@ echo "=== E2E Pipeline: ${CORPUS} (${NUM_SHARDS} shards) ==="
 echo "    Source: ${GRANARY}/${SUB}"
 echo "    Output: ${WORK}/e2e_output/${SUB}"
 echo "    Start from: ${START_FROM}"
+echo "    Clustering: ${CLUSTERING}"
 echo
 
 # ---- Stage definitions ----
 # STAGE_NAME|CONTAINER|PARTITION|GPUS|MEM|TIME|INPUT_DIR|OUTPUT_DIR|EXTRA_ARGS
+#
+# The clustering stages differ by --clustering:
+#   per_video: group_video -> cluster (per-video AHC, hack around N^2 memory)
+#   scotch:    cluster_scotch (corpus-wide BIRCH+AHC, single non-array job)
+# In scotch mode utmos reads from clustered_scotch instead of clustered.
+if [[ "$CLUSTERING" == "scotch" ]]; then
+    CLUSTER_OUTPUT="${WORK}/e2e_output/${SUB}/clustered_scotch"
+    CLUSTERING_STAGES=(
+        "cluster_scotch|${CONT_SCOTCH}|cpu_short|0|128G|02:00:00|${WORK}/e2e_output/${SUB}/transcribe|${CLUSTER_OUTPUT}|"
+    )
+else
+    CLUSTER_OUTPUT="${WORK}/e2e_output/${SUB}/clustered"
+    CLUSTERING_STAGES=(
+        "group_video|${CONT_NEMO}|cpu_short|0|32G|00:10:00|${WORK}/e2e_output/${SUB}/transcribe|${WORK}/e2e_output/${SUB}/grouped|"
+        "cluster|${CONT_NEMO}|cpu_short|0|64G|00:30:00|${WORK}/e2e_output/${SUB}/grouped|${CLUSTER_OUTPUT}|--embedding_dir ${WORK}/e2e_output/${SUB}/embeddings"
+    )
+fi
+
 STAGES=(
     "sed|${CONT_NEMO}|batch_singlenode|1|64G|00:30:00|${GRANARY}/${SUB}|${WORK}/e2e_output/${SUB}/sed|--sed_checkpoint /opt/checkpoints/Cnn14_DecisionLevelMax.pth"
     "sed_post|${CONT_NEMO}|cpu_short|0|32G|00:15:00|${WORK}/e2e_output/${SUB}/sed|${WORK}/e2e_output/${SUB}/sed_post|"
@@ -83,9 +112,8 @@ STAGES=(
     "diarize|${CONT_NEMO}|batch_singlenode|1|64G|00:30:00|${WORK}/e2e_output/${SUB}/segment|${WORK}/e2e_output/${SUB}/diarize|"
     "transcribe|${CONT_VLLM}|batch_singlenode|2|128G|00:30:00|${WORK}/e2e_output/${SUB}/diarize|${WORK}/e2e_output/${SUB}/transcribe|--language Ru --tensor_parallel_size 2"
     "embed|${CONT_NEMO}|batch_singlenode|1|64G|00:30:00|${WORK}/e2e_output/${SUB}/transcribe|${WORK}/e2e_output/${SUB}/embeddings|"
-    "group_video|${CONT_NEMO}|cpu_short|0|32G|00:10:00|${WORK}/e2e_output/${SUB}/transcribe|${WORK}/e2e_output/${SUB}/grouped|"
-    "cluster|${CONT_NEMO}|cpu_short|0|64G|00:30:00|${WORK}/e2e_output/${SUB}/grouped|${WORK}/e2e_output/${SUB}/clustered|--embedding_dir ${WORK}/e2e_output/${SUB}/embeddings"
-    "utmos|${CONT_UTMOS}|batch_singlenode|1|64G|00:30:00|${WORK}/e2e_output/${SUB}/clustered|${WORK}/e2e_output/${SUB}/utmos|"
+    "${CLUSTERING_STAGES[@]}"
+    "utmos|${CONT_UTMOS}|batch_singlenode|1|64G|00:30:00|${CLUSTER_OUTPUT}|${WORK}/e2e_output/${SUB}/utmos|"
 )
 
 MAX_ARRAY=1000
@@ -103,6 +131,50 @@ for stage_def in "${STAGES[@]}"; do
 
     LOG_DIR="${WORK}/e2e_logs/${CORPUS}/${STAGE}"
     mkdir -p "${LOG_DIR}" "${OUTPUT_DIR}"
+
+    # --- Special case: corpus-wide SCOTCH clustering.
+    # One non-array job over all shards; uses run_cluster_scotch.py, not run_stage.py.
+    if [[ "$STAGE" == "cluster_scotch" ]]; then
+        JOB_SCRIPT="${LOG_DIR}/cluster_scotch.sbatch"
+        DEP_FLAG=""
+        [[ -n "$PREV_JOB" ]] && DEP_FLAG="#SBATCH --dependency=afterok:${PREV_JOB}"
+
+        cat > "${JOB_SCRIPT}" <<EOFSBATCH
+#!/bin/bash
+#SBATCH --job-name=cluster_scotch_${CORPUS}
+#SBATCH --account=${ACCOUNT}
+#SBATCH --partition=${PARTITION}
+#SBATCH --nodes=1 --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=${MEM}
+#SBATCH --time=${TIME}
+#SBATCH --output=${LOG_DIR}/cluster_scotch.out
+#SBATCH --error=${LOG_DIR}/cluster_scotch.err
+${DEP_FLAG}
+
+srun --export=ALL \\
+     --container-image=${CONTAINER} \\
+     --container-mounts="${MOUNTS}" \\
+     --container-writable \\
+     python /opt/scotch/run_cluster_scotch.py \\
+        --manifest_dir "${INPUT_DIR}" \\
+        --embedding_dir "${WORK}/e2e_output/${SUB}/embeddings" \\
+        --output_dir "${OUTPUT_DIR}" \\
+        --num_shards ${NUM_SHARDS} \\
+        --preset ${SCOTCH_PRESET}
+EOFSBATCH
+
+        echo "  cluster_scotch: one non-array job over ${NUM_SHARDS} shards"
+        if $DRY_RUN; then
+            echo "    [DRY RUN] sbatch ${JOB_SCRIPT}"
+        else
+            JOB_ID=$(sbatch --parsable "${JOB_SCRIPT}")
+            echo "    Submitted: job ${JOB_ID}"
+            PREV_JOB="${JOB_ID}"
+        fi
+        echo
+        continue
+    fi
 
     MAX_IDX=$((NUM_SHARDS - 1))
     GPU_FLAG=""
