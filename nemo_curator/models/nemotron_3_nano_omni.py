@@ -109,7 +109,7 @@ class Nemotron3NanoOmni(ModelInterface):
             video_pruning_rate=0,
             # vLLM 0.15.1 doesn't auto-resolve mamba_ssm_cache_dtype for NemotronH_Nano_VL_V2
             # (only for NemotronHForCausalLM). Without this, SSM state uses bfloat16 instead
-            # of float32, causing numerical instability.
+            # of float32, causing numerical instability. Can safely remove once bump vLLM to 0.20
             mamba_ssm_cache_dtype="float32",
         )
 
@@ -220,9 +220,8 @@ class Nemotron3NanoOmni(ModelInterface):
         # (the name the HF checkpoint registers under), but does include NemotronH_Nano_VL_V2,
         # which is structurally identical (same llm_config fields). We remap so vLLM finds
         # the right model class.
-        # Safe to remove once the cluster upgrades to a vLLM version that natively registers
-        # NemotronH_Nano_Omni_Reasoning_V3 (added in vLLM nightly 2026-04 alongside
-        # NemotronH_Nano_VL_V2 in vllm/model_executor/models/registry.py).
+        # Safe to remove once we upgrade to a vLLM version that natively registers
+        # NemotronH_Nano_Omni_Reasoning_V3 (vLLM 0.20.0).
         cfg_path = model_dir_path / "config.json"
         cfg = json.loads(cfg_path.read_text())
         cfg["architectures"] = ["NemotronH_Nano_VL_V2"]
