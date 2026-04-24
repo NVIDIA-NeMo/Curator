@@ -16,6 +16,7 @@ NeMo Curator provides comprehensive text curation capabilities to prepare high-q
 ## Use Cases
 
 - Clean and prepare web-scraped data from sources like Common Crawl, Wikipedia, and arXiv
+- Translate multilingual corpora while preserving structured fields and machine-readable payloads
 - Create custom text curation pipelines for specific domain needs
 - Scale text processing across CPU and GPU clusters efficiently
 
@@ -146,9 +147,10 @@ Transform and enhance your text data through comprehensive processing and curati
 :::{grid-item-card} {octicon}`globe;1.5em;sd-mr-1` Language Management
 :link: process-data/language-management/index
 :link-type: doc
-Handle multilingual content and language-specific processing
+Handle multilingual content, translation, and language-specific processing
 +++
 {bdg-secondary}`language-detection`
+{bdg-secondary}`translation`
 {bdg-secondary}`stopwords`
 {bdg-secondary}`multilingual`
 :::
