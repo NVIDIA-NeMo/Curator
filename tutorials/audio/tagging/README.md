@@ -44,10 +44,10 @@ source .venv/bin/activate
 
 ### Prerequisites
 
-- **System packages**: `ffmpeg` and `sox` must be installed for audio resampling and format conversion:
+- **System packages**: `ffmpeg` must be installed for audio resampling and format conversion:
   ```bash
   # Ubuntu / Debian
-  sudo apt-get install -y ffmpeg sox libsox-fmt-all
+  sudo apt-get install -y ffmpeg
 
   ```
 - **GPU**: Required for diarization (PyAnnote), VAD (Pyannote), ASR alignment (NeMo)
