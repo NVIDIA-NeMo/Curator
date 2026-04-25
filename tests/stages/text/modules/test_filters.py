@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import re
 
 import numpy as np
 import pandas as pd
@@ -555,6 +556,19 @@ class TestHeuristicFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    def test_urls_accepts_custom_regex(self) -> None:
+        dataset = list_to_dataset(["visit https://docs.nvidia.com", "plain text"])
+        filters = ScoreFilter(UrlsFilter(regex_url_pattern=re.compile(r"https://docs\.nvidia\.com")))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": ["plain text"]}),
+            task_id="batch_1_urls_ratio",
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
     def test_bullets(self) -> None:
         dataset = list_to_dataset(
             [
@@ -881,6 +895,19 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["no url", "fine url https://www.nvidia.com/en-us/"]}),
+            task_id="batch_1_PornographicUrlsFilter",
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_pornographicurls_accepts_custom_regex(self) -> None:
+        dataset = list_to_dataset(["bad url https://www.pornhub.com/", "bad word but no matching url"])
+        filters = ScoreFilter(PornographicUrlsFilter(regex_url_pattern=re.compile(r"https://www\\.pornhub\\.com/")))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": ["bad word but no matching url"]}),
             task_id="batch_1_PornographicUrlsFilter",
             dataset_name="test_1",
         )
