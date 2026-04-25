@@ -96,10 +96,10 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     """
 
     name: str = "FaithEvalFilter"
-    client: AsyncLLMClient | None = None
-    model_name: str = ""
     source_lang: str
     target_lang: str
+    model_name: str
+    client: AsyncLLMClient | None = None
     source_text_field: str = "text"
     translated_text_field: str = "translated_text"
     threshold: float = 2.5

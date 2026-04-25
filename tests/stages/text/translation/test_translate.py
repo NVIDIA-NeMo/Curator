@@ -201,6 +201,50 @@ class TestProcessNonLLMBackend:
             ["Hello world", "Goodbye"], "en", "es"
         )
 
+    def test_fallback_preserves_non_translatable_segments(self) -> None:
+        """Fallback path should keep passthrough segments instead of dropping them."""
+        mock_backend = MagicMock()
+
+        call_count = {"value": 0}
+
+        async def _fake_async(texts, src, tgt):
+            assert src == "en"
+            assert tgt == "es"
+            call_count["value"] += 1
+            if call_count["value"] == 1:
+                raise RuntimeError("bulk failure")
+            return [f"TR:{texts[0]}"]
+
+        mock_backend.translate_batch_async = MagicMock(side_effect=_fake_async)
+
+        stage = SegmentTranslationStage(
+            client=None,
+            backend_type="google",
+            source_lang="en",
+            target_lang="es",
+        )
+        stage._backend = mock_backend
+        stage._initialized = True
+
+        json_blob = '{"tool":"lookup","payload":{"model":"DeepSeek V3"}}'
+        df = pd.DataFrame(
+            {
+                "_seg_segments": ["Hello world", json_blob, "Goodbye"],
+                "id": [1, 2, 3],
+            }
+        )
+        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+
+        result = stage.process(batch)
+        result_df = result.to_pandas()
+
+        assert result_df["_translated"].tolist() == [
+            "TR:Hello world",
+            json_blob,
+            "TR:Goodbye",
+        ]
+        assert mock_backend.translate_batch_async.call_count == 3
+
 
 # ---------------------------------------------------------------------------
 # inputs / outputs tests
