@@ -81,7 +81,7 @@ class TestBuildMessages:
             client=client,
             model_name="test-model",
             source_lang="en",
-            target_lang="zh",
+            target_lang="hi",
         )
         # Trigger prompt loading (normally done in setup on a worker).
         stage._system_prompt = "You are a translator."
@@ -93,7 +93,7 @@ class TestBuildMessages:
         assert messages[0]["content"] == "You are a translator."
         assert messages[1]["role"] == "user"
         assert "English" in messages[1]["content"]
-        assert "Chinese" in messages[1]["content"]
+        assert "Hindi" in messages[1]["content"]
         assert "Hello world" in messages[1]["content"]
 
 
@@ -105,6 +105,17 @@ class TestBuildMessages:
 class TestProcessLLMBackend:
     """Tests for process() with the LLM backend path."""
 
+    def test_llm_backend_requires_model_name(self) -> None:
+        """LLM translation should fail fast when model_name is unset."""
+        with pytest.raises(ValueError, match="non-empty 'model_name'"):
+            SegmentTranslationStage(
+                client=MockAsyncLLMClient(),
+                model_name="",
+                backend_type="llm",
+                source_lang="en",
+                target_lang="hi",
+            )
+
     def test_process_llm_backend(self) -> None:
         """Mock AsyncLLMClient -- verify _translated column is populated."""
         client = MockAsyncLLMClient()
@@ -112,7 +123,7 @@ class TestProcessLLMBackend:
             client=client,
             model_name="test-model",
             source_lang="en",
-            target_lang="zh",
+            target_lang="hi",
             backend_type="llm",
         )
         # Pre-load prompts to avoid file I/O in unit tests.
@@ -205,6 +216,8 @@ class TestInputsOutputs:
         stage = SegmentTranslationStage(
             client=client,
             model_name="test-model",
+            source_lang="en",
+            target_lang="hi",
         )
         top_attrs, data_cols = stage.inputs()
         assert "data" in top_attrs
@@ -234,6 +247,8 @@ class TestSetup:
         stage = SegmentTranslationStage(
             client=client,
             model_name="test-model",
+            source_lang="en",
+            target_lang="hi",
         )
         stage.setup(worker_metadata=None)
 
@@ -256,6 +271,8 @@ class TestFieldDefaults:
         stage = SegmentTranslationStage(
             client=client,
             model_name="test-model",
+            source_lang="en",
+            target_lang="hi",
         )
         assert stage.max_concurrent_requests == 64
 
@@ -275,4 +292,6 @@ class TestValidation:
                 client=None,
                 backend_type="llm",
                 model_name="test-model",
+                source_lang="en",
+                target_lang="hi",
             )

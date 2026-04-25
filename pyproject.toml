@@ -130,6 +130,45 @@ image_cuda12 = [
     "nvidia-dali-cuda120",
 ]
 
+# Translation Dependencies
+translation_common = [
+    "iso639-lang>=2.6.0",
+]
+
+translation_metrics = [
+    "nemo_curator[translation_common]",
+    "sacrebleu>=2.6.0",
+]
+
+translation_segmentation = [
+    "nemo_curator[translation_common]",
+    "spacy>=3.8,<3.9",
+]
+
+translation_aws = [
+    "nemo_curator[translation_common]",
+    "boto3>=1.35",
+]
+
+translation_google = [
+    "nemo_curator[translation_common]",
+    "google-cloud-translate",
+]
+
+translation_nmt = [
+    "nemo_curator[translation_common]",
+    "aiohttp>=3.13.3",
+    "requests",
+]
+
+translation_all = [
+    "nemo_curator[translation_metrics]",
+    "nemo_curator[translation_segmentation]",
+    "nemo_curator[translation_aws]",
+    "nemo_curator[translation_google]",
+    "nemo_curator[translation_nmt]",
+]
+
 # Text Curation Dependencies
 text_cpu = [
     # Download / Extract
@@ -151,14 +190,6 @@ text_cpu = [
     "ftfy",
     # Embedders
     "sentence-transformers",
-    # Translation
-    "aiohttp>=3.13.3",
-    "boto3>=1.35",
-    "google-cloud-translate",
-    "iso639-lang>=2.6.0",
-    "requests",
-    "sacrebleu>=2.6.0",
-    "spacy>=3.8,<3.9",
 ]
 
 text_cuda12 = [
@@ -239,6 +270,7 @@ all = [
     "nemo_curator[math_cuda12]",
     "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
+    "nemo_curator[translation_all]",
     "nemo_curator[video_cuda12]",
 ]
 

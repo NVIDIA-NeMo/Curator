@@ -51,7 +51,15 @@ _SCORE_COLUMNS = [
 ]
 
 
-@dataclass
+def _to_mutable_dataframe(batch: DocumentBatch) -> pd.DataFrame:
+    """Return a DataFrame safe to mutate in-place for stage-local work."""
+    df = batch.to_pandas()
+    if isinstance(batch.data, pd.DataFrame):
+        return df.copy()
+    return df
+
+
+@dataclass(kw_only=True)
 class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     """LLM-based translation quality scorer using the FAITH metric.
 
@@ -90,8 +98,8 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     name: str = "FaithEvalFilter"
     client: AsyncLLMClient | None = None
     model_name: str = ""
-    source_lang: str = "en"
-    target_lang: str = "zh"
+    source_lang: str
+    target_lang: str
     source_text_field: str = "text"
     translated_text_field: str = "translated_text"
     threshold: float = 2.5
@@ -105,8 +113,17 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     _initialized: bool = field(init=False, repr=False, default=False)
 
     def __post_init__(self) -> None:
+        self.source_lang = self.source_lang.strip()
+        self.target_lang = self.target_lang.strip()
+        self.model_name = self.model_name.strip()
+        if not self.source_lang:
+            raise ValueError("FaithEvalFilter requires a non-empty 'source_lang'")
+        if not self.target_lang:
+            raise ValueError("FaithEvalFilter requires a non-empty 'target_lang'")
         if self.client is None:
             raise ValueError("FaithEvalFilter requires a non-None 'client' (AsyncLLMClient)")
+        if not self.model_name:
+            raise ValueError("FaithEvalFilter requires a non-empty 'model_name'")
 
     # ------------------------------------------------------------------
     # ProcessingStage interface
@@ -141,7 +158,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         """Score each translation row and filter rows below threshold."""
-        df = batch.to_pandas().copy()
+        df = _to_mutable_dataframe(batch)
 
         if df.empty:
             for col in _SCORE_COLUMNS:
@@ -156,7 +173,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             )
 
         num_docs = len(df)
-        logger.info("FaithEvalFilter: evaluating {} documents", num_docs)
+        logger.debug("FaithEvalFilter: evaluating {} documents", num_docs)
 
         all_scores, parse_failed_flags = self._score_batch(df)
         self._attach_score_columns(df, all_scores, parse_failed_flags)
@@ -221,7 +238,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _log_batch_scores(self, df: pd.DataFrame) -> None:
         """Log aggregate FAITH scores and parse-failure counts."""
         avg_batch_scores = {col: round(df[col].mean(), 3) for col in _SCORE_COLUMNS}
-        logger.info("FaithEvalFilter: average batch scores: {}", avg_batch_scores)
+        logger.debug("FaithEvalFilter: average batch scores: {}", avg_batch_scores)
 
         parse_failure_count = int(df["faith_parse_failed"].sum())
         if parse_failure_count:
@@ -235,14 +252,17 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _filter_rows(self, df: pd.DataFrame) -> pd.DataFrame:
         """Apply threshold filtering while preserving parse-failed rows."""
         if not self.filter_enabled:
-            logger.info("FaithEvalFilter: filter_enabled=False, keeping all {} documents", len(df))
+            logger.debug(
+                "FaithEvalFilter: filter_enabled=False, keeping all {} documents",
+                len(df),
+            )
             return df
 
         pre_filter_count = len(df)
         keep_mask = (df["faith_avg"] >= self.threshold) | df["faith_parse_failed"]
         filtered_df = df[keep_mask].reset_index(drop=True)
         num_filtered = pre_filter_count - len(filtered_df)
-        logger.info(
+        logger.debug(
             "FaithEvalFilter: filtered {}/{} documents below threshold {}",
             num_filtered,
             pre_filter_count,
@@ -470,7 +490,7 @@ class FaithThresholdFilterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         """Drop rows below the FAITH threshold while preserving parse failures."""
-        df = batch.to_pandas().copy()
+        df = _to_mutable_dataframe(batch)
         if df.empty:
             return batch
 
@@ -482,7 +502,7 @@ class FaithThresholdFilterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         keep_mask = (df["faith_avg"] >= self.threshold) | df["faith_parse_failed"] | not_scored_mask
         filtered_df = df[keep_mask].reset_index(drop=True)
         num_filtered = pre_filter_count - len(filtered_df)
-        logger.info(
+        logger.debug(
             "FaithThresholdFilterStage: filtered {}/{} documents below threshold {}",
             num_filtered,
             pre_filter_count,

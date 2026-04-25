@@ -83,7 +83,7 @@ class TestCoarseSegmentation:
     def test_coarse_basic(self) -> None:
         """Simple multi-line text produces correct segments and metadata."""
         text = "Hello world\nThis is a test\nGoodbye"
-        stage = SegmentationStage(mode="coarse")
+        stage = SegmentationStage(source_lang="en", mode="coarse")
         result = stage.process(_make_batch([text]))
         df = result.to_pandas()
 
@@ -102,7 +102,7 @@ class TestCoarseSegmentation:
     def test_coarse_code_blocks(self) -> None:
         """Lines inside code blocks are not treated as translatable segments."""
         text = "Before code\n```python\nprint('hi')\n```\nAfter code"
-        stage = SegmentationStage(mode="coarse")
+        stage = SegmentationStage(source_lang="en", mode="coarse")
         result = stage.process(_make_batch([text]))
         df = result.to_pandas()
 
@@ -121,7 +121,7 @@ class TestCoarseSegmentation:
     def test_coarse_empty_lines(self) -> None:
         """Empty lines and whitespace-only lines are not segments."""
         text = "Line one\n\n   \nLine two"
-        stage = SegmentationStage(mode="coarse")
+        stage = SegmentationStage(source_lang="en", mode="coarse")
         result = stage.process(_make_batch([text]))
         df = result.to_pandas()
 
@@ -138,7 +138,7 @@ class TestCoarseSegmentation:
     def test_coarse_leading_whitespace(self) -> None:
         """Indented lines preserve whitespace in metadata leading_spaces."""
         text = "  Indented line\n    Double indented"
-        stage = SegmentationStage(mode="coarse")
+        stage = SegmentationStage(source_lang="en", mode="coarse")
         result = stage.process(_make_batch([text]))
         df = result.to_pandas()
 
@@ -151,7 +151,7 @@ class TestCoarseSegmentation:
     def test_coarse_non_translatable(self) -> None:
         """Lines with no alpha characters (e.g., '---', '***') are skipped."""
         text = "Title\n---\n***\nContent"
-        stage = SegmentationStage(mode="coarse")
+        stage = SegmentationStage(source_lang="en", mode="coarse")
         result = stage.process(_make_batch([text]))
         df = result.to_pandas()
 
@@ -167,7 +167,7 @@ class TestCoarseSegmentation:
     def test_coarse_json_blob_non_translatable(self) -> None:
         """Machine-readable JSON lines should be preserved, not translated."""
         text = 'Before\n{"tool":"lookup","payload":{"model":"DeepSeek V3"}}\nAfter'
-        stage = SegmentationStage(mode="coarse")
+        stage = SegmentationStage(source_lang="en", mode="coarse")
         result = stage.process(_make_batch([text]))
         df = result.to_pandas()
 
@@ -242,7 +242,7 @@ class TestSegmentationGeneral:
     def test_single_line(self) -> None:
         """Single line produces one segment."""
         text = "Just one line"
-        stage = SegmentationStage(mode="coarse")
+        stage = SegmentationStage(source_lang="en", mode="coarse")
         result = stage.process(_make_batch([text]))
         df = result.to_pandas()
 
@@ -252,7 +252,7 @@ class TestSegmentationGeneral:
     def test_empty_text(self) -> None:
         """Empty string input is handled gracefully."""
         text = ""
-        stage = SegmentationStage(mode="coarse")
+        stage = SegmentationStage(source_lang="en", mode="coarse")
         result = stage.process(_make_batch([text]))
         df = result.to_pandas()
 
@@ -264,7 +264,7 @@ class TestSegmentationGeneral:
     def test_row_explosion(self) -> None:
         """N translatable segments produce N output rows with correct _seg_doc_id."""
         text = "Line A\nLine B\nLine C\nLine D"
-        stage = SegmentationStage(mode="coarse")
+        stage = SegmentationStage(source_lang="en", mode="coarse")
         result = stage.process(_make_batch([text]))
         df = result.to_pandas()
 
@@ -277,7 +277,7 @@ class TestSegmentationGeneral:
 
     def test_inputs_outputs(self) -> None:
         """inputs() and outputs() return correct column declarations."""
-        stage = SegmentationStage(text_field="body")
+        stage = SegmentationStage(source_lang="en", text_field="body")
 
         resource_kind, input_cols = stage.inputs()
         assert resource_kind == ["data"]
@@ -322,7 +322,7 @@ class TestSegmentationGeneral:
             "Doc two single line",
             "Doc three line X\nDoc three line Y\nDoc three line Z",
         ]
-        stage = SegmentationStage(mode="coarse")
+        stage = SegmentationStage(source_lang="en", mode="coarse")
         result = stage.process(_make_batch(texts))
         df = result.to_pandas()
 
@@ -374,7 +374,7 @@ class TestPassthroughTranslatabilityFilter:
             client=client,
             model_name="test-model",
             source_lang="en",
-            target_lang="zh",
+            target_lang="hi",
             backend_type="llm",
         )
         stage._system_prompt = "You are a translator."
@@ -414,7 +414,7 @@ class TestPassthroughTranslatabilityFilter:
             client=client,
             model_name="test-model",
             source_lang="en",
-            target_lang="zh",
+            target_lang="hi",
             backend_type="llm",
         )
         stage._system_prompt = "You are a translator."

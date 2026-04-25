@@ -70,7 +70,7 @@ source .venv/bin/activate
 ```
 
 ```{note}
-Replace `text_cuda12` with your desired extras: use `.` for CPU-only, `.[text_cpu]` for text processing only, or `.[all]` for all modules.
+Replace `text_cuda12` with your desired extras: use `.` for CPU-only, `text_cpu` for text processing only, `translation_all` for all translation backends and helpers, or `all` for all modules.
 ```
 
 :::

@@ -113,6 +113,41 @@ class TestTranslationStageDecompose:
         assert isinstance(faith_stage, FaithEvalFilter)
         assert faith_stage.model_name == "translate-model"
 
+    def test_llm_backend_requires_model_name(self, mock_client: MockAsyncLLMClient) -> None:
+        """LLM translation should fail fast when model_name is unset."""
+        with pytest.raises(ValueError, match="non-empty 'model_name'"):
+            TranslationStage(
+                source_lang="en",
+                target_lang="de",
+                client=mock_client,
+                model_name="",
+                backend_type="llm",
+            )
+
+    def test_faith_with_non_llm_backend_requires_client(self) -> None:
+        """Non-LLM translation plus FAITH should require a separate LLM client."""
+        with pytest.raises(ValueError, match="separate AsyncLLMClient"):
+            TranslationStage(
+                source_lang="en",
+                target_lang="de",
+                backend_type="aws",
+                enable_faith_eval=True,
+                faith_model_name="faith-model",
+            )
+
+    def test_faith_requires_scoring_model(self, mock_client: MockAsyncLLMClient) -> None:
+        """FAITH scoring should fail fast when no scoring model is configured."""
+        with pytest.raises(ValueError, match="'faith_model_name' or 'model_name'"):
+            TranslationStage(
+                source_lang="en",
+                target_lang="de",
+                client=mock_client,
+                backend_type="aws",
+                enable_faith_eval=True,
+                model_name="",
+                faith_model_name="",
+            )
+
     def test_decompose_structured_faith_uses_helper_columns(
         self,
         mock_client: MockAsyncLLMClient,
@@ -396,18 +431,35 @@ class TestFaithEvalFilter:
 
     def test_default_generation_config(self) -> None:
         """Default generation_config is temperature=0.0, max_tokens=256 after setup."""
-        stage = FaithEvalFilter(client=MockAsyncLLMClient(), model_name="m")
+        stage = FaithEvalFilter(
+            client=MockAsyncLLMClient(),
+            model_name="m",
+            source_lang="en",
+            target_lang="de",
+        )
         # generation_config defaults are now set in setup() for Ray compatibility
         stage.setup()
         assert stage.generation_config is not None
         assert stage.generation_config.temperature == 0.0
         assert stage.generation_config.max_tokens == 256
 
+    def test_requires_non_empty_model_name(self) -> None:
+        """Construction should fail fast when the scoring model is unset."""
+        with pytest.raises(ValueError, match="non-empty 'model_name'"):
+            FaithEvalFilter(
+                client=MockAsyncLLMClient(),
+                model_name="",
+                source_lang="en",
+                target_lang="de",
+            )
+
     def test_inputs_outputs(self) -> None:
         """inputs/outputs report the expected column names."""
         stage = FaithEvalFilter(
             client=MockAsyncLLMClient(),
             model_name="m",
+            source_lang="en",
+            target_lang="de",
             source_text_field="src",
             translated_text_field="tgt",
         )
@@ -799,6 +851,8 @@ class TestDryRunMode:
         stage = SegmentTranslationStage(
             client=MockAsyncLLMClient(),
             model_name="test-model",
+            source_lang="en",
+            target_lang="de",
         )
         assert stage.dry_run is False
 
