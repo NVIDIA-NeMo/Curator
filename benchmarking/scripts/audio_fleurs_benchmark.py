@@ -58,6 +58,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     raw_data_dir: str | None = None,
     auto_download: bool = True,
     cache_dir: str | None = None,
+    execution_mode: str | None = None,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the audio fleurs benchmark and collect comprehensive metrics."""
@@ -85,6 +86,8 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
 
         logger.info("Starting audio fleurs benchmark")
         logger.info(f"Executor: {executor}")
+        if execution_mode:
+            logger.info(f"Execution mode: {execution_mode}")
         logger.info(f"Model: {model_name}")
         logger.info(f"Language: {lang}")
         logger.info(f"Split: {split}")
@@ -94,7 +97,8 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         logger.info(f"HF cache dir: {hf_cache_dir}")
         logger.info(f"Data dir: {data_dir}")
 
-        executor_obj = setup_executor(executor)
+        executor_config = {"execution_mode": execution_mode} if execution_mode else None
+        executor_obj = setup_executor(executor, config=executor_config)
         pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
 
         pipeline.add_stage(
@@ -213,6 +217,13 @@ def main() -> int:
             "Hugging Face cache directory used only for standalone auto-download runs so "
             f"repeated runs reuse it. Defaults to $CURATOR_FLEURS_CACHE_DIR or {DEFAULT_FLEURS_CACHE_DIR}."
         ),
+    )
+    parser.add_argument(
+        "--execution-mode",
+        type=str,
+        default=None,
+        choices=["streaming", "batch"],
+        help="Xenna execution mode (streaming or batch). Only applies to xenna executor.",
     )
 
     args = parser.parse_args()

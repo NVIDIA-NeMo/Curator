@@ -147,6 +147,26 @@ python tutorials/audio/alm/main.py \
   backend=ray_data
 ```
 
+### Xenna Execution Modes
+
+When using the `xenna` backend, you can select between two execution modes via `execution_mode=`:
+
+| Mode | Description | Best for |
+|------|-------------|----------|
+| `streaming` (default) | Pipelined execution with an autoscaler that dynamically adjusts worker counts every 180 s. | GPU-heavy pipelines with long-running stages. |
+| `batch` | Fixed-allocation mode. All inputs are placed in Ray object store first, then each stage runs to completion before the next starts. | Pipelines with many small CPU-only tasks where autoscaler overhead dominates. |
+
+```bash
+# Xenna batch mode
+python tutorials/audio/alm/main.py \
+  --config-path . \
+  --config-name pipeline \
+  manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
+  execution_mode=batch
+```
+
+**Performance note:** For CPU-only pipelines like ALM, Ray Data is typically 2-3x faster than either Xenna mode because it avoids per-stage actor lifecycle overhead. At scale (10K+ entries), Xenna batch mode can be ~1.5x faster than streaming due to eliminating autoscaler polling, but both remain slower than Ray Data for this workload.
+
 ## Configuration
 
 All parameters are defined in `pipeline.yaml`. Override from command line:
