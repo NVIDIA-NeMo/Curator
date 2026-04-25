@@ -40,7 +40,7 @@ from .segmentation import is_line_translatable_content
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """Translate segments emitted by :class:`SegmentationStage`.
 
@@ -48,10 +48,10 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """
 
     name: str = "SegmentTranslationStage"
+    source_lang: str
+    target_lang: str
     client: AsyncLLMClient | None = None
     model_name: str = ""
-    source_lang: str = "en"
-    target_lang: str = "zh"
     backend_type: str = "llm"
     backend_config: dict = field(default_factory=dict)
     generation_config: GenerationConfig | None = None
@@ -73,10 +73,25 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     # ------------------------------------------------------------------
 
     def __post_init__(self) -> None:
+        self.source_lang = self.source_lang.strip()
+        self.target_lang = self.target_lang.strip()
+        self.model_name = self.model_name.strip()
+        if not self.source_lang:
+            raise ValueError(
+                "SegmentTranslationStage requires a non-empty 'source_lang'"
+            )
+        if not self.target_lang:
+            raise ValueError(
+                "SegmentTranslationStage requires a non-empty 'target_lang'"
+            )
         if self.backend_type == "llm":
             if self.client is None:
                 msg = "SegmentTranslationStage requires a non-None 'client' (AsyncLLMClient) when backend_type='llm'"
                 raise ValueError(msg)
+            if not self.model_name:
+                raise ValueError(
+                    "SegmentTranslationStage requires a non-empty 'model_name' when backend_type='llm'"
+                )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["_seg_segments"]

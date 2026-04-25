@@ -30,17 +30,24 @@ from nemo_curator.stages.text.translation.utils.metadata import (
 from nemo_curator.tasks import DocumentBatch
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FormatTranslationOutputStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """Apply the requested translation output format."""
 
     name: str = "FormatTranslationOutputStage"
+    target_lang: str
     output_mode: str = "replaced"
-    target_lang: str = "zh"
     output_field: str = "translated_text"
     reconstruct_messages: bool = False
     messages_field: str = "messages"
     messages_content_field: str = "content"
+
+    def __post_init__(self) -> None:
+        self.target_lang = self.target_lang.strip()
+        if not self.target_lang:
+            raise ValueError(
+                "FormatTranslationOutputStage requires a non-empty 'target_lang'"
+            )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.output_field]

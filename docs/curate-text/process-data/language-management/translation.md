@@ -21,19 +21,26 @@ The translation package is centered on `TranslationStage`, which composes segmen
 - Translate a single text field such as `text`, a nested field path such as `metadata.body`, or wildcard paths such as `messages.*.content`
 - Preserve machine-readable payloads, including valid JSON objects and arrays, instead of sending them to the translation model
 - Emit translated output in `replaced`, `raw`, or `both` modes
-- Capture segment pairs for inspection or downstream evaluation
+- Emit segmented translation mappings for inspection or downstream evaluation
 - Run FAITH scoring on translated text with `FaithEvalFilter`
 - Score forward and reverse translation quality with `TextQualityMetricStage`
 
 ## Before You Start
 
+- Install translation extras as needed:
+  - `translation_common` for basic translation support
+  - `translation_metrics` for `TextQualityMetricStage`
+  - `translation_segmentation` for `segmentation_mode="fine"`
+  - `translation_aws`, `translation_google`, or `translation_nmt` for those backends
+  - `translation_all` for the full translation feature set
 - For `backend_type="llm"`, configure an OpenAI-compatible async client. See {ref}`synthetic-llm-client`.
+- If `enable_faith_eval=True`, configure an LLM client and scoring model even when translation itself uses a non-LLM backend.
 - For non-LLM backends, use one of the built-in backend types: `google`, `aws`, or `nmt`.
 - Input data is typically newline-delimited JSON with a `text` field or another field referenced through `text_field`.
 
 ## Basic Translation Pipeline
 
-The example below reads JSONL files, translates `messages.*.content` from English to Hindi, preserves translated segment pairs, runs FAITH scoring, and writes the results back to JSONL.
+The example below reads JSONL files, translates `messages.*.content` from English to Hindi, runs FAITH scoring, and writes the results back to JSONL.
 
 ```python
 import os
@@ -71,6 +78,8 @@ pipeline.add_stage(
 pipeline.add_stage(JsonlWriter(path="translated/"))
 results = pipeline.run()
 ```
+
+`source_lang` and `target_lang` are required. Curator does not assume default translation languages.
 
 ## Structured Translation Behavior
 

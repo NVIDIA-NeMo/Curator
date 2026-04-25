@@ -53,8 +53,8 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
 
     name: str = "TranslationStage"
 
-    source_lang: str = "en"
-    target_lang: str = "zh"
+    source_lang: str
+    target_lang: str
     text_field: str | list[str] = "text"
     output_field: str = "translated_text"
     segmentation_mode: str = "coarse"
@@ -82,11 +82,53 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
     translation_column: str = "translated_text"
 
     def __post_init__(self) -> None:
+        self.source_lang = self.source_lang.strip()
+        self.target_lang = self.target_lang.strip()
+        self.model_name = self.model_name.strip()
+        self.faith_model_name = self.faith_model_name.strip()
+
+        if not self.source_lang:
+            raise ValueError("TranslationStage requires a non-empty 'source_lang'")
+        if not self.target_lang:
+            raise ValueError("TranslationStage requires a non-empty 'target_lang'")
+
         if self.output_mode not in _VALID_OUTPUT_MODES:
             raise ValueError(
                 f"Invalid output_mode '{self.output_mode}'. "
                 f"Must be one of: {sorted(_VALID_OUTPUT_MODES)}"
             )
+
+        if self.backend_type == "llm":
+            if self.client is None:
+                raise ValueError(
+                    "TranslationStage with backend_type='llm' requires a non-None "
+                    "'client' (AsyncLLMClient)"
+                )
+            if not self.model_name:
+                raise ValueError(
+                    "TranslationStage with backend_type='llm' requires a non-empty "
+                    "'model_name'"
+                )
+
+        if self.enable_faith_eval:
+            if self.client is None:
+                if self.backend_type == "llm":
+                    raise ValueError(
+                        "TranslationStage with enable_faith_eval=True requires a non-None "
+                        "'client' (AsyncLLMClient)"
+                    )
+                raise ValueError(
+                    "TranslationStage with enable_faith_eval=True and "
+                    f"backend_type={self.backend_type!r} requires a separate "
+                    "AsyncLLMClient for FAITH scoring"
+                )
+
+            faith_model = self.faith_model_name or self.model_name
+            if not faith_model:
+                raise ValueError(
+                    "TranslationStage with enable_faith_eval=True requires "
+                    "'faith_model_name' or 'model_name' to be set for FAITH scoring"
+                )
 
         if self.merge_scores and self.output_mode == "replaced":
             raise ValueError(
@@ -113,12 +155,6 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
         )
         use_segment_level_faith = self.enable_faith_eval and self.segment_level
         use_document_level_faith = self.enable_faith_eval and not self.segment_level
-
-        if use_segment_level_faith and self.client is None and self.backend_type == "llm":
-            logger.warning(
-                "segment_level=True enables pre-reassembly FAITH scoring; "
-                "configure an LLM client to evaluate segment rows."
-            )
 
         if self.skip_translated:
             stages.append(

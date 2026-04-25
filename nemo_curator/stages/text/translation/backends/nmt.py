@@ -30,7 +30,8 @@ NMT API contract:
         {"translations": [...]}
 
 Dependencies:
-    ``pip install aiohttp``  (for async HTTP; ``requests`` used for health check)
+    Install the optional NMT translation extra, for example
+    ``uv sync --extra translation_nmt`` in a source checkout.
 """
 
 from __future__ import annotations
@@ -90,7 +91,8 @@ class NMTTranslationBackend(TranslationBackend):
         except ImportError:
             raise ImportError(
                 "aiohttp is required for the NMT backend: "
-                "pip install aiohttp"
+                "install the optional translation_nmt extra "
+                "(for example, `uv sync --extra translation_nmt`)"
             )
 
         # Optional health check -- log but do not fail.
@@ -170,7 +172,8 @@ class NMTTranslationBackend(TranslationBackend):
         except ImportError:
             raise ImportError(
                 "aiohttp is required for the NMT backend: "
-                "pip install aiohttp"
+                "install the optional translation_nmt extra "
+                "(for example, `uv sync --extra translation_nmt`)"
             )
 
         if self._session is None or self._session.closed:

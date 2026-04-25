@@ -25,7 +25,8 @@ Setup:
     - IAM role (EC2 / ECS / Lambda)
 
 Dependencies:
-    ``pip install boto3``
+    Install the optional AWS translation extra, for example
+    ``uv sync --extra translation_aws`` in a source checkout.
 
 Notes:
     AWS Translate enforces a 10 000-byte UTF-8 limit per ``TranslateText``
@@ -88,7 +89,8 @@ class AWSTranslationBackend(ExecutorTranslationBackend):
         except ImportError:
             raise ImportError(
                 "boto3 is required for the AWS backend: "
-                "pip install boto3"
+                "install the optional translation_aws extra "
+                "(for example, `uv sync --extra translation_aws`)"
             )
 
         self._client = boto3.client(

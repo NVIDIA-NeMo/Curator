@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Text quality metrics for translated and backtranslated text."""
+"""Translation quality metrics for translated and backtranslated text."""
 
 from __future__ import annotations
 
@@ -31,13 +31,14 @@ def compute_text_quality_metric(
     metric_type: str,
     threshold: float,
 ) -> tuple[float, bool]:
-    """Compute one text quality metric and its pass/fail flag."""
+    """Compute one translation quality metric and its pass/fail flag."""
     try:
         import sacrebleu
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise ImportError(
-            "sacrebleu is required for round-trip quality metrics. "
-            "Install with: pip install sacrebleu"
+            "sacrebleu is required for translation quality metrics. "
+            "Install the optional translation_metrics extra "
+            "(for example, `uv sync --extra translation_metrics`)."
         ) from exc
 
     references = [reference]
@@ -55,7 +56,7 @@ def compute_text_quality_metric(
 
 @dataclass
 class TextQualityMetricStage(ProcessingStage[DocumentBatch, DocumentBatch]):
-    """Compute quality metrics for two text columns."""
+    """Compute translation quality metrics for two text columns."""
 
     name: str = "TextQualityMetricStage"
     reference_text_field: str = "text"

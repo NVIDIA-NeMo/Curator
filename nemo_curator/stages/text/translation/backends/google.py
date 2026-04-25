@@ -24,7 +24,8 @@ Setup:
        ``export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json``
 
 Dependencies:
-    ``pip install google-cloud-translate``
+    Install the optional Google translation extra, for example
+    ``uv sync --extra translation_google`` in a source checkout.
 """
 
 from __future__ import annotations
@@ -84,7 +85,8 @@ class GoogleTranslationBackend(ExecutorTranslationBackend):
         except ImportError:
             raise ImportError(
                 "Google Cloud Translate required: "
-                "pip install google-cloud-translate"
+                "install the optional translation_google extra "
+                "(for example, `uv sync --extra translation_google`)"
             )
 
         if self._api_version == "v3":

@@ -58,7 +58,7 @@ def _segment_and_add_translations(
     df = pd.DataFrame(data)
     batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
 
-    seg_stage = SegmentationStage(mode=mode)
+    seg_stage = SegmentationStage(source_lang="en", mode=mode)
     segmented = seg_stage.process(batch)
     seg_df = segmented.to_pandas()
 
@@ -313,6 +313,7 @@ class TestEdgeCases:
         batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
 
         segmented = SegmentationStage(
+            source_lang="en",
             text_field="messages.*.content",
             mode="coarse",
         ).process(batch)

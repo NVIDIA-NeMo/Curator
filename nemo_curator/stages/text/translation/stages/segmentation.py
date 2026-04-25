@@ -89,7 +89,14 @@ def _get_spacy_nlp(src_lang: str = "en", *, max_length: int | None = None) -> An
     cache_key = (model_name, max_length)
 
     if cache_key not in _nlp_cache:
-        import spacy
+        try:
+            import spacy
+        except ImportError as exc:
+            raise ImportError(
+                "spaCy is required for segmentation_mode='fine'. "
+                "Install the optional translation_segmentation extra "
+                "(for example, `uv sync --extra translation_segmentation`)."
+            ) from exc
 
         try:
             nlp = spacy.load(model_name)
@@ -261,7 +268,7 @@ def is_line_translatable_content(line: str) -> bool:
 # SegmentationStage
 # ---------------------------------------------------------------------------
 
-@dataclass
+@dataclass(kw_only=True)
 class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """Split documents into translatable segments.
 
@@ -281,11 +288,16 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """
 
     name: str = "SegmentationStage"
+    source_lang: str
     text_field: str | list[str] = "text"
-    source_lang: str = "en"
     mode: str = "coarse"
     min_segment_chars: int = 0
     skipme_field: str | None = None
+
+    def __post_init__(self) -> None:
+        self.source_lang = self.source_lang.strip()
+        if not self.source_lang:
+            raise ValueError("SegmentationStage requires a non-empty 'source_lang'")
 
     def inputs(self) -> tuple[list[str], list[str]]:
         # For simple (non-wildcard) single fields, declare the column dependency.
