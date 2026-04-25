@@ -334,6 +334,7 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             if not seg or not seg.strip():
                 continue
             if not is_line_translatable_content(seg):
+                translated[idx] = seg
                 continue
             start = time.time()
             try:
