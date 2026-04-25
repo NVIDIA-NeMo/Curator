@@ -47,6 +47,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     wer_threshold: float,
     gpus: int,
     executor: str = "xenna",
+    execution_mode: str | None = None,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the audio fleurs benchmark and collect comprehensive metrics."""
@@ -64,13 +65,16 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
 
         logger.info("Starting audio fleurs benchmark")
         logger.info(f"Executor: {executor}")
+        if execution_mode:
+            logger.info(f"Execution mode: {execution_mode}")
         logger.info(f"Model: {model_name}")
         logger.info(f"Language: {lang}")
         logger.info(f"Split: {split}")
         logger.info(f"WER threshold: {wer_threshold}")
         logger.info(f"GPUs: {gpus}")
 
-        executor_obj = setup_executor(executor)
+        executor_config = {"execution_mode": execution_mode} if execution_mode else None
+        executor_obj = setup_executor(executor, config=executor_config)
         pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
 
         pipeline.add_stage(
@@ -161,6 +165,13 @@ def main() -> int:
     parser.add_argument("--wer-threshold", type=float, default=5.5, help="WER threshold for filtering")
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs to use")
+    parser.add_argument(
+        "--execution-mode",
+        type=str,
+        default=None,
+        choices=["streaming", "batch"],
+        help="Xenna execution mode (streaming or batch). Only applies to xenna executor.",
+    )
 
     args = parser.parse_args()
 

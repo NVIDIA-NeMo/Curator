@@ -33,14 +33,23 @@ from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
 _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor, "ray_actors": RayActorPoolExecutor}
 
 
-def setup_executor(executor_name: str) -> RayDataExecutor | XennaExecutor | RayActorPoolExecutor:
-    """Setup the executor for the given name."""
+def setup_executor(
+    executor_name: str,
+    config: dict[str, Any] | None = None,
+) -> RayDataExecutor | XennaExecutor | RayActorPoolExecutor:
+    """Setup the executor for the given name.
+
+    Args:
+        executor_name: One of 'xenna', 'ray_data', 'ray_actors'.
+        config: Optional config dict forwarded to the executor constructor
+            (e.g. ``{"execution_mode": "batch"}`` for XennaExecutor).
+    """
     try:
-        executor = _executor_map[executor_name]()
+        cls = _executor_map[executor_name]
     except KeyError:
         msg = f"Executor {executor_name} not supported"
         raise ValueError(msg) from None
-    return executor
+    return cls(config=config) if config else cls()
 
 
 def load_dataset_files(

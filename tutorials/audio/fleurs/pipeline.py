@@ -84,7 +84,11 @@ def main(args: argparse.Namespace) -> None:
         logger.info("\n" + "=" * 50 + "\n")
 
         # Create executor
-        executor = RayDataExecutor() if args.backend == "ray_data" else XennaExecutor()
+        exec_config = {"execution_mode": args.execution_mode} if args.execution_mode else None
+        if args.backend == "ray_data":
+            executor = RayDataExecutor()
+        else:
+            executor = XennaExecutor(config=exec_config) if exec_config else XennaExecutor()
 
         # Execute pipeline
         logger.info("Starting pipeline execution...")
@@ -133,6 +137,13 @@ if __name__ == "__main__":
         "--verbose",
         action="store_true",
         help="Enable verbose (DEBUG) logging",
+    )
+    parser.add_argument(
+        "--execution_mode",
+        type=str,
+        default=None,
+        choices=["streaming", "batch"],
+        help="Xenna execution mode (streaming or batch). Only applies to xenna backend.",
     )
     args = parser.parse_args()
     main(args)

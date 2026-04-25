@@ -177,6 +177,7 @@ Both entries use the same pipeline parameters (repeat-factor=2000, 120s windows,
 | `--min-speakers` | `2` | Minimum speakers per window |
 | `--max-speakers` | `5` | Maximum speakers per window |
 | `--overlap-percentage` | `50` | Overlap filter percentage (0-100) |
+| `--execution-mode` | `None` | Xenna execution mode: `streaming` (default) or `batch` |
 
 ## Benchmark Results
 
@@ -191,33 +192,43 @@ managed Ray cluster lifecycle (start/stop, port allocation, dashboard).
 
 **Small scale (5 entries, sample fixture):**
 
-| Metric | Xenna | Ray Data |
-|--------|-------|----------|
-| Input entries | 5 | 5 |
-| Output entries | 5 | 5 |
-| Builder windows | 181 | 181 |
-| Filtered windows | 25 | 25 |
-| Total filtered duration | 3,035.50s | 3,035.50s |
-| Execution time | 23.18s | 11.60s |
-| Throughput (entries/sec) | 0.22 | 0.43 |
-| Throughput (windows/sec) | 7.81 | 15.60 |
+| Metric | Xenna (streaming) | Xenna (batch) | Ray Data |
+|--------|-------------------|---------------|----------|
+| Input entries | 5 | 5 | 5 |
+| Output entries | 5 | 5 | 5 |
+| Builder windows | 181 | 181 | 181 |
+| Filtered windows | 25 | 25 | 25 |
+| Total filtered duration | 3,035.50s | 3,035.50s | 3,035.50s |
+| Execution time | 22.72s | 28.46s | 8.84s |
+| Throughput (entries/sec) | 0.22 | 0.18 | 0.57 |
+| Throughput (windows/sec) | 7.97 | 6.36 | 20.48 |
 
 **Large scale (10,000 entries, repeat-factor=2000):**
 
-| Metric | Xenna | Ray Data |
-|--------|-------|----------|
-| Input entries | 10,000 | 10,000 |
-| Output entries | 10,000 | 10,000 |
-| Builder windows | 362,000 | 362,000 |
-| Filtered windows | 50,000 | 50,000 |
-| Total filtered duration | 6,071,000s | 6,071,000s |
-| Execution time | 95.52s | 29.89s |
-| Throughput (entries/sec) | 104.69 | 334.56 |
-| Throughput (windows/sec) | 3,790.31 | 12,113.75 |
+| Metric | Xenna (streaming) | Xenna (batch) | Ray Data |
+|--------|-------------------|---------------|----------|
+| Input entries | 10,000 | 10,000 | 10,000 |
+| Output entries | 10,000 | 10,000 | 10,000 |
+| Builder windows | 362,000 | 362,000 | 362,000 |
+| Filtered windows | 50,000 | 50,000 | 50,000 |
+| Total filtered duration | 6,071,000s | 6,071,000s | 6,071,000s |
+| Execution time | 94.79s | 63.65s | 27.65s |
+| Throughput (entries/sec) | 105.50 | 157.10 | 361.70 |
+| Throughput (windows/sec) | 3,819.09 | 5,687.17 | 13,093.50 |
 
-Both backends produce identical results. Ray Data is ~3× faster on this workstation
-due to lower scheduling overhead (see [AUDIO_PROFILING.md](AUDIO_PROFILING.md) for
-per-stage breakdown).
+All three configurations produce identical results. Key findings:
+
+- **Small scale:** Xenna batch mode is slower than streaming due to fixed overhead of
+  placing all inputs into the Ray object store up front. At small scale, the streaming
+  autoscaler finishes before its overhead becomes significant.
+- **Large scale:** Xenna batch mode is ~1.5x faster than streaming because the
+  autoscaler polling (every 180s) and per-stage actor lifecycle add up over many tasks.
+- **Ray Data** is consistently the fastest (~3x vs streaming) for this CPU-only pipeline
+  because it avoids per-stage actor creation/teardown entirely.
+- For GPU-heavy pipelines, Xenna streaming mode is recommended as its autoscaler
+  dynamically adjusts GPU worker counts.
+
+See [AUDIO_PROFILING.md](AUDIO_PROFILING.md) for per-stage breakdown.
 
 The `repeat-factor` multiplies entries in-memory after reading (via `_RepeatEntriesStage`), so the manifest file is read only once. The pipeline scales well with both executors via the CompositeStage reader (FilePartitioningStage + ALMManifestReaderStage).
 

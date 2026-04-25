@@ -70,6 +70,10 @@ output_dir: ./alm_output
 # Execution backend: "xenna" (default) or "ray_data"
 backend: xenna
 
+# Xenna execution mode: "streaming" (default) or "batch"
+# Only applies when backend=xenna. Ignored for ray_data.
+execution_mode: null
+
 # Stage chain definition
 stages:
   # Stage 0: ALM Manifest Reader (CompositeStage)
