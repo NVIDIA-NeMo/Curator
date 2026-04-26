@@ -87,8 +87,8 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         "Output only the corrected text, nothing else.\n\nText: {text}"
     )
     system_prompt: str | None = None
-    max_model_len: int = 8192
-    max_num_seqs: int = 64
+    max_model_len: int = 4096
+    max_num_seqs: int = 16
     gpu_memory_utilization: float = 0.95
     tensor_parallel_size: int | None = None
     max_output_tokens: int = 512
