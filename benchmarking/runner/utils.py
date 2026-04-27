@@ -277,8 +277,7 @@ def assert_valid_config_dict(data: dict) -> None:
             raise ValueError(msg)
 
     if "entries" not in data:
-        msg = "Invalid configuration: missing required field: 'entries'"
-        raise ValueError(msg)
+        logger.warning("Configuration is missing 'entries' field; no benchmarks will run.")
 
 
 def update_config(config_dict: dict, new_dict: dict) -> None:
