@@ -14,12 +14,25 @@
 
 import os
 import tempfile
+from typing import NamedTuple
 
 import soundfile as sf
 import torch
 from loguru import logger
-from nemo.collections.asr.models import SortformerEncLabelModel
 from pydub import AudioSegment
+
+
+class SpeakerResult(NamedTuple):
+    """Result for a single speaker from get_speaker_audio_data."""
+
+    audio: AudioSegment
+    duration: float
+    diar_segments: list[tuple[float, float]]
+
+try:
+    from nemo.collections.asr.models import SortformerEncLabelModel
+except ImportError:
+    SortformerEncLabelModel = None
 
 
 def load_audio(audio_path: str) -> tuple[torch.Tensor, int]:
@@ -452,7 +465,7 @@ class SpeakerSeparator:
         exclude_overlaps: bool | None = None,
         min_duration: float | None = None,
         buffer_time: float | None = None,
-    ) -> dict[str, tuple[AudioSegment, float]]:
+    ) -> dict[str, SpeakerResult]:
         """
         Process an audio file or waveform and return AudioSegment objects for each speaker.
         """
@@ -517,7 +530,7 @@ class SpeakerSeparator:
             if silent_audio.rms < 1:
                 continue
 
-            speaker_audio[speaker] = (silent_audio, total_duration)
+            speaker_audio[speaker] = SpeakerResult(silent_audio, total_duration, segments)
 
         # Free the original audio to release memory before returning
         del original_audio

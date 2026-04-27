@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ruff: noqa: ERA001
+
 import argparse
 import json
 import os
@@ -50,7 +52,77 @@ from runner.ray_cluster import (
     teardown_ray_cluster_and_env,
 )
 from runner.session import Session
-from runner.utils import find_result, get_obj_for_json, remove_disabled_blocks, resolve_env_vars
+from runner.utils import (
+    find_result,
+    get_gpu_stats,
+    get_obj_for_json,
+    log_gpu_stats,
+    remove_disabled_blocks,
+    resolve_env_vars,
+)
+
+
+def update_config(config_dict: dict, new_dict: dict) -> None:
+    """Update a config dictionary with values from another."""
+
+    # Iterate through all key-value pairs in the dictionary to merge in
+    for key, value in new_dict.items():
+        if key in config_dict:
+            # Recursively handle nested dicts
+            if isinstance(config_dict[key], dict) and isinstance(value, dict):
+                update_config(config_dict[key], value)
+
+            # Handle list merging/updating on an item-by-item basis
+            # For example, the YAML:
+            #     entries:
+            #      - name: domain_classification_raydata
+            #        requirements:
+            #          - metric: throughput_docs_per_sec
+            #            min_value: 2677
+            # results in:
+            #     config_dict['entries'] = [{'name': 'domain_classification_raydata',
+            #                                'requirements': [{'metric': 'throughput_docs_per_sec', 'min_value': 2677}]
+            #                              }]
+            #
+            # so be sure to update the config_dict list items that match the new_dict list items by matching based on the first key
+            elif isinstance(config_dict[key], list) and isinstance(value, list):
+                for sub_val in value:
+                    # Handle dicts in the list by matching based on the first key
+                    if isinstance(sub_val, dict) and sub_val:
+                        first_key = next(iter(sub_val.keys()))
+                        for config_sub_val in config_dict[key]:
+                            if (
+                                isinstance(config_sub_val, dict)
+                                and config_sub_val
+                                and next(iter(config_sub_val.keys())) == first_key
+                                and config_sub_val[first_key] == sub_val[first_key]
+                            ):
+                                # If matching dict found (based on first key), recursively update it
+                                update_config(config_sub_val, sub_val)
+                                break
+                        else:
+                            # If no matching dict, append the new dict to the list
+                            config_dict[key].append(sub_val)
+                    else:
+                        # If not a dict, append the new value to the list
+                        config_dict[key].append(sub_val)
+            else:
+                # If types differ, or not a dict/list, replace value in config_dict
+                config_dict[key] = value
+        else:
+            # If key doesn't exist, add it to config_dict
+            config_dict[key] = value
+
+
+def merge_config_files(config_files: list[Path]) -> dict:
+    """Merge multiple config files into a single dictionary."""
+    config_dict = {}
+    for config_file in config_files:
+        with open(config_file) as f:
+            for new_dict in yaml.full_load_all(f):
+                if new_dict is not None:
+                    update_config(config_dict, new_dict)
+    return config_dict
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -143,11 +215,9 @@ def run_entry(
     entry: Entry,
     path_resolver: PathResolver,
     dataset_resolver: DatasetResolver,
-    session_path: Path,
+    session_entry_path: Path,
     result_data: dict[str, Any],
 ) -> bool:
-    session_entry_path = session_path / entry.name
-
     # session_entry_path : This is the directory where benchmark results are stored
     # scratch_path : This is the directory provided to users for saving scratch/temp data; it'll be cleaned up after the entry is done if delete_scratch is True
     # ray_cluster_path : This is the directory where Ray debug/log files are saved
@@ -164,9 +234,11 @@ def run_entry(
     ray_enable_object_spilling = bool(entry.ray.get("enable_object_spilling", False))
 
     try:
-        # Create subdirs individually
-        for directory in [scratch_path, ray_cluster_path, logs_path]:
+        # Create subdirs individually. logs_path uses ensure_dir (not create_or_overwrite_dir)
+        # to preserve any log output already written before run_entry() was called.
+        for directory in [scratch_path, ray_cluster_path]:
             create_or_overwrite_dir(directory)
+        ensure_dir(logs_path)
 
         ray_client, ray_temp_dir = setup_ray_cluster_and_env(
             num_cpus=ray_num_cpus,
@@ -192,10 +264,13 @@ def run_entry(
             )
         )
 
-        # Execute command with timeout
+        # Execute command with timeout, capturing GPU stats before and after
+        ray_cluster_data = get_ray_cluster_data()
+        gpu_stats_before = get_gpu_stats()
+        logger.info("\tGPU stats (before):")
+        log_gpu_stats(gpu_stats_before, warn_if_in_use=True)
         logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
-        ray_cluster_data = get_ray_cluster_data()
         run_data = run_command_with_timeout(
             command=cmd,
             timeout=entry.timeout_s,
@@ -204,6 +279,8 @@ def run_entry(
             fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
         )
         ended_exec = time.time()
+        logger.info("\tGPU stats (after):")
+        log_gpu_stats(get_gpu_stats())
         duration = ended_exec - started_exec
 
         # Update result_data
@@ -215,6 +292,8 @@ def run_entry(
                 "exit_code": run_data["returncode"],
                 "timed_out": run_data["timed_out"],
                 "logs_dir": logs_path,
+                "ray_cluster_data": ray_cluster_data,
+                "gpu_stats": gpu_stats_before,
             }
         )
         # script_persisted_data is a dictionary with keys "params" and "metrics"
@@ -224,7 +303,6 @@ def run_entry(
         script_persisted_data = get_entry_script_persisted_data(session_entry_path)
         result_data.update(
             {
-                "ray_cluster_data": ray_cluster_data,
                 "metrics": script_persisted_data["metrics"],
                 "params": script_persisted_data["params"],
             }
@@ -255,7 +333,7 @@ def run_entry(
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> int:  # noqa: C901, PLR0912
+def main() -> int:  # noqa: C901
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
@@ -290,12 +368,8 @@ def main() -> int:  # noqa: C901, PLR0912
     args = parser.parse_args()
 
     # Consolidate the configuration from all YAML files into a single dict
-    config_dict = {}
-    for yml_file in args.config:
-        with open(yml_file) as f:
-            config_dicts = yaml.full_load_all(f)
-            for d in config_dicts:
-                config_dict.update(d)
+    config_dict = merge_config_files(args.config)
+
     # Preprocess the config dict prior to creating objects from it
     try:
         Session.assert_valid_config_dict(config_dict)
@@ -305,6 +379,7 @@ def main() -> int:  # noqa: C901, PLR0912
         logger.error(f"Invalid configuration: {e}")
         return 1
 
+    # Now that all YAML config files have been read, merged, and processed, create the Session object.
     session = Session.from_dict(config_dict, args.entries)
 
     if args.list:
@@ -338,6 +413,13 @@ def main() -> int:  # noqa: C901, PLR0912
             "run_id": run_id,
             "success": run_success,
         }
+        # Derive the stdouterr log path and add it as a loguru sink so all log
+        # output for this entry (including pre-subprocess errors) is captured.
+        session_entry_path = (session_path / entry.name).absolute()
+        entry_logs_path = session_entry_path / "logs"
+        entry_stdouterr_path = entry_logs_path / "stdouterr.log"
+        entry_logs_path.mkdir(parents=True, exist_ok=True)
+        entry_log_id = logger.add(entry_stdouterr_path, mode="a", colorize=False)
         logger.info(f"🚀 Running {entry.name} (run ID: {run_id})")
 
         for sink in session.sinks:
@@ -348,7 +430,7 @@ def main() -> int:  # noqa: C901, PLR0912
                 entry=entry,
                 path_resolver=session.path_resolver,
                 dataset_resolver=session.dataset_resolver,
-                session_path=session_path,
+                session_entry_path=session_entry_path,
                 result_data=result_data,
             )
 
@@ -366,6 +448,7 @@ def main() -> int:  # noqa: C901, PLR0912
             )
 
         finally:
+            logger.remove(entry_log_id)
             session_overall_success &= run_success
             for sink in session.sinks:
                 sink.register_benchmark_entry_finished(result_dict=result_data, benchmark_entry=entry)

@@ -77,7 +77,7 @@ def _get_prompt(
 class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that prepares captions for video processing."""
 
-    model_variant: str = "qwen"
+    model_variant: str = "qwen2.5"
     prompt_variant: str = "default"
     prompt_text: str | None = None
     verbose: bool = False

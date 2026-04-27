@@ -147,12 +147,12 @@ def _start_inference_server(
     autoscaling_config: dict[str, Any] | None = None,
 ) -> "InferenceServer":
     """Start a local InferenceServer and return it."""
-    from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+    from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
 
     engine_kwargs = engine_kwargs or {}
     autoscaling_config = autoscaling_config or {"min_replicas": 1, "max_replicas": 1}
 
-    server_config = InferenceModelConfig(
+    server_config = RayServeModelConfig(
         model_identifier=model_id,
         deployment_config={"autoscaling_config": autoscaling_config},
         engine_kwargs=engine_kwargs,

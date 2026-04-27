@@ -47,7 +47,7 @@ from loguru import logger
 from silero_vad import get_speech_timestamps, load_silero_vad
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.common import ensure_waveform_2d, load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -104,7 +104,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["waveform", "sample_rate", "start_ms", "end_ms", "segment_num", "duration_sec"]
+        return [], ["waveform", "sample_rate", "start_ms", "end_ms", "segment_num", "duration"]
 
     def ray_stage_spec(self) -> dict[str, Any]:
         if self.nested:
@@ -118,7 +118,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         if self._vad_model is not None:
             del self._vad_model
             self._vad_model = None
-            if self._device is not None and self._device.type == "cuda":
+            if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
     @staticmethod
@@ -183,7 +183,6 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
                 "start_ms",
                 "end_ms",
                 "segment_num",
-                "duration_sec",
                 "duration",
                 "num_samples",
             )
@@ -195,7 +194,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
                 "start_ms": start_ms,
                 "end_ms": end_ms,
                 "segment_num": segment_num,
-                "duration_sec": (end_ms - start_ms) / 1000.0,
+                "duration": (end_ms - start_ms) / 1000.0,
                 "original_file": item.get("original_file", item.get("audio_filepath", "unknown")),
             }
         )

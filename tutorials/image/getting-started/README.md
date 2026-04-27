@@ -68,7 +68,7 @@ python tutorials/image/getting-started/image_curation_example.py \
     --nsfw-batch-size 32 \
     --aesthetic-threshold 0.9 \
     --nsfw-threshold 0.9 \
-    --images-per-tar 1000
+    --images-per-tar 32
 ```
 
 Run the image deduplication pipeline on GPUs (extracting embeddings, running semantic deduplication, removing duplicated samples):

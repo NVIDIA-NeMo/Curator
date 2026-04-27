@@ -1,0 +1,197 @@
+---
+description: "Serve LLMs locally via Ray Serve and vLLM alongside NeMo Curator pipelines using InferenceServer"
+categories: ["how-to-guides"]
+tags: ["inference-server", "ray-serve", "vllm", "llm", "serving", "local-inference"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
+---
+
+# Inference Server
+
+NeMo Curator can serve LLMs locally using Ray Serve and vLLM, providing an OpenAI-compatible endpoint without external inference infrastructure. This is useful for synthetic data generation workflows where you co-locate model serving with your curation pipeline on the same GPU cluster.
+
+## Prerequisites
+
+Install the inference server dependencies:
+
+```bash
+uv pip install nemo-curator[inference_server]
+```
+
+This installs Ray Serve, vLLM, and supporting libraries. You need an NVIDIA GPU with sufficient VRAM for the model you intend to serve.
+
+## Quick Start
+
+```python
+from openai import OpenAI
+from nemo_curator.core.client import RayClient
+from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+
+# 1. Start Ray cluster
+client = RayClient()
+client.start()
+
+# 2. Configure and serve a model
+config = InferenceModelConfig(
+    model_identifier="google/gemma-3-27b-it",
+    engine_kwargs={"tensor_parallel_size": 4},
+    deployment_config={
+        "autoscaling_config": {
+            "min_replicas": 1,
+            "max_replicas": 1,
+        },
+    },
+)
+
+with InferenceServer(models=[config]) as server:
+    # 3. Query via OpenAI SDK
+    oai = OpenAI(base_url=server.endpoint, api_key="unused")
+    response = oai.chat.completions.create(
+        model="google/gemma-3-27b-it",
+        messages=[{"role": "user", "content": "Hello!"}],
+    )
+    print(response.choices[0].message.content)
+```
+
+The `InferenceServer` deploys models onto the Ray cluster and exposes an OpenAI-compatible API at `http://localhost:<port>/v1`. When used as a context manager, it automatically starts and stops the server.
+
+## InferenceModelConfig
+
+Each model you want to serve is described by an `InferenceModelConfig`:
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_identifier` | str | Required | HuggingFace model ID or local path |
+| `model_name` | str | None | API-facing model name clients use in requests. Defaults to `model_identifier` |
+| `deployment_config` | dict | `{}` | Ray Serve deployment configuration (autoscaling, replicas) |
+| `engine_kwargs` | dict | `{}` | vLLM engine keyword arguments (`tensor_parallel_size`, etc.) |
+| `runtime_env` | dict | `{}` | Ray runtime environment (pip packages, env vars, working directory) |
+
+### Common Engine Arguments
+
+```python
+config = InferenceModelConfig(
+    model_identifier="meta-llama/Llama-3-8B-Instruct",
+    engine_kwargs={
+        "tensor_parallel_size": 2,  # Split model across 2 GPUs
+    },
+)
+```
+
+### Autoscaling
+
+Use `deployment_config` to control replica count and autoscaling:
+
+```python
+config = InferenceModelConfig(
+    model_identifier="meta-llama/Llama-3-8B-Instruct",
+    deployment_config={
+        "autoscaling_config": {
+            "min_replicas": 1,
+            "max_replicas": 4,
+        },
+    },
+)
+```
+
+## InferenceServer
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `models` | list[InferenceModelConfig] | Required | Models to deploy |
+| `name` | str | `"default"` | Ray Serve application name |
+| `port` | int | 8000 | HTTP port for the OpenAI-compatible endpoint |
+| `health_check_timeout_s` | int | 300 | Seconds to wait for models to become healthy |
+| `verbose` | bool | False | If True, keep Ray Serve and vLLM logging at default levels |
+
+### Start and Stop
+
+You can use `InferenceServer` as a context manager or call `start()` and `stop()` manually:
+
+```python
+# Context manager (recommended)
+with InferenceServer(models=[config]) as server:
+    # server.endpoint is available here
+    pass  # Server stops automatically
+
+# Manual lifecycle
+server = InferenceServer(models=[config])
+server.start()
+# ... use server.endpoint ...
+server.stop()
+```
+
+### Multi-Model Serving
+
+Deploy multiple models in a single server. Clients select a model by name in the API request:
+
+```python
+models = [
+    InferenceModelConfig(
+        model_identifier="meta-llama/Llama-3-8B-Instruct",
+        model_name="llama-8b",
+        engine_kwargs={"tensor_parallel_size": 1},
+    ),
+    InferenceModelConfig(
+        model_identifier="google/gemma-3-27b-it",
+        model_name="gemma-27b",
+        engine_kwargs={"tensor_parallel_size": 4},
+    ),
+]
+
+with InferenceServer(models=models) as server:
+    oai = OpenAI(base_url=server.endpoint, api_key="unused")
+    # Select model by name
+    response = oai.chat.completions.create(
+        model="llama-8b",
+        messages=[{"role": "user", "content": "Hello!"}],
+    )
+```
+
+The `/v1/models` endpoint lists all available models.
+
+## Use with NeMo Curator Pipelines
+
+### With AsyncOpenAIClient
+
+Point NeMo Curator's `AsyncOpenAIClient` at the inference server endpoint:
+
+```python
+from nemo_curator.models.client.openai_client import AsyncOpenAIClient
+from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+
+config = InferenceModelConfig(
+    model_identifier="meta-llama/Llama-3-8B-Instruct",
+    engine_kwargs={"tensor_parallel_size": 2},
+)
+
+with InferenceServer(models=[config]) as server:
+    client = AsyncOpenAIClient(
+        base_url=server.endpoint,
+        api_key="unused",
+        max_concurrent_requests=10,
+    )
+    # Use client in SDG pipeline stages
+```
+
+### GPU Contention
+
+When an `InferenceServer` is active, `Pipeline.run()` automatically detects potential GPU contention:
+
+- **RayDataExecutor**: Allowed. Ray's resource scheduler coordinates GPU allocation between served models and pipeline stages.
+- **XennaExecutor**: Raises `RuntimeError` if the pipeline has GPU stages. Xenna manages GPU assignment independently and would conflict with served models.
+
+If your pipeline has only CPU stages, either executor works.
+
+## Logging
+
+By default (`verbose=False`), `InferenceServer` suppresses per-request logs from vLLM and Ray Serve access logs to reduce noise. Ray Serve logs still go to files under the Ray session log directory. Set `verbose=True` to restore full logging output for debugging.
+
+---
+
+## Next Steps
+
+- [LLM Client Setup](/curate-text/synthetic/llm-client): Configure client parameters and generation settings
+- [Synthetic Data Generation](/curate-text/synthetic): Overview of SDG capabilities

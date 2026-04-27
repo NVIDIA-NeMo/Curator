@@ -15,11 +15,24 @@
 """
 Timestamp mapper stage.
 
-Resolves segment positions in the concatenated waveform back to
-positions in the original audio file using segment mappings stored
-in ``task._metadata["segment_mappings"]`` by SegmentConcatenationStage.
+Normalizes task data at the pipeline output boundary.  Handles four
+sources of timing information (checked in priority order):
 
-Strips waveform from final output items (metadata-only output).
+1. ``segment_mappings`` in ``task._metadata`` -- remaps concat-space
+   positions back to original file positions.
+2. ``start_ms`` / ``end_ms`` in ``task.data`` -- uses them directly
+   as original positions (from VAD fan-out).
+3. ``diar_segments`` in ``task.data`` -- computes span from first
+   segment start to last segment end (from SpeakerSep).
+4. ``duration`` fallback -- uses whole-file duration.
+
+Output control uses two layers:
+
+- **passthrough_keys** (whitelist): only keys in this list are copied
+  from the input to the output.  Defaults to all built-in quality
+  filter and speaker metadata keys.  Users can override via config.
+- **_NEVER_PASS_KEYS** (safety net): non-serializable keys that are
+  always blocked, even if accidentally added to ``passthrough_keys``.
 """
 
 from dataclasses import dataclass, field
@@ -30,6 +43,32 @@ from loguru import logger
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+_NEVER_PASS_KEYS = frozenset(
+    {
+        "waveform",
+        "audio",
+        "audio_data",
+        "audio_array",
+        "segments",
+    }
+)
+
+_DEFAULT_PASSTHROUGH_KEYS: list[str] = [
+    "speaker_id",
+    "num_speakers",
+    "speaking_duration",
+    "sample_rate",
+    "utmos_mos",
+    "sigmos_noise",
+    "sigmos_ovrl",
+    "sigmos_sig",
+    "sigmos_col",
+    "sigmos_disc",
+    "sigmos_loud",
+    "sigmos_reverb",
+    "band_prediction",
+]
 
 
 def _translate_to_original(
@@ -65,42 +104,47 @@ def _translate_to_original(
 @dataclass
 class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
     """
-    Map segment positions back to original file timestamps.
+    Normalize task data at the pipeline output boundary.
 
-    Reads ``task._metadata["segment_mappings"]`` (written by
-    SegmentConcatenationStage) and translates the task's
-    ``start_ms`` / ``end_ms`` to ``original_start_ms`` /
-    ``original_end_ms`` in the source file.
+    Constructs core output fields from available timing sources,
+    then copies only the keys listed in ``passthrough_keys`` from
+    the input.
 
-    Strips ``waveform`` from output so the final output is
-    metadata-only (timestamps, quality scores, speaker info).
+    Core fields (always present, not controlled by passthrough_keys):
+        ``original_file``, ``original_start_ms``, ``original_end_ms``,
+        ``duration_ms``, ``duration``.
+        When diarization segments are available: ``diar_segments``,
+        ``speaking_duration`` are also set as core fields.
+
+    Args:
+        passthrough_keys: Keys to copy from input to output.
+            Defaults to all built-in quality filter and speaker
+            metadata keys.  Override to include custom fields or
+            restrict the output schema.
     """
 
-    passthrough_keys: list[str] | None = None
+    passthrough_keys: list[str] | None = field(default=None)
     name: str = "TimestampMapper"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
-    _STRIP_KEYS = frozenset(
-        {
-            "waveform",
-            "audio",
-            "audio_filepath",
-            "start_ms",
-            "end_ms",
-            "segment_num",
-            "original_file",
-        }
-    )
-
     def __post_init__(self):
         super().__init__()
+        if self.passthrough_keys is None:
+            self.passthrough_keys = list(_DEFAULT_PASSTHROUGH_KEYS)
+        blocked = set(self.passthrough_keys) & _NEVER_PASS_KEYS
+        if blocked:
+            logger.warning(
+                f"[TimestampMapper] passthrough_keys contains non-serializable "
+                f"keys that will be blocked: {sorted(blocked)}. "
+                f"These keys are never included in output."
+            )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["original_file", "original_start_ms", "original_end_ms", "duration_ms", "duration_sec"]
+        return [], ["original_file", "original_start_ms", "original_end_ms", "duration_ms", "duration"]
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         mappings = (task._metadata or {}).get("segment_mappings")
@@ -127,6 +171,10 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
             if len(original_ranges) == 1:
                 result = self._build_output_item(item, original_ranges[0])
             else:
+                logger.warning(
+                    f"[TimestampMapper] No overlapping mappings for task {task.task_id} "
+                    f"[{concat_start}-{concat_end}ms], dropping"
+                )
                 return []
         else:
             result = self._build_output_item_no_mapping(item)
@@ -136,14 +184,11 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
         return task
 
     def _copy_passthrough(self, item: dict[str, Any], result: dict[str, Any]) -> None:
-        if self.passthrough_keys is not None:
-            for key in self.passthrough_keys:
-                if key in item and item[key] is not None and key not in result:
-                    result[key] = item[key]
-        else:
-            for key, val in item.items():
-                if key not in self._STRIP_KEYS and key not in result and val is not None:
-                    result[key] = val
+        for key in self.passthrough_keys:
+            if key in _NEVER_PASS_KEYS:
+                continue
+            if key in item and item[key] is not None and key not in result:
+                result[key] = item[key]
 
     def _build_output_item(self, item: dict[str, Any], orig: dict[str, Any]) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -151,31 +196,59 @@ class TimestampMapperStage(ProcessingStage[AudioTask, AudioTask]):
             "original_start_ms": orig["original_start_ms"],
             "original_end_ms": orig["original_end_ms"],
             "duration_ms": orig["duration_ms"],
-            "duration_sec": orig["duration_ms"] / 1000.0,
+            "duration": orig["duration_ms"] / 1000.0,
         }
         self._copy_passthrough(item, result)
         return result
 
     def _build_output_item_no_mapping(self, item: dict[str, Any]) -> dict[str, Any]:
-        start_ms = item.get("start_ms", 0)
-        end_ms = item.get("end_ms", 0)
-        duration_ms = end_ms - start_ms
-        if duration_ms <= 0:
-            dur = item.get("duration") or item.get("duration_sec")
-            if dur is not None and float(dur) > 0:
-                duration_ms = int(float(dur) * 1000)
-                end_ms = start_ms + duration_ms
-            elif "waveform" in item and "sample_rate" in item:
-                wf = item["waveform"]
-                n = wf.shape[-1] if hasattr(wf, "shape") else len(wf)
-                duration_ms = int(n / item["sample_rate"] * 1000)
-                end_ms = start_ms + duration_ms
         result: dict[str, Any] = {
             "original_file": item.get("original_file", item.get("audio_filepath", "unknown")),
-            "original_start_ms": start_ms,
-            "original_end_ms": end_ms,
-            "duration_ms": duration_ms,
-            "duration_sec": duration_ms / 1000.0,
         }
+
+        start_ms = item.get("start_ms")
+        end_ms = item.get("end_ms")
+
+        if start_ms is not None and end_ms is not None and end_ms > start_ms:
+            result["original_start_ms"] = int(start_ms)
+            result["original_end_ms"] = int(end_ms)
+            result["duration_ms"] = int(end_ms - start_ms)
+            result["duration"] = (end_ms - start_ms) / 1000.0
+            self._copy_passthrough(item, result)
+            return result
+
+        diar_segments = item.get("diar_segments")
+        if diar_segments and len(diar_segments) > 0:
+            diar_segments = sorted(diar_segments, key=lambda x: x[0])
+            first_start = diar_segments[0][0]
+            last_end = diar_segments[-1][1]
+            result["original_start_ms"] = int(first_start * 1000)
+            result["original_end_ms"] = int(last_end * 1000)
+            result["duration_ms"] = int((last_end - first_start) * 1000)
+            result["duration"] = last_end - first_start
+            speaking = sum(end - start for start, end in diar_segments)
+            result["speaking_duration"] = round(speaking, 3)
+            result["diar_segments"] = [[round(s, 3), round(e, 3)] for s, e in diar_segments]
+            self._copy_passthrough(item, result)
+            return result
+
+        dur = item.get("duration")
+        if dur is not None and float(dur) > 0:
+            duration_ms = int(float(dur) * 1000)
+            result["original_start_ms"] = 0
+            result["original_end_ms"] = duration_ms
+            result["duration_ms"] = duration_ms
+            result["duration"] = float(dur)
+        else:
+            logger.warning(
+                f"[TimestampMapper] No timing information found for "
+                f"{result['original_file']!r} — emitting zero-duration row. "
+                f"This may indicate a corrupted or zero-length source file."
+            )
+            result["original_start_ms"] = 0
+            result["original_end_ms"] = 0
+            result["duration_ms"] = 0
+            result["duration"] = 0.0
+
         self._copy_passthrough(item, result)
         return result

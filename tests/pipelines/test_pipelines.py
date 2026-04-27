@@ -16,7 +16,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from nemo_curator.core import serve as serve_module
 from nemo_curator.pipeline.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -43,8 +42,7 @@ def test_logs_info_when_ray_serve_active_with_gpu_stages_non_xenna() -> None:
     gpu_stage.name = "EmbeddingStage"
     gpu_stage.resources = Resources(gpus=1.0)
 
-    serve_module._active_servers.add("default")
-    try:
+    with patch("nemo_curator.core.serve.is_inference_server_active", return_value=True):
         mock_executor = Mock()
         pipeline = Pipeline(name="test", stages=[gpu_stage])
 
@@ -55,8 +53,6 @@ def test_logs_info_when_ray_serve_active_with_gpu_stages_non_xenna() -> None:
             info_msgs = [call[0][0] for call in mock_logger.info.call_args_list]
             assert any("Ray Serve is active" in msg for msg in info_msgs)
             assert any("EmbeddingStage" in msg for msg in info_msgs)
-    finally:
-        serve_module._active_servers.clear()
 
 
 def test_raises_when_ray_serve_active_with_xenna_and_gpu_stages() -> None:
@@ -67,12 +63,9 @@ def test_raises_when_ray_serve_active_with_xenna_and_gpu_stages() -> None:
     gpu_stage.name = "EmbeddingStage"
     gpu_stage.resources = Resources(gpus=1.0)
 
-    serve_module._active_servers.add("default")
-    try:
+    with patch("nemo_curator.core.serve.is_inference_server_active", return_value=True):
         mock_executor = Mock(spec=XennaExecutor)
         pipeline = Pipeline(name="test", stages=[gpu_stage])
 
         with pytest.raises(RuntimeError, match="Cannot run XennaExecutor"):
             pipeline.run(executor=mock_executor)
-    finally:
-        serve_module._active_servers.clear()
