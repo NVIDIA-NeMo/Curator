@@ -105,7 +105,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
         text = text.strip().replace("\n", " ")
         if not text:
             if not task.data[self.skip_me_key]:
-                task.data[self.skip_me_key] = "Empty text"
+                task.data[self.skip_me_key] = f"Empty text:{self.name}"
             return task
         result_str = self._lid.score_document(text)
         score_list = eval(result_str)  # noqa: S307  — output of our own FastText model
