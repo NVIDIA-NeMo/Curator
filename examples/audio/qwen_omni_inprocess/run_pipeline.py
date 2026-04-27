@@ -48,6 +48,11 @@ Architecture:
     PnCContentGuardStage (CPU) [optional, --skip_pnc]
         → compares cleaned_text with pnc_text after normalisation
         → reverts pnc_text when the LLM added/removed/substituted words
+    ITNRestorationStage (GPU, text-only LLM) [optional, --enable_itn]
+        → reads pnc_text (or abbreviated_text if PnC skipped)
+        → converts spoken-form to written form (numbers, dates, symbols)
+        → validates output, falls back to input on hallucination
+        → writes itn_text
     ALMManifestWriterStage (CPU)
         → writes JSONL output
 
@@ -73,6 +78,7 @@ from nemo_curator.stages.audio.text_filtering import (
     DisfluencyWerGuardStage,
     FastTextLIDStage,
     InitializeFieldsStage,
+    ITNRestorationStage,
     PnCContentGuardStage,
     PnCRestorationStage,
     RegexSubstitutionStage,
@@ -100,50 +106,88 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--gpu_memory_utilization", type=float, default=0.95)
     ap.add_argument("--prep_workers", type=int, default=16, help="Thread pool size for audio preprocessing.")
     ap.add_argument("--s3_endpoint_url", type=str, default=None)
-    ap.add_argument("--execution_mode", type=str, default="streaming",
-                    choices=["streaming", "batch"], help="Xenna execution mode.")
+    ap.add_argument(
+        "--execution_mode", type=str, default="streaming", choices=["streaming", "batch"], help="Xenna execution mode."
+    )
 
     tf = ap.add_argument_group("text filtering")
-    tf.add_argument("--hall_phrases", type=str, required=True,
-                    help="Path to hallucination phrases text file.")
-    tf.add_argument("--fasttext_model", type=str, default="lid.176.ftz",
-                    help="FastText LID model: local path or known name (lid.176.bin / lid.176.ftz).")
-    tf.add_argument("--regex_yaml", type=str, required=True,
-                    help="Path to regex substitution rules YAML.")
-    tf.add_argument("--target_lang", type=str, default="en",
-                    help="Expected language code for LID filtering.")
-    tf.add_argument("--min_lang_prob", type=float, default=0.8,
-                    help="Minimum FastText language probability to keep an entry.")
-    tf.add_argument("--unique_words_threshold", type=float, default=0.4,
-                    help="Unique-word ratio threshold for repeated n-gram hallucination detection.")
-    tf.add_argument("--long_word_threshold", type=int, default=25,
-                    help="Absolute character length above which a word is flagged as abnormally long.")
-    tf.add_argument("--long_word_rel_threshold", type=float, default=3.0,
-                    help="Relative length ratio for long-word hallucination detection.")
-    tf.add_argument("--max_char_rate", type=float, default=40.0,
-                    help="Min chars/s above which text is considered impossibly dense.")
+    tf.add_argument("--hall_phrases", type=str, required=True, help="Path to hallucination phrases text file.")
+    tf.add_argument(
+        "--fasttext_model",
+        type=str,
+        default="lid.176.ftz",
+        help="FastText LID model: local path or known name (lid.176.bin / lid.176.ftz).",
+    )
+    tf.add_argument("--regex_yaml", type=str, required=True, help="Path to regex substitution rules YAML.")
+    tf.add_argument("--target_lang", type=str, default="en", help="Expected language code for LID filtering.")
+    tf.add_argument(
+        "--min_lang_prob", type=float, default=0.8, help="Minimum FastText language probability to keep an entry."
+    )
+    tf.add_argument(
+        "--unique_words_threshold",
+        type=float,
+        default=0.4,
+        help="Unique-word ratio threshold for repeated n-gram hallucination detection.",
+    )
+    tf.add_argument(
+        "--long_word_threshold",
+        type=int,
+        default=25,
+        help="Absolute character length above which a word is flagged as abnormally long.",
+    )
+    tf.add_argument(
+        "--long_word_rel_threshold",
+        type=float,
+        default=3.0,
+        help="Relative length ratio for long-word hallucination detection.",
+    )
+    tf.add_argument(
+        "--max_char_rate",
+        type=float,
+        default=40.0,
+        help="Min chars/s above which text is considered impossibly dense.",
+    )
 
     pnc = ap.add_argument_group("PnC restoration")
-    pnc.add_argument("--pnc_model_id", type=str, default="Qwen/Qwen3.5-35B-A3B-FP8",
-                     help="Model ID for PnC restoration LLM.")
-    pnc.add_argument("--pnc_prompt", type=str, default=None,
-                     help="PnC restoration prompt (use {text} placeholder). Read from --pnc_prompt_file if set.")
-    pnc.add_argument("--pnc_prompt_file", type=str, default=None,
-                     help="Read PnC restoration prompt from file.")
-    pnc.add_argument("--completeness_prompt", type=str, default=None,
-                     help="Completeness check prompt (use {text} placeholder).")
-    pnc.add_argument("--pnc_tensor_parallel_size", type=int, default=2,
-                     help="Tensor parallel size for PnC model.")
-    pnc.add_argument("--pnc_batch_size", type=int, default=64,
-                     help="Batch size for PnC restoration stage.")
-    pnc.add_argument("--pnc_max_model_len", type=int, default=8192,
-                     help="Max model length for PnC model.")
-    pnc.add_argument("--pnc_max_num_seqs", type=int, default=64,
-                     help="Max concurrent sequences for PnC model.")
-    pnc.add_argument("--pnc_prep_workers", type=int, default=8,
-                     help="Thread pool size for PnC prompt preprocessing.")
-    pnc.add_argument("--skip_pnc", action="store_true", default=False,
-                     help="Skip PnC restoration stage entirely.")
+    pnc.add_argument(
+        "--pnc_model_id", type=str, default="Qwen/Qwen3.5-35B-A3B-FP8", help="Model ID for PnC restoration LLM."
+    )
+    pnc.add_argument(
+        "--pnc_prompt",
+        type=str,
+        default=None,
+        help="PnC restoration prompt (use {text} placeholder). Read from --pnc_prompt_file if set.",
+    )
+    pnc.add_argument("--pnc_prompt_file", type=str, default=None, help="Read PnC restoration prompt from file.")
+    pnc.add_argument(
+        "--completeness_prompt", type=str, default=None, help="Completeness check prompt (use {text} placeholder)."
+    )
+    pnc.add_argument("--pnc_tensor_parallel_size", type=int, default=2, help="Tensor parallel size for PnC model.")
+    pnc.add_argument("--pnc_batch_size", type=int, default=64, help="Batch size for PnC restoration stage.")
+    pnc.add_argument("--pnc_max_model_len", type=int, default=8192, help="Max model length for PnC model.")
+    pnc.add_argument("--pnc_max_num_seqs", type=int, default=64, help="Max concurrent sequences for PnC model.")
+    pnc.add_argument("--pnc_prep_workers", type=int, default=8, help="Thread pool size for PnC prompt preprocessing.")
+    pnc.add_argument("--skip_pnc", action="store_true", default=False, help="Skip PnC restoration stage entirely.")
+
+    itn = ap.add_argument_group("ITN (inverse text normalization)")
+    itn.add_argument("--enable_itn", action="store_true", help="Enable ITN stage after PnC restoration.")
+    itn.add_argument("--itn_model_id", type=str, default="Qwen/Qwen3.5-35B-A3B-FP8", help="Model for ITN inference.")
+    itn.add_argument(
+        "--itn_prompt_file", type=str, default=None, help="ITN system prompt file. Uses bundled default if not set."
+    )
+    itn.add_argument(
+        "--itn_text_key",
+        type=str,
+        default=None,
+        help="Input key for ITN (default: pnc_text if PnC enabled, abbreviated_text otherwise).",
+    )
+    itn.add_argument("--itn_output_key", type=str, default="itn_text", help="Output key for ITN result.")
+    itn.add_argument("--itn_batch_size", type=int, default=64, help="Batch size for ITN inference.")
+    itn.add_argument(
+        "--itn_tensor_parallel_size", type=int, default=None, help="TP size for ITN model (None = auto-detect)."
+    )
+    itn.add_argument("--itn_max_output_tokens", type=int, default=4096, help="Max tokens to generate per ITN sample.")
+    itn.add_argument("--itn_no_validation", action="store_true", help="Disable ITN output validation.")
     return ap
 
 
@@ -173,6 +217,11 @@ def main() -> None:
         with open(args.pnc_prompt_file, encoding="utf-8") as f:
             pnc_prompt_text = f.read().strip()
 
+    itn_prompt_text = None
+    if args.itn_prompt_file:
+        with open(args.itn_prompt_file, encoding="utf-8") as f:
+            itn_prompt_text = f.read().strip()
+
     pipeline = Pipeline(
         name="qwen_omni_inference",
         stages=[
@@ -198,11 +247,17 @@ def main() -> None:
                 pred_text_key="qwen3_prediction_s1",
                 disfluency_text_key="qwen3_prediction_s2",
             ),
-            *([DisfluencyWerGuardStage(
-                ref_text_key="qwen3_prediction_s1",
-                hyp_text_key="qwen3_prediction_s2",
-                max_wer_pct=50.0,
-            )] if followup_prompt else []),
+            *(
+                [
+                    DisfluencyWerGuardStage(
+                        ref_text_key="qwen3_prediction_s1",
+                        hyp_text_key="qwen3_prediction_s2",
+                        max_wer_pct=50.0,
+                    )
+                ]
+                if followup_prompt
+                else []
+            ),
             WhisperHallucinationStage(
                 common_hall_file=args.hall_phrases,
                 text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
@@ -227,24 +282,45 @@ def main() -> None:
                 output_text_key="abbreviated_text",
                 language=args.target_lang,
             ),
-            *([PnCRestorationStage(
-                model_id=args.pnc_model_id,
-                text_key="abbreviated_text",
-                output_text_key="pnc_text",
-                tensor_parallel_size=args.pnc_tensor_parallel_size,
-                batch_size=args.pnc_batch_size,
-                max_model_len=args.pnc_max_model_len,
-                max_num_seqs=args.pnc_max_num_seqs,
-                prep_workers=args.pnc_prep_workers,
-                **({"pnc_prompt": pnc_prompt_text} if pnc_prompt_text else {}),
-                **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
+            *(
+                [
+                    PnCRestorationStage(
+                        model_id=args.pnc_model_id,
+                        text_key="abbreviated_text",
+                        output_text_key="pnc_text",
+                        tensor_parallel_size=args.pnc_tensor_parallel_size,
+                        batch_size=args.pnc_batch_size,
+                        max_model_len=args.pnc_max_model_len,
+                        max_num_seqs=args.pnc_max_num_seqs,
+                        prep_workers=args.pnc_prep_workers,
+                        **({"pnc_prompt": pnc_prompt_text} if pnc_prompt_text else {}),
+                        **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
+                    ),
+                    PnCContentGuardStage(
+                        text_key="abbreviated_text",
+                        pnc_text_key="pnc_text",
+                        rejected_text_key="rejected_pnc_text",
+                    ),
+                ]
+                if not args.skip_pnc
+                else []
             ),
-            PnCContentGuardStage(
-                text_key="abbreviated_text",
-                pnc_text_key="pnc_text",
-                rejected_text_key="rejected_pnc_text",
-            )] if not args.skip_pnc else []),
-
+            *(
+                [
+                    ITNRestorationStage(
+                        model_id=args.itn_model_id,
+                        prompt_text=itn_prompt_text,
+                        text_key=args.itn_text_key or ("pnc_text" if not args.skip_pnc else "abbreviated_text"),
+                        output_text_key=args.itn_output_key,
+                        tensor_parallel_size=args.itn_tensor_parallel_size,
+                        max_output_tokens=args.itn_max_output_tokens,
+                        batch_size=args.itn_batch_size,
+                        enable_validation=not args.itn_no_validation,
+                    )
+                ]
+                if args.enable_itn
+                else []
+            ),
             ShardedManifestWriterStage(
                 output_dir=args.output_dir,
             ),
@@ -253,9 +329,11 @@ def main() -> None:
 
     logger.info(f"Pipeline: {pipeline.describe()}")
 
-    executor = XennaExecutor(config={
-        "execution_mode": args.execution_mode,
-    })
+    executor = XennaExecutor(
+        config={
+            "execution_mode": args.execution_mode,
+        }
+    )
 
     t0 = time.time()
     pipeline.run(executor=executor)
