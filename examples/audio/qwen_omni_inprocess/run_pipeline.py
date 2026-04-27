@@ -105,8 +105,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap.add_argument("--prep_workers", type=int, default=16, help="Thread pool size for audio preprocessing.")
     ap.add_argument("--source_lang_key", type=str, default="source_lang",
                     help="Manifest key holding per-sample language code. "
-                         "Used for prompt interpolation ({language} placeholder) and per-sample LID filtering. "
-                         "Set to empty string to disable.")
+                         "Used for prompt interpolation ({language} placeholder) and per-sample LID filtering.")
     ap.add_argument("--s3_endpoint_url", type=str, default=None)
     ap.add_argument(
         "--execution_mode", type=str, default="streaming", choices=["streaming", "batch"], help="Xenna execution mode."
