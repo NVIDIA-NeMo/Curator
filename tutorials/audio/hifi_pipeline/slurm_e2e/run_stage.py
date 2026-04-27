@@ -72,6 +72,16 @@ def parse_args() -> argparse.Namespace:
     # UTMOS options
     p.add_argument("--utmos_batch_size", type=int, default=16)
 
+    # Batched utmos options (process N shards in one process so model loads once)
+    p.add_argument("--shard_id_start", type=int, default=None,
+                   help="Batched utmos: first shard id to process.")
+    p.add_argument("--num_shards", type=int, default=1,
+                   help="Batched utmos: how many consecutive shards.")
+    p.add_argument("--manifest_dir", default="",
+                   help="Batched utmos: dir containing shard_<N>.jsonl inputs.")
+    p.add_argument("--tar_url_template", default="",
+                   help="Batched utmos: e.g. 's3://yodas2/ru/1_by_whisper/audio_{SHARD}.tar'.")
+
     # General
     p.add_argument("--batch_size", type=int, default=16)
     return p.parse_args()
@@ -596,25 +606,27 @@ def _build_gpu_spec_model(original_model, cfg):
     return _GPUSpecModel(original_model, cfg)
 
 
-def run_utmos(args, rows, audio_dict):
-    """UTMOS scoring. Uses audio from tar (in-memory)."""
+def _load_utmos_model():
+    """Patch + create + GPU-spec wrap UTMOSv2. Returns the model object."""
     _patch_utmosv2_for_gpu()
     import utmosv2
     model = utmosv2.create_model(pretrained=True)
     model._model = _build_gpu_spec_model(model._model, model._cfg)
     print("UTMOSv2 model loaded (GPU specs)")
+    return model
 
+
+def _score_one_shard(args, rows, audio_dict, model):
+    """Score one shard's worth of rows; mutates rows in place."""
     with tempfile.TemporaryDirectory() as wav_dir:
         valid_indices = []
         wav_count = 0
-
         for i, row in enumerate(rows):
             afp = row.get("audio_filepath", "")
             waveform_pair = audio_dict.get(afp) or audio_dict.get(os.path.basename(afp)) if audio_dict else None
             if waveform_pair is None:
                 row["utmosv2_score"] = float("nan")
                 continue
-
             waveform, sr = waveform_pair
             if sr != args.target_sr:
                 try:
@@ -622,14 +634,14 @@ def run_utmos(args, rows, audio_dict):
                     waveform = librosa.resample(waveform, orig_sr=sr, target_sr=args.target_sr)
                 except ImportError:
                     pass
-
+            if waveform is None or getattr(waveform, "size", 0) < 1000:
+                row["utmosv2_score"] = float("nan")
+                continue
             wav_path = os.path.join(wav_dir, f"{wav_count:08d}.wav")
             sf.write(wav_path, waveform, args.target_sr, subtype="PCM_16")
             valid_indices.append(i)
             wav_count += 1
-
         print(f"Converted {wav_count} audio files to WAV")
-
         if valid_indices:
             t0 = time.time()
             results = model.predict(
@@ -641,8 +653,47 @@ def run_utmos(args, rows, audio_dict):
             for idx, score in zip(valid_indices, scores):
                 rows[idx]["utmosv2_score"] = round(float(score), 4)
             print(f"Scored {len(scores)} files in {time.time()-t0:.1f}s")
-
     return rows
+
+
+def run_utmos(args, rows, audio_dict):
+    """UTMOS scoring. Uses audio from tar (in-memory)."""
+    model = _load_utmos_model()
+    return _score_one_shard(args, rows, audio_dict, model)
+
+
+def run_utmos_batch(args):
+    """Batched utmos: load model once, process [shard_id_start, +num_shards).
+
+    Reads from --manifest_dir/shard_<N>.jsonl, downloads tar via
+    --tar_url_template (with literal {SHARD} placeholder), writes to
+    --output_dir/shard_<N>.jsonl. Skip-if-exists per shard.
+    """
+    if not args.manifest_dir or not args.tar_url_template:
+        raise ValueError("Batched utmos requires --manifest_dir and --tar_url_template")
+    model = _load_utmos_model()
+    start = args.shard_id_start
+    end = start + args.num_shards
+    print(f"Batched utmos: processing shards {start}..{end - 1} ({args.num_shards} shards)")
+    for shard_id in range(start, end):
+        out_path = os.path.join(args.output_dir, f"shard_{shard_id}.jsonl")
+        if os.path.exists(out_path):
+            print(f"[shard {shard_id}] already done — skipping")
+            continue
+        manifest_path = os.path.join(args.manifest_dir, f"shard_{shard_id}.jsonl")
+        if not os.path.isfile(manifest_path):
+            print(f"[shard {shard_id}] manifest missing: {manifest_path}")
+            continue
+        # Local args view per shard
+        args.shard_id = shard_id
+        args.manifest_path = manifest_path
+        args.tar_url = args.tar_url_template.replace("{SHARD}", str(shard_id))
+        rows = read_manifest(manifest_path)
+        print(f"[shard {shard_id}] loaded {len(rows)} rows")
+        audio_dict, _ = stream_tar_if_needed(args)
+        rows = _score_one_shard(args, rows, audio_dict, model)
+        write_manifest(rows, args.output_dir, shard_id)
+        print(f"[shard {shard_id}] wrote {len(rows)} rows")
 
 
 # ---- Dispatch ----
@@ -665,6 +716,12 @@ NEEDS_AUDIO = {"sed", "diarize", "transcribe", "embed", "utmos"}
 def main():
     args = parse_args()
     t0 = time.time()
+
+    # Batched utmos: model loads once, loops over [shard_id_start, +num_shards)
+    if args.stage == "utmos" and args.shard_id_start is not None:
+        run_utmos_batch(args)
+        print(f"Total: {time.time() - t0:.1f}s")
+        return
 
     # Skip if already done
     out_path = os.path.join(args.output_dir, f"shard_{args.shard_id}.jsonl")

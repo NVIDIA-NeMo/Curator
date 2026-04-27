@@ -45,6 +45,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--preset", default="librispeech-2026-04",
                    help="SCOTCH preset name from cluster_config.PRESETS.")
     p.add_argument("--audio_filepath_key", default="audio_filepath")
+    p.add_argument("--max_leaf_subclusters", type=int, default=150_000,
+                   help="Upper bound on BIRCH leaves before AHC. Lower "
+                        "this on memory-tight nodes; the clustering code "
+                        "auto-relaxes the BIRCH cosine floor to honour it.")
+    p.add_argument("--birch_initial_floor", type=float, default=None,
+                   help="Override BIRCH starting cosine floor (default: "
+                        "preset value). Use lower values for very large "
+                        "corpora to skip the known-too-tight first fit.")
     return p.parse_args()
 
 
@@ -182,6 +190,8 @@ def main() -> int:
     linkage_method = str(preset_values["cluster_linkage"])
     min_cluster_size = int(preset_values["min_cluster_size"])
     birch_cosine_floor = float(preset_values["birch_cosine_floor"])
+    if args.birch_initial_floor is not None:
+        birch_cosine_floor = float(args.birch_initial_floor)
     branching_factor = int(preset_values["birch_branching_factor"])
     partial_fit_batch = int(preset_values["birch_partial_fit_batch"])
     assign_tile = int(preset_values["assign_tile"])
@@ -218,9 +228,15 @@ def main() -> int:
         assign_tile=assign_tile,
         compute_confidence=True,
         dropped_label=DROPPED_LABEL,
+        max_leaf_subclusters=args.max_leaf_subclusters,
     )
     cluster_runtime = time.time() - t_cluster
     print(f"Clustering runtime: {cluster_runtime:.1f}s")
+    if stats.get("birch_retries", 0) > 0:
+        eff_rad = stats.get("effective_birch_threshold", birch_radius)
+        eff_cos = 1.0 - (eff_rad ** 2) / 2.0
+        print(f"BIRCH leaf-cap backoff: {stats['birch_retries']} retries, "
+              f"effective radius={eff_rad:.4f} (cosine floor ~{eff_cos:.3f})")
     print_large_scale_summary(labels, stats)
 
     scatter_labels(shard_rows, origin, labels, confidence, DROPPED_LABEL)
@@ -229,6 +245,8 @@ def main() -> int:
 
     n_kept = int((labels != DROPPED_LABEL).sum())
     n_dropped = int((labels == DROPPED_LABEL).sum())
+    effective_radius = float(stats.get("effective_birch_threshold", birch_radius))
+    effective_cos_floor = max(-1.0, min(1.0, 1.0 - (effective_radius ** 2) / 2.0))
     cfg = build_cluster_config(
         backend="large_scale",
         preset=args.preset,
@@ -239,8 +257,8 @@ def main() -> int:
         embedding_dim=int(embeddings.shape[1]),
         embedding_normalization=embedding_normalization,
         confidence_enabled=True,
-        birch_cosine_floor=birch_cosine_floor,
-        birch_radius=birch_radius,
+        birch_cosine_floor=effective_cos_floor,
+        birch_radius=effective_radius,
         birch_branching_factor=branching_factor,
         birch_partial_fit_batch=partial_fit_batch,
         assign_tile=assign_tile,
@@ -250,6 +268,12 @@ def main() -> int:
         n_utts_kept=n_kept,
         n_utts_dropped=n_dropped,
         runtime_seconds=cluster_runtime,
+        extra={
+            "birch_retries": int(stats.get("birch_retries", 0)),
+            "max_leaf_subclusters": int(stats.get("max_leaf_subclusters", args.max_leaf_subclusters)),
+            "birch_cosine_floor_requested": birch_cosine_floor,
+            "birch_radius_requested": birch_radius,
+        },
     )
     write_cluster_config(args.output_dir, cfg)
     return 0

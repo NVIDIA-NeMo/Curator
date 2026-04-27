@@ -57,6 +57,7 @@ Recommended for:
     millions of utterances.
 """
 
+import gc
 import logging
 from collections import Counter, defaultdict
 from typing import Dict, Optional, Tuple
@@ -91,6 +92,15 @@ DEFAULT_BIRCH_THRESHOLD = float(np.sqrt(2.0 * (1.0 - 0.8)))  # ~0.6325
 # BIRCH partial_fit batch size.  Trade-off: larger -> fewer Python overhead
 # round-trips, smaller -> lower peak RAM during a single update.
 DEFAULT_BIRCH_PARTIAL_FIT_BATCH = 50_000
+
+# Upper bound on the number of BIRCH leaf subclusters we allow before the
+# AHC step.  AHC on K leaves needs an O(K^2) cosine-similarity matrix, so
+# K must stay small enough that K*K*4 bytes fits in RAM.  150_000 leaves
+# -> ~90 GiB peak, which fits on a 128 GiB node with headroom for the
+# embeddings and the BIRCH tree itself.  See PARAM_TUNE.md  1.2: the
+# production strategy is to lower the BIRCH cosine floor when the cap
+# would be exceeded rather than run out of memory.
+DEFAULT_MAX_LEAF_SUBCLUSTERS = 150_000
 
 # Tile size for the utterance-to-leaf assignment step.  Picks the nearest
 # centroid for ``ASSIGN_TILE`` utterances at a time.  Peak memory for the
@@ -428,6 +438,7 @@ def cluster_embeddings_large_scale(
     assign_tile: int = DEFAULT_ASSIGN_TILE,
     compute_confidence: bool = True,
     dropped_label: int = DROPPED_LABEL,
+    max_leaf_subclusters: int = DEFAULT_MAX_LEAF_SUBCLUSTERS,
 ) -> Tuple[np.ndarray, Optional[np.ndarray], Dict]:
     """Cluster a large embedding set with BIRCH (stage 1) + AHC (stage 2).
 
@@ -493,20 +504,72 @@ def cluster_embeddings_large_scale(
     logger.info("Stage 0: L2-normalising %d embeddings", n)
     normed = _l2_normalize(embeddings.astype(np.float32, copy=False))
 
-    # ---- Stage 1: BIRCH.
+    # ---- Stage 1: BIRCH, with leaf-cap backoff.
+    # Per PARAM_TUNE.md  1.2: when the requested cosine floor produces more
+    # leaves than the pdist step can handle, relax the floor (increase the
+    # Euclidean radius) and refit.  AHC cost scales O(n_leaves^2) in memory.
     logger.info(
-        "Stage 1: BIRCH partial_fit (batch=%d, branching=%d, threshold=%.4f)",
+        "Stage 1: BIRCH partial_fit (batch=%d, branching=%d, threshold=%.4f, "
+        "max_leaf_subclusters=%d)",
         partial_fit_batch, branching_factor, birch_threshold,
+        max_leaf_subclusters,
     )
-    birch = _build_birch_tree(
-        normed,
-        birch_threshold=birch_threshold,
-        branching_factor=branching_factor,
-        partial_fit_batch=partial_fit_batch,
+    # Gentle proportional backoff: 1.25x geometric on the Euclidean
+    # radius, capped at 1.0 (cos floor 0.5). Collapsing below that
+    # produces a single monolithic cluster, which is worse than an OOM
+    # because it silently succeeds.  If leaves drop below 10% of the
+    # cap, we've overshot and stop (result still usable even if >cap).
+    MIN_LEAVES_FLOOR = max(max_leaf_subclusters // 10, 100)
+    MAX_RADIUS = 1.0
+    BACKOFF = 1.25
+    current_radius = birch_threshold
+    prev_n_sub = None
+    birch_retries = 0
+    for attempt in range(8):
+        birch = _build_birch_tree(
+            normed,
+            birch_threshold=current_radius,
+            branching_factor=branching_factor,
+            partial_fit_batch=partial_fit_batch,
+        )
+        leaf_centroids = np.asarray(birch.subcluster_centers_, dtype=np.float32)
+        n_sub = leaf_centroids.shape[0]
+        if n_sub <= max_leaf_subclusters:
+            if n_sub < MIN_LEAVES_FLOOR and attempt > 0:
+                logger.warning(
+                    "Stage 1 attempt %d: %d leaves < floor %d (overshot); "
+                    "accepting anyway (radius=%.4f)",
+                    attempt + 1, n_sub, MIN_LEAVES_FLOOR, current_radius,
+                )
+            break
+        new_radius = min(current_radius * BACKOFF, MAX_RADIUS)
+        if abs(new_radius - current_radius) < 1e-6:
+            logger.warning(
+                "Stage 1: radius saturated at %.4f with %d leaves (cap=%d); "
+                "proceeding — AHC step may OOM",
+                current_radius, n_sub, max_leaf_subclusters,
+            )
+            break
+        logger.warning(
+            "Stage 1 attempt %d: %d leaves > cap %d, "
+            "relaxing radius %.4f -> %.4f",
+            attempt + 1, n_sub, max_leaf_subclusters,
+            current_radius, new_radius,
+        )
+        prev_n_sub = n_sub
+        current_radius = new_radius
+        birch_retries += 1
+        # Explicitly drop the previous BIRCH tree + its leaf array before
+        # starting a new fit; avoids fragmentation / sklearn Cython state
+        # carry-over that has caused segfaults on repeated refits.
+        del birch
+        del leaf_centroids
+        gc.collect()
+    effective_birch_threshold = current_radius
+    logger.info(
+        "Stage 1 done: %d leaf subclusters (final radius=%.4f, retries=%d)",
+        n_sub, effective_birch_threshold, birch_retries,
     )
-    leaf_centroids = np.asarray(birch.subcluster_centers_, dtype=np.float32)
-    n_sub = leaf_centroids.shape[0]
-    logger.info("Stage 1 done: %d leaf subclusters", n_sub)
 
     # Re-L2-normalise centroids (BIRCH means are *inside* the unit sphere).
     normed_centroids = _l2_normalize(leaf_centroids)
@@ -562,6 +625,9 @@ def cluster_embeddings_large_scale(
         "threshold": threshold,
         "linkage_method": linkage_method,
         "birch_threshold": birch_threshold,
+        "effective_birch_threshold": effective_birch_threshold,
+        "birch_retries": birch_retries,
+        "max_leaf_subclusters": max_leaf_subclusters,
         "branching_factor": branching_factor,
         "n_leaf_subclusters": n_sub,
         "n_clusters_raw": n_speakers_raw,

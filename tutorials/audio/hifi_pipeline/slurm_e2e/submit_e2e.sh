@@ -94,8 +94,12 @@ echo
 # In scotch mode utmos reads from clustered_scotch instead of clustered.
 if [[ "$CLUSTERING" == "scotch" ]]; then
     CLUSTER_OUTPUT="${WORK}/e2e_output/${SUB}/clustered_scotch"
+    SCOTCH_MEM="${SCOTCH_MEM:-128G}"
+    SCOTCH_TIME="${SCOTCH_TIME:-02:00:00}"
+    SCOTCH_PARTITION="${SCOTCH_PARTITION:-cpu_short}"
+    SCOTCH_MAX_LEAVES="${SCOTCH_MAX_LEAVES:-150000}"
     CLUSTERING_STAGES=(
-        "cluster_scotch|${CONT_SCOTCH}|cpu_short|0|128G|02:00:00|${WORK}/e2e_output/${SUB}/transcribe|${CLUSTER_OUTPUT}|"
+        "cluster_scotch|${CONT_SCOTCH}|${SCOTCH_PARTITION}|0|${SCOTCH_MEM}|${SCOTCH_TIME}|${WORK}/e2e_output/${SUB}/transcribe|${CLUSTER_OUTPUT}|--max_leaf_subclusters ${SCOTCH_MAX_LEAVES}"
     )
 else
     CLUSTER_OUTPUT="${WORK}/e2e_output/${SUB}/clustered"
@@ -161,7 +165,8 @@ srun --export=ALL \\
         --embedding_dir "${WORK}/e2e_output/${SUB}/embeddings" \\
         --output_dir "${OUTPUT_DIR}" \\
         --num_shards ${NUM_SHARDS} \\
-        --preset ${SCOTCH_PRESET}
+        --preset ${SCOTCH_PRESET} \\
+        ${EXTRA}
 EOFSBATCH
 
         echo "  cluster_scotch: one non-array job over ${NUM_SHARDS} shards"
