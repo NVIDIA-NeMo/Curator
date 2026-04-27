@@ -180,6 +180,8 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
                     window.caption.clear()
                     window.enhanced_caption.clear()
                     window.webp_bytes = None
+            for clip in video.filtered_clips:
+                clip.buffer = None
 
         if self.verbose:
             logger.info(f"Video {video.input_path} has {len(video.clips)} clips and wrote to {self.output_path}")

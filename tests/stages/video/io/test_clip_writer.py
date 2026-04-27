@@ -700,6 +700,8 @@ class TestClipWriterStage:
                     assert window.caption == {}
                     assert window.enhanced_caption == {}
                     assert window.webp_bytes is None
+            for clip in result.data.filtered_clips:
+                assert clip.buffer is None
 
             mock_logger.info.assert_called()
 
@@ -846,6 +848,32 @@ class TestClipWriterStage:
             assert len(data["errors"]) == 2
             assert "error1" in data["errors"]
             assert "error2" in data["errors"]
+
+    @patch("nemo_curator.stages.video.io.clip_writer.ThreadPoolExecutor")
+    def test_filtered_clips_buffer_cleared_after_process(self, mock_executor_class: MagicMock):
+        """Filtered (e.g. motion-filtered) clips must have buffer cleared after process().
+
+        Motion-filtered clips skip ClipFrameExtractionStage (which normally clears buffer)
+        so ClipWriterStage is responsible for clearing their buffers to avoid bloating
+        the serialized task objects (~1.8GB tasks.pkl in benchmarks before this fix).
+        """
+        mock_executor = MagicMock()
+        mock_executor_class.return_value.__enter__.return_value = mock_executor
+        mock_future = MagicMock()
+        mock_future.result.return_value = None
+        mock_executor.submit.return_value = mock_future
+
+        self.stage.setup()
+        assert self.mock_filtered_clip.buffer is not None  # confirm buffer is set before process
+
+        with (
+            patch.object(self.stage, "_write_clip_embedding_to_buffer"),
+            patch.object(self.stage, "_write_video_embeddings_to_parquet"),
+            patch.object(self.stage, "_write_video_metadata"),
+        ):
+            result = self.stage.process(self.mock_task)
+
+        assert result.data.filtered_clips[0].buffer is None
 
     def test_multiple_embedding_algorithms(self):
         """Test with different embedding algorithms."""
