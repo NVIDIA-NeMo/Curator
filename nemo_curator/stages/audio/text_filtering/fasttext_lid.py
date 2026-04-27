@@ -56,7 +56,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
 
     When an entry is flagged, ``skip_me`` is set to a descriptive string:
 
-    - ``"Wrong language"`` — detected language differs from ``target_lang``.
+    - ``"Wrong language"`` — detected language differs from per-sample ``source_lang``.
     - ``"Low probability of language"`` — correct language but confidence
       below ``min_lang_prob``.
     - ``"Empty text"`` — text is blank after stripping.
@@ -77,8 +77,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     model_path: str = ""
-    target_lang: str = "en"
-    source_lang_key: str = ""
+    source_lang_key: str = "source_lang"
     min_lang_prob: float = 0.8
     min_word_count: int = 2
     text_key: str = "pred_text"
@@ -164,9 +163,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
         if len(text.split()) < self.min_word_count:
             return task
         lang, prob = self._predict(text)
-        expected = self.target_lang
-        if self.source_lang_key and self.source_lang_key in task.data:
-            expected = task.data[self.source_lang_key]
+        expected = task.data[self.source_lang_key]
         if not task.data[self.skip_me_key]:
             if lang != expected.lower():
                 task.data[self.skip_me_key] = f"Wrong language:{self.name}"

@@ -120,7 +120,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         help="FastText LID model: HuggingFace repo ID, local path, or known name (lid.176.bin / lid.176.ftz).",
     )
     tf.add_argument("--regex_yaml", type=str, required=True, help="Path to regex substitution rules YAML.")
-    tf.add_argument("--target_lang", type=str, default="en", help="Expected language code for LID filtering.")
+
     tf.add_argument(
         "--min_lang_prob", type=float, default=0.8, help="Minimum FastText language probability to keep an entry."
     )
@@ -310,7 +310,6 @@ def main() -> None:  # noqa: C901
         FastTextLIDStage(
             model_path=args.fasttext_model,
             text_key="best_prediction",
-            target_lang=args.target_lang,
             source_lang_key=args.source_lang_key,
             min_lang_prob=args.min_lang_prob,
         ),
@@ -322,7 +321,7 @@ def main() -> None:  # noqa: C901
         AbbreviationConcatStage(
             text_key="cleaned_text",
             output_text_key="abbreviated_text",
-            language=args.target_lang,
+            source_lang_key=args.source_lang_key,
         ),
     ])
 

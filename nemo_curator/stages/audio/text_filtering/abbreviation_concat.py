@@ -215,16 +215,15 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
     Reads from ``text_key``, writes to ``output_text_key``.  When both
     keys are the same the field is updated in-place.
 
-    Set ``language`` to a BCP-47 language code (e.g. "de", "fr", "ru") to
-    enable language-specific character classes and particle stripping.
-    Defaults to "en".
+    Language is resolved per-sample from ``source_lang_key`` in the task data,
+    enabling language-specific character classes and particle stripping.
     """
 
     text_key: str = "text"
     output_text_key: str = "abbreviated_text"
     abbreviations_key: str = "abbreviations"
     skip_me_key: str = "_skip_me"
-    language: str = "en"
+    source_lang_key: str = "source_lang"
     name: str = "AbbreviationConcat"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -247,7 +246,7 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
             task.data.setdefault(self.abbreviations_key, [])
             return task
 
-        result, found = concat_abbreviations(text, language=self.language)
+        result, found = concat_abbreviations(text, language=task.data[self.source_lang_key])
         if result != text:
             logger.trace("AbbreviationConcat: {!r} → {!r}  abbrevs={}", text, result, found)
         task.data[self.output_text_key] = result
