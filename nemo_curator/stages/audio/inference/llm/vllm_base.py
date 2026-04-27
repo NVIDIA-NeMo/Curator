@@ -171,7 +171,7 @@ class VLLMInference:
 
         try:
             return self.tokenizer.apply_chat_template(entry_chat, **self.chat_template_params)
-        except (TypeError, ValueError, KeyError) as e:
+        except (TypeError, ValueError, KeyError, RuntimeError) as e:
             logger.error(f"Error applying chat template: {e}")
             return entry_chat
 
