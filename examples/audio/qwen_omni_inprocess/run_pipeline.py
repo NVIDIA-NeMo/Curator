@@ -84,7 +84,7 @@ from nemo_curator.stages.audio.text_filtering.select_best_prediction import Sele
 from nemo_curator.stages.resources import Resources
 
 
-def _build_arg_parser() -> argparse.ArgumentParser:
+def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap = argparse.ArgumentParser(description="QwenOmni in-process vLLM pipeline")
     ap.add_argument("--data_config", type=str, required=True, help="Granary YAML data config.")
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
@@ -116,8 +116,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     tf.add_argument(
         "--fasttext_model",
         type=str,
-        default="lid.176.ftz",
-        help="FastText LID model: local path or known name (lid.176.bin / lid.176.ftz).",
+        default="facebook/fasttext-language-identification",
+        help="FastText LID model: HuggingFace repo ID, local path, or known name (lid.176.bin / lid.176.ftz).",
     )
     tf.add_argument("--regex_yaml", type=str, required=True, help="Path to regex substitution rules YAML.")
     tf.add_argument("--target_lang", type=str, default="en", help="Expected language code for LID filtering.")
@@ -202,7 +202,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def main() -> None:
+def main() -> None:  # noqa: C901
     args = _build_arg_parser().parse_args()
 
     prompt = args.prompt
