@@ -37,10 +37,7 @@ except ImportError:
         pass
 
 
-# HuggingFace model ID — set to None until the model is publicly released.
-# Once released, fill in the HF repo ID (e.g. "nvidia/Nemotron-3-Nano-Omni-...") and
-# optionally pin a revision below. Everything else (download, weight path, processor
-# resolution in PromptFormatter) will work automatically.
+# HuggingFace model ID and revision pin.
 _HF_MODEL_ID: Final[str | None] = "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning"
 _HF_REVISION: Final[str | None] = "23d21acd455d9836d50c48570a329bde77e08ba4"
 
@@ -52,13 +49,8 @@ _EXPECTED_VIDEO_TAG_PARTS = 2
 class Nemotron3NanoOmni(ModelInterface):
     """Nemotron 3 Nano Omni multimodal VLM for video captioning.
 
-    Currently loaded from a local checkpoint; will support automatic HuggingFace
-    download once the model is publicly released (_HF_MODEL_ID is set).
-
-    When _HF_MODEL_ID is None (local mode):
-        model_dir  — path to the checkpoint directory itself
-    When _HF_MODEL_ID is set (HF mode):
-        model_dir  — base directory; weights are stored at model_dir/<hf_model_id>/
+    Weights are downloaded automatically from HuggingFace on first use.
+    model_dir is the base directory; weights are stored at model_dir/<_HF_MODEL_ID>/.
     """
 
     def __init__(

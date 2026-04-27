@@ -43,7 +43,7 @@ class PromptFormatter:
         Args:
             prompt_variant: Model variant to use (e.g., "qwen", "nemotron", "nemotron-3-nano-omni").
             model_path: Path to a local checkpoint directory. Required when VARIANT_MAPPING
-                maps the variant to None (e.g., "nemotron-3-nano-omni").
+                maps the variant to None (i.e., the model has no public HuggingFace ID yet).
         """
         if prompt_variant not in VARIANT_MAPPING:
             msg = f"Invalid prompt variant: {prompt_variant}. Valid variants are: {', '.join(VARIANT_MAPPING.keys())}"
