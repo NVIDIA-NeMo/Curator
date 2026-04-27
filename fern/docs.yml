@@ -95,6 +95,13 @@ redirects:
     destination: "/nemo/curator/about/concepts/video/data-flow"
   - source: "/nemo/curator/admin/deployment/slurm/image"
     destination: "/nemo/curator/admin/deployment/slurm-image"
+  # Install moved from Setup & Deployment into Get Started (26.04)
+  - source: "/nemo/curator/latest/admin/installation"
+    destination: "/nemo/curator/latest/get-started/installation"
+  - source: "/nemo/curator/v26.04/admin/installation"
+    destination: "/nemo/curator/v26.04/get-started/installation"
+  - source: "/nemo/curator/admin/installation"
+    destination: "/nemo/curator/get-started/installation"
 
 title: NeMo Curator
 

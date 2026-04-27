@@ -147,6 +147,9 @@ navigation:
           - page: Overview
             path: ./v26.04/pages/get-started/index.mdx
             slug: ""
+          - page: Install (All Modalities)
+            path: ./v26.04/pages/get-started/installation.mdx
+            slug: installation
           - page: Text Quickstart
             path: ./v26.04/pages/get-started/text.mdx
             slug: text
@@ -519,9 +522,6 @@ navigation:
           - page: Overview
             path: ./v26.04/pages/admin/index.mdx
             slug: ""
-          - page: Installation
-            path: ./v26.04/pages/admin/installation.mdx
-            slug: installation
           - section: Deployment
             slug: deployment
             contents:
