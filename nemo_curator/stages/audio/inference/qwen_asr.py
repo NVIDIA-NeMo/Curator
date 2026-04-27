@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from nemo_curator.models.qwen_asr import QwenASR
+from nemo_curator.stages.audio.inference.qwen_omni import _LANG_CODE_TO_NAME
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -44,7 +45,8 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         model_id: HuggingFace model identifier or local path.
-        language: Language hint (e.g. ``"English"``).
+        source_lang_key: Key holding the per-sample source language code
+            or name (for example ``"en"`` or ``"English"``).
         pred_text_key: Key where the predicted text is stored.
         language_key: Key where the detected language is stored.
         run_only_if_key: If set, only run inference on tasks where
@@ -56,7 +58,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
 
     name: str = "QwenASR_inference"
     model_id: str = "Qwen/Qwen3-ASR-0.6B"
-    language: str | None = None
+    source_lang_key: str = "source_lang"
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
     pred_text_key: str = "qwen3_asr_prediction"
@@ -76,7 +78,6 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     def _create_model(self) -> QwenASR:
         return QwenASR(
             model_id=self.model_id,
-            language=self.language,
             gpu_memory_utilization=self.gpu_memory_utilization,
             max_new_tokens=self.max_new_tokens,
             max_inference_batch_size=self.max_inference_batch_size,
@@ -155,10 +156,16 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             [tasks[i].data.get(self.context_key, "") for i in run_indices]
             if self.context_key else None
         )
+        languages: list[str | None] | None = None
+        if self.source_lang_key:
+            languages = [
+                _LANG_CODE_TO_NAME.get(code, code) if code else None
+                for code in (tasks[i].data.get(self.source_lang_key) for i in run_indices)
+            ]
 
-        pred_texts, languages = self._model.generate(waveforms, sample_rates, contexts)
+        pred_texts, detected_langs = self._model.generate(waveforms, sample_rates, contexts, languages)
 
-        for idx, pred, lang in zip(run_indices, pred_texts, languages, strict=True):
+        for idx, pred, lang in zip(run_indices, pred_texts, detected_langs, strict=True):
             tasks[idx].data[self.pred_text_key] = pred
             tasks[idx].data[self.language_key] = lang
 

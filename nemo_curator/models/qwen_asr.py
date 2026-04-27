@@ -44,13 +44,11 @@ class QwenASR(ModelInterface):
     def __init__(
         self,
         model_id: str = _QWEN3_ASR_MODEL_ID,
-        language: str | None = None,
         gpu_memory_utilization: float = 0.7,
         max_new_tokens: int = 4096,
         max_inference_batch_size: int = 128,
     ):
         self.model_id = model_id
-        self.language = language
         self.gpu_memory_utilization = gpu_memory_utilization
         self.max_new_tokens = max_new_tokens
         self.max_inference_batch_size = max_inference_batch_size
@@ -140,6 +138,7 @@ class QwenASR(ModelInterface):
         waveforms: list[np.ndarray],
         sample_rates: list[int],
         contexts: list[str] | None = None,
+        languages: list[str | None] | None = None,
     ) -> tuple[list[str], list[str]]:
         """Run batched ASR inference on in-memory audio waveforms.
 
@@ -148,6 +147,7 @@ class QwenASR(ModelInterface):
             sample_rates: Corresponding sample rates for each waveform.
             contexts: Optional per-sample instruction strings for
                 ``with_instruction`` mode.
+            languages: Per-sample language names (e.g. ``"English"``).
 
         Returns:
             ``(texts, languages)`` -- transcribed text and detected
@@ -163,7 +163,7 @@ class QwenASR(ModelInterface):
 
         kwargs: dict[str, Any] = {
             "audio": audio_inputs,
-            "language": self.language,
+            "language": languages,
         }
         if contexts is not None:
             kwargs["context"] = contexts
@@ -171,6 +171,6 @@ class QwenASR(ModelInterface):
         results = self._model.transcribe(**kwargs)
 
         texts = [getattr(r, "text", str(r)) for r in results]
-        languages = [getattr(r, "language", "") or (self.language or "") for r in results]
+        detected_langs = [getattr(r, "language", "") for r in results]
 
-        return texts, languages
+        return texts, detected_langs

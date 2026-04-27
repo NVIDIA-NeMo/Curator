@@ -196,7 +196,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     asr = ap.add_argument_group("QwenASR hallucination recovery")
     asr.add_argument("--asr_model_id", type=str, default=None,
                      help="QwenASR model ID or local path. If set, enables hallucination recovery.")
-    asr.add_argument("--asr_language", type=str, default=None, help="Language hint for QwenASR.")
     asr.add_argument("--asr_batch_size", type=int, default=128)
     asr.add_argument("--asr_gpu_memory_utilization", type=float, default=0.7)
     asr.add_argument("--asr_max_new_tokens", type=int, default=4096)
@@ -290,7 +289,7 @@ def main() -> None:  # noqa: C901
         stages.extend([
             InferenceQwenASRStage(
                 model_id=args.asr_model_id,
-                language=args.asr_language,
+                source_lang_key=args.source_lang_key,
                 batch_size=args.asr_batch_size,
                 gpu_memory_utilization=args.asr_gpu_memory_utilization,
                 max_new_tokens=args.asr_max_new_tokens,
