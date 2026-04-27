@@ -84,7 +84,7 @@ from nemo_curator.stages.audio.text_filtering.select_best_prediction import Sele
 from nemo_curator.stages.resources import Resources
 
 
-def _build_arg_parser() -> argparse.ArgumentParser:
+def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap = argparse.ArgumentParser(description="QwenOmni in-process vLLM pipeline")
     ap.add_argument("--data_config", type=str, required=True, help="Granary YAML data config.")
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
@@ -202,7 +202,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def main() -> None:
+def main() -> None:  # noqa: C901
     args = _build_arg_parser().parse_args()
 
     prompt = args.prompt
