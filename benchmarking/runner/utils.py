@@ -237,7 +237,7 @@ def log_gpu_stats(gpu_stats: dict, warn_if_in_use: bool = False) -> None:
 _LEGACY_PATH_FIELDS = ["results_path", "datasets_path", "model_weights_path"]
 
 
-def assert_valid_config_dict(data: dict) -> None:
+def assert_valid_config_dict(data: dict) -> None:  # noqa: C901, PLR0912
     """Assert that the configuration contains the minimum required config values."""
     has_legacy = any(k in data for k in _LEGACY_PATH_FIELDS)
     has_paths = "paths" in data
@@ -271,8 +271,15 @@ def assert_valid_config_dict(data: dict) -> None:
             if missing:
                 msg = f"Invalid configuration: 'paths' entry at index {i} is missing required fields: {missing}"
                 raise ValueError(msg)
-        path_names = {p["name"] for p in data["paths"]}
-        if "results_path" not in path_names:
+        seen_names: set[str] = set()
+        for path_entry in data["paths"]:
+            if isinstance(path_entry, dict) and "name" in path_entry:
+                name = path_entry["name"]
+                if name in seen_names:
+                    msg = f"Invalid configuration: duplicate name '{name}' in 'paths' section"
+                    raise ValueError(msg)
+                seen_names.add(name)
+        if "results_path" not in seen_names:
             msg = "Invalid configuration: 'paths' section must include an entry with name 'results_path'"
             raise ValueError(msg)
 
@@ -301,20 +308,23 @@ def update_config(config_dict: dict, new_dict: dict) -> None:
             #                                'requirements': [{'metric': 'throughput_docs_per_sec', 'min_value': 2677}]
             #                              }]
             #
-            # so be sure to update the config_dict list items that match the new_dict list items by matching based on the first key
+            # Dicts in lists are matched by their "name" key when present (since it is the
+            # canonical identifier for entries, paths, sinks, etc.); otherwise the first key
+            # is used as the match key. This means override files should use "name" whenever
+            # possible to ensure reliable matching.
             elif isinstance(config_dict[key], list) and isinstance(value, list):
                 for sub_val in value:
-                    # Handle dicts in the list by matching based on the first key
+                    # Handle dicts in the list by matching on "name" if present, else first key
                     if isinstance(sub_val, dict) and sub_val:
-                        first_key = next(iter(sub_val.keys()))
+                        match_key = "name" if "name" in sub_val else next(iter(sub_val.keys()))
                         for config_sub_val in config_dict[key]:
                             if (
                                 isinstance(config_sub_val, dict)
                                 and config_sub_val
-                                and next(iter(config_sub_val.keys())) == first_key
-                                and config_sub_val[first_key] == sub_val[first_key]
+                                and match_key in config_sub_val
+                                and config_sub_val[match_key] == sub_val[match_key]
                             ):
-                                # If matching dict found (based on first key), recursively update it
+                                # If matching dict found, recursively update it
                                 update_config(config_sub_val, sub_val)
                                 break
                         else:

@@ -230,7 +230,7 @@ Files are merged in order using a deep recursive merge, so later files can overr
 **Merge behavior:**
 - **Scalar values** (strings, numbers, booleans): later file wins.
 - **Nested dicts**: merged recursively — only the keys present in the later file are updated.
-- **Lists of dicts** (e.g. `entries`, `requirements`, `sinks`): items are matched by their first key. If a matching item is found, it is merged recursively; if not, the item is appended.
+- **Lists of dicts** (e.g. `entries`, `paths`, `requirements`, `sinks`): items are matched by their `name` key when present (the canonical identifier for most list items), falling back to the first key otherwise. If a matching item is found, it is merged recursively; if not, the item is appended. Use `name` in override files whenever possible to ensure reliable matching.
 
 This makes it practical to write small override files that change only specific entries or requirements without duplicating the full configuration.
 
