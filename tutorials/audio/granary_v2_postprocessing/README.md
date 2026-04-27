@@ -145,13 +145,12 @@ python tutorials/audio/granary_v2_postprocessing/pipeline.py \
 | `--unique_words_threshold` | `0.4` | Unique-word ratio below which repeated n-grams are flagged |
 | `--long_word_threshold` | `25` | Character length above which a word is flagged as abnormally long |
 | `--long_word_rel_threshold` | `3.0` | Longest/second-longest word ratio for long-word detection |
-| `--char_rate_threshold` | `4.0` | chars/s below which text is considered too sparse (long silence + few words) |
 | `--max_char_rate` | `40.0` | chars/s above which text is considered impossibly dense (hallucinated sentence over short audio) |
 | `--verbose` | off | Enable DEBUG logging (shows per-entry flagging reasons) |
 
 ## Hallucination detection details
 
-`WhisperHallucinationStage` applies five checks to `cleaned_text`:
+`WhisperHallucinationStage` applies four checks to `cleaned_text`:
 
 | Check | Triggers when |
 |---|---|
@@ -159,7 +158,6 @@ python tutorials/audio/granary_v2_postprocessing/pipeline.py \
 | Long word (absolute) | Any word ≥ `long_word_threshold` characters |
 | Long word (relative) | Longest word is ≥ `long_word_rel_threshold` × second-longest |
 | Phrase match | Text matches or starts with a phrase from `en.txt` (prefix match for phrases ≥ 8 chars) |
-| Low char rate | `sum(word lengths) / duration ≤ char_rate_threshold` |
 | High char rate | `sum(word lengths) / duration > max_char_rate` |
 
 Add new hallucination phrases to `en.txt`, one per line.

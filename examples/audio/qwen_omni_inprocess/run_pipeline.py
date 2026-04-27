@@ -19,14 +19,16 @@ Runs Qwen3-Omni-30B-A3B-Instruct directly inside the Curator pipeline
 for maximum throughput with zero network overhead.
 
 After inference, the pipeline applies text-level post-processing:
-hallucination detection, language ID filtering, regex cleaning.
+hallucination detection, language ID filtering, regex cleaning,
+abbreviation normalisation, and LLM-based punctuation/capitalisation
+restoration with a content-safety guard.
 
 Architecture:
     NemoTarredAudioReader (CPU, parallel)
         → streams NeMo-tarred shards from S3/local via lhotse
         → decodes audio in memory, emits AudioTask with waveform arrays
     InitializeFieldsStage (CPU)
-        → renames text → granary_v1_prediction, sets skip_me = ""
+        → renames text → granary_v1_prediction, sets _skip_me = ""
         → drops prompt-engineering fields (answer, source_lang, …)
     InferenceQwenOmniStage (GPU, TP=2 → 4 workers on 8 GPUs)
         → resamples to 16 kHz, batched vLLM inference
@@ -37,16 +39,18 @@ Architecture:
         → reads qwen3_prediction_s2, flags wrong language / low confidence
     RegexSubstitutionStage (CPU)
         → reads qwen3_prediction_s2, applies regex rules, writes cleaned_text
+    AbbreviationConcatStage (CPU)
+        → reads cleaned_text, re-joins split abbreviations (e.g. "U. S." → "U.S.")
+        → writes abbreviated_text
+    PnCRestorationStage (GPU, text-only LLM) [optional, --skip_pnc]
+        → reads abbreviated_text, restores punctuation/capitalisation
+        → writes pnc_text (or copies abbreviated_text if incomplete)
+    PnCContentGuardStage (CPU) [optional, --skip_pnc]
+        → compares cleaned_text with pnc_text after normalisation
+        → reverts pnc_text when the LLM added/removed/substituted words
     ALMManifestWriterStage (CPU)
-        → writes JSONL output with cleaned_text field
+        → writes JSONL output
 
-Usage:
-    python run_pipeline.py \\
-        --data_config /path/to/granary_config.yaml \\
-        --corpus yodas \\
-        --hall_phrases /path/to/hall_phrases.txt \\
-        --regex_yaml /path/to/common.yaml \\
-        --output /path/to/output.jsonl
 """
 
 import os
@@ -65,15 +69,19 @@ from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifes
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
 from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
 from nemo_curator.stages.audio.text_filtering import (
+    AbbreviationConcatStage,
+    DisfluencyWerGuardStage,
     FastTextLIDStage,
     InitializeFieldsStage,
+    PnCContentGuardStage,
+    PnCRestorationStage,
     RegexSubstitutionStage,
     WhisperHallucinationStage,
 )
 from nemo_curator.stages.resources import Resources
 
 
-def main() -> None:
+def _build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="QwenOmni in-process vLLM pipeline")
     ap.add_argument("--data_config", type=str, required=True, help="Granary YAML data config.")
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
@@ -112,12 +120,35 @@ def main() -> None:
                     help="Absolute character length above which a word is flagged as abnormally long.")
     tf.add_argument("--long_word_rel_threshold", type=float, default=3.0,
                     help="Relative length ratio for long-word hallucination detection.")
-    tf.add_argument("--char_rate_threshold", type=float, default=4.0,
-                    help="Max chars/s below which text is considered too sparse.")
     tf.add_argument("--max_char_rate", type=float, default=40.0,
                     help="Min chars/s above which text is considered impossibly dense.")
 
-    args = ap.parse_args()
+    pnc = ap.add_argument_group("PnC restoration")
+    pnc.add_argument("--pnc_model_id", type=str, default="Qwen/Qwen3.5-35B-A3B-FP8",
+                     help="Model ID for PnC restoration LLM.")
+    pnc.add_argument("--pnc_prompt", type=str, default=None,
+                     help="PnC restoration prompt (use {text} placeholder). Read from --pnc_prompt_file if set.")
+    pnc.add_argument("--pnc_prompt_file", type=str, default=None,
+                     help="Read PnC restoration prompt from file.")
+    pnc.add_argument("--completeness_prompt", type=str, default=None,
+                     help="Completeness check prompt (use {text} placeholder).")
+    pnc.add_argument("--pnc_tensor_parallel_size", type=int, default=2,
+                     help="Tensor parallel size for PnC model.")
+    pnc.add_argument("--pnc_batch_size", type=int, default=64,
+                     help="Batch size for PnC restoration stage.")
+    pnc.add_argument("--pnc_max_model_len", type=int, default=8192,
+                     help="Max model length for PnC model.")
+    pnc.add_argument("--pnc_max_num_seqs", type=int, default=64,
+                     help="Max concurrent sequences for PnC model.")
+    pnc.add_argument("--pnc_prep_workers", type=int, default=8,
+                     help="Thread pool size for PnC prompt preprocessing.")
+    pnc.add_argument("--skip_pnc", action="store_true", default=False,
+                     help="Skip PnC restoration stage entirely.")
+    return ap
+
+
+def main() -> None:
+    args = _build_arg_parser().parse_args()
 
     prompt = args.prompt
     if args.prompt_file:
@@ -136,6 +167,11 @@ def main() -> None:
                 system_prompt = f.read().strip()
         else:
             system_prompt = args.system_prompt
+
+    pnc_prompt_text = args.pnc_prompt
+    if args.pnc_prompt_file:
+        with open(args.pnc_prompt_file, encoding="utf-8") as f:
+            pnc_prompt_text = f.read().strip()
 
     pipeline = Pipeline(
         name="qwen_omni_inference",
@@ -162,13 +198,17 @@ def main() -> None:
                 pred_text_key="qwen3_prediction_s1",
                 disfluency_text_key="qwen3_prediction_s2",
             ),
+            *([DisfluencyWerGuardStage(
+                ref_text_key="qwen3_prediction_s1",
+                hyp_text_key="qwen3_prediction_s2",
+                max_wer_pct=50.0,
+            )] if followup_prompt else []),
             WhisperHallucinationStage(
                 common_hall_file=args.hall_phrases,
                 text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
                 unique_words_threshold=args.unique_words_threshold,
                 long_word_threshold=args.long_word_threshold,
                 long_word_rel_threshold=args.long_word_rel_threshold,
-                char_rate_threshold=args.char_rate_threshold,
                 max_char_rate=args.max_char_rate,
             ),
             FastTextLIDStage(
@@ -182,6 +222,29 @@ def main() -> None:
                 text_key="qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1",
                 output_text_key="cleaned_text",
             ),
+            AbbreviationConcatStage(
+                text_key="cleaned_text",
+                output_text_key="abbreviated_text",
+                language=args.target_lang,
+            ),
+            *([PnCRestorationStage(
+                model_id=args.pnc_model_id,
+                text_key="abbreviated_text",
+                output_text_key="pnc_text",
+                tensor_parallel_size=args.pnc_tensor_parallel_size,
+                batch_size=args.pnc_batch_size,
+                max_model_len=args.pnc_max_model_len,
+                max_num_seqs=args.pnc_max_num_seqs,
+                prep_workers=args.pnc_prep_workers,
+                **({"pnc_prompt": pnc_prompt_text} if pnc_prompt_text else {}),
+                **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
+            ),
+            PnCContentGuardStage(
+                text_key="abbreviated_text",
+                pnc_text_key="pnc_text",
+                rejected_text_key="rejected_pnc_text",
+            )] if not args.skip_pnc else []),
+
             ShardedManifestWriterStage(
                 output_dir=args.output_dir,
             ),
