@@ -90,7 +90,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
             for i in range(int(len(words) / t)):
                 chunk_start = i * t
                 chunk_end = chunk_start + t
-                if any(c.isdigit() for c in words[chunk_end]):
+                if chunk_end < len(words) and any(c.isdigit() for c in words[chunk_end]):
                     shorter_strings.append(
                         " ".join(prev_string + words[chunk_start : chunk_end - self.num_words_look_back])
                     )
