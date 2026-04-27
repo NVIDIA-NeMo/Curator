@@ -184,6 +184,7 @@ class VLLMInference:
 
     def load_model(self) -> None:
         """Instantiate the ``vllm.LLM`` engine."""
+        os.environ["VLLM_USE_V1"] = "0"
         start_time = time.time()
         try:
             self.llm = LLM(**self.model_params)

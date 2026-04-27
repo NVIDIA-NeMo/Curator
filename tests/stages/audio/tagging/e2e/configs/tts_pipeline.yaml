@@ -57,7 +57,7 @@ stages:
     transcribe_batch_size: 4
     num_workers: 1
     resources:
-      gpus: 1
+      gpus: 0.8
 
   # 5. Join split audio metadata
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
@@ -79,6 +79,8 @@ stages:
   # 8. Calculate audio quality metrics
   - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
     name: "SquimMetrics"
+    resources:
+      gpus: 0.05
 
   # 9. Prepare TTS segments
   - _target_: nemo_curator.stages.audio.tagging.PrepareModuleSegmentsStage

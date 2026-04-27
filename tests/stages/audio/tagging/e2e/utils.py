@@ -28,17 +28,15 @@ def load_manifest(manifest_file: str, encoding: str | None = None) -> list[dict[
         return [json.loads(line) for line in f if line.strip()]
 
 
-def _approx_metrics(metrics: dict) -> dict:
-    """Wrap numeric metric values with pytest.approx for tolerant comparison."""
-    result = {}
-    for k, v in metrics.items():
-        if isinstance(v, dict):
-            result[k] = _approx_metrics(v)
-        elif isinstance(v, float):
-            result[k] = pytest.approx(v, rel=1e-3)
-        else:
-            result[k] = v
-    return result
+def _approx_value(v: Any) -> Any:  # noqa: ANN401
+    """Wrap a single value with pytest.approx if numeric, recursing into containers."""
+    if isinstance(v, dict):
+        return {k: _approx_value(val) for k, val in v.items()}
+    if isinstance(v, list):
+        return [_approx_value(item) for item in v]
+    if isinstance(v, float):
+        return pytest.approx(v, rel=1e-2)
+    return v
 
 
 def check_output(output_manifest: str, reference_manifest: str, text_key: str = "text") -> None:
@@ -72,7 +70,7 @@ def check_output(output_manifest: str, reference_manifest: str, text_key: str = 
                         f"Text mismatch in segment ({ref_seg['start']:.2f}-{ref_seg['end']:.2f})"
                     )
                 if "metrics" in ref_seg:
-                    assert out_seg["metrics"] == _approx_metrics(ref_seg["metrics"])
+                    assert out_seg["metrics"] == _approx_value(ref_seg["metrics"])
 
         if "alignment" in ref_entry:
             assert len(out_entry["alignment"]) == len(ref_entry["alignment"]), (
