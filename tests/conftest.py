@@ -21,8 +21,13 @@ GPU resources based on the test session's requirements.
 import os
 import re
 import subprocess
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
+
+# Under pytest+coverage, the parent process holds several GB; Ray's default 0.95 RAM threshold
+# can kill Xenna workers during setup. Allow slightly more headroom unless already overridden.
+os.environ.setdefault("RAY_memory_usage_threshold", "0.98")
 
 import pytest
 import ray
@@ -33,21 +38,44 @@ from nemo_curator.core.client import RayClient
 MODALITY_GROUPS = ["text", "image", "video", "audio"]
 
 
-def gpu_available() -> bool:
-    """Check if GPU is available on the system using multiple detection methods."""
-    # Method 1: Try pynvml
+def _safe_loguru_info(message: str) -> None:
+    """Log at INFO without breaking session teardown when stderr is already closed.
+
+    After a test failure, pytest/coverage may close streams before session-scoped
+    fixtures tear down; loguru would otherwise raise ValueError and mask the real error.
+    """
+    with suppress(ValueError, OSError, RuntimeError):
+        logger.info(message)
+
+
+def gpu_count() -> int:
+    """Return the number of visible GPUs, or 0 if detection fails."""
     try:
         import pynvml
 
         pynvml.nvmlInit()
-        gpu_count = pynvml.nvmlDeviceGetCount()
-        if gpu_count > 0:
-            logger.info(f"Detected {gpu_count} GPU(s) via pynvml")
-            return True
+        n = pynvml.nvmlDeviceGetCount()
+        logger.info(f"Detected {n} GPU(s) via pynvml")
+        return int(n)
     except Exception:  # noqa: BLE001, S110
         pass
 
-    # Method 2: Try nvidia-smi with short timeout
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "-L"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if result.returncode == 0:
+            n = sum(1 for line in result.stdout.splitlines() if line.strip().startswith("GPU "))
+            if n > 0:
+                logger.info(f"Detected {n} GPU(s) via nvidia-smi -L")
+                return n
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, OSError):
+        pass
+
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=count", "--format=csv,noheader,nounits"],  # noqa: S607
@@ -57,14 +85,18 @@ def gpu_available() -> bool:
             check=False,
         )
         if result.returncode == 0 and result.stdout.strip().isdigit():
-            gpu_count = int(result.stdout.strip())
-            logger.info(f"Detected {gpu_count} GPU(s) via nvidia-smi")
-            return gpu_count > 0
+            n = int(result.stdout.strip())
+            logger.info(f"Detected {n} GPU(s) via nvidia-smi count")
+            return n
     except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, OSError):
         pass
 
-    logger.warning("No GPU detected")
-    return False
+    return 0
+
+
+def gpu_available() -> bool:
+    """Check if GPU is available on the system using multiple detection methods."""
+    return gpu_count() > 0
 
 
 def session_needs_gpu(config: pytest.Config, collected_items: list[pytest.Item]) -> bool:
@@ -189,7 +221,7 @@ def shared_ray_cluster(tmp_path_factory: pytest.TempPathFactory, pytestconfig: p
         raise RuntimeError(error_msg)
 
     num_cpus = 11
-    num_gpus = 2 if needs_gpu else 0
+    num_gpus = min(2, gpu_count()) if needs_gpu else 0
     object_store_memory = 2 * (1024**3)  # 2 GB
 
     logger.info(f"Configuring Ray cluster with {'GPU' if needs_gpu else 'CPU-only'} support")
@@ -211,8 +243,9 @@ def shared_ray_cluster(tmp_path_factory: pytest.TempPathFactory, pytestconfig: p
     try:
         yield ray_address
     finally:
-        logger.info("Shutting down Ray cluster")
-        ray_client.stop()
+        _safe_loguru_info("Shutting down Ray cluster")
+        with suppress(Exception):
+            ray_client.stop()
 
 
 @pytest.fixture
@@ -228,8 +261,9 @@ def shared_ray_client(shared_ray_cluster: str) -> None:
     try:
         yield
     finally:
-        logger.info("Shutting down Ray client")
-        ray.shutdown()
+        _safe_loguru_info("Shutting down Ray client")
+        with suppress(Exception):
+            ray.shutdown()
 
 
 @pytest.fixture

@@ -18,8 +18,8 @@ ALM (Audio Language Model) Data Pipeline for NeMo Curator.
 This script processes audio manifests to create training windows for
 Audio Language Models using YAML-based configuration with Hydra.
 
-The pipeline starts with ALMManifestReader (CompositeStage that decomposes into
-FilePartitioningStage + ALMManifestReaderStage for line-by-line JSONL reading
+The pipeline starts with ManifestReader (CompositeStage that decomposes into
+FilePartitioningStage + ManifestReaderStage for line-by-line JSONL reading
 on workers) followed by configurable processing stages.
 
 Features:
