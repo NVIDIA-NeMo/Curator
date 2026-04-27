@@ -113,6 +113,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                     help="Path to regex substitution rules YAML.")
     tf.add_argument("--target_lang", type=str, default="en",
                     help="Expected language code for LID filtering.")
+    tf.add_argument("--source_lang_key", type=str, default="",
+                    help="Per-sample language key in manifest for {language} prompt substitution. "
+                         "Empty (default) disables per-sample language threading.")
     tf.add_argument("--min_lang_prob", type=float, default=0.8,
                     help="Minimum FastText language probability to keep an entry.")
     tf.add_argument("--unique_words_threshold", type=float, default=0.4,
@@ -224,6 +227,7 @@ def main() -> None:
             max_num_seqs=args.max_num_seqs,
             gpu_memory_utilization=args.gpu_memory_utilization,
             prep_workers=args.prep_workers,
+            source_lang_key=args.source_lang_key,
             pred_text_key="qwen3_prediction_s1",
             disfluency_text_key="qwen3_prediction_s2",
             keep_waveform=bool(args.asr_model_id),

@@ -71,6 +71,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     system_prompt: str | None = None
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
+    source_lang_key: str = ""
     pred_text_key: str = "qwen3_prediction_s1"
     disfluency_text_key: str = "qwen3_prediction_s2"
     max_model_len: int = 32768
@@ -166,8 +167,11 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
 
         waveforms = [t.data[self.waveform_key] for t in tasks]
         sample_rates = [t.data[self.sample_rate_key] for t in tasks]
+        languages: list[str | None] | None = None
+        if self.source_lang_key:
+            languages = [t.data.get(self.source_lang_key) or None for t in tasks]
 
-        pred_texts, disfluency_texts = self._model.generate(waveforms, sample_rates)
+        pred_texts, disfluency_texts = self._model.generate(waveforms, sample_rates, languages)
 
         for task, pred, disfl in zip(tasks, pred_texts, disfluency_texts, strict=True):
             task.data[self.pred_text_key] = pred

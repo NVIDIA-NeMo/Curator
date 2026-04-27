@@ -161,29 +161,46 @@ class QwenOmni(ModelInterface):
 
         return librosa.resample(waveform, orig_sr=orig_sr, target_sr=target_sr)
 
-    def _build_messages(self, waveform: np.ndarray) -> list[dict[str, Any]]:
-        """Build Turn 1 chat messages with an in-memory waveform (numpy array at 16 kHz)."""
+    def _resolve_prompt(self, template: str, language: str | None) -> str:
+        """Replace ``{language}`` placeholder if *language* is provided."""
+        if language and template and "{language}" in template:
+            return template.replace("{language}", language)
+        return template
+
+    def _build_messages(self, waveform: np.ndarray, language: str | None = None) -> list[dict[str, Any]]:
+        """Build Turn 1 chat messages with an in-memory waveform (numpy array at 16 kHz).
+
+        Prompts may contain a ``{language}`` placeholder which is replaced
+        with *language* (e.g., ``"French"``) when provided.
+        """
+        prompt = self._resolve_prompt(self.prompt_text, language)
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
-            messages.append({"role": "system", "content": [{"type": "text", "text": self.system_prompt}]})
+            sys_prompt = self._resolve_prompt(self.system_prompt, language)
+            messages.append({"role": "system", "content": [{"type": "text", "text": sys_prompt}]})
         messages.append({
             "role": "user",
             "content": [
-                {"type": "text", "text": self.prompt_text},
+                {"type": "text", "text": prompt},
                 {"type": "audio", "audio": waveform},
             ],
         })
         return messages
 
-    def _build_turn2_messages(self, waveform: np.ndarray, pred_text: str) -> list[dict[str, Any]]:
-        """Build Turn 2 messages: full Turn 1 conversation history + follow-up promt."""
+    def _build_turn2_messages(
+        self, waveform: np.ndarray, pred_text: str, language: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Build Turn 2 messages: full Turn 1 conversation history + follow-up prompt."""
+        prompt = self._resolve_prompt(self.prompt_text, language)
+        followup = self._resolve_prompt(self.followup_prompt, language)
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
-            messages.append({"role": "system", "content": [{"type": "text", "text": self.system_prompt}]})
+            sys_prompt = self._resolve_prompt(self.system_prompt, language)
+            messages.append({"role": "system", "content": [{"type": "text", "text": sys_prompt}]})
         messages.append({
             "role": "user",
             "content": [
-                {"type": "text", "text": self.prompt_text},
+                {"type": "text", "text": prompt},
                 {"type": "audio", "audio": waveform},
             ],
         })
@@ -191,19 +208,19 @@ class QwenOmni(ModelInterface):
         messages.append({
             "role": "user",
             "content": [
-                {"type": "text", "text": self.followup_prompt},
+                {"type": "text", "text": followup},
             ],
         })
         return messages
 
     def _prepare_single(
-        self, waveform: np.ndarray, sample_rate: int,
+        self, waveform: np.ndarray, sample_rate: int, language: str | None = None,
     ) -> tuple[dict[str, Any], np.ndarray] | None:
         from qwen_omni_utils import process_mm_info
 
         try:
             waveform_16k = self._resample(waveform, sample_rate)
-            messages = self._build_messages(waveform_16k)
+            messages = self._build_messages(waveform_16k, language)
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
         except Exception:  # noqa: BLE001
@@ -227,18 +244,23 @@ class QwenOmni(ModelInterface):
         self,
         waveforms: list[np.ndarray],
         sample_rates: list[int],
+        languages: list[str | None] | None = None,
     ) -> list[tuple[dict[str, Any], np.ndarray] | None]:
+        langs = languages if languages is not None else [None] * len(waveforms)
         if self._prep_pool is None:
-            return [self._prepare_single(w, sr) for w, sr in zip(waveforms, sample_rates, strict=False)]
-        return list(self._prep_pool.map(self._prepare_single, waveforms, sample_rates))
+            return [
+                self._prepare_single(w, sr, lang)
+                for w, sr, lang in zip(waveforms, sample_rates, langs, strict=False)
+            ]
+        return list(self._prep_pool.map(self._prepare_single, waveforms, sample_rates, langs))
 
     def _prepare_turn2_single(
-        self, waveform_16k: np.ndarray, pred_text: str,
+        self, waveform_16k: np.ndarray, pred_text: str, language: str | None = None,
     ) -> dict[str, Any] | None:
         from qwen_omni_utils import process_mm_info
 
         try:
-            messages = self._build_turn2_messages(waveform_16k, pred_text)
+            messages = self._build_turn2_messages(waveform_16k, pred_text, language)
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
         except Exception:  # noqa: BLE001
@@ -262,13 +284,15 @@ class QwenOmni(ModelInterface):
         self,
         waveforms_16k: list[np.ndarray],
         pred_texts: list[str],
+        languages: list[str | None] | None = None,
     ) -> list[dict[str, Any] | None]:
+        langs = languages if languages is not None else [None] * len(waveforms_16k)
         if self._prep_pool is None:
             return [
-                self._prepare_turn2_single(w, pt)
-                for w, pt in zip(waveforms_16k, pred_texts, strict=False)
+                self._prepare_turn2_single(w, pt, lang)
+                for w, pt, lang in zip(waveforms_16k, pred_texts, langs, strict=False)
             ]
-        return list(self._prep_pool.map(self._prepare_turn2_single, waveforms_16k, pred_texts))
+        return list(self._prep_pool.map(self._prepare_turn2_single, waveforms_16k, pred_texts, langs))
 
     # ------------------------------------------------------------------
     # Generation
@@ -278,6 +302,7 @@ class QwenOmni(ModelInterface):
         self,
         waveforms: list[np.ndarray],
         sample_rates: list[int],
+        languages: list[str | None] | None = None,
     ) -> tuple[list[str], list[str]]:
         """Run batched two-turn inference on in-memory audio waveforms.
 
@@ -288,6 +313,9 @@ class QwenOmni(ModelInterface):
         Args:
             waveforms: List of 1-D mono numpy float32 arrays.
             sample_rates: Corresponding sample rates for each waveform.
+            languages: Optional per-sample language strings for ``{language}``
+                placeholder substitution in prompts. Length must match
+                ``waveforms``. Pass ``None`` (default) to skip substitution.
 
         Returns:
             ``(pred_texts, disfluency_texts)`` — one string per input for
@@ -301,7 +329,7 @@ class QwenOmni(ModelInterface):
         n = len(waveforms)
 
         # -- Turn 1 ----------------------------------------------------------
-        prepared = self._prepare_batch(waveforms, sample_rates)
+        prepared = self._prepare_batch(waveforms, sample_rates, languages)
         valid_indices = [i for i, p in enumerate(prepared) if p is not None]
         valid_inputs = [prepared[i][0] for i in valid_indices]
         waveforms_16k: dict[int, np.ndarray] = {i: prepared[i][1] for i in valid_indices}
@@ -327,9 +355,13 @@ class QwenOmni(ModelInterface):
         if not t2_indices:
             return pred_texts, [""] * n
 
+        t2_languages = (
+            [languages[i] for i in t2_indices] if languages is not None else None
+        )
         t2_prepared = self._prepare_turn2_batch(
             [waveforms_16k[i] for i in t2_indices],
             [pred_texts[i] for i in t2_indices],
+            t2_languages,
         )
 
         t2_valid = [(i, p) for i, p in zip(t2_indices, t2_prepared, strict=False) if p is not None]
