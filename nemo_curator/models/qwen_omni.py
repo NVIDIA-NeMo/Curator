@@ -116,6 +116,8 @@ class QwenOmni(ModelInterface):
             max_num_seqs=self.max_num_seqs,
             max_model_len=self.max_model_len,
             seed=1234,
+            enable_prefix_caching=True,
+            prefix_caching_hash_algo="xxhash",
         )
 
         from transformers import Qwen3OmniMoeProcessor

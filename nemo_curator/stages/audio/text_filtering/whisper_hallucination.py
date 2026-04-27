@@ -46,6 +46,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     duration_key: str = "duration"
     text_key: str = "pred_text"
     skip_me_key: str = "_skip_me"
+    notes_key: str = "additional_notes"
     overwrite: bool = False
     recovery_value: str = ""
     name: str = "WhisperHallucination"
@@ -72,7 +73,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.text_key, self.skip_me_key, self.duration_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.skip_me_key]
+        return [], [self.skip_me_key, self.notes_key]
 
     def _repeated_ngrams(self, words: list[str]) -> bool:
         if not words:
@@ -108,7 +109,8 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         return chars / duration > self.max_char_rate
 
     def _process_single(self, task: AudioTask) -> AudioTask:
-        if not self.overwrite and task.data.get(self.skip_me_key, ""):
+        current_flag = str(task.data.get(self.skip_me_key, ""))
+        if not self.overwrite and current_flag:
             return task
         text = task.data[self.text_key]
         if not isinstance(text, str) or not text.strip():
@@ -123,6 +125,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
 
         self._n_processed += 1
         is_hallucinated = repeated or long_w or phrase or high_rate
+        was_flagged = current_flag.startswith("Hallucination")
         if is_hallucinated:
             self._n_flagged += 1
             reasons = [
@@ -138,10 +141,13 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             logger.debug(
                 f"[{self.name}] flagged ({','.join(reasons)}) dur={duration:.2f}s: {text[:80]!r}"
             )
-            if self.overwrite or not task.data[self.skip_me_key]:
+            if was_flagged or not current_flag:
                 task.data[self.skip_me_key] = f"Hallucination:{self.name}"
-        elif self.overwrite:
-            task.data[self.skip_me_key] = self.recovery_value
+        elif self.overwrite and was_flagged:
+            task.data[self.skip_me_key] = ""
+            existing_notes = str(task.data.get(self.notes_key, ""))
+            note = self.recovery_value
+            task.data[self.notes_key] = f"{existing_notes}; {note}".lstrip("; ") if existing_notes else note
         return task
 
     def process(self, task: AudioTask) -> AudioTask:

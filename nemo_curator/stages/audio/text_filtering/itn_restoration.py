@@ -196,9 +196,9 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     itn_filtered_key: str = "itn_filtered"
     enable_validation: bool = True
     tensor_parallel_size: int | None = None
-    max_output_tokens: int = 4096
-    max_model_len: int = 32768
-    max_num_seqs: int = 256
+    max_output_tokens: int = 512
+    max_model_len: int = 4096
+    max_num_seqs: int = 16
     gpu_memory_utilization: float = 0.95
     kv_cache_dtype: str = "fp8"
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
@@ -354,7 +354,10 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         for i, task in enumerate(tasks):
             text = task.data.get(self.text_key, "")
             skip = task.data.get(self.skip_me_key, "")
-            if not text or not text.strip() or skip:
+            if skip:
+                task.data[self.output_text_key] = ""
+                continue
+            if not text or not text.strip():
                 task.data[self.output_text_key] = text
                 continue
             valid_indices.append(i)

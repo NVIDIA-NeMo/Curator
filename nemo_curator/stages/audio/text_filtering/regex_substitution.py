@@ -68,7 +68,7 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _process_single(self, task: AudioTask) -> AudioTask:
         if task.data.get(self.skip_me_key, ""):
-            task.data.setdefault(self.output_text_key, task.data.get(self.text_key, ""))
+            task.data.setdefault(self.output_text_key, "")
             return task
         text = task.data[self.text_key]
         if not isinstance(text, str):

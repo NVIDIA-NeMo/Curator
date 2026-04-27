@@ -82,7 +82,7 @@ from nemo_curator.stages.audio.text_filtering.select_best_prediction import Sele
 from nemo_curator.stages.resources import Resources
 
 
-def _build_arg_parser() -> argparse.ArgumentParser:
+def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap = argparse.ArgumentParser(description="QwenOmni in-process vLLM pipeline")
     ap.add_argument("--data_config", type=str, required=True, help="Granary YAML data config.")
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
@@ -108,7 +108,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     tf.add_argument("--hall_phrases", type=str, required=True,
                     help="Path to hallucination phrases text file.")
     tf.add_argument("--fasttext_model", type=str, default="lid.176.ftz",
-                    help="FastText LID model: local path or known name (lid.176.bin / lid.176.ftz).")
+                    help="FastText LID model: HuggingFace repo ID, local path, or known name (lid.176.bin / lid.176.ftz).")
     tf.add_argument("--regex_yaml", type=str, required=True,
                     help="Path to regex substitution rules YAML.")
     tf.add_argument("--target_lang", type=str, default="en",
@@ -170,11 +170,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                      help="TP size for ITN model (None = auto-detect).")
     itn.add_argument("--itn_max_output_tokens", type=int, default=4096,
                      help="Max tokens to generate per ITN sample.")
+    itn.add_argument("--itn_max_model_len", type=int, default=4096,
+                     help="Max context length for ITN vLLM engine.")
+    itn.add_argument("--itn_max_num_seqs", type=int, default=16,
+                     help="Max concurrent sequences for ITN vLLM engine.")
+    itn.add_argument("--itn_gpu_memory_utilization", type=float, default=0.95,
+                     help="Fraction of GPU memory for ITN vLLM engine.")
     itn.add_argument("--itn_no_validation", action="store_true", help="Disable ITN output validation.")
     return ap
 
 
-def main() -> None:
+def main() -> None:  # noqa: C901
     args = _build_arg_parser().parse_args()
 
     prompt = args.prompt
@@ -259,7 +265,6 @@ def main() -> None:
                 batch_size=args.asr_batch_size,
                 gpu_memory_utilization=args.asr_gpu_memory_utilization,
                 max_new_tokens=args.asr_max_new_tokens,
-                run_only_if_key="_skip_me",
             ),
             WhisperHallucinationStage(
                 name="WhisperHallucination_asr",
@@ -320,18 +325,19 @@ def main() -> None:
         ])
 
     if args.enable_itn:
-        stages.append(
-            ITNRestorationStage(
-                model_id=args.itn_model_id,
-                prompt_text=itn_prompt_text,
-                text_key=args.itn_text_key or ("pnc_text" if not args.skip_pnc else "abbreviated_text"),
-                output_text_key=args.itn_output_key,
-                tensor_parallel_size=args.itn_tensor_parallel_size,
-                max_output_tokens=args.itn_max_output_tokens,
-                batch_size=args.itn_batch_size,
-                enable_validation=not args.itn_no_validation,
-            )
-        )
+        stages.append(ITNRestorationStage(
+            model_id=args.itn_model_id,
+            prompt_text=itn_prompt_text,
+            text_key=args.itn_text_key or ("pnc_text" if not args.skip_pnc else "abbreviated_text"),
+            output_text_key=args.itn_output_key,
+            tensor_parallel_size=args.itn_tensor_parallel_size,
+            max_output_tokens=args.itn_max_output_tokens,
+            max_model_len=args.itn_max_model_len,
+            max_num_seqs=args.itn_max_num_seqs,
+            gpu_memory_utilization=args.itn_gpu_memory_utilization,
+            batch_size=args.itn_batch_size,
+            enable_validation=not args.itn_no_validation,
+        ))
 
     stages.append(ShardedManifestWriterStage(output_dir=args.output_dir))
 

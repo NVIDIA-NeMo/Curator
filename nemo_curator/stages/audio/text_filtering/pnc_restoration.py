@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -26,6 +27,8 @@ from nemo_curator.models.qwen_text_llm import QwenTextLLM
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+_DEFAULT_PNC_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "pnc_prompt.md"
 
 
 @dataclass
@@ -82,13 +85,11 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         'Answer only "yes" or "no".\n\n'
         "Text: {text}"
     )
-    pnc_prompt: str = (
-        "Restore proper punctuation and capitalization to the following text. "
-        "Output only the corrected text, nothing else.\n\nText: {text}"
-    )
+    pnc_prompt: str | None = None
+    pnc_prompt_file: str | None = None
     system_prompt: str | None = None
-    max_model_len: int = 8192
-    max_num_seqs: int = 64
+    max_model_len: int = 4096
+    max_num_seqs: int = 16
     gpu_memory_utilization: float = 0.95
     tensor_parallel_size: int | None = None
     max_output_tokens: int = 512
@@ -98,6 +99,13 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     batch_size: int = 64
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
+    def _resolve_pnc_prompt(self) -> str:
+        if self.pnc_prompt:
+            return self.pnc_prompt
+        path = Path(self.pnc_prompt_file) if self.pnc_prompt_file else _DEFAULT_PNC_PROMPT_PATH
+        logger.info("PnCRestoration: loading prompt from {}", path)
+        return path.read_text(encoding="utf-8").strip()
+
     def __post_init__(self) -> None:
         self._model: QwenTextLLM | None = None
         tp = self.tensor_parallel_size
@@ -105,10 +113,11 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             self.resources = Resources(gpus=float(tp))
 
     def _create_model(self) -> QwenTextLLM:
+        pnc_prompt = self._resolve_pnc_prompt()
         return QwenTextLLM(
             model_id=self.model_id,
             completeness_prompt=self.completeness_prompt,
-            pnc_prompt=self.pnc_prompt,
+            pnc_prompt=pnc_prompt,
             system_prompt=self.system_prompt,
             max_model_len=self.max_model_len,
             max_num_seqs=self.max_num_seqs,
@@ -175,7 +184,9 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         for i, task in enumerate(tasks):
             skip = task.data.get(self.skip_me_key, "")
             text = task.data.get(self.text_key, "")
-            if skip or not text.strip():
+            if skip:
+                task.data[self.output_text_key] = ""
+            elif not text.strip():
                 task.data[self.output_text_key] = text
             else:
                 eligible_indices.append(i)

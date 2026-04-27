@@ -29,6 +29,26 @@ _FASTTEXT_MODEL_URLS: dict[str, str] = {
 }
 _DEFAULT_CACHE_DIR = os.path.expanduser("~/.cache/nemo_curator/fasttext")
 
+_ISO639_3_TO_1: dict[str, str] = {
+    "afr": "af", "amh": "am", "ara": "ar", "asm": "as", "aze": "az",
+    "bel": "be", "ben": "bn", "bos": "bs", "bul": "bg", "cat": "ca",
+    "ces": "cs", "cym": "cy", "dan": "da", "deu": "de", "ell": "el",
+    "eng": "en", "est": "et", "eus": "eu", "fas": "fa", "fin": "fi",
+    "fra": "fr", "gle": "ga", "glg": "gl", "guj": "gu", "hau": "ha",
+    "heb": "he", "hin": "hi", "hrv": "hr", "hun": "hu", "hye": "hy",
+    "ibo": "ig", "ind": "id", "isl": "is", "ita": "it", "jav": "jv",
+    "jpn": "ja", "kan": "kn", "kat": "ka", "khm": "km", "kor": "ko",
+    "lao": "lo", "lav": "lv", "lit": "lt", "mal": "ml", "mar": "mr",
+    "mkd": "mk", "mon": "mn", "msa": "ms", "mya": "my", "nep": "ne",
+    "nld": "nl", "nob": "nb", "nor": "no", "ori": "or", "pan": "pa",
+    "pol": "pl", "por": "pt", "ron": "ro", "rus": "ru", "sin": "si",
+    "slk": "sk", "slv": "sl", "som": "so", "spa": "es", "sqi": "sq",
+    "srp": "sr", "sun": "su", "swa": "sw", "swe": "sv", "tam": "ta",
+    "tel": "te", "tgl": "tl", "tha": "th", "tur": "tr", "ukr": "uk",
+    "urd": "ur", "vie": "vi", "xho": "xh", "yor": "yo", "zho": "zh",
+    "zul": "zu",
+}
+
 
 @dataclass
 class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
@@ -43,21 +63,29 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
 
     An already non-empty ``skip_me`` value is never overwritten.
 
+    Texts with fewer than ``min_word_count`` words are passed through
+    without LID filtering because FastText confidence is unreliable on
+    very short inputs (especially single words).
+
     ``model_path`` can be:
+    - A HuggingFace Hub repo ID (e.g.
+      ``facebook/fasttext-language-identification``), which is downloaded
+      via ``huggingface_hub``.
     - An absolute path to a local ``.bin`` or ``.ftz`` file.
-    - A known model name (``lid.176.bin`` or ``lid.176.ftz``), which is
+    - A legacy model name (``lid.176.bin`` or ``lid.176.ftz``), which is
       downloaded to ``~/.cache/nemo_curator/fasttext/`` on first use.
     """
 
     model_path: str = ""
     target_lang: str = "en"
     min_lang_prob: float = 0.8
+    min_word_count: int = 2
     text_key: str = "pred_text"
     skip_me_key: str = "_skip_me"
     name: str = "FastTextLID"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
-    _lid: Any = field(default=None, init=False, repr=False)
+    _model: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.model_path:
@@ -76,18 +104,39 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
             logger.info(f"FastTextLIDStage: downloading {self.model_path} from {url}")
             urllib.request.urlretrieve(url, cache_path)  # noqa: S310
             return cache_path
+        if "/" in self.model_path:
+            try:
+                from huggingface_hub import hf_hub_download
+
+                return hf_hub_download(repo_id=self.model_path, filename="model.bin")
+            except Exception as exc:
+                msg = f"Failed to download '{self.model_path}' from HuggingFace Hub: {exc}"
+                raise ValueError(msg) from exc
         msg = (
-            f"model_path '{self.model_path}' is not a valid file path and not a known model name. "
-            f"Known names: {list(_FASTTEXT_MODEL_URLS)}"
+            f"model_path '{self.model_path}' is not a valid file path, a known model name, "
+            f"or a HuggingFace repo ID.  Known names: {list(_FASTTEXT_MODEL_URLS)}"
         )
         raise ValueError(msg)
 
+    @staticmethod
+    def _parse_label(raw_label: str) -> str:
+        """Extract a 2-letter ISO 639-1 language code from a fasttext label.
+
+        Handles both the legacy format (``__label__en``) and the HuggingFace
+        ``facebook/fasttext-language-identification`` format
+        (``__label__eng_Latn``).
+        """
+        lang_part = raw_label.replace("__label__", "")
+        if "_" in lang_part:
+            iso3 = lang_part.split("_", 1)[0]
+            return _ISO639_3_TO_1.get(iso3, iso3).lower()
+        return lang_part.lower()
+
     def setup(self, _worker_metadata: object | None = None) -> None:
-        from nemo_curator.stages.text.filters.fasttext.fasttext_filters import FastTextLangId
+        import fasttext
 
         resolved = self._resolve_model_path()
-        self._lid = FastTextLangId(model_path=resolved, min_langid_score=0.0)
-        self._lid.load_model()
+        self._model = fasttext.load_model(resolved)
         logger.info(f"FastTextLIDStage: loaded model from {resolved}")
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -95,6 +144,10 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.skip_me_key]
+
+    def _predict(self, text: str) -> tuple[str, float]:
+        labels, scores = self._model.predict([text], k=1)
+        return self._parse_label(labels[0][0]), scores[0][0].item()
 
     def _process_single(self, task: AudioTask) -> AudioTask:
         if task.data.get(self.skip_me_key, ""):
@@ -107,19 +160,21 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
             if not task.data[self.skip_me_key]:
                 task.data[self.skip_me_key] = f"Empty text:{self.name}"
             return task
-        result_str = self._lid.score_document(text)
-        score_list = eval(result_str)  # noqa: S307  — output of our own FastText model
-        prob = float(score_list[0])
-        lang = str(score_list[1]).lower()
+        if len(text.split()) < self.min_word_count:
+            return task
+        lang, prob = self._predict(text)
+        expected = self.target_lang
+        if self.source_lang_key and self.source_lang_key in task.data:
+            expected = task.data[self.source_lang_key]
         if not task.data[self.skip_me_key]:
-            if lang != self.target_lang.lower():
-                task.data[self.skip_me_key] = "Wrong language"
+            if lang != expected.lower():
+                task.data[self.skip_me_key] = f"Wrong language:{self.name}"
             elif prob < self.min_lang_prob:
-                task.data[self.skip_me_key] = "Low probability of language"
+                task.data[self.skip_me_key] = f"Low probability of language:{self.name}"
         return task
 
     def process(self, task: AudioTask) -> AudioTask:
-        if self._lid is None:
+        if self._model is None:
             logger.warning(
                 f"FastTextLIDStage ({self.name}): setup() was not called before process(). "
                 "Calling setup() now — check that your executor invokes setup() on each worker."
@@ -128,7 +183,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
         return self._process_single(task)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        if self._lid is None:
+        if self._model is None:
             logger.warning(
                 f"FastTextLIDStage ({self.name}): setup() was not called before process_batch(). "
                 "Calling setup() now — check that your executor invokes setup() on each worker."

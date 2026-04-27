@@ -83,12 +83,12 @@ class QwenASR(ModelInterface):
             sig = inspect.signature(original)
             params = list(sig.parameters.values())
             if params and params[0].name == "func":
-                def compat_check_model_inputs(*args, **kwargs):
+                def compat_check_model_inputs(*args):  # noqa: ANN202
                     if args and callable(args[0]):
                         return original(args[0])
                     return original
                 transformers.check_model_inputs = compat_check_model_inputs
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110
             pass
 
     def setup(self) -> None:
@@ -114,6 +114,8 @@ class QwenASR(ModelInterface):
             max_new_tokens=self.max_new_tokens,
             trust_remote_code=True,
             enforce_eager=True,
+            enable_prefix_caching=True,
+            prefix_caching_hash_algo="xxhash",
         )
 
         logger.info("QwenASR model loaded")
