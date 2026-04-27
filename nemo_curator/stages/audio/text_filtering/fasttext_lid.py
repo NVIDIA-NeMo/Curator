@@ -43,6 +43,10 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
 
     An already non-empty ``skip_me`` value is never overwritten.
 
+    Texts with fewer than ``min_word_count`` words are passed through
+    without LID filtering because FastText confidence is unreliable on
+    very short inputs (especially single words).
+
     ``model_path`` can be:
     - An absolute path to a local ``.bin`` or ``.ftz`` file.
     - A known model name (``lid.176.bin`` or ``lid.176.ftz``), which is
@@ -52,6 +56,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
     model_path: str = ""
     target_lang: str = "en"
     min_lang_prob: float = 0.8
+    min_word_count: int = 2
     text_key: str = "pred_text"
     skip_me_key: str = "_skip_me"
     name: str = "FastTextLID"
@@ -105,7 +110,9 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
         text = text.strip().replace("\n", " ")
         if not text:
             if not task.data[self.skip_me_key]:
-                task.data[self.skip_me_key] = "Empty text"
+                task.data[self.skip_me_key] = f"Empty text:{self.name}"
+            return task
+        if len(text.split()) < self.min_word_count:
             return task
         result_str = self._lid.score_document(text)
         score_list = eval(result_str)  # noqa: S307  — output of our own FastText model
@@ -113,9 +120,9 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
         lang = str(score_list[1]).lower()
         if not task.data[self.skip_me_key]:
             if lang != self.target_lang.lower():
-                task.data[self.skip_me_key] = "Wrong language"
+                task.data[self.skip_me_key] = f"Wrong language:{self.name}"
             elif prob < self.min_lang_prob:
-                task.data[self.skip_me_key] = "Low probability of language"
+                task.data[self.skip_me_key] = f"Low probability of language:{self.name}"
         return task
 
     def process(self, task: AudioTask) -> AudioTask:
