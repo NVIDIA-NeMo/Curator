@@ -187,7 +187,11 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
             logger.exception(f"[BandFilter] Prediction error: {e}")
             return None
 
-        if task.data.get("band_prediction") != self.band_value:
+        actual = task.data.get("band_prediction", "unknown")
+        if actual != self.band_value:
+            logger.info(
+                f"[{task.task_id}] BAND FILTER FAILED: prediction '{actual}' != target '{self.band_value}'"
+            )
             return None
 
         return task
