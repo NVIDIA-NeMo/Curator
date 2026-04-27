@@ -83,7 +83,7 @@ class QwenASR(ModelInterface):
             sig = inspect.signature(original)
             params = list(sig.parameters.values())
             if params and params[0].name == "func":
-                def compat_check_model_inputs(*args):  # noqa: ANN002, ANN202
+                def compat_check_model_inputs(*args):  # noqa: ANN202
                     if args and callable(args[0]):
                         return original(args[0])
                     return original
