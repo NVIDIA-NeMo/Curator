@@ -43,10 +43,14 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 from transformers import AutoTokenizer
 
-# vLLM v1 engine uses multiprocessing that conflicts with Ray actors.
-# Force the classic (v0) engine to avoid core process spawning issues.
-os.environ.setdefault("VLLM_USE_V1", "0")
-from vllm import LLM, SamplingParams
+try:
+    # vLLM v1 engine uses multiprocessing that conflicts with Ray actors.
+    # Force the classic (v0) engine to avoid core process spawning issues.
+    os.environ.setdefault("VLLM_USE_V1", "0")
+    from vllm import LLM, SamplingParams
+except ImportError:
+    LLM = None
+    SamplingParams = None
 
 
 class VLLMInference:
@@ -64,6 +68,8 @@ class VLLMInference:
         model:              Kwargs forwarded to ``vllm.LLM()``.
         inference:          Kwargs forwarded to ``vllm.SamplingParams()``.
         apply_chat_template: Kwargs forwarded to ``tokenizer.apply_chat_template()``.
+        use_chat_api:       When *True*, use ``llm.chat()`` instead of
+                            ``llm.generate()``.  Defaults to *False*.
     """
 
     def __init__(  # noqa: PLR0913
@@ -75,6 +81,7 @@ class VLLMInference:
         model: dict[str, Any] | None = None,
         inference: dict[str, Any] | None = None,
         apply_chat_template: dict[str, Any] | None = None,
+        use_chat_api: bool = False,
     ):
         if model is None:
             model = {}
@@ -114,6 +121,7 @@ class VLLMInference:
         self.model_params = model
         self.inference_params = inference
         self.chat_template_params = apply_chat_template
+        self.use_chat_api = use_chat_api or "tokenizer_mode" in model
 
         self.device: str | None = None
         self.sampling_params: SamplingParams | None = None
@@ -189,7 +197,7 @@ class VLLMInference:
     def process_batch(self, entry_prompts: list) -> list:
         """Run a single generation call on a batch of prompts."""
         try:
-            if "tokenizer_mode" in self.model_params:
+            if self.use_chat_api:
                 return self.llm.chat(entry_prompts, self.sampling_params)
             return self.llm.generate(entry_prompts, self.sampling_params)
         except Exception as e:

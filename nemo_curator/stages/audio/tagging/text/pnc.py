@@ -170,12 +170,12 @@ class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
                     data_entry[self.segments_key][idx][self.text_key] = pnc_text
                     self.update_segment_alignment(data_entry[self.segments_key][idx], pnc_text)
 
-        elif data_entry.get(self.text_key, "") != "" and not self._should_skip(data_entry):
-            text_pnc = self._pnc_model.add_punctuation_capitalization(
-                [data_entry[self.text_key]], batch_size=self.batch_size
-            )
-            data_entry[self.text_key] = text_pnc[0]
-            self.update_segment_alignment(data_entry, text_pnc[0])
+        elif not self._should_skip(data_entry):
+            text = data_entry.get(self.text_key, "")
+            if text:
+                text_pnc = self._pnc_model.add_punctuation_capitalization([text], batch_size=self.batch_size)
+                data_entry[self.text_key] = text_pnc[0]
+                self.update_segment_alignment(data_entry, text_pnc[0])
 
         return task
 
@@ -201,6 +201,8 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         model_params:        Kwargs forwarded to ``vllm.LLM()``.
         sampling_params:     Kwargs forwarded to ``vllm.SamplingParams()``.
         chat_template_params: Kwargs forwarded to ``tokenizer.apply_chat_template()``.
+        use_chat_api:        When *True*, use ``llm.chat()`` instead of
+                             ``llm.generate()``.  Defaults to *False*.
         inference_batch_size: Max prompts per ``llm.generate()`` call.
     """
 
@@ -215,6 +217,7 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     model_params: dict[str, Any] = field(default_factory=dict)
     sampling_params: dict[str, Any] = field(default_factory=dict)
     chat_template_params: dict[str, Any] = field(default_factory=dict)
+    use_chat_api: bool = False
 
     inference_batch_size: int = 10000
     batch_size: int = 500
@@ -233,6 +236,7 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
             model=dict(self.model_params),
             inference=dict(self.sampling_params),
             apply_chat_template=dict(self.chat_template_params),
+            use_chat_api=self.use_chat_api,
         )
 
     def setup_on_node(
@@ -248,7 +252,6 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     def teardown(self) -> None:
         if self._vllm is not None:
             self._vllm.clean_up()
-            self._vllm = None
 
     def _collect_prompts(self, data: dict) -> list[tuple[str | list, list]]:
         """Collect ``(prompt, key_path)`` pairs from a manifest entry.

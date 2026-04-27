@@ -167,10 +167,11 @@ class TestVLLMInferenceProcessBatch:
         mock_llm.generate.assert_called_once()
         assert results[0].outputs[0].text == "out"
 
-    def test_chat_mode_when_tokenizer_mode_set(self, vllm_inference_cls: type) -> None:
+    def test_chat_mode_when_use_chat_api_set(self, vllm_inference_cls: type) -> None:
         v = vllm_inference_cls(
             prompt={"user": "{text}"},
-            model={"model": "m", "tokenizer_mode": "auto"},
+            model={"model": "m"},
+            use_chat_api=True,
         )
         mock_llm = MagicMock()
         mock_llm.chat.return_value = [SimpleNamespace(outputs=[SimpleNamespace(text="chat_out")])]
