@@ -37,13 +37,11 @@ class PromptFormatter:
     to load the appropriate tokenizer and chat template from HuggingFace Hub or a local path.
     """
 
-    def __init__(self, prompt_variant: str, model_path: str | None = None):
+    def __init__(self, prompt_variant: str):
         """Initialize the prompt formatter.
 
         Args:
             prompt_variant: Model variant to use (e.g., "qwen", "nemotron", "nemotron-3-nano-omni").
-            model_path: Path to a local checkpoint directory. Required when VARIANT_MAPPING
-                maps the variant to None (i.e., the model has no public HuggingFace ID yet).
         """
         if prompt_variant not in VARIANT_MAPPING:
             msg = f"Invalid prompt variant: {prompt_variant}. Valid variants are: {', '.join(VARIANT_MAPPING.keys())}"
@@ -52,17 +50,7 @@ class PromptFormatter:
         self.prompt_variant = prompt_variant
         self.text_prompt = None
 
-        # Resolve processor source: HF hub ID or local path
-        hf_model_id = VARIANT_MAPPING[prompt_variant]
-        if hf_model_id is None:
-            if not model_path:
-                msg = f"model_path is required for variant '{prompt_variant}' (no HuggingFace hub ID)"
-                raise ValueError(msg)
-            processor_source = model_path
-        else:
-            processor_source = hf_model_id
-
-        self.processor = AutoProcessor.from_pretrained(processor_source, trust_remote_code=True)
+        self.processor = AutoProcessor.from_pretrained(VARIANT_MAPPING[prompt_variant], trust_remote_code=True)
 
     def generate_inputs(
         self,
