@@ -41,7 +41,7 @@ class PromptFormatter:
         """Initialize the prompt formatter.
 
         Args:
-            prompt_variant: Model variant to use (e.g., "qwen", "nemotron", "nemotron-3-nano-omni").
+            prompt_variant: Model variant to use (e.g., "qwen", "nemotron", "nemotron-fp8", "nemotron-3-nano-omni").
         """
         if prompt_variant not in VARIANT_MAPPING:
             msg = f"Invalid prompt variant: {prompt_variant}. Valid variants are: {', '.join(VARIANT_MAPPING.keys())}"
@@ -50,7 +50,9 @@ class PromptFormatter:
         self.prompt_variant = prompt_variant
         self.text_prompt = None
 
-        self.processor = AutoProcessor.from_pretrained(VARIANT_MAPPING[prompt_variant], trust_remote_code=True)
+        # Load processor from HuggingFace (auto-downloads and caches)
+        hf_model_id = VARIANT_MAPPING[prompt_variant]
+        self.processor = AutoProcessor.from_pretrained(hf_model_id, trust_remote_code=True)
 
     def generate_inputs(
         self,

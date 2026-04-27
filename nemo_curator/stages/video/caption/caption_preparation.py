@@ -111,10 +111,11 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
         # Pre-warm the AutoProcessor trust_remote_code module cache once (sequentially)
         # before parallel workers start. Without this, concurrent workers race to write
         # the same transformers_modules cache files, causing partial-load AttributeErrors.
-        PromptFormatter(self.model_variant)
+        self.prompt_formatter = PromptFormatter(self.model_variant)
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        self.prompt_formatter = PromptFormatter(self.model_variant)
+        if not hasattr(self, "prompt_formatter"):
+            self.prompt_formatter = PromptFormatter(self.model_variant)
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
