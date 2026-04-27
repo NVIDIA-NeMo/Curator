@@ -131,6 +131,20 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
     ) -> None:
         write_json(data, dest, desc, source_video, verbose=self.verbose)
 
+    @staticmethod
+    def _cleanup_video_data(video: Video) -> None:
+        for clip in video.clips:
+            clip.buffer = None
+            clip.cosmos_embed1_embedding = None
+            for window in clip.windows:
+                window.mp4_bytes = None
+                window.llm_inputs.clear()
+                window.caption.clear()
+                window.enhanced_caption.clear()
+                window.webp_bytes = None
+        for clip in video.filtered_clips:
+            clip.buffer = None
+
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -171,17 +185,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
             for future_v in futures_videos:
                 future_v.result()
             # clean up intermediate data
-            for clip in video.clips:
-                clip.buffer = None
-                clip.cosmos_embed1_embedding = None
-                for window in clip.windows:
-                    window.mp4_bytes = None
-                    window.llm_inputs.clear()
-                    window.caption.clear()
-                    window.enhanced_caption.clear()
-                    window.webp_bytes = None
-            for clip in video.filtered_clips:
-                clip.buffer = None
+            self._cleanup_video_data(video)
 
         if self.verbose:
             logger.info(f"Video {video.input_path} has {len(video.clips)} clips and wrote to {self.output_path}")
