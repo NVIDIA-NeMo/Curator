@@ -90,8 +90,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
     ap.add_argument("--output_dir", type=str, required=True, help="Output directory for per-shard manifests.")
     ap.add_argument("--model_id", type=str, default="Qwen/Qwen3-Omni-30B-A3B-Instruct")
-    ap.add_argument("--prompt", type=str, default="Transcribe the audio.")
-    ap.add_argument("--prompt_file", type=str, default=None, help="Read prompt from file.")
+    ap.add_argument("--ml_prompt", type=str, default="Transcribe the audio.", help="Multilingual prompt text. Supports {language} placeholder resolved per-sample from source_lang.")
+    ap.add_argument("--ml_prompt_file", type=str, default=None, help="Read multilingual prompt from file. Overrides --ml_prompt.")
+    ap.add_argument("--en_prompt_file", type=str, default=None, help="English-specific prompt file. Used for en samples; --ml_prompt_file is used for all other languages.")
     ap.add_argument("--followup_prompt", type=str, default=None, help="Turn 2 follow-up prompt text.")
     ap.add_argument("--followup_prompt_file", type=str, default=None, help="Read Turn 2 follow-up prompt from file.")
     ap.add_argument("--system_prompt", type=str, default=None, help="System prompt text or path to file.")
@@ -205,10 +206,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
 def main() -> None:  # noqa: C901
     args = _build_arg_parser().parse_args()
 
-    prompt = args.prompt
-    if args.prompt_file:
-        with open(args.prompt_file, encoding="utf-8") as f:
+    prompt = args.ml_prompt
+    if args.ml_prompt_file:
+        with open(args.ml_prompt_file, encoding="utf-8") as f:
             prompt = f.read().strip()
+
+    en_prompt: str | None = None
+    if args.en_prompt_file:
+        with open(args.en_prompt_file, encoding="utf-8") as f:
+            en_prompt = f.read().strip()
 
     followup_prompt = args.followup_prompt
     if args.followup_prompt_file:
@@ -246,6 +252,7 @@ def main() -> None:  # noqa: C901
         InferenceQwenOmniStage(
             model_id=args.model_id,
             prompt_text=prompt,
+            en_prompt_text=en_prompt,
             followup_prompt=followup_prompt,
             system_prompt=system_prompt,
             tensor_parallel_size=args.tensor_parallel_size,

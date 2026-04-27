@@ -83,6 +83,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "QwenOmni_inference"
     model_id: str = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
     prompt_text: str = "Transcribe the audio."
+    en_prompt_text: str | None = None
     followup_prompt: str | None = None
     system_prompt: str | None = None
     waveform_key: str = "waveform"
@@ -112,6 +113,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         return QwenOmni(
             model_id=self.model_id,
             prompt_text=self.prompt_text,
+            en_prompt_text=self.en_prompt_text,
             followup_prompt=self.followup_prompt,
             system_prompt=self.system_prompt,
             max_model_len=self.max_model_len,

@@ -59,6 +59,7 @@ class QwenOmni(ModelInterface):
         self,
         model_id: str = _QWEN3_OMNI_MODEL_ID,
         prompt_text: str = "Transcribe the audio.",
+        en_prompt_text: str | None = None,
         followup_prompt: str = "Now listen to the audio again and add any false starts, filler words and preserve colloquial words (like lemme, gonna, wanna, etc) as is spoken in the audio.",
         system_prompt: str | None = None,
         max_model_len: int = 32768,
@@ -72,6 +73,7 @@ class QwenOmni(ModelInterface):
     ):
         self.model_id = model_id
         self.prompt_text = prompt_text
+        self.en_prompt_text = en_prompt_text
         self.followup_prompt = followup_prompt
         self.system_prompt = system_prompt
         self.max_model_len = max_model_len
@@ -169,9 +171,15 @@ class QwenOmni(ModelInterface):
             return template.replace("{language}", language)
         return template
 
+    def _get_prompt_text(self, language: str | None) -> str:
+        """Return the EN-specific prompt for English, otherwise the default prompt."""
+        if language and language == "English" and self.en_prompt_text:
+            return self.en_prompt_text
+        return self._resolve_prompt(self.prompt_text, language)
+
     def _build_messages(self, waveform: np.ndarray, language: str | None = None) -> list[dict[str, Any]]:
         """Build Turn 1 chat messages with an in-memory waveform (numpy array at 16 kHz)."""
-        prompt = self._resolve_prompt(self.prompt_text, language)
+        prompt = self._get_prompt_text(language)
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
             sys_prompt = self._resolve_prompt(self.system_prompt, language)
@@ -187,7 +195,7 @@ class QwenOmni(ModelInterface):
 
     def _build_turn2_messages(self, waveform: np.ndarray, pred_text: str, language: str | None = None) -> list[dict[str, Any]]:
         """Build Turn 2 messages: full Turn 1 conversation history + follow-up prompt."""
-        prompt = self._resolve_prompt(self.prompt_text, language)
+        prompt = self._get_prompt_text(language)
         followup = self._resolve_prompt(self.followup_prompt, language)
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
