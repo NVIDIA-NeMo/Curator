@@ -28,7 +28,10 @@ Convert spelled-out numbers to digits.
 Convert spoken ordinals to digit+suffix form.
 | Spoken Form | Written Form |
 |---|---|
+| first | 1st |
+| second | 2nd |
 | third | 3rd |
+| fourth | 4th |
 | twenty first | 21st |
 | fiftieth | 50th |
 
@@ -74,12 +77,20 @@ Use digits + abbreviated unit.
 | one hundred twenty centimeters | 120 cm |
 
 ### 8. Fractions
-Use numeric fraction notation.
+Use numeric slash notation for fractions.
+IMPORTANT: "quarter" in temporal/financial contexts (e.g., "fourth quarter", "first quarter earnings") is NOT a fraction — keep it as "quarter".
 | Spoken Form | Written Form |
 |---|---|
+| half | 1/2 |
+| one half | 1 1/2 |
+| a third | 1/3 |
+| two thirds | 2/3 |
+| a quarter | 1/4 |
 | three quarters | 3/4 |
 | one and three quarters | 1 3/4 |
-| one half | 1/2 |
+| three fifths | 3/5 |
+| fourth quarter of last year | 4th quarter of last year |
+| first quarter earnings | 1st quarter earnings |
 
 ### 9. Phone Numbers
 Group digits with dashes. "eight hundred" can be written as 800.
@@ -148,5 +159,12 @@ Capitalize the letter and convert the number to digits.
 
 ## Ambiguity Resolution
 - Prefer conversion to digits for quantities, measurements, ages, dates, and counts.
-- Keep as words for idiomatic expressions ("the only one"), proper nouns ("One Direction"), and indefinite references.
+- Keep as words for idiomatic expressions, proper nouns, and indefinite/pronominal references. Common cases that must stay as words:
+  - "one of the best" (indefinite pronoun, NOT "1 of the best")
+  - "the only one" (pronoun)
+  - "one another", "one by one" (idiomatic)
+  - "One Direction" (proper noun)
+  - "a couple of things" (vague quantity)
+- "quarter" in temporal/financial context stays as "quarter": "fourth quarter", "first quarter results", "quarter over quarter". Only convert to 1/4 when it means a mathematical fraction (e.g., "a quarter of a cup" → "1/4 of a cup").
+- "half" as a fraction converts to ½, but "half" in idiomatic use stays as a word: "half the time", "half asleep".
 - When a stammered/false-start portion contains number words, keep them as words: "o- o- one hundred" stays "o- o- 100".
