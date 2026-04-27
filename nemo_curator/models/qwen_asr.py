@@ -114,6 +114,8 @@ class QwenASR(ModelInterface):
             max_new_tokens=self.max_new_tokens,
             trust_remote_code=True,
             enforce_eager=True,
+            enable_prefix_caching=True,
+            prefix_caching_hash_algo="xxhash",
         )
 
         logger.info("QwenASR model loaded")

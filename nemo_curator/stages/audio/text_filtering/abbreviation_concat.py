@@ -237,7 +237,7 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
     def _process_single(self, task: AudioTask) -> AudioTask:
         skip = task.data.get(self.skip_me_key, "")
         if skip:
-            task.data.setdefault(self.output_text_key, task.data.get(self.text_key, ""))
+            task.data.setdefault(self.output_text_key, "")
             task.data.setdefault(self.abbreviations_key, [])
             return task
 

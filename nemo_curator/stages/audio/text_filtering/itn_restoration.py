@@ -354,7 +354,10 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         for i, task in enumerate(tasks):
             text = task.data.get(self.text_key, "")
             skip = task.data.get(self.skip_me_key, "")
-            if not text or not text.strip() or skip:
+            if skip:
+                task.data[self.output_text_key] = ""
+                continue
+            if not text or not text.strip():
                 task.data[self.output_text_key] = text
                 continue
             valid_indices.append(i)

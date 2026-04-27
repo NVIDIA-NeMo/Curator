@@ -23,9 +23,10 @@ from nemo_curator.tasks import AudioTask
 class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     """Select the best available prediction and write it to ``best_prediction``.
 
-    If QwenASR recovered a hallucinated sample (``skip_me`` is empty and
-    ``asr_text_key`` has a non-empty value), the ASR prediction is used.
-    Otherwise the primary prediction (``primary_text_key``) is used.
+    If QwenASR recovered a hallucinated sample (``notes_key`` contains
+    "Recovered" and ``asr_text_key`` has a non-empty value), the ASR
+    prediction is used.  Otherwise the primary prediction
+    (``primary_text_key``) is used.
 
     This allows downstream stages (FastTextLID, RegexSubstitution) to
     always read from ``best_prediction`` regardless of which model
@@ -35,21 +36,21 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     primary_text_key: str = "qwen3_prediction_s1"
     asr_text_key: str = "qwen3_asr_prediction"
     output_key: str = "best_prediction"
-    skip_me_key: str = "_skip_me"
+    notes_key: str = "additional_notes"
     name: str = "SelectBestPrediction"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.primary_text_key, self.skip_me_key]
+        return [], [self.primary_text_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_key]
 
     def process(self, task: AudioTask) -> AudioTask:
         asr_pred = task.data.get(self.asr_text_key, "")
-        skip_me = str(task.data.get(self.skip_me_key, ""))
+        notes = str(task.data.get(self.notes_key, ""))
 
-        if skip_me.startswith("Recovered") and asr_pred:
+        if "Recovered" in notes and asr_pred:
             task.data[self.output_key] = asr_pred
         else:
             task.data[self.output_key] = task.data.get(self.primary_text_key, "")
