@@ -44,9 +44,10 @@ from loguru import logger
 from transformers import AutoTokenizer
 
 try:
-    # vLLM v1 engine uses multiprocessing that conflicts with Ray actors.
-    # Force the classic (v0) engine to avoid core process spawning issues.
-    os.environ.setdefault("VLLM_USE_V1", "0")
+    # vLLM v1 engine spawns subprocesses that conflict with Ray actors.
+    # Force the classic (v0) engine before importing vllm, because vllm
+    # caches this decision at import time.
+    os.environ["VLLM_USE_V1"] = "0"
     from vllm import LLM, SamplingParams
 except ImportError:
     LLM = None

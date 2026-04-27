@@ -32,7 +32,7 @@ stages:
       max_num_batched_tokens: 2048
       enforce_eager: false
       dtype: float16
-      gpu_memory_utilization: 0.9
+      gpu_memory_utilization: 0.5
       max_num_seqs: 2
     sampling_params:
       temperature: 0.0
