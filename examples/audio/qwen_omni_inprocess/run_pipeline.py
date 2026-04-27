@@ -184,6 +184,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                      help="TP size for ITN model (None = auto-detect).")
     itn.add_argument("--itn_max_output_tokens", type=int, default=4096,
                      help="Max tokens to generate per ITN sample.")
+    itn.add_argument("--itn_max_model_len", type=int, default=4096,
+                     help="Max context length for ITN vLLM engine.")
+    itn.add_argument("--itn_max_num_seqs", type=int, default=16,
+                     help="Max concurrent sequences for ITN vLLM engine.")
+    itn.add_argument("--itn_gpu_memory_utilization", type=float, default=0.95,
+                     help="Fraction of GPU memory for ITN vLLM engine.")
     itn.add_argument("--itn_no_validation", action="store_true", help="Disable ITN output validation.")
 
     asr = ap.add_argument_group("QwenASR hallucination recovery")
@@ -349,6 +355,9 @@ def main() -> None:
             output_text_key=args.itn_output_key,
             tensor_parallel_size=args.itn_tensor_parallel_size,
             max_output_tokens=args.itn_max_output_tokens,
+            max_model_len=args.itn_max_model_len,
+            max_num_seqs=args.itn_max_num_seqs,
+            gpu_memory_utilization=args.itn_gpu_memory_utilization,
             batch_size=args.itn_batch_size,
             enable_validation=not args.itn_no_validation,
         ))
