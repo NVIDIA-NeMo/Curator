@@ -39,6 +39,7 @@ from typing import Any
 import torch
 import torch.distributed as dist
 import yaml
+from huggingface_hub import snapshot_download
 from loguru import logger
 from transformers import AutoTokenizer
 
@@ -127,10 +128,8 @@ class VLLMInference:
         """
         model_name = self.model_params.get("model", "")
         if model_name:
+            snapshot_download(repo_id=model_name)
             AutoTokenizer.from_pretrained(model_name)
-
-        self.sampling_params = SamplingParams(**self.inference_params)
-        self.load_model()
 
     def setup(self) -> None:
         """Instantiate the vLLM engine on the target device.

@@ -284,6 +284,9 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         """Process a single AudioTask — collect prompts, run inference, write back."""
+        if self._vllm is None:
+            return task
+
         data = task.data
         items = self._collect_prompts(data)
 
@@ -300,8 +303,8 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Batch-process multiple AudioTasks with a single vLLM call for efficiency."""
-        if not tasks:
-            return []
+        if not tasks or self._vllm is None:
+            return tasks if tasks else []
 
         t0 = time.perf_counter()
 
@@ -424,6 +427,9 @@ class CleanLLMOutputStage(ProcessingStage[AudioTask, AudioTask]):
     def _process_segment(self, segment: dict) -> None:
         """Clean one segment/entry in place."""
         if self.generation_field not in segment:
+            segment["use_bert_pnc"] = False
+            return
+        if self.asr_pred_text_key not in segment:
             segment["use_bert_pnc"] = False
             return
 
