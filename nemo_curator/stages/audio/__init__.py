@@ -17,37 +17,61 @@ Audio curation stages for NeMo Curator.
 
 This module provides stages for processing and curating audio data,
 including ASR inference, quality assessment, ALM data preparation,
-VAD segmentation, bandwidth classification filtering,
 audio preprocessing (mono conversion, segment concatenation, timestamp mapping),
-audio quality filtering (UTMOS), and speaker diarization/separation.
-
-Imports are guarded with try/except so that missing optional dependencies
-(e.g. NeMo, pydub, pyloudnorm) do not prevent importing stages that
-do not need them.
+audio quality filtering (SIGMOS, UTMOS, bandwidth classification filtering),
+VAD segmentation, speaker diarization/separation,
+and advanced audio processing pipelines.
 """
 
-import importlib
-import logging
+import importlib as _importlib
 
-_logger = logging.getLogger(__name__)
+__all__ = [
+    "ALMDataBuilderStage",
+    "ALMDataOverlapStage",
+    "AudioDataFilterStage",
+    "BandFilterStage",
+    "FastTextLIDStage",
+    "FinalizeFieldsStage",
+    "GetAudioDurationStage",
+    "InitializeFieldsStage",
+    "MonoConversionStage",
+    "PreserveByValueStage",
+    "RegexSubstitutionStage",
+    "SIGMOSFilterStage",
+    "SegmentConcatenationStage",
+    "SpeakerSeparationStage",
+    "TimestampMapperStage",
+    "UTMOSFilterStage",
+    "VADSegmentationStage",
+    "WhisperHallucinationStage",
+]
 
-__all__: list[str] = []
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "ALMDataBuilderStage": ("nemo_curator.stages.audio.alm", "ALMDataBuilderStage"),
+    "ALMDataOverlapStage": ("nemo_curator.stages.audio.alm", "ALMDataOverlapStage"),
+    "AudioDataFilterStage": ("nemo_curator.stages.audio.advanced_pipelines", "AudioDataFilterStage"),
+    "BandFilterStage": ("nemo_curator.stages.audio.filtering", "BandFilterStage"),
+    "SIGMOSFilterStage": ("nemo_curator.stages.audio.filtering", "SIGMOSFilterStage"),
+    "UTMOSFilterStage": ("nemo_curator.stages.audio.filtering", "UTMOSFilterStage"),
+    "GetAudioDurationStage": ("nemo_curator.stages.audio.common", "GetAudioDurationStage"),
+    "PreserveByValueStage": ("nemo_curator.stages.audio.common", "PreserveByValueStage"),
+    "MonoConversionStage": ("nemo_curator.stages.audio.preprocessing", "MonoConversionStage"),
+    "SegmentConcatenationStage": ("nemo_curator.stages.audio.preprocessing", "SegmentConcatenationStage"),
+    "SpeakerSeparationStage": ("nemo_curator.stages.audio.segmentation", "SpeakerSeparationStage"),
+    "VADSegmentationStage": ("nemo_curator.stages.audio.segmentation", "VADSegmentationStage"),
+    "TimestampMapperStage": ("nemo_curator.stages.audio.postprocessing", "TimestampMapperStage"),
+    "FastTextLIDStage": ("nemo_curator.stages.audio.text_filtering", "FastTextLIDStage"),
+    "FinalizeFieldsStage": ("nemo_curator.stages.audio.text_filtering", "FinalizeFieldsStage"),
+    "InitializeFieldsStage": ("nemo_curator.stages.audio.text_filtering", "InitializeFieldsStage"),
+    "RegexSubstitutionStage": ("nemo_curator.stages.audio.text_filtering", "RegexSubstitutionStage"),
+    "WhisperHallucinationStage": ("nemo_curator.stages.audio.text_filtering", "WhisperHallucinationStage"),
+}
 
 
-def _try_import(module_path: str, names: list[str]) -> None:
-    """Import *names* from *module_path*, silently skipping on failure."""
-    try:
-        mod = importlib.import_module(module_path)
-        for name in names:
-            globals()[name] = getattr(mod, name)
-            __all__.append(name)
-    except Exception as exc:  # noqa: BLE001
-        _logger.debug("Skipping %s: %s", module_path, exc)
-
-
-_try_import("nemo_curator.stages.audio.alm", ["ALMDataBuilderStage", "ALMDataOverlapStage"])
-_try_import("nemo_curator.stages.audio.common", ["GetAudioDurationStage", "PreserveByValueStage"])
-_try_import("nemo_curator.stages.audio.filtering", ["BandFilterStage", "UTMOSFilterStage"])
-_try_import("nemo_curator.stages.audio.postprocessing", ["TimestampMapperStage"])
-_try_import("nemo_curator.stages.audio.preprocessing", ["MonoConversionStage", "SegmentConcatenationStage"])
-_try_import("nemo_curator.stages.audio.segmentation", ["SpeakerSeparationStage", "VADSegmentationStage"])
+def __getattr__(name: str) -> type:
+    if name in _LAZY_IMPORTS:
+        module_path, attr = _LAZY_IMPORTS[name]
+        module = _importlib.import_module(module_path)
+        return getattr(module, attr)
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
