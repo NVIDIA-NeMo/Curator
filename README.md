@@ -15,6 +15,11 @@
 
 > *Part of the [NVIDIA NeMo](https://www.nvidia.com/en-us/ai-data-science/products/nemo/) software suite for managing the AI agent lifecycle.*
 
+## Updates
+
+- 2026-04: NeMo Curator 26.04 released with Cosmos-Xenna 0.2.0 upgrade, simplified `Resources` API, and Ray 2.54. See the [release notes](https://docs.nvidia.com/nemo/curator/latest/about/release-notes).
+- 2026-02: NeMo Curator 26.02 released with Ray-based pipeline architecture for all modalities — text, image, video, and audio.
+
 ## What You Can Do
 
 | Modality | Key Capabilities | Get Started |
@@ -35,6 +40,16 @@ python tutorials/quickstart.py
 ```
 
 **Full setup:** [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html) • [Docker](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) • [Tutorials](tutorials/)
+
+---
+
+## Architecture
+
+NeMo Curator uses a modular, Ray-based pipeline architecture. Data flows through composable processing stages — each stage handles a discrete curation task (loading, filtering, deduplication, etc.) and can be configured with independent resource requirements.
+
+<p align="center">
+  <img src="./fern/assets/images/architecture-diagram.png" alt="NeMo Curator architecture diagram showing modular pipeline stages" width="700"/>
+</p>
 
 ---
 
@@ -92,6 +107,33 @@ Prepare high-quality speech datasets for automatic speech recognition (ASR) and 
 
 ---
 
+## Why Data Curation?
+
+High-quality training data is the single most important factor in building performant AI models. Raw datasets contain noise, duplicates, low-quality content, and potentially harmful material that degrade model performance and increase training costs.
+
+<p align="center">
+  <img src="./fern/assets/images/data-curation-challenges.png" alt="Common data curation challenges: quality, deduplication, filtering, and scale" width="700"/>
+</p>
+
+At scale, data curation is a **throughput maximization problem**. A typical pipeline chains stages with very different compute profiles — lightweight CPU tokenization, small GPU classifiers, large GPU inference models — and a naive sequential approach leaves most hardware idle most of the time.
+
+**Example:** Consider a pipeline with language identification (0.5B model, 1 GB VRAM, 2s/sample), tokenization (CPU-only, 1s/sample), and a 5B answer model (10 GB VRAM, 10s/sample) processing 1,000 questions on a single 102 GB GPU:
+
+| Approach | How it works | Total runtime |
+|----------|-------------|---------------|
+| **Sequential** | Process each sample through all stages, one at a time | ~13,000 seconds |
+| **NeMo Curator** | Stream batches, auto-scale replicas per stage, overlap CPU/GPU work | ~1,000 seconds |
+
+NeMo Curator achieves this by streaming data through the pipeline so all stages run concurrently, auto-balancing replicas to match each stage's throughput (2× language ID, 1× tokenizer, 10× answer model), and keeping GPU workers busy over 99% of the time after an initial warm-up period. See the [scaling concepts](https://docs.nvidia.com/nemo/curator/latest/about/concepts/scaling) for details.
+
+---
+
+## Proven at Scale: Nemotron
+
+NeMo Curator powers the data pipelines behind [NVIDIA Nemotron](https://developer.nvidia.com/nemotron) models. For example, the [Nemotron-4 pre-training dataset](https://arxiv.org/abs/2402.16819) was curated using NeMo Curator's text processing pipeline across 8+ trillion tokens of multilingual web data, applying quality filtering, deduplication, and domain classification at scale.
+
+---
+
 ## Why NeMo Curator?
 
 ### Performance at Scale
@@ -103,8 +145,10 @@ NeMo Curator leverages NVIDIA RAPIDS™ libraries such as cuDF, cuML, and cuGrap
 - **40% lower** total cost of ownership (TCO) compared to CPU-based alternatives
 - **Near-linear scaling** from one to four H100 80 GB nodes (2.05 hrs → 0.50 hrs)
 
+**Real-World Recipe:** The [Nemotron-CC curation pipeline](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/data_curation/nemotron-cc) uses NeMo Curator end-to-end — from Common Crawl extraction through language identification, exact/fuzzy/substring deduplication, ensemble quality classification, and LLM-based synthetic data generation — to reproduce the [Nemotron-CC datasets](https://huggingface.co/datasets/nvidia/Nemotron-CC-v2). The SDG stage is also available as an [in-repo tutorial](tutorials/synthetic/nemotron_cc/).
+
 <p align="center">
-  <img src="./docs/_images/text-benchmarks.png" alt="Performance benchmarks showing 16x speed improvement, 40% cost savings, and near-linear scaling" width="700"/>
+  <img src="./fern/assets/images/text-benchmarks.png" alt="Performance benchmarks showing 16x speed improvement, 40% cost savings, and near-linear scaling" width="700"/>
 </p>
 
 ### Quality Improvements
@@ -112,7 +156,7 @@ NeMo Curator leverages NVIDIA RAPIDS™ libraries such as cuDF, cuML, and cuGrap
 Data curation modules measurably improve model performance. In ablation studies using a 357M-parameter GPT model trained on curated Common Crawl data:
 
 <p align="center">
-  <img src="./docs/_images/ablation.png" alt="Model accuracy improvements across curation pipeline stages" width="700"/>
+  <img src="./fern/assets/images/ablation.png" alt="Model accuracy improvements across curation pipeline stages" width="700"/>
 </p>
 
 **Results:** Progressive improvements in zero-shot downstream task performance through text cleaning, deduplication, and quality filtering stages.
@@ -125,6 +169,7 @@ Data curation modules measurably improve model performance. In ablation studies 
 |----------|-------|
 | **Documentation** | [Main Docs](https://docs.nvidia.com/nemo/curator/latest/) • [API Reference](https://docs.nvidia.com/nemo/curator/latest/apidocs/index.html) • [Concepts](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) |
 | **Tutorials** | [Text](tutorials/text/) • [Image](tutorials/image/) • [Video](tutorials/video/) • [Audio](tutorials/audio/) |
+| **Recipes** | [Nemotron-CC: end-to-end web data curation](https://github.com/NVIDIA-NeMo/Nemotron/tree/main/src/nemotron/recipes/data_curation/nemotron-cc) • [SDG tutorial (in-repo)](tutorials/synthetic/nemotron_cc/) |
 | **Deployment** | [Installation](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html) • [Infrastructure](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/index.html) |
 | **Community** | [GitHub Discussions](https://github.com/NVIDIA-NeMo/Curator/discussions) • [Issues](https://github.com/NVIDIA-NeMo/Curator/issues) |
 
@@ -133,3 +178,29 @@ Data curation modules measurably improve model performance. In ablation studies 
 ## Contribute
 
 We welcome community contributions! Please refer to [CONTRIBUTING.md](https://github.com/NVIDIA/NeMo/blob/stable/CONTRIBUTING.md) for guidelines.
+
+---
+
+## Citation
+
+If you find NeMo Curator useful in your research, please cite:
+
+```bibtex
+@misc{nemo_curator,
+  title = {NeMo Curator: GPU-Accelerated Data Curation for Training AI Models},
+  author = {NVIDIA},
+  year = {2024},
+  url = {https://github.com/NVIDIA-NeMo/Curator}
+}
+```
+
+For the data curation pipeline behind Nemotron models, please also cite:
+
+```bibtex
+@article{parmar2024nemotron4,
+  title = {Nemotron-4 15B Technical Report},
+  author = {Parmar, Jupinder and Satheesh, Shrimai and others},
+  journal = {arXiv preprint arXiv:2402.16819},
+  year = {2024}
+}
+```

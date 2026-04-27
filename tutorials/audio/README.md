@@ -6,11 +6,22 @@ Hands-on tutorials for curating audio data with NeMo Curator. Complete working e
 
 **New to audio curation?** Start with the [Audio Getting Started Guide](https://docs.nvidia.com/nemo/curator/latest/get-started/audio.html) for setup and basic concepts.
 
+### System Dependencies
+
+Audio pipelines require `ffmpeg` for resampling and format conversion. Install them before running any audio tutorial:
+
+```bash
+# Ubuntu / Debian
+sudo apt-get install -y ffmpeg
+
+```
+
 ## Available Tutorials
 
 | Tutorial | Description | Files |
 |----------|-------------|-------|
 | **[FLEURS Dataset](fleurs/)** | Complete pipeline for multilingual speech data | `pipeline.py`, `run.py`, `pipeline.yaml` |
+| **[Audio Tagging](tagging/)** | Label raw audio for TTS/ASR via diarization, alignment, and quality metrics | `main.py`, `tts_pipeline.yaml`, `asr_pipeline.yaml` |
 | **[ALM Data Pipeline](alm/)** | Create training windows for Audio Language Models | `main.py`, `pipeline.yaml` |
 
 ## Documentation Links
@@ -20,6 +31,24 @@ Hands-on tutorials for curating audio data with NeMo Curator. Complete working e
 | **Setup** | [Installation](https://docs.nvidia.com/nemo/curator/latest/get-started/installation.html) • [Configuration](https://docs.nvidia.com/nemo/curator/latest/get-started/configuration.html) |
 | **Concepts** | [Architecture](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) • [Data Loading](https://docs.nvidia.com/nemo/curator/latest/about/concepts/text/data-loading-concepts.html) |
 | **Advanced** | [Custom Pipelines](https://docs.nvidia.com/nemo/curator/latest/reference/index.html) • [Execution Backends](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/execution-backends.html) • [NeMo ASR Integration](https://docs.nvidia.com/nemo/curator/latest/about/key-features.html) |
+
+## Known Issues
+
+### SIGSEGV in Ray StageWorker during model loading
+
+In some environments, and under certain timing conditions, Ray workers may crash with a `SIGSEGV` during GPU model initialization. This is not a NeMo Curator code issue: it comes from a thread-safety problem in the gRPC version bundled with Ray. Any GPU pipeline (audio, text, image, or video) that loads models through Ray actors can hit the same failure.
+
+The OpenTelemetry SDK starts a `PeriodicExportingMetricReader` background thread that periodically calls `OtlpGrpcMetricExporter::Export()` over gRPC; a `getenv()` call on that path can race with NeMo/PyTorch model initialization in another thread. **Disabling OpenTelemetry for the process** prevents Ray’s OpenTelemetry background exporter from starting and removes that race. NeMo Curator does not use OpenTelemetry for its own functionality, so disabling it has no functional impact on Curator workflows.
+
+**Container scope:** This has been observed with the `nemo-curator:26.04.rc0` image (and similar 26.04-era builds). The race was [fixed upstream in gRPC ≥ 1.60](https://github.com/grpc/grpc/pull/33508); it should stop being relevant once the bundled gRPC in the container is upgraded accordingly.
+
+**Workaround:** Set these environment variables before running the pipeline:
+
+```bash
+export OTEL_SDK_DISABLED=true
+export OTEL_METRICS_EXPORTER=none
+export OTEL_TRACES_EXPORTER=none
+```
 
 ## Support
 

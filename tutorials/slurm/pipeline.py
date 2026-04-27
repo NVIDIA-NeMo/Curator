@@ -168,9 +168,13 @@ def _gpu_summary() -> str:
     """Return a short string describing GPUs visible to the current process."""
     try:
         import subprocess
+
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],  # noqa: S607
-            capture_output=True, text=True, timeout=10, check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
     except FileNotFoundError:
         return "no GPUs (nvidia-smi not found)"
