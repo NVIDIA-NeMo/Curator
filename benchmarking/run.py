@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: ERA001
 
 import argparse
 import json
@@ -26,7 +25,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import yaml
 from loguru import logger
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
@@ -53,76 +51,15 @@ from runner.ray_cluster import (
 )
 from runner.session import Session
 from runner.utils import (
+    assert_valid_config_dict,
     find_result,
     get_gpu_stats,
     get_obj_for_json,
     log_gpu_stats,
+    merge_config_files,
     remove_disabled_blocks,
     resolve_env_vars,
 )
-
-
-def update_config(config_dict: dict, new_dict: dict) -> None:
-    """Update a config dictionary with values from another."""
-
-    # Iterate through all key-value pairs in the dictionary to merge in
-    for key, value in new_dict.items():
-        if key in config_dict:
-            # Recursively handle nested dicts
-            if isinstance(config_dict[key], dict) and isinstance(value, dict):
-                update_config(config_dict[key], value)
-
-            # Handle list merging/updating on an item-by-item basis
-            # For example, the YAML:
-            #     entries:
-            #      - name: domain_classification_raydata
-            #        requirements:
-            #          - metric: throughput_docs_per_sec
-            #            min_value: 2677
-            # results in:
-            #     config_dict['entries'] = [{'name': 'domain_classification_raydata',
-            #                                'requirements': [{'metric': 'throughput_docs_per_sec', 'min_value': 2677}]
-            #                              }]
-            #
-            # so be sure to update the config_dict list items that match the new_dict list items by matching based on the first key
-            elif isinstance(config_dict[key], list) and isinstance(value, list):
-                for sub_val in value:
-                    # Handle dicts in the list by matching based on the first key
-                    if isinstance(sub_val, dict) and sub_val:
-                        first_key = next(iter(sub_val.keys()))
-                        for config_sub_val in config_dict[key]:
-                            if (
-                                isinstance(config_sub_val, dict)
-                                and config_sub_val
-                                and next(iter(config_sub_val.keys())) == first_key
-                                and config_sub_val[first_key] == sub_val[first_key]
-                            ):
-                                # If matching dict found (based on first key), recursively update it
-                                update_config(config_sub_val, sub_val)
-                                break
-                        else:
-                            # If no matching dict, append the new dict to the list
-                            config_dict[key].append(sub_val)
-                    else:
-                        # If not a dict, append the new value to the list
-                        config_dict[key].append(sub_val)
-            else:
-                # If types differ, or not a dict/list, replace value in config_dict
-                config_dict[key] = value
-        else:
-            # If key doesn't exist, add it to config_dict
-            config_dict[key] = value
-
-
-def merge_config_files(config_files: list[Path]) -> dict:
-    """Merge multiple config files into a single dictionary."""
-    config_dict = {}
-    for config_file in config_files:
-        with open(config_file) as f:
-            for new_dict in yaml.full_load_all(f):
-                if new_dict is not None:
-                    update_config(config_dict, new_dict)
-    return config_dict
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -372,7 +309,7 @@ def main() -> int:  # noqa: C901
 
     # Preprocess the config dict prior to creating objects from it
     try:
-        Session.assert_valid_config_dict(config_dict)
+        assert_valid_config_dict(config_dict)
         config_dict = remove_disabled_blocks(config_dict)
         config_dict = resolve_env_vars(config_dict)
     except ValueError as e:

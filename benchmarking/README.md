@@ -33,11 +33,15 @@ Note: you may only need to do this periodically when the environment needs to be
 
 **2. Update config:**
 
-Update `results_path` and `datasets_path` in the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/nightly-benchmark.yaml`
+Update the `host_path` values in the `paths` section of the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/nightly-benchmark.yaml`
 
 ```yaml
-results_path: /path/where/results/are/stored
-datasets_path: /path/to/datasets
+paths:
+  - name: results_path
+    host_path: /path/where/results/are/stored
+  - name: datasets_path
+    host_path: /path/to/datasets
+    container_path: /datasets
 ```
 
 **3. Run benchmarks:**
@@ -124,12 +128,22 @@ An example of a development scenario using this pattern looks like this:
 ### Configuration Structure
 
 ```yaml
-# Required: Base paths for results and datasets
-# These paths must exist on the host machine
-# When running in Docker with tools/run.sh, paths are automatically mapped to container volumes
-# These base paths can be referenced in other configuration values using {results_path}, {datasets_path}
-results_path: /path/to/results
-datasets_path: /path/to/datasets
+# Required: Paths to files and directories used by the benchmarks.
+# Each entry must have a "name" and a "host_path". The name can be referenced elsewhere
+# in the config using {name} placeholders (e.g. {datasets_path}).
+# When running in Docker with tools/run.sh, each path is automatically mounted into the
+# container. An optional "container_path" overrides the default mount point
+# (which is the host_path prefixed with "/MOUNT").
+# An entry with name "results_path" is required.
+paths:
+  - name: results_path
+    host_path: /path/to/results
+  - name: datasets_path
+    host_path: /path/to/datasets
+    container_path: /datasets  # optional override
+  - name: model_weights_path
+    host_path: /path/to/model_weights
+    container_path: /model_weights  # optional override
 
 # Optional: Global timeout for all entries (seconds)
 default_timeout_s: 7200
@@ -264,7 +278,9 @@ python benchmarking/run.py \
 Configuration values can reference environment variables using `${VAR_NAME}` syntax:
 
 ```yaml
-results_path: "${HOME}/benchmarks/results"
+paths:
+  - name: results_path
+    host_path: "${HOME}/benchmarks/results"
 sinks:
   - name: slack
     channel_id: ${SLACK_CHANNEL_ID}
@@ -276,7 +292,7 @@ sinks:
 
 The framework supports several types of placeholders in configuration values:
 
-**Base path references** - Reference the configured base paths:
+**Path references** - Reference paths by their `name` from the `paths` section:
 
 ```yaml
 datasets:
@@ -286,9 +302,7 @@ datasets:
         path: "{datasets_path}/subdir/data.parquet"
 ```
 
-Available base path placeholders:
-- `{results_path}` - Resolves to the configured `results_path`
-- `{datasets_path}` - Resolves to the configured `datasets_path`
+Any name defined in the `paths` section can be used as a placeholder. For example, if your `paths` section defines entries named `datasets_path` and `model_weights_path`, both `{datasets_path}` and `{model_weights_path}` are valid placeholders.
 
 **Dataset references** - Reference datasets in entry arguments:
 
