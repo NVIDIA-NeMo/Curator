@@ -19,14 +19,24 @@ import json
 from pathlib import Path
 from unittest import mock
 
+import numpy as np
 import pytest
+import torch
 
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
     ManifestReader,
     ManifestReaderStage,
     ManifestWriterStage,
     PreserveByValueStage,
+    ensure_mono,
+    ensure_waveform_2d,
+    load_audio_file,
+    resolve_model_path,
+    resolve_waveform_from_item,
 )
 from nemo_curator.tasks import AudioTask, FileGroupTask
 from tests import FIXTURES_DIR
@@ -315,10 +325,6 @@ class TestManifestReaderIntegration:
 
     def test_composite_end_to_end_with_directory(self) -> None:
         """End-to-end: ManifestReader composite with directory input through full pipeline."""
-        from nemo_curator.backends.xenna import XennaExecutor
-        from nemo_curator.pipeline import Pipeline
-        from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
-
         nested = ALM_FIXTURES_DIR / "nested_manifests"
 
         pipeline = Pipeline(name="test_dir_e2e", description="Directory discovery end-to-end test")
@@ -501,3 +507,56 @@ class TestManifestWriterRoundTrip:
             loaded = audio_entry.data
             assert loaded["audio_filepath"] == orig["audio_filepath"]
             assert len(loaded["segments"]) == len(orig["segments"])
+
+
+def test_ensure_waveform_2d_from_tensor() -> None:
+    assert ensure_waveform_2d(torch.randn(16000)).shape == (1, 16000)
+
+
+def test_ensure_waveform_2d_from_numpy() -> None:
+    assert ensure_waveform_2d(np.random.default_rng(0).standard_normal(16000).astype(np.float32)).dim() == 2
+
+
+def test_ensure_mono() -> None:
+    assert ensure_mono(torch.randn(2, 16000)).shape == (1, 16000)
+
+
+def test_load_audio_file(tmp_path: Path) -> None:
+    fake_data = np.random.default_rng(0).standard_normal(32000).astype(np.float32)
+    with mock.patch("nemo_curator.stages.audio.common.soundfile.read", return_value=(fake_data, 16000)):
+        waveform, sr = load_audio_file(str(tmp_path / "test.wav"), mono=True)
+        assert sr == 16000
+        assert waveform.shape == (1, 32000)
+
+
+def test_resolve_waveform_with_data() -> None:
+    item = {"waveform": torch.randn(1, 16000), "sample_rate": 16000}
+    result = resolve_waveform_from_item(item, "test")
+    assert result is not None
+    assert result[1] == 16000
+
+
+def test_resolve_waveform_from_file(tmp_path: Path) -> None:
+    wav_path = str(tmp_path / "audio.wav")
+    Path(wav_path).write_bytes(b"\x00")
+    with mock.patch("nemo_curator.stages.audio.common.load_audio_file", return_value=(torch.randn(1, 16000), 16000)):
+        item = {"audio_filepath": wav_path}
+        result = resolve_waveform_from_item(item, "test")
+        assert result is not None
+        assert item["waveform"] is not None
+
+
+def test_resolve_waveform_returns_none_when_missing() -> None:
+    assert resolve_waveform_from_item({}, "test") is None
+    assert resolve_waveform_from_item({"audio_filepath": "/nonexistent.wav"}, "test") is None
+    assert resolve_waveform_from_item({"waveform": torch.randn(16000)}, "test") is None
+
+
+def test_resolve_model_path(tmp_path: Path) -> None:
+    assert resolve_model_path("/abs/model.bin", __file__, "sub") == "/abs/model.bin"
+
+    module_dir = tmp_path / "sub"
+    module_dir.mkdir()
+    (module_dir / "model.bin").write_bytes(b"\x00")
+    result = resolve_model_path("model.bin", str(tmp_path / "ref.py"), "sub")
+    assert result == str(module_dir / "model.bin")

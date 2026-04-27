@@ -66,8 +66,8 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
-        if not shutil.which("sox") and not shutil.which("ffmpeg"):
-            msg = "ResampleAudioStage requires 'sox' or 'ffmpeg'. Install with: sudo apt-get install -y sox ffmpeg"
+        if not shutil.which("ffmpeg"):
+            msg = "ResampleAudioStage requires 'ffmpeg'. Install with: sudo apt-get install -y ffmpeg"
             raise RuntimeError(msg)
         fs, path = url_to_fs(self.resampled_audio_dir)
         fs.makedirs(path, exist_ok=True)
@@ -117,35 +117,20 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         fs, output_path = url_to_fs(output_audio_path)
         skipped_conversion = fs.exists(output_path)
         if not skipped_conversion:
-            if input_audio_path.lower().endswith(".wav"):
-                cmd = [
-                    "sox",
-                    "--no-dither",
-                    "-V1",
-                    input_audio_path,
-                    "-r",
-                    str(self.target_sample_rate),
-                    "-c",
-                    str(self.target_nchannels),
-                    "-b",
-                    "16",
-                    output_audio_path,
-                ]
-            else:
-                cmd = [
-                    "ffmpeg",
-                    "-v",
-                    "error",
-                    "-i",
-                    input_audio_path,
-                    "-ar",
-                    str(self.target_sample_rate),
-                    "-ac",
-                    str(self.target_nchannels),
-                    "-acodec",
-                    "pcm_s16le",
-                    output_audio_path,
-                ]
+            cmd = [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-i",
+                input_audio_path,
+                "-ar",
+                str(self.target_sample_rate),
+                "-ac",
+                str(self.target_nchannels),
+                "-acodec",
+                "pcm_s16le",
+                output_audio_path,
+            ]
 
             try:
                 subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603

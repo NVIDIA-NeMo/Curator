@@ -181,11 +181,17 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
             pred = self._predictor.predict_audio(waveform, sample_rate)
             if isinstance(pred, str) and not pred.startswith("Error") and pred in ("full_band", "narrow_band"):
                 task.data["band_prediction"] = pred
+            else:
+                logger.warning(f"[{task.task_id}] BandFilter: unexpected prediction value: {pred!r}")
         except Exception as e:  # noqa: BLE001
             logger.exception(f"[BandFilter] Prediction error: {e}")
             return None
 
-        if task.data.get("band_prediction") != self.band_value:
+        actual = task.data.get("band_prediction", "unknown")
+        if actual != self.band_value:
+            logger.info(
+                f"[{task.task_id}] BAND FILTER FAILED: prediction '{actual}' != target '{self.band_value}'"
+            )
             return None
 
         return task

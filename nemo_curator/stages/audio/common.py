@@ -257,7 +257,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "output_path is required for ManifestWriterStage"
             raise ValueError(msg)
 
-    def setup(self, _: WorkerMetadata | None = None) -> None:
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Truncate the output file once on the driver before processing starts."""
         self._fs, self._path = url_to_fs(self.output_path)
         parent_dir = "/".join(self._path.split("/")[:-1])
