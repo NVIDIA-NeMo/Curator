@@ -19,6 +19,7 @@ from typing import Any
 
 from loguru import logger
 
+from nemo_curator.stages.audio.asr_pipeline_utils import append_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -106,7 +107,9 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
         text = text.strip().replace("\n", " ")
         if not text:
             if not task.data[self.skip_me_key]:
-                task.data[self.skip_me_key] = f"Empty text:{self.name}"
+                flag = f"Empty text:{self.name}"
+                task.data[self.skip_me_key] = flag
+                append_note(task.data, flag)
             return task
         result_str = self._lid.score_document(text)
         score_list = eval(result_str)  # noqa: S307  — output of our own FastText model
@@ -117,9 +120,13 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
             expected = task.data[self.source_lang_key]
         if not task.data[self.skip_me_key]:
             if lang != expected.lower():
-                task.data[self.skip_me_key] = f"Wrong language:{self.name}"
+                flag = f"Wrong language:{self.name}"
+                task.data[self.skip_me_key] = flag
+                append_note(task.data, flag)
             elif prob < self.min_lang_prob:
-                task.data[self.skip_me_key] = f"Low probability of language:{self.name}"
+                flag = f"Low probability of language:{self.name}"
+                task.data[self.skip_me_key] = flag
+                append_note(task.data, flag)
         return task
 
     def process(self, task: AudioTask) -> AudioTask:

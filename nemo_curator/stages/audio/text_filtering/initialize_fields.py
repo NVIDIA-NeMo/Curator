@@ -46,6 +46,7 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     skip_me_key: str = "_skip_me"
+    notes_key: str = "_notes"
     original_text_key: str = "text"
     granary_v1_key: str = "granary_v1_prediction"
     drop_keys: list[str] = field(default_factory=lambda: list(_DEFAULT_DROP_KEYS))
@@ -63,6 +64,7 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         task.data[self.skip_me_key] = ""
+        task.data[self.notes_key] = ""
         if self.original_text_key and self.original_text_key in task.data:
             task.data[self.granary_v1_key] = task.data.pop(self.original_text_key)
         for key in self.drop_keys:
@@ -72,6 +74,7 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         for task in tasks:
             task.data[self.skip_me_key] = ""
+            task.data[self.notes_key] = ""
             if self.original_text_key and self.original_text_key in task.data:
                 task.data[self.granary_v1_key] = task.data.pop(self.original_text_key)
             for key in self.drop_keys:

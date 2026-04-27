@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
+from nemo_curator.stages.audio.asr_pipeline_utils import append_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -141,9 +142,12 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
                 f"[{self.name}] flagged ({','.join(reasons)}) dur={duration:.2f}s: {text[:80]!r}"
             )
             if was_flagged or not current_flag:
-                task.data[self.skip_me_key] = f"Hallucination:{self.name}"
+                flag = f"Hallucination:{self.name}"
+                task.data[self.skip_me_key] = flag
+                append_note(task.data, flag)
         elif self.overwrite and was_flagged:
-            task.data[self.skip_me_key] = self.recovery_value
+            task.data[self.skip_me_key] = ""
+            append_note(task.data, self.recovery_value or f"Recovered:{self.name}")
         return task
 
     def process(self, task: AudioTask) -> AudioTask:
