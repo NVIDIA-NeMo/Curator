@@ -36,9 +36,8 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
 
     Selection priority:
 
-    1. **ASR recovery** -- if QwenASR recovered a hallucinated sample
-       (``skip_me`` starts with ``"Recovered"`` and ``asr_text_key`` is
-       non-empty), the ASR prediction is used.
+    1. **ASR recovery** -- if ``notes_key`` contains "Recovered" and
+       ``asr_text_key`` is non-empty, the ASR prediction is used.
     2. **Cross-model agreement** -- if *both* omni and ASR were flagged as
        hallucinated yet their texts agree (WER between them ≤
        ``100 - min_agreement_pct``), the omni prediction is kept and the
@@ -54,6 +53,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     primary_text_key: str = "qwen3_prediction_s1"
     asr_text_key: str = "qwen3_asr_prediction"
     output_key: str = "best_prediction"
+    notes_key: str = "additional_notes"
     skip_me_key: str = "_skip_me"
     min_agreement_pct: float = 80.0
     agreement_wer_key: str = "omni_asr_agreement_wer"
@@ -61,7 +61,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.primary_text_key, self.skip_me_key]
+        return [], [self.primary_text_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_key, self.skip_me_key, self.agreement_wer_key]
@@ -69,9 +69,10 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     def process(self, task: AudioTask) -> AudioTask:
         primary_pred = task.data.get(self.primary_text_key, "")
         asr_pred = task.data.get(self.asr_text_key, "")
+        notes = str(task.data.get(self.notes_key, ""))
         skip_me = str(task.data.get(self.skip_me_key, ""))
 
-        if skip_me.startswith("Recovered") and asr_pred:
+        if "Recovered" in notes and asr_pred:
             task.data[self.output_key] = asr_pred
             return task
 
@@ -85,7 +86,8 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                     f"(threshold {100.0 - self.min_agreement_pct:.1f}%), keeping omni prediction"
                 )
                 task.data[self.output_key] = primary_pred
-                task.data[self.skip_me_key] = "Recovered:CrossModelAgreement"
+                task.data[self.notes_key] = "Recovered:CrossModelAgreement"
+                task.data[self.skip_me_key] = ""
                 return task
 
         task.data[self.output_key] = primary_pred

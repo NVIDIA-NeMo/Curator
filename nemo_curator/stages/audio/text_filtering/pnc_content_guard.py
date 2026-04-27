@@ -61,6 +61,7 @@ class PnCContentGuardStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _process_single(self, task: AudioTask) -> AudioTask:
         if task.data.get(self.skip_me_key, ""):
+            task.data.setdefault(self.pnc_text_key, "")
             task.data.setdefault(self.rejected_text_key, "")
             return task
         original = task.data.get(self.text_key, "")
