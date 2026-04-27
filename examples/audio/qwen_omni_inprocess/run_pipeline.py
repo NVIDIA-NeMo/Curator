@@ -116,8 +116,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     tf.add_argument(
         "--fasttext_model",
         type=str,
-        default="lid.176.ftz",
-        help="FastText LID model: local path or known name (lid.176.bin / lid.176.ftz).",
+        default="facebook/fasttext-language-identification",
+        help="FastText LID model: HuggingFace repo ID, local path, or known name (lid.176.bin / lid.176.ftz).",
     )
     tf.add_argument("--regex_yaml", type=str, required=True, help="Path to regex substitution rules YAML.")
     tf.add_argument("--target_lang", type=str, default="en", help="Expected language code for LID filtering.")
