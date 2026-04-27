@@ -63,6 +63,10 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
 
     An already non-empty ``skip_me`` value is never overwritten.
 
+    Texts with fewer than ``min_word_count`` words are passed through
+    without LID filtering because FastText confidence is unreliable on
+    very short inputs (especially single words).
+
     ``model_path`` can be:
     - A HuggingFace Hub repo ID (e.g.
       ``facebook/fasttext-language-identification``), which is downloaded
@@ -76,6 +80,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
     target_lang: str = "en"
     source_lang_key: str = ""
     min_lang_prob: float = 0.8
+    min_word_count: int = 2
     text_key: str = "pred_text"
     skip_me_key: str = "_skip_me"
     name: str = "FastTextLID"
@@ -156,7 +161,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
             if not task.data[self.skip_me_key]:
                 task.data[self.skip_me_key] = f"Empty text:{self.name}"
             return task
-        if len(text.split()) <= 1:
+        if len(text.split()) < self.min_word_count:
             return task
         lang, prob = self._predict(text)
         expected = self.target_lang
