@@ -1,0 +1,132 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+###############################################################################
+# TTS Audio Tagging Pipeline
+###############################################################################
+#
+# Processes raw audio into labelled TTS training data.
+#
+# Pipeline stages:
+#   0. ManifestReader          - Read input JSONL manifest
+#   1. ResampleAudio            - Resample audio to 16 kHz mono WAV
+#   2. PyAnnoteDiarization     - Speaker diarization + overlap detection
+#   3. SplitLongAudio          - Split segments exceeding max length
+#   4. NeMoASRAligner          - Forced alignment via NeMo FastConformer
+#   5. JoinSplitAudioMetadata  - Rejoin split metadata
+#   6. MergeAlignmentDiar      - Merge ASR alignment with diarization
+#   7. ManifestWriter          - Write output JSONL manifest
+#
+# Usage (from Curator repo root):
+#   python tutorials/audio/tagging/main.py \
+#     --config-path . \
+#     --config-name tts_pipeline \
+#     input_manifest=/data/input.jsonl \
+#     final_manifest=/data/tts_output.jsonl \
+#     hf_token=<your_hf_token>
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  TTS Audio Tagging Pipeline
+  ##########################
+
+  Processes raw audio through diarization, ASR alignment, text
+  normalization, and quality metrics to produce labelled segments
+  suitable for text-to-speech training.
+
+  **Required arguments**:
+
+  * **input_manifest**: Path to input JSONL manifest with raw audio entries.
+    Each line must contain ``audio_filepath`` and ``audio_item_id``.
+  * **final_manifest**: Path for the output JSONL manifest.
+  * **hf_token**: HuggingFace token for PyAnnote model access.
+
+  **Output format**:
+
+  Output manifest at ``${final_manifest}`` with labelled, segmented
+  audio entries ready for TTS training.
+
+# =============================================================================
+# CORE CONFIGURATION
+# =============================================================================
+
+input_manifest: ???
+final_manifest: ???
+backend: xenna
+workspace_dir: /tmp/tagging_workspace
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+language_short: en
+hf_token: ""
+sample_rate: 16000
+max_segment_length: 40
+batch_size: 4
+resources:
+  cpus: 2
+
+# =============================================================================
+# PIPELINE STAGES
+# =============================================================================
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: "ResampleAudio"
+    resampled_audio_dir: ${resampled_audio_dir}
+    input_format: "wav"
+    target_sample_rate: ${sample_rate}
+    target_format: "wav"
+    target_nchannels: 1
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
+    name: "PyAnnoteDiarization"
+    hf_token: ${hf_token}
+    max_length: ${max_segment_length}
+
+  - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
+    name: "SplitLongAudio"
+    suggested_max_len: ${max_segment_length}
+    min_len: 1.0
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+    name: "ASRAlignment"
+    is_fastconformer: true
+    decoder_type: rnnt
+    batch_size: 32
+
+  - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
+    name: "JoinSplitMetadata"
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
+    name: "MergeAlignmentDiar"
+    text_key: "text"
+    words_key: "words"
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${final_manifest}

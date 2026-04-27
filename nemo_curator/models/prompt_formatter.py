@@ -21,9 +21,10 @@ from transformers import AutoProcessor
 from nemo_curator.models.nemotron_3_nano_omni import _HF_MODEL_ID as _NEMOTRON_3_NANO_OMNI_HF_ID
 from nemo_curator.models.nemotron_h_vl import _NEMOTRON_VARIANTS_INFO
 
-# Mapping of variants to their HuggingFace model IDs (None = local checkpoint, path supplied at runtime)
-VARIANT_MAPPING: dict[str, str | None] = {
-    "qwen": "Qwen/Qwen2.5-VL-7B-Instruct",
+# Mapping of variants to their HuggingFace model IDs
+VARIANT_MAPPING: dict[str, str] = {
+    "qwen2.5": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "qwen3": "Qwen/Qwen3-VL-8B-Instruct",
     **_NEMOTRON_VARIANTS_INFO,
     "nemotron-3-nano-omni": _NEMOTRON_3_NANO_OMNI_HF_ID,
 }
@@ -85,8 +86,8 @@ class PromptFormatter:
                 - "multi_modal_data": Dictionary containing processed "video" inputs
 
         """
-        if self.prompt_variant == "qwen":
-            return self._generate_qwen_inputs(prompt, video_inputs, override_text_prompt)
+        if self.prompt_variant in {"qwen2.5", "qwen3"}:
+            return self._generate_qwen_inputs(prompt, video_inputs, override_text_prompt, fps)
 
         if self.prompt_variant.startswith("nemotron"):
             return self._generate_nemotron_inputs(prompt, video_inputs, fps)
@@ -99,6 +100,7 @@ class PromptFormatter:
         prompt: str,
         video_inputs: torch.Tensor | None,
         override_text_prompt: bool,
+        fps: float = 2.0,
     ) -> dict[str, Any]:
         """Generate inputs for Qwen models."""
         message = self._create_qwen_message(prompt)
@@ -108,9 +110,14 @@ class PromptFormatter:
                 tokenize=False,
                 add_generation_prompt=True,
             )
+        video_data = video_inputs
+        if video_inputs is not None:
+            video_np = self._convert_to_numpy(video_inputs)
+            num_frames = video_np.shape[0]
+            video_data = (video_np, {"fps": fps, "frames_indices": list(range(num_frames)), "total_num_frames": num_frames})
         return {
             "prompt": self.text_prompt,
-            "multi_modal_data": {"video": video_inputs},
+            "multi_modal_data": {"video": video_data},
         }
 
     def _generate_nemotron_inputs(

@@ -129,8 +129,8 @@ Key differences from a CPU stage:
   dicts into a single multi-row `pd.DataFrame` in one `DocumentBatch`,
   avoiding N single-row DataFrame allocations.  Not a GPU stage, but
   benefits from batched processing.
-- `ALMManifestWriterStage` (`alm/alm_manifest_writer.py`) — writes
-  entries to JSONL, returns `FileGroupTask`.
+- `ManifestWriterStage` (`common.py`) — writes
+  entries to JSONL, returns `AudioTask`.
 
 ### Setting `batch_size` for GPU inference
 
@@ -778,9 +778,9 @@ Internet Archive podcast) flowing through every stage in
 
 Pipeline: read manifest → build windows → filter overlap → write.
 
-### Stage 0: `ALMManifestReader` (CompositeStage)
+### Stage 0: `ManifestReader` (CompositeStage)
 
-Decomposes into `FilePartitioningStage` + `ALMManifestReaderStage`.
+Decomposes into `FilePartitioningStage` + `ManifestReaderStage`.
 Reads the JSONL line-by-line (no Pandas), emits one `AudioTask` per
 entry.
 
@@ -976,7 +976,7 @@ The two surviving windows:
 | 0 | 510.97s – 627.58s | 116.6s | 5 |
 | 1 | 625.30s – 757.20s | 131.9s | 4 |
 
-### Stage 3: `ALMManifestWriterStage`
+### Stage 3: `ManifestWriterStage`
 
 Appends the entry as a single JSON line to
 `./alm_output/alm_output.jsonl` (351 KB for this entry).
@@ -985,10 +985,10 @@ Appends the entry as a single JSON line to
 
 | Stage | Keys in `data` | Notable changes | Mutates in-place? |
 |---|---|---|---|
-| `ALMManifestReader` | 54 (all original) | N/A (creates from JSONL line) | N/A |
+| `ManifestReader` | 54 (all original) | N/A (creates from JSONL line) | N/A |
 | `ALMDataBuilderStage` | 55 (−2, +3) | Drops `segments`/`words`; adds `windows`, `stats`, `truncation_events` | Yes (clear + update) |
 | `ALMDataOverlapStage` | 64 (+9) | Adds `filtered_windows`, `filtered_dur`, overlap metadata | Yes (clear + update) |
-| `ALMManifestWriterStage` | — | Writes JSON line to disk, returns `FileGroupTask` | N/A |
+| `ManifestWriterStage` | — | Writes JSON line to disk, returns `AudioTask` | N/A |
 
 ---
 
