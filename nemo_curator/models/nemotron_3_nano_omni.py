@@ -14,6 +14,7 @@
 
 import json
 import multiprocessing
+import re
 from pathlib import Path
 from typing import Any, Final
 
@@ -202,10 +203,11 @@ class Nemotron3NanoOmni(ModelInterface):
         # NemotronH_Nano_Omni_Reasoning_V3 (vLLM 0.20.0).
         cfg_path = model_dir_path / "config.json"
         cfg = json.loads(cfg_path.read_text())
-        cfg["architectures"] = ["NemotronH_Nano_VL_V2"]
-        cfg["model_type"] = "NemotronH_Nano_VL_V2"
-        cfg_path.write_text(json.dumps(cfg, indent=2))
-        logger.info("Patched config.json: architectures -> NemotronH_Nano_VL_V2")
+        if cfg.get("architectures") != ["NemotronH_Nano_VL_V2"] or cfg.get("model_type") != "NemotronH_Nano_VL_V2":
+            cfg["architectures"] = ["NemotronH_Nano_VL_V2"]
+            cfg["model_type"] = "NemotronH_Nano_VL_V2"
+            cfg_path.write_text(json.dumps(cfg, indent=2))
+            logger.info("Patched config.json: architectures -> NemotronH_Nano_VL_V2")
 
         # --- Patch 2: configuration_nemotron_h.py dtype property ---
         # vLLM accesses language_model.config.dtype at model init, but the HF checkpoint's
@@ -219,7 +221,7 @@ class Nemotron3NanoOmni(ModelInterface):
         nemotron_h_cfg_path = model_dir_path / "configuration_nemotron_h.py"
         if nemotron_h_cfg_path.exists():
             src = nemotron_h_cfg_path.read_text()
-            if "def dtype" not in src:
+            if not re.search(r"^\s*def dtype\s*\(", src, re.MULTILINE):
                 dtype_patch = """
     @property
     def dtype(self):
