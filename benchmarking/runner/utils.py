@@ -12,15 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ruff: noqa: LOG015, ERA001
+
 import os
 import re
 import shutil
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 # utils.py is also imported in scripts that run before the Curator
 # environment is set up so do not assume loguru is available
-# ruff: noqa: LOG015
 try:
     from loguru import logger
 except ImportError:
@@ -229,3 +232,121 @@ def log_gpu_stats(gpu_stats: dict, warn_if_in_use: bool = False) -> None:
             logger.warning(
                 f"GPU {gpu_id} has {stats['memory_used']} MiB ({pct_used:.1f}% of total) used before benchmark started"
             )
+
+
+_LEGACY_PATH_FIELDS = ["results_path", "datasets_path", "model_weights_path"]
+
+
+def assert_valid_config_dict(data: dict) -> None:  # noqa: C901, PLR0912
+    """Assert that the configuration contains the minimum required config values."""
+    has_legacy = any(k in data for k in _LEGACY_PATH_FIELDS)
+    has_paths = "paths" in data
+
+    if has_legacy and has_paths:
+        msg = (
+            "Configuration error: 'results_path', 'datasets_path', and 'model_weights_path' "
+            "are deprecated and cannot be used together with the 'paths' section. "
+            "Please remove the legacy path fields and use only the 'paths' section."
+        )
+        raise ValueError(msg)
+
+    if has_legacy:
+        logger.warning(
+            "'results_path', 'datasets_path', and 'model_weights_path' are deprecated. "
+            "Please migrate to using the 'paths' section instead."
+        )
+        missing = [k for k in _LEGACY_PATH_FIELDS if k not in data]
+        if missing:
+            msg = f"Invalid configuration: missing required legacy path fields: {missing}"
+            raise ValueError(msg)
+    elif not has_paths:
+        msg = "Invalid configuration: missing required field: 'paths'"
+        raise ValueError(msg)
+    else:
+        for i, path_entry in enumerate(data["paths"]):
+            if not isinstance(path_entry, dict):
+                msg = f"Invalid configuration: 'paths' entry at index {i} must be a dict"
+                raise TypeError(msg)
+            missing = [k for k in ("name", "host_path") if k not in path_entry]
+            if missing:
+                msg = f"Invalid configuration: 'paths' entry at index {i} is missing required fields: {missing}"
+                raise ValueError(msg)
+        seen_names: set[str] = set()
+        for path_entry in data["paths"]:
+            if isinstance(path_entry, dict) and "name" in path_entry:
+                name = path_entry["name"]
+                if name in seen_names:
+                    msg = f"Invalid configuration: duplicate name '{name}' in 'paths' section"
+                    raise ValueError(msg)
+                seen_names.add(name)
+        if "results_path" not in seen_names:
+            msg = "Invalid configuration: 'paths' section must include an entry with name 'results_path'"
+            raise ValueError(msg)
+
+    if "entries" not in data:
+        logger.warning("Configuration is missing 'entries' field; no benchmarks will run.")
+
+
+def update_config(config_dict: dict, new_dict: dict) -> None:
+    """Update a config dictionary with values from another."""
+
+    # Iterate through all key-value pairs in the dictionary to merge in
+    for key, value in new_dict.items():
+        if key in config_dict:
+            # Recursively handle nested dicts
+            if isinstance(config_dict[key], dict) and isinstance(value, dict):
+                update_config(config_dict[key], value)
+
+            # Handle list merging/updating on an item-by-item basis
+            # For example, the YAML:
+            #     entries:
+            #      - name: domain_classification_raydata
+            #        requirements:
+            #          - metric: throughput_docs_per_sec
+            #            min_value: 2677            # results in:
+            #     config_dict['entries'] = [{'name': 'domain_classification_raydata',
+            #                                'requirements': [{'metric': 'throughput_docs_per_sec', 'min_value': 2677}]
+            #                              }]
+            #
+            # Dicts in lists are matched by their "name" key when present (since it is the
+            # canonical identifier for entries, paths, sinks, etc.); otherwise the first key
+            # is used as the match key. This means override files should use "name" whenever
+            # possible to ensure reliable matching.
+            elif isinstance(config_dict[key], list) and isinstance(value, list):
+                for sub_val in value:
+                    # Handle dicts in the list by matching on "name" if present, else first key
+                    if isinstance(sub_val, dict) and sub_val:
+                        match_key = "name" if "name" in sub_val else next(iter(sub_val.keys()))
+                        for config_sub_val in config_dict[key]:
+                            if (
+                                isinstance(config_sub_val, dict)
+                                and config_sub_val
+                                and match_key in config_sub_val
+                                and config_sub_val[match_key] == sub_val[match_key]
+                            ):
+                                # If matching dict found, recursively update it
+                                update_config(config_sub_val, sub_val)
+                                break
+                        else:
+                            # If no matching dict, append the new dict to the list
+                            config_dict[key].append(sub_val)
+                    else:
+                        # If not a dict, append the new value to the list
+                        config_dict[key].append(sub_val)
+            else:
+                # If types differ, or not a dict/list, replace value in config_dict
+                config_dict[key] = value
+        else:
+            # If key doesn't exist, add it to config_dict
+            config_dict[key] = value
+
+
+def merge_config_files(config_files: list[Path]) -> dict:
+    """Merge multiple config files into a single dictionary."""
+    config_dict = {}
+    for config_file in config_files:
+        with open(config_file) as f:
+            for new_dict in yaml.full_load_all(f):
+                if new_dict is not None:
+                    update_config(config_dict, new_dict)
+    return config_dict

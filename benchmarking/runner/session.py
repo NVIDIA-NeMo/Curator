@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 from runner.datasets import DatasetResolver
 from runner.entry import Entry
 from runner.path_resolver import PathResolver
-from runner.utils import get_total_memory_bytes
+from runner.utils import assert_valid_config_dict, get_total_memory_bytes
 
 
 @dataclass(kw_only=True)
@@ -83,15 +83,6 @@ class Session:
             entry.ray = {**self.ray, **entry.ray}
 
     @classmethod
-    def assert_valid_config_dict(cls, data: dict) -> None:
-        """Assert that the configuration contains the minimum required config values."""
-        required_fields = ["results_path", "datasets_path", "model_weights_path", "entries"]
-        missing_fields = [k for k in required_fields if k not in data]
-        if missing_fields:
-            msg = f"Invalid configuration: missing required fields: {missing_fields}"
-            raise ValueError(msg)
-
-    @classmethod
     def from_dict(cls, data: dict, entry_filter_expr: str | None = None) -> Session:
         """
         Factory method to create a Session from a dictionary.
@@ -101,7 +92,7 @@ class Session:
         entry dicts to Entry objects, and returns a new Session
         object.
         """
-        cls.assert_valid_config_dict(data)
+        assert_valid_config_dict(data)
         path_resolver = PathResolver(data)
         dataset_resolver = DatasetResolver(data.get("datasets", []))
 
