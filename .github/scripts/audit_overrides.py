@@ -67,6 +67,7 @@ class Result:
 
 
 def load_overrides(pyproject: Path) -> list[str]:
+    """Return every spec listed under [tool.uv] override-dependencies."""
     data = tomllib.loads(pyproject.read_text())
     return list(data.get("tool", {}).get("uv", {}).get("override-dependencies", []))
 
@@ -86,6 +87,7 @@ def remove_override_line(pyproject: Path, spec: str) -> None:
 
 
 def run_uv_lock(workdir: Path, timeout: int) -> tuple[bool, str]:
+    """Run a fresh `uv lock` in workdir and return (success, combined output)."""
     lockfile = workdir / "uv.lock"
     if lockfile.exists():
         lockfile.unlink()
@@ -101,6 +103,7 @@ def run_uv_lock(workdir: Path, timeout: int) -> tuple[bool, str]:
 
 
 def locked_version(lockfile: Path, name: str) -> str | None:
+    """Return the resolved version of `name` from uv.lock, or None if absent."""
     canonical = name.lower().replace("_", "-")
     data = tomllib.loads(lockfile.read_text())
     for pkg in data.get("package", []):
@@ -111,6 +114,7 @@ def locked_version(lockfile: Path, name: str) -> str | None:
 
 
 def _categorize(req: Requirement, ver: str | None) -> tuple[str, str]:
+    """Decide (category, detail) given the parsed override and the resolved version."""
     # "Ban" override (no specifier, e.g. `apex; sys_platform == 'never'`):
     # the intent is to prevent the package from resolving anywhere. If
     # removing the override pulls it into the lock, the override is load-bearing.
@@ -133,6 +137,7 @@ def _categorize(req: Requirement, ver: str | None) -> tuple[str, str]:
 
 
 def classify(spec: str, success: bool, log: str, lockfile: Path | None) -> Result:
+    """Wrap a uv lock outcome into a Result with the appropriate category."""
     if not success:
         return Result(spec, "load-bearing", "removing the override breaks resolution", log[-600:])
     if lockfile is None:
@@ -148,6 +153,7 @@ def classify(spec: str, success: bool, log: str, lockfile: Path | None) -> Resul
 
 
 def audit_one(repo: Path, spec: str, timeout: int) -> Result:
+    """Copy the repo to a temp dir, drop one override, re-lock, and classify."""
     with tempfile.TemporaryDirectory(prefix="audit-overrides-") as td:
         dst = Path(td) / "repo"
         shutil.copytree(repo, dst, ignore=IGNORE_PATTERNS, symlinks=True)
@@ -157,6 +163,7 @@ def audit_one(repo: Path, spec: str, timeout: int) -> Result:
 
 
 def render_markdown(results: list[Result]) -> str:
+    """Render the audit results as a categorized markdown report."""
     buckets = {"stale": [], "shaping": [], "load-bearing": [], "error": []}
     for r in results:
         buckets.setdefault(r.category, []).append(r)
@@ -189,6 +196,7 @@ def render_markdown(results: list[Result]) -> str:
 
 
 def main() -> int:
+    """Parse CLI args, run the audit over every override, and emit reports."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="Path to the Curator repo (default: cwd)")
     parser.add_argument("--output", type=Path, help="Write markdown report to this path")
