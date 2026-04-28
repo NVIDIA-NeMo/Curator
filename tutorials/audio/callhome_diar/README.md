@@ -7,11 +7,11 @@ Inference runs in parallel via `Pipeline` + `XennaExecutor` for high throughput.
 ## Prerequisites
 
 - Python 3.11+
-- NeMo Curator installed (see [installation guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
+- NeMo Curator installed (see the [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
 - [`ffmpeg`](https://ffmpeg.org/) command-line tool (for stereo-to-mono conversion; pre-installed in the NeMo Curator container)
 - CallHome English dataset with `.wav` files and `eng/*.cha` ground-truth annotations
 
-### Dataset layout
+### Dataset Layout
 
 ```
 /path/to/callhome_eng0/
@@ -26,14 +26,14 @@ Inference runs in parallel via `Pipeline` + `XennaExecutor` for high throughput.
 
 ## Usage
 
-### Quick start
+### Quickstart
 
 ```bash
 python tutorials/audio/callhome_diar/run.py \
   --data-dir /path/to/callhome_eng0
 ```
 
-### Full options
+### Full Options
 
 ```bash
 python tutorials/audio/callhome_diar/run.py \
@@ -53,9 +53,9 @@ Key arguments:
 | `--clean` | off | Remove entire output directory before re-running |
 | `--model` | `nvidia/diar_streaming_sortformer_4spk-v2.1` | Hugging Face model id |
 
-### Streaming configuration
+### Streaming Configuration
 
-All values are in **80 ms frames**. Override via `--chunk-len`, `--chunk-right-context`, etc.
+All values are in **80 ms frames**. Override using `--chunk-len`, `--chunk-right-context`, etc.
 
 | Configuration | Latency | chunk_len | chunk_right_context | fifo_len | spkcache_update_period | spkcache_len |
 |---------------|---------|-----------|---------------------|----------|------------------------|--------------|
@@ -64,7 +64,7 @@ All values are in **80 ms frames**. Override via `--chunk-len`, `--chunk-right-c
 | Low | 1.04 s | 6 | 7 | 188 | 144 | 188 |
 | Ultra low | 0.32 s | 3 | 1 | 188 | 144 | 188 |
 
-## What the script does
+## What the Script Does
 
 1. **File discovery (`CallHomeReaderStage`)** — Scans the dataset directory for WAV files with matching `.cha` annotations, skipping already-processed files. Emits one `AudioTask` per file.
 2. **Mono conversion (`EnsureMonoStage`)** — CallHome WAVs are stereo (one channel per speaker). This stage downmixes to mono 16 kHz via `ffmpeg` so the model sees both speakers.
@@ -73,7 +73,7 @@ All values are in **80 ms frames**. Override via `--chunk-len`, `--chunk-right-c
 
 `XennaExecutor` distributes tasks across workers for parallel processing. After the pipeline completes, the script prints macro-average, weighted-average, speaker count accuracy, and best/worst files.
 
-## Example output
+## Example Output
 
 ```
 ============================================================
@@ -88,7 +88,7 @@ COMPLETED: 139 files evaluated (collar=0.25s)
   Worst 5: 4247=28.1%, 4325=22.4%, 4556=19.7%, 4870=18.3%, 4902=17.6%
 ```
 
-## Pipeline integration
+## Pipeline Integration
 
 `InferenceSortformerStage` can be composed with any reader stage in a NeMo Curator pipeline:
 
@@ -117,7 +117,7 @@ results = pipeline.run(executor=XennaExecutor())
 |-------|----------|
 | SIGSEGV / actor crash during model load | See [Known Issues](../README.md#known-issues) — set `OTEL_SDK_DISABLED=true` |
 
-## Model limitations
+## Model Limitations
 
 - Maximum 4 speakers per recording
 - Trained primarily on English speech

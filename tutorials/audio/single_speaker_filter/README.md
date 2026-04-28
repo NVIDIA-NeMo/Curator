@@ -1,16 +1,16 @@
 # Single-Speaker Filtering with Streaming Sortformer
 
-Filter an ASR manifest to keep only audio files containing exactly one speaker, using [Streaming Sortformer](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2) for diarization via NeMo Curator's `InferenceSortformerStage`.
+Filter an ASR manifest to keep only audio files containing exactly one speaker, using [Streaming Sortformer](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2) for diarization with NeMo Curator's `InferenceSortformerStage`.
 
 The pipeline includes **per-task hash-based checkpointing** — if a run is interrupted, re-running with the same `--output-dir` resumes from where it left off.
 
 ## Prerequisites
 
 - Python 3.11+
-- NeMo Curator installed (see [installation guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
-- NVIDIA GPU(s) with at least 8 GB VRAM (e.g. V100, A100, H100, or RTX 3090+)
+- NeMo Curator installed (see the [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
+- NVIDIA GPU(s) with at least 8 GB VRAM (e.g., V100, A100, H100, or RTX 3090+)
 
-## Input format
+## Input Format
 
 NeMo-style JSONL manifest — one JSON object per line with at least `audio_filepath`:
 
@@ -29,7 +29,7 @@ python tutorials/audio/single_speaker_filter/run.py \
   --output-dir /path/to/output
 ```
 
-### Resume after failure
+### Resume After Failure
 
 Simply re-run with the same `--output-dir`. Tasks whose inference checkpoint already exists are skipped:
 
@@ -39,7 +39,7 @@ python tutorials/audio/single_speaker_filter/run.py \
   --output-dir /path/to/output
 ```
 
-### Clean run
+### Clean Run
 
 ```bash
 python tutorials/audio/single_speaker_filter/run.py \
@@ -47,7 +47,7 @@ python tutorials/audio/single_speaker_filter/run.py \
   --output-dir /path/to/output --clean
 ```
 
-### All options
+### All Options
 
 | Argument | Default | Description |
 |----------|---------|-------------|
@@ -61,7 +61,7 @@ python tutorials/audio/single_speaker_filter/run.py \
 | `--spkcache-update-period` | `300` | Speaker cache update period in frames |
 | `--spkcache-len` | `188` | Speaker cache size in frames |
 
-## Pipeline stages
+## Pipeline Stages
 
 1. **ALMManifestReader** — Reads the JSONL manifest and emits one `AudioTask` per entry.
 2. **InferenceSortformerStage** — Runs Streaming Sortformer on each audio file (GPU). Adds `diar_segments` to each task.
@@ -84,11 +84,11 @@ python tutorials/audio/single_speaker_filter/run.py \
 |-------|----------|
 | SIGSEGV / actor crash during model load | See [Known Issues](../README.md#known-issues) — set `OTEL_SDK_DISABLED=true` |
 
-## Streaming configuration
+## Streaming Configuration
 
 All frame values are in 80ms units. See the [callhome_diar tutorial](../callhome_diar/README.md) for latency trade-off configurations.
 
-## Model limitations
+## Model Limitations
 
 - Maximum 4 speakers per recording
 - Trained primarily on English speech
