@@ -35,10 +35,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import tomllib
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import tomllib
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
@@ -90,7 +90,7 @@ def run_uv_lock(workdir: Path, timeout: int) -> tuple[bool, str]:
     if lockfile.exists():
         lockfile.unlink()
     proc = subprocess.run(
-        ["uv", "lock"],
+        ["uv", "lock"],  # noqa: S607 -- uv is provided on PATH by the workflow / dev env
         cwd=workdir,
         capture_output=True,
         text=True,
@@ -110,40 +110,41 @@ def locked_version(lockfile: Path, name: str) -> str | None:
     return None
 
 
+def _categorize(req: Requirement, ver: str | None) -> tuple[str, str]:
+    # "Ban" override (no specifier, e.g. `apex; sys_platform == 'never'`):
+    # the intent is to prevent the package from resolving anywhere. If
+    # removing the override pulls it into the lock, the override is load-bearing.
+    if not req.specifier:
+        if ver is None:
+            return "stale", f"{req.name} is not in the lock without the override"
+        return "load-bearing", f"removing override pulls {req.name}=={ver} into the lock"
+
+    if ver is None:
+        return "stale", f"{req.name} is not in the lock without the override"
+
+    try:
+        satisfies = Version(ver) in SpecifierSet(str(req.specifier))
+    except InvalidVersion:
+        return "error", f"locked version {ver!r} for {req.name} is not PEP 440 compatible"
+
+    if satisfies:
+        return "stale", f"resolves to {req.name}=={ver}, already satisfies {req.specifier}"
+    return "shaping", f"resolves to {req.name}=={ver} without override (override forces {req.specifier})"
+
+
 def classify(spec: str, success: bool, log: str, lockfile: Path | None) -> Result:
     if not success:
         return Result(spec, "load-bearing", "removing the override breaks resolution", log[-600:])
+    if lockfile is None:
+        return Result(spec, "error", "lock succeeded but no lockfile was produced")
 
-    assert lockfile is not None
     try:
         req = Requirement(spec)
     except Exception as e:  # noqa: BLE001
         return Result(spec, "error", f"failed to parse spec: {e}")
 
-    ver = locked_version(lockfile, req.name)
-
-    # "Ban" override (no specifier, e.g. `apex; sys_platform == 'never'`):
-    # The intent is to prevent the package from ever resolving. If removing
-    # the override pulls it into the lock, the override is load-bearing.
-    if not req.specifier:
-        if ver is None:
-            return Result(spec, "stale", f"{req.name} is not in the lock without the override")
-        return Result(spec, "load-bearing", f"removing override pulls {req.name}=={ver} into the lock")
-
-    if ver is None:
-        return Result(spec, "stale", f"{req.name} is not in the lock without the override")
-
-    try:
-        if Version(ver) in SpecifierSet(str(req.specifier)):
-            return Result(spec, "stale", f"resolves to {req.name}=={ver}, already satisfies {req.specifier}")
-    except InvalidVersion:
-        return Result(spec, "error", f"locked version {ver!r} for {req.name} is not PEP 440 compatible")
-
-    return Result(
-        spec,
-        "shaping",
-        f"resolves to {req.name}=={ver} without override (override forces {req.specifier})",
-    )
+    category, detail = _categorize(req, locked_version(lockfile, req.name))
+    return Result(spec, category, detail)
 
 
 def audit_one(repo: Path, spec: str, timeout: int) -> Result:
