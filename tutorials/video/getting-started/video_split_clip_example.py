@@ -561,7 +561,15 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         "--captioning-algorithm",
         type=str,
         default="qwen2.5",
-        choices=["qwen2.5", "qwen3", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4", "nemotron-3-nano-omni"],
+        choices=[
+            "qwen2.5",
+            "qwen3",
+            "nemotron",
+            "nemotron-bf16",
+            "nemotron-fp8",
+            "nemotron-nvfp4",
+            "nemotron-3-nano-omni",
+        ],
         help=(
             "Captioning algorithm to use. Options:\n"
             "  - qwen2.5: Qwen2.5-VL-7B-Instruct (default)\n"

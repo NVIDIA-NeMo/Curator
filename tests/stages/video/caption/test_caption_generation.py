@@ -128,9 +128,7 @@ class TestCaptionGenerationStage:
         )
         stage.setup_on_node()
 
-        mock_nemotron_omni.download_weights_on_node.assert_called_once_with(
-            "/aot/checkpoints/nemotron_3_nano_omni"
-        )
+        mock_nemotron_omni.download_weights_on_node.assert_called_once_with("/aot/checkpoints/nemotron_3_nano_omni")
 
     def test_setup_unsupported_variant(self):
         """Test setup method with unsupported model variant."""

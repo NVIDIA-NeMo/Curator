@@ -79,10 +79,7 @@ class Nemotron3NanoOmni(ModelInterface):
 
     def setup(self) -> None:
         if not VLLM_AVAILABLE:
-            msg = (
-                "vllm is required for Nemotron3NanoOmni but is not installed. "
-                "Please install vllm: pip install vllm"
-            )
+            msg = "vllm is required for Nemotron3NanoOmni but is not installed. Please install vllm: pip install vllm"
             raise ImportError(msg)
 
         # vLLM v1 spawns an EngineCore subprocess. When running inside a Ray GPU actor,
@@ -184,9 +181,7 @@ class Nemotron3NanoOmni(ModelInterface):
         publicly released and _HF_MODEL_ID is set, this will download from HuggingFace.
         """
         if _HF_MODEL_ID is None:
-            logger.info(
-                f"Nemotron3NanoOmni is a local checkpoint at {model_dir!r}, skipping HF download"
-            )
+            logger.info(f"Nemotron3NanoOmni is a local checkpoint at {model_dir!r}, skipping HF download")
             return
 
         model_dir_path = Path(model_dir) / _HF_MODEL_ID

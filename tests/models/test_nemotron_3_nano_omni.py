@@ -73,9 +73,7 @@ class TestNemotron3NanoOmniLocalMode:
     @patch("nemo_curator.models.nemotron_3_nano_omni.multiprocessing")
     @patch("nemo_curator.models.nemotron_3_nano_omni.SamplingParams")
     @patch("nemo_curator.models.nemotron_3_nano_omni.LLM")
-    def test_setup_creates_llm(
-        self, mock_llm_cls: Mock, mock_sp_cls: Mock, mock_mp: Mock
-    ) -> None:
+    def test_setup_creates_llm(self, mock_llm_cls: Mock, mock_sp_cls: Mock, mock_mp: Mock) -> None:
         mock_mp.get_start_method.return_value = "spawn"
         Nemotron3NanoOmni(model_dir=self.model_dir).setup()
         mock_llm_cls.assert_called_once_with(
@@ -93,9 +91,7 @@ class TestNemotron3NanoOmniLocalMode:
     @patch("nemo_curator.models.nemotron_3_nano_omni.multiprocessing")
     @patch("nemo_curator.models.nemotron_3_nano_omni.SamplingParams")
     @patch("nemo_curator.models.nemotron_3_nano_omni.LLM")
-    def test_setup_sets_sampling_params(
-        self, mock_llm_cls: Mock, mock_sp_cls: Mock, mock_mp: Mock
-    ) -> None:
+    def test_setup_sets_sampling_params(self, mock_llm_cls: Mock, mock_sp_cls: Mock, mock_mp: Mock) -> None:
         mock_mp.get_start_method.return_value = "spawn"
         Nemotron3NanoOmni(model_dir=self.model_dir).setup()
         mock_sp_cls.assert_called_once_with(
@@ -109,9 +105,7 @@ class TestNemotron3NanoOmniLocalMode:
     @patch("nemo_curator.models.nemotron_3_nano_omni.multiprocessing")
     @patch("nemo_curator.models.nemotron_3_nano_omni.SamplingParams")
     @patch("nemo_curator.models.nemotron_3_nano_omni.LLM")
-    def test_setup_forces_spawn_when_not_spawn(
-        self, mock_llm_cls: Mock, mock_sp_cls: Mock, mock_mp: Mock
-    ) -> None:
+    def test_setup_forces_spawn_when_not_spawn(self, mock_llm_cls: Mock, mock_sp_cls: Mock, mock_mp: Mock) -> None:
         mock_mp.get_start_method.return_value = "fork"
         Nemotron3NanoOmni(model_dir=self.model_dir).setup()
         mock_mp.set_start_method.assert_called_once_with("spawn", force=True)
@@ -186,8 +180,10 @@ class TestNemotron3NanoOmniLocalMode:
 
     @patch("nemo_curator.models.nemotron_3_nano_omni.logger")
     def test_download_weights_skips_in_local_mode(self, mock_logger: Mock) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir, \
-             patch("nemo_curator.models.nemotron_3_nano_omni.download_model_from_hf") as mock_dl:
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("nemo_curator.models.nemotron_3_nano_omni.download_model_from_hf") as mock_dl,
+        ):
             Nemotron3NanoOmni.download_weights_on_node(tmpdir)
             mock_dl.assert_not_called()
         mock_logger.info.assert_called_once()
@@ -239,7 +235,9 @@ class TestNemotron3NanoOmniHFMode:
             existing = pathlib.Path(tmpdir) / self._MOCK_HF_ID
             existing.mkdir(parents=True)
             (existing / "model.safetensors").write_bytes(b"fake")
-            (existing / "config.json").write_text('{"architectures": ["NemotronH_Nano_Omni_Reasoning_V3"], "model_type": "NemotronH_Nano_Omni_Reasoning_V3"}')
+            (existing / "config.json").write_text(
+                '{"architectures": ["NemotronH_Nano_Omni_Reasoning_V3"], "model_type": "NemotronH_Nano_Omni_Reasoning_V3"}'
+            )
             Nemotron3NanoOmni.download_weights_on_node(tmpdir)
             mock_dl.assert_not_called()
 

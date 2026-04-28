@@ -28,7 +28,15 @@ class TestPromptFormatterVariantMapping:
 
     def test_variant_mapping_contains_all_variants(self) -> None:
         """Test that all expected variants are in mapping."""
-        expected_variants = {"qwen2.5", "qwen3", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4", "nemotron-3-nano-omni"}
+        expected_variants = {
+            "qwen2.5",
+            "qwen3",
+            "nemotron",
+            "nemotron-bf16",
+            "nemotron-fp8",
+            "nemotron-nvfp4",
+            "nemotron-3-nano-omni",
+        }
         assert set(VARIANT_MAPPING.keys()) == expected_variants
 
     def test_variant_mapping_qwen_hf_ids(self) -> None:
@@ -373,6 +381,7 @@ class TestPromptFormatterNemotron3NanoOmni:
     def test_generate_inputs_passes_video_metadata(self, mock_processor_class: Mock) -> None:
         """Video numpy array and fps/frames_indices metadata are forwarded in the tuple format."""
         import numpy as np
+
         mock_processor_class.from_pretrained.return_value = Mock()
 
         formatter = PromptFormatter(prompt_variant="nemotron-3-nano-omni")
