@@ -19,8 +19,11 @@ For each entry, runs a fresh `uv lock` with that entry removed and classifies:
   - shaping:     resolves cleanly but the locked version violates the override
                  spec (override is actively pinning -- review whether the
                  alternate version is acceptable)
-  - stale:       resolves cleanly with a satisfying version, or the package is
-                 not in the lock at all (override is a no-op -- removable)
+  - defensive:   removal still resolves to a satisfying version today, but the
+                 override's *inverse* range is independently resolvable -- so
+                 the override is protecting against an upstream regression
+  - stale:       removal resolves cleanly to a satisfying version AND the
+                 inverse range is unsatisfiable -- the override is a true no-op
 
 Outputs a markdown report to stdout and optionally to --output / --json.
 """
@@ -35,33 +38,39 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator  # noqa: TC003 -- annotation use only, but the cost is nil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import tomllib
-from packaging.requirements import Requirement
+from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
 
-IGNORE_PATTERNS = shutil.ignore_patterns(
-    ".git",
-    ".venv",
-    "venv",
-    "__pycache__",
-    "*.egg-info",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".mypy_cache",
-    "node_modules",
-    "build",
-    "dist",
-)
+# What `uv lock` reads from the project: the spec, the package source (for the
+# dynamic version attr in nemo_curator.package_info), and README.md (referenced
+# as the project's `readme`). Anything else (tests, tutorials, docs, .git, ...)
+# is irrelevant to resolution. Update this list if pyproject.toml starts
+# referencing additional files.
+LOCK_INPUTS = ("pyproject.toml", "nemo_curator", "README.md")
+
+
+def stage_repo(repo: Path, dst: Path) -> None:
+    """Copy just the files `uv lock` needs from `repo` into `dst`."""
+    dst.mkdir(parents=True, exist_ok=True)
+    for name in LOCK_INPUTS:
+        src = repo / name
+        target = dst / name
+        if src.is_dir():
+            shutil.copytree(src, target, symlinks=True)
+        else:
+            shutil.copy2(src, target)
 
 
 @dataclass
 class Result:
     spec: str
-    category: str  # load-bearing | shaping | stale | error
+    category: str  # load-bearing | shaping | defensive | stale | error
     detail: str
     log_excerpt: str = ""
 
@@ -84,6 +93,62 @@ def remove_override_line(pyproject: Path, spec: str) -> None:
         msg = f"Could not locate override line for {spec!r} in {pyproject}"
         raise RuntimeError(msg)
     pyproject.write_text(new_text)
+
+
+def replace_override_line(pyproject: Path, old_spec: str, new_spec: str) -> None:
+    """Replace the override entry for `old_spec` with `new_spec` in pyproject.toml."""
+    text = pyproject.read_text()
+    pattern = re.compile(
+        r'^([ \t]*)"' + re.escape(old_spec) + r'"([ \t]*,?[ \t]*(?:#.*)?\n)',
+        re.MULTILINE,
+    )
+    new_text, count = pattern.subn(
+        lambda m: f'{m.group(1)}"{new_spec}"{m.group(2)}',
+        text,
+        count=1,
+    )
+    if count != 1:
+        msg = f"Could not locate override line for {old_spec!r} in {pyproject}"
+        raise RuntimeError(msg)
+    pyproject.write_text(new_text)
+
+
+def derive_inverse_specs(spec: str) -> list[str]:
+    """Return inverse specs covering ranges the override currently excludes.
+
+    A single-bound spec like `torchcodec>=0.9.0` yields `["torchcodec<0.9.0"]`.
+    A compound spec like `numpy>=2.0.0,<=2.2.0` yields both
+    `["numpy<2.0.0", "numpy>2.2.0"]`. Markers are preserved.
+    Returns an empty list for ban overrides (no specifier) and pin/exclusion
+    operators (`==`, `!=`, `~=`) that don't have a clean single-clause inverse.
+    """
+    try:
+        req = Requirement(spec)
+    except InvalidRequirement:
+        return []
+    if not req.specifier:
+        return []  # ban override -- already covered by the removal test
+
+    flip = {">=": "<", ">": "<=", "<=": ">", "<": ">="}
+    inverses: list[str] = []
+    for clause in req.specifier:
+        inv_op = flip.get(clause.operator)
+        if inv_op is None:
+            continue  # skip ==, !=, ~=
+        body = f"{req.name}{inv_op}{clause.version}"
+        if req.marker:
+            body = f"{body}; {req.marker}"
+        inverses.append(body)
+    return inverses
+
+
+@contextlib.contextmanager
+def _staged_repo(repo: Path) -> Iterator[Path]:
+    """Yield a temp staging copy of `repo` containing only LOCK_INPUTS."""
+    with tempfile.TemporaryDirectory(prefix="audit-overrides-") as td:
+        dst = Path(td) / "repo"
+        stage_repo(repo, dst)
+        yield dst
 
 
 def run_uv_lock(workdir: Path, timeout: int) -> tuple[bool, str]:
@@ -153,18 +218,43 @@ def classify(spec: str, success: bool, log: str, lockfile: Path | None) -> Resul
 
 
 def audit_one(repo: Path, spec: str, timeout: int) -> Result:
-    """Copy the repo to a temp dir, drop one override, re-lock, and classify."""
-    with tempfile.TemporaryDirectory(prefix="audit-overrides-") as td:
-        dst = Path(td) / "repo"
-        shutil.copytree(repo, dst, ignore=IGNORE_PATTERNS, symlinks=True)
+    """Drop the override, re-lock, classify, and on `stale` run the inverse test."""
+    with _staged_repo(repo) as dst:
         remove_override_line(dst / "pyproject.toml", spec)
         ok, log = run_uv_lock(dst, timeout=timeout)
-        return classify(spec, ok, log, dst / "uv.lock" if ok else None)
+        primary = classify(spec, ok, log, dst / "uv.lock" if ok else None)
+
+    if primary.category != "stale":
+        return primary
+
+    # Differentiate "truly stale" from "defensive": replace the override with
+    # its inverse and check whether any package in the graph would otherwise
+    # allow that range. If yes, the override is protective.
+    inverses = derive_inverse_specs(spec)
+    if not inverses:
+        return primary  # not invertible; leave as stale
+
+    for inverse in inverses:
+        with _staged_repo(repo) as dst:
+            replace_override_line(dst / "pyproject.toml", spec, inverse)
+            inverse_ok, _ = run_uv_lock(dst, timeout=timeout)
+        if inverse_ok:
+            return Result(
+                spec,
+                "defensive",
+                f"natural resolution satisfies the override, but `{inverse}` is also resolvable -- override is protective",
+            )
+
+    return Result(
+        spec,
+        "stale",
+        f"{primary.detail}; inverse range is unsatisfiable -- truly redundant",
+    )
 
 
 def render_markdown(results: list[Result]) -> str:
     """Render the audit results as a categorized markdown report."""
-    buckets = {"stale": [], "shaping": [], "load-bearing": [], "error": []}
+    buckets = {"stale": [], "defensive": [], "shaping": [], "load-bearing": [], "error": []}
     for r in results:
         buckets.setdefault(r.category, []).append(r)
 
@@ -172,6 +262,7 @@ def render_markdown(results: list[Result]) -> str:
     out.append(
         f"Audited {len(results)} override(s): "
         f"{len(buckets['stale'])} stale, "
+        f"{len(buckets['defensive'])} defensive, "
         f"{len(buckets['shaping'])} shaping, "
         f"{len(buckets['load-bearing'])} load-bearing, "
         f"{len(buckets['error'])} error.",
@@ -180,6 +271,7 @@ def render_markdown(results: list[Result]) -> str:
 
     sections = [
         ("stale", "Stale (safe to remove)"),
+        ("defensive", "Defensive (redundant today, protects against upstream regression)"),
         ("shaping", "Shaping (review -- override actively constrains resolution)"),
         ("load-bearing", "Load-bearing (keep)"),
         ("error", "Errors"),
