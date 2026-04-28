@@ -222,6 +222,10 @@ class QwenOmni(ModelInterface):
     ) -> tuple[dict[str, Any], np.ndarray] | None:
         from qwen_omni_utils import process_mm_info
 
+        if waveform.size == 0:
+            logger.warning("Skipping empty waveform (0 samples)")
+            return None
+
         try:
             waveform_16k = self._resample(waveform, sample_rate)
             messages = self._build_messages(waveform_16k, language)

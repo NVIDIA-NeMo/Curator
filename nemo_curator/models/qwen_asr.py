@@ -157,20 +157,38 @@ class QwenASR(ModelInterface):
             msg = "Model not initialized. Call setup() first."
             raise RuntimeError(msg)
 
+        n = len(waveforms)
+        valid_indices = [i for i, w in enumerate(waveforms) if w.size > 0]
+
+        if not valid_indices:
+            logger.warning(f"All {n} audio samples are empty, returning empty predictions")
+            return [""] * n, [""] * n
+
+        if len(valid_indices) < n:
+            logger.warning(f"Skipping {n - len(valid_indices)}/{n} empty waveforms in QwenASR batch")
+
+        valid_waveforms = [waveforms[i] for i in valid_indices]
+        valid_rates = [sample_rates[i] for i in valid_indices]
+        valid_langs = [languages[i] for i in valid_indices] if languages else None
+        valid_contexts = [contexts[i] for i in valid_indices] if contexts else None
+
         audio_inputs: list[tuple[np.ndarray, int]] = list(
-            zip(waveforms, sample_rates, strict=True)
+            zip(valid_waveforms, valid_rates, strict=True)
         )
 
         kwargs: dict[str, Any] = {
             "audio": audio_inputs,
-            "language": languages,
+            "language": valid_langs,
         }
-        if contexts is not None:
-            kwargs["context"] = contexts
+        if valid_contexts is not None:
+            kwargs["context"] = valid_contexts
 
         results = self._model.transcribe(**kwargs)
 
-        texts = [getattr(r, "text", str(r)) for r in results]
-        detected_langs = [getattr(r, "language", "") for r in results]
+        texts: list[str] = [""] * n
+        detected_langs: list[str] = [""] * n
+        for idx, r in zip(valid_indices, results, strict=True):
+            texts[idx] = getattr(r, "text", str(r))
+            detected_langs[idx] = getattr(r, "language", "")
 
         return texts, detected_langs
