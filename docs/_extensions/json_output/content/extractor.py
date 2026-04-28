@@ -153,7 +153,7 @@ def _extract_basic_features(content: dict[str, Any], doctree: nodes.document, do
             content[feature_name] = result
             if feature_name == "headings":
                 logger.debug(f"Extracted {len(result)} headings from {docname}")
-        except Exception as e:  # noqa: PERF203
+        except Exception as e:
             logger.warning(f"Error extracting {feature_name} from {docname}: {e}")
             content[feature_name] = default_value
 
@@ -171,7 +171,7 @@ def _extract_complex_features(content: dict[str, Any], doctree: nodes.document, 
             result = extract_func(doctree)
             content[feature_name] = result
             logger.debug(f"Extracted {len(result)} {feature_name} from {docname}")
-        except Exception as e:  # noqa: PERF203
+        except Exception as e:
             logger.warning(f"Error extracting {feature_name} from {docname}: {e}")
             content[feature_name] = []
 
