@@ -44,7 +44,7 @@ class CommonCrawlWarcIterator(DocumentIterator):
                         url = rec.rec_headers.get_header("WARC-Target-URI")
                         yield {"url": url, "warc_id": warc_id, "source_id": filename, "content": content}
                         num_records += 1
-                except StopIteration:  # noqa: PERF203
+                except StopIteration:
                     # End of file reached normally
                     break
                 except Exception as e:  # noqa: BLE001
