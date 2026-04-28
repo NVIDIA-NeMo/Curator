@@ -24,7 +24,6 @@ or unfaithful outputs and falls back to the original text.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -47,82 +46,8 @@ except ImportError:
 
 _DEFAULT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "itn_prompt.md"
 
-_ALPHA_RE = re.compile(r"[a-zA-Z]+")
-_ROMAN_RE = re.compile(r"^[ivxlcdm]+$", re.IGNORECASE)
-_VALID_ITN_ALPHA = frozenset(
-    {
-        "st",
-        "nd",
-        "rd",
-        "th",
-        "dr",
-        "mr",
-        "mrs",
-        "ms",
-        "prof",
-        "sr",
-        "jr",
-        "ave",
-        "blvd",
-        "ln",
-        "ct",
-        "pl",
-        "n",
-        "s",
-        "e",
-        "w",
-        "ne",
-        "nw",
-        "se",
-        "sw",
-        "kg",
-        "km",
-        "cm",
-        "mm",
-        "mg",
-        "lb",
-        "lbs",
-        "oz",
-        "ft",
-        "mi",
-        "ml",
-        "mph",
-        "h",
-        "g",
-        "m",
-        "l",
-        "am",
-        "pm",
-        "vs",
-        "dept",
-        "inc",
-        "corp",
-        "ltd",
-        "co",
-        "no",
-    }
-)
-
 _MIN_WORDS_FOR_DELETION_CHECK = 8
 _MAX_DELETION_RATIO = 0.3
-
-
-def _check_novel_words(in_words: list[str], out_words: list[str]) -> list[str]:
-    in_alpha: set[str] = set()
-    for w in in_words:
-        for part in _ALPHA_RE.findall(w):
-            in_alpha.add(part.lower())
-
-    novel: list[str] = []
-    for w in out_words:
-        for part in _ALPHA_RE.findall(w):
-            p = part.lower()
-            if p in in_alpha or p in _VALID_ITN_ALPHA:
-                continue
-            if _ROMAN_RE.match(p):
-                continue
-            novel.append(p)
-    return novel
 
 
 def _validate_itn_output(input_text: str, output_text: str) -> tuple[bool, str]:
@@ -135,10 +60,6 @@ def _validate_itn_output(input_text: str, output_text: str) -> tuple[bool, str]:
 
     if len(out_words) > len(in_words):
         return False, f"word_count_increase ({len(in_words)}->{len(out_words)})"
-
-    novel = _check_novel_words(in_words, out_words)
-    if novel:
-        return False, f"novel_words: {novel}"
 
     if len(in_words) >= _MIN_WORDS_FOR_DELETION_CHECK and len(out_words) < len(in_words) * _MAX_DELETION_RATIO:
         return False, f"excessive_deletion ({len(in_words)}->{len(out_words)})"

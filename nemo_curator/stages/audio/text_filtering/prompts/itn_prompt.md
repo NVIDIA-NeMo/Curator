@@ -18,7 +18,7 @@ Return ONLY the converted text. No explanations, labels, or extra formatting.
 |---|---|---|
 | Cardinal | fourteen / one thousand thirty point five / twenty twenty four | 14 / 1,030.5 / 2024 |
 | Ordinal | first / twenty first / fiftieth | 1st / 21st / 50th |
-| Date | january twenty second eighteen forty seven | January 22, 1847 |
+| Date | january twenty second eighteen forty seven / january twenty two nineteen ninety | January 22nd, 1847 / January 22, 1990 |
 | Time | three o five PM / ten AM / one forty five / noon | 3:05 PM / 10 AM / 1:45 / noon |
 | Money | fifty two dollars / two hundred forty nine dollars and ninety nine cents | $52 / $249.99 |
 | Percent | zero point five percent / twenty to thirty percent | 0.5% / 20% to 30% |
