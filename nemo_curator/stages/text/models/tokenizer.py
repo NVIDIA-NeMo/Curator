@@ -12,20 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import os
 from functools import lru_cache
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 
-import numpy as np
-import torch
-from huggingface_hub import snapshot_download
-from transformers import AutoConfig, AutoTokenizer
+# Heavy deps (torch, transformers, numpy, huggingface_hub) are deferred to
+# _setup() and process() so that importing this module does not trigger them
+# at module-parse time.
 
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch
+
+if TYPE_CHECKING:
+    from transformers import AutoConfig
+
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 from .utils import (
     ATTENTION_MASK_FIELD,
@@ -109,6 +114,8 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return {"is_actor_stage": True}
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
+        from huggingface_hub import snapshot_download
+
         try:
             snapshot_download(
                 repo_id=self.model_identifier,
@@ -123,18 +130,25 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     @lru_cache(maxsize=1)  # noqa: B019
     def load_cfg(self, local_files_only: bool = True) -> AutoConfig:
+        from transformers import AutoConfig
+
         return AutoConfig.from_pretrained(
-            self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only, **self.transformers_init_kwargs
+            self.model_identifier,
+            cache_dir=self.cache_dir,
+            local_files_only=local_files_only,
+            **self.transformers_init_kwargs,
         )
 
     # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
     def _setup(self, local_files_only: bool = True) -> None:
+        from transformers import AutoTokenizer
+
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_identifier,
             padding_side=self.padding_side,
             cache_dir=self.cache_dir,
             local_files_only=local_files_only,
-            **self.transformers_init_kwargs
+            **self.transformers_init_kwargs,
         )
         if self.unk_token:
             self.tokenizer.pad_token = self.tokenizer.unk_token
@@ -151,6 +165,9 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self._setup(local_files_only=True)
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
+        import numpy as np
+        import torch
+
         df = batch.to_pandas()
 
         if self.max_chars is not None and self.max_chars > 0:

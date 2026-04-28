@@ -88,9 +88,9 @@ def sample_document_batch() -> DocumentBatch:
 @pytest.fixture(autouse=True)
 def setup_mocks(mock_tokenizer: Mock):
     with (
-        patch("nemo_curator.stages.text.models.tokenizer.AutoTokenizer") as mock_auto_tokenizer,
-        patch("nemo_curator.stages.text.models.tokenizer.AutoConfig") as mock_auto_config,
-        patch("nemo_curator.stages.text.models.tokenizer.snapshot_download") as mock_snapshot_download,
+        patch("transformers.AutoTokenizer") as mock_auto_tokenizer,
+        patch("transformers.AutoConfig") as mock_auto_config,
+        patch("huggingface_hub.snapshot_download") as mock_snapshot_download,
     ):
         # Setup AutoTokenizer mock
         mock_auto_tokenizer.from_pretrained.return_value = mock_tokenizer

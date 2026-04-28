@@ -12,22 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import os
+from dataclasses import dataclass
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Literal
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
-from dataclasses import dataclass
-from typing import Any, Literal
 
-import numpy as np
-import pandas as pd
-import torch
-import torch.nn.functional as F  # noqa: N812
-from huggingface_hub import PyTorchModelHubMixin, snapshot_download
-from torch import nn
-from torch.nn import Dropout, Linear
-from transformers import AutoModelForCausalLM, AutoTokenizer
+# Heavy deps (torch, transformers, numpy, huggingface_hub) are deferred to
+# factory functions / setup() so that importing this module does not trigger
+# them at module-parse time.
 
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.text.filters import Filter
 from nemo_curator.stages.text.models.model import ModelStage
@@ -38,6 +35,13 @@ from nemo_curator.tasks import DocumentBatch
 from .aegis_utils import AEGIS_LABELS, format_aegis
 from .utils import SortByLengthStage
 
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    import torch
+
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+
 PRETRAINED_MODEL_NAME_OR_PATH = "meta-llama/LlamaGuard-7b"
 AEGIS_VARIANTS = [
     "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
@@ -47,102 +51,134 @@ INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER = "nvidia/instruction-data-guard"
 HIDDEN_TEXT_FIELD = "_curator_hidden_text"
 MAX_SEQ_LENGTH = 4096
 TOKENIZER_PADDING_SIDE = "left"
-TORCH_DTYPE = torch.bfloat16
 
 
-class InstructionDataGuardNet(torch.nn.Module, PyTorchModelHubMixin):
-    def __init__(self, input_dim: int, dropout: float = 0.7):
-        super().__init__()
-        self.input_dim = input_dim
-        self.dropout = Dropout(dropout)
-        self.sigmoid = torch.nn.Sigmoid()
-        self.input_layer = Linear(input_dim, input_dim)
-
-        self.hidden_layer_0 = Linear(input_dim, 2000)
-        self.hidden_layer_1 = Linear(2000, 500)
-        self.hidden_layer_2 = Linear(500, 1)
-
-    @torch.no_grad()
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = F.normalize(x, dim=-1)
-        x = self.dropout(x)
-        x = F.relu(self.input_layer(x))
-        x = self.dropout(x)
-        x = F.relu(self.hidden_layer_0(x))
-        x = self.dropout(x)
-        x = F.relu(self.hidden_layer_1(x))
-        x = self.dropout(x)
-        x = self.hidden_layer_2(x)
-        return self.sigmoid(x)
+# ---------------------------------------------------------------------------
+# Lazy factories — define nn.Module subclasses on first call so that torch is
+# never imported at module-parse time.
+# ---------------------------------------------------------------------------
 
 
-class AegisModel(nn.Module):
-    def __init__(  # noqa: PLR0913
-        self,
-        pretrained_model_name_or_path: str,
-        peft_model_name_or_path: str,
-        dtype: torch.dtype = TORCH_DTYPE,
-        cache_dir: str | None = None,
-        local_files_only: bool = True,
-        hf_token: str | bool | None = None,
-        add_instruction_data_guard: bool = False,
-    ):
-        super().__init__()
+@lru_cache(maxsize=1)
+def _make_instruction_data_guard_net() -> type:
+    import torch
+    from huggingface_hub import PyTorchModelHubMixin
+    from torch.nn import Dropout, Linear
 
-        base_model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path,
-            torch_dtype=dtype,
-            cache_dir=cache_dir,
-            local_files_only=local_files_only,
-            token=hf_token,
-        )
-        # Importing PeftModel here to prevent cuda context issues
-        # that seem to happen on Transformers 4.48.3
-        # See related: https://github.com/rapidsai/crossfit/pull/113
-        from peft import PeftModel
+    class InstructionDataGuardNet(torch.nn.Module, PyTorchModelHubMixin):
+        def __init__(self, input_dim: int, dropout: float = 0.7):
+            super().__init__()
+            self.input_dim = input_dim
+            self.dropout = Dropout(dropout)
+            self.sigmoid = torch.nn.Sigmoid()
+            self.input_layer = Linear(input_dim, input_dim)
 
-        self.model = PeftModel.from_pretrained(
-            base_model,
-            peft_model_name_or_path,
-            cache_dir=cache_dir,
-            local_files_only=local_files_only,
-        )
-        self.add_instruction_data_guard = add_instruction_data_guard
-        if self.add_instruction_data_guard:
-            self.instruction_data_guard_net = InstructionDataGuardNet(4096)
+            self.hidden_layer_0 = Linear(input_dim, 2000)
+            self.hidden_layer_1 = Linear(2000, 500)
+            self.hidden_layer_2 = Linear(500, 1)
 
-    @property
-    def device(self) -> torch.device:
-        return next(self.parameters()).device
+        @torch.no_grad()
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            import torch.nn.functional as F  # noqa: N812
 
-    @torch.no_grad()
-    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        batch = {k: v.to(TORCH_DTYPE) if v.dtype.is_floating_point else v for k, v in batch.items()}
+            x = F.normalize(x, dim=-1)
+            x = self.dropout(x)
+            x = F.relu(self.input_layer(x))
+            x = self.dropout(x)
+            x = F.relu(self.hidden_layer_0(x))
+            x = self.dropout(x)
+            x = F.relu(self.hidden_layer_1(x))
+            x = self.dropout(x)
+            x = self.hidden_layer_2(x)
+            return self.sigmoid(x)
 
-        if self.add_instruction_data_guard:
-            response = self.model.generate(
-                **batch,
-                max_new_tokens=1,
-                pad_token_id=0,
-                output_hidden_states=True,
-                return_dict_in_generate=True,
+    return InstructionDataGuardNet
+
+
+@lru_cache(maxsize=1)
+def _make_aegis_model() -> type:
+    import torch
+    from torch import nn
+
+    _torch_dtype = torch.bfloat16
+    InstructionDataGuardNet = _make_instruction_data_guard_net()  # noqa: N806
+
+    class AegisModel(nn.Module):
+        def __init__(  # noqa: PLR0913
+            self,
+            pretrained_model_name_or_path: str,
+            peft_model_name_or_path: str,
+            dtype: torch.dtype = _torch_dtype,
+            cache_dir: str | None = None,
+            local_files_only: bool = True,
+            hf_token: str | bool | None = None,
+            add_instruction_data_guard: bool = False,
+        ):
+            super().__init__()
+
+            from transformers import AutoModelForCausalLM
+
+            base_model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name_or_path,
+                torch_dtype=dtype,
+                cache_dir=cache_dir,
+                local_files_only=local_files_only,
+                token=hf_token,
             )
-            # Access the hidden state of the last non-generated token from the last layer
-            instruction_data_guard_input_tensor = response.hidden_states[0][32][:, -1, :].to(torch.float)
+            # Importing PeftModel here to prevent cuda context issues
+            # that seem to happen on Transformers 4.48.3
+            # See related: https://github.com/rapidsai/crossfit/pull/113
+            from peft import PeftModel
 
-            del batch, response
-
-            return self.instruction_data_guard_net(instruction_data_guard_input_tensor).flatten()
-        else:
-            response = self.model.generate(
-                **batch,
-                max_new_tokens=100,
-                pad_token_id=0,
+            self.model = PeftModel.from_pretrained(
+                base_model,
+                peft_model_name_or_path,
+                cache_dir=cache_dir,
+                local_files_only=local_files_only,
             )
+            self.add_instruction_data_guard = add_instruction_data_guard
+            if self.add_instruction_data_guard:
+                self.instruction_data_guard_net = InstructionDataGuardNet(4096)
 
-            del batch
+        @property
+        def device(self) -> torch.device:
+            return next(self.parameters()).device
 
-            return response
+        @torch.no_grad()
+        def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+            batch = {k: v.to(_torch_dtype) if v.dtype.is_floating_point else v for k, v in batch.items()}
+
+            if self.add_instruction_data_guard:
+                response = self.model.generate(
+                    **batch,
+                    max_new_tokens=1,
+                    pad_token_id=0,
+                    output_hidden_states=True,
+                    return_dict_in_generate=True,
+                )
+                # Access the hidden state of the last non-generated token from the last layer
+                instruction_data_guard_input_tensor = response.hidden_states[0][32][:, -1, :].to(torch.float)
+
+                del batch, response
+
+                return self.instruction_data_guard_net(instruction_data_guard_input_tensor).flatten()
+            else:
+                response = self.model.generate(
+                    **batch,
+                    max_new_tokens=100,
+                    pad_token_id=0,
+                )
+
+                del batch
+
+                return response
+
+    return AegisModel
+
+
+# ---------------------------------------------------------------------------
+# AegisModelStage
+# ---------------------------------------------------------------------------
 
 
 class AegisModelStage(ModelStage):
@@ -184,17 +220,21 @@ class AegisModelStage(ModelStage):
 
     # We use the _setup function to ensure that everything needed for Aegis is downloaded and loaded properly
     def _setup(self, local_files_only: bool = True) -> None:
+        import torch
+
+        AegisModel = _make_aegis_model()  # noqa: N806
         self.model = AegisModel(
             pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
             peft_model_name_or_path=self.model_identifier,
-            dtype=TORCH_DTYPE,
+            dtype=torch.bfloat16,
             cache_dir=self.cache_dir,
             local_files_only=local_files_only,
             hf_token=self.hf_token,
             add_instruction_data_guard=self.add_instruction_data_guard,
         )
         if self.add_instruction_data_guard:
-            self.model.instruction_data_guard_net = self.model.instruction_data_guard_net.from_pretrained(
+            InstructionDataGuardNet = _make_instruction_data_guard_net()  # noqa: N806
+            self.model.instruction_data_guard_net = InstructionDataGuardNet.from_pretrained(
                 INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER,
                 cache_dir=self.cache_dir,
                 local_files_only=local_files_only,
@@ -222,6 +262,11 @@ class AegisModelStage(ModelStage):
             df_cpu[self.label_field] = collected_output[self.label_field].tolist()
 
         return df_cpu
+
+
+# ---------------------------------------------------------------------------
+# FormatAegisPromptStage
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -259,6 +304,11 @@ class FormatAegisPromptStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
 
+# ---------------------------------------------------------------------------
+# PostProcessAegisResponsesStage
+# ---------------------------------------------------------------------------
+
+
 @dataclass
 class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """
@@ -286,6 +336,8 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
         return {"is_actor_stage": True}
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
+        from huggingface_hub import snapshot_download
+
         try:
             snapshot_download(
                 repo_id=PRETRAINED_MODEL_NAME_OR_PATH,
@@ -300,6 +352,8 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
 
     # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
     def _setup(self, local_files_only: bool = True) -> None:
+        from transformers import AutoTokenizer
+
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
             padding_side=TOKENIZER_PADDING_SIDE,
@@ -330,6 +384,8 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
             return "unknown"
 
     def _postprocess_responses(self, df: pd.DataFrame) -> pd.DataFrame:
+        import pandas as pd
+
         generated_tokens = df[self.raw_output_field].tolist()
 
         generated_tokens = self.tokenizer.batch_decode(
@@ -366,6 +422,11 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
+
+
+# ---------------------------------------------------------------------------
+# AegisClassifier
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -505,6 +566,11 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
 
     def decompose(self) -> list[ProcessingStage]:
         return self.stages
+
+
+# ---------------------------------------------------------------------------
+# InstructionDataGuardClassifier
+# ---------------------------------------------------------------------------
 
 
 @dataclass

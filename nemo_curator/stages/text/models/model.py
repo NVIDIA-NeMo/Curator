@@ -12,25 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import gc
 import os
-from collections.abc import Generator
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 
-import numpy as np
-import pandas as pd
-import torch
-from huggingface_hub import snapshot_download
+# Heavy deps (torch, numpy, huggingface_hub) are deferred to setup() and
+# method bodies so that importing this module does not trigger them at
+# module-parse time.
 from loguru import logger
 
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
 
 from .utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD, SEQ_ORDER_FIELD, clip_tokens, format_name_with_suffix
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    import numpy as np
+    import pandas as pd
+    import torch
+
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
 class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -86,6 +94,8 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         raise NotImplementedError(msg)
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
+        from huggingface_hub import snapshot_download
+
         try:
             snapshot_download(
                 repo_id=self.model_identifier,
@@ -125,6 +135,8 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             Generator[dict[str, torch.Tensor]]: A generator of model inputs for the next batch.
 
         """
+        import torch
+
         for i in range(0, len(df), self.model_inference_batch_size):
             yield clip_tokens(
                 {
@@ -145,6 +157,8 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         raise NotImplementedError(msg)
 
     def collect_outputs(self, processed_outputs: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
+        import numpy as np
+
         result = {}
         for key in processed_outputs[0]:
             result[key] = np.concatenate([out[key] for out in processed_outputs], axis=0)
@@ -161,6 +175,8 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             return self.model(model_input_batch)
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
+        import torch
+
         df_cpu = batch.to_pandas()
 
         if self.max_seq_length is not None:
@@ -205,5 +221,7 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
     def teardown(self) -> None:
+        import torch
+
         gc.collect()
         torch.cuda.empty_cache()

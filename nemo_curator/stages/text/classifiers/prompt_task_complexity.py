@@ -12,16 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import os
 from dataclasses import dataclass
+from functools import lru_cache
+from typing import TYPE_CHECKING
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
-import numpy as np
-import pandas as pd
-import torch
-from huggingface_hub import PyTorchModelHubMixin
-from torch import nn
-from transformers import AutoModel
+
+# Heavy deps (torch, transformers, numpy, huggingface_hub) are deferred to
+# factory functions / setup() so that importing this module does not trigger
+# them at module-parse time.
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.text.models.model import ModelStage
@@ -30,6 +32,11 @@ from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID
 from nemo_curator.tasks import DocumentBatch
 
 from .utils import DEBERTA_TOKENIZER_PADDING_SIDE, SortByLengthStage
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    import torch
 
 PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER = "nvidia/prompt-task-and-complexity-classifier"
 MAX_SEQ_LENGTH = 512
@@ -48,169 +55,190 @@ OUTPUT_FIELDS = [
 ]
 
 
-class MeanPooling(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    @torch.no_grad()
-    def forward(self, last_hidden_state: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-        input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
-        sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
-
-        sum_mask = input_mask_expanded.sum(1)
-        sum_mask = torch.clamp(sum_mask, min=1e-9)
-
-        return sum_embeddings / sum_mask
+# ---------------------------------------------------------------------------
+# Lazy factory: defines MeanPooling, MulticlassHead, CustomDeberta (all
+# nn.Module subclasses) on first call so that torch is never imported at
+# module-parse time.  Method bodies close over torch/numpy from the factory
+# scope via Python's standard closure mechanism.
+# ---------------------------------------------------------------------------
 
 
-class MulticlassHead(nn.Module):
-    def __init__(self, input_size: int, num_classes: int) -> None:
-        super().__init__()
-        self.fc = nn.Linear(input_size, num_classes)
+@lru_cache(maxsize=1)
+def _make_prompt_task_models() -> tuple[type, type, type]:  # noqa: C901
+    import numpy as np
+    import torch
+    from huggingface_hub import PyTorchModelHubMixin
+    from torch import nn
+    from transformers import AutoModel
 
-    @torch.no_grad()
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.fc(x)
+    class MeanPooling(nn.Module):
+        def __init__(self):
+            super().__init__()
+
+        @torch.no_grad()
+        def forward(self, last_hidden_state: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+            sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
+
+            sum_mask = input_mask_expanded.sum(1)
+            sum_mask = torch.clamp(sum_mask, min=1e-9)
+
+            return sum_embeddings / sum_mask
+
+    class MulticlassHead(nn.Module):
+        def __init__(self, input_size: int, num_classes: int) -> None:
+            super().__init__()
+            self.fc = nn.Linear(input_size, num_classes)
+
+        @torch.no_grad()
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.fc(x)
+
+    class CustomDeberta(nn.Module, PyTorchModelHubMixin):
+        def __init__(self, config: dataclass):
+            super().__init__()
+
+            self.backbone = AutoModel.from_pretrained(config["base_model"])
+            self.target_sizes = config["target_sizes"].values()
+
+            self.task_type_map = config["task_type_map"]
+            self.weights_map = config["weights_map"]
+            self.divisor_map = config["divisor_map"]
+
+            self.heads = [MulticlassHead(self.backbone.config.hidden_size, sz) for sz in self.target_sizes]
+
+            for i, head in enumerate(self.heads):
+                self.add_module(f"head_{i}", head)
+
+            self.pool = MeanPooling()
+
+        @property
+        def device(self) -> torch.device:
+            return next(self.parameters()).device
+
+        def compute_results(
+            self, preds: torch.Tensor, target: str, decimal: int = 4
+        ) -> tuple[list[str], list[str], list[float]]:
+            if target == "task_type":
+                top2_indices = torch.topk(preds, k=2, dim=1).indices
+                softmax_probs = torch.softmax(preds, dim=1)
+                top2_probs = softmax_probs.gather(1, top2_indices)
+                top2 = top2_indices.detach().cpu().tolist()
+                top2_prob = top2_probs.detach().cpu().tolist()
+
+                top2_strings = [[self.task_type_map[str(idx)] for idx in sample] for sample in top2]
+                top2_prob_rounded = [[round(value, 3) for value in sublist] for sublist in top2_prob]
+
+                for counter, sublist in enumerate(top2_prob_rounded):
+                    if sublist[1] < 0.1:  # noqa: PLR2004
+                        top2_strings[counter][1] = "NA"
+
+                task_type_1 = [sublist[0] for sublist in top2_strings]
+                task_type_2 = [sublist[1] for sublist in top2_strings]
+                task_type_prob = [sublist[0] for sublist in top2_prob_rounded]
+
+                return (task_type_1, task_type_2, task_type_prob)
+
+            else:
+                preds = torch.softmax(preds, dim=1)
+
+                weights = np.array(self.weights_map[target])
+                weighted_sum = np.sum(np.array(preds.detach().cpu()) * weights, axis=1)
+                scores = weighted_sum / self.divisor_map[target]
+
+                scores = [round(value, decimal) for value in scores]
+                if target == OUTPUT_FIELDS[7]:
+                    scores = [x if x >= 0.05 else 0 for x in scores]  # noqa: PLR2004
+                return scores
+
+        def process_logits(self, logits: list[torch.Tensor]) -> dict[str, torch.Tensor]:
+            result = {}
+
+            # Round 1: "task_type"
+            task_type_logits = logits[0]
+            task_type_results = self.compute_results(task_type_logits, target="task_type")
+            result[OUTPUT_FIELDS[1]] = task_type_results[0]
+            result[OUTPUT_FIELDS[2]] = task_type_results[1]
+            result[OUTPUT_FIELDS[3]] = task_type_results[2]
+
+            # Round 2: "creativity_scope"
+            creativity_scope_logits = logits[1]
+            result[OUTPUT_FIELDS[4]] = self.compute_results(creativity_scope_logits, target=OUTPUT_FIELDS[4])
+
+            # Round 3: "reasoning"
+            reasoning_logits = logits[2]
+            result[OUTPUT_FIELDS[5]] = self.compute_results(reasoning_logits, target=OUTPUT_FIELDS[5])
+
+            # Round 4: "contextual_knowledge"
+            contextual_knowledge_logits = logits[3]
+            result[OUTPUT_FIELDS[6]] = self.compute_results(contextual_knowledge_logits, target=OUTPUT_FIELDS[6])
+
+            # Round 5: "number_of_few_shots"
+            number_of_few_shots_logits = logits[4]
+            result[OUTPUT_FIELDS[7]] = self.compute_results(number_of_few_shots_logits, target=OUTPUT_FIELDS[7])
+
+            # Round 6: "domain_knowledge"
+            domain_knowledge_logits = logits[5]
+            result[OUTPUT_FIELDS[8]] = self.compute_results(domain_knowledge_logits, target=OUTPUT_FIELDS[8])
+
+            # Round 7: "no_label_reason"
+            no_label_reason_logits = logits[6]
+            result[OUTPUT_FIELDS[9]] = self.compute_results(no_label_reason_logits, target=OUTPUT_FIELDS[9])
+
+            # Round 8: "constraint_ct"
+            constraint_ct_logits = logits[7]
+            result[OUTPUT_FIELDS[10]] = self.compute_results(constraint_ct_logits, target=OUTPUT_FIELDS[10])
+
+            # Round 9: "prompt_complexity_score"
+            result[OUTPUT_FIELDS[0]] = torch.tensor(
+                [
+                    round(
+                        0.35 * creativity
+                        + 0.25 * reasoning
+                        + 0.15 * constraint
+                        + 0.15 * domain_knowledge
+                        + 0.05 * contextual_knowledge
+                        + 0.05 * few_shots,
+                        5,
+                    )
+                    for creativity, reasoning, constraint, domain_knowledge, contextual_knowledge, few_shots in zip(
+                        result[OUTPUT_FIELDS[4]],
+                        result[OUTPUT_FIELDS[5]],
+                        result[OUTPUT_FIELDS[10]],
+                        result[OUTPUT_FIELDS[8]],
+                        result[OUTPUT_FIELDS[6]],
+                        result[OUTPUT_FIELDS[7]],
+                        strict=False,
+                    )
+                ],
+            )
+
+            return result
+
+        @torch.no_grad()
+        def _forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> dict[str, torch.Tensor]:
+            outputs = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
+
+            last_hidden_state = outputs.last_hidden_state
+            mean_pooled_representation = self.pool(last_hidden_state, attention_mask)
+
+            logits = [self.heads[k](mean_pooled_representation) for k in range(len(self.target_sizes))]
+
+            return self.process_logits(logits)
+
+        @torch.no_grad()
+        def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+            input_ids = batch[INPUT_ID_FIELD]
+            attention_mask = batch[ATTENTION_MASK_FIELD]
+
+            return self._forward(input_ids, attention_mask)
+
+    return (MeanPooling, MulticlassHead, CustomDeberta)
 
 
-class CustomDeberta(nn.Module, PyTorchModelHubMixin):
-    def __init__(self, config: dataclass):
-        super().__init__()
-
-        self.backbone = AutoModel.from_pretrained(config["base_model"])
-        self.target_sizes = config["target_sizes"].values()
-
-        self.task_type_map = config["task_type_map"]
-        self.weights_map = config["weights_map"]
-        self.divisor_map = config["divisor_map"]
-
-        self.heads = [MulticlassHead(self.backbone.config.hidden_size, sz) for sz in self.target_sizes]
-
-        for i, head in enumerate(self.heads):
-            self.add_module(f"head_{i}", head)
-
-        self.pool = MeanPooling()
-
-    @property
-    def device(self) -> torch.device:
-        return next(self.parameters()).device
-
-    def compute_results(
-        self, preds: torch.Tensor, target: str, decimal: int = 4
-    ) -> tuple[list[str], list[str], list[float]]:
-        if target == "task_type":
-            top2_indices = torch.topk(preds, k=2, dim=1).indices
-            softmax_probs = torch.softmax(preds, dim=1)
-            top2_probs = softmax_probs.gather(1, top2_indices)
-            top2 = top2_indices.detach().cpu().tolist()
-            top2_prob = top2_probs.detach().cpu().tolist()
-
-            top2_strings = [[self.task_type_map[str(idx)] for idx in sample] for sample in top2]
-            top2_prob_rounded = [[round(value, 3) for value in sublist] for sublist in top2_prob]
-
-            for counter, sublist in enumerate(top2_prob_rounded):
-                if sublist[1] < 0.1:  # noqa: PLR2004
-                    top2_strings[counter][1] = "NA"
-
-            task_type_1 = [sublist[0] for sublist in top2_strings]
-            task_type_2 = [sublist[1] for sublist in top2_strings]
-            task_type_prob = [sublist[0] for sublist in top2_prob_rounded]
-
-            return (task_type_1, task_type_2, task_type_prob)
-
-        else:
-            preds = torch.softmax(preds, dim=1)
-
-            weights = np.array(self.weights_map[target])
-            weighted_sum = np.sum(np.array(preds.detach().cpu()) * weights, axis=1)
-            scores = weighted_sum / self.divisor_map[target]
-
-            scores = [round(value, decimal) for value in scores]
-            if target == OUTPUT_FIELDS[7]:
-                scores = [x if x >= 0.05 else 0 for x in scores]  # noqa: PLR2004
-            return scores
-
-    def process_logits(self, logits: list[torch.Tensor]) -> dict[str, torch.Tensor]:
-        result = {}
-
-        # Round 1: "task_type"
-        task_type_logits = logits[0]
-        task_type_results = self.compute_results(task_type_logits, target="task_type")
-        result[OUTPUT_FIELDS[1]] = task_type_results[0]
-        result[OUTPUT_FIELDS[2]] = task_type_results[1]
-        result[OUTPUT_FIELDS[3]] = task_type_results[2]
-
-        # Round 2: "creativity_scope"
-        creativity_scope_logits = logits[1]
-        result[OUTPUT_FIELDS[4]] = self.compute_results(creativity_scope_logits, target=OUTPUT_FIELDS[4])
-
-        # Round 3: "reasoning"
-        reasoning_logits = logits[2]
-        result[OUTPUT_FIELDS[5]] = self.compute_results(reasoning_logits, target=OUTPUT_FIELDS[5])
-
-        # Round 4: "contextual_knowledge"
-        contextual_knowledge_logits = logits[3]
-        result[OUTPUT_FIELDS[6]] = self.compute_results(contextual_knowledge_logits, target=OUTPUT_FIELDS[6])
-
-        # Round 5: "number_of_few_shots"
-        number_of_few_shots_logits = logits[4]
-        result[OUTPUT_FIELDS[7]] = self.compute_results(number_of_few_shots_logits, target=OUTPUT_FIELDS[7])
-
-        # Round 6: "domain_knowledge"
-        domain_knowledge_logits = logits[5]
-        result[OUTPUT_FIELDS[8]] = self.compute_results(domain_knowledge_logits, target=OUTPUT_FIELDS[8])
-
-        # Round 7: "no_label_reason"
-        no_label_reason_logits = logits[6]
-        result[OUTPUT_FIELDS[9]] = self.compute_results(no_label_reason_logits, target=OUTPUT_FIELDS[9])
-
-        # Round 8: "constraint_ct"
-        constraint_ct_logits = logits[7]
-        result[OUTPUT_FIELDS[10]] = self.compute_results(constraint_ct_logits, target=OUTPUT_FIELDS[10])
-
-        # Round 9: "prompt_complexity_score"
-        result[OUTPUT_FIELDS[0]] = torch.tensor(
-            [
-                round(
-                    0.35 * creativity
-                    + 0.25 * reasoning
-                    + 0.15 * constraint
-                    + 0.15 * domain_knowledge
-                    + 0.05 * contextual_knowledge
-                    + 0.05 * few_shots,
-                    5,
-                )
-                for creativity, reasoning, constraint, domain_knowledge, contextual_knowledge, few_shots in zip(
-                    result[OUTPUT_FIELDS[4]],
-                    result[OUTPUT_FIELDS[5]],
-                    result[OUTPUT_FIELDS[10]],
-                    result[OUTPUT_FIELDS[8]],
-                    result[OUTPUT_FIELDS[6]],
-                    result[OUTPUT_FIELDS[7]],
-                    strict=False,
-                )
-            ],
-        )
-
-        return result
-
-    @torch.no_grad()
-    def _forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> dict[str, torch.Tensor]:
-        outputs = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
-
-        last_hidden_state = outputs.last_hidden_state
-        mean_pooled_representation = self.pool(last_hidden_state, attention_mask)
-
-        logits = [self.heads[k](mean_pooled_representation) for k in range(len(self.target_sizes))]
-
-        return self.process_logits(logits)
-
-    @torch.no_grad()
-    def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        input_ids = batch[INPUT_ID_FIELD]
-        attention_mask = batch[ATTENTION_MASK_FIELD]
-
-        return self._forward(input_ids, attention_mask)
+# ---------------------------------------------------------------------------
+# PromptTaskComplexityModelStage
+# ---------------------------------------------------------------------------
 
 
 class PromptTaskComplexityModelStage(ModelStage):
@@ -255,6 +283,7 @@ class PromptTaskComplexityModelStage(ModelStage):
         return ["data"], OUTPUT_FIELDS
 
     def _setup(self, local_files_only: bool = True) -> None:
+        _, _, CustomDeberta = _make_prompt_task_models()  # noqa: N806
         self.model = (
             CustomDeberta.from_pretrained(
                 self.model_identifier,
@@ -276,6 +305,11 @@ class PromptTaskComplexityModelStage(ModelStage):
             df_cpu[column] = collected_output[column]
 
         return df_cpu
+
+
+# ---------------------------------------------------------------------------
+# PromptTaskComplexityClassifier
+# ---------------------------------------------------------------------------
 
 
 @dataclass
