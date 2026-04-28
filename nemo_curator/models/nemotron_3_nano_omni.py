@@ -14,7 +14,6 @@
 
 import json
 import multiprocessing
-import textwrap
 from pathlib import Path
 from typing import Any, Final
 
@@ -39,8 +38,8 @@ except ImportError:
 
 
 # HuggingFace model ID and revision pin.
-_HF_MODEL_ID: Final[str | None] = "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning"
-_HF_REVISION: Final[str | None] = "23d21acd455d9836d50c48570a329bde77e08ba4"
+_HF_MODEL_ID: Final[str] = "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning"
+_HF_REVISION: Final[str] = "23d21acd455d9836d50c48570a329bde77e08ba4"
 
 # Constants for stage-2 prompt refinement
 _VIDEO_TAG_SPLIT_MAX = 1
@@ -68,14 +67,11 @@ class Nemotron3NanoOmni(ModelInterface):
         self.stage2_prompt = stage2_prompt_text or "Please refine this caption: "
         self.verbose = verbose
 
-        if _HF_MODEL_ID is None:
-            self.weight_file = model_dir
-        else:
-            self.weight_file = str(Path(model_dir) / _HF_MODEL_ID)
+        self.weight_file = str(Path(model_dir) / _HF_MODEL_ID)
 
     @property
     def model_id_names(self) -> list[str]:
-        return [_HF_MODEL_ID] if _HF_MODEL_ID is not None else []
+        return [_HF_MODEL_ID]
 
     def setup(self) -> None:
         if not VLLM_AVAILABLE:
@@ -134,11 +130,12 @@ class Nemotron3NanoOmni(ModelInterface):
         self,
         videos: list[dict[str, Any]],
         generate_stage2_caption: bool = False,
-        batch_size: int = 16,
+        batch_size: int | None = None,
     ) -> list[str]:
         generated_text = []
+        effective_batch_size = batch_size if batch_size is not None else self.caption_batch_size
 
-        for batch_videos in grouping.split_by_chunk_size(videos, batch_size):
+        for batch_videos in grouping.split_by_chunk_size(videos, effective_batch_size):
             model_inputs = list(batch_videos)
             try:
                 outputs = self.model.generate(
@@ -175,19 +172,12 @@ class Nemotron3NanoOmni(ModelInterface):
 
     @classmethod
     def download_weights_on_node(cls, model_dir: str) -> None:
-        """Download Nemotron3NanoOmni weights.
-
-        No-op while _HF_MODEL_ID is None (local checkpoint mode). Once the model is
-        publicly released and _HF_MODEL_ID is set, this will download from HuggingFace.
-        """
-        if _HF_MODEL_ID is None:
-            logger.info(f"Nemotron3NanoOmni is a local checkpoint at {model_dir!r}, skipping HF download")
-            return
+        """Download Nemotron3NanoOmni weights."""
 
         model_dir_path = Path(model_dir) / _HF_MODEL_ID
         model_dir_path.mkdir(parents=True, exist_ok=True)
 
-        if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
+        if any(model_dir_path.glob("*.safetensors")):
             logger.info(f"Nemotron3NanoOmni checkpoint already exists at: {model_dir_path}")
             cls._patch_config(model_dir_path)
             return
@@ -230,18 +220,18 @@ class Nemotron3NanoOmni(ModelInterface):
         if nemotron_h_cfg_path.exists():
             src = nemotron_h_cfg_path.read_text()
             if "def dtype" not in src:
-                dtype_patch = textwrap.dedent("""
-                    @property
-                    def dtype(self):
-                        import torch
-                        dtype_str = self.__dict__.get("torch_dtype", "bfloat16")
-                        if isinstance(dtype_str, str):
-                            return getattr(torch, dtype_str, torch.bfloat16)
-                        return dtype_str if dtype_str is not None else torch.bfloat16
+                dtype_patch = """
+    @property
+    def dtype(self):
+        import torch
+        dtype_str = self.__dict__.get("torch_dtype", "bfloat16")
+        if isinstance(dtype_str, str):
+            return getattr(torch, dtype_str, torch.bfloat16)
+        return dtype_str if dtype_str is not None else torch.bfloat16
 
-                    @dtype.setter
-                    def dtype(self, value):
-                        pass
-                """)
+    @dtype.setter
+    def dtype(self, value):
+        pass
+"""
                 nemotron_h_cfg_path.write_text(src + dtype_patch)
                 logger.info("Patched configuration_nemotron_h.py: added dtype property")
