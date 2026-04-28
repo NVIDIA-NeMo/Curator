@@ -1,170 +1,50 @@
 # Inverse Text Normalization
 
-Convert spoken-form text to standard written form. You receive fully spelled-out text and must return it with numbers, dates, times, currencies, measurements, and symbols converted to their conventional written representations.
+Convert spoken-form text to standard written form: numbers, dates, times, currencies, measurements, and symbols become their conventional written representations.
 
-Return ONLY the converted text. No explanations, no labels, no formatting.
+Return ONLY the converted text. No explanations, labels, or extra formatting.
 
-## Critical Constraints
+## Constraints
 
-- PRESERVE the original language of the input. Do NOT translate. If the input is French, the output must be French. If Spanish, output Spanish. Only convert number words and symbols to their written representations in the same language.
-- PRESERVE all disfluencies exactly as-is: filler words (um, uh, hm, ah, euh, ähm, ehm, eh), repetitions (I I think, je je pense), false starts (go- going), colloquial forms (gonna, wanna, kinda, lemme, 'cause, etc.).
-- PRESERVE all original wording. Do NOT paraphrase, add, or remove words beyond the normalization conversions.
-- PRESERVE mispronunciations, grammatical errors, and contractions exactly as spoken.
-- Do NOT add punctuation (periods, commas) that was not implied by the spoken input.
-- When a number word is used idiomatically (not as a numeric value), keep it as a word. Example: "you're the only one" stays as-is, NOT "you're the only 1".
+- PRESERVE the input language. Do NOT translate.
+- PRESERVE all original wording, disfluencies (um, uh, euh, ähm), repetitions, false starts (go- going), colloquial forms (gonna, 'cause), mispronunciations, and grammatical errors.
+- Do NOT add punctuation that wasn't implied by the input.
+- Do NOT paraphrase, add, or remove words beyond the conversions below.
+- When a number word is idiomatic (not numeric), keep it as a word (see Ambiguity Resolution).
 
 ## Conversion Rules
 
-### 1. Cardinal Numbers
-Convert spelled-out numbers to digits.
-| Spoken Form | Written Form |
-|---|---|
-| fourteen | 14 |
-| one thousand thirty point five | 1,030.5 |
-| twenty twenty four | 2024 |
-| nine three six dash one one | 936-11 |
+| Category | Spoken | Written |
+|---|---|---|
+| Cardinal | fourteen / one thousand thirty point five / twenty twenty four | 14 / 1,030.5 / 2024 |
+| Ordinal | first / twenty first / fiftieth | 1st / 21st / 50th |
+| Date | january twenty second eighteen forty seven | January 22, 1847 |
+| Time | three o five PM / ten AM / one forty five / noon | 3:05 PM / 10 AM / 1:45 / noon |
+| Money | fifty two dollars / two hundred forty nine dollars and ninety nine cents | $52 / $249.99 |
+| Percent | zero point five percent / twenty to thirty percent | 0.5% / 20% to 30% |
+| Units | five kilograms / ninety kilometers per hour / five foot four | 5 kg / 90 km/h / 5'4" |
+| Fractions | half / a third / two thirds / one and three quarters | 1/2 / 1/3 / 2/3 / 1 3/4 |
+| Phone | five five five eight six seven five three zero nine / one eight hundred five five five oh one nine nine | 5558675309 / 18005550199 |
+| URL/Email | example dot com slash pricing / john at gmail dot com | example.com/pricing / john@gmail.com |
+| Titles | doctor smith / professor jones / versus / without | Dr. Smith / Prof. Jones / vs. / w/o |
+| Address | four fifty north main street | 450 N. Main St. |
+| Roman num. | king henry the eighth / chapter four | King Henry VIII / Chapter IV |
+| Negative | negative twelve / minus five degrees | -12 / -5 degrees |
+| Decades | seventies / twenties | 70s / 20s |
+| Letter+num | q two / b twelve | Q2 / B12 |
 
-### 2. Ordinals
-Convert spoken ordinals to digit+suffix form.
-| Spoken Form | Written Form |
-|---|---|
-| first | 1st |
-| second | 2nd |
-| third | 3rd |
-| fourth | 4th |
-| twenty first | 21st |
-| fiftieth | 50th |
-
-### 3. Dates
-Write dates in standard format: Month Day, Year. Capitalize month names.
-| Spoken Form | Written Form |
-|---|---|
-| january twenty second eighteen forty seven | January 22, 1847 |
-| march fifth nineteen ninety | March 5, 1990 |
-
-### 4. Time
-Write in HH:MM format. Include AM/PM only if spoken.
-| Spoken Form | Written Form |
-|---|---|
-| three o five PM | 3:05 PM |
-| ten AM | 10 AM |
-| one forty five | 1:45 |
-| noon | noon |
-
-### 5. Money
-Use currency symbols and digits. Include cents if spoken.
-| Spoken Form | Written Form |
-|---|---|
-| fifty two dollars | $52 |
-| a thousand dollars | $1,000 |
-| two hundred forty nine dollars and ninety nine cents | $249.99 |
-
-### 6. Percentages
-Use digit + % symbol.
-| Spoken Form | Written Form |
-|---|---|
-| zero point five percent | 0.5% |
-| a hundred percent | 100% |
-| twenty to thirty percent | 20% to 30% |
-
-### 7. Measures and Units
-Use digits + abbreviated unit.
-| Spoken Form | Written Form |
-|---|---|
-| five kilograms | 5 kg |
-| ninety kilometers per hour | 90 km/h |
-| five foot four | 5'4" |
-| one hundred twenty centimeters | 120 cm |
-
-### 8. Fractions
-Use numeric slash notation for fractions.
-IMPORTANT: "quarter" in temporal/financial contexts (e.g., "fourth quarter", "first quarter earnings") is NOT a fraction — keep it as "quarter".
-| Spoken Form | Written Form |
-|---|---|
-| half | 1/2 |
-| one half | 1 1/2 |
-| a third | 1/3 |
-| two thirds | 2/3 |
-| a quarter | 1/4 |
-| three quarters | 3/4 |
-| one and three quarters | 1 3/4 |
-| three fifths | 3/5 |
-| fourth quarter of last year | 4th quarter of last year |
-| first quarter earnings | 1st quarter earnings |
-
-### 9. Phone Numbers
-Group digits with dashes. "eight hundred" can be written as 800.
-| Spoken Form | Written Form |
-|---|---|
-| five five five eight six seven five three zero nine | 555-867-5309 |
-| one eight hundred five five five zero one nine nine | 1-800-555-0199 |
-
-### 10. URLs and Emails
-Reconstruct symbols: "dot" -> ".", "at" -> "@", "slash" -> "/", "colon" -> ":", "dash" -> "-".
-| Spoken Form | Written Form |
-|---|---|
-| example dot com slash pricing | example.com/pricing |
-| john at gmail dot com | john@gmail.com |
-
-### 11. Abbreviations and Titles
-Use standard abbreviations for titles and common terms.
-| Spoken Form | Written Form |
-|---|---|
-| doctor smith | Dr. Smith |
-| professor jones | Prof. Jones |
-| versus | vs. |
-| department | dept. |
-| without | w/o |
-
-### 12. Addresses
-Abbreviate street types and directions. Use digits for house numbers, spell zip codes digit by digit.
-| Spoken Form | Written Form |
-|---|---|
-| four fifty north main street | 450 N. Main St. |
-
-### 13. Roman Numerals
-Use Roman numerals after names (ordinal context) and for chapter/title references.
-| Spoken Form | Written Form |
-|---|---|
-| king henry the eighth | King Henry VIII |
-| elizabeth the second | Elizabeth II |
-| chapter four | Chapter IV |
-
-### 14. Acronyms
-Keep uppercase acronyms as-is (NASA, FBI, SQL, AM, PM).
-
-### 15. Negative Numbers
-Use minus sign.
-| Spoken Form | Written Form |
-|---|---|
-| negative twelve | -12 |
-| minus five degrees | -5 degrees |
-
-### 16. Decades
-Use digit form with "s" suffix.
-| Spoken Form | Written Form |
-|---|---|
-| seventies | 70s |
-| twenties | 20s |
-
-### 17. Letter-Number Patterns
-Capitalize the letter and convert the number to digits.
-| Spoken Form | Written Form |
-|---|---|
-| q two | Q2 |
-| b twelve | B12 |
-
-### 18. Zero Variants
-"zero" in counting/math -> "0". "oh"/"o" in phone/time context -> "0".
+Additional rules:
+- Symbols: "dot"→".", "at"→"@", "slash"→"/", "colon"→":", "dash"→"-".
+- Acronyms (NASA, FBI, SQL, AM, PM): keep uppercase as-is.
+- "zero" → "0"; "oh"/"o" in phone/time contexts → "0".
+- Zip codes: spell digit by digit. House numbers: digits.
 
 ## Ambiguity Resolution
-- Prefer conversion to digits for quantities, measurements, ages, dates, and counts.
-- Keep as words for idiomatic expressions, proper nouns, and indefinite/pronominal references. Common cases that must stay as words:
-  - "one of the best" (indefinite pronoun, NOT "1 of the best")
-  - "the only one" (pronoun)
-  - "one another", "one by one" (idiomatic)
-  - "One Direction" (proper noun)
-  - "a couple of things" (vague quantity)
-- "quarter" in temporal/financial context stays as "quarter": "fourth quarter", "first quarter results", "quarter over quarter". Only convert to 1/4 when it means a mathematical fraction (e.g., "a quarter of a cup" → "1/4 of a cup").
-- "half" as a fraction converts to ½, but "half" in idiomatic use stays as a word: "half the time", "half asleep".
-- When a stammered/false-start portion contains number words, keep them as words: "o- o- one hundred" stays "o- o- 100".
+
+- Prefer digits for quantities, measurements, ages, dates, counts.
+- Keep as WORDS for idioms, proper nouns, and pronominal/indefinite uses:
+  - "one of the best", "the only one", "one another", "one by one"
+  - "One Direction" (proper noun), "a couple of things" (vague quantity)
+- "quarter" in temporal/financial contexts stays as "quarter" ("fourth quarter", "quarter over quarter"). Only convert to 1/4 when it's a true fraction ("a quarter of a cup" → "1/4 of a cup").
+- "half" → 1/2 only as a fraction; idiomatic use stays a word ("half the time", "half asleep").
+- In stammers/false starts, keep number words as words: "o- o- one hundred" → "o- o- 100" (digits only on the final clean token).
