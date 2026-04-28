@@ -4929,8 +4929,8 @@ all = [
     { name = "torch", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchaudio", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchcodec", version = "0.11.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
-    { name = "torchcodec", version = "0.11.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torchcodec", version = "0.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { name = "torchcodec", version = "0.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "torchvision", version = "0.24.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchvision", version = "0.24.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "trafilatura" },
@@ -4990,8 +4990,8 @@ audio-cuda12 = [
     { name = "soundfile" },
     { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchaudio", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchcodec", version = "0.11.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
-    { name = "torchcodec", version = "0.11.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torchcodec", version = "0.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { name = "torchcodec", version = "0.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "transformers" },
     { name = "whisperx" },
 ]
@@ -7043,8 +7043,8 @@ dependencies = [
     { name = "torch-audiomentations" },
     { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchaudio", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchcodec", version = "0.11.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
-    { name = "torchcodec", version = "0.11.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torchcodec", version = "0.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { name = "torchcodec", version = "0.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "torchmetrics" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/20/05/6b2d4829ab00f2933b8966035cc8da5e27f81dc9c8c3c9eb58419ffa51e8/pyannote_audio-4.0.4.tar.gz", hash = "sha256:dee724dc3cff17dac9ea5afd36053f373ab7839f7b3044e617ff51e099deb131", size = 13960474, upload-time = "2026-02-07T09:56:27.776Z" }
@@ -9795,7 +9795,7 @@ wheels = [
 
 [[package]]
 name = "torchcodec"
-version = "0.11.0"
+version = "0.9.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.12' and platform_machine == 'aarch64' and sys_platform == 'darwin'",
@@ -9830,23 +9830,20 @@ resolution-markers = [
     "python_full_version < '3.11' and platform_machine == 's390x' and sys_platform != 'darwin' and sys_platform != 'linux'",
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1f/85/077709a188cfea3d2785e9997d448f4908ea32f12020064bc907c416f469/torchcodec-0.11.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:dff020aaec66b16b41e8eb01990de1ec7a9bc72403e86c5e719e8bb36c041cbf", size = 3700611, upload-time = "2026-03-24T15:56:07.62Z" },
-    { url = "https://files.pythonhosted.org/packages/e3/ce/9bd0e140e99e573e6779cece937c5b83fa0c11d7f42f2a52b38701221f20/torchcodec-0.11.0-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:df4cd0a8ae0942a965ee8ce216da895e4ef90b3ad31c6bde3789d73843d093c7", size = 2377435, upload-time = "2026-03-24T15:56:09.603Z" },
-    { url = "https://files.pythonhosted.org/packages/fa/9a/20e0ce18c9b34eb2330f0083e874cca4d1774da11daeb0ef9d2003f52ea4/torchcodec-0.11.0-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:43c539d08415e79006f8f3fb9da94ee63bc801a502651b7692ddec770842f9f8", size = 2515222, upload-time = "2026-03-24T15:56:11.706Z" },
-    { url = "https://files.pythonhosted.org/packages/9f/86/44b3a43c37c40cfdf66b4f212e2276ab76d9770640a6ed1aa409e4ef90f2/torchcodec-0.11.0-cp310-cp310-win_amd64.whl", hash = "sha256:f7b0e4ec48435ac69ff88524183cf25087d4ecdc3077a730c3f665e29280479b", size = 1903113, upload-time = "2026-03-24T15:56:13.675Z" },
-    { url = "https://files.pythonhosted.org/packages/e8/c9/2b43de18d7352be57461a80d7fbcc8107a3ca2ad389153a5b85b0f71d445/torchcodec-0.11.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:176208beb6576f673c5ef7c82bec122880041127e8c3f22186e2d961bc089317", size = 4202508, upload-time = "2026-03-24T15:56:15.539Z" },
-    { url = "https://files.pythonhosted.org/packages/c1/c3/d131dec79beaea09f88269ebbfa7fbb99c238ba740112a87c606371c3cd7/torchcodec-0.11.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:5562c28dce8114597116f0884908745c29ce401e4a9d0ae46853cbcd858d4f52", size = 2385509, upload-time = "2026-03-24T15:56:17.196Z" },
-    { url = "https://files.pythonhosted.org/packages/a1/a4/7c43426ab337df4de25b33f5139a0e9affd9851b1e3a86db1c829dab71d7/torchcodec-0.11.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:4f1717eeb9d2c9d4b5e03c37fce90188189ad5231ca7a50c4b3299e3b9d8a106", size = 2526183, upload-time = "2026-03-24T15:56:19.179Z" },
-    { url = "https://files.pythonhosted.org/packages/d2/e7/4575960e23cd3295c99ec417ee706f0da85ce3a8c9039fbbb8d114b27359/torchcodec-0.11.0-cp311-cp311-win_amd64.whl", hash = "sha256:0e3654fae566891273567f1eebe2baeff0b35ee71eaa8884dd7790c4faa2fe32", size = 1915260, upload-time = "2026-03-24T15:56:21.095Z" },
-    { url = "https://files.pythonhosted.org/packages/72/f2/85da3abfef5443b0fd7a70706dabf54e0fb5592ed6b03b3f8bfccff06af0/torchcodec-0.11.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:3e5abd61ad9de69a7008545f5c08736b66298f4e895b1f9fad01ae41bce75252", size = 4368773, upload-time = "2026-03-24T15:56:22.952Z" },
-    { url = "https://files.pythonhosted.org/packages/73/4c/b466aa762abf2e771cfd865bac1c03259a66c482b83978898c00810cb97f/torchcodec-0.11.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:aca62724bf7d4b5b70db60183e8bee67ba77f4f0afdb052e6d1900528b97de6e", size = 2397523, upload-time = "2026-03-24T15:56:25.026Z" },
-    { url = "https://files.pythonhosted.org/packages/f3/01/2488f553e8014c911652c2bf29265b73ec3753ac13ac4816b9c831ad27e2/torchcodec-0.11.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:669895505b7f0cd17bd6a71cf8bfa85190a9de1dc87f77051682c73149d58023", size = 2545573, upload-time = "2026-03-24T15:56:26.765Z" },
-    { url = "https://files.pythonhosted.org/packages/21/a7/e12e7cc5d69dd55e3edef7f16f46bcca5978c6262c86e51ccd3913bff92b/torchcodec-0.11.0-cp312-cp312-win_amd64.whl", hash = "sha256:8a1f023e26dddca77c1c81de83cf9201ecb363b818405557da70e4777b966697", size = 1921067, upload-time = "2026-03-24T15:56:28.417Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/c3/ae904a2a8cb4b6288684f022a6d5061a74435bc2d6f1c4742c16d441a9ee/torchcodec-0.9.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:72738d7870edbcd6982207609efe314352e0bf90f4e3895a549e23a49ee0673c", size = 3397284, upload-time = "2025-12-10T15:55:45.498Z" },
+    { url = "https://files.pythonhosted.org/packages/30/96/c693d75e32b4f07828c2b8a4b894be7366d0e46366ff10dad5825d891148/torchcodec-0.9.1-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:53dfecabc843e4d78b77453732129bd8572dd9d022ab81a94f5305cd5e920ded", size = 2043848, upload-time = "2025-12-10T15:55:25.772Z" },
+    { url = "https://files.pythonhosted.org/packages/68/dd/cbda16eb33d380c3e7b3cb6dbcfa59aa21e676ddebe3627e834be3b1c124/torchcodec-0.9.1-cp310-cp310-win_amd64.whl", hash = "sha256:d5267e6112b0d0b948d653dc3ffa486bb9a01febc81606d3dfd75cf5a4dcc9f3", size = 2170387, upload-time = "2025-12-10T15:56:09.824Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/37/169238bb55017b08a93530d6f4474a112780df4c05c26c78df7dd58401f1/torchcodec-0.9.1-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:7a81d29e67cebefaec08f9c817635d1ff47205814884e527ef4b135a6c795612", size = 3899002, upload-time = "2025-12-10T15:55:49.911Z" },
+    { url = "https://files.pythonhosted.org/packages/75/74/11c59e0592e555df78cfee2fd4b8ba5c725e4bf160002af88ce09de99d9d/torchcodec-0.9.1-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:5e959c7abf95de62f78653d416f00f7ca32936fbfd23371b23d5c8dc199f3670", size = 2048262, upload-time = "2025-12-10T15:55:29.552Z" },
+    { url = "https://files.pythonhosted.org/packages/53/66/0612c7852cb7854dec45db9357397b4dbd4d6274832cc8949a8d1c0e518a/torchcodec-0.9.1-cp311-cp311-win_amd64.whl", hash = "sha256:508e0ce6da1e4af186b131cdbdd3d998bc4313e9f3a3f5b78f64aa5f9685ed88", size = 2181959, upload-time = "2025-12-10T15:56:13.191Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/60/3bfa459e09987af08e188811b191437c9d8215a74f4d418be6ff7df87b5c/torchcodec-0.9.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:8996ec62b72c69545c30246df64df386d06d7ec7de0689be5d20dfc06aad6442", size = 4064264, upload-time = "2025-12-10T15:55:56.313Z" },
+    { url = "https://files.pythonhosted.org/packages/17/c8/bfb74babec98aff11ab4f239b0901f39e1a93338b3438e842d864dc46935/torchcodec-0.9.1-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:a50568ce73b70395d113833fb07394c223f5546ef5d4fafe0fdcd91627fca270", size = 2061978, upload-time = "2025-12-10T15:55:33.415Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/12/c0bbf01b0ed52b69aaeed4af1043dc8308ccc522a47fcc082b34882e2ba2/torchcodec-0.9.1-cp312-cp312-win_amd64.whl", hash = "sha256:d9c8efe5845bde45a428f96493b4a041511f47f5bd53b333a0ad90426be4623a", size = 2187178, upload-time = "2025-12-10T15:56:16.968Z" },
 ]
 
 [[package]]
 name = "torchcodec"
-version = "0.11.1+cu128"
+version = "0.9.1+cu128"
 source = { registry = "https://download.pytorch.org/whl/cu128" }
 resolution-markers = [
     "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'",
@@ -9857,9 +9854,9 @@ resolution-markers = [
     "python_full_version < '3.11' and platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux'",
 ]
 wheels = [
-    { url = "https://download.pytorch.org/whl/cu128/torchcodec-0.11.1%2Bcu128-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:c309b9792910aae57b5981a706981f3b24ff411dc657e343221692f6a9ea4794", upload-time = "2026-04-14T18:06:03Z" },
-    { url = "https://download.pytorch.org/whl/cu128/torchcodec-0.11.1%2Bcu128-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:178c05770b6dd13cdbd3c52d6eb85240bc3cdf30173a7cd20015a52621c6d962", upload-time = "2026-04-14T18:06:03Z" },
-    { url = "https://download.pytorch.org/whl/cu128/torchcodec-0.11.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:74d692c90a5b0fbb71a6d100b792a19b0b4731c2aeb81b52cd523eb634c0c80c", upload-time = "2026-04-14T18:06:03Z" },
+    { url = "https://download.pytorch.org/whl/cu128/torchcodec-0.9.1%2Bcu128-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:b5d404268b57897a1ffdd2c0558526bd4a59a0c305d927a66c2cec42b48a0be2", upload-time = "2026-01-26T17:33:28Z" },
+    { url = "https://download.pytorch.org/whl/cu128/torchcodec-0.9.1%2Bcu128-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:344a8ac7ea6a9ad6e0847b2a2d9057ae7eb1ebd0403073d37c70942e96d5accf", upload-time = "2026-01-26T17:33:28Z" },
+    { url = "https://download.pytorch.org/whl/cu128/torchcodec-0.9.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:7ca1217f77f9ea3e6a6152a72b8184cb9ebaf8d3f9cfc30f09ce4783b7ae4cb2", upload-time = "2026-01-26T17:33:29Z" },
 ]
 
 [[package]]
@@ -10588,8 +10585,8 @@ dependencies = [
     { name = "torch", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "torchaudio", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchaudio", version = "2.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchcodec", version = "0.11.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
-    { name = "torchcodec", version = "0.11.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torchcodec", version = "0.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { name = "torchcodec", version = "0.9.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "torchvision", version = "0.24.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchvision", version = "0.24.1+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "transformers" },
