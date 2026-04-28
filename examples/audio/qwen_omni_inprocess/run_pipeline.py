@@ -23,6 +23,10 @@ Architecture:
         → streams NeMo-tarred shards, decodes audio in memory
     InitializeFieldsStage (CPU)
         → sets _skip_me = "", renames text → granary_v1_prediction
+    [optional] SEDInferenceStage (GPU)
+        → runs PANNs CNN14 on each audio, produces framewise probabilities
+    [optional] SEDPostprocessingStage (CPU)
+        → labels entries with detected sound events (speech, music, noise, etc.)
     InferenceQwenOmniStage (GPU, TP=2)
         → batched vLLM inference, outputs qwen3_prediction_s1/s2
     [optional] DisfluencyWerGuardStage (CPU)
@@ -194,6 +198,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="Fraction of GPU memory for ITN vLLM engine.")
     itn.add_argument("--itn_no_validation", action="store_true", help="Disable ITN output validation.")
 
+    sed = ap.add_argument_group("SED (sound event detection)")
+    sed.add_argument("--sed_checkpoint", type=str, default=None,
+                     help="Path to PANNs CNN14 .pth checkpoint. Enables SED stages when set.")
+    sed.add_argument("--sed_model_type", type=str, default="Cnn14_DecisionLevelMax",
+                     help="CNN14 variant name (see sed_models.MODEL_REGISTRY).")
+    sed.add_argument("--sed_speech_threshold", type=float, default=0.5,
+                     help="Speech probability threshold for event detection.")
+    sed.add_argument("--sed_min_duration", type=float, default=0.3,
+                     help="Minimum speech event duration in seconds.")
+    sed.add_argument("--sed_merge_gap", type=float, default=0.0,
+                     help="Merge events with gaps smaller than this (seconds, 0 = disabled).")
+    sed.add_argument("--sed_gpu_memory_gb", type=float, default=4.0,
+                     help="GPU memory in GB for SED inference stage.")
+
     asr = ap.add_argument_group("QwenASR hallucination recovery")
     asr.add_argument("--asr_model_id", type=str, default=None,
                      help="QwenASR model ID or local path. If set, enables hallucination recovery.")
@@ -249,25 +267,42 @@ def main() -> None:  # noqa: C901
             output_dir=args.output_dir,
         ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=4.0)}}),
         InitializeFieldsStage(),
-        InferenceQwenOmniStage(
-            model_id=args.model_id,
-            prompt_text=prompt,
-            en_prompt_text=en_prompt,
-            followup_prompt=followup_prompt,
-            system_prompt=system_prompt,
-            tensor_parallel_size=args.tensor_parallel_size,
-            batch_size=args.batch_size,
-            max_output_tokens=args.max_output_tokens,
-            max_model_len=args.max_model_len,
-            max_num_seqs=args.max_num_seqs,
-            gpu_memory_utilization=args.gpu_memory_utilization,
-            prep_workers=args.prep_workers,
-            source_lang_key=args.source_lang_key,
-            pred_text_key="qwen3_prediction_s1",
-            disfluency_text_key="qwen3_prediction_s2",
-            keep_waveform=bool(args.asr_model_id),
-        ),
     ]
+
+    if args.sed_checkpoint:
+        from nemo_curator.stages.audio.inference.sed import SEDInferenceStage
+        from nemo_curator.stages.audio.postprocessing.sed_postprocessing import SEDPostprocessingStage
+
+        stages.extend([
+            SEDInferenceStage(
+                checkpoint_path=args.sed_checkpoint,
+                model_type=args.sed_model_type,
+                resources=Resources(cpus=1.0, gpu_memory_gb=args.sed_gpu_memory_gb),
+            ),
+            SEDPostprocessingStage(
+                threshold=args.sed_speech_threshold,
+                min_duration_sec=args.sed_min_duration,
+                merge_gap_sec=args.sed_merge_gap,
+            ),
+        ])
+
+    stages.append(InferenceQwenOmniStage(
+        model_id=args.model_id,
+        prompt_text=prompt,
+        followup_prompt=followup_prompt,
+        system_prompt=system_prompt,
+        tensor_parallel_size=args.tensor_parallel_size,
+        batch_size=args.batch_size,
+        max_output_tokens=args.max_output_tokens,
+        max_model_len=args.max_model_len,
+        max_num_seqs=args.max_num_seqs,
+        gpu_memory_utilization=args.gpu_memory_utilization,
+        prep_workers=args.prep_workers,
+        source_lang_key=args.source_lang_key,
+        pred_text_key="qwen3_prediction_s1",
+        disfluency_text_key="qwen3_prediction_s2",
+        keep_waveform=bool(args.asr_model_id),
+    ))
 
     if followup_prompt:
         stages.append(DisfluencyWerGuardStage(
