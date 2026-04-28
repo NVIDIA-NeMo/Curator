@@ -382,7 +382,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
                     if isinstance(hyp, tuple) and len(hyp) == 2:  # noqa: PLR2004
                         hyp = hyp[0]
                     hypotheses_list.append(hyp[0] if hyp else None)
-                except Exception as e2:  # noqa: BLE001, PERF203
+                except Exception as e2:  # noqa: BLE001
                     logger.error(f"[{self.name}] Exception for {path}: {e2}")
                     hypotheses_list.append(None)
 
