@@ -1,21 +1,16 @@
 # ASR Audio Tagging Pipeline - E2E Test Configuration
 #
-# Mirrors tutorials/audio/tagging/asr_pipeline.yaml with test-friendly defaults.
-# Stages use _target_ for Hydra instantiation via create_pipeline_from_yaml.
-#
-# Per-stage `resources` and `batch_size` are extracted before Hydra instantiation
-# and applied via the stage's .with_() method.
+# Starts from base_manifest.jsonl which already contains the output of
+# upstream stages (Resample, Diarize, Split, ASR Align, Join, Merge,
+# Bandwidth, SQUIM). This avoids non-deterministic GPU stages and tests
+# only the ASR-specific deterministic stages.
 
 input_manifest: ???
 final_manifest: ???
 workspace_dir: /tmp/tagging_test_workspace
-resampled_audio_dir: ${workspace_dir}/audio_resampled
 language_short: en
-hf_token: ""
-sample_rate: 16000
 text_key1: text
 text_key2: text_2
-max_segment_length: 40
 resources:
   cpus: 1
 
@@ -23,57 +18,6 @@ stages:
   - _target_: nemo_curator.stages.audio.common.ManifestReader
     manifest_path: ${input_manifest}
     files_per_partition: 1
-
-  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
-    name: "ResampleAudio"
-    resampled_audio_dir: ${resampled_audio_dir}
-    input_format: "wav"
-    target_sample_rate: ${sample_rate}
-    target_format: "wav"
-    target_nchannels: 1
-    resources: ${resources}
-
-  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
-    name: "PyAnnoteDiarization"
-    hf_token: ${hf_token}
-    max_length: ${max_segment_length}
-    resources:
-      gpus: 0.75
-
-  - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
-    name: "SplitLongAudio"
-    suggested_max_len: ${max_segment_length}
-    min_len: 1.0
-    resources: ${resources}
-
-  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
-    name: "ASRAlignment"
-    is_fastconformer: true
-    decoder_type: ctc
-    batch_size: 1
-    transcribe_batch_size: 4
-    num_workers: 1
-    resources:
-      gpus: 0.45
-
-  - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
-    name: "JoinSplitMetadata"
-    resources: ${resources}
-
-  - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
-    name: "MergeAlignmentDiar"
-    text_key: "text"
-    words_key: "words"
-    resources: ${resources}
-
-  - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
-    name: "BandwidthEstimation"
-    resources: ${resources}
-
-  - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
-    name: "SquimMetrics"
-    resources:
-      gpus: 0.05
 
   - _target_: nemo_curator.stages.audio.tagging.PrepareModuleSegmentsStage
     name: "PrepareModuleSegments"
