@@ -14,6 +14,7 @@
 
 import copy
 from collections.abc import Callable
+from contextlib import suppress
 from typing import Any
 
 from loguru import logger
@@ -55,6 +56,15 @@ class RayDataStageAdapter(BaseStageAdapter):
     def batch_size(self) -> int | None:
         """Get the batch size for this stage."""
         return self._batch_size
+
+    def __ray_shutdown__(self):
+        """
+        Called automatically by Ray when the actor is being destroyed.
+        Ensures resources like GPU memory, subprocesses, etc. are cleaned up.
+        """
+        with suppress(Exception):
+            if hasattr(self.stage, "teardown"):
+                self.stage.teardown()
 
     def _process_batch_internal(self, batch: dict[str, Any]) -> dict[str, Any]:
         """Internal method that handles the actual batch processing logic.
