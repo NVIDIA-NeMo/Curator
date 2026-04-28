@@ -97,7 +97,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     filepath_key: str = "audio_filepath"
 
     name: str = "SEDInference"
-    batch_size: int = 1
+    batch_size: int = 32
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
 
     def setup(self, _worker_metadata: Any = None) -> None:
@@ -148,69 +148,95 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         return ["data"], out_keys
 
     def process(self, task: AudioTask) -> AudioTask:
-        """Run SED on the in-memory waveform, return enriched task."""
-        import numpy as np
+        """Run SED on a single task (delegates to process_batch)."""
+        return self.process_batch([task])[0]
 
-        waveform = task.data.get(self.waveform_key)
-        if waveform is None:
-            msg = f"Missing {self.waveform_key!r} in task data — was the audio decoded in memory?"
-            raise ValueError(msg)
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        """Run batched SED inference on the GPU for all tasks at once."""
+        if not tasks:
+            return []
 
-        src_sr = int(task.data.get(self.sample_rate_key, self.sample_rate))
-        waveform = np.asarray(waveform, dtype=np.float32)
-        if waveform.ndim > 1:
-            waveform = waveform.mean(axis=1)
-
-        if src_sr != self.sample_rate:
-            import librosa
-
-            waveform = librosa.resample(waveform, orig_sr=src_sr, target_sr=self.sample_rate)
-
-        sed_result = self._run_sed(waveform, task.data.get(self.filepath_key, ""))
-
-        output_data = dict(task.data)
-        output_data.update(sed_result)
-
-        return AudioTask(
-            task_id=f"{task.task_id}_sed",
-            dataset_name=task.dataset_name,
-            filepath_key=task.filepath_key or self.filepath_key,
-            data=output_data,
-            _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
-        )
-
-    def _run_sed(self, waveform: np.ndarray, audio_path: str = "") -> dict:
-        """Core SED logic on an already-resampled waveform. Returns dict of result keys."""
         import numpy as np
         import torch
 
-        original_samples = waveform.shape[0]
+        waveforms, original_samples_list, audio_paths = self._preprocess_waveforms(tasks)
 
         min_input = max(self.window_size, self.hop_size * 32)
-        if self.pad_short_segments and original_samples < min_input:
-            waveform = np.pad(waveform, (0, min_input - original_samples), mode="constant")
+        for i, wav in enumerate(waveforms):
+            if self.pad_short_segments and wav.shape[0] < min_input:
+                waveforms[i] = np.pad(wav, (0, min_input - wav.shape[0]), mode="constant")
 
-        x = torch.from_numpy(waveform[None, :]).float().to(self._device)
+        max_len = max(w.shape[0] for w in waveforms)
+        padded = np.zeros((len(waveforms), max_len), dtype=np.float32)
+        for i, w in enumerate(waveforms):
+            padded[i, : w.shape[0]] = w
+
+        x = torch.from_numpy(padded).to(self._device)
         with torch.no_grad():
             out = self._model(x, None)
 
-        framewise: np.ndarray = out["framewise_output"].cpu().numpy()[0]
+        all_framewise: np.ndarray = out["framewise_output"].cpu().numpy()
         fps = float(self.sample_rate) / self.hop_size
-        valid_frames = min(int(np.ceil(original_samples / self.hop_size)), framewise.shape[0])
+        use_fp16 = self.framewise_dtype == "float16"
 
-        fw = framewise.astype(np.float16 if self.framewise_dtype == "float16" else np.float32)
+        results: list[AudioTask] = []
+        for i, task in enumerate(tasks):
+            orig_samples = original_samples_list[i]
+            framewise_i = all_framewise[i]
+            valid_frames = min(int(np.ceil(orig_samples / self.hop_size)), framewise_i.shape[0])
+            fw = framewise_i.astype(np.float16 if use_fp16 else np.float32)
 
-        result: dict = {
-            "_sed_framewise": fw,
-            "sed_valid_frames": int(valid_frames),
-            "sed_fps": fps,
-        }
+            output_data = dict(task.data)
+            output_data["_sed_framewise"] = fw
+            output_data["sed_valid_frames"] = int(valid_frames)
+            output_data["sed_fps"] = fps
 
-        if self.save_npz and audio_path:
-            result["npz_filepath"] = self._save_npz(fw, fps, audio_path, original_samples, valid_frames)
+            if self.save_npz and audio_paths[i]:
+                output_data["npz_filepath"] = self._save_npz(fw, fps, audio_paths[i], orig_samples, valid_frames)
 
-        return result
+            results.append(AudioTask(
+                task_id=f"{task.task_id}_sed",
+                dataset_name=task.dataset_name,
+                filepath_key=task.filepath_key or self.filepath_key,
+                data=output_data,
+                _metadata=task._metadata,
+                _stage_perf=task._stage_perf,
+            ))
+
+        logger.info(f"SED batch: processed {len(tasks)} samples (max_len={max_len}, fps={fps:.1f})")
+        return results
+
+    def _preprocess_waveforms(
+        self, tasks: list[AudioTask]
+    ) -> tuple[list[np.ndarray], list[int], list[str]]:
+        """Extract, mono-mix, and resample waveforms from a batch of tasks."""
+        import numpy as np
+
+        waveforms: list[np.ndarray] = []
+        original_samples: list[int] = []
+        audio_paths: list[str] = []
+
+        for task in tasks:
+            wav = task.data.get(self.waveform_key)
+            if wav is None:
+                msg = f"Missing {self.waveform_key!r} in task {task.task_id} — was the audio decoded in memory?"
+                raise ValueError(msg)
+
+            src_sr = int(task.data.get(self.sample_rate_key, self.sample_rate))
+            wav = np.asarray(wav, dtype=np.float32)
+            if wav.ndim > 1:
+                wav = wav.mean(axis=1)
+
+            if src_sr != self.sample_rate:
+                import librosa
+
+                wav = librosa.resample(wav, orig_sr=src_sr, target_sr=self.sample_rate)
+
+            waveforms.append(wav)
+            original_samples.append(wav.shape[0])
+            audio_paths.append(task.data.get(self.filepath_key, ""))
+
+        return waveforms, original_samples, audio_paths
 
     def _save_npz(
         self,

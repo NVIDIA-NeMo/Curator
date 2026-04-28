@@ -209,6 +209,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="Minimum speech event duration in seconds.")
     sed.add_argument("--sed_merge_gap", type=float, default=0.0,
                      help="Merge events with gaps smaller than this (seconds, 0 = disabled).")
+    sed.add_argument("--sed_batch_size", type=int, default=32,
+                     help="Batch size for SED GPU inference.")
     sed.add_argument("--sed_gpu_memory_gb", type=float, default=4.0,
                      help="GPU memory in GB for SED inference stage.")
 
@@ -277,6 +279,7 @@ def main() -> None:  # noqa: C901
             SEDInferenceStage(
                 checkpoint_path=args.sed_checkpoint,
                 model_type=args.sed_model_type,
+                batch_size=args.sed_batch_size,
                 resources=Resources(cpus=1.0, gpu_memory_gb=args.sed_gpu_memory_gb),
             ),
             SEDPostprocessingStage(
