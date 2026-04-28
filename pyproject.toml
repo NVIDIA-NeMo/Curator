@@ -109,6 +109,8 @@ audio_common = [
     "accelerate",
     "pyannote-audio>=4.0.0",
     "whisperx>=3.8.4",
+    "nemo_toolkit[tts]",
+    "kaldialign",
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",
@@ -120,7 +122,8 @@ audio_cuda12 = [
     "nemo_curator[audio_common]",
     "nemo_curator[cuda12]",
     "nvidia-cudnn-cu12",
-    "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
+    "onnxruntime>=1.20.1,<1.24",                                       # Python bindings (split from GPU package in 1.21+)
+    "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",    # CUDA providers
     "torchcodec",
 ]
 
