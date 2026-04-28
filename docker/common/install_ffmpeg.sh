@@ -18,6 +18,15 @@ set -xeuo pipefail # Exit immediately if a command exits with a non-zero status
 FFMPEG_VERSION=8.0.1
 NVCODEC_VERSION=12.1.14.0
 
+# Verify nvcc is available — FFmpeg's configure --enable-cuda-nvcc requires it.
+if ! command -v nvcc &>/dev/null && [ ! -x /usr/local/cuda/bin/nvcc ]; then
+    echo "ERROR: nvcc not found. This script requires the CUDA toolkit (compiler + headers)," >&2
+    echo "  not just the CUDA runtime that ships with GPU drivers." >&2
+    echo "  Install it with: apt-get install cuda-toolkit-<version>  (e.g. cuda-toolkit-12-6)" >&2
+    echo "  or download from https://developer.nvidia.com/cuda-downloads" >&2
+    exit 1
+fi
+
 for i in "$@"; do
     case $i in
         --FFMPEG_VERSION=?*) FFMPEG_VERSION="${i#*=}";;
