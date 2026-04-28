@@ -43,6 +43,7 @@ import hashlib
 import json
 import shutil
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,7 +55,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader, ManifestWriterStage
 from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks import AudioTask, FileGroupTask
 
 CKPT_HASH_KEY = "_ckpt_hash"
 
@@ -64,9 +65,9 @@ CKPT_HASH_KEY = "_ckpt_hash"
 # ---------------------------------------------------------------------------
 
 
-def _task_hash(task: AudioTask) -> str:
+def _task_hash(task: AudioTask | FileGroupTask) -> str:
     """Stable content hash derived from audio_filepath."""
-    identity = task.data.get("audio_filepath", task.task_id)
+    identity = task.data.get("audio_filepath", task.task_id) if isinstance(task.data, Mapping) else task.task_id
     return hashlib.sha256(identity.encode()).hexdigest()[:16]
 
 
@@ -74,19 +75,30 @@ def _stage_ckpt_dir(checkpoint_dir: Path, stage_index: int, stage_name: str) -> 
     return checkpoint_dir / f"stage_{stage_index:02d}_{stage_name}"
 
 
-def _save_task(directory: Path, h: str, task: AudioTask) -> None:
+def _save_task(directory: Path, h: str, task: AudioTask | FileGroupTask) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     payload = {
         "task_id": task.task_id,
         "dataset_name": task.dataset_name,
-        "data": dict(task.data),
+        "data": dict(task.data) if isinstance(task.data, Mapping) else task.data,
         "_metadata": task._metadata,
+        "_task_type": type(task).__name__,
     }
+    if isinstance(task, FileGroupTask):
+        payload["reader_config"] = task.reader_config
     (directory / f"{h}.json").write_text(json.dumps(payload, indent=2))
 
 
-def _load_task(path: Path) -> AudioTask:
+def _load_task(path: Path) -> AudioTask | FileGroupTask:
     payload = json.loads(path.read_text())
+    if payload.get("_task_type") == "FileGroupTask":
+        return FileGroupTask(
+            task_id=payload["task_id"],
+            dataset_name=payload["dataset_name"],
+            data=payload["data"],
+            _metadata=payload.get("_metadata", {}),
+            reader_config=payload.get("reader_config", {}),
+        )
     return AudioTask(
         task_id=payload["task_id"],
         dataset_name=payload["dataset_name"],
@@ -95,7 +107,7 @@ def _load_task(path: Path) -> AudioTask:
     )
 
 
-def _load_all_tasks(directory: Path) -> list[AudioTask]:
+def _load_all_tasks(directory: Path) -> list[AudioTask | FileGroupTask]:
     if not directory.exists():
         return []
     return [_load_task(p) for p in sorted(directory.glob("*.json"))]
@@ -159,10 +171,10 @@ class SingleSpeakerFilterStage(ProcessingStage[AudioTask, AudioTask]):
 def _run_stages_with_checkpoints(
     stages: list[ProcessingStage],
     checkpoint_dir: Path,
-) -> list[AudioTask]:
+) -> list[AudioTask | FileGroupTask]:
     """Execute stages sequentially with per-task hash-based checkpointing."""
     executor = XennaExecutor()
-    current_tasks: list[AudioTask] | None = None
+    current_tasks: list[AudioTask | FileGroupTask] | None = None
     t0 = time.time()
 
     for idx, stage in enumerate(stages):
@@ -190,8 +202,8 @@ def _run_stages_with_checkpoints(
             continue
 
         # --- subsequent stages: split cached vs todo ---
-        cached_tasks: list[AudioTask] = []
-        todo_tasks: list[AudioTask] = []
+        cached_tasks: list[AudioTask | FileGroupTask] = []
+        todo_tasks: list[AudioTask | FileGroupTask] = []
 
         for task in current_tasks:
             h = task._metadata.get(CKPT_HASH_KEY) or _task_hash(task)
@@ -237,7 +249,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Filter ASR manifest to single-speaker audio via Streaming Sortformer.")
     p.add_argument("--manifest", type=Path, required=True, help="Input NeMo-style JSONL manifest.")
     p.add_argument("--output-dir", type=Path, default=Path("output"), help="Root for all outputs.")
-    p.add_argument("--model", default="nvidia/diar_streaming_sortformer_4spk-v2", help="HF Sortformer model id.")
+    p.add_argument("--model", default="nvidia/diar_streaming_sortformer_4spk-v2.1", help="HF Sortformer model id.")
     p.add_argument("--clean", action="store_true", help="Remove output directory before running.")
     p.add_argument("--chunk-len", type=int, default=340, help="Streaming chunk size in 80ms frames.")
     p.add_argument("--chunk-right-context", type=int, default=40, help="Right context frames.")
