@@ -266,7 +266,7 @@ def assert_valid_config_dict(data: dict) -> None:  # noqa: C901, PLR0912
         for i, path_entry in enumerate(data["paths"]):
             if not isinstance(path_entry, dict):
                 msg = f"Invalid configuration: 'paths' entry at index {i} must be a dict"
-                raise ValueError(msg)  # noqa: TRY004
+                raise TypeError(msg)
             missing = [k for k in ("name", "host_path") if k not in path_entry]
             if missing:
                 msg = f"Invalid configuration: 'paths' entry at index {i} is missing required fields: {missing}"
