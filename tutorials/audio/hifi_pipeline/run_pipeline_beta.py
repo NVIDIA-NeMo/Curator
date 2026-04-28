@@ -147,6 +147,12 @@ def parse_args() -> argparse.Namespace:
                    help="Override BIRCH starting cosine floor (default: preset).")
     p.add_argument("--audio_filepath_key", type=str, default="audio_filepath")
 
+    # AsrBridgeStage temp dir (active when --data_config is set).  Default
+    # /tmp is node-local and slurm-cleaned; override for a shared FS only
+    # if you have multi-node actors sharing audio files (uncommon).
+    p.add_argument("--temp_dir", type=str, default="/tmp",
+                   help="Where AsrBridgeStage writes per-task temp WAVs.")
+
     return p.parse_args()
 
 
@@ -158,23 +164,34 @@ def _stage_dir(args: argparse.Namespace, name: str) -> str:
     return os.path.join(args.output_dir, name)
 
 
-def _audio_pipeline(name: str, args: argparse.Namespace, current_manifest: str) -> Pipeline:
-    """Pipeline whose source is either ManifestReader (file-based) or
-    ``NemoTarredAudioReader`` (AIS streaming via Granary YAML).
+def _audio_pipeline(
+    name: str,
+    args: argparse.Namespace,
+    current_manifest: str,
+    needs_audio: bool = True,
+) -> Pipeline:
+    """Pipeline source: AIS-streamed (with AsrBridge) or file-based JSONL.
 
-    Selector:
-      * ``--data_config`` set  → AIS-streamed AudioTasks with waveform.
-      * else                   → ManifestReader on JSONL file/dir.
+    ``needs_audio=True`` (default): stages that load audio by filepath
+      (SED, diarize, embed, utmos2).  With --data_config, uses
+      NemoTarredAudioReader → AsrBridgeStage so actors see real WAV paths.
+
+    ``needs_audio=False``: data-flow stages (sed_post, segment) that only
+      consume prior stage's JSONL fields (npz_filepath, predicted_events).
+      Always uses ManifestReader on current_manifest regardless of
+      --data_config, so they see the correct upstream outputs.
     """
     from nemo_curator.stages.audio.common import ManifestReader
 
     pipeline = Pipeline(name=name)
-    if args.data_config:
+    if args.data_config and needs_audio:
         from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
+        from nemo_curator.stages.audio.preprocessing import AsrBridgeStage
         pipeline.add_stage(NemoTarredAudioReader(
             yaml_path=args.data_config,
             corpus_filter=args.corpus_filter,
         ))
+        pipeline.add_stage(AsrBridgeStage(temp_dir=args.temp_dir))
     else:
         pipeline.add_stage(ManifestReader(manifest_path=current_manifest))
     return pipeline
@@ -262,7 +279,7 @@ def run_sed_post(args: argparse.Namespace, current: str) -> str:
     os.makedirs(out_dir, exist_ok=True)
 
     print("[beta] sed_post")
-    pipeline = _audio_pipeline("sed_post", args, current)
+    pipeline = _audio_pipeline("sed_post", args, current, needs_audio=False)
     pipeline.add_stage(SEDPostprocessingStage(
         speech_threshold=args.sed_threshold,
         min_duration_sec=0.3,
@@ -282,7 +299,7 @@ def run_segment(args: argparse.Namespace, current: str) -> str:
     os.makedirs(out_dir, exist_ok=True)
 
     print("[beta] segment (fan-out)")
-    pipeline = _audio_pipeline("segment", args, current)
+    pipeline = _audio_pipeline("segment", args, current, needs_audio=False)
     pipeline.add_stage(SegmentExtractorStage(events_key=args.segment_events_key))
     pipeline.add_stage(_StripAudioBytesStage())
     pipeline.add_stage(ManifestWriterStage(output_path=out_path))

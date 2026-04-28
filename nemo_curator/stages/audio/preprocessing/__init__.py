@@ -28,8 +28,9 @@ Example:
     pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
 """
 
+from .asr_bridge import AsrBridgeStage
 from .concatenation import SegmentConcatenationStage
 from .group_by_video import GroupByVideoStage
 from .mono_conversion import MonoConversionStage
 
-__all__ = ["GroupByVideoStage", "MonoConversionStage", "SegmentConcatenationStage"]
+__all__ = ["AsrBridgeStage", "GroupByVideoStage", "MonoConversionStage", "SegmentConcatenationStage"]
