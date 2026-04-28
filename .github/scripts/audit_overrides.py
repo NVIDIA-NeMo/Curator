@@ -38,11 +38,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 from collections.abc import Iterator  # noqa: TC003 -- annotation use only, but the cost is nil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import tomllib
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
