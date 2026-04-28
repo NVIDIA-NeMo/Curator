@@ -16,7 +16,7 @@ import json
 import zlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from functools import cached_property
 from urllib.parse import urljoin
 
@@ -64,7 +64,7 @@ class BaseCommonCrawlUrlGenerator(URLGenerator, ABC):
             msg = f"Start snapshot '{self.start_snapshot_str}' is after end snapshot '{self.end_snapshot_str}'"
             raise ValueError(msg)
 
-        today_utc_date = datetime.now(tz=timezone.utc).date()
+        today_utc_date = datetime.now(tz=UTC).date()
         if end_date > today_utc_date:
             logger.warning(
                 f"Requested end date {end_date} is in the future. Adjusting end date to today's date ({today_utc_date})."
@@ -98,7 +98,7 @@ class BaseCommonCrawlUrlGenerator(URLGenerator, ABC):
                     if rel_path.strip():
                         full_warc_url = urljoin(self.data_prefix, rel_path.strip())
                         all_individual_warc_urls.append(full_warc_url)
-            except requests.RequestException as e:  # noqa: PERF203
+            except requests.RequestException as e:
                 logger.error(f"Failed to download or access {gz_path_url}: {e}")
             except zlib.error as e:
                 logger.error(f"Failed to decompress {gz_path_url}: {e}")
@@ -195,14 +195,14 @@ class NewsCommonCrawlUrlGenerator(BaseCommonCrawlUrlGenerator):
                 msg = f"Month must be between 1 and 12. Provided: '{snapshot_str}'"
                 raise ValueError(msg)  # noqa : TRY301
             if for_start:
-                return datetime(year, month, 1, tzinfo=timezone.utc)
+                return datetime(year, month, 1, tzinfo=UTC)
             # For end_date, set to the last day of the month to ensure full month coverage
             next_month = month + 1
             next_year = year
             if next_month > 12:  # noqa: PLR2004
                 next_month = 1
                 next_year += 1
-            return datetime(next_year, next_month, 1, tzinfo=timezone.utc) - timedelta(days=1)
+            return datetime(next_year, next_month, 1, tzinfo=UTC) - timedelta(days=1)
 
         except ValueError as e:
             msg = f"Invalid News CC snapshot format. Use YYYY-MM (e.g., '2020-08'). Provided: '{snapshot_str}'"
