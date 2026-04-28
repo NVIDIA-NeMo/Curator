@@ -19,13 +19,10 @@ Avoids Pandas to handle large manifests with deeply nested audio metadata
 with pd.read_json.
 """
 
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from fsspec.core import url_to_fs
-from loguru import logger
-
+from nemo_curator.stages.audio.common import read_jsonl_manifests
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
@@ -35,31 +32,24 @@ from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     """Read JSONL manifest files from a FileGroupTask and emit one AudioTask per line.
 
-    Uses line-by-line streaming via fsspec (no Pandas) to keep memory at ~1x file size.
-    Supports local and cloud paths (S3, GCS).
+    Delegates to :func:`~nemo_curator.stages.audio.common.read_jsonl_manifests`
+    for the core JSONL streaming logic (shared with ``ManifestReaderStage``).
     """
 
     name: str = "alm_manifest_reader_stage"
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
     def process(self, task: FileGroupTask) -> list[AudioTask]:
-        paths = task.data
-        results: list[AudioTask] = []
-        for manifest in paths:
-            count = 0
-            fs, resolved = url_to_fs(manifest)
-            with fs.open(resolved, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.strip():
-                        results.append(
-                            AudioTask(
-                                data=json.loads(line.strip()),
-                                _metadata=task._metadata,
-                                _stage_perf=list(task._stage_perf),
-                            )
-                        )
-                        count += 1
-            logger.info(f"ALMManifestReaderStage: loaded {count} entries from {manifest}")
-        return results
+        return read_jsonl_manifests(
+            task.data,
+            parent_metadata=task._metadata,
+            parent_stage_perf=task._stage_perf,
+        )
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {"is_fanout_stage": True}

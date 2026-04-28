@@ -46,6 +46,12 @@ class ALMManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
             msg = "output_path is required for ALMManifestWriterStage"
             raise ValueError(msg)
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
     def setup_on_node(
         self,
         _node_info: NodeInfo | None = None,

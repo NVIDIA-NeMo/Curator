@@ -212,8 +212,16 @@ def load_manifest(manifest_path: str) -> list:
     return entries
 
 
-def load_manifests(input_path: str, output_dir: str) -> list:
-    """Load entries from a single jsonl file or a directory of jsonl files."""
+def load_manifests(input_path: str, output_dir: str, *, save_combined: bool = False) -> list:
+    """Load entries from a single jsonl file or a directory of jsonl files.
+
+    Args:
+        input_path: Single .jsonl file or directory of .jsonl files.
+        output_dir: Directory for optional combined manifest output.
+        save_combined: If *True*, write a merged ``manifest.jsonl`` to
+            *output_dir* when loading from a directory.  Defaults to
+            *False* to avoid surprising write side-effects.
+    """
     if os.path.isfile(input_path):
         return load_manifest(input_path)
 
@@ -234,7 +242,7 @@ def load_manifests(input_path: str, output_dir: str) -> list:
 
     logger.info(f"Combined {len(all_entries)} entries from {len(jsonl_files)} file(s)")
 
-    if all_entries:
+    if save_combined and all_entries:
         os.makedirs(output_dir, exist_ok=True)
         combined_path = os.path.join(output_dir, "manifest.jsonl")
         with open(combined_path, "w") as f:
@@ -307,7 +315,8 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         if self.output_format not in SOUNDFILE_FORMATS:
             msg = f"output_format must be one of {list(SOUNDFILE_FORMATS)}, got {self.output_format!r}"
             raise ValueError(msg)
-        self._all_metadata_rows: list[dict] = []
+        self._metadata_count: int = 0
+        self._metadata_keys: list[str] | None = None
         self._segment_counter: dict[str, int] = defaultdict(int)
         self._speaker_segment_counter: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
@@ -343,8 +352,7 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         }
         extracted, total_dur, speaker_counts, metadata_rows = extractors[combo](entries)
 
-        self._all_metadata_rows.extend(metadata_rows)
-        _write_metadata_csv(self.output_dir, self._all_metadata_rows)
+        self._append_metadata_csv(metadata_rows)
 
         logger.info(
             f"[{self.name}] Extracted {extracted} segments "
@@ -355,6 +363,28 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
                 logger.debug(f"  {speaker}: {count} segments")
 
         return tasks
+
+    def _append_metadata_csv(self, rows: list[dict]) -> None:
+        """Append metadata rows to CSV incrementally (O(rows) per batch, not O(total))."""
+        if not rows:
+            return
+        csv_path = os.path.join(self.output_dir, "metadata.csv")
+        write_header = self._metadata_keys is None
+        if write_header:
+            all_keys: list[str] = []
+            seen: set[str] = set()
+            for row in rows:
+                for k in row:
+                    if k not in seen:
+                        all_keys.append(k)
+                        seen.add(k)
+            self._metadata_keys = all_keys
+        with open(csv_path, "a" if not write_header else "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=self._metadata_keys)
+            if write_header:
+                writer.writeheader()
+            writer.writerows(rows)
+        self._metadata_count += len(rows)
 
     # ------------------------------------------------------------------
     # Combo extractors (instance methods using self.output_dir/format)

@@ -54,6 +54,12 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
             msg = "output_dir is required for ShardedManifestWriterStage"
             raise ValueError(msg)
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
     def setup_on_node(
         self,
         _node_info: NodeInfo | None = None,

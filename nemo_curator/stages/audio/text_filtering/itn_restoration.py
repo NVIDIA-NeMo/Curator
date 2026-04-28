@@ -174,6 +174,8 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             self.kv_cache_dtype,
         )
 
+        # trust_remote_code is required for Qwen model architectures;
+        # operators changing model_id should audit the target repo first.
         self._llm = LLM(
             model=self.model_id,
             trust_remote_code=True,
@@ -259,7 +261,8 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     # ------------------------------------------------------------------
 
     def process(self, task: AudioTask) -> AudioTask:
-        return self.process_batch([task])[0]
+        msg = "ITNRestorationStage only supports process_batch"
+        raise NotImplementedError(msg)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         if len(tasks) == 0:

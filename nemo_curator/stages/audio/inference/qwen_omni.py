@@ -135,19 +135,25 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
-        """Pre-download model weights once per node and warm-start vLLM.
+        """Pre-download model weights once per node (no GPU allocation).
 
-        Avoids torch.compile race conditions when multiple workers on
-        the same node attempt to JIT-compile at the same time.
+        Workers don't preserve ``_model`` across serialization, so
+        ``setup()`` creates the vLLM engine independently.  This method
+        only ensures the weights are cached on local storage so that
+        ``setup()`` doesn't trigger parallel downloads on multi-GPU nodes.
         """
-        self._model = self._create_model()
-        self._model.setup()
-        logger.info("QwenOmni model ready on node")
+        try:
+            from huggingface_hub import snapshot_download
+            snapshot_download(self.model_id)
+            logger.info("QwenOmni weights cached on node for %s", self.model_id)
+        except Exception:  # noqa: BLE001
+            logger.warning("QwenOmni: snapshot_download failed; setup() will download")
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         if self._model is None:
             self._model = self._create_model()
             self._model.setup()
+            logger.info("QwenOmni model ready on worker")
 
     def teardown(self) -> None:
         if self._model is not None:

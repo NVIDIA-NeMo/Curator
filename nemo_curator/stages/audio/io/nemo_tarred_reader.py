@@ -295,41 +295,40 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         tar = _open_tar(tar_path, self.s3_endpoint_url)
         results: list[AudioTask] = []
 
-        for tar_info in tar:
-            if not tar_info.isfile() or tar_info.name not in manifest:
-                continue
+        try:
+            for tar_info in tar:
+                if not tar_info.isfile() or tar_info.name not in manifest:
+                    continue
 
-            # Decode audio in memory — no disk writes
-            raw_audio = tar.extractfile(tar_info).read()
-            try:
-                audio, sample_rate = sf.read(BytesIO(raw_audio), dtype="float32")
-            except Exception:  # noqa: BLE001
-                logger.warning(f"Skipping corrupt audio {tar_info.name} in {tar_path}")
-                continue
+                raw_audio = tar.extractfile(tar_info).read()
+                try:
+                    audio, sample_rate = sf.read(BytesIO(raw_audio), dtype="float32")
+                except Exception:  # noqa: BLE001
+                    logger.warning(f"Skipping corrupt audio {tar_info.name} in {tar_path}")
+                    continue
 
-            num_channels = audio.shape[1] if audio.ndim > 1 else 1
+                num_channels = audio.shape[1] if audio.ndim > 1 else 1
 
-            # Convert to mono 1-D array
-            if audio.ndim > 1:
-                audio = audio.mean(axis=1)
+                if audio.ndim > 1:
+                    audio = audio.mean(axis=1)
 
-            entry = dict(manifest[tar_info.name])
-            entry["waveform"] = audio
-            entry["sample_rate"] = sample_rate
-            entry["num_channels"] = num_channels
-            entry["corpus"] = corpus
+                entry = dict(manifest[tar_info.name])
+                entry["waveform"] = audio
+                entry["sample_rate"] = sample_rate
+                entry["num_channels"] = num_channels
+                entry["corpus"] = corpus
 
-            results.append(
-                AudioTask(
-                    task_id=f"{shard_key}_{tar_info.name}",
-                    dataset_name=corpus,
-                    data=entry,
-                    _metadata={**task._metadata, "_shard_key": shard_key},
-                    _stage_perf=list(task._stage_perf),
+                results.append(
+                    AudioTask(
+                        task_id=f"{shard_key}_{tar_info.name}",
+                        dataset_name=corpus,
+                        data=entry,
+                        _metadata={**task._metadata, "_shard_key": shard_key},
+                        _stage_perf=list(task._stage_perf),
+                    )
                 )
-            )
-
-        tar.close()
+        finally:
+            tar.close()
 
         shard_total = len(results)
         for result_task in results:

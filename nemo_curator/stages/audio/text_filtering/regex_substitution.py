@@ -56,7 +56,8 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
 
     def setup(self, _worker_metadata: object | None = None) -> None:
         with open(self.regex_params_yaml, encoding="utf-8") as f:
-            self._rules = yaml.safe_load(f)
+            raw = yaml.safe_load(f)
+        self._rules = raw if isinstance(raw, list) else []
         self._setup_called = True
         logger.info(f"RegexSubstitutionStage: loaded {len(self._rules)} rules from {self.regex_params_yaml}")
 

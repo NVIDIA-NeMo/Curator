@@ -66,7 +66,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     context_key: str | None = None
     run_only_if_key: str | None = None
     run_only_if_prefix: str = "Hallucination"
-    gpu_memory_utilization: float = 0.7
+    gpu_memory_utilization: float = 0.95
     max_new_tokens: int = 4096
     max_inference_batch_size: int = 128
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
@@ -92,14 +92,23 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
-        self._model = self._create_model()
-        self._model.setup()
-        logger.info("QwenASR model ready on node")
+        """Pre-download model weights once per node (no GPU allocation).
+
+        Workers don't preserve ``_model`` across serialization, so
+        ``setup()`` creates the vLLM engine independently.
+        """
+        try:
+            from huggingface_hub import snapshot_download
+            snapshot_download(self.model_id)
+            logger.info("QwenASR weights cached on node for %s", self.model_id)
+        except Exception:  # noqa: BLE001
+            logger.warning("QwenASR: snapshot_download failed; setup() will download")
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         if self._model is None:
             self._model = self._create_model()
             self._model.setup()
+            logger.info("QwenASR model ready on worker")
 
     def teardown(self) -> None:
         if self._model is not None:

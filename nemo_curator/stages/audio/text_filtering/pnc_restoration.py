@@ -200,12 +200,18 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             logger.info("PnCRestoration: all {} tasks skipped (flagged or empty)", len(tasks))
             return tasks
 
-        is_complete, pnc_texts = self._model.generate(eligible_texts)
+        all_complete: list[bool] = []
+        all_pnc: list[str] = []
+        for start in range(0, len(eligible_texts), self.batch_size):
+            chunk = eligible_texts[start : start + self.batch_size]
+            is_complete, pnc_texts = self._model.generate(chunk)
+            all_complete.extend(is_complete)
+            all_pnc.extend(pnc_texts)
 
-        for idx, _complete, pnc_text in zip(eligible_indices, is_complete, pnc_texts, strict=False):
+        for idx, _complete, pnc_text in zip(eligible_indices, all_complete, all_pnc, strict=False):
             tasks[idx].data[self.output_text_key] = pnc_text
 
-        n_restored = sum(is_complete)
+        n_restored = sum(all_complete)
         logger.info(
             "PnCRestoration: {}/{} restored, {}/{} kept as-is",
             n_restored, len(eligible_indices),

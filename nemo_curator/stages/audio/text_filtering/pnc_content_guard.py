@@ -21,7 +21,16 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-_PUNCT_TABLE = str.maketrans("", "", string.punctuation)
+_EXTRA_PUNCT = (
+    "\u2018\u2019"  # left/right single quotation mark
+    "\u201c\u201d"  # left/right double quotation mark
+    "\u2013\u2014"  # en-dash, em-dash
+    "\u2026"        # horizontal ellipsis
+    "\u00ab\u00bb"  # guillemets
+    "\u2039\u203a"  # single guillemets
+    "\u02bc"        # modifier letter apostrophe (ʼ)
+)
+_PUNCT_TABLE = str.maketrans("", "", string.punctuation + _EXTRA_PUNCT)
 
 
 def _normalise(t: str) -> str:

@@ -74,6 +74,7 @@ _TAIL_SLICE = 2       # last N elements checked for DNA/RNA guard
 _MIN_PARTS = 2        # abbreviation needs at least this many parts
 _PLURAL_SUFFIX_LEN = 2  # "Xs" has 2 chars
 _MULTI_CHAR_LEN = 3   # parts with >= 3 chars are not single letters
+_KEEP_TRAILING = (["D", "N"], ["R", "N"])  # DNA, RNA
 
 
 @functools.lru_cache(maxsize=32)
@@ -95,9 +96,8 @@ def _strip_particles(raw: str, particles: frozenset[str]) -> str:
     if parts[0] in particles:
         parts = parts[1:]
     if parts and parts[-1] in particles:
-        keep_trailing = (["D", "N"], ["R", "N"])  # DNA, RNA
         preceding = [p.upper() for p in parts[:-1]]
-        if preceding[-_TAIL_SLICE:] not in keep_trailing:
+        if preceding[-_TAIL_SLICE:] not in _KEEP_TRAILING:
             parts = parts[:-1]
     if len(parts) < _MIN_PARTS:
         return raw
@@ -182,7 +182,7 @@ def concat_abbreviations(text: str, language: str = "en") -> tuple[str, list[str
         raw = match.group(0)
         replaced = _join_letters(match, particles)
         if replaced != raw:
-            # Trailing "I" absorbed from "I'm", "I'll" etc.: trim it.
+            # Trailing "I" absorbed from "I'm", "I'll" etc.: keep as separate word.
             end = match.end()
             if (replaced
                     and replaced[-1].upper() == "I"
@@ -191,7 +191,7 @@ def concat_abbreviations(text: str, language: str = "en") -> tuple[str, list[str
                     and text[end] in "’’’ʼ"):  # noqa: RUF001
                 after = text[end + 1 : end + 4].lower()
                 if any(after.startswith(s) for s in _CONTRACTION_SUFFIXES):
-                    replaced = replaced[:-1]
+                    replaced = replaced[:-1] + " I"
             abbrev = replaced.strip().rstrip("’s").rstrip("’s")  # noqa: RUF001
             if abbrev:
                 found.append(abbrev)
