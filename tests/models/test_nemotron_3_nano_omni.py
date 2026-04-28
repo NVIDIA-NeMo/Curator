@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import pathlib
 import tempfile
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -33,7 +33,8 @@ class TestNemotron3NanoOmniConstants:
         assert _HF_MODEL_ID == "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning"
 
     def test_hf_revision_is_set(self) -> None:
-        assert _HF_REVISION is not None and len(_HF_REVISION) > 0
+        assert _HF_REVISION is not None
+        assert len(_HF_REVISION) > 0
 
 
 class TestNemotron3NanoOmniLocalMode:

@@ -14,6 +14,7 @@
 
 import json
 import multiprocessing
+import textwrap
 from pathlib import Path
 from typing import Any, Final
 
@@ -234,18 +235,18 @@ class Nemotron3NanoOmni(ModelInterface):
         if nemotron_h_cfg_path.exists():
             src = nemotron_h_cfg_path.read_text()
             if "def dtype" not in src:
-                dtype_patch = '''
-    @property
-    def dtype(self):
-        import torch
-        dtype_str = self.__dict__.get("torch_dtype", "bfloat16")
-        if isinstance(dtype_str, str):
-            return getattr(torch, dtype_str, torch.bfloat16)
-        return dtype_str if dtype_str is not None else torch.bfloat16
+                dtype_patch = textwrap.dedent("""
+                    @property
+                    def dtype(self):
+                        import torch
+                        dtype_str = self.__dict__.get("torch_dtype", "bfloat16")
+                        if isinstance(dtype_str, str):
+                            return getattr(torch, dtype_str, torch.bfloat16)
+                        return dtype_str if dtype_str is not None else torch.bfloat16
 
-    @dtype.setter
-    def dtype(self, value):
-        pass
-'''
+                    @dtype.setter
+                    def dtype(self, value):
+                        pass
+                """)
                 nemotron_h_cfg_path.write_text(src + dtype_patch)
                 logger.info("Patched configuration_nemotron_h.py: added dtype property")
