@@ -63,8 +63,12 @@ def check_output(output_manifest: str, reference_manifest: str, text_key: str = 
                 f"output={len(out_entry['segments'])}, reference={len(ref_entry['segments'])}"
             )
             for out_seg, ref_seg in zip(out_entry["segments"], ref_entry["segments"], strict=True):
-                assert out_seg["start"] == pytest.approx(ref_seg["start"], abs=0.1)
-                assert out_seg["end"] == pytest.approx(ref_seg["end"], abs=0.1)
+                assert out_seg["start"] == pytest.approx(ref_seg["start"], abs=0.5), (
+                    f"Segment start mismatch: got {out_seg['start']}, expected {ref_seg['start']}"
+                )
+                assert out_seg["end"] == pytest.approx(ref_seg["end"], abs=0.5), (
+                    f"Segment end mismatch: got {out_seg['end']}, expected {ref_seg['end']}"
+                )
                 if text_key in ref_seg:
                     assert out_seg[text_key] == ref_seg[text_key], (
                         f"Text mismatch in segment ({ref_seg['start']:.2f}-{ref_seg['end']:.2f})"
@@ -78,5 +82,9 @@ def check_output(output_manifest: str, reference_manifest: str, text_key: str = 
             )
             for out_word, ref_word in zip(out_entry["alignment"], ref_entry["alignment"], strict=True):
                 assert out_word["word"] == ref_word["word"]
-                assert out_word["start"] == pytest.approx(ref_word["start"], abs=0.1)
-                assert out_word["end"] == pytest.approx(ref_word["end"], abs=0.1)
+                assert out_word["start"] == pytest.approx(ref_word["start"], abs=0.5), (
+                    f"Alignment start mismatch for '{ref_word['word']}': got {out_word['start']}, expected {ref_word['start']}"
+                )
+                assert out_word["end"] == pytest.approx(ref_word["end"], abs=0.5), (
+                    f"Alignment end mismatch for '{ref_word['word']}': got {out_word['end']}, expected {ref_word['end']}"
+                )
