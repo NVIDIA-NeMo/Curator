@@ -148,6 +148,40 @@ python tutorials/audio/granary_v2_postprocessing/pipeline.py \
 | `--max_char_rate` | `40.0` | chars/s above which text is considered impossibly dense (hallucinated sentence over short audio) |
 | `--verbose` | off | Enable DEBUG logging (shows per-entry flagging reasons) |
 
+## Parameter Tuning
+
+The default thresholds are tuned for large-scale English ASR manifests from Granary v2. Here's what each controls and how to adjust:
+
+| Parameter | Default | What it does | Too low | Too high |
+|---|---|---|---|---|
+| `--min_lang_prob` | `0.8` | FastText confidence floor | Keeps misidentified languages | Drops valid entries with code-switching |
+| `--unique_words_threshold` | `0.4` | Unique/total word ratio for n-gram hallucination | Flags natural repetition (song lyrics, lists) | Misses hallucinated repeats |
+| `--long_word_threshold` | `25` | Absolute character length per word | Flags German compound words, URLs | Misses moderate-length hallucinations |
+| `--long_word_rel_threshold` | `3.0` | Longest/2nd-longest word ratio | Triggers on technical terms | Misses words that are 2× longer than normal |
+| `--max_char_rate` | `40.0` | chars/sec above which text is impossibly dense | Drops fast speakers | Misses hallucinated wall-of-text over short audio |
+| `--char_rate_threshold` | `4.0` | chars/sec below which text is too sparse | Drops legitimate short utterances | Misses near-empty transcripts |
+
+**Production recommendations:**
+- For high-quality TTS training data: `--min_lang_prob 0.9 --unique_words_threshold 0.5`
+- For broad ASR training (maximize recall): `--min_lang_prob 0.6 --long_word_threshold 30`
+- For multilingual corpora: adjust `--target_lang` per-language batch
+
+## Expected Filtering Ratios
+
+At default settings on typical Granary v2 English manifests:
+
+| Filter | Typical pass-through rate | Notes |
+|---|---|---|
+| Hallucination (all checks combined) | 92–96% | 4–8% flagged; mostly n-gram repeats and long words |
+| FastText LID | 97–99% | 1–3% flagged as non-English or low-confidence |
+| Combined pipeline | 90–95% | Total entries with `skip_me=""` (clean) |
+
+These ratios vary by corpus quality. Web-scraped audio (YouTube captions) tends toward the lower end; studio-recorded datasets pass 99%+.
+
+If your pass-through rate is significantly different, check:
+- **< 80% pass**: Likely wrong `--target_lang` or overly strict `--min_lang_prob`
+- **> 99% pass**: Hallucination phrases file may be empty or wrong path; check `--hall_phrases`
+
 ## Hallucination detection details
 
 `WhisperHallucinationStage` applies four checks to `cleaned_text`:

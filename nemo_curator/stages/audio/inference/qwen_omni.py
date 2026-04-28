@@ -62,6 +62,13 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     Overrides ``process_batch`` for batched GPU inference with
     thread-pool-parallel preprocessing.
 
+    Resource requirements:
+        - **GPU VRAM**: ~40 GB for Qwen3-Omni-30B-A3B (FP8). Requires 1x A100-80GB
+          or 2x A100-40GB with ``tensor_parallel_size=2``.
+        - **Throughput**: ~50-80 audio-seconds/GPU-second on A100-80GB with
+          ``batch_size=32`` and ``max_num_seqs=32``.
+        - **Model download**: ~15 GB on first run (cached via HuggingFace Hub).
+
     Args:
         model_id: HuggingFace model identifier.
         prompt_text: User prompt sent alongside the audio.

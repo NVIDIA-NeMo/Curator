@@ -1050,6 +1050,41 @@ NemoTarredAudioReader          (io/)
   → ShardedManifestWriterStage (io/)
 ```
 
+### GPU memory requirements for the full pipeline
+
+| Stage | Model | VRAM per GPU | Recommended GPU | TP |
+|---|---|---|---|---|
+| `InferenceQwenOmniStage` | Qwen3-Omni-30B-A3B | ~40 GB | 1×A100-80GB | 1 |
+| `InferenceQwenASRStage` | Qwen3-ASR-0.6B | ~2 GB | Any (shares GPU) | 1 |
+| `PnCRestorationStage` | Qwen3.5-35B-A3B-FP8 | ~20 GB | 1×A100-40GB+ | 1 |
+| `ITNRestorationStage` | Qwen3.5-35B-A3B-FP8 | ~20 GB (FP8 KV) | 1×A100-40GB+ | 1 |
+
+**Minimum hardware**: 4×A100-80GB (one per GPU stage running in parallel).
+**Recommended**: 8×A100-80GB for production throughput (~500 audio-hrs/day).
+
+### Throughput estimates (A100-80GB, batch_size=32)
+
+| Stage | Throughput | Bottleneck |
+|---|---|---|
+| `InferenceQwenOmniStage` | ~50–80 audio-sec/GPU-sec | Audio encoding + LLM decode |
+| `InferenceQwenASRStage` | ~200–400 audio-sec/GPU-sec | Small model, fast |
+| `PnCRestorationStage` | ~100–200 samples/min | 2-pass generation (completeness + PnC) |
+| `ITNRestorationStage` | ~150–300 samples/min | Single-pass with prefix caching |
+| All CPU stages combined | ~5000+ samples/min | IO-bound (regex, WER, LID) |
+
+The pipeline is throughput-bound by `InferenceQwenOmniStage`. All
+downstream stages (including the two GPU LLM stages) process faster
+than Omni produces output, so no backpressure builds.
+
+### Composability with other tutorials
+
+The Qwen Omni pipeline produces sharded manifests that can be fed
+directly into:
+
+- **`granary_v2_postprocessing/`** — for additional regex and LID cleanup
+- **`alm/`** — to build ALM training windows from the cleaned output
+- **`readspeech/`** — for audio-quality filtering (UTMOS/SIGMOS) on raw audio
+
 ---
 
 ## Quick checklist for adding a new audio stage

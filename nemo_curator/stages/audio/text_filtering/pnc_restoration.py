@@ -50,6 +50,13 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
 
     Uses ``QwenTextLLM`` (vLLM-based) for batched GPU inference.
 
+    Resource requirements:
+        - **GPU VRAM**: ~20 GB for Qwen3.5-35B-A3B-FP8. Requires 1x A100-40GB
+          or 1x A100-80GB. Use ``tensor_parallel_size=2`` for 2x A100-40GB.
+        - **Throughput**: ~100-200 samples/min on A100-80GB with
+          ``batch_size=64`` (depends on text length).
+        - **Model download**: ~18 GB on first run (cached via HuggingFace Hub).
+
     Args:
         model_id: HuggingFace model identifier for the text LLM.
         text_key: Input field containing cleaned text.

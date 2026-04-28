@@ -42,7 +42,6 @@ from pathlib import Path
 
 from loguru import logger
 
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
 from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
@@ -57,6 +56,22 @@ from nemo_curator.stages.audio.text_filtering import (
 _TUTORIAL_DIR = Path(__file__).parent
 _DEFAULT_REGEX_YAML = str(_TUTORIAL_DIR / "common.yaml")
 _DEFAULT_HALL_PHRASES = str(_TUTORIAL_DIR / "en.txt")
+
+_EXECUTOR_FACTORIES = {
+    "xenna": "nemo_curator.backends.xenna:XennaExecutor",
+    "ray_data": "nemo_curator.backends.ray_data:RayDataExecutor",
+}
+
+
+def _create_executor(backend: str) -> object:
+    import importlib
+
+    if backend not in _EXECUTOR_FACTORIES:
+        msg = f"Unknown backend {backend!r}. Choose from: {list(_EXECUTOR_FACTORIES)}"
+        raise ValueError(msg)
+    module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)()
 
 
 def _find_manifests(input_dir: str) -> list[str]:
@@ -131,7 +146,7 @@ def main(args: argparse.Namespace) -> None:
         logger.info(f"  {src}")
         logger.info(f"  → {dst}")
 
-    executor = XennaExecutor()
+    executor = _create_executor(args.backend)
 
     n_done = n_skipped = 0
     for i, (manifest_path, output_path) in enumerate(output_map.items(), 1):
@@ -251,6 +266,13 @@ if __name__ == "__main__":
         type=float,
         default=40.0,
         help="Min chars/s above which text is considered impossibly dense (high char-rate hallucination).",
+    )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default="xenna",
+        choices=list(_EXECUTOR_FACTORIES),
+        help="Execution backend: 'xenna' (default) or 'ray_data'.",
     )
     parser.add_argument(
         "--verbose",

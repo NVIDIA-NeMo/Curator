@@ -43,6 +43,13 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     ``run_only_if_prefix`` (default ``"Hallucination"``).  Non-matching
     tasks pass through unchanged.
 
+    Resource requirements:
+        - **GPU VRAM**: ~2 GB for Qwen3-ASR-0.6B. Fits comfortably on any
+          modern GPU (even 8 GB consumer cards).
+        - **Throughput**: ~200-400 audio-seconds/GPU-second on A100 with
+          ``batch_size=128``.
+        - **Model download**: ~1.2 GB on first run (cached via HuggingFace Hub).
+
     Args:
         model_id: HuggingFace model identifier or local path.
         source_lang_key: Key holding the per-sample source language code
