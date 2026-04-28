@@ -55,6 +55,7 @@ Learn about text data curation, covering data loading and processing (filtering,
 :::
 
 :::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` Image Curation Concepts
+:::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` Image Curation Concepts
 :link: about-concepts-image
 :link-type: ref
 
