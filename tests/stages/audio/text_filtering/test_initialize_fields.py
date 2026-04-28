@@ -22,14 +22,14 @@ def test_renames_text_and_sets_skip_me() -> None:
     result = stage.process(task)
     assert result.data["granary_v1_prediction"] == "original"
     assert "text" not in result.data
-    assert result.data["skip_me"] == ""
+    assert result.data["_skip_me"] == ""
 
 
 def test_skip_me_always_reset_to_empty() -> None:
     stage = InitializeFieldsStage()
-    task = AudioTask(data={"text": "t", "skip_me": "stale reason"})
+    task = AudioTask(data={"text": "t", "_skip_me": "stale reason"})
     result = stage.process(task)
-    assert result.data["skip_me"] == ""
+    assert result.data["_skip_me"] == ""
 
 
 def test_drops_default_keys() -> None:
@@ -59,7 +59,7 @@ def test_no_text_field_skips_rename() -> None:
     task = AudioTask(data={"pred_text": "hello"})
     result = stage.process(task)
     assert "granary_v1_prediction" not in result.data
-    assert result.data["skip_me"] == ""
+    assert result.data["_skip_me"] == ""
 
 
 def test_custom_keys() -> None:

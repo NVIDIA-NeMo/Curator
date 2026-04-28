@@ -33,10 +33,7 @@ from typing import Any
 import soundfile as sf
 from loguru import logger
 
-try:
-    from nemo_curator.backends.experimental.utils import RayStageSpecKeys
-except ModuleNotFoundError:
-    RayStageSpecKeys = None
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 

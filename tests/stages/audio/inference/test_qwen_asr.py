@@ -105,7 +105,7 @@ def test_multi_task_batch() -> None:
     assert results[1].data["qwen3_asr_prediction"] == "text2"
 
 
-@patch("nemo_curator.stages.audio.inference.qwen_asr.snapshot_download")
+@patch("huggingface_hub.snapshot_download")
 def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
     stage = InferenceQwenASRStage(model_id="mock/model")
     stage.setup_on_node()

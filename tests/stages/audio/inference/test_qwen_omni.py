@@ -117,7 +117,7 @@ def test_language_resolution() -> None:
     assert languages == ["Spanish"]
 
 
-@patch("nemo_curator.stages.audio.inference.qwen_omni.snapshot_download")
+@patch("huggingface_hub.snapshot_download")
 def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
     stage = InferenceQwenOmniStage(model_id="mock/model")
     stage.setup_on_node()

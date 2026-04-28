@@ -63,8 +63,17 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
 
     def setup(self, _worker_metadata: object | None = None) -> None:
+        phrases: set[str] = set()
         with open(self.common_hall_file, encoding="utf-8") as f:
-            phrases = {line.strip() for line in f if line.strip()}
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                tokens = line.rsplit(maxsplit=1)
+                if len(tokens) == 2 and tokens[1].lstrip("-").isdigit():
+                    phrases.add(tokens[0])
+                else:
+                    phrases.add(line)
         self._phrases = phrases
         self._setup_called = True
         logger.info(f"WhisperHallucinationStage: loaded {len(phrases)} phrases from {self.common_hall_file}")

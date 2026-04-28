@@ -88,6 +88,7 @@ class TestNemoTarShardReaderStage:
         stage = NemoTarShardReaderStage()
         task = FileGroupTask(
             task_id="shard_0",
+            dataset_name="test_ds",
             data=[manifest_path, tar_path],
             reader_config={"corpus": "test", "shard_key": "test/shard_0"},
         )
@@ -105,6 +106,7 @@ class TestNemoTarShardReaderStage:
         stage = NemoTarShardReaderStage()
         task = FileGroupTask(
             task_id="shard_0",
+            dataset_name="test_ds",
             data=[manifest_path, str(tmp_path / "missing.tar")],
             reader_config={"corpus": "test", "shard_key": "test/shard_0"},
         )
@@ -116,6 +118,7 @@ class TestNemoTarShardReaderStage:
         stage = NemoTarShardReaderStage()
         task = FileGroupTask(
             task_id="shard_0",
+            dataset_name="test_ds",
             data=[manifest_path, tar_path],
             reader_config={"corpus": "test", "shard_key": "test/shard_0"},
         )

@@ -88,13 +88,11 @@ def test_preserve_by_value_ge() -> None:
 
 
 def test_get_audio_duration_success(tmp_path: Path) -> None:
-    class FakeArray:
-        def __init__(self, length: int):
-            self.shape = (length,)
+    class FakeInfo:
+        frames = 32000
+        samplerate = 16000
 
-    fake_sr = 16000
-    fake_samples = FakeArray(fake_sr * 2)
-    with mock.patch("soundfile.read", return_value=(fake_samples, fake_sr)):
+    with mock.patch("soundfile.info", return_value=FakeInfo()):
         stage = GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration")
         stage.setup()
         entry = AudioTask(data={"audio_filepath": (tmp_path / "fake.wav").as_posix()})

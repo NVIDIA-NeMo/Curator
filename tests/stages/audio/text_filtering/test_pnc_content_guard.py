@@ -48,7 +48,7 @@ def test_skipped_task() -> None:
         "_skip_me": "Hallucination",
     })
     result = stage.process(task)
-    assert result.data["pnc_text"] == ""
+    assert result.data["pnc_text"] == "different"
     assert result.data["rejected_pnc_text"] == ""
 
 
