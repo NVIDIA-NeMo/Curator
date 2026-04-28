@@ -88,7 +88,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
             raise ValueError(msg)
         self.model.setup()
 
-    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+    def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
         if self.model_variant in _QWEN_VARIANTS_INFO:
             QwenVL.download_weights_on_node(self.model_dir, variant=self.model_variant)
