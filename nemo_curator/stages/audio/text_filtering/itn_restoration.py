@@ -264,6 +264,37 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         msg = "ITNRestorationStage only supports process_batch"
         raise NotImplementedError(msg)
 
+    def _collect_prompts(self, tasks: list[AudioTask]) -> tuple[list[int], list[str]]:
+        """Partition tasks into skipped/empty (handled inline) and valid (need inference)."""
+        valid_indices: list[int] = []
+        prompts: list[str] = []
+        for i, task in enumerate(tasks):
+            text = task.data.get(self.text_key, "")
+            skip = task.data.get(self.skip_me_key, "")
+            if skip:
+                task.data[self.output_text_key] = ""
+            elif not text or not text.strip():
+                task.data[self.output_text_key] = text
+            else:
+                valid_indices.append(i)
+                prompts.append(self._format_prompt(text))
+        return valid_indices, prompts
+
+    def _apply_output(self, task: AudioTask, itn_text: str) -> None:
+        """Validate and assign a single ITN output to the task."""
+        input_text = task.data[self.text_key]
+        if self.enable_validation:
+            ok, reason = _validate_itn_output(input_text, itn_text)
+            if ok:
+                task.data[self.output_text_key] = itn_text
+            else:
+                task.data[self.output_text_key] = input_text
+                task.data[self.itn_filtered_key] = reason
+                self._n_filtered += 1
+        else:
+            task.data[self.output_text_key] = itn_text
+        self._n_processed += 1
+
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         if len(tasks) == 0:
             return []
@@ -276,20 +307,7 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "Model not initialised — setup() was not called"
             raise RuntimeError(msg)
 
-        valid_indices: list[int] = []
-        prompts: list[str] = []
-
-        for i, task in enumerate(tasks):
-            text = task.data.get(self.text_key, "")
-            skip = task.data.get(self.skip_me_key, "")
-            if skip:
-                task.data[self.output_text_key] = ""
-                continue
-            if not text or not text.strip():
-                task.data[self.output_text_key] = text
-                continue
-            valid_indices.append(i)
-            prompts.append(self._format_prompt(text))
+        valid_indices, prompts = self._collect_prompts(tasks)
 
         if prompts:
             outputs = self._llm.generate(
@@ -297,24 +315,9 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
                 sampling_params=self._sampling_params,
                 use_tqdm=False,
             )
-
             for seq_idx, task_idx in enumerate(valid_indices):
-                task = tasks[task_idx]
-                input_text = task.data[self.text_key]
                 itn_text = outputs[seq_idx].outputs[0].text.strip()
-
-                if self.enable_validation:
-                    ok, reason = _validate_itn_output(input_text, itn_text)
-                    if ok:
-                        task.data[self.output_text_key] = itn_text
-                    else:
-                        task.data[self.output_text_key] = input_text
-                        task.data[self.itn_filtered_key] = reason
-                        self._n_filtered += 1
-                else:
-                    task.data[self.output_text_key] = itn_text
-
-                self._n_processed += 1
+                self._apply_output(tasks[task_idx], itn_text)
 
         logger.debug("ITN: batch of %d tasks (%d inferred)", len(tasks), len(prompts))
         return tasks

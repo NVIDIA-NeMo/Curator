@@ -170,6 +170,22 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         msg = "PnCRestorationStage only supports process_batch"
         raise NotImplementedError(msg)
 
+    def _partition_tasks(self, tasks: list[AudioTask]) -> tuple[list[int], list[str]]:
+        """Separate eligible tasks from those that are skipped or empty."""
+        eligible_indices: list[int] = []
+        eligible_texts: list[str] = []
+        for i, task in enumerate(tasks):
+            skip = task.data.get(self.skip_me_key, "")
+            text = task.data.get(self.text_key, "")
+            if skip:
+                task.data[self.output_text_key] = ""
+            elif not text.strip():
+                task.data[self.output_text_key] = text
+            else:
+                eligible_indices.append(i)
+                eligible_texts.append(text)
+        return eligible_indices, eligible_texts
+
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         if len(tasks) == 0:
             return []
@@ -182,19 +198,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "Model not initialized — setup() was not called"
             raise RuntimeError(msg)
 
-        eligible_indices: list[int] = []
-        eligible_texts: list[str] = []
-
-        for i, task in enumerate(tasks):
-            skip = task.data.get(self.skip_me_key, "")
-            text = task.data.get(self.text_key, "")
-            if skip:
-                task.data[self.output_text_key] = ""
-            elif not text.strip():
-                task.data[self.output_text_key] = text
-            else:
-                eligible_indices.append(i)
-                eligible_texts.append(text)
+        eligible_indices, eligible_texts = self._partition_tasks(tasks)
 
         if not eligible_indices:
             logger.info("PnCRestoration: all {} tasks skipped (flagged or empty)", len(tasks))

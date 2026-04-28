@@ -133,6 +133,24 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         msg = "InferenceQwenASRStage only supports process_batch"
         raise NotImplementedError(msg)
 
+    def _select_run_indices(self, tasks: list[AudioTask]) -> list[int]:
+        """Return indices of tasks that should be processed by this stage."""
+        if self.run_only_if_key:
+            return [
+                i for i, t in enumerate(tasks)
+                if str(t.data.get(self.run_only_if_key, "")).startswith(self.run_only_if_prefix)
+            ]
+        return list(range(len(tasks)))
+
+    def _resolve_languages(self, tasks: list[AudioTask], indices: list[int]) -> list[str | None] | None:
+        """Map source_lang codes to full language names for the selected indices."""
+        if not self.source_lang_key:
+            return None
+        return [
+            _LANG_CODE_TO_NAME.get(code, code) if code else None
+            for code in (tasks[i].data.get(self.source_lang_key) for i in indices)
+        ]
+
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         if len(tasks) == 0:
             return []
@@ -149,13 +167,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             task.data.setdefault(self.pred_text_key, "")
             task.data.setdefault(self.language_key, "")
 
-        if self.run_only_if_key:
-            run_indices = [
-                i for i, t in enumerate(tasks)
-                if str(t.data.get(self.run_only_if_key, "")).startswith(self.run_only_if_prefix)
-            ]
-        else:
-            run_indices = list(range(len(tasks)))
+        run_indices = self._select_run_indices(tasks)
 
         if not run_indices:
             for task in tasks:
@@ -169,12 +181,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             [tasks[i].data.get(self.context_key, "") for i in run_indices]
             if self.context_key else None
         )
-        languages: list[str | None] | None = None
-        if self.source_lang_key:
-            languages = [
-                _LANG_CODE_TO_NAME.get(code, code) if code else None
-                for code in (tasks[i].data.get(self.source_lang_key) for i in run_indices)
-            ]
+        languages = self._resolve_languages(tasks, run_indices)
 
         pred_texts, detected_langs = self._model.generate(waveforms, sample_rates, contexts, languages)
 

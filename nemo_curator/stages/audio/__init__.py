@@ -27,50 +27,40 @@ and advanced audio processing pipelines.
 import importlib as _importlib
 
 __all__ = [
-    # ALM
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
-    # Advanced pipelines
-    "AudioDataFilterStage",
-    # Common
-    "GetAudioDurationStage",
-    "ManifestReader",
-    "ManifestReaderStage",
-    "ManifestWriterStage",
-    "PreserveByValueStage",
-    # Filtering
-    "BandFilterStage",
-    "SIGMOSFilterStage",
-    "UTMOSFilterStage",
-    # Inference
-    "InferenceQwenASRStage",
-    "InferenceQwenOmniStage",
-    # I/O
     "ALMManifestReader",
     "ALMManifestReaderStage",
     "ALMManifestWriterStage",
-    "NemoTarredAudioReader",
-    "SegmentExtractionStage",
-    "ShardedManifestWriterStage",
-    # Postprocessing
-    "TimestampMapperStage",
-    # Preprocessing
-    "MonoConversionStage",
-    "SegmentConcatenationStage",
-    # Segmentation
-    "SpeakerSeparationStage",
-    "VADSegmentationStage",
-    # Text filtering
     "AbbreviationConcatStage",
+    "AudioDataFilterStage",
+    "BandFilterStage",
     "DisfluencyWerGuardStage",
     "FastTextLIDStage",
     "FinalizeFieldsStage",
+    "GetAudioDurationStage",
     "ITNRestorationStage",
+    "InferenceQwenASRStage",
+    "InferenceQwenOmniStage",
     "InitializeFieldsStage",
+    "ManifestReader",
+    "ManifestReaderStage",
+    "ManifestWriterStage",
+    "MonoConversionStage",
+    "NemoTarredAudioReader",
     "PnCContentGuardStage",
     "PnCRestorationStage",
+    "PreserveByValueStage",
     "RegexSubstitutionStage",
+    "SIGMOSFilterStage",
+    "SegmentConcatenationStage",
+    "SegmentExtractionStage",
     "SelectBestPredictionStage",
+    "ShardedManifestWriterStage",
+    "SpeakerSeparationStage",
+    "TimestampMapperStage",
+    "UTMOSFilterStage",
+    "VADSegmentationStage",
     "WhisperHallucinationStage",
 ]
 
