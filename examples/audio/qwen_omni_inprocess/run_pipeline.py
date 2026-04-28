@@ -168,6 +168,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="Max concurrent sequences for PnC model.")
     pnc.add_argument("--pnc_prep_workers", type=int, default=8,
                      help="Thread pool size for PnC prompt preprocessing.")
+    pnc.add_argument("--pnc_gpu_memory_utilization", type=float, default=0.95,
+                     help="Fraction of GPU memory for PnC vLLM engine.")
     pnc.add_argument("--skip_pnc", action="store_true", default=False,
                      help="Skip PnC restoration stage entirely.")
 
@@ -196,7 +198,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     asr.add_argument("--asr_model_id", type=str, default=None,
                      help="QwenASR model ID or local path. If set, enables hallucination recovery.")
     asr.add_argument("--asr_batch_size", type=int, default=128)
-    asr.add_argument("--asr_gpu_memory_utilization", type=float, default=0.7)
+    asr.add_argument("--asr_gpu_memory_utilization", type=float, default=0.95)
     asr.add_argument("--asr_max_new_tokens", type=int, default=4096)
     return ap
 
@@ -340,6 +342,7 @@ def main() -> None:  # noqa: C901
                 batch_size=args.pnc_batch_size,
                 max_model_len=args.pnc_max_model_len,
                 max_num_seqs=args.pnc_max_num_seqs,
+                gpu_memory_utilization=args.pnc_gpu_memory_utilization,
                 prep_workers=args.pnc_prep_workers,
                 **({"pnc_prompt": pnc_prompt_text} if pnc_prompt_text else {}),
                 **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
