@@ -12,9 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio segmentation stages."""
+"""Audio segmentation stages.
 
-from .speaker_separation import SpeakerSeparationStage
-from .vad_segmentation import VADSegmentationStage
+Submodules are imported lazily to avoid hard dependency on
+``nemo_curator.backends.experimental`` (not present in all environments).
+Import individual stages directly, e.g.::
 
-__all__ = ["SpeakerSeparationStage", "VADSegmentationStage"]
+    from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
+"""
+
+__all__: list[str] = []
+
+
+def __getattr__(name: str):
+    if name == "VADSegmentationStage":
+        from .vad_segmentation import VADSegmentationStage
+
+        return VADSegmentationStage
+    if name == "SpeakerSeparationStage":
+        from .speaker_separation import SpeakerSeparationStage
+
+        return SpeakerSeparationStage
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
