@@ -72,6 +72,11 @@ bullet_list = {
 regex_alpha = regex.compile("[[:alpha:]]")
 regex_digit = regex.compile("[[:digit:]]")
 regex_alphanum = re.compile("[a-zA-Z0-9\n?!,.]")
-regex_url = re.compile("http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+")
+# NOTE: the `-` inside the character class is escaped on purpose. With
+# `[$-_…]` the regex engine treats `$-_` as a *range* spanning U+0024
+# through U+005F, which silently includes `<`, `>`, `;`, `:`, etc., so
+# matches bleed past the actual URL into surrounding HTML/punctuation.
+# See https://github.com/NVIDIA-NeMo/Curator/issues/1601.
+regex_url = re.compile(r"http[s]?://(?:[a-zA-Z]|[0-9]|[$\-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+")
 regex_paren = re.compile(r"{|}|⟨|⟩|\[|\]|\(|\)")
 regex_hash = re.compile("#+")
