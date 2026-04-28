@@ -1,0 +1,3 @@
+# Resolved granary YAMLs are host-specific (substituted MANIFESTS_DIR)
+# and not portable — generate on the cluster with envsubst.
+*.resolved.yaml

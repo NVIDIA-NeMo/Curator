@@ -110,22 +110,18 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
             results = []
             for _, row in df.iterrows():
                 r = row.to_dict()
-                npz_path = str(r.get(self.npz_filepath_key, ""))
-                if npz_path and os.path.exists(npz_path):
-                    r[self.events_key] = self._detect_events(npz_path)
-                else:
-                    r[self.events_key] = []
+                events = self._detect_events_from_row(r)
+                r[self.events_key] = events
                 results.append(r)
             return DocumentBatch(data=pd.DataFrame(results), dataset_name=task.dataset_name, task_id=task.task_id)
 
         # AudioTask path
-        npz_path = task.data.get(self.npz_filepath_key, "")
-        if not npz_path or not os.path.exists(npz_path):
-            msg = f"Missing or nonexistent {self.npz_filepath_key}: {npz_path!r}"
-            raise ValueError(msg)
-
+        events = self._detect_events_from_row(task.data)
         output_data = dict(task.data)
-        output_data[self.events_key] = self._detect_events(npz_path)
+        output_data[self.events_key] = events
+        # Drop the in-memory framewise tensor before downstream serialisation —
+        # it's a large numpy array and not JSON-encodable.
+        output_data.pop("sed_framewise", None)
         return AudioTask(
             task_id=f"{task.task_id}_sed_post",
             dataset_name=task.dataset_name,
@@ -135,14 +131,28 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
             _stage_perf=task._stage_perf,
         )
 
-    def _detect_events(self, npz_path: str) -> list[dict]:
+    def _detect_events_from_row(self, row: dict) -> list[dict]:
+        """Run event detection from either an in-memory framewise tensor
+        (``sed_framewise``, preferred) or an NPZ file (``npz_filepath``,
+        fallback).  Returns ``[]`` if neither is present."""
         import numpy as np
 
+        framewise = row.get("sed_framewise", None)
+        if framewise is not None:
+            fps = float(row.get("sed_fps", 50.0))
+            valid_frames = int(row.get("sed_valid_frames", np.asarray(framewise).shape[0]))
+            return self._detect_events(np.asarray(framewise, dtype=np.float32), fps, valid_frames)
+
+        npz_path = str(row.get(self.npz_filepath_key, ""))
+        if not npz_path or not os.path.exists(npz_path):
+            return []
         with np.load(npz_path) as data:
             framewise = data["framewise"].astype(np.float32)
             fps = float(data["fps"])
             valid_frames = int(data.get("valid_frames", framewise.shape[0]))
+        return self._detect_events(framewise, fps, valid_frames)
 
+    def _detect_events(self, framewise: "np.ndarray", fps: float, valid_frames: int) -> list[dict]:
         framewise = framewise[:valid_frames]
         speech_probs = aggregate_speech_probs(framewise, SPEECH_CLASS_INDICES, mode=self.speech_agg_mode)
 

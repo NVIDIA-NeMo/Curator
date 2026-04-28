@@ -64,6 +64,12 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         framewise_dtype: NPZ float dtype. Defaults to ``"float16"``.
         pad_short_segments: Zero-pad audio shorter than minimum model input. Defaults to True.
         filepath_key: Key in task data for the audio path. Defaults to ``"audio_filepath"``.
+        save_npz: Write framewise probabilities to per-utterance NPZ sidecars under
+            ``output_dir/framewise/``.  Defaults to ``True`` to preserve the existing
+            dev-branch behaviour.  Set to ``False`` to skip disk I/O and pass the
+            framewise tensor in-memory to ``SEDPostprocessingStage`` (under the
+            ``sed_framewise`` key) — useful for streaming AIS pipelines where the
+            framewise array isn't needed after postprocessing.
     """
 
     checkpoint_path: str = ""
@@ -79,6 +85,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     framewise_dtype: str = "float16"
     pad_short_segments: bool = True
     filepath_key: str = "audio_filepath"
+    save_npz: bool = True
 
     name: str = "SEDInference"
     batch_size: int = 1
@@ -126,7 +133,12 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.filepath_key, "npz_filepath", "sed_valid_frames", "sed_fps"]
+        keys = [self.filepath_key, "sed_valid_frames", "sed_fps"]
+        if self.save_npz:
+            keys.append("npz_filepath")
+        else:
+            keys.append("sed_framewise")
+        return ["data"], keys
 
     def process(self, task):
         """Run SED on one audio file, save NPZ, return enriched task.
@@ -149,9 +161,12 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
                 if not audio_path:
                     results.append(row.to_dict())
                     continue
-                npz_path, valid_frames, fps = self._run_sed_on_file(audio_path)
+                framewise, valid_frames, fps, npz_path = self._run_sed_on_file(audio_path)
                 r = row.to_dict()
-                r["npz_filepath"] = npz_path
+                if self.save_npz:
+                    r["npz_filepath"] = npz_path
+                else:
+                    r["sed_framewise"] = framewise
                 r["sed_valid_frames"] = valid_frames
                 r["sed_fps"] = fps
                 results.append(r)
@@ -164,9 +179,12 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
             msg = f"Missing {self.filepath_key} in task data"
             raise ValueError(msg)
 
-        npz_path, valid_frames, fps = self._run_sed_on_file(audio_path)
+        framewise, valid_frames, fps, npz_path = self._run_sed_on_file(audio_path)
         output_data = dict(task.data)
-        output_data["npz_filepath"] = npz_path
+        if self.save_npz:
+            output_data["npz_filepath"] = npz_path
+        else:
+            output_data["sed_framewise"] = framewise
         output_data["sed_valid_frames"] = int(valid_frames)
         output_data["sed_fps"] = float(fps)
 
@@ -179,8 +197,12 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
             _stage_perf=task._stage_perf,
         )
 
-    def _run_sed_on_file(self, audio_path: str) -> tuple[str, int, float]:
-        """Core SED logic: load audio, run model, save NPZ. Returns (npz_path, valid_frames, fps)."""
+    def _run_sed_on_file(self, audio_path: str) -> "tuple[np.ndarray, int, float, str]":
+        """Core SED logic: load audio, run model, optionally save NPZ.
+
+        Returns ``(framewise, valid_frames, fps, npz_path)``.  ``npz_path``
+        is ``""`` when ``save_npz=False``.
+        """
         import librosa
         import numpy as np
         import torch
@@ -203,8 +225,10 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         valid_frames = min(int(np.ceil(original_samples / self.hop_size)), framewise.shape[0])
 
         fw = framewise.astype(np.float16 if self.framewise_dtype == "float16" else np.float32)
-        npz_path = self._save_npz(fw, fps, audio_path, original_samples, valid_frames, was_padded)
-        return npz_path, int(valid_frames), fps
+        npz_path = ""
+        if self.save_npz:
+            npz_path = self._save_npz(fw, fps, audio_path, original_samples, valid_frames, was_padded)
+        return fw, int(valid_frames), fps, npz_path
 
     def _save_npz(
         self,

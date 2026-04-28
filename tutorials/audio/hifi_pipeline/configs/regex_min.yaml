@@ -1,0 +1,10 @@
+# Minimal regex substitution rules for RegexSubstitutionStage.
+#
+# Each item maps a Python regex pattern to a replacement string.
+# The stub leaves the prediction text unchanged (single no-op rule);
+# add real rules (e.g., collapse whitespace, strip trailing punctuation)
+# as your data demands.
+
+rules:
+  - pattern: '\s+'
+    replace: ' '

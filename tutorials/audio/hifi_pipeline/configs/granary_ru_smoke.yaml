@@ -1,0 +1,16 @@
+# Single-shard granary YAML for smoke testing.
+#
+# Resolves to ytc/ru/shard_0.jsonl + s3://YTC/ru/webds_ru/audio_0.tar
+# (~1418 utterances).  Use this for end-to-end validation runs that
+# exercise audio decoding from AIS without committing to a full corpus.
+#
+# Substitute MANIFESTS_DIR before use:
+#   MANIFESTS_DIR=/lustre/fs11/.../granary_filtered envsubst \
+#       < configs/granary_ru_smoke.yaml > configs/granary_ru_smoke.resolved.yaml
+
+- input_cfg:
+    - corpus: "ytc"
+      language: "ru"
+      type: nemo_tarred
+      manifest_filepath: "${MANIFESTS_DIR}/ytc/ru/shard__OP_0..0_CL_.jsonl"
+      tarred_audio_filepaths: "s3://YTC/ru/webds_ru/audio__OP_0..0_CL_.tar"

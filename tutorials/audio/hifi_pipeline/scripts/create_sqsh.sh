@@ -16,6 +16,7 @@ IMAGES=(
     "curator-utmos:latest"
     "curator-hifi-nemo-stages:latest"
     "curator-hifi-pipeline:latest"
+    "curator-hifi-beta:latest"
 )
 
 for img in "${IMAGES[@]}"; do

@@ -136,15 +136,22 @@ class XennaExecutor(BaseExecutor):
 
         try:
             register_loguru_serializer()
-            # Prevent Ray from overriding accelerator env vars when num_gpus=0, letting Xenna manage them instead.
+            # Forward env vars to Ray actors.  Actors spawn with a clean
+            # environment by default, which breaks imports (PYTHONPATH)
+            # and AIS streaming (AIS_AUTHN_TOKEN, AIS_ENDPOINT) on cluster
+            # jobs that rely on env-var-driven configuration.
+            import os as _os
+            _runtime_env_vars = {
+                # Avoid Ray clobbering CUDA_VISIBLE_DEVICES so Xenna can manage GPUs.
+                "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+            }
+            for _key in ("PYTHONPATH", "AIS_ENDPOINT", "AIS_AUTHN_TOKEN", "HF_HOME", "HF_TOKEN"):
+                _val = _os.environ.get(_key, "")
+                if _val:
+                    _runtime_env_vars[_key] = _val
             ray.init(
                 ignore_reinit_error=True,
-                runtime_env={
-                    # We need to set this env var to avoid ray from setting CUDA_VISIBLE_DEVICES and let xenna do it
-                    "env_vars": {
-                        "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
-                    }
-                },
+                runtime_env={"env_vars": _runtime_env_vars},
             )
             # Run the pipeline (this will re-initialize ray but that'll be a no-op and the ray.init above will take precedence)
             results = pipelines_v1.run_pipeline(pipeline_spec)

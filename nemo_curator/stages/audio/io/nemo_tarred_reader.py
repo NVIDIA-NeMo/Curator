@@ -65,7 +65,12 @@ def _s3_to_pipe(tar_path: str, s3_endpoint_url: str | None = None) -> str:
     if not endpoint:
         msg = "Set AIS_ENDPOINT env var or pass s3_endpoint_url for s3:// paths"
         raise RuntimeError(msg)
-    url = f"{endpoint.rstrip('/')}/v1/objects/{bucket}/{key}?provider=s3"
+    # AIStore expects ``provider=aws`` (not ``provider=s3``) for AWS-backed
+    # buckets — confirmed against asr.iad.oci.aistore.nvidia.com:51080:
+    # provider=aws returns the tar bytes, provider=s3 redirects but the
+    # final fetch returns nothing usable, leading to ``tarfile.ReadError:
+    # truncated header`` in the streaming reader.
+    url = f"{endpoint.rstrip('/')}/v1/objects/{bucket}/{key}?provider=aws"
     token = os.environ.get("AIS_AUTHN_TOKEN")
     if token:
         return f"pipe:curl -sL -H 'Authorization: Bearer {token}' '{url}'"

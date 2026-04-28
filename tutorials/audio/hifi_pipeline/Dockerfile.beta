@@ -1,0 +1,100 @@
+# Beta HIFI pipeline container — single-image, vLLM-free.
+#
+# Combines the NeMo stages (SED, Sortformer, TitaNet, NeMo ASR Canary)
+# with UTMOSv2 and SCOTCH (BIRCH+AHC) clustering, plus Curator's Ray /
+# cosmos-xenna runtime so that one Slurm allocation can drive every
+# stage of run_pipeline_beta.py.
+#
+# What's NOT here:
+#   * vLLM / Qwen3-Omni — beta replaces the 3-pass cascade with NeMo ASR.
+#   * curator-scotch's slim Python 3.11 base — beta needs torch anyway,
+#     so we just pull in scipy/sklearn on top of the pytorch base.
+#
+# Build:
+#   docker build -t curator-hifi-beta -f tutorials/audio/hifi_pipeline/Dockerfile.beta .
+#
+# Push to NGC (so create_sqsh.sh can import it):
+#   docker tag curator-hifi-beta nvcr.io/nvidian/ac-aiapps/curator-hifi-beta:latest
+#   docker push nvcr.io/nvidian/ac-aiapps/curator-hifi-beta:latest
+#
+# On cluster:
+#   ENROOT_SQUASH_OPTIONS="-comp gzip" enroot import \
+#     --output ${SQSH_DIR}/curator-hifi-beta.sqsh \
+#     docker://nvcr.io/nvidian/ac-aiapps/curator-hifi-beta:latest
+
+FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git curl wget libsndfile1 ffmpeg build-essential \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip
+
+# ---------------------------------------------------------------------------
+# Install Curator + its NeMo / Ray / Xenna runtime in one shot.
+# ---------------------------------------------------------------------------
+WORKDIR /opt/Curator
+COPY pyproject.toml /opt/Curator/
+COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
+RUN pip install --no-cache-dir .
+
+COPY . /opt/Curator
+RUN pip install --no-cache-dir . && \
+    pip install --no-cache-dir \
+        'nemo_toolkit[asr]' \
+        torchlibrosa librosa soundfile pyyaml \
+        huggingface_hub aistore lhotse \
+        'torch==2.6.0' 'torchaudio==2.6.0' 'torchvision==0.21.0'
+
+# Curator's Xenna executor + multi-node SlurmRayClient need Ray + cosmos-xenna.
+# (Already pulled in by `pip install .` if pyproject lists them; this is a
+# belt-and-suspenders pin so the image is self-contained.)
+RUN pip install --no-cache-dir \
+        'ray[default]>=2.30,<3' \
+        cosmos-xenna || echo "cosmos-xenna pin may already be satisfied"
+
+# UTMOSv2 + scotch deps. scipy/sklearn are pure-Python wheels here, fast.
+# pynvml is required by cosmos_xenna's GPU resource discovery — without
+# it the worker pool is built with gpus=0 even when CUDA_VISIBLE_DEVICES
+# is set, which silently breaks every GPU stage in streaming mode.
+RUN pip install --no-cache-dir \
+        'scipy>=1.11,<2' \
+        'scikit-learn>=1.2,<2' \
+        pynvml \
+        'utmosv2 @ git+https://github.com/sarulab-speech/UTMOSv2.git'
+
+# ---------------------------------------------------------------------------
+# Pre-bake model checkpoints so workers don't all race to download at start.
+# ---------------------------------------------------------------------------
+RUN mkdir -p /opt/checkpoints && \
+    curl -fsSL -o /opt/checkpoints/Cnn14_DecisionLevelMax.pth \
+        'https://zenodo.org/record/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth'
+
+ENV HF_HOME=/opt/hf_cache
+RUN python -c "from huggingface_hub import snapshot_download; \
+    snapshot_download(repo_id='nvidia/diar_streaming_sortformer_4spk-v2.1')"
+
+RUN python -c "import nemo.collections.asr as nemo_asr; \
+    nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained('titanet_large')"
+
+# Canary-1b-flash for ASR (multilingual; native Russian).
+RUN python -c "import nemo.collections.asr as nemo_asr; \
+    nemo_asr.models.ASRModel.from_pretrained('nvidia/canary-1b-flash')"
+
+# UTMOSv2 weights (pretrained checkpoint).
+RUN python -c "import utmosv2; utmosv2.create_model(pretrained=True); print('UTMOSv2 cached')"
+
+RUN ls -lh /opt/checkpoints/ && du -sh /opt/hf_cache /root/.cache 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# Sanity: SCOTCH presets resolve, large-scale clustering importable.
+# ---------------------------------------------------------------------------
+RUN python -c "from nemo_curator.stages.audio.speaker_id.clustering.cluster_config import PRESETS; \
+    from nemo_curator.stages.audio.speaker_id.clustering.large_scale_clustering_and_scoring import cluster_embeddings_large_scale; \
+    assert 'librispeech-2026-04' in PRESETS, PRESETS"
+
+ENV PANN_CKPT=/opt/checkpoints/Cnn14_DecisionLevelMax.pth
+ENV PYTHONPATH=/opt/Curator
+ENV PYTHONUNBUFFERED=1
+
+ENTRYPOINT ["python", "/opt/Curator/tutorials/audio/hifi_pipeline/run_pipeline_beta.py"]

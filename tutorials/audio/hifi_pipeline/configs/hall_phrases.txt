@@ -1,0 +1,8 @@
+# Stub hallucination-phrase list for WhisperHallucinationStage.
+# Each non-empty, non-comment line is a phrase that, when present in
+# the prediction, marks the sample as a likely hallucination.
+#
+# This stub is intentionally minimal — populate with your own phrases
+# (e.g., "thanks for watching", "subscribe to my channel") to enable
+# real filtering.  An empty list means no samples are flagged by this
+# stage; downstream agreement / LID checks still apply.

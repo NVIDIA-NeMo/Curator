@@ -1,0 +1,45 @@
+# Granary YAML data config for the HIFI beta pipeline.
+#
+# Pairs each per-shard manifest (Lustre) with its tar (AIS/S3).
+# Used by NemoTarredAudioReader (nemo_curator.stages.audio.io.nemo_tarred_reader)
+# to stream audio in memory — no disk downloads.
+#
+# MANIFESTS_DIR placeholder must be substituted before use:
+#   sed "s|\${MANIFESTS_DIR}|/lustre/fs11/.../granary_filtered|g" \
+#       configs/granary_ru.yaml > configs/granary_ru.resolved.yaml
+#
+# Or set the env var and use envsubst:
+#   MANIFESTS_DIR=/lustre/.../granary_filtered envsubst < configs/granary_ru.yaml \
+#       > configs/granary_ru.resolved.yaml
+#
+# Use --corpus_filter to pick a subset (e.g., just ytc_ru for the smoke test):
+#   --data_config configs/granary_ru.resolved.yaml --corpus_filter ytc
+
+- input_cfg:
+    - corpus: "ytc"
+      language: "ru"
+      hours: 332.9336444444443
+      type: nemo_tarred
+      manifest_filepath: "${MANIFESTS_DIR}/ytc/ru/shard__OP_0..63_CL_.jsonl"
+      tarred_audio_filepaths: "s3://YTC/ru/webds_ru/audio__OP_0..63_CL_.tar"
+
+    - corpus: "yodas/0_from_captions"
+      language: "ru"
+      hours: 1014.32905
+      type: nemo_tarred
+      manifest_filepath: "${MANIFESTS_DIR}/yodas/0_from_captions/ru/shard__OP_0..255_CL_.jsonl"
+      tarred_audio_filepaths: "s3://yodas2/ru/0_from_captions/audio__OP_0..255_CL_.tar"
+
+    - corpus: "yodas/0_by_whisper"
+      language: "ru"
+      hours: 2540.351038888889
+      type: nemo_tarred
+      manifest_filepath: "${MANIFESTS_DIR}/yodas/0_by_whisper/ru/shard__OP_0..1023_CL_.jsonl"
+      tarred_audio_filepaths: "s3://yodas2/ru/0_by_whisper/audio__OP_0..1023_CL_.tar"
+
+    - corpus: "yodas/1_by_whisper"
+      language: "ru"
+      hours: 16572.776055555554
+      type: nemo_tarred
+      manifest_filepath: "${MANIFESTS_DIR}/yodas/1_by_whisper/ru/shard__OP_0..8191_CL_.jsonl"
+      tarred_audio_filepaths: "s3://yodas2/ru/1_by_whisper/audio__OP_0..8191_CL_.tar"

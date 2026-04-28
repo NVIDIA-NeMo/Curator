@@ -102,6 +102,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--no_ray_local", action="store_true")
     p.add_argument("--batch_size", type=int, default=1)
 
+    # Multi-node Ray (Slurm).  When set, the script connects to a Ray
+    # cluster brought up by SlurmRayClient (one srun, one allocation, one
+    # cluster).  Worker nodes block in start(); only the head node (rank 0)
+    # proceeds into stage execution.
+    p.add_argument("--slurm", action="store_true",
+                   help="Use SlurmRayClient instead of single-node ray.init.")
+
     return p.parse_args()
 
 
@@ -280,17 +287,35 @@ def run_transcription_cascade(
     return cascade_output
 
 
-def _init_ray_pipeline():
-    """Lazily import Ray-based pipeline deps (RayDataExecutor, JsonlReader, JsonlWriter)."""
-    import ray
-    ray.init(address="local", ignore_reinit_error=True)
+def _init_ray_pipeline(use_slurm: bool = False):
+    """Lazily import Ray-based pipeline deps and bring up the Ray cluster.
+
+    Returns ``(RayDataExecutor, JsonlReader, JsonlWriter, ray_client)``.
+
+    * ``use_slurm=False`` — single-node ``ray.init(address='local')``.
+      ``ray_client`` is ``None``; caller does not need to stop anything.
+    * ``use_slurm=True``  — :class:`SlurmRayClient` brings up a multi-node
+      cluster within the current Slurm allocation.  Worker nodes block in
+      ``start()`` and never return; only the head node continues into the
+      pipeline.  Caller MUST invoke ``ray_client.stop()`` in a ``finally``
+      block.
+    """
+    if use_slurm:
+        from nemo_curator.core.client import SlurmRayClient
+        ray_client = SlurmRayClient()
+        ray_client.start()
+    else:
+        import ray
+        ray.init(address="local", ignore_reinit_error=True)
+        ray_client = None
+
     try:
         from nemo_curator.backends.ray_data import RayDataExecutor
     except (ImportError, ModuleNotFoundError):
         from nemo_curator.backends.experimental.ray_data import RayDataExecutor
     from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
     from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
-    return RayDataExecutor, JsonlReader, JsonlWriter
+    return RayDataExecutor, JsonlReader, JsonlWriter, ray_client
 
 
 def main() -> None:
@@ -302,195 +327,201 @@ def main() -> None:
         sys.exit(1)
 
     RayDataExecutor, JsonlReader, JsonlWriter = None, None, None
+    ray_client = None
     ray_stages = {"sed", "sed_post", "segment", "embed", "group_video", "cluster", "utmos"}
     if ray_stages & stages:
-        RayDataExecutor, JsonlReader, JsonlWriter = _init_ray_pipeline()
+        RayDataExecutor, JsonlReader, JsonlWriter, ray_client = _init_ray_pipeline(use_slurm=args.slurm)
 
     os.makedirs(args.output_dir, exist_ok=True)
     current_manifest = args.input_manifest
 
-    # ---- Stage 1: SED Inference ----
-    if "sed" in stages:
-        from nemo_curator.stages.audio.inference.sed import SEDInferenceStage
-        from nemo_curator.stages.resources import Resources
-
-        if not args.sed_checkpoint:
-            print("ERROR: --sed_checkpoint required")
-            sys.exit(1)
-
-        print(f"[pipeline] Stage 1: SED Inference ({args.sed_model_type})")
-        pipeline = Pipeline(name="sed")
-        pipeline.add_stage(JsonlReader(file_paths=current_manifest))
-        pipeline.add_stage(
-            SEDInferenceStage(
-                checkpoint_path=args.sed_checkpoint,
-                model_type=args.sed_model_type,
-                output_dir=os.path.join(args.output_dir, "sed"),
-                resources=Resources(cpus=1.0),
-            )
-        )
-        sed_out = os.path.join(args.output_dir, "sed_manifest")
-        pipeline.add_stage(JsonlWriter(path=sed_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
-        pipeline.run(executor=RayDataExecutor())
-        current_manifest = sed_out
-        print(f"[pipeline] SED done -> {sed_out}")
-
-    # ---- Stage 2: SED Postprocessing ----
-    if "sed_post" in stages:
-        from nemo_curator.stages.audio.postprocessing.sed_postprocessing import SEDPostprocessingStage
-
-        print("[pipeline] Stage 2: SED Postprocessing")
-        pipeline = Pipeline(name="sed_post")
-        pipeline.add_stage(JsonlReader(file_paths=current_manifest))
-        pipeline.add_stage(SEDPostprocessingStage(speech_threshold=args.sed_threshold, min_duration_sec=0.3))
-        sed_post_out = os.path.join(args.output_dir, "sed_post_manifest")
-        pipeline.add_stage(JsonlWriter(path=sed_post_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
-        pipeline.run(executor=RayDataExecutor())
-        current_manifest = sed_post_out
-        print(f"[pipeline] SED postprocessing done -> {sed_post_out}")
-
-    # ---- Stage 3: Segment Extraction ----
-    if "segment" in stages:
-        from nemo_curator.stages.audio.segmentation.segment_extractor import SegmentExtractorStage
-
-        print("[pipeline] Stage 3: Segment Extraction (fan-out)")
-        pipeline = Pipeline(name="segment")
-        pipeline.add_stage(JsonlReader(file_paths=current_manifest))
-        pipeline.add_stage(SegmentExtractorStage())
-        seg_out = os.path.join(args.output_dir, "segment_manifest")
-        pipeline.add_stage(JsonlWriter(path=seg_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
-        pipeline.run(executor=RayDataExecutor())
-        current_manifest = seg_out
-        print(f"[pipeline] Segmentation done -> {seg_out}")
-
-    # ---- Stage 4: Diarization ----
-    if "diarize" in stages:
-        from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
-
-        print("[pipeline] Stage 4: Diarization (Sortformer)")
-        _run_audio_stage_on_manifest(
-            current_manifest,
-            InferenceSortformerStage(),
-            os.path.join(args.output_dir, "diarize_manifest"),
-            extra_keys=["diar_segments"],
-        )
-        current_manifest = os.path.join(args.output_dir, "diarize_manifest")
-        print(f"[pipeline] Diarization done -> {current_manifest}")
-
-    # ---- Stage 5: Transcription Cascade (3-pass) ----
-    if "transcribe" in stages:
-        if args.data_config:
-            from nemo_curator.backends.xenna import XennaExecutor
-            from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
-            from nemo_curator.stages.audio.inference.transcription_cascade_inprocess import (
-                TranscriptionCascadeInProcessStage,
-            )
-            from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
+    try:
+        # ---- Stage 1: SED Inference ----
+        if "sed" in stages:
+            from nemo_curator.stages.audio.inference.sed import SEDInferenceStage
             from nemo_curator.stages.resources import Resources
 
-            print(f"[pipeline] Stage 5: Transcription Cascade ({args.language}, 3-pass, in-process vLLM)")
-            transcribe_out = os.path.join(args.output_dir, "transcribe_output.jsonl")
-            pipeline = Pipeline(name="transcribe_cascade")
+            if not args.sed_checkpoint:
+                print("ERROR: --sed_checkpoint required")
+                sys.exit(1)
+
+            print(f"[pipeline] Stage 1: SED Inference ({args.sed_model_type})")
+            pipeline = Pipeline(name="sed")
+            pipeline.add_stage(JsonlReader(file_paths=current_manifest))
             pipeline.add_stage(
-                NemoTarredAudioReader(
-                    yaml_path=args.data_config,
-                ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=8.0)}})
-            )
-            pipeline.add_stage(
-                TranscriptionCascadeInProcessStage(
-                    model_id=args.omni_model,
-                    language=args.language,
-                    tensor_parallel_size=args.tensor_parallel_size,
-                    max_output_tokens=args.max_tokens,
-                    temperature=args.temperature,
-                    batch_size=args.batch_size,
+                SEDInferenceStage(
+                    checkpoint_path=args.sed_checkpoint,
+                    model_type=args.sed_model_type,
+                    output_dir=os.path.join(args.output_dir, "sed"),
+                    resources=Resources(cpus=1.0),
                 )
             )
-            pipeline.add_stage(ALMManifestWriterStage(output_path=transcribe_out))
-            pipeline.run(executor=XennaExecutor(config={"execution_mode": "streaming"}))
-            current_manifest = transcribe_out
-        else:
-            print(f"[pipeline] Stage 5: Transcription Cascade ({args.language}, 3-pass, server-based)")
-            current_manifest = run_transcription_cascade(current_manifest, args.output_dir, args)
-        print(f"[pipeline] Transcription cascade done -> {current_manifest}")
-
-    # ---- Stage 6: Speaker Embedding ----
-    if "embed" in stages:
-        from nemo_curator.stages.audio.speaker_id.speaker_embedding_request import SpeakerEmbeddingRequestStage
-
-        print("[pipeline] Stage 6: Speaker Embedding (TitaNet)")
-        pipeline = Pipeline(name="embed")
-        pipeline.add_stage(JsonlReader(file_paths=current_manifest))
-        pipeline.add_stage(SpeakerEmbeddingRequestStage(model_name=args.speaker_model))
-        embed_out = os.path.join(args.output_dir, "embed_manifest")
-        pipeline.add_stage(JsonlWriter(path=embed_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
-        pipeline.run(executor=RayDataExecutor())
-        current_manifest = embed_out
-        print(f"[pipeline] Embedding done -> {embed_out}")
-
-    # ---- Stage 7a: Group by Video ID ----
-    if "group_video" in stages:
-        from nemo_curator.stages.audio.preprocessing.group_by_video import GroupByVideoStage
-
-        print("[pipeline] Stage 7a: Group by Video ID")
-        pipeline = Pipeline(name="group_video")
-        pipeline.add_stage(JsonlReader(file_paths=current_manifest))
-        pipeline.add_stage(GroupByVideoStage())
-        group_out = os.path.join(args.output_dir, "grouped_manifest")
-        pipeline.add_stage(JsonlWriter(path=group_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
-        pipeline.run(executor=RayDataExecutor())
-        current_manifest = group_out
-        print(f"[pipeline] Grouping done -> {group_out}")
-
-    # ---- Stage 7b: Speaker Clustering ----
-    if "cluster" in stages:
-        from nemo_curator.stages.audio.speaker_id.speaker_clustering_and_scoring import SpeakerClusteringStage
-
-        print("[pipeline] Stage 7b: Speaker Clustering (AHC)")
-        pipeline = Pipeline(name="cluster")
-        pipeline.add_stage(JsonlReader(file_paths=current_manifest))
-        pipeline.add_stage(SpeakerClusteringStage(
-            threshold=args.cluster_threshold,
-            batch_size=args.cluster_batch_size,
-        ))
-        cluster_out = os.path.join(args.output_dir, "cluster_manifest")
-        pipeline.add_stage(JsonlWriter(path=cluster_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
-        pipeline.run(executor=RayDataExecutor())
-        current_manifest = cluster_out
-        print(f"[pipeline] Clustering done -> {cluster_out}")
-
-    # ---- Stage 8: UTMOS Scoring ----
-    if "utmos" in stages:
-        from nemo_curator.stages.audio.metrics.utmosv2_score import GetUtmosv2ScoreStage
-
-        if args.data_config:
-            # Streaming mode: read audio from NeMo tars via AIS, score in-memory
-            from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
-            from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
-            from nemo_curator.backends.xenna import XennaExecutor
-
-            print(f"[pipeline] Stage 8: UTMOS Scoring (UTMOSv2, AIS streaming)")
-            utmos_out = os.path.join(args.output_dir, "utmos_output.jsonl")
-            pipeline = Pipeline(name="utmos")
-            pipeline.add_stage(NemoTarredAudioReader(yaml_path=args.data_config))
-            pipeline.add_stage(GetUtmosv2ScoreStage(inference_batch_size=args.utmos_batch_size))
-            pipeline.add_stage(ALMManifestWriterStage(output_path=utmos_out))
-            pipeline.run(executor=XennaExecutor(config={"execution_mode": "streaming"}))
-            current_manifest = utmos_out
-        else:
-            # File mode: read from JSONL manifest, score files (local/remote)
-            print("[pipeline] Stage 8: UTMOS Scoring (UTMOSv2)")
-            pipeline = Pipeline(name="utmos")
-            pipeline.add_stage(JsonlReader(file_paths=current_manifest))
-            pipeline.add_stage(GetUtmosv2ScoreStage(inference_batch_size=args.utmos_batch_size))
-            utmos_out = os.path.join(args.output_dir, "utmos_manifest")
-            pipeline.add_stage(JsonlWriter(path=utmos_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+            sed_out = os.path.join(args.output_dir, "sed_manifest")
+            pipeline.add_stage(JsonlWriter(path=sed_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
             pipeline.run(executor=RayDataExecutor())
-            current_manifest = utmos_out
-        print(f"[pipeline] UTMOS scoring done -> {current_manifest}")
+            current_manifest = sed_out
+            print(f"[pipeline] SED done -> {sed_out}")
 
-    # ---- Final output ----
-    print(f"\n[pipeline] All stages complete. Final output: {current_manifest}")
+        # ---- Stage 2: SED Postprocessing ----
+        if "sed_post" in stages:
+            from nemo_curator.stages.audio.postprocessing.sed_postprocessing import SEDPostprocessingStage
+
+            print("[pipeline] Stage 2: SED Postprocessing")
+            pipeline = Pipeline(name="sed_post")
+            pipeline.add_stage(JsonlReader(file_paths=current_manifest))
+            pipeline.add_stage(SEDPostprocessingStage(speech_threshold=args.sed_threshold, min_duration_sec=0.3))
+            sed_post_out = os.path.join(args.output_dir, "sed_post_manifest")
+            pipeline.add_stage(JsonlWriter(path=sed_post_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+            pipeline.run(executor=RayDataExecutor())
+            current_manifest = sed_post_out
+            print(f"[pipeline] SED postprocessing done -> {sed_post_out}")
+
+        # ---- Stage 3: Segment Extraction ----
+        if "segment" in stages:
+            from nemo_curator.stages.audio.segmentation.segment_extractor import SegmentExtractorStage
+
+            print("[pipeline] Stage 3: Segment Extraction (fan-out)")
+            pipeline = Pipeline(name="segment")
+            pipeline.add_stage(JsonlReader(file_paths=current_manifest))
+            pipeline.add_stage(SegmentExtractorStage())
+            seg_out = os.path.join(args.output_dir, "segment_manifest")
+            pipeline.add_stage(JsonlWriter(path=seg_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+            pipeline.run(executor=RayDataExecutor())
+            current_manifest = seg_out
+            print(f"[pipeline] Segmentation done -> {seg_out}")
+
+        # ---- Stage 4: Diarization ----
+        if "diarize" in stages:
+            from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
+
+            print("[pipeline] Stage 4: Diarization (Sortformer)")
+            _run_audio_stage_on_manifest(
+                current_manifest,
+                InferenceSortformerStage(),
+                os.path.join(args.output_dir, "diarize_manifest"),
+                extra_keys=["diar_segments"],
+            )
+            current_manifest = os.path.join(args.output_dir, "diarize_manifest")
+            print(f"[pipeline] Diarization done -> {current_manifest}")
+
+        # ---- Stage 5: Transcription Cascade (3-pass) ----
+        if "transcribe" in stages:
+            if args.data_config:
+                from nemo_curator.backends.xenna import XennaExecutor
+                from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
+                from nemo_curator.stages.audio.inference.transcription_cascade_inprocess import (
+                    TranscriptionCascadeInProcessStage,
+                )
+                from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
+                from nemo_curator.stages.resources import Resources
+
+                print(f"[pipeline] Stage 5: Transcription Cascade ({args.language}, 3-pass, in-process vLLM)")
+                transcribe_out = os.path.join(args.output_dir, "transcribe_output.jsonl")
+                pipeline = Pipeline(name="transcribe_cascade")
+                pipeline.add_stage(
+                    NemoTarredAudioReader(
+                        yaml_path=args.data_config,
+                    ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=8.0)}})
+                )
+                pipeline.add_stage(
+                    TranscriptionCascadeInProcessStage(
+                        model_id=args.omni_model,
+                        language=args.language,
+                        tensor_parallel_size=args.tensor_parallel_size,
+                        max_output_tokens=args.max_tokens,
+                        temperature=args.temperature,
+                        batch_size=args.batch_size,
+                    )
+                )
+                pipeline.add_stage(ALMManifestWriterStage(output_path=transcribe_out))
+                pipeline.run(executor=XennaExecutor(config={"execution_mode": "streaming"}))
+                current_manifest = transcribe_out
+            else:
+                print(f"[pipeline] Stage 5: Transcription Cascade ({args.language}, 3-pass, server-based)")
+                current_manifest = run_transcription_cascade(current_manifest, args.output_dir, args)
+            print(f"[pipeline] Transcription cascade done -> {current_manifest}")
+
+        # ---- Stage 6: Speaker Embedding ----
+        if "embed" in stages:
+            from nemo_curator.stages.audio.speaker_id.speaker_embedding_request import SpeakerEmbeddingRequestStage
+
+            print("[pipeline] Stage 6: Speaker Embedding (TitaNet)")
+            pipeline = Pipeline(name="embed")
+            pipeline.add_stage(JsonlReader(file_paths=current_manifest))
+            pipeline.add_stage(SpeakerEmbeddingRequestStage(model_name=args.speaker_model))
+            embed_out = os.path.join(args.output_dir, "embed_manifest")
+            pipeline.add_stage(JsonlWriter(path=embed_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+            pipeline.run(executor=RayDataExecutor())
+            current_manifest = embed_out
+            print(f"[pipeline] Embedding done -> {embed_out}")
+
+        # ---- Stage 7a: Group by Video ID ----
+        if "group_video" in stages:
+            from nemo_curator.stages.audio.preprocessing.group_by_video import GroupByVideoStage
+
+            print("[pipeline] Stage 7a: Group by Video ID")
+            pipeline = Pipeline(name="group_video")
+            pipeline.add_stage(JsonlReader(file_paths=current_manifest))
+            pipeline.add_stage(GroupByVideoStage())
+            group_out = os.path.join(args.output_dir, "grouped_manifest")
+            pipeline.add_stage(JsonlWriter(path=group_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+            pipeline.run(executor=RayDataExecutor())
+            current_manifest = group_out
+            print(f"[pipeline] Grouping done -> {group_out}")
+
+        # ---- Stage 7b: Speaker Clustering ----
+        if "cluster" in stages:
+            from nemo_curator.stages.audio.speaker_id.speaker_clustering_and_scoring import SpeakerClusteringStage
+
+            print("[pipeline] Stage 7b: Speaker Clustering (AHC)")
+            pipeline = Pipeline(name="cluster")
+            pipeline.add_stage(JsonlReader(file_paths=current_manifest))
+            pipeline.add_stage(SpeakerClusteringStage(
+                threshold=args.cluster_threshold,
+                batch_size=args.cluster_batch_size,
+            ))
+            cluster_out = os.path.join(args.output_dir, "cluster_manifest")
+            pipeline.add_stage(JsonlWriter(path=cluster_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+            pipeline.run(executor=RayDataExecutor())
+            current_manifest = cluster_out
+            print(f"[pipeline] Clustering done -> {cluster_out}")
+
+        # ---- Stage 8: UTMOS Scoring ----
+        if "utmos" in stages:
+            from nemo_curator.stages.audio.metrics.utmosv2_score import GetUtmosv2ScoreStage
+
+            if args.data_config:
+                # Streaming mode: read audio from NeMo tars via AIS, score in-memory
+                from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
+                from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
+                from nemo_curator.backends.xenna import XennaExecutor
+
+                print(f"[pipeline] Stage 8: UTMOS Scoring (UTMOSv2, AIS streaming)")
+                utmos_out = os.path.join(args.output_dir, "utmos_output.jsonl")
+                pipeline = Pipeline(name="utmos")
+                pipeline.add_stage(NemoTarredAudioReader(yaml_path=args.data_config))
+                pipeline.add_stage(GetUtmosv2ScoreStage(inference_batch_size=args.utmos_batch_size))
+                pipeline.add_stage(ALMManifestWriterStage(output_path=utmos_out))
+                pipeline.run(executor=XennaExecutor(config={"execution_mode": "streaming"}))
+                current_manifest = utmos_out
+            else:
+                # File mode: read from JSONL manifest, score files (local/remote)
+                print("[pipeline] Stage 8: UTMOS Scoring (UTMOSv2)")
+                pipeline = Pipeline(name="utmos")
+                pipeline.add_stage(JsonlReader(file_paths=current_manifest))
+                pipeline.add_stage(GetUtmosv2ScoreStage(inference_batch_size=args.utmos_batch_size))
+                utmos_out = os.path.join(args.output_dir, "utmos_manifest")
+                pipeline.add_stage(JsonlWriter(path=utmos_out, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+                pipeline.run(executor=RayDataExecutor())
+                current_manifest = utmos_out
+            print(f"[pipeline] UTMOS scoring done -> {current_manifest}")
+
+        # ---- Final output ----
+        print(f"\n[pipeline] All stages complete. Final output: {current_manifest}")
+
+    finally:
+        if ray_client is not None:
+            ray_client.stop()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,2 @@
+# Local-only error/gotcha logs — keep on disk for reference, don't commit.
+GOTCHAS.md
