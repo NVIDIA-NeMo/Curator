@@ -38,6 +38,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     the ASR recovery hallucination re-check).
     """
 
+    name: str = "WhisperHallucination"
     common_hall_file: str = ""
     unique_words_threshold: float = 0.4
     long_word_threshold: int = 25
@@ -49,7 +50,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     notes_key: str = "additional_notes"
     overwrite: bool = False
     recovery_value: str = ""
-    name: str = "WhisperHallucination"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     _phrases: set[str] = field(default_factory=set, init=False, repr=False)

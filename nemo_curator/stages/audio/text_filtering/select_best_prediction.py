@@ -50,6 +50,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     produced the final text.
     """
 
+    name: str = "SelectBestPrediction"
     primary_text_key: str = "qwen3_prediction_s1"
     asr_text_key: str = "qwen3_asr_prediction"
     output_key: str = "best_prediction"
@@ -57,7 +58,6 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     skip_me_key: str = "_skip_me"
     min_agreement_pct: float = 80.0
     agreement_wer_key: str = "omni_asr_agreement_wer"
-    name: str = "SelectBestPrediction"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def inputs(self) -> tuple[list[str], list[str]]:

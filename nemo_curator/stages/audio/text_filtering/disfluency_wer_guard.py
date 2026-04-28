@@ -36,12 +36,12 @@ class DisfluencyWerGuardStage(ProcessingStage[AudioTask, AudioTask]):
     inspection regardless of whether a fallback occurred.
     """
 
+    name: str = "DisfluencyWerGuard"
     ref_text_key: str = "qwen3_prediction_s1"
     hyp_text_key: str = "qwen3_prediction_s2"
     wer_key: str = "disfluency_wer"
     max_wer_pct: float = 50.0
     skip_me_key: str = "_skip_me"
-    name: str = "DisfluencyWerGuard"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def inputs(self) -> tuple[list[str], list[str]]:

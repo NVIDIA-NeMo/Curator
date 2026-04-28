@@ -129,8 +129,18 @@ Key differences from a CPU stage:
   dicts into a single multi-row `pd.DataFrame` in one `DocumentBatch`,
   avoiding N single-row DataFrame allocations.  Not a GPU stage, but
   benefits from batched processing.
-- `ALMManifestWriterStage` (`alm/alm_manifest_writer.py`) — writes
+- `ALMManifestWriterStage` (`io/alm_manifest_writer.py`) — writes
   entries to JSONL, returns `FileGroupTask`.
+- `InferenceQwenOmniStage` (`inference/qwen_omni.py`) — multimodal
+  Qwen3-Omni transcription via in-process vLLM.
+- `InferenceQwenASRStage` (`inference/qwen_asr.py`) — Qwen3-ASR
+  hallucination-recovery pass.
+- `PnCRestorationStage` (`text_filtering/pnc_restoration.py`) — GPU
+  punctuation-and-capitalisation restoration via vLLM.
+- `ITNRestorationStage` (`text_filtering/itn_restoration.py`) — GPU
+  inverse-text-normalisation via vLLM.
+- `ShardedManifestWriterStage` (`io/sharded_manifest_writer.py`) —
+  writes per-shard JSONL manifests from NeMo tarred input.
 
 ### Setting `batch_size` for GPU inference
 
@@ -262,8 +272,10 @@ process_batch(list[AudioTask]) -> list[AudioTask]
    instead of `not tasks` because Ray Data's `map_batches` passes
    `tasks` as a numpy array, and `not ndarray` raises `ValueError`
    for arrays with more than one element.  This applies to
-   `process_batch` in `InferenceAsrNemoStage` and
-   `AudioToDocumentStage`.
+   `process_batch` in `InferenceAsrNemoStage`,
+   `AudioToDocumentStage`, `InferenceQwenOmniStage`,
+   `InferenceQwenASRStage`, `PnCRestorationStage`, and
+   `ITNRestorationStage`.
 
 ## How backends parallelise your stage
 
@@ -989,6 +1001,54 @@ Appends the entry as a single JSON line to
 | `ALMDataBuilderStage` | 55 (−2, +3) | Drops `segments`/`words`; adds `windows`, `stats`, `truncation_events` | Yes (clear + update) |
 | `ALMDataOverlapStage` | 64 (+9) | Adds `filtered_windows`, `filtered_dur`, overlap metadata | Yes (clear + update) |
 | `ALMManifestWriterStage` | — | Writes JSON line to disk, returns `FileGroupTask` | N/A |
+
+## Text filtering stages (CPU)
+
+The `text_filtering/` directory contains lightweight CPU stages that
+post-process model predictions without requiring a GPU.  They follow
+the same dataclass conventions as other CPU stages (`name` first, then
+params, then `resources`).
+
+| Stage | Purpose |
+|---|---|
+| `InitializeFieldsStage` | Seed `_skip_me`, copy original text, drop unwanted keys |
+| `WhisperHallucinationStage` | Detect hallucinated transcriptions (unique-word ratio, char rate, long words) |
+| `DisfluencyWerGuardStage` | Flag samples whose two Qwen passes disagree beyond a WER threshold |
+| `FastTextLIDStage` | Language-ID filtering via fastText |
+| `AbbreviationConcatStage` | Expand/concatenate detected abbreviations |
+| `RegexSubstitutionStage` | Apply regex-based text cleaning rules from a YAML config |
+| `SelectBestPredictionStage` | Choose between Omni and ASR predictions using WER agreement |
+| `PnCContentGuardStage` | Reject PnC output that changed content beyond punctuation/casing |
+| `FinalizeFieldsStage` | Promote cleaned text to `text`, drop intermediate keys |
+
+All text filtering stages respect the `_skip_me` convention: if
+`task.data["_skip_me"]` is set to a non-empty string, the stage
+returns the task unchanged (the string records the reason for
+skipping).  This avoids downstream GPU work on already-rejected
+samples.
+
+## Qwen Omni in-process pipeline
+
+The `examples/audio/qwen_omni_inprocess/` directory demonstrates a
+complete transcription pipeline built on the new stages:
+
+```
+NemoTarredAudioReader          (io/)
+  → InferenceQwenOmniStage     (inference/ — 2 passes, GPU)
+  → InferenceQwenASRStage      (inference/ — ASR recovery, GPU)
+  → InitializeFieldsStage      (text_filtering/)
+  → WhisperHallucinationStage  (text_filtering/)
+  → SelectBestPredictionStage  (text_filtering/)
+  → DisfluencyWerGuardStage    (text_filtering/)
+  → FastTextLIDStage           (text_filtering/)
+  → PnCRestorationStage        (text_filtering/ — GPU)
+  → PnCContentGuardStage       (text_filtering/)
+  → ITNRestorationStage        (text_filtering/ — GPU)
+  → AbbreviationConcatStage    (text_filtering/)
+  → RegexSubstitutionStage     (text_filtering/)
+  → FinalizeFieldsStage        (text_filtering/)
+  → ShardedManifestWriterStage (io/)
+```
 
 ---
 

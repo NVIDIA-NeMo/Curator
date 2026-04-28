@@ -27,9 +27,9 @@ class FinalizeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     The ``cleaned_text`` field produced by earlier stages is kept as-is.
     """
 
+    name: str = "FinalizeFields"
     cleaned_text_key: str = "cleaned_text"
     drop_keys: list[str] = field(default_factory=lambda: ["pnc", "itn", "timestamp"])
-    name: str = "FinalizeFields"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def inputs(self) -> tuple[list[str], list[str]]:

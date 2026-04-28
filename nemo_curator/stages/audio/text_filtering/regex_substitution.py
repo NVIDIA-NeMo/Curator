@@ -39,11 +39,11 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
     still empty, ``skip_me`` is set to ``"Empty after regex cleaning"``.
     """
 
+    name: str = "RegexSubstitution"
     regex_params_yaml: str = ""
     text_key: str = "pred_text"
     output_text_key: str = "cleaned_text"
     skip_me_key: str = "_skip_me"
-    name: str = "RegexSubstitution"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     _rules: list[dict[str, Any]] = field(default_factory=list, init=False, repr=False)

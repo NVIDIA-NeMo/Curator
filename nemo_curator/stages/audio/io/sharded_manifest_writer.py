@@ -89,6 +89,12 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         )
 
     def process_batch(self, tasks: list[AudioTask]) -> list[FileGroupTask]:
+        if len(tasks) == 0:
+            return []
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
         return [self.process(task) for task in tasks]
 
     def teardown(self) -> None:

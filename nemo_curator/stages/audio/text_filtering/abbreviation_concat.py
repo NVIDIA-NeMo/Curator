@@ -219,12 +219,12 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
     enabling language-specific character classes and particle stripping.
     """
 
+    name: str = "AbbreviationConcat"
     text_key: str = "text"
     output_text_key: str = "abbreviated_text"
     abbreviations_key: str = "abbreviations"
     skip_me_key: str = "_skip_me"
     source_lang_key: str = "source_lang"
-    name: str = "AbbreviationConcat"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def inputs(self) -> tuple[list[str], list[str]]:

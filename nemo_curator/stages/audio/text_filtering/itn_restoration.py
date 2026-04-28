@@ -262,8 +262,12 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         return self.process_batch([task])[0]
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        if not tasks:
+        if len(tasks) == 0:
             return []
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
 
         if self._llm is None:
             msg = "Model not initialised — setup() was not called"
