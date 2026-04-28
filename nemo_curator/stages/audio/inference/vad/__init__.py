@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Backward-compatible re-export. Canonical location: ``nemo_curator.stages.audio.io.alm_manifest_writer``."""
+"""Voice Activity Detection inference stages."""
 
-from nemo_curator.stages.audio.io.alm_manifest_writer import ALMManifestWriterStage
+from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADModel, WhisperXVADStage
 
-__all__ = ["ALMManifestWriterStage"]
+__all__ = ["WhisperXVADModel", "WhisperXVADStage"]

@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Backward-compatible re-export. Canonical location: ``nemo_curator.stages.audio.io.alm_manifest_writer``."""
+"""ASR inference stages (backward-compatible re-export)."""
 
-from nemo_curator.stages.audio.io.alm_manifest_writer import ALMManifestWriterStage
+from nemo_curator.stages.audio.inference.asr.asr_nemo import InferenceAsrNemoStage
 
-__all__ = ["ALMManifestWriterStage"]
+__all__ = ["InferenceAsrNemoStage"]

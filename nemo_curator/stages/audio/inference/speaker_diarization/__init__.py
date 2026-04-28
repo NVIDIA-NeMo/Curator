@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Backward-compatible re-export. Canonical location: ``nemo_curator.stages.audio.io.alm_manifest_writer``."""
+"""Speaker diarization inference stages."""
 
-from nemo_curator.stages.audio.io.alm_manifest_writer import ALMManifestWriterStage
+from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
 
-__all__ = ["ALMManifestWriterStage"]
+__all__ = ["PyAnnoteDiarizationStage"]

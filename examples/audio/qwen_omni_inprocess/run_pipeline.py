@@ -65,7 +65,7 @@ from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
+from nemo_curator.stages.audio.io.sharded_manifest_writer import ShardedManifestWriterStage
 from nemo_curator.stages.audio.inference.qwen_asr import InferenceQwenASRStage
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
 from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
