@@ -28,6 +28,7 @@ from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 
 
 def read_jsonl_manifests(
@@ -37,10 +38,8 @@ def read_jsonl_manifests(
     parent_dataset_name: str | None = None,
     parent_metadata: dict | None = None,
     parent_stage_perf: list | None = None,
-) -> list:
+) -> list[AudioTask]:
     """Shared JSONL manifest reader used by ManifestReaderStage and ALMManifestReaderStage."""
-    from nemo_curator.tasks import AudioTask
-
     results: list[AudioTask] = []
     count = 0
     meta = parent_metadata or {}
@@ -63,7 +62,6 @@ def read_jsonl_manifests(
                     count += 1
         logger.info(f"Manifest reader: loaded {count} entries from {manifest}")
     return results
-from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 
 
 def get_audio_duration(audio_filepath: str) -> float:

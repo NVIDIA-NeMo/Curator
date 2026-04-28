@@ -28,7 +28,7 @@ _EXTRA_PUNCT = (
     "\u2026"        # horizontal ellipsis
     "\u00ab\u00bb"  # guillemets
     "\u2039\u203a"  # single guillemets
-    "\u02bc"        # modifier letter apostrophe (ʼ)
+    "\u02bc"        # modifier letter apostrophe (U+02BC)
 )
 _PUNCT_TABLE = str.maketrans("", "", string.punctuation + _EXTRA_PUNCT)
 
