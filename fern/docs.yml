@@ -50,6 +50,11 @@ redirects:
     destination: "/nemo/curator/v26.04/:path*"
   - source: "/nemo/curator/:path*.html"
     destination: "/nemo/curator/:path*"
+  # Ray executors: old /experimental slug → /ray-executors
+  - source: "/nemo/curator/latest/api-reference/executors/experimental"
+    destination: "/nemo/curator/latest/api-reference/executors/ray-executors"
+  - source: "/nemo/curator/v26.02/api-reference/executors/experimental"
+    destination: "/nemo/curator/v26.02/api-reference/executors/ray-executors"
   # Audio concepts: legacy nested nav URLs → flat slugs (aligned with Sphinx filenames)
   - source: "/about/concepts/audio/curation/pipeline"
     destination: "/about/concepts/audio/curation-pipeline"

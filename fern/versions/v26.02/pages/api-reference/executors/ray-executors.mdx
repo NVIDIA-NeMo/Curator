@@ -1,13 +1,9 @@
 ---
-title: Experimental Executors
-description: "API reference for experimental executors including Ray-based backends"
+title: Ray Executors
+description: "API reference for Ray-based execution backends: RayDataExecutor and RayActorPoolExecutor"
 ---
 
-NeMo Curator provides experimental executors for alternative execution backends. These are located in `nemo_curator.backends.experimental`.
-
-<Warning>
-Experimental executors are subject to change and may not have full feature parity with `XennaExecutor`.
-</Warning>
+NeMo Curator provides Ray-based executors for scalable distributed execution. These are located in `nemo_curator.backends.ray_data` and `nemo_curator.backends.ray_actor_pool`.
 
 ## RayDataExecutor
 
@@ -16,7 +12,7 @@ Uses Ray Data for distributed execution.
 ### Import
 
 ```python
-from nemo_curator.backends.experimental import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 ```
 
 ### Usage
@@ -46,7 +42,7 @@ Uses Ray Actor Pool for distributed execution.
 ### Import
 
 ```python
-from nemo_curator.backends.experimental import RayActorPoolExecutor
+from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
 ```
 
 ### Usage
@@ -149,9 +145,10 @@ class MyCustomExecutor(BaseExecutor):
 | Executor | Best For | Considerations |
 |----------|----------|----------------|
 | `XennaExecutor` | Production workloads | Default choice, most stable |
-| `RayDataExecutor` | Ray-native environments | Experimental |
-| `RayActorPoolExecutor` | Fine-grained actor control | Experimental |
+| `RayDataExecutor` | Ray-native environments | Stable |
+| `RayActorPoolExecutor` | Fine-grained actor control | Stable |
 
 ## Source Code
 
-[View source on GitHub](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/backends/experimental/)
+- [RayDataExecutor](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/backends/ray_data/)
+- [RayActorPoolExecutor](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/backends/ray_actor_pool/)

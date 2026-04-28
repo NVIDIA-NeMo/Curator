@@ -558,9 +558,9 @@ navigation:
               - page: XennaExecutor
                 path: ./v26.02/pages/api-reference/executors/xenna-executor.mdx
                 slug: xenna-executor
-              - page: Experimental
-                path: ./v26.02/pages/api-reference/executors/experimental.mdx
-                slug: experimental
+              - page: Ray Executors
+                path: ./v26.02/pages/api-reference/executors/ray-executors.mdx
+                slug: ray-executors
           - page: Resources
             path: ./v26.02/pages/api-reference/resources.mdx
             slug: resources
