@@ -394,7 +394,7 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
                 try:
                     i, result = future.result()
                     results[i] = result
-                except RuntimeError:  # noqa: PERF203
+                except RuntimeError:
                     # Propagate configuration errors (e.g. missing boto3)
                     for f in futures:
                         f.cancel()

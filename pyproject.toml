@@ -37,16 +37,16 @@ authors = [
 ]
 description = "Scalable Data Preprocessing Tool for Training Large Language Models"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<3.14"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -328,6 +328,10 @@ torchaudio = [
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
 torchvision = [
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+torchcodec = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
