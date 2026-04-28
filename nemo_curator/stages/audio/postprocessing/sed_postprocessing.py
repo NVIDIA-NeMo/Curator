@@ -57,6 +57,10 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
         hysteresis_low: Low threshold for hysteresis (None = simple threshold).
         hysteresis_high: High threshold for hysteresis (None = simple threshold).
         merge_gap_sec: Merge events with gaps smaller than this (0 = disabled).
+        emit_subcategories: If True, detect events per individual AudioSet class
+            instead of aggregating per superclass group.  Each event carries
+            ``label`` (subcategory name, e.g. ``"electric_guitar"``) and
+            ``superclass`` (parent group, e.g. ``"music"``). Default False.
         framewise_key: Key in task data for in-memory framewise array. Default ``"_sed_framewise"``.
         npz_filepath_key: Key in task data for NPZ path (fallback). Default ``"npz_filepath"``.
         events_key: Key for output events list. Default ``"sed_events"``.
@@ -69,6 +73,7 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
     hysteresis_low: float | None = None
     hysteresis_high: float | None = None
     merge_gap_sec: float = 0.0
+    emit_subcategories: bool = False
     framewise_key: str = "_sed_framewise"
     npz_filepath_key: str = "npz_filepath"
     events_key: str = "sed_events"
@@ -101,6 +106,7 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
         import numpy as np
 
         from nemo_curator.stages.audio.postprocessing.sed_utils import (
+            AUDIOSET_CLASS_NAMES,
             SUPERCLASS_GROUPS,
             aggregate_speech_probs,
             framewise_to_events,
@@ -124,22 +130,35 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
         framewise = framewise[:valid_frames]
         smoothing_frames = int(self.smoothing_window_sec * fps) if self.smoothing_window_sec > 0 else 0
 
+        common_kwargs = {
+            "fps": fps,
+            "threshold": self.threshold,
+            "min_duration_sec": self.min_duration_sec,
+            "smoothing_window_frames": smoothing_frames,
+            "hysteresis_low": self.hysteresis_low,
+            "hysteresis_high": self.hysteresis_high,
+            "merge_gap_sec": self.merge_gap_sec,
+        }
+
         all_events: list[dict] = []
-        for label, class_indices in SUPERCLASS_GROUPS.items():
-            probs = aggregate_speech_probs(framewise, class_indices, mode=self.agg_mode)
-            events = framewise_to_events(
-                probs=probs,
-                fps=fps,
-                threshold=self.threshold,
-                min_duration_sec=self.min_duration_sec,
-                smoothing_window_frames=smoothing_frames,
-                hysteresis_low=self.hysteresis_low,
-                hysteresis_high=self.hysteresis_high,
-                merge_gap_sec=self.merge_gap_sec,
-            )
-            for evt in events:
-                evt["label"] = label
-            all_events.extend(events)
+
+        if self.emit_subcategories:
+            for superclass, class_indices in SUPERCLASS_GROUPS.items():
+                for idx in class_indices:
+                    probs = framewise[:, idx]
+                    events = framewise_to_events(probs=probs, **common_kwargs)
+                    subcategory_name = AUDIOSET_CLASS_NAMES.get(idx, f"class_{idx}")
+                    for evt in events:
+                        evt["label"] = subcategory_name
+                        evt["superclass"] = superclass
+                    all_events.extend(events)
+        else:
+            for label, class_indices in SUPERCLASS_GROUPS.items():
+                probs = aggregate_speech_probs(framewise, class_indices, mode=self.agg_mode)
+                events = framewise_to_events(probs=probs, **common_kwargs)
+                for evt in events:
+                    evt["label"] = label
+                all_events.extend(events)
 
         all_events.sort(key=lambda e: e["start_time"])
         return all_events
