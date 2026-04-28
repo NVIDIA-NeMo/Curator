@@ -512,6 +512,19 @@ def main() -> None:
             sys.exit(1)
         requested = requested[requested.index(args.start_from):]
 
+    import time as _time
+
+    def _run(label: str, fn, *a, **kw):
+        """Run fn, print wallclock, accumulate into stage_times."""
+        t0 = _time.time()
+        result = fn(*a, **kw)
+        stage_times[label] = _time.time() - t0
+        print(f"[beta] {label}: {stage_times[label]:.1f}s")
+        return result
+
+    stage_times: dict[str, float] = {}
+    pipeline_start = _time.time()
+
     ray_client = _start_ray(args)
     try:
         current = args.input_manifest
@@ -519,30 +532,37 @@ def main() -> None:
         manifest_pre_cluster: str | None = None
 
         if "asr" in requested:
-            current = run_asr(args, current)
+            current = _run("asr", run_asr, args, current)
         if "sed" in requested:
-            current = run_sed(args, current)
+            current = _run("sed", run_sed, args, current)
         if "sed_post" in requested:
-            current = run_sed_post(args, current)
+            current = _run("sed_post", run_sed_post, args, current)
         if "segment" in requested:
-            current = run_segment(args, current)
+            current = _run("segment", run_segment, args, current)
         if "diarize" in requested:
-            current = run_diarize(args, current)
+            current = _run("diarize", run_diarize, args, current)
             manifest_pre_cluster = current
         if "embed" in requested:
-            current, embedding_dir = run_embed(args, current)
+            current, embedding_dir = _run("embed", run_embed, args, current)
         if "utmos2" in requested:
-            current = run_utmos2(args, current)
+            current = _run("utmos2", run_utmos2, args, current)
         if "cluster_scotch" in requested:
             if not embedding_dir:
                 embedding_dir = _stage_dir(args, "embed")
             if not manifest_pre_cluster:
                 manifest_pre_cluster = _stage_dir(args, "diarize")
-            current = run_cluster_scotch(args, manifest_pre_cluster, embedding_dir)
+            current = _run("cluster_scotch", run_cluster_scotch, args,
+                           manifest_pre_cluster, embedding_dir)
 
+        total = _time.time() - pipeline_start
+        print(f"\n[beta] Stage wallclock summary:")
+        for stage, secs in stage_times.items():
+            print(f"  {stage:<16} {secs:7.1f}s  ({secs/60:.1f} min)")
+        print(f"  {'TOTAL':<16} {total:7.1f}s  ({total/60:.1f} min)")
         print(f"\n[beta] All stages complete. Final output: {current}")
         with open(os.path.join(args.output_dir, "_done.json"), "w") as f:
-            json.dump({"final_output": current, "stages": requested}, f, indent=2)
+            json.dump({"final_output": current, "stages": requested,
+                       "wallclock_s": stage_times, "total_s": total}, f, indent=2)
     finally:
         ray_client.stop()
 
