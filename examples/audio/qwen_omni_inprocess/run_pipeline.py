@@ -213,6 +213,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="Batch size for SED GPU inference.")
     sed.add_argument("--sed_gpu_memory_gb", type=float, default=4.0,
                      help="GPU memory in GB for SED inference stage.")
+    sed.add_argument("--sed_subcategories", action="store_true", default=False,
+                     help="Emit per-class subcategory events instead of aggregated superclass events.")
 
     asr = ap.add_argument_group("QwenASR hallucination recovery")
     asr.add_argument("--asr_model_id", type=str, default=None,
@@ -286,6 +288,7 @@ def main() -> None:  # noqa: C901
                 threshold=args.sed_speech_threshold,
                 min_duration_sec=args.sed_min_duration,
                 merge_gap_sec=args.sed_merge_gap,
+                emit_subcategories=args.sed_subcategories,
             ),
         ])
 
