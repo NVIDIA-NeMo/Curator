@@ -105,15 +105,12 @@ audio_common = [
     "librosa",
     "scipy",
     "pydub>=0.25.1",
-<<<<<<< HEAD
     "transformers",
     "accelerate",
     "pyannote-audio>=4.0.0",
     "whisperx>=3.8.4",
-=======
     "nemo_toolkit[tts]",
     "kaldialign",
->>>>>>> 17a4a08c (Add synthetic audio sanity check skill)
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",
