@@ -298,7 +298,7 @@ override-dependencies = [
     "torch==2.10.0", # Override whisperx's <2.9 cap to match cu129 / vllm 0.18.x
     "torchaudio==2.10.0", # Override whisperx's <2.9 cap to match cu129 / vllm 0.18.x
     "torchvision==0.25.0", # Match torch==2.10.0
-    "torchcodec>=0.9.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # override pyannote-audio's >=0.7.0 floor; gated since aarch64 lacks wheels
+    "torchcodec>=0.9.0,<0.11; platform_machine == 'x86_64' and platform_system != 'Darwin'", # cap below torchcodec 0.11 (built for torch 2.11) to match our torch 2.10 ABI; override pyannote-audio's >=0.7.0 floor; gated since aarch64 lacks wheels
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]

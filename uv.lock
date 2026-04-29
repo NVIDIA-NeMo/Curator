@@ -60,7 +60,7 @@ overrides = [
     { name = "torchaudio", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64') or sys_platform == 'darwin'", specifier = "==2.10.0", index = "https://pypi.org/simple" },
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'linux') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux')", specifier = "==2.10.0" },
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')", specifier = "==2.10.0", index = "https://download.pytorch.org/whl/cu129" },
-    { name = "torchcodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", specifier = ">=0.9.0", index = "https://download.pytorch.org/whl/cu129" },
+    { name = "torchcodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", specifier = ">=0.9.0,<0.11", index = "https://download.pytorch.org/whl/cu129" },
     { name = "torchvision", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64') or sys_platform == 'darwin'", specifier = "==0.25.0", index = "https://pypi.org/simple" },
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'linux') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux')", specifier = "==0.25.0" },
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')", specifier = "==0.25.0", index = "https://download.pytorch.org/whl/cu129" },
@@ -10081,12 +10081,12 @@ wheels = [
 
 [[package]]
 name = "torchcodec"
-version = "0.11.1+cu129"
+version = "0.10.0+cu129"
 source = { registry = "https://download.pytorch.org/whl/cu129" }
 wheels = [
-    { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.11.1%2Bcu129-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:e58def3a347a7a0476d9d662ecc80bdfb679d0f821af175da439a3e5a534056e", upload-time = "2026-04-14T18:06:04Z" },
-    { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.11.1%2Bcu129-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:628ce609e90b6903230a398fa545a529c2a4bcc0564a0e3d9a72106c9e3ed51a", upload-time = "2026-04-14T18:06:04Z" },
-    { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.11.1%2Bcu129-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:e5aa69a4c2157acbcb7550a765438c11f9151ceca55b6e093e8e13b2e45f9806", upload-time = "2026-04-14T18:06:04Z" },
+    { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.10.0%2Bcu129-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:bc926ae1210f8d032d05f77077cdd8e1f7fe6bc7e503b0a5b789735b535f0562", upload-time = "2026-04-27T18:51:38Z" },
+    { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.10.0%2Bcu129-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:396f2e80539c13a49688798a48c77fac61dc70e656067d689c88203da103ed95", upload-time = "2026-04-27T18:51:39Z" },
+    { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.10.0%2Bcu129-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:27e559a3588846f0d9f535655fcf1166849d5fae4f1b783667f791ba52868b78", upload-time = "2026-04-27T18:51:39Z" },
 ]
 
 [[package]]
