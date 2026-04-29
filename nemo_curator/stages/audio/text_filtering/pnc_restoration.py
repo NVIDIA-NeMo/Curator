@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 from nemo_curator.models.qwen_text_llm import QwenTextLLM
+from nemo_curator.stages.audio.pipeline_utils import set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -77,6 +78,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     text_key: str = "cleaned_text"
     output_text_key: str = "pnc_text"
     skip_me_key: str = "_skip_me"
+    notes_key: str = "additional_notes"
     completeness_prompt: str = (
         "The following text is a transcript segment from an audio recording. "
         "It may be a complete, self-contained utterance or thought, "
@@ -193,8 +195,10 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             text = task.data.get(self.text_key, "")
             if skip:
                 task.data[self.output_text_key] = ""
+                set_note(task.data, self.name, "skipped (flagged)", self.notes_key)
             elif not text.strip():
                 task.data[self.output_text_key] = text
+                set_note(task.data, self.name, "skipped (empty)", self.notes_key)
             else:
                 eligible_indices.append(i)
                 eligible_texts.append(text)
@@ -205,8 +209,9 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
 
         is_complete, pnc_texts = self._model.generate(eligible_texts)
 
-        for idx, _complete, pnc_text in zip(eligible_indices, is_complete, pnc_texts, strict=False):
+        for idx, complete, pnc_text in zip(eligible_indices, is_complete, pnc_texts, strict=False):
             tasks[idx].data[self.output_text_key] = pnc_text
+            set_note(tasks[idx].data, self.name, "restored" if complete else "kept as-is (incomplete)", self.notes_key)
 
         n_restored = sum(is_complete)
         logger.info(

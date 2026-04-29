@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from nemo_curator.models.qwen_omni import QwenOmni
+from nemo_curator.stages.audio.pipeline_utils import LANG_CODE_TO_NAME as _LANG_CODE_TO_NAME
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
