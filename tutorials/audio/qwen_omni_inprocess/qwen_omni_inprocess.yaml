@@ -40,7 +40,7 @@ execution_mode: streaming
 data_config: ${input_manifest}
 output_dir: ${workspace_dir}
 corpus: null
-s3_endpoint_url: https://pdx.s8k.io
+s3_endpoint_url: null
 source_lang_key: source_lang
 
 # ===========================================================================

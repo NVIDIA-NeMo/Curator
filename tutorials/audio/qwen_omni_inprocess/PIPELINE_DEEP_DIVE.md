@@ -9,7 +9,7 @@ Granary v2 Qwen-Omni in-process audio pipeline.
 
 ```
 tutorials/audio/qwen_omni_inprocess/
-├── main.py                          ← Hydra entry point (264 lines)
+├── main.py                          ← Hydra entry point (~320 lines, includes _prefetch_models)
 ├── qwen_omni_inprocess.yaml         ← Hydra config (119 lines)
 ├── PIPELINE_DEEP_DIVE.md            ← This file
 └── prompts/
@@ -307,7 +307,49 @@ stages.append(ShardedManifestWriterStage(output_dir=output_dir))
 
 Always last. Writes processed tasks to per-shard JSONL files.
 
-### Lines 238-263: `main(cfg)` — Hydra entry point
+### Lines 239-291: `_prefetch_models(cfg)` — Parallel model pre-download
+
+```python
+def _prefetch_models(cfg: DictConfig) -> None:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from huggingface_hub import snapshot_download
+
+    tasks = {}
+    # Qwen3-Omni model (15GB, 6 safetensor shards)
+    omni_model = cfg.get("model_id", "Qwen/Qwen3-Omni-30B-A3B-Instruct")
+    tasks["qwen_omni"] = lambda m=omni_model: snapshot_download(m)
+
+    # FastText LID model (130MB)
+    tasks["fasttext"] = lambda: snapshot_download("facebook/fasttext-language-identification")
+
+    # PnC text LLM (18GB, FP8)
+    if cfg.get("pnc_model_id"):
+        pnc_model = cfg.pnc_model_id
+        tasks["pnc"] = lambda m=pnc_model: snapshot_download(m)
+
+    # ASR recovery model (optional)
+    if cfg.get("asr_model_id"):
+        asr_model = cfg.asr_model_id
+        tasks["asr"] = lambda m=asr_model: snapshot_download(m)
+
+    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
+        futures = {pool.submit(fn): name for name, fn in tasks.items()}
+        for future in as_completed(futures):
+            name = futures[future]
+            future.result()  # raises on failure
+            logger.info(f"Pre-fetched: {name}")
+```
+
+Downloads ALL models concurrently before `pipeline.run()`. Each `snapshot_download()` uses ~8 HF hub threads internally, giving ~24 concurrent HTTP connections total on `gpu.l40s.4` (218 CPUs, 980Gi RAM).
+
+**Performance impact:**
+- Wall-clock download = `max(15GB, 18GB)` ≈ 12 min instead of sequential 15+18 ≈ 22 min
+- **Saves ~10-13 min per first-run job**
+- Zero impact on subsequent runs (all cached in `/tmp/hf_home/hub/`)
+
+**Lambda closure:** Note `lambda m=omni_model: ...` — the default argument captures the current value at definition time, avoiding a common Python closure bug where all lambdas would reference the same variable.
+
+### Lines 293-313: `main(cfg)` — Hydra entry point
 
 ```python
 @hydra.main(version_base=None)
@@ -316,6 +358,8 @@ def main(cfg: DictConfig) -> None:
     if hf_token:
         os.environ["HF_TOKEN"] = hf_token
         os.environ.setdefault("HF_HOME", "/tmp/hf_home")
+
+    _prefetch_models(cfg)                # ← NEW: parallel model pre-download
 
     pipeline = build_granary_v2_pipeline(cfg)
     executor = XennaExecutor(config={"execution_mode": cfg.get("execution_mode", "streaming")})
@@ -326,10 +370,12 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"Pipeline finished in {elapsed / 60:.1f} min.")
 ```
 
-1. Sets `HF_TOKEN` from Hydra config (passed by NvLLMOps from Vault)
-2. Builds the pipeline
-3. Creates `XennaExecutor` in streaming mode (stages run concurrently)
-4. Runs and times the pipeline
+1. Sets `HF_TOKEN` from Hydra config (passed by NvLLMOps from Vault, or CLI)
+2. Sets `HF_HOME` to `/tmp/hf_home` (writable ephemeral disk inside containers)
+3. **Pre-fetches all models in parallel** — ensures `setup_on_node()` in each stage gets instant cache hits
+4. Builds the pipeline
+5. Creates `XennaExecutor` in streaming mode (stages run concurrently)
+6. Runs and times the pipeline
 
 ---
 
@@ -1091,3 +1137,25 @@ At any stage, if `_skip_me` is non-empty, subsequent stages either:
 
 The utterance is still written to the output manifest — the `_skip_me`
 field allows downstream consumers to filter as needed.
+
+---
+
+## 7. NvLLMOps Integration Notes
+
+This pipeline is invoked by two different orchestration systems in the NvLLMOps repository:
+
+### Kratos (Kubeflow Pipelines)
+- **Entry:** `wf_harvest_curator.py` → `run_curator.py` → `subprocess.run("python main.py --config-path=... ...")`
+- **Data source:** NeMo-tarred data on Swiftstack S3 (streamed via `s3_endpoint_url: https://pdx.s8k.io`)
+- **Models:** Downloaded from HuggingFace Hub at runtime (token from Vault: `HARVEST_SDP_HF_TOKEN`)
+- **Output:** Uploaded to Swift via `upload_curator_output()` after pipeline completes
+- **Resource:** `gpu.l40s.4` — 4x L40S GPU, 218 CPU, 980Gi RAM, 5680Gi disk
+
+### Slurm (HPC)
+- **Entry:** `run_granary_v2.sh` → `srun --container-image=... bash -c "python main.py ..."`
+- **Data source:** NeMo-tarred data on Lustre filesystem (mounted into container)
+- **Models:** Pre-cached on Lustre (`HF_HUB_OFFLINE=1`, no internet from compute nodes)
+- **Output:** Written directly to Lustre output directory
+- **Resource:** Configurable via `config.env` (8 GPUs typical)
+
+The pipeline code itself is identical in both paths — only the orchestration, data access, and model caching differ.
