@@ -20,28 +20,13 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from nemo_curator.models.qwen_omni import QwenOmni
+from nemo_curator.stages.audio.pipeline_utils import LANG_CODE_TO_NAME as _LANG_CODE_TO_NAME
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-
-_LANG_CODE_TO_NAME: dict[str, str] = {
-    "en": "English", "de": "German", "es": "Spanish", "fr": "French",
-    "it": "Italian", "pt": "Portuguese", "nl": "Dutch", "ru": "Russian",
-    "pl": "Polish", "cs": "Czech", "ro": "Romanian", "hu": "Hungarian",
-    "el": "Greek", "fi": "Finnish", "da": "Danish", "sv": "Swedish",
-    "lt": "Lithuanian", "lv": "Latvian", "hr": "Croatian", "et": "Estonian",
-    "bg": "Bulgarian", "sk": "Slovak", "sl": "Slovenian", "mt": "Maltese",
-    "uk": "Ukrainian", "sr": "Serbian", "mk": "Macedonian", "no": "Norwegian",
-    "hi": "Hindi", "ta": "Tamil", "mr": "Marathi", "bn": "Bengali",
-    "kn": "Kannada", "te": "Telugu", "ml": "Malayalam", "gu": "Gujarati",
-    "ur": "Urdu", "pa": "Punjabi",
-    "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "ar": "Arabic",
-    "he": "Hebrew", "id": "Indonesian", "vi": "Vietnamese", "th": "Thai",
-    "tr": "Turkish", "fil": "Filipino", "tl": "Tagalog", "fa": "Persian",
-}
 
 
 @dataclass

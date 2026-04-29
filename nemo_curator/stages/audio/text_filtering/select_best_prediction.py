@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from loguru import logger
 
 from nemo_curator.stages.audio.metrics.get_wer import get_wer
+from nemo_curator.stages.audio.pipeline_utils import set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -69,11 +70,13 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     def process(self, task: AudioTask) -> AudioTask:
         primary_pred = task.data.get(self.primary_text_key, "")
         asr_pred = task.data.get(self.asr_text_key, "")
-        notes = str(task.data.get(self.notes_key, ""))
+        notes = task.data.get(self.notes_key, {})
         skip_me = str(task.data.get(self.skip_me_key, ""))
 
-        if "Recovered" in notes and asr_pred:
+        has_recovery = any("recovered" in str(v).lower() for v in (notes.values() if isinstance(notes, dict) else [notes]))
+        if has_recovery and asr_pred:
             task.data[self.output_key] = asr_pred
+            set_note(task.data, self.name, "used asr", self.notes_key)
             return task
 
         both_hallucinated = skip_me.startswith("Hallucination") and asr_pred
@@ -86,9 +89,10 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                     f"(threshold {100.0 - self.min_agreement_pct:.1f}%), keeping omni prediction"
                 )
                 task.data[self.output_key] = primary_pred
-                task.data[self.notes_key] = "Recovered:CrossModelAgreement"
                 task.data[self.skip_me_key] = ""
+                set_note(task.data, self.name, f"recovered:cross_model_agreement (wer={wer:.1f}%)", self.notes_key)
                 return task
 
         task.data[self.output_key] = primary_pred
+        set_note(task.data, self.name, "used omni", self.notes_key)
         return task
