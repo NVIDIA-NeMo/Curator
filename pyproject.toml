@@ -320,16 +320,16 @@ explicit = true
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchaudio = [
-    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchvision = [
-    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchcodec = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
