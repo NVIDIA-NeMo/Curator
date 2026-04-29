@@ -1,26 +1,7 @@
----
-marp: true
-theme: default
-paginate: true
-style: |
-  section {
-    font-family: 'NVIDIA Sans', 'Helvetica Neue', Arial, sans-serif;
-    font-size: 1.1rem;
-  }
-  h1 { color: #76b900; }
-  h2 { color: #1a1a1a; border-bottom: 2px solid #76b900; padding-bottom: 6px; }
-  code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
-  pre { background: #1e1e1e; color: #d4d4d4; }
-  .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
-  .highlight { background: #76b90020; border-left: 4px solid #76b900; padding: 0.5rem 1rem; }
----
+
 
 # Pipeline Resumability
 ## NeMo Curator — Checkpointing Support
-
-`onur/resumability-support` · April 2026
-
----
 
 ## The Problem
 
