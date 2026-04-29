@@ -203,10 +203,7 @@ class TestBackendIntegrations:
         # Tasks can get fused with Actors, but Actors can't get fused with Tasks or Actors
         # StreamingRepartition should never get fused
 
-        if ray.__version__ >= "2.53.0":
-            streaming_repartition = "StreamingRepartition[num_rows_per_block=1]"
-        else:
-            streaming_repartition = "StreamingRepartition"
+        streaming_repartition = "StreamingRepartition[num_rows_per_block=1,strict=False]"
         expected_stages = [
             "InputDataBuffer[Input]",
             "TaskPoolMapOperator[MapBatches(FilePartitioningStageTask)]",

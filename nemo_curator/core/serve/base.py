@@ -95,6 +95,10 @@ class BaseModelConfig:
         if isinstance(override, dict):
             override_packages = list(override.get("packages", []))
             override_options = list(override.get(option_key, []))
+            # Carry override's extra keys (e.g. ``pip_check``) through. The
+            # symmetric base-side propagation happens via ``deepcopy(base)``
+            # above when base is a dict; when base is a list it has no extra
+            # keys to carry.
             for k, v in override.items():
                 if k not in {"packages", option_key}:
                     merged[k] = deepcopy(v)

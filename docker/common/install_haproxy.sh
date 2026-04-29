@@ -60,6 +60,17 @@ make -C "${BUILD_DIR}" TARGET=linux-glibc \
 make -C "${BUILD_DIR}" install SBINDIR=/usr/local/bin
 rm -rf "${BUILD_DIR}"
 
+# Drop build-only deps so they don't bloat the image. Keep liblua5.3-0 and
+# socat because the HAProxy binary links against them at runtime.
+apt-get purge -y --auto-remove \
+    build-essential \
+    libc6-dev \
+    liblua5.3-dev \
+    libpcre3-dev \
+    libssl-dev \
+    zlib1g-dev
+rm -rf /var/lib/apt/lists/*
+
 mkdir -p /etc/haproxy /run/haproxy /var/log/haproxy
 
 haproxy -v
