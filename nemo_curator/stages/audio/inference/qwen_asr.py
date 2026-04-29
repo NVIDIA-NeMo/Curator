@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -67,11 +67,18 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     gpu_memory_utilization: float = 0.7
     max_new_tokens: int = 4096
     max_inference_batch_size: int = 128
+    num_workers: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
 
     def __post_init__(self) -> None:
         self._model: QwenASR | None = None
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        spec: dict[str, Any] = {}
+        if self.num_workers is not None:
+            spec["num_workers"] = self.num_workers
+        return spec
 
     def _create_model(self) -> QwenASR:
         return QwenASR(

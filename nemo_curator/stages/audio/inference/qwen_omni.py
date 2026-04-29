@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -83,6 +83,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     top_k: int = 1
     prep_workers: int = 8
     keep_waveform: bool = False
+    num_workers: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
 
@@ -91,6 +92,12 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         tp = self.tensor_parallel_size
         if tp and tp > 0:
             self.resources = Resources(gpus=float(tp))
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        spec: dict[str, Any] = {}
+        if self.num_workers is not None:
+            spec["num_workers"] = self.num_workers
+        return spec
 
     def _create_model(self) -> QwenOmni:
         return QwenOmni(

@@ -103,6 +103,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap.add_argument("--s3_endpoint_url", type=str, default=None)
     ap.add_argument("--execution_mode", type=str, default="streaming",
                     choices=["streaming", "batch"], help="Xenna execution mode.")
+    ap.add_argument("--autoscale_interval_s", type=int, default=180,
+                    help="Seconds between Xenna streaming autoscaler checks. "
+                         "Lower values ramp up GPU actors faster on multi-node.")
 
     tf = ap.add_argument_group("text filtering")
     tf.add_argument("--hall_phrases", type=str, required=True,
@@ -187,6 +190,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     itn.add_argument("--itn_gpu_memory_utilization", type=float, default=0.95,
                      help="Fraction of GPU memory for ITN vLLM engine.")
     itn.add_argument("--itn_no_validation", action="store_true", help="Disable ITN output validation.")
+
+    scaling = ap.add_argument_group("multi-node scaling")
+    scaling.add_argument("--omni_num_workers", type=int, default=None,
+                         help="Fixed actor count for QwenOmni stage. Default: autoscaler decides.")
+    scaling.add_argument("--asr_num_workers", type=int, default=None,
+                         help="Fixed actor count for QwenASR stage.")
+    scaling.add_argument("--pnc_num_workers", type=int, default=None,
+                         help="Fixed actor count for PnC stage.")
+    scaling.add_argument("--itn_num_workers", type=int, default=None,
+                         help="Fixed actor count for ITN stage.")
     return ap
 
 
@@ -259,6 +272,7 @@ def main() -> None:  # noqa: C901
         pred_text_key="qwen3_prediction_s1",
         disfluency_text_key="qwen3_prediction_s2",
         keep_waveform=bool(args.asr_model_id),
+        num_workers=args.omni_num_workers,
     ))
 
     if followup_prompt:
@@ -286,6 +300,7 @@ def main() -> None:  # noqa: C901
                 batch_size=args.asr_batch_size,
                 gpu_memory_utilization=args.asr_gpu_memory_utilization,
                 max_new_tokens=args.asr_max_new_tokens,
+                num_workers=args.asr_num_workers,
             ),
             WhisperHallucinationStage(
                 name="WhisperHallucination_asr",
@@ -335,6 +350,7 @@ def main() -> None:  # noqa: C901
                 max_model_len=args.pnc_max_model_len,
                 max_num_seqs=args.pnc_max_num_seqs,
                 prep_workers=args.pnc_prep_workers,
+                num_workers=args.pnc_num_workers,
                 **({"pnc_prompt": pnc_prompt_text} if pnc_prompt_text else {}),
                 **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
             ),
@@ -358,6 +374,7 @@ def main() -> None:  # noqa: C901
             gpu_memory_utilization=args.itn_gpu_memory_utilization,
             batch_size=args.itn_batch_size,
             enable_validation=not args.itn_no_validation,
+            num_workers=args.itn_num_workers,
         ))
 
     stages.append(ShardedManifestWriterStage(output_dir=args.output_dir))
@@ -371,6 +388,7 @@ def main() -> None:  # noqa: C901
 
     executor = XennaExecutor(config={
         "execution_mode": args.execution_mode,
+        "autoscale_interval_s": args.autoscale_interval_s,
     })
 
     t0 = time.time()
