@@ -188,14 +188,13 @@ def init_cluster(  # noqa: PLR0913
     # We set some env vars for Xenna here. This is only used for Xenna clusters.
     os.environ["XENNA_RAY_METRICS_PORT"] = str(ray_metrics_port)
 
-    # Opt into Ray Serve's HAProxy ingress (Ray 2.55+) when both binaries are
-    # available: HAProxy runs as a subprocess and socat is needed for the
-    # admin-socket health check (without socat, healthcheck silently returns
-    # False and trips a 5s timeout). Must be set before Popen — Ray reads
-    # RAY_SERVE_ENABLE_HA_PROXY at module-import on the raylet/worker.
-    # TODO(https://github.com/ray-project/ray/issues/62976): once that lands
-    # in a Ray release, also set RAY_SERVE_HAPROXY_STATS_PORT to a free port
-    # so multiple clusters on one host don't collide on HAProxy's stats bind.
+    # Opt into Ray Serve's HAProxy ingress when both binaries resolve. Ray Serve
+    # uses socat to drive HAProxy's admin socket — without it, the controller's
+    # healthcheck silently returns False and trips a 5s timeout. Must precede
+    # Popen so Ray sees the env var at module-import on the raylet/worker.
+    # TODO(https://github.com/ray-project/ray/issues/62976): also set
+    # RAY_SERVE_HAPROXY_STATS_PORT once that lands so multi-cluster hosts
+    # don't collide on HAProxy's stats bind.
     if shutil.which("haproxy") is not None and shutil.which("socat") is not None:
         os.environ["RAY_SERVE_ENABLE_HA_PROXY"] = "1"
         os.environ["RAY_SERVE_HAPROXY_METRICS_PORT"] = str(get_free_port(DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT))

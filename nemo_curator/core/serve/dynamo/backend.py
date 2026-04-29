@@ -168,9 +168,6 @@ class DynamoBackend(InferenceBackend):
         except Exception:  # noqa: BLE001
             logger.warning("Dynamo backend shutdown hit an error (cluster may be gone)", exc_info=True)
 
-        # Leave the runtime dir on disk so benchmarking/runner/ray_cluster.py
-        # can copy it out of session_latest/ during ray_client.stop().
-        self._runtime_dir = None
         self._server._host = "localhost"
         logger.info("Dynamo backend stopped")
 

@@ -69,16 +69,10 @@ class BaseModelConfig:
         base: dict[str, Any] | list[str] | None,
         override: dict[str, Any] | list[str] | None,
     ) -> dict[str, Any] | list[str]:
-        """Merge one ``pip``/``uv`` runtime_env entry while preserving installer options.
-
-        Ray accepts these entries in two shapes: the legacy list form
-        ``["pkg1", "pkg2"]`` or the structured dict form
-        ``{"packages": [...], "uv_pip_install_options": [...]}`` (and similarly
-        ``pip_install_options``). When a backend owns the dict form (e.g. to
-        inject ``--reinstall-package`` for a build-from-source dependency),
-        a user's list-form override must append to the package list without
-        dropping the installer options.
-        """
+        # Ray accepts pip/uv as either a list of packages or a dict carrying
+        # ``packages`` plus ``{pip,uv_pip}_install_options``. A list-form
+        # override must append to ``packages`` without dropping the dict-form
+        # base's installer options.
         if base is None:
             return deepcopy(override)
         if override is None:
