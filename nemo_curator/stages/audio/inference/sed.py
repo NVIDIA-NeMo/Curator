@@ -95,7 +95,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
     filepath_key: str = "audio_filepath"
-    skip_me_key: str = "_skip_me"
+    skip_me_key: str = "_skipme"
 
     name: str = "SEDInference"
     batch_size: int = 32

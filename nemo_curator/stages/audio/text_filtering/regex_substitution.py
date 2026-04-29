@@ -35,14 +35,14 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
     and writes the result to ``output_text_key`` (default ``"cleaned_text"``).
     The original ``text_key`` field is preserved unchanged.
 
-    After all substitutions, if the result is empty and ``skip_me`` is
-    still empty, ``skip_me`` is set to ``"Empty after regex cleaning"``.
+    After all substitutions, if the result is empty and ``_skipme`` is
+    still empty, ``_skipme`` is set to ``"Empty after regex cleaning"``.
     """
 
     regex_params_yaml: str = ""
     text_key: str = "pred_text"
     output_text_key: str = "cleaned_text"
-    skip_me_key: str = "_skip_me"
+    skip_me_key: str = "_skipme"
     name: str = "RegexSubstitution"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 

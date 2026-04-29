@@ -22,7 +22,7 @@ Architecture:
     NemoTarredAudioReader (CPU)
         → streams NeMo-tarred shards, decodes audio in memory
     InitializeFieldsStage (CPU)
-        → sets _skip_me = "", renames text → granary_v1_prediction
+        → sets _skipme = "", renames text → granary_v1_prediction
     [optional] SEDInferenceStage (GPU)
         → runs PANNs CNN14 on each audio, produces framewise probabilities
     [optional] SEDPostprocessingStage (CPU)
@@ -32,7 +32,7 @@ Architecture:
     [optional] DisfluencyWerGuardStage (CPU)
         → compares Turn 1 vs Turn 2 WER
     WhisperHallucinationStage (CPU)
-        → flags hallucination patterns, sets _skip_me
+        → flags hallucination patterns, sets _skipme
     [optional] InferenceQwenASRStage (GPU)
         → re-transcribes only hallucinated samples with Qwen3-ASR
     [optional] WhisperHallucinationStage (CPU)
