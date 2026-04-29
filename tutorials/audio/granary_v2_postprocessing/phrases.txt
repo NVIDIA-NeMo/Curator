@@ -30,7 +30,6 @@ Hvordan
 Hvad
 Hej, hvor er du
 Да, съгласен съм
-Ja, det er rigtigt
 Съжалявам
 Tilbage
 Това е 
@@ -58,3 +57,18 @@ Tämä on
 Так, ну что, поехали
 Това е първият въпрос.
 Следващият
+Förstår du mig
+Så det är
+Det är en mycket
+Tack för att
+Ja
+Självklart
+Tja
+Så här
+Hoeveel
+Zoals ik
+Deze kamer
+Een
+Ez
+Deze koffie
+Dzisiaj
