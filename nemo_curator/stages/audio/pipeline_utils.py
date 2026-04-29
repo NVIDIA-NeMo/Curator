@@ -16,7 +16,7 @@
 
 Provides:
 - ``set_note`` — per-stage decision tracking via an ``additional_notes`` dict
-- ``lang_code_to_name`` — ISO 639-1 code to full English name mapping
+- ``LANG_CODE_TO_NAME`` — ISO 639-1 code to full English name mapping
 """
 
 from typing import Any
@@ -51,14 +51,3 @@ def set_note(task_data: dict[str, Any], stage_name: str, value: str, notes_key: 
         notes = {}
         task_data[notes_key] = notes
     notes[stage_name] = value
-
-
-def lang_code_to_name(code: str | None) -> str | None:
-    """Convert an ISO 639-1 language code to its full English name.
-
-    Returns the code itself if no mapping is found, or ``None`` if
-    the input is ``None`` or empty.
-    """
-    if not code:
-        return None
-    return LANG_CODE_TO_NAME.get(code, code)

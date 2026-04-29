@@ -202,9 +202,15 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
 
         is_complete, pnc_texts = self._model.generate(eligible_texts)
 
-        for idx, complete, pnc_text in zip(eligible_indices, is_complete, pnc_texts, strict=False):
+        for ei, (idx, complete, pnc_text) in enumerate(zip(eligible_indices, is_complete, pnc_texts, strict=False)):
             tasks[idx].data[self.output_text_key] = pnc_text
-            set_note(tasks[idx].data, self.name, "restored" if complete else "kept as-is (incomplete)", self.notes_key)
+            if not complete:
+                note = "kept as-is (incomplete)"
+            elif pnc_text != eligible_texts[ei]:
+                note = "applied (modified)"
+            else:
+                note = "applied (unchanged)"
+            set_note(tasks[idx].data, self.name, note, self.notes_key)
 
         n_restored = sum(is_complete)
         logger.info(

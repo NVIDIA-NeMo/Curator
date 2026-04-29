@@ -304,7 +304,8 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
                     ok, reason = _validate_itn_output(input_text, itn_text)
                     if ok:
                         task.data[self.output_text_key] = itn_text
-                        set_note(task.data, self.name, "restored", self.notes_key)
+                        note = "applied (modified)" if itn_text != input_text else "applied (unchanged)"
+                        set_note(task.data, self.name, note, self.notes_key)
                     else:
                         task.data[self.output_text_key] = input_text
                         task.data[self.itn_filtered_key] = reason
@@ -312,7 +313,8 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
                         set_note(task.data, self.name, f"fallback ({reason})", self.notes_key)
                 else:
                     task.data[self.output_text_key] = itn_text
-                    set_note(task.data, self.name, "restored", self.notes_key)
+                    note = "applied (modified)" if itn_text != input_text else "applied (unchanged)"
+                    set_note(task.data, self.name, note, self.notes_key)
 
                 self._n_processed += 1
 
