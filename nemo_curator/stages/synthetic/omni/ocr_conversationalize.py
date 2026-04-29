@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from dataclasses import dataclass
+from typing import Any
 
 from nemo_curator.stages.synthetic.omni.utils.conversation import ConversationSample
 from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
@@ -146,6 +148,12 @@ class OCRConversationData(OCRData):
     """OCRData with a conversation field added by OCRConversationalizeStage."""
 
     conversation: ConversationSample | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d = dataclasses.asdict(self)
+        if self.conversation is not None:
+            d["conversation"] = self.conversation.to_dict()
+        return d
 
 
 
