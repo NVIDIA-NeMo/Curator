@@ -174,12 +174,23 @@ class Pipeline:
 
         return "\n".join(lines)
 
-    def run(self, executor: BaseExecutor | None = None, initial_tasks: list[Task] | None = None) -> list[Task] | None:
+    def run(
+        self,
+        executor: BaseExecutor | None = None,
+        initial_tasks: list[Task] | None = None,
+        checkpoint_path: str | None = None,
+        checkpoint_storage_options: dict[str, Any] | None = None,
+    ) -> list[Task] | None:
         """Run the pipeline.
 
         Args:
             executor (BaseExecutor): Executor to use
             initial_tasks (list[Task], optional): Initial tasks to start the pipeline with. Defaults to None.
+            checkpoint_path (str, optional): Path to checkpoint directory for resumability.
+                When provided, completed source partitions are skipped on restart.
+                Must be on a shared filesystem (NFS or object storage) for multi-node clusters.
+            checkpoint_storage_options (dict, optional): fsspec storage options for the checkpoint path
+                (e.g. S3 credentials). Defaults to None.
 
         Returns:
             list[Task] | None: List of tasks
@@ -190,6 +201,17 @@ class Pipeline:
             from nemo_curator.backends.xenna import XennaExecutor
 
             executor = XennaExecutor()
+
+        # Resolve relative checkpoint paths to absolute NOW (in the driver process)
+        # so that Ray workers — which may have a different working directory — all
+        # write to the same location.  Cloud paths (s3://, gs://, …) are left as-is.
+        if checkpoint_path and "://" not in checkpoint_path:
+            import os
+
+            abs_path = os.path.abspath(checkpoint_path)
+            if abs_path != checkpoint_path:
+                logger.info(f"Checkpoint path {checkpoint_path!r} resolved to absolute path {abs_path!r}")
+            checkpoint_path = abs_path
 
         from nemo_curator.core.serve import is_inference_server_active
 
@@ -212,4 +234,65 @@ class Pipeline:
                     "The executor will schedule GPU stages on GPUs not held by Serve."
                 )
 
-        return executor.execute(self.stages, initial_tasks)
+        if checkpoint_path:
+            stages = self._with_checkpoint_stages(self.stages, checkpoint_path, checkpoint_storage_options)
+        else:
+            self._clear_checkpoint_attrs(self.stages)
+            stages = self.stages
+        return executor.execute(stages, initial_tasks)
+
+    @staticmethod
+    def _clear_checkpoint_attrs(stages: list[ProcessingStage]) -> None:
+        """Remove checkpoint stamp attributes from stage objects.
+
+        Called when run() is invoked without checkpoint_path so that a prior
+        checkpoint-enabled run cannot leave stale _checkpoint_path attributes
+        that would cause BaseStageAdapter to create spurious CheckpointManagers.
+        """
+        for stage in stages:
+            stage.__dict__.pop("_checkpoint_path", None)
+            stage.__dict__.pop("_checkpoint_storage_options", None)
+
+    def _with_checkpoint_stages(
+        self,
+        stages: list[ProcessingStage],
+        checkpoint_path: str,
+        storage_options: dict[str, Any] | None = None,
+    ) -> list[ProcessingStage]:
+        """Return a new stages list with checkpoint filter/recorder injected.
+
+        - A ``_CheckpointFilterStage`` is inserted after every ``is_source_stage()`` stage.
+        - A ``_CheckpointRecorderStage`` is appended after the last stage.
+        - Every stage gets ``_checkpoint_path`` and ``_checkpoint_storage_options`` set as
+          instance attributes so ``BaseStageAdapter`` can write fan-out increment files.
+
+        Note: the stage objects in ``stages`` are mutated (checkpoint attrs stamped).
+        Call ``_clear_checkpoint_attrs`` to remove them when checkpointing is not active.
+        """
+        from nemo_curator.stages.checkpoint import (
+            _CheckpointFilterStage,
+            _CheckpointRecorderStage,
+        )
+
+        storage_options = storage_options or {}
+        result: list[ProcessingStage] = []
+        for stage in stages:
+            # Stamp checkpoint info onto every stage so BaseStageAdapter can write increments
+            stage._checkpoint_path = checkpoint_path
+            stage._checkpoint_storage_options = storage_options
+            result.append(stage)
+            if stage.is_source_stage():
+                result.append(
+                    _CheckpointFilterStage(
+                        checkpoint_path=checkpoint_path,
+                        storage_options=storage_options,
+                    )
+                )
+
+        result.append(
+            _CheckpointRecorderStage(
+                checkpoint_path=checkpoint_path,
+                storage_options=storage_options,
+            )
+        )
+        return result

@@ -38,7 +38,7 @@ def test_resolve_schema_overrides_merge_onto_interleaved_schema() -> None:
     assert result.field("text_content").type == pa.large_string()  # reserved field overridden
 
 
-def test_resolve_schema_explicit_schema_ignores_overrides(caplog) -> None:  # noqa: ANN001
+def test_resolve_schema_explicit_schema_ignores_overrides(caplog) -> None:
     custom = pa.schema([pa.field("sample_id", pa.string())])
     with caplog.at_level(logging.WARNING, logger="nemo_curator"):
         result = resolve_schema(custom, {"extra": pa.float64()})

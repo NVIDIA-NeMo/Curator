@@ -1191,7 +1191,7 @@ def test_parquet_reader_empty_file_list_returns_empty_batch() -> None:
     assert set(INTERLEAVED_SCHEMA.names) <= set(df.columns)
 
 
-def test_source_files_for_split_null_sample_ids_fallback(caplog) -> None:  # noqa: ANN001
+def test_source_files_for_split_null_sample_ids_fallback(caplog) -> None:
     split = pa.table({"sample_id": pa.array([None, None], type=pa.string())})
     with caplog.at_level(logging.WARNING, logger="nemo_curator"):
         result = BaseInterleavedReader._source_files_for_split(split, 2, {}, ["/a.parquet", "/b.parquet"])

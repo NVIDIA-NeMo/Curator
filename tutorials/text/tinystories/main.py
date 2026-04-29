@@ -70,7 +70,7 @@ def main(args: argparse.Namespace) -> None:
     print("Starting the curation pipeline")
     start_time = time.time()
     # Run the pipeline
-    results = pipeline.run()
+    results = pipeline.run(checkpoint_path=args.checkpoint_dir)
     end_time = time.time()
     execution_time = end_time - start_time
     # Count the total number of records
@@ -95,6 +95,17 @@ if __name__ == "__main__":
         choices=["train", "valid"],
         default="valid",
         help="The dataset split to process (either 'train' or 'valid')",
+    )
+    parser.add_argument(
+        "--checkpoint_dir",
+        type=str,
+        default=None,
+        help=(
+            "Path to checkpoint directory for pipeline resumability. "
+            "When provided, source partitions that have already been fully "
+            "processed are skipped on restart. Must be on a shared filesystem "
+            "(NFS or object storage) for multi-node clusters."
+        ),
     )
     args = parser.parse_args()
     main(args)

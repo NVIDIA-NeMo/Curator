@@ -27,6 +27,8 @@ from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICAT
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.text.io.writer.utils import get_deterministic_hash
+from nemo_curator.tasks import Task
 from nemo_curator.tasks.file_group import FileGroupTask
 from nemo_curator.utils.file_utils import create_or_overwrite_dir, get_fs
 
@@ -152,6 +154,27 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
         logger.info("Computing weakly connected components completed successfully!")
         return res
 
+    def get_cached_output(self, input_tasks: list[Task]) -> list[Task] | None:
+        """Return pre-existing output if the deterministic output file already exists."""
+        all_files = [str(f) for task in input_tasks for f in task.data]
+        stable_id = get_deterministic_hash(all_files, "connected_components")
+        output_file = self.output_fs.sep.join([self.output_path, f"{stable_id}.parquet"])
+        if self.output_fs.exists(output_file):
+            logger.info(
+                f"ConnectedComponentsStage: cached output found at {output_file}, skipping."
+            )
+            return [
+                FileGroupTask(
+                    dataset_name=input_tasks[0].dataset_name,
+                    task_id=input_tasks[0].task_id,
+                    data=[output_file],
+                    _metadata={
+                        "storage_options": self.write_kwargs.get("storage_options"),
+                    },
+                )
+            ]
+        return None
+
     def process(self, task: FileGroupTask) -> FileGroupTask:
         err_msg = "ConnectedComponentsStage only support process batch"
         raise NotImplementedError(err_msg)
@@ -173,7 +196,8 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
         input_files = []
         for task in tasks:
             input_files.extend(task.data)
-        output_file = self.output_fs.sep.join([self.output_path, f"{tasks[0]._uuid}.parquet"])
+        _stable_id = get_deterministic_hash([str(f) for f in input_files], "connected_components")
+        output_file = self.output_fs.sep.join([self.output_path, f"{_stable_id}.parquet"])
         edgelist_columns = [self.source_field, self.destination_field]
         dfs = []
         for input_file in input_files:

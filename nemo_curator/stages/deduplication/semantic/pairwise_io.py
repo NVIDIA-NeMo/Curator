@@ -65,6 +65,9 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
         self.fs = get_fs(self.input_path, storage_options=self.storage_options)
         self.path_normalizer = self.fs.unstrip_protocol if is_remote_url(self.input_path) else (lambda x: x)
 
+    def is_source_stage(self) -> bool:
+        return True
+
     def ray_stage_spec(self) -> dict[str, Any]:
         """Ray stage specification for this stage."""
         return {
@@ -118,6 +121,7 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
                 _metadata={
                     "centroid_id": centroid_id,
                     "filetype": "parquet",
+                    "source_files": partition_files,
                 },
             )
             tasks.append(pairwise_task)

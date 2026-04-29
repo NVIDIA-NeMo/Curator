@@ -71,10 +71,12 @@ class ClientPartitioningStage(FilePartitioningStage):
         tasks = []
         total = len(partitions)
         dataset_name = self._get_dataset_name(self.file_paths)
+        from nemo_curator.stages.file_partitioning import _compute_partition_id
+
         for i, group in enumerate(partitions):
             tasks.append(
                 FileGroupTask(
-                    task_id=f"file_group_{i}",
+                    task_id=f"file_group_{_compute_partition_id(group)}",
                     dataset_name=dataset_name,
                     data=group,
                     _metadata={

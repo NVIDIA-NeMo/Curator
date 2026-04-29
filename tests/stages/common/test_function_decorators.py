@@ -125,7 +125,7 @@ class TestProcessingStageDecorator:
         with pytest.raises(ValueError):  # noqa: PT011
 
             @processing_stage(name="BadStage")
-            def bad_stage(task: MockTask, _: int):  # type: ignore[valid-type]  # noqa: ANN202
+            def bad_stage(task: MockTask, _: int):  # type: ignore[valid-type]
                 return task
 
     def test_stage_registry(self) -> None:

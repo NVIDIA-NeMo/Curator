@@ -236,7 +236,12 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             if self.eps is not None:
                 create_or_overwrite_dir(self.duplicates_output_path, storage_options=storage_options)
 
-    def _run_kmeans_stage(self, kmeans_executor: RayActorPoolExecutor) -> list[Any]:
+    def _run_kmeans_stage(
+        self,
+        kmeans_executor: RayActorPoolExecutor,
+        checkpoint_path: str | None = None,
+        checkpoint_storage_options: dict | None = None,
+    ) -> list[Any]:
         """Run K-means clustering stage (always uses RayActorPoolExecutor)."""
         if not isinstance(kmeans_executor, RayActorPoolExecutor):
             msg = "K-means executor must be a RayActorPoolExecutor"
@@ -270,9 +275,18 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         )
         pipeline.add_stage(kmeans_stage)
 
-        return pipeline.run(kmeans_executor)
+        return pipeline.run(
+            kmeans_executor,
+            checkpoint_path=checkpoint_path,
+            checkpoint_storage_options=checkpoint_storage_options,
+        )
 
-    def _run_pairwise_stage(self, pairwise_executor: BaseExecutor | None = None) -> list[Any]:
+    def _run_pairwise_stage(
+        self,
+        pairwise_executor: BaseExecutor | None = None,
+        checkpoint_path: str | None = None,
+        checkpoint_storage_options: dict | None = None,
+    ) -> list[Any]:
         """Run pairwise similarity + duplicate identification stage."""
         logger.info(f"Starting pairwise similarity stage ({pairwise_executor})...")
 
@@ -311,7 +325,11 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             )
             pipeline.add_stage(identify_duplicates_stage)
 
-        return pipeline.run(pairwise_executor)
+        return pipeline.run(
+            pairwise_executor,
+            checkpoint_path=checkpoint_path,
+            checkpoint_storage_options=checkpoint_storage_options,
+        )
 
     def _log_configuration(self, pairwise_executor: BaseExecutor | None = None) -> None:
         """Log workflow configuration."""
@@ -339,7 +357,13 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         logger.info("=" * 60)
 
     def run(
-        self, kmeans_executor: BaseExecutor | None = None, pairwise_executor: BaseExecutor | None = None
+        self,
+        kmeans_executor: BaseExecutor | None = None,
+        pairwise_executor: BaseExecutor | None = None,
+        checkpoint_path: str | None = None,
+        checkpoint_storage_options: dict | None = None,
+        kmeans_checkpoint_path: str | None = None,
+        pairwise_checkpoint_path: str | None = None,
     ) -> WorkflowRunResult:
         """
         Run the complete semantic deduplication pipeline.
@@ -366,7 +390,11 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
 
             # Stage 1: K-means clustering
             kmeans_start_time = time.time()
-            kmeans_results = self._run_kmeans_stage(kmeans_executor)
+            kmeans_results = self._run_kmeans_stage(
+                kmeans_executor,
+                checkpoint_path=kmeans_checkpoint_path or checkpoint_path,
+                checkpoint_storage_options=checkpoint_storage_options,
+            )
             kmeans_end_time = time.time()
             kmeans_time = kmeans_end_time - kmeans_start_time
             workflow_result.add_pipeline_tasks("kmeans", kmeans_results)
@@ -376,7 +404,11 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
 
             # Stage 2: Pairwise similarity + duplicate identification
             pairwise_start_time = time.time()
-            pairwise_results = self._run_pairwise_stage(pairwise_executor)
+            pairwise_results = self._run_pairwise_stage(
+                pairwise_executor,
+                checkpoint_path=pairwise_checkpoint_path or checkpoint_path,
+                checkpoint_storage_options=checkpoint_storage_options,
+            )
             pairwise_end_time = time.time()
             pairwise_time = pairwise_end_time - pairwise_start_time
             workflow_result.add_pipeline_tasks("pairwise", pairwise_results)

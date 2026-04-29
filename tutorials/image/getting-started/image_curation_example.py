@@ -141,7 +141,7 @@ def main(args: argparse.Namespace) -> None:
     executor = XennaExecutor()
 
     # Execute pipeline
-    pipeline.run(executor)
+    pipeline.run(executor, checkpoint_path=args.checkpoint_dir)
 
     end_time = time.time()
 
@@ -290,6 +290,17 @@ if __name__ == "__main__":
         type=int,
         default=100,
         help="Number of images per tar file in output dataset"
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=str,
+        default=None,
+        help=(
+            "Path to checkpoint directory for pipeline resumability. "
+            "When provided, .tar partitions that have already been fully "
+            "processed are skipped on restart. Must be on a shared filesystem "
+            "(NFS or object storage) for multi-node clusters."
+        ),
     )
 
     args = parser.parse_args()
