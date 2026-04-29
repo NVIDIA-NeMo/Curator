@@ -174,6 +174,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="Thread pool size for PnC prompt preprocessing.")
     pnc.add_argument("--pnc_gpu_memory_utilization", type=float, default=0.95,
                      help="Fraction of GPU memory for PnC vLLM engine.")
+    pnc.add_argument("--pnc_source_lang_key", type=str, default="source_lang",
+                     help="Task data key holding per-sample language name for PnC prompt {language} placeholder.")
     pnc.add_argument("--skip_pnc", action="store_true", default=False,
                      help="Skip PnC restoration stage entirely.")
 
@@ -388,6 +390,7 @@ def main() -> None:  # noqa: C901
                 prep_workers=args.pnc_prep_workers,
                 **({"pnc_prompt": pnc_prompt_text} if pnc_prompt_text else {}),
                 **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
+                source_lang_key=args.pnc_source_lang_key,
             ),
             PnCContentGuardStage(
                 text_key="abbreviated_text",
