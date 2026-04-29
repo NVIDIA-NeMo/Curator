@@ -82,12 +82,24 @@ class MegatronTokenizerWriter(BaseWriter):
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         # Load the tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_identifier,
-            cache_dir=self.cache_dir,
-            local_files_only=True,
-            **self.transformers_init_kwargs
-        )
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_identifier,
+                cache_dir=self.cache_dir,
+                local_files_only=True,
+                **self.transformers_init_kwargs
+            )
+        except OSError as _:
+            # Allow this fallback since loading a tokenizer is lightweight
+            msg = f"Failed to load {self.model_identifier} from local files, loading from Hugging Face"
+            logger.warning(msg)
+
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_identifier,
+                cache_dir=self.cache_dir,
+                token=self.hf_token,
+                **self.transformers_init_kwargs
+            )
 
     def process(self, task: DocumentBatch) -> FileGroupTask:
         sequence_lengths: list[int] = []
