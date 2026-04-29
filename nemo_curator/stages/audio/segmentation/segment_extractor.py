@@ -14,7 +14,7 @@
 
 """Segment extractor: fan-out AudioTasks from SED-detected speech events.
 
-Takes an AudioTask with ``predicted_events`` (from SEDPostprocessingStage)
+Takes an AudioTask with ``sed_events`` (from SEDPostprocessingStage)
 and produces one AudioTask per event, each carrying the event's start/end
 timestamps. Follows the same fan-out pattern as ``VADSegmentationStage``.
 """
@@ -38,11 +38,11 @@ class SegmentExtractorStage(ProcessingStage[AudioTask, AudioTask]):
     event with the segment timestamps attached.
 
     Args:
-        events_key: Key in task data for the events list. Default ``"predicted_events"``.
+        events_key: Key in task data for the events list. Default ``"sed_events"``.
         filepath_key: Key for audio file path. Default ``"audio_filepath"``.
     """
 
-    events_key: str = "predicted_events"
+    events_key: str = "sed_events"
     filepath_key: str = "audio_filepath"
 
     name: str = "SegmentExtractor"

@@ -89,17 +89,9 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
         return ["data"], [self.events_key]
 
     def process(self, task: AudioTask) -> AudioTask:
-        output_data = dict(task.data)
-        output_data[self.events_key] = self._detect_all_events(output_data)
-        output_data.pop(self.framewise_key, None)
-        return AudioTask(
-            task_id=f"{task.task_id}_sed_post",
-            dataset_name=task.dataset_name,
-            filepath_key=task.filepath_key,
-            data=output_data,
-            _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
-        )
+        task.data[self.events_key] = self._detect_all_events(task.data)
+        task.data.pop(self.framewise_key, None)
+        return task
 
     def _detect_all_events(self, data: dict) -> list[dict]:
         """Detect events for all SUPERCLASS_GROUPS and return a merged, sorted list."""

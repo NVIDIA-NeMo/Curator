@@ -95,6 +95,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
     filepath_key: str = "audio_filepath"
+    skip_me_key: str = "_skip_me"
 
     name: str = "SEDInference"
     batch_size: int = 32
@@ -159,7 +160,11 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         import numpy as np
         import torch
 
-        waveforms, original_samples_list, audio_paths = self._preprocess_waveforms(tasks)
+        valid_indices, waveforms, original_samples_list, audio_paths = self._preprocess_waveforms(tasks)
+
+        if not valid_indices:
+            logger.info(f"SED batch: all {len(tasks)} tasks skipped (no valid waveforms)")
+            return tasks
 
         min_input = max(self.window_size, self.hop_size * 32)
         for i, wav in enumerate(waveforms):
@@ -179,48 +184,50 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         fps = float(self.sample_rate) / self.hop_size
         use_fp16 = self.framewise_dtype == "float16"
 
-        results: list[AudioTask] = []
-        for i, task in enumerate(tasks):
-            orig_samples = original_samples_list[i]
-            framewise_i = all_framewise[i]
+        for vi, task_idx in enumerate(valid_indices):
+            task = tasks[task_idx]
+            orig_samples = original_samples_list[vi]
+            framewise_i = all_framewise[vi]
             valid_frames = min(int(np.ceil(orig_samples / self.hop_size)), framewise_i.shape[0])
             fw = framewise_i.astype(np.float16 if use_fp16 else np.float32)
 
-            output_data = dict(task.data)
-            output_data["_sed_framewise"] = fw
-            output_data["sed_valid_frames"] = int(valid_frames)
-            output_data["sed_fps"] = fps
+            task.data["_sed_framewise"] = fw
+            task.data["sed_valid_frames"] = int(valid_frames)
+            task.data["sed_fps"] = fps
 
-            if self.save_npz and audio_paths[i]:
-                output_data["npz_filepath"] = self._save_npz(fw, fps, audio_paths[i], orig_samples, valid_frames)
+            if self.save_npz and audio_paths[vi]:
+                task.data["npz_filepath"] = self._save_npz(fw, fps, audio_paths[vi], orig_samples, valid_frames)
 
-            results.append(AudioTask(
-                task_id=f"{task.task_id}_sed",
-                dataset_name=task.dataset_name,
-                filepath_key=task.filepath_key or self.filepath_key,
-                data=output_data,
-                _metadata=task._metadata,
-                _stage_perf=task._stage_perf,
-            ))
-
-        logger.info(f"SED batch: processed {len(tasks)} samples (max_len={max_len}, fps={fps:.1f})")
-        return results
+        n_skipped = len(tasks) - len(valid_indices)
+        if n_skipped:
+            logger.info(f"SED batch: skipped {n_skipped}/{len(tasks)} tasks (already flagged or missing waveform)")
+        logger.info(f"SED batch: processed {len(valid_indices)} samples (max_len={max_len}, fps={fps:.1f})")
+        return tasks
 
     def _preprocess_waveforms(
         self, tasks: list[AudioTask]
-    ) -> tuple[list[np.ndarray], list[int], list[str]]:
-        """Extract, mono-mix, and resample waveforms from a batch of tasks."""
+    ) -> tuple[list[int], list[np.ndarray], list[int], list[str]]:
+        """Extract, mono-mix, and resample waveforms from valid (non-skipped) tasks.
+
+        Returns:
+            ``(valid_indices, waveforms, original_samples, audio_paths)`` where
+            *valid_indices* maps each waveform back to its position in *tasks*.
+        """
         import numpy as np
 
+        valid_indices: list[int] = []
         waveforms: list[np.ndarray] = []
         original_samples: list[int] = []
         audio_paths: list[str] = []
 
-        for task in tasks:
+        for i, task in enumerate(tasks):
+            if task.data.get(self.skip_me_key):
+                continue
+
             wav = task.data.get(self.waveform_key)
             if wav is None:
-                msg = f"Missing {self.waveform_key!r} in task {task.task_id} — was the audio decoded in memory?"
-                raise ValueError(msg)
+                logger.warning(f"Missing {self.waveform_key!r} in task {task.task_id}, skipping SED")
+                continue
 
             src_sr = int(task.data.get(self.sample_rate_key, self.sample_rate))
             wav = np.asarray(wav, dtype=np.float32)
@@ -232,11 +239,12 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
                 wav = librosa.resample(wav, orig_sr=src_sr, target_sr=self.sample_rate)
 
+            valid_indices.append(i)
             waveforms.append(wav)
             original_samples.append(wav.shape[0])
             audio_paths.append(task.data.get(self.filepath_key, ""))
 
-        return waveforms, original_samples, audio_paths
+        return valid_indices, waveforms, original_samples, audio_paths
 
     def _save_npz(
         self,
