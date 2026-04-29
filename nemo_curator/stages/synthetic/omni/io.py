@@ -7,23 +7,19 @@ import base64
 import io
 import json
 import re
-import tarfile
 from abc import ABC, abstractmethod
-from enum import Enum
 from pathlib import Path
 from typing import Any, Generic, Type, TypeVar
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 import pyarrow.parquet as pq
 from loguru import logger
 from PIL import Image
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import _EmptyTask
-from nemo_curator.tasks.file_group import FileGroupTask
 
 from nemo_curator.tasks.image import ImageTaskData, SingleDataTask
 
@@ -32,307 +28,6 @@ SUPPORTED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]
 
 
 T_TaskData = TypeVar("T_TaskData", bound=ImageTaskData)
-
-
-class InputFormat(str, Enum):
-    """Supported input formats for pipelines."""
-
-    IMAGE_FOLDER = "image_folder"
-    TAR = "tar"
-    PARQUET = "parquet"
-    JSONL_TAR = "jsonl_tar"
-
-
-class ImageReaderStage(ProcessingStage[FileGroupTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
-    """Stage that reads image files and creates ImageCaptionTask objects.
-
-    This stage processes image files by reading their binary content and
-    creating ImageCaptionTask objects for downstream processing.
-
-    Args:
-        input_path: Base path for resolving relative image paths.
-        verbose: If True, logs detailed image information after successful processing.
-    """
-
-    input_path: str | None = None
-    verbose: bool = False
-    name: str = "image_reader"
-    resources = Resources(cpus=1.0)
-
-    def __init__(self, input_path: str, verbose: bool = False, task_type: Type[T_TaskData] = ImageTaskData) -> None:
-        """Initialize the image reader stage."""
-        self.input_path = input_path
-        self.verbose = verbose
-        self.task_type = task_type
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        """Define the input attributes required by this stage."""
-        return ["data"], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        """Define the output attributes produced by this stage."""
-        return ["image_path", "image_id"], []
-
-    def process(self, task: FileGroupTask) -> SingleDataTask[T_TaskData]:
-        """Process a file group task by creating an ImageCaptionTask.
-
-        Args:
-            task: FileGroupTask containing image file path(s).
-
-        Returns:
-            ImageCaptionTask with image_path and image_id populated.
-        """
-        if len(task.data) != 1:
-            msg = f"Expected exactly 1 image file, got {len(task.data)}"
-            raise ValueError(msg)
-
-        image_path = Path(task.data[0])
-        image_id = image_path.stem
-
-        image_task = SingleDataTask(
-            task_id=task.task_id,
-            dataset_name=task.dataset_name,
-            data=self.task_type(
-                image_path=image_path,
-                image_id=image_id,
-            ),
-        )
-
-        if self.verbose:
-            self._log_image_info(image_task)
-
-        return image_task
-
-    def _log_image_info(self, task: SingleDataTask[T_TaskData]) -> None:
-        """Log image information after successful processing."""
-        logger.info(f"Loaded image: {task.data.image_id} from {task.data.image_path}")
-
-
-class ImageFolderReaderStage(CompositeStage[_EmptyTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
-    """Composite stage that reads image files from storage.
-
-    This stage combines FilePartitioningStage and ImageReaderStage into a single
-    high-level operation for reading image files from a directory.
-
-    Args:
-        input_image_path: Path to the directory containing image files.
-        image_limit: Maximum number of images to process (None for unlimited).
-        verbose: Whether to enable verbose logging during processing.
-    """
-
-    input_image_path: str
-    image_limit: int | None = None
-    verbose: bool = False
-    name: str = "image_reader"
-
-    def __init__(self, input_image_path: str, image_limit: int | None = None, verbose: bool = False, task_type: Type[T_TaskData] = ImageTaskData) -> None:
-        """Initialize the image reader composite stage."""
-        super().__init__()
-        self.input_image_path = input_image_path
-        self.image_limit = image_limit
-        self.verbose = verbose
-        self.task_type = task_type
-
-    def decompose(self) -> list[ProcessingStage]:
-        """Decompose into constituent execution stages.
-
-        Returns:
-            List of processing stages: [FilePartitioningStage, ImageReaderStage]
-        """
-        partitioning_stage = FilePartitioningStage(
-            file_paths=self.input_image_path,
-            files_per_partition=1,
-            file_extensions=SUPPORTED_IMAGE_EXTENSIONS,
-            limit=self.image_limit,
-        )
-
-        reader_stage = ImageReaderStage(
-            input_path=self.input_image_path,
-            verbose=self.verbose,
-            task_type=self.task_type,
-        )
-
-        return [partitioning_stage, reader_stage]
-
-    def get_description(self) -> str:
-        """Get a description of what this composite stage does."""
-        limit_str = str(self.image_limit) if self.image_limit is not None else "unlimited"
-        return (
-            f"Reads image files from '{self.input_image_path}' "
-            f"(limit: {limit_str}) and creates ImageCaptionTask objects"
-        )
-
-
-class TarImageReaderStage(ProcessingStage[FileGroupTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
-    """Stage that reads images from WebDataset-style tar files.
-
-    This stage processes tar archives containing images, extracting them
-    and creating ImageCaptionTask objects.
-
-    Args:
-        input_path: Base path for resolving tar file paths.
-        verbose: If True, logs detailed information.
-    """
-
-    input_path: str | None = None
-    verbose: bool = False
-    name: str = "tar_image_reader"
-    resources = Resources(cpus=1.0)
-
-    def __init__(
-        self,
-        input_path: str,
-        verbose: bool = False,
-        task_type: Type[T_TaskData] = ImageTaskData,
-    ) -> None:
-        """Initialize the tar image reader stage."""
-        self.input_path = input_path
-        self.verbose = verbose
-        self.task_type = task_type
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        """Define the input attributes required by this stage."""
-        return ["data"], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        """Define the output attributes produced by this stage."""
-        return ["image_path", "image_id"], []
-
-    def _is_image(self, name: str) -> bool:
-        """Check if file is a supported image format."""
-        return Path(name).suffix.lower() in {ext.lower() for ext in SUPPORTED_IMAGE_EXTENSIONS}
-
-    def process(self, task: FileGroupTask) -> list[SingleDataTask[T_TaskData]]:
-        """Process a tar file and extract all images as ImageCaptionTasks.
-
-        Args:
-            task: FileGroupTask containing tar file path.
-
-        Returns:
-            List of ImageCaptionTask objects, one per image in the tar.
-        """
-        if len(task.data) != 1:
-            msg = f"Expected exactly 1 tar file, got {len(task.data)}"
-            raise ValueError(msg)
-
-        tar_path = Path(task.data[0])
-        tasks: list[SingleDataTask[T_TaskData]] = []
-
-        with tarfile.open(tar_path, "r") as tar:
-            for idx, member in enumerate(tar.getmembers()):
-                if member.isfile() and self._is_image(member.name):
-                    # Create a composite path: tar_path/member_name
-                    image_path = tar_path / member.name
-                    image_id = f"{tar_path.stem}/{Path(member.name).stem}"
-
-                    image_task = SingleDataTask(
-                        task_id=f"{task.task_id}_{idx}",
-                        dataset_name=task.dataset_name,
-                        data=self.task_type(
-                            image_path=image_path,
-                            image_id=image_id,
-                        ),
-                    )
-                    tasks.append(image_task)
-
-                    if self.verbose:
-                        logger.info(f"Extracted image: {image_id} from {tar_path}")
-
-        return tasks
-
-
-class JsonlTarImageReaderStage(ProcessingStage[FileGroupTask | _EmptyTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
-    """Stage that reads tar-slice image paths from a JSONL file.
-
-    Each JSON line should provide the tar shard name and byte range.
-    When used after a file-partitioning stage, the JSONL path is taken from the
-    incoming FileGroupTask (task.data[0]). Otherwise jsonl_path from init is used.
-
-    Args:
-        jsonl_path: Path to a single JSONL file (used when no preceding partitioning stage).
-        tar_base_path: Base path for resolving tar file paths.
-        verbose: If True, logs detailed information.
-    """
-
-    tar_base_path: Path
-    verbose: bool = False
-    name: str = "jsonl_tar_image_reader"
-    resources = Resources(cpus=1.0)
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        """Ray stage specification for this stage."""
-        return {
-            RayStageSpecKeys.IS_FANOUT_STAGE: True,
-        }
-
-
-    def __init__(
-        self,
-        jsonl_path: str | None = None,
-        tar_base_path: str | Path | None = None,
-        verbose: bool = False,
-        task_type: Type[T_TaskData] = ImageTaskData,
-    ) -> None:
-        """Initialize the JSONL tar image reader stage."""
-        self.jsonl_path = jsonl_path
-        self.tar_base_path = Path(tar_base_path) if tar_base_path is not None else Path(".")
-        self.verbose = verbose
-        self.task_type = task_type
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        """No required task attributes; path comes from task.data[0] or init jsonl_path."""
-        return [], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        """Define the output attributes produced by this stage."""
-        return ["image_path", "image_id"], []
-
-    def process(self, task: FileGroupTask | _EmptyTask) -> list[SingleDataTask[T_TaskData]]:
-        """Process a JSONL file and create ImageCaptionTasks.
-
-        If task is a FileGroupTask with non-empty data, the JSONL path is taken
-        from task.data[0]. Otherwise jsonl_path from init is used (legacy single-file mode).
-        """
-        if isinstance(task, FileGroupTask) and task.data:
-            jsonl_path = Path(task.data[0])
-        elif self.jsonl_path is not None:
-            jsonl_path = Path(self.jsonl_path)
-        else:
-            msg = "Either use a file-partitioning stage before this stage or pass jsonl_path to JsonlTarImageReaderStage."
-            raise ValueError(msg)
-        tasks: list[SingleDataTask[T_TaskData]] = []
-
-        with jsonl_path.open("r", encoding="utf-8") as handle:
-            for idx, line in enumerate(handle):
-                line = line.strip()
-                if not line:
-                    continue
-
-                record = json.loads(line)
-                image_name = record["image_path"]
-                shard_name = record["img_shard_name"]
-                byte_offset = int(record["img_byte_offset"])
-                byte_size = int(record["img_byte_size"])
-
-                tar_path = self.tar_base_path / shard_name
-                tar_slice_path = f"{tar_path}/{byte_offset}:{byte_size}:{image_name}"
-                image_path = Path(tar_slice_path)
-                image_id = f"{tar_path.stem}/{Path(image_name).stem}"
-
-                image_task = SingleDataTask(
-                    task_id=f"jsonl_tar_image_reader_{idx}",
-                    dataset_name=jsonl_path.stem,
-                    data=self.task_type(
-                        image_path=image_path,
-                        image_id=image_id,
-                    ),
-                )
-                tasks.append(image_task)
-
-                if self.verbose:
-                    logger.info(f"Indexed image: {image_id} from {jsonl_path}")
-
-        return tasks
 
 
 class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
@@ -524,326 +219,6 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
         return tasks
 
 
-class JsonlPipelineOutputReaderStage(ProcessingStage[FileGroupTask | _EmptyTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
-    """Stage that reads pipeline output JSONL files.
-
-    Reads JSONL files produced by ResultWriterStage and reconstructs tasks
-    with their data. The task_type must implement a `from_dict` class method.
-    When used after a file-partitioning stage, the JSONL path is taken from
-    the incoming FileGroupTask (task.data[0]). Otherwise jsonl_path from init is used.
-
-    Args:
-        jsonl_path: Path to the JSONL file to read (used when no preceding partitioning stage).
-        verbose: If True, logs detailed information.
-        task_type: The dataclass type to instantiate. Must have `from_dict(dict) -> Self`.
-    """
-
-    name: str = "jsonl_pipeline_output_reader"
-    resources = Resources(cpus=1.0)
-
-    def __init__(
-        self,
-        jsonl_path: str | Path | None = None,
-        verbose: bool = False,
-        task_type: Type[T_TaskData] = ImageTaskData,
-    ) -> None:
-        """Initialize the JSONL pipeline output reader stage."""
-        self.jsonl_path = Path(jsonl_path) if jsonl_path is not None else None
-        self.verbose = verbose
-        self.task_type = task_type
-
-        # Validate that task_type has from_dict method
-        if not hasattr(task_type, "from_dict") or not callable(getattr(task_type, "from_dict")):
-            msg = f"task_type {task_type.__name__} must implement a 'from_dict' class method"
-            raise TypeError(msg)
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        """No required task attributes; path comes from task.data[0] or init jsonl_path."""
-        return [], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        """Define the output attributes produced by this stage."""
-        return ["image_path", "image_id"], []
-
-    def process(self, task: FileGroupTask | _EmptyTask) -> list[SingleDataTask[T_TaskData]]:
-        """Process a JSONL file and create tasks from pipeline output.
-
-        If task is a FileGroupTask with non-empty data, the JSONL path is taken
-        from task.data[0]. Otherwise jsonl_path from init is used (legacy single-file mode).
-        """
-        if isinstance(task, FileGroupTask) and task.data:
-            jsonl_path = Path(task.data[0])
-        elif self.jsonl_path is not None:
-            jsonl_path = self.jsonl_path
-        else:
-            msg = "Either use a file-partitioning stage before this stage or pass jsonl_path to JsonlPipelineOutputReaderStage."
-            raise ValueError(msg)
-
-        tasks: list[SingleDataTask[T_TaskData]] = []
-
-        with jsonl_path.open("r", encoding="utf-8") as handle:
-            for idx, line in enumerate(handle):
-                line = line.strip()
-                if not line:
-                    continue
-
-                record = json.loads(line)
-                task_data = self.task_type.from_dict(record)
-
-                # Some writer paths (e.g. include-invalid outputs) may serialize invalid records
-                # without an explicit "is_valid" field. If an "error" is present, treat the
-                # record as invalid to prevent downstream stages from assuming required fields
-                # (like conversation media) exist.
-                if record.get("error") is not None and hasattr(task_data, "is_valid"):
-                    task_data.is_valid = False
-                    if hasattr(task_data, "error") and not getattr(task_data, "error"):
-                        task_data.error = record.get("error")
-
-                image_task = SingleDataTask(
-                    task_id=f"jsonl_output_reader_{idx}",
-                    dataset_name=jsonl_path.stem,
-                    data=task_data,
-                )
-                tasks.append(image_task)
-
-                if self.verbose:
-                    logger.info(f"Loaded task {idx} from {jsonl_path}")
-
-        logger.info(f"Loaded {len(tasks)} tasks from {jsonl_path}")
-        return tasks
-
-
-class TarImageReader(CompositeStage[_EmptyTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
-    """Composite stage that reads images from WebDataset-style tar shards.
-
-    Args:
-        input_tar_path: Path to directory containing tar files.
-        image_limit: Maximum number of images to process (None for unlimited).
-        verbose: Whether to enable verbose logging.
-    """
-
-    input_tar_path: str
-    image_limit: int | None = None
-    verbose: bool = False
-    name: str = "tar_image_reader"
-
-    def __init__(self, input_tar_path: str, image_limit: int | None = None, verbose: bool = False, task_type: Type[T_TaskData] = ImageTaskData) -> None:
-        """Initialize the tar image reader composite stage."""
-        super().__init__()
-        self.input_tar_path = input_tar_path
-        self.image_limit = image_limit
-        self.verbose = verbose
-        self.task_type = task_type
-
-    def decompose(self) -> list[ProcessingStage]:
-        """Decompose into constituent execution stages."""
-        partitioning_stage = FilePartitioningStage(
-            file_paths=self.input_tar_path,
-            files_per_partition=1,
-            file_extensions=[".tar"],
-            limit=self.image_limit,
-        )
-
-        reader_stage = TarImageReaderStage(
-            input_path=self.input_tar_path,
-            verbose=self.verbose,
-            task_type=self.task_type,
-        )
-
-        return [partitioning_stage, reader_stage]
-
-    def get_description(self) -> str:
-        """Get a description of what this composite stage does."""
-        limit_str = str(self.image_limit) if self.image_limit is not None else "unlimited"
-        return (
-            f"Reads images from tar files in '{self.input_tar_path}' "
-            f"(limit: {limit_str})"
-        )
-
-
-class ParquetImageReaderStage(ProcessingStage[FileGroupTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
-    """Stage that reads images from parquet files.
-
-    Each parquet file contains rows with "id" and "image" columns, where
-    "image" contains a dict with "bytes" key holding raw image data.
-
-    Can either store references (parquet_path, parquet_index) for lazy loading,
-    or extract images directly to disk if extract_dir is provided.
-
-    Args:
-        input_path: Base path for resolving parquet file paths.
-        extract_dir: If provided, extract images to this directory and set image_path.
-        verbose: If True, logs detailed information.
-    """
-
-    input_path: str | None = None
-    extract_dir: str | None = None
-    verbose: bool = False
-    name: str = "parquet_image_reader"
-    resources = Resources(cpus=1.0)
-
-    def __init__(
-        self,
-        input_path: str,
-        extract_dir: str | None = None,
-        verbose: bool = False,
-        task_type: Type[T_TaskData] = ImageTaskData,
-    ) -> None:
-        """Initialize the parquet image reader stage."""
-        self.input_path = input_path
-        self.extract_dir = Path(extract_dir) if extract_dir else None
-        self.verbose = verbose
-        self.task_type = task_type
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        """Define the input attributes required by this stage."""
-        return ["data"], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        """Define the output attributes produced by this stage."""
-        return ["image_path", "parquet_path", "parquet_index"], []
-
-    def _get_subfolder(self, parquet_path: Path) -> str:
-        """Get subfolder name based on parquet file name."""
-        if m := re.match(r"^.*-(\d+)-of-\d+\.parquet$", parquet_path.name):
-            return m.group(1)
-        return parquet_path.stem
-
-    def process(self, task: FileGroupTask) -> list[SingleDataTask[T_TaskData]]:
-        """Process a parquet file and create ImageCaptionTasks.
-
-        If extract_dir is set, extracts images to disk. Otherwise stores
-        parquet references for lazy loading.
-
-        Args:
-            task: FileGroupTask containing parquet file path.
-
-        Returns:
-            List of ImageCaptionTask objects, one per row in the parquet.
-        """
-        if len(task.data) != 1:
-            msg = f"Expected exactly 1 parquet file, got {len(task.data)}"
-            raise ValueError(msg)
-
-        parquet_path = Path(task.data[0])
-        tasks: list[SingleDataTask[T_TaskData]] = []
-
-        if self.extract_dir:
-            # Extract images directly to disk
-            subfolder = self._get_subfolder(parquet_path)
-            output_subdir = self.extract_dir / subfolder
-            output_subdir.mkdir(parents=True, exist_ok=True)
-
-            table = pq.read_table(parquet_path, columns=["id", "image"])
-            for idx in range(table.num_rows):
-                row_id = table["id"][idx].as_py()
-                image_data = table["image"][idx].as_py()
-                image_bytes = image_data["bytes"]
-
-                # Detect format and save
-                image = Image.open(io.BytesIO(image_bytes))
-                fmt = image.format or "PNG"
-                ext = fmt.lower()
-                if ext == "jpeg":
-                    ext = "jpg"
-
-                output_path = (output_subdir / f"{row_id}.{ext}").absolute()
-                if not output_path.exists() or output_path.stat().st_size != len(image_bytes):
-                    output_path.write_bytes(image_bytes)
-                    if self.verbose:
-                        logger.info(f"Extracted image: {row_id} -> {output_path}")
-
-                image_task = SingleDataTask(
-                    task_id=f"{task.task_id}_{subfolder}_{row_id}",
-                    dataset_name=task.dataset_name,
-                    data=self.task_type(
-                        image_path=output_path,
-                    ),
-                )
-                tasks.append(image_task)
-        else:
-            # Store parquet references for lazy loading
-            table = pq.read_table(parquet_path, columns=["id"])
-            for idx in range(table.num_rows):
-                row_id = table["id"][idx].as_py()
-
-                image_task = SingleDataTask(
-                    task_id=f"{task.task_id}_{row_id}",
-                    dataset_name=task.dataset_name,
-                    data=self.task_type(
-                        image_path=(Path(parquet_path) / f"{idx:08d}").absolute(),
-                    ),
-                )
-                tasks.append(image_task)
-
-                if self.verbose:
-                    logger.info(f"Indexed image: {row_id} from {parquet_path}[{idx}]")
-
-        return tasks
-
-
-class ParquetImageReader(CompositeStage[_EmptyTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
-    """Composite stage that reads images from parquet files.
-
-    Each parquet file contains rows with "id" and "image" columns.
-
-    Args:
-        input_parquet_path: Path to directory containing parquet files.
-        extract_dir: If provided, extract images to this directory during reading.
-        image_limit: Maximum number of parquet files to process (None for unlimited).
-        verbose: Whether to enable verbose logging.
-    """
-
-    input_parquet_path: str
-    extract_dir: str | None = None
-    image_limit: int | None = None
-    verbose: bool = False
-    name: str = "parquet_image_reader"
-
-    def __init__(
-        self,
-        input_parquet_path: str,
-        extract_dir: str | None = None,
-        image_limit: int | None = None,
-        verbose: bool = False,
-        task_type: Type[T_TaskData] = ImageTaskData,
-    ) -> None:
-        """Initialize the parquet image reader composite stage."""
-        super().__init__()
-        self.input_parquet_path = input_parquet_path
-        self.extract_dir = Path(extract_dir) if extract_dir else None
-        self.image_limit = image_limit
-        self.verbose = verbose
-        self.task_type = task_type
-
-    def decompose(self) -> list[ProcessingStage]:
-        """Decompose into constituent execution stages."""
-        partitioning_stage = FilePartitioningStage(
-            file_paths=self.input_parquet_path,
-            files_per_partition=1,
-            file_extensions=[".parquet"],
-            limit=self.image_limit,
-        )
-
-        reader_stage = ParquetImageReaderStage(
-            input_path=self.input_parquet_path,
-            extract_dir=self.extract_dir,
-            verbose=self.verbose,
-            task_type=self.task_type,
-        )
-
-        return [partitioning_stage, reader_stage]
-
-    def get_description(self) -> str:
-        """Get a description of what this composite stage does."""
-        limit_str = str(self.image_limit) if self.image_limit is not None else "unlimited"
-        extract_str = f", extracting to '{self.extract_dir}'" if self.extract_dir else ""
-        return (
-            f"Reads images from parquet files in '{self.input_parquet_path}' "
-            f"(limit: {limit_str}){extract_str}"
-        )
-
-
 class SkipProcessedStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTask[T_TaskData]], Generic[T_TaskData]):
     """Skip tasks that have already been processed in a prior run.
 
@@ -884,43 +259,59 @@ class SkipProcessedStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataT
         self._passed: int = 0
 
     def setup(self, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
-        if not self.output_path.exists():
-            if self.require_exists:
-                raise FileNotFoundError(f"SkipProcessed: output path does not exist: {self.output_path}")
-            logger.info(f"SkipProcessed: no existing output at {self.output_path}; nothing to skip")
-            return
+        # Determine which files to read:
+        #   1. Merged file exists (output_path itself) — normal completed-run case.
+        #   2. Only _worker* shards exist — pipeline was killed before merge ran.
+        #   3. Neither exists — first run or require_exists controls the error.
+        files_to_read: list[Path] = []
 
-        if self.output_path.is_dir():
-            raise ValueError(f"SkipProcessed: output path is a directory, expected JSONL file: {self.output_path}")
+        if self.output_path.exists() and not self.output_path.is_dir():
+            files_to_read = [self.output_path]
+        else:
+            suffix = self.output_path.suffix or ".jsonl"
+            pattern = f"{self.output_path.stem}_worker*{suffix}"
+            shard_files = sorted(self.output_path.parent.glob(pattern))
+            if shard_files:
+                logger.info(
+                    f"SkipProcessed: merged file not found; reading {len(shard_files)} worker shards from "
+                    f"{self.output_path.parent}"
+                )
+                files_to_read = shard_files
+            elif self.require_exists:
+                raise FileNotFoundError(f"SkipProcessed: output path does not exist: {self.output_path}")
+            else:
+                logger.info(f"SkipProcessed: no existing output at {self.output_path}; nothing to skip")
+                return
 
         processed: set[str] = set()
         bad_json: int = 0
         missing_key: int = 0
 
-        with self.output_path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    bad_json += 1
-                    continue
-                if not isinstance(record, dict):
-                    missing_key += 1
-                    continue
-                image_path = record.get("image_path")
-                if not isinstance(image_path, str) or not image_path:
-                    missing_key += 1
-                    continue
-                processed.add(image_path)
+        for path in files_to_read:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        bad_json += 1
+                        continue
+                    if not isinstance(record, dict):
+                        missing_key += 1
+                        continue
+                    image_path = record.get("image_path")
+                    if not isinstance(image_path, str) or not image_path:
+                        missing_key += 1
+                        continue
+                    processed.add(image_path)
 
         self._processed = processed
         self._loaded_count = len(self._processed)
 
         logger.info(
-            f"SkipProcessed: loaded {self._loaded_count} processed keys from {self.output_path} "
+            f"SkipProcessed: loaded {self._loaded_count} processed keys from {len(files_to_read)} file(s) "
             f"(bad_json={bad_json}, missing_image_path={missing_key})"
         )
 
