@@ -38,6 +38,10 @@ pipeline.add_stage(ImageWriterStage(
 | `deterministic_name` | bool | True | Use deterministic hash-based naming for output files |
 | `remove_image_data` | bool | False | Remove image data from memory after writing (saves memory) |
 
+<Warning>
+**Set `images_per_tar` ≤ upstream `batch_size`.** Each upstream batch produces one tar shard. If `images_per_tar` is larger than the reader's `batch_size`, every tar contains only `batch_size` images instead of `images_per_tar` and your output is silently under-packed. The pipeline emits a warning when this happens — verify your reader's `batch_size` matches or exceeds `images_per_tar`.
+</Warning>
+
 ## Output Format
 
 The `ImageWriterStage` creates:

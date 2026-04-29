@@ -1,0 +1,42 @@
+---
+description: "Filter audio by spectral bandwidth — full-band vs narrow-band — using BandFilterStage and a scikit-learn classifier"
+categories: ["audio-processing"]
+tags: ["audio-filtering", "band-filter", "bandwidth", "narrow-band", "full-band"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# Band Filter
+
+`BandFilterStage` classifies each audio segment as **`full_band`** or **`narrow_band`** using a scikit-learn classifier trained on spectral features, and filters out anything that does not match the configured `band_value`. Use it when your training set requires a consistent acoustic bandwidth (for example, dropping telephony-quality 8 kHz audio from a wideband corpus).
+
+## Usage
+
+```python
+from nemo_curator.stages.audio.filtering.band import BandFilterStage
+
+band = BandFilterStage(
+    band_value="full_band",  # or "narrow_band" to keep only narrow-band audio
+    cache_dir="./.cache/band_filter",
+)
+```
+
+The stage works in two modes:
+
+- **In-pipeline mode** (recommended): consumes a `waveform` from an upstream stage such as `MonoConversionStage` or `VADSegmentationStage`.
+- **Standalone mode**: reads audio directly from `audio_filepath` when no upstream waveform is present.
+
+## Parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_path` | str \| None | `None` | Local path to the band-classifier `.joblib` model. When `None`, the stage downloads the default model into `cache_dir`. |
+| `cache_dir` | str \| None | `None` | Directory for caching the downloaded model. |
+| `band_value` | `"full_band"` \| `"narrow_band"` | `"full_band"` | Band class to keep; segments classified differently are filtered out. |
+
+## Related Topics
+
+- [SIGMOS Filter](/curate-audio/process-data/quality-filtering/sigmos) — multi-dimensional perceptual quality filtering, often paired with the band filter.
+- [`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage) — bundles the band filter into the standard pipeline.

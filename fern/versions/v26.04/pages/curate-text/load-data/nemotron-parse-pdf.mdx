@@ -1,0 +1,108 @@
+---
+description: "Convert PDF datasets into interleaved Parquet output using NVIDIA's Nemotron-Parse VLM with the four-stage NemotronParsePDFReader composite pipeline"
+categories: ["text-curation"]
+tags: ["pdf", "nemotron-parse", "interleaved", "vllm", "parsing"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "universal"
+---
+
+# Nemotron-Parse PDF Pipeline
+
+`NemotronParsePDFReader` is a composite stage that turns PDF datasets into interleaved Parquet rows using NVIDIA's Nemotron-Parse vision-language model. It expands into four sub-stages so you can mix and match — for example, swapping `PDFPreprocessStage` for a custom render path while keeping the model and post-processing.
+
+## Pipeline Stages
+
+| Stage | Purpose |
+| --- | --- |
+| `PDFPartitioningStage` | Reads a JSONL manifest of PDF entries and packs them into `FileGroupTask` objects. |
+| `PDFPreprocessStage` | Extracts PDF bytes from the configured source and renders pages to images with scale-to-fit safeguarding against OOM on large pages. |
+| `NemotronParseInferenceStage` | Runs Nemotron-Parse via vLLM (recommended) or Hugging Face Transformers; supports `text_in_pic` and `enforce_eager` flags and free-port retry on collisions. |
+| `NemotronParsePostprocessStage` | Parses model output, aligns images and captions, crops images, and emits the final interleaved rows. |
+| `NemotronParsePDFReader` | Composite that wires the four sub-stages together as a single `pipeline.add_stage()` call. |
+
+## Usage
+
+```python
+from nemo_curator.stages.interleaved.pdf.nemotron_parse import NemotronParsePDFReader
+
+reader = NemotronParsePDFReader(
+    manifest_path="./pdfs.jsonl",
+    pdf_dir="/data/pdfs",          # or zip_base_dir / jsonl_base_dir
+    backend="vllm",
+    pdfs_per_task=10,
+    max_pages=50,
+    inference_batch_size=4,
+)
+pipeline.add_stage(reader)
+```
+
+## Supported PDF Sources
+
+Pass exactly one of the following paths so the preprocess stage knows where to find the PDF bytes:
+
+| Parameter | Source Layout |
+| --- | --- |
+| `pdf_dir` | A directory of `.pdf` files. |
+| `zip_base_dir` | A `CC-MAIN-2021-31-PDF-UNTRUNCATED` zip hierarchy. |
+| `jsonl_base_dir` | JSONL-encoded PDF datasets (e.g. GitHub PDFs) where each line carries the PDF bytes. |
+
+The corresponding entries must appear in the manifest passed via `manifest_path`.
+
+## Backend Selection
+
+| Backend | When to Use |
+| --- | --- |
+| `vllm` (recommended) | High-throughput GPU inference with batching. Set `enforce_eager=True` if you hit compilation issues. |
+| `hf` | Hugging Face Transformers fallback when vLLM is unavailable. |
+
+The inference stage retries on port collisions when binding the vLLM server, so multi-replica deployments on the same node coexist cleanly.
+
+## Composite Parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `manifest_path` | str \| None | `None` | JSONL manifest listing PDF entries. |
+| `pdf_dir` | str \| None | `None` | Directory containing `.pdf` files. |
+| `zip_base_dir` | str \| None | `None` | Root directory of CC-MAIN PDF zip hierarchy. |
+| `jsonl_base_dir` | str \| None | `None` | Root directory of JSONL-encoded PDF datasets. |
+| `model_path` | str | (default model) | Local path or HF repo ID for the Nemotron-Parse weights. |
+| `backend` | str | `"vllm"` | Inference backend (`vllm` or `hf`). |
+| `pdfs_per_task` | int | `10` | Number of PDFs grouped into each `FileGroupTask`. |
+| `max_pdfs` | int \| None | `None` | Hard cap on total PDFs processed (debug aid). |
+| `dpi` | int | `300` | Render DPI for PDF pages. |
+| `max_pages` | int | `50` | Maximum pages rendered per PDF; longer PDFs are truncated. |
+| `inference_batch_size` | int | `4` | vLLM/HF batch size. |
+| `max_num_seqs` | int | `64` | Maximum concurrent vLLM sequences. |
+| `text_in_pic` | bool | `False` | When `True`, treat embedded text within rendered images as part of the text content. |
+| `enforce_eager` | bool | `False` | Disable vLLM compilation for compatibility with restricted environments. |
+| `min_crop_px` | int | `10` | Minimum dimension (pixels) for cropped image regions. |
+| `dataset_name` | str | `"pdf_dataset"` | Logical dataset label written to output rows. |
+
+## Output Schema
+
+The reader writes one Parquet row per emitted item with columns:
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `sample_id` | string | PDF identifier; rows sharing a `sample_id` belong to the same document. |
+| `position` | int | Zero-based item position within the sample, used to reconstruct ordering. |
+| `modality` | string | One of `text`, `image`, or `metadata`. |
+| `text_content` | string \| null | Text payload for `text` and `metadata` rows. |
+| `binary_content` | bytes \| null | Image payload for `image` rows. |
+
+The output is directly compatible with the [Interleaved IO](/curate-text/process-data/interleaved/io) readers and writers.
+
+## Render Timeout
+
+The preprocess stage replaces `signal.SIGALRM` with a `multiprocessing` fork-based timeout (`_RENDER_TIMEOUT_S = 60` by default). This is required because Xenna runs stage workers inside Ray actor processes on non-main threads, where `SIGALRM` raises `ValueError: signal only works in main thread`. The forked child inherits the PDF bytes via copy-on-write and is killed if it exceeds the timeout, reliably escaping any hung C-extension code inside `pypdfium2`.
+
+## Benchmarking
+
+A standalone benchmark script ships at `benchmarking/scripts/nemotron_parse_pdf_benchmark.py`. Use it to measure throughput on representative datasets before scaling to your full corpus.
+
+## Related Topics
+
+- [Interleaved IO](/curate-text/process-data/interleaved/io) — readers/writers that consume the Parquet output of this pipeline.
+- [Interleaved Filters](/curate-text/process-data/interleaved/filters) — sample-level filters to apply after parsing.

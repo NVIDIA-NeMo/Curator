@@ -1,0 +1,103 @@
+---
+description: "Run NeMo Curator pipelines across multiple SLURM nodes using SlurmRayClient — a drop-in replacement for RayClient that handles head/worker role detection and Ray cluster bootstrap"
+categories: ["deployment"]
+tags: ["slurm", "ray", "multi-node", "cluster", "infrastructure"]
+personas: ["devops-focused", "admin-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "universal"
+---
+
+# Multi-Node Ray on SLURM
+
+`SlurmRayClient` is a drop-in replacement for `RayClient` that bootstraps a multi-node Ray cluster under SLURM. The head node starts `ray start --head`, writes the assigned GCS port to a shared file, and waits for workers to join. Worker nodes block on the port file and call `ray start --block`. Only the head node returns from `start()`, so your pipeline code runs on the head while workers stay attached to the cluster.
+
+## When to Use It
+
+Use `SlurmRayClient` when:
+
+- You're submitting Ray-backed pipelines through `sbatch` and want to span more than one node.
+- You want a single-binary entry point: the same script works on a 1-node debug job and a 2-node production job without code changes.
+
+For single-node SLURM jobs, the regular `RayClient` is sufficient.
+
+## Drop-in Replacement
+
+Replace `RayClient` with `SlurmRayClient`. No other changes are required:
+
+```python
+from nemo_curator.core.client import SlurmRayClient
+
+client = SlurmRayClient()
+client.start()
+
+# ... pipeline code ...
+
+client.stop()
+```
+
+The head/worker split is determined automatically from `SLURM_NODEID`. Workers stay inside `SlurmRayClient.start()` for the duration of the job; the head runs your pipeline.
+
+## Required Environment
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `SLURM_NODEID` | Yes (set by SLURM) | Identifies the head node (`SLURM_NODEID=0`) vs workers. |
+| `RAY_PORT_BROADCAST_DIR` | Recommended | Directory used to broadcast the head GCS port to workers. **Must be on a shared filesystem when `/tmp` is node-local.** Defaults to `${CURATOR_DIR}/logs` in the bundled submit scripts. |
+
+## Submit Scripts
+
+The repository ships two reference submit scripts at `tutorials/slurm/`:
+
+<Tabs>
+<Tab title="NGC Container (Pyxis)">
+
+```bash
+sbatch --nodes=2 --gpus-per-node=8 tutorials/slurm/submit_container.sh
+```
+
+`submit_container.sh` launches the NGC NeMo Curator container via [Pyxis](https://github.com/NVIDIA/pyxis) on each allocated node. Recommended for production because the container ships a known-good environment.
+
+</Tab>
+<Tab title="Bare-metal (uv)">
+
+```bash
+sbatch --nodes=2 --gpus-per-node=8 tutorials/slurm/submit.sh
+```
+
+`submit.sh` activates a `uv`-managed virtualenv and runs the pipeline directly on the node. Useful for development and quick iteration without rebuilding containers.
+
+</Tab>
+</Tabs>
+
+Both scripts default `RAY_PORT_BROADCAST_DIR` to `${CURATOR_DIR}/logs`. Change this to a shared filesystem path (NFS, Lustre, GPFS) if your cluster's `/tmp` is node-local.
+
+## Verified Configurations
+
+End-to-end tested on H100 nodes using the `nvcr.io/nvidia/nemo-curator:26.02` container. The reference workload is a word-count + GPU-tagging pipeline shipped in the `tutorials/slurm/` directory.
+
+| Nodes | GPUs / node | Status |
+| --- | --- | --- |
+| 1 | 2 | PASS |
+| 1 | 8 | PASS |
+| 2 | 2 | PASS |
+| 2 | 8 | PASS |
+
+Sample output from the 2-node, 8-GPU run:
+
+```text
+Tasks processed by 2 distinct node(s):
+  pool0-00786: 8 GPU(s): NVIDIA H100 80GB HBM3, 81559 MiB; ...
+  pool0-00795: 8 GPU(s): NVIDIA H100 80GB HBM3, 81559 MiB; ...
+```
+
+## Troubleshooting
+
+- **Workers hang at `ray start --block`**: the head node never finished writing the port file. Confirm `RAY_PORT_BROADCAST_DIR` points to a shared filesystem visible from every worker.
+- **Head node crashes with `Permission denied` writing the port file**: pick a `RAY_PORT_BROADCAST_DIR` your job's UID can write to (the default `${CURATOR_DIR}/logs` works once the directory exists).
+- **Pipeline runs on only one node**: confirm your job has `--nodes>1` and that the script is `srun`-launched on every node so each node enters the `SlurmRayClient` bootstrap.
+
+## Related Topics
+
+- [Deploy Image Curation on SLURM](/admin/deployment/slurm-image) — full image curation pipeline using SLURM and Pyxis.
+- [Container Environments](/reference/infra/container-environments) — image versions and SLURM-specific environment variables.

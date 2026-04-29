@@ -1,0 +1,36 @@
+---
+description: "Interleaved image-text dataset support — read and write between WebDataset tar shards and Parquet, then filter samples by quality"
+categories: ["text-curation"]
+tags: ["interleaved", "mint-1t", "webdataset", "parquet", "image-text"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "universal"
+---
+
+# Interleaved Datasets
+
+NeMo Curator supports curation of **interleaved image-text datasets** in the format used by [MINT-1T](https://huggingface.co/datasets/mlfoundations/MINT-1T-PDF-CC-2023-23) and similar large-scale multimodal corpora. Each sample is an ordered sequence of text, image, and metadata items keyed by a stable `sample_id`.
+
+## How It Works
+
+Interleaved support spans three responsibilities:
+
+1. **Storage formats** — `InterleavedBatch` is the in-memory representation. On disk, samples can live as **WebDataset tar shards** (one tar per shard, one file per item) or as **Parquet** rows (one row per item, grouped by `sample_id`).
+2. **IO round-trip** — readers and writers exist for both formats, so any combination of `WDS ↔ InterleavedBatch ↔ Parquet` is supported. See [Interleaved IO](/curate-text/process-data/interleaved/io).
+3. **Sample-level filters** — drop samples by image sharpness, QR-code area ratio, CLIP image-text alignment, or image-to-text count ratio. See [Interleaved Filters](/curate-text/process-data/interleaved/filters).
+
+## Pages
+
+<Cards>
+  <Card title="Interleaved IO" href="/curate-text/process-data/interleaved/io">
+    Reading and writing interleaved data: `InterleavedParquetReader`, `InterleavedWebdatasetReader`, `InterleavedParquetWriter`, `InterleavedWebdatasetWriterStage`, plus the shared schema utilities.
+  </Card>
+  <Card title="Interleaved Filters" href="/curate-text/process-data/interleaved/filters">
+    Sample-level filter stages: `InterleavedBlurFilterStage`, `InterleavedQRCodeFilterStage`, `InterleavedCLIPScoreFilterStage`, `InterleavedImageToTextRatioFilterStage`.
+  </Card>
+</Cards>
+
+## Related Topics
+
+- [Nemotron-Parse PDF Pipeline](/curate-text/load-data/nemotron-parse-pdf) — converts PDFs into interleaved Parquet using the Nemotron-Parse VLM.

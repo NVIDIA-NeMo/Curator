@@ -1,0 +1,99 @@
+---
+description: "Filter interleaved image-text samples by image sharpness, QR-code area, CLIP image-text alignment, and image-to-text ratio"
+categories: ["text-curation"]
+tags: ["interleaved", "filters", "blur", "qrcode", "clip", "image-to-text-ratio"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "universal"
+---
+
+# Interleaved Filters
+
+Four sample-level filter stages drop low-quality samples from an `InterleavedBatch` before downstream training or further processing.
+
+## `InterleavedBlurFilterStage`
+
+Computes the [Laplacian variance](https://docs.opencv.org/4.x/d2/d2c/tutorial_py_canny.html) of each image (via OpenCV) — a standard sharpness proxy — and drops images below `score_threshold`. Lower variance means a flatter, blurrier image.
+
+```python
+from nemo_curator.stages.interleaved.filter.blur_filter import InterleavedBlurFilterStage
+
+pipeline.add_stage(InterleavedBlurFilterStage(score_threshold=100.0))
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `score_threshold` | float | `100.0` | Minimum Laplacian variance to keep an image. Higher = sharper-only output. |
+
+## `InterleavedQRCodeFilterStage`
+
+Detects QR codes in each image (OpenCV) and drops samples whose largest QR-code bounding box exceeds `score_threshold` as a fraction of the total image area. Useful for stripping promotional/contact-info imagery from web crawls.
+
+```python
+from nemo_curator.stages.interleaved.filter.qrcode_filter import InterleavedQRCodeFilterStage
+
+pipeline.add_stage(InterleavedQRCodeFilterStage(score_threshold=0.05))
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `score_threshold` | float | `0.05` | Maximum allowed QR-bounding-box area as a fraction of total image area. Lower = stricter. |
+
+## `InterleavedCLIPScoreFilterStage`
+
+Uses a CLIP image-text encoder to score each `(image, text)` pair by cosine similarity, and drops samples whose alignment is below `min_score`. Ensures the textual content of each sample actually describes the image.
+
+```python
+from nemo_curator.stages.interleaved.filter.clip_score_filter import InterleavedCLIPScoreFilterStage
+
+pipeline.add_stage(
+    InterleavedCLIPScoreFilterStage(
+        model_dir="/models/clip",
+        min_score=0.15,
+    )
+)
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_dir` | str \| None | `None` | Local CLIP model directory. When `None`, the default model is downloaded on first use. |
+| `min_score` | float | `0.15` | Minimum cosine similarity to keep a sample. |
+
+The default resource allocation reserves `gpu_memory_gb=20.0`. Tune this on the stage's `Resources` for smaller or larger CLIP variants.
+
+## `InterleavedImageToTextRatioFilterStage`
+
+Filters samples by the ratio of image count to text word count, defined per sample. Useful for excluding image-dump samples (no text) and text-heavy samples with few or no images.
+
+```python
+from nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter import (
+    InterleavedImageToTextRatioFilterStage,
+)
+
+pipeline.add_stage(
+    InterleavedImageToTextRatioFilterStage(min_ratio=0.001, max_ratio=0.1)
+)
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `min_ratio` | float | `0.0` | Minimum images-per-word ratio to keep. |
+| `max_ratio` | float | `inf` | Maximum images-per-word ratio to keep. |
+
+## Composing Filters
+
+Filters can be chained in any order; each operates on `InterleavedBatch` and emits `InterleavedBatch`. A common sequence for web crawls is:
+
+```python
+pipeline.add_stage(InterleavedBlurFilterStage(score_threshold=100.0))
+pipeline.add_stage(InterleavedQRCodeFilterStage(score_threshold=0.05))
+pipeline.add_stage(InterleavedImageToTextRatioFilterStage(min_ratio=0.001, max_ratio=0.1))
+pipeline.add_stage(InterleavedCLIPScoreFilterStage(model_dir="/models/clip", min_score=0.2))
+```
+
+The CLIP filter is the most expensive; running cheap filters first reduces the number of samples it has to score.
+
+## Related Topics
+
+- [Interleaved IO](/curate-text/process-data/interleaved/io) — readers and writers that produce and consume the `InterleavedBatch` format.

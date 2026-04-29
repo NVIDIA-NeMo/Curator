@@ -1,0 +1,129 @@
+---
+description: "AudioDataFilterStage composite — end-to-end audio curation pipeline that decomposes into VAD, band, UTMOS, SIGMOS, and speaker separation sub-stages from a single YAML config"
+categories: ["audio-processing"]
+tags: ["audio-filtering", "composite-stage", "audio-data-filter", "yaml-config"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# `AudioDataFilterStage` Composite Pipeline
+
+`AudioDataFilterStage` is a `CompositeStage` that decomposes into a configurable sequence of audio sub-stages for extracting clean single-speaker segments from raw audio files. Each sub-stage carries its own resource allocation (CPU for band/concat, GPU for VAD/UTMOS/SIGMOS/speaker separation), so the executor can parallelize across input files while each individual file flows through the chain.
+
+## Default Pipeline
+
+When all sub-stages are enabled, the composite expands to:
+
+1. **`MonoConversionStage`** — normalize channels and sample rate.
+2. **`VADSegmentationStage`** — split into speech segments.
+3. **`BandFilterStage`** — drop segments not matching the target bandwidth.
+4. **`UTMOSFilterStage`** — drop segments below the MOS threshold.
+5. **`SIGMOSFilterStage`** — drop segments failing any active SIGMOS dimension.
+6. **`SegmentConcatenationStage`** — concatenate surviving segments with silence gaps.
+7. **`SpeakerSeparationStage`** — diarize and fan out one task per speaker.
+8. **Per-speaker filters** — rerun VAD + Band + UTMOS + SIGMOS on each speaker's audio.
+9. **`TimestampMapperStage`** — project final boundaries back to original-file timestamps.
+
+## Usage
+
+Construct the stage from a YAML config file:
+
+```python
+from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter import AudioDataFilterStage
+
+audio_filter = AudioDataFilterStage(config_path="./audio_filter.yaml")
+pipeline.add_stage(audio_filter)
+```
+
+Or pass a config dict inline:
+
+```python
+audio_filter = AudioDataFilterStage(
+    config={
+        "vad": {"enable": True, "min_duration_sec": 1.0},
+        "utmos": {"enable": True, "mos_threshold": 3.0},
+        "sigmos": {"enable": False},
+        "speaker_separation": {"enable": True},
+    },
+)
+```
+
+Any sub-stage can be disabled with `enable: false`, and its resource allocations (`cpus`, `gpus`) can be overridden per stage.
+
+## Configuration Reference
+
+The default configuration shipped with the stage:
+
+```yaml
+mono_conversion:
+  output_sample_rate: 48000
+  strict_sample_rate: true
+  cpus: 1.0
+
+vad:
+  enable: true
+  min_duration_sec: 2.0
+  max_duration_sec: 60.0
+  threshold: 0.5
+  min_interval_ms: 500
+  speech_pad_ms: 300
+  cpus: 1.0
+  gpus: 0.1
+
+band_filter:
+  enable: true
+  band_value: full_band
+  cpus: 1.0
+  gpus: 0.0
+
+utmos:
+  enable: true
+  mos_threshold: 3.4
+  cpus: 1.0
+  gpus: 0.1
+
+sigmos:
+  enable: true
+  noise_threshold: 4.0
+  ovrl_threshold: 3.5
+  sig_threshold: null
+  col_threshold: null
+  disc_threshold: null
+  loud_threshold: null
+  reverb_threshold: null
+  cpus: 1.0
+  gpus: 0.1
+
+concatenation:
+  silence_duration_sec: 0.5
+  cpus: 1.0
+
+speaker_separation:
+  enable: true
+  exclude_overlaps: true
+  min_duration: 0.8
+  gap_threshold: 0.1
+  buffer_time: 0.5
+  cpus: 1.0
+  gpus: 0.3
+
+timestamp_mapper:
+  passthrough_keys: null
+  cpus: 1.0
+```
+
+Each top-level key maps to one sub-stage; the parameters mirror the sub-stage's constructor arguments (see the per-stage pages linked below).
+
+## Common Configurations
+
+- **VAD-only**: set `band_filter.enable`, `utmos.enable`, `sigmos.enable`, and `speaker_separation.enable` to `false`. Useful when you only want speech-segment extraction without quality filtering.
+- **Quality-only**: disable `speaker_separation` to keep the audio whole instead of fanning out per speaker.
+- **Single-speaker assumption**: if you know each input has one speaker, disable `speaker_separation` for a substantial GPU savings.
+
+## Related Topics
+
+- [Preprocessing Stages](/curate-audio/process-data/quality-filtering/preprocessing) — `MonoConversionStage`, `SegmentConcatenationStage`, `TimestampMapperStage`.
+- [VAD](/curate-audio/process-data/quality-filtering/vad), [Band Filter](/curate-audio/process-data/quality-filtering/band-filter), [UTMOS](/curate-audio/process-data/quality-filtering/utmos), [SIGMOS](/curate-audio/process-data/quality-filtering/sigmos), [Speaker Separation](/curate-audio/process-data/quality-filtering/speaker-separation).
+- [ReadSpeech Tutorial](/curate-audio/tutorials/readspeech) — end-to-end walkthrough of `AudioDataFilterStage`.

@@ -1,0 +1,118 @@
+---
+description: "Read and write interleaved image-text datasets between WebDataset tar shards and Parquet using InterleavedParquetReader, InterleavedWebdatasetReader, and the matching writers"
+categories: ["text-curation"]
+tags: ["interleaved", "io", "parquet", "webdataset", "reader", "writer"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "universal"
+---
+
+# Interleaved IO
+
+Read and write interleaved image-text data between WebDataset tar shards and Parquet. All four combinations work out of the box:
+
+```text
+WDS tar  ⇄  InterleavedBatch  ⇄  Parquet
+```
+
+## Readers
+
+### `InterleavedParquetReader`
+
+Reads Parquet files into `InterleavedBatch`. Each row maps to one item (text, image, or metadata) with a `sample_id` that groups items into samples.
+
+```python
+from nemo_curator.stages.interleaved.io.reader import InterleavedParquetReader
+
+reader = InterleavedParquetReader(
+    file_paths="s3://bucket/interleaved/*.parquet",
+    fields=("source_url", "license"),  # passthrough columns, in addition to reserved ones
+    max_batch_bytes=512 * 1024 * 1024,  # 512 MiB per output batch
+)
+```
+
+Highlights:
+
+- **`fields=` passthrough**: keep additional columns alongside the reserved interleaved schema. Missing columns null-fill in a single pass.
+- **Push-down column projection**: the reader uses `pq.read_schema()` per file and asks Parquet for only the columns it needs.
+- **`max_batch_bytes` splitting**: large file groups are split into multiple batches by accumulated size; per-split lineage is preserved on the output `source_files` field.
+
+### `InterleavedWebdatasetReader`
+
+Reads MINT-1T-style WebDataset tar shards. Same `fields=` and `max_batch_bytes` semantics as the Parquet reader. Supports configurable file extensions for image, JSON, and texts members through the `image_extensions`, `json_extensions`, `texts_field`, `images_field`, and `image_member_field` parameters.
+
+## Writers
+
+### `InterleavedParquetWriter`
+
+Writes `InterleavedBatch` to Parquet. Inherited writer base supports schema control and the materialization-error policy (see below).
+
+### `InterleavedWebdatasetWriterStage`
+
+Writes `InterleavedBatch` to MINT-1T-style WebDataset tar shards.
+
+```python
+from nemo_curator.stages.interleaved.io.writers.webdataset import InterleavedWebdatasetWriterStage
+
+writer = InterleavedWebdatasetWriterStage(
+    output_dir="./out",
+    file_extension="tar",
+)
+```
+
+Implementation notes:
+
+- **`urllib.parse.quote(sample_id, safe="")`** is used as the tar member key, which is injective and roundtrip-safe with `sample_id_field="sample_id"` on the matching reader.
+- **Single-pass `groupby`**: rows are grouped by `sample_id` once instead of filtered per sample (O(n) instead of O(n×m)).
+- **Sparse positions**: gaps in the position field are preserved as `None` entries; the WDS reader skips them on the way back.
+- **Supported modalities**: `metadata`, `text`, and `image`. Any other modality raises `ValueError` at write time.
+
+## Schema Utilities
+
+`utils/schema.py` ships shared helpers used by every arrow-based reader and writer:
+
+| Helper | Purpose |
+| --- | --- |
+| `reconcile_schema()` | Apply canonical types to reserved columns; preserve passthrough column types as-is; avoid unsafe large↔small downcasts; unwrap Parquet dictionary encoding from passthrough columns. |
+| `align_table()` | Pad, reorder, and cast an Arrow table to a target schema. Reserved columns use `safe=False` for predictable casts; passthrough columns use `safe=True` so overflow surfaces rather than silently corrupting data. Does **not** re-reconcile the user-provided target. |
+| `resolve_schema()` | Merge `schema=` and `schema_overrides=` arguments with the canonical `INTERLEAVED_SCHEMA`; warn when both are provided; return `None` when neither is set. |
+
+### Reader / Writer Schema Parameters
+
+Both readers and writers accept `schema=` and `schema_overrides=` for strict output alignment. When both are provided, the writer warns instead of silently ignoring the override. `nullable=False` from `INTERLEAVED_SCHEMA` is preserved when applying `schema_overrides`.
+
+### Materialization Error Policy
+
+Writers expose `on_materialize_error=`, controlling what happens when a fetch step (or upstream stage) sets an error on a row:
+
+| Value | Behavior |
+| --- | --- |
+| `"error"` | Raise immediately (default for strict pipelines). |
+| `"warn"` | Emit a warning and keep the row. |
+| `"drop_row"` | Drop the offending row but keep the rest of the sample. |
+| `"drop_sample"` | Drop the entire sample if any row in it errored. |
+
+The policy is applied after fetch, so it covers errors raised both by the materialization step itself and by upstream stages.
+
+### Mixed-Backend Path Handling
+
+`_build_global_range_index()` groups paths by filesystem object so a single batch that mixes S3 and local paths no longer fails silently; each backend's range queries run against the right filesystem.
+
+## Performance
+
+Benchmarks on 80 NVMe shards of MINT-1T PDF data (6,818 samples, 9.9 GB WDS / 6.0 GB Parquet) with an aspect-ratio filter applied:
+
+| Path | Wall-clock | Samples/sec |
+| --- | --- | --- |
+| WDS → Parquet | 76.8 s | 88.8 |
+| WDS → WDS | 75.4 s | 90.4 |
+| **Parquet → Parquet** | **15.7 s** | **435.0** |
+| **Parquet → WDS** | **18.5 s** | **368.4** |
+
+Parquet-sourced paths are roughly **5× faster** than WDS-sourced paths because tar parsing dominates the WDS read cost.
+
+## Related Topics
+
+- [Interleaved Filters](/curate-text/process-data/interleaved/filters) — sample-level quality filters that operate on `InterleavedBatch`.
+- [Nemotron-Parse PDF Pipeline](/curate-text/load-data/nemotron-parse-pdf) — produces interleaved Parquet output from PDF inputs.

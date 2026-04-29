@@ -1,0 +1,60 @@
+---
+description: "End-to-end audio quality filtering — VAD, band, UTMOS, SIGMOS, and speaker separation stages for cleaning raw audio into single-speaker segments"
+categories: ["audio-processing"]
+tags: ["audio-filtering", "vad", "utmos", "sigmos", "speaker-separation", "quality"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "audio-only"
+---
+
+# Audio Quality Filtering
+
+Curate raw audio into clean, single-speaker training segments using a configurable suite of preprocessing, segmentation, and filtering stages.
+
+## How It Works
+
+A typical pipeline composes the stages below in this order:
+
+1. **Mono conversion** normalizes channels and sample rate.
+2. **Voice activity detection (VAD)** splits each file into speech segments.
+3. **Band filter** drops segments that are not full-band (or not narrow-band, depending on configuration).
+4. **UTMOS** filters segments below a perceived-quality threshold.
+5. **SIGMOS** filters segments by per-dimension quality scores (noise, overall, signal, coloration, discontinuity, loudness, reverb).
+6. **Segment concatenation** merges surviving segments back together with configurable silence between them.
+7. **Speaker separation** diarizes the concatenated audio and fans out one task per speaker.
+8. **Per-speaker filters** rerun VAD/Band/UTMOS/SIGMOS on each speaker's audio independently.
+9. **Timestamp mapping** projects final segment boundaries back to positions in the original input file.
+
+Each stage is independently usable. Use [`AudioDataFilterStage`](/curate-audio/process-data/quality-filtering/audio-data-filter-stage) to compose all of them with a single YAML config, or assemble a custom subset stage-by-stage.
+
+## Pages
+
+<Cards>
+  <Card title="Preprocessing Stages" href="/curate-audio/process-data/quality-filtering/preprocessing">
+    `MonoConversionStage`, `SegmentConcatenationStage`, and `TimestampMapperStage` — channel normalization, segment merging, and original-file position mapping.
+  </Card>
+  <Card title="VAD Segmentation" href="/curate-audio/process-data/quality-filtering/vad">
+    `VADSegmentationStage` — split audio into speech segments using Silero VAD, with configurable thresholds and padding.
+  </Card>
+  <Card title="Band Filter" href="/curate-audio/process-data/quality-filtering/band-filter">
+    `BandFilterStage` — classify and filter audio by spectral bandwidth (`full_band` vs `narrow_band`).
+  </Card>
+  <Card title="UTMOS Filter" href="/curate-audio/process-data/quality-filtering/utmos">
+    `UTMOSFilterStage` — filter by predicted Mean Opinion Score using the `utmos22_strong` model.
+  </Card>
+  <Card title="SIGMOS Filter" href="/curate-audio/process-data/quality-filtering/sigmos">
+    `SIGMOSFilterStage` — filter by seven independent perceptual-quality dimensions via an ONNX model.
+  </Card>
+  <Card title="Speaker Separation" href="/curate-audio/process-data/quality-filtering/speaker-separation">
+    `SpeakerSeparationStage` (offline SortFormer) and `InferenceSortformerStage` (streaming Sortformer) for diarization.
+  </Card>
+  <Card title="AudioDataFilterStage Composite" href="/curate-audio/process-data/quality-filtering/audio-data-filter-stage">
+    Composite pipeline that decomposes into all of the stages above; configure the entire flow from a single YAML file.
+  </Card>
+</Cards>
+
+## Related Topics
+
+- [ReadSpeech Tutorial](/curate-audio/tutorials/readspeech) — end-to-end walkthrough of `AudioDataFilterStage` on the DNS Challenge ReadSpeech dataset.
+- [Quality Assessment](/curate-audio/process-data/quality-assessment/wer-filtering) — WER and duration filters for ASR-based curation.

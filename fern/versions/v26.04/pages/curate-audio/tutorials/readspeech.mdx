@@ -1,0 +1,145 @@
+---
+description: "Tutorial for processing the DNS Challenge Read Speech dataset through AudioDataFilterStage with automatic download and configurable quality filters"
+categories: ["tutorials"]
+tags: ["readspeech", "dns-challenge", "audio-data-filter", "vad", "utmos", "sigmos", "speaker-separation"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "tutorial"
+modality: "audio-only"
+---
+
+# DNS Challenge Read Speech Tutorial
+
+Process the [DNS Challenge Read Speech dataset](https://github.com/microsoft/DNS-Challenge) — 14,279 WAV files at 48 kHz, totaling 19.3 hours — through `AudioDataFilterStage` with automatic dataset download and configurable quality filters.
+
+## Overview
+
+This tutorial demonstrates an end-to-end audio curation workflow:
+
+1. **Auto-download** the DNS Challenge dataset (4.88 GB compressed) and build an initial manifest.
+2. **Run `AudioDataFilterStage`** with VAD, UTMOS, SIGMOS, band, and speaker-separation sub-stages.
+3. **Write a JSONL manifest** of filtered single-speaker segments.
+4. **Optionally extract segments** as standalone WAV files using the bundled `extract_segments.py` utility (no `ffmpeg` dependency).
+
+**What you will learn:**
+
+- Wiring `CreateInitialManifestReadSpeechStage` into a pipeline.
+- Toggling individual quality filters (`--enable-vad`, `--enable-utmos`, `--enable-sigmos`, `--enable-band-filter`, `--enable-speaker-separation`).
+- Tuning GPU resource allocations for filter sub-stages.
+- Choosing between Python CLI, Hydra YAML, and Jupyter notebook drivers.
+
+## Working Example Location
+
+```
+<nemo_curator_repository>/tutorials/audio/readspeech/
+├── README.md                    # Tutorial documentation
+├── pipeline.py                  # argparse CLI driver
+├── pipeline.yaml                # Hydra config
+├── run.py                       # Hydra runner
+├── extract_segments.py          # Post-processing utility
+└── readspeech_tutorial.ipynb    # Interactive Jupyter walkthrough
+```
+
+```bash
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator/tutorials/audio/readspeech/
+```
+
+## Prerequisites
+
+- NeMo Curator installed with audio extras (`uv sync --extra audio_cuda12` for GPU, or `audio_cpu` for CPU-only). See the [Installation Guide](/admin/installation).
+- Python 3.10 or later.
+- ~5 GB free disk for the compressed dataset; ~10 GB total during extraction.
+- Optional but recommended: a GPU with at least 8 GB of memory for VAD/UTMOS/SIGMOS/SortFormer inference.
+
+## Quick Validation Run
+
+Confirm the install with a 10-sample dry run that downloads the dataset and exercises VAD + UTMOS:
+
+```bash
+python pipeline.py \
+    --raw_data_dir ./dns_data \
+    --max-samples 10 \
+    --enable-utmos \
+    --enable-vad
+```
+
+Expected wall-clock time on a single GPU: **1–2 minutes**, dominated by model loading. Results land under `./dns_data/result/` as a JSONL manifest.
+
+## Standard Usage
+
+Default sample budget is 5,000 files. To process the full corpus:
+
+```bash
+python pipeline.py \
+    --raw_data_dir ./dns_data \
+    --max-samples -1 \
+    --enable-utmos \
+    --enable-vad \
+    --enable-sigmos \
+    --enable-band-filter \
+    --enable-speaker-separation
+```
+
+Re-run against pre-downloaded data without re-fetching:
+
+```bash
+python pipeline.py \
+    --raw_data_dir /path/to/existing/read_speech \
+    --no-auto-download \
+    --enable-utmos
+```
+
+## Hydra Driver
+
+`run.py` uses Hydra to drive the same pipeline from `pipeline.yaml`, which mirrors the config schema for `AudioDataFilterStage`:
+
+```bash
+python run.py --config-name pipeline raw_data_dir=./dns_data max_samples=1000
+```
+
+Override individual sub-stage parameters from the command line:
+
+```bash
+python run.py --config-name pipeline \
+    raw_data_dir=./dns_data \
+    audio_filter.utmos.mos_threshold=3.0 \
+    audio_filter.sigmos.enable=false
+```
+
+## Pipeline Flow
+
+```text
+CreateInitialManifestReadSpeechStage   (download + manifest)
+        │
+        ▼
+AudioDataFilterStage   (Mono → VAD → Band → UTMOS → SIGMOS → Concat → SpeakerSep → ... → TimestampMapper)
+        │
+        ▼
+AudioToDocumentStage → JsonlWriter   (manifest.jsonl)
+        │
+        ▼
+extract_segments.py   (optional — write segment WAVs to disk)
+```
+
+## Extracting Segments
+
+After the pipeline writes its manifest, use `extract_segments.py` to slice the original WAVs into segment files according to the resolved `start_ms`/`end_ms` timestamps:
+
+```bash
+python extract_segments.py \
+    --manifest ./dns_data/result/manifest.jsonl \
+    --output-dir ./dns_data/segments
+```
+
+This utility uses `soundfile` directly, so no `ffmpeg` is required for `wav`, `flac`, or `ogg` outputs.
+
+## Interactive Notebook
+
+A guided notebook walkthrough is included at `tutorials/audio/readspeech/readspeech_tutorial.ipynb`. Open it in Jupyter or VS Code for a step-by-step run with inline plots of UTMOS/SIGMOS distributions.
+
+## Related Topics
+
+- [`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage) — full configuration reference for the filtering pipeline used in this tutorial.
+- [Audio Quality Filtering](/curate-audio/process-data/quality-filtering) — index of the individual filter stages.
+- [Beginner Tutorial](/curate-audio/tutorials/beginner) — simpler audio curation walkthrough.

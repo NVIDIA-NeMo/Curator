@@ -1,0 +1,50 @@
+---
+description: "Voice activity detection with VADSegmentationStage to split audio into speech segments using Silero VAD"
+categories: ["audio-processing"]
+tags: ["audio-filtering", "vad", "voice-activity-detection", "silero", "segmentation"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# VAD Segmentation
+
+`VADSegmentationStage` splits an input waveform into speech segments using the [Silero VAD](https://github.com/snakers4/silero-vad) model. Each detected segment becomes its own `AudioTask` (the stage fans out one output per segment), so downstream filters score each speech window independently.
+
+## Usage
+
+```python
+from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
+
+vad = VADSegmentationStage(
+    min_duration_sec=2.0,
+    max_duration_sec=60.0,
+    threshold=0.5,
+    speech_pad_ms=300,
+)
+```
+
+The stage reads `waveform` and `sample_rate` from the input task and emits one task per detected segment with the fields `start_ms`, `end_ms`, `segment_num`, `duration_sec`, plus both PyDub `AudioSegment` and torch waveform output. Pair with `SegmentConcatenationStage` if you want to merge surviving segments after later filters.
+
+## Parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `min_interval_ms` | int | `500` | Minimum silence interval (in ms) between distinct speech segments. |
+| `min_duration_sec` | float | `2.0` | Drop segments shorter than this duration. |
+| `max_duration_sec` | float | `60.0` | Cap segment duration; longer segments are split. |
+| `threshold` | float | `0.5` | Silero VAD confidence threshold (0.0–1.0). |
+| `speech_pad_ms` | int | `300` | Padding (in ms) added to either side of each detected segment. |
+| `waveform_key` | str | `"waveform"` | Input task key containing the waveform tensor. |
+| `sample_rate_key` | str | `"sample_rate"` | Input task key containing the sample rate. |
+| `nested` | bool | `False` | When `True`, segments inherit the parent task's `mappings` field for nested re-segmentation. |
+
+## Resources
+
+The default resource allocation is `cpus=1.0, gpus=0.0`. Set `gpus=0.1` (or higher) on the stage's `Resources` if you want Silero VAD to run on GPU; the model is small enough that fractional-GPU sharing works well.
+
+## Related Topics
+
+- [Speaker Separation](/curate-audio/process-data/quality-filtering/speaker-separation) — typical next stage after VAD when you also need diarization.
+- [`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage) — wraps VAD plus the rest of the audio filtering pipeline.

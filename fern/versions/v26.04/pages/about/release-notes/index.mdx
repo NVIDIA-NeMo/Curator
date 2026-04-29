@@ -181,6 +181,35 @@ Added stage-wise profiling for FLEURS GPU and ALM CPU pipelines with benchmark s
 - **Bottleneck analysis**: Identified data download (91% of FLEURS wall time) and `repeat_entries` (44% of ALM wall time) as primary bottlenecks.
 - **Nightly CI entries**: Split FLEURS and ALM benchmarks into separate Xenna and Ray Data entries for both-backend coverage.
 
+### Audio Filtering Pipeline Stages (PRs #1575, #1576, #1577, #1578, #1579, #1639)
+
+Added a suite of audio preprocessing and filtering stages that compose into end-to-end audio data curation pipelines:
+
+- **`MonoConversionStage`, `SegmentConcatenationStage`, `TimestampMapperStage`** (PR #1575): Foundational preprocessing — convert multi-channel audio to mono with strict or non-strict sample-rate enforcement, concatenate audio segments with configurable silence gaps, and map filtered segments back to original-file timestamps.
+- **`BandFilterStage`** (PR #1576): Classifies audio as `full_band` or `narrow_band` using a scikit-learn model on spectral features and filters out items not matching the configured `band_value`. Works standalone (loads audio from `audio_filepath`) or in-pipeline (accepts an upstream waveform).
+- **`SIGMOSFilterStage`** (PR #1577): Filters audio using SIGMOS quality metrics (NOISE, OVRL, SIG, COL, DISC, LOUD, REVERB on a 0–5 scale) via an ONNX model. Each threshold is independently configurable; setting any to `None` disables that dimension.
+- **`VADSegmentationStage`** (PR #1578): Segments audio into speech chunks using Silero VAD, fanning out to one `AudioBatch` per detected speech segment with `start_ms`, `end_ms`, `segment_num`, `duration_sec`, and both PyDub and torch waveform outputs. Configurable `min_duration_sec`, `max_duration_sec`, `threshold`, and `speech_pad_ms`. Runs on CPU or GPU.
+- **`SpeakerSeparationStage`** (PR #1579): Diarizes audio with NeMo's SortFormer model, fanning out to one `AudioBatch` per detected speaker. Configurable `exclude_overlaps`, `min_duration`, `gap_threshold`, and `buffer_time`. GPU required.
+- **`UTMOSFilterStage`** (PR #1639): Filters audio segments based on UTMOS predicted Mean Opinion Score using the `utmos22_strong` model loaded via `torch.hub` from `tarepan/SpeechMOS:v1.2.0`. Auto-resamples to 16 kHz, accepts in-memory `waveform + sample_rate` or `audio_filepath` input, and uses a configurable `mos_threshold` (default 3.5; set to `None` to pass all).
+
+### Streaming Sortformer Speaker Diarization (PR #1573)
+
+Added `InferenceSortformerStage` for speaker diarization using NVIDIA's [Streaming Sortformer model](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2). Supports configurable streaming latency, RTTM output, and parallel execution via `Pipeline` + `RayActorPoolExecutor`. Evaluated on CallHome-eng0 (139 files) at 6.2% macro DER and 6.0% weighted DER (collar=0.25s).
+
+### `AudioDataFilterStage` Composite Pipeline (PRs #1640, #1765)
+
+Added `AudioDataFilterStage`, a `CompositeStage` that decomposes into a configurable sequence of audio processing sub-stages for extracting clean single-speaker segments from raw audio files. Each sub-stage has its own resource allocation (CPU for band/concat, GPU for VAD/UTMOS/SIGMOS/speaker separation), letting the executor parallelize across input files.
+
+When all stages are enabled, the default order is: MonoConversion → VAD → BandFilter → UTMOS → SIGMOS → SegmentConcatenation → SpeakerSeparation → per-speaker filters (VAD + Band + UTMOS + SIGMOS) → TimestampMapper. All sub-stages are individually toggleable through `AudioDataFilterConfig` (`enable_vad`, `enable_band_filter`, `enable_utmos`, `enable_sigmos`, and so on). PR #1765 redesigns the stage to support all VAD/Speaker combinations and fixes a waveform tensor leak that grew memory under sustained load.
+
+### DNS Challenge ReadSpeech Tutorial (PRs #1664, #1841, #1851, #1870)
+
+Added an end-to-end tutorial for processing the DNS Challenge ReadSpeech dataset (14,279 WAV files at 48 kHz, 19.3 hours) through `AudioDataFilterStage`:
+
+- **`CreateInitialManifestReadSpeechStage`**: Downloads and extracts the dataset, parses filenames for book and reader IDs, and emits `AudioBatch` tasks ready for the filter pipeline.
+- **Tutorial materials in `tutorials/audio/readspeech/`**: A Python pipeline (`pipeline.py`), Hydra YAML config (`pipeline.yaml`), Hydra runner (`run.py`), and an `extract_segments.py` post-processing utility (using `soundfile`, no ffmpeg required for `wav`/`flac`/`ogg`). PR #1870 adds an interactive Jupyter notebook walkthrough.
+- **Benchmark and test coverage**: PR #1851 adds a ReadSpeech audio curation benchmark to the nightly suite; PR #1841 lowers the default GPU resource requirements so the tutorial fits on smaller hosts and adds README and tests for the dataset stage.
+
 ### NeMo Data Designer Integration
 
 Integrated the NeMo Data Designer (NDD) client with NeMo Curator for declarative synthetic data generation at scale:
@@ -202,6 +231,60 @@ Added S3 as an alternative transport for `CommonCrawlWARCReader`, which fetches 
 
 Learn more in the [Common Crawl](/curate-text/load-data/common-crawl) documentation.
 
+### Multi-Node Ray on SLURM (PR #1712)
+
+Added `SlurmRayClient`, a drop-in replacement for `RayClient` that orchestrates multi-node Ray clusters under SLURM job scheduling:
+
+- **Head/worker role detection**: The head node (`SLURM_NODEID=0`) starts `ray start --head`, writes the GCS port to a shared broadcast file, and waits for workers to join. Worker nodes block on the port file and call `ray start --block`. Only the head returns from `start()`.
+- **Drop-in replacement**: Existing pipelines move from local to SLURM by replacing `RayClient()` with `SlurmRayClient()`; no other changes required.
+- **Reference tutorials in `tutorials/slurm/`**: Ships `submit_container.sh` (NGC container via Pyxis) and `submit.sh` (bare-metal via uv) covering 1- and 2-node configurations with 2 or 8 GPUs per node. Set `RAY_PORT_BROADCAST_DIR` to a shared filesystem path when `/tmp` is node-local.
+
+Verified end-to-end on 1- and 2-node H100 SLURM jobs using the `nvcr.io/nvidia/nemo-curator:26.02` container.
+
+### Nemotron-Parse PDF Pipeline (PR #1693)
+
+Added a four-stage Xenna pipeline that turns PDF datasets into interleaved Parquet output using NVIDIA's Nemotron-Parse vision-language model:
+
+- **`PDFPartitioningStage`**: Reads a JSONL manifest and packs PDF entries into `FileGroupTask`s.
+- **`PDFPreprocessStage`**: Extracts PDF bytes from a directory, a CC-MAIN-2021-31-PDF-UNTRUNCATED zip hierarchy, or JSONL-encoded PDF datasets, and renders pages to images with scale-to-fit guarding against OOM on large pages.
+- **`NemotronParseInferenceStage`**: Runs Nemotron-Parse via vLLM (recommended) or Hugging Face Transformers, with `text_in_pic` and `enforce_eager` flags and free-port retry logic on collisions.
+- **`NemotronParsePostprocessStage`**: Parses model output, aligns images and captions, crops, and emits interleaved rows.
+- **`NemotronParsePDFReader`**: Composite stage wrapping the four steps above so callers can drop the pipeline into a single `pipeline.add_stage()` call.
+
+The render timeout uses a forked subprocess instead of `signal.SIGALRM`, allowing the stage to run inside Xenna actor processes (which dispatch on non-main threads). Adds `pypdfium2` as a new dependency and ships `benchmarking/scripts/nemotron_parse_pdf_benchmark.py`.
+
+### Interleaved IO Round-Trip (PRs #1652, #1657)
+
+Completed the interleaved IO round-trip with new readers, writers, and shared schema utilities so all four conversions (`WDS tar ⇄ InterleavedBatch ⇄ Parquet`) work out of the box:
+
+- **`InterleavedParquetReader` / `InterleavedParquetReaderStage`**: Reads Parquet directly into `InterleavedBatch`, with `fields=` passthrough column selection (consistent with the WDS reader), push-down column projection via `pq.read_schema()`, and `max_batch_bytes` splitting that preserves per-split source-file lineage.
+- **`InterleavedWebdatasetWriterStage`**: Writes `InterleavedBatch` to MINT-1T-style WDS tar shards. Uses `urllib.parse.quote(sample_id, safe="")` for injective, roundtrip-safe key escaping and groups rows by `sample_id` in a single `groupby` pass. Supported modalities are `metadata`, `text`, and `image`; any other raises `ValueError` at write time.
+- **Schema utilities (`utils/schema.py`)**: New `reconcile_schema()`, `align_table()`, and `resolve_schema()` helpers shared by all arrow-based readers and writers. Reserved columns get canonical types and use `safe=False` for safe large↔small casts; passthrough columns preserve types and use `safe=True` to surface (rather than silently corrupt) overflow.
+- **Reader/writer base improvements**: New `schema=` and `schema_overrides=` parameters with a warning when both are provided, a writer `on_materialize_error=` policy (`"error"`, `"warn"`, `"drop_row"`, `"drop_sample"`), and mixed-backend safe path handling so batches that combine S3 and local paths no longer fail silently.
+
+Benchmarks on 80 NVMe shards (MINT-1T PDF data) with an aspect-ratio filter applied show Parquet-sourced paths ~5× faster than WDS-sourced paths.
+
+### Interleaved Dataset Filters (PR #1583)
+
+Added four filter stages for cleaning interleaved image/text datasets:
+
+- **`InterleavedBlurFilterStage`**: Computes Laplacian variance on each image with OpenCV and filters out images below a configurable sharpness threshold.
+- **`InterleavedQRCodeFilterStage`**: Detects QR codes with OpenCV and filters images whose QR-code bounding box exceeds a configurable area ratio of the total image.
+- **`InterleavedCLIPScoreFilterStage`**: Computes CLIP image and text embeddings and filters samples whose cosine similarity falls below a minimum semantic-alignment threshold.
+- **`InterleavedImageToTextRatioFilterStage`**: Computes the per-sample ratio of image count to text word count and filters samples outside a configurable `min_ratio`/`max_ratio` window.
+
+### Nemotron VLM Video Captioning (PR #1160)
+
+Added the **Nemotron Nano 12B V2 VLM** as a captioning backend in the video pipeline. Select with `--captioning-algorithm nemotron --nemotronh-vl-model-path <path>` in the `video_split_clip_example.py` tutorial.
+
+### Qwen3 Video Captioning (PR #1827)
+
+Added `qwen3` as a supported captioning variant alongside `qwen2.5`, replacing the previous unversioned `qwen` alias:
+
+- **New variants**: `Qwen/Qwen3-VL-8B-Instruct` (caption generation) and `Qwen/Qwen3-14B` (caption enhancement). The unversioned `qwen` alias is gone — `--captioning-algorithm` and `--enhance-captions-algorithm` now require explicit `qwen2.5` or `qwen3`.
+- **Per-variant pixel budgets**: A new `_QWEN_VL_PIXEL_PARAMS` mapping merges variant-specific `image_factor`, `min_pixels`, `max_pixels`, and `video_*_pixels` into `mm_processor_kwargs` on `setup()`. Qwen2.5 uses factor-28 params; Qwen3 uses factor-32.
+- **`captioning_model_variant` on `CaptionEnhancementStage`**: The enhancement stage now reads captions from the variant-specific key instead of the previously hardcoded `"qwen"` key, so generation and enhancement can use different Qwen variants without colliding.
+
 ## Improvements
 
 ### Batched Shuffle Insertion for Exact Deduplication (PR #1369)
@@ -220,6 +303,30 @@ The exact deduplication identification stage now supports batched insertion into
 - **`lsh_spill_memory_limit`**: Controls the device memory limit for spilling to host. Defaults to `"auto"` (80% of the RMM pool size). Set to `None` to disable spilling.
 
 These parameters were previously hardcoded in the LSH stage and are now configurable at the workflow level, enabling finer-grained GPU memory tuning for large-scale fuzzy deduplication jobs.
+
+### Exact Deduplication Workflow Tuning Parameters (PR #1561)
+
+Exposed additional configuration parameters in `ExactDeduplicationWorkflow` for fine-grained control over large-scale cluster runs:
+
+- **`total_nparts`**: Set the total number of output partitions explicitly instead of relying on the automatic default (one-third of input task count).
+- **`rmm_pool_size`**: Configure the RMM GPU memory pool size in bytes. Supports `"auto"` (90% of free GPU memory), a specific byte value, or `None` (50% of free GPU memory with dynamic expansion).
+- **`spill_memory_limit`**: Set the device memory threshold for spilling to host in bytes. Supports `"auto"` (80% of the RMM pool size), a specific byte value, or `None` (spilling disabled).
+
+These parameters are useful when the defaults are not optimal for your hardware or dataset size:
+
+```python
+workflow = ExactDeduplicationWorkflow(
+    input_path="input_data/",
+    output_path="./results",
+    total_nparts=512,
+    rmm_pool_size=72 * 1024 * 1024 * 1024,  # 72 GiB
+    spill_memory_limit="auto",
+)
+```
+
+### AEGIS Classifier GPU Utilization (Issue #878)
+
+Confirmed full GPU utilization for the AEGIS safety classifier when running on multi-GPU setups. The AEGIS classifier, which uses the LlamaGuard-7b generative model, properly distributes inference across all available GPUs. Added a performance note to the [classifier documentation](/curate-text/process-data/quality-assessment/distributed-classifier) to set expectations for processing times relative to encoder-based classifiers.
 
 ## Security Fixes
 
@@ -243,34 +350,6 @@ Resolved four HIGH-severity vulnerabilities affecting Curator dependencies:
 - **xgrammar**: Moved from `constraint-dependencies` (`>=0.1.21`) to `override-dependencies` (`>=0.1.32`) to override vLLM's pinned version and address CVE-2026-25048.
 - **boto3**: Added `boto3>=1.35` to the `math_cpu` install extra for S3 range requests in `CommonCrawlWARCReader` (PR #1604)
 
-## Enhancements
-
-### Exact Deduplication Workflow Tuning Parameters (PR #1561)
-
-Exposed additional configuration parameters in `ExactDeduplicationWorkflow` for fine-grained control over large-scale cluster runs:
-
-- **`total_nparts`**: Set the total number of output partitions explicitly instead of relying on the automatic default (one-third of input task count).
-- **`rmm_pool_size`**: Configure the RMM GPU memory pool size in bytes. Supports `"auto"` (90% of free GPU memory), a specific byte value, or `None` (50% of free GPU memory with dynamic expansion).
-- **`spill_memory_limit`**: Set the device memory threshold for spilling to host in bytes. Supports `"auto"` (80% of the RMM pool size), a specific byte value, or `None` (spilling disabled).
-
-These parameters are useful when the defaults are not optimal for your hardware or dataset size:
-
-```python
-workflow = ExactDeduplicationWorkflow(
-    input_path="input_data/",
-    output_path="./results",
-    total_nparts=512,
-    rmm_pool_size=72 * 1024 * 1024 * 1024,  # 72 GiB
-    spill_memory_limit="auto",
-)
-```
-
-## Improvements
-
-### AEGIS Classifier GPU Utilization (Issue #878)
-
-Confirmed full GPU utilization for the AEGIS safety classifier when running on multi-GPU setups. The AEGIS classifier, which uses the LlamaGuard-7b generative model, properly distributes inference across all available GPUs. Added a performance note to the [classifier documentation](/curate-text/process-data/quality-assessment/distributed-classifier) to set expectations for processing times relative to encoder-based classifiers.
-
 ## Bug Fixes
 
 ### JusText Extraction OOM (PR #1534)
@@ -289,10 +368,6 @@ Fixed a race condition in video captioning stages (`CaptionGenerationStage` and 
 
 Fixed audio pipeline stage names not propagating in `StagePerfStats`, making benchmark output unable to identify per-stage timing. All audio stages (`GetAudioDurationStage`, `PreserveByValueStage`, `AudioToDocumentStage`, `GetPairwiseWerStage`) now correctly report their names, and stage performance history persists when stages create new task objects.
 
-### Video vLLM Setup Race Condition (PR #1590)
-
-Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage` where multiple workers simultaneously initializing vLLM would race on the shared `torch.compile` cache directory, causing `FileNotFoundError`. Model initialization now runs once per node in `setup_on_node()` instead of per-worker in `setup()`, matching the pattern used by text vLLM stages.
-
 ### MathContentExtractor Serialization Crash (PR #1604)
 
 Fixed a `deepcopy`/pickle crash in `MathContentExtractor` caused by unpickleable `threading.Lock` and `magic.Magic` objects. Added `__getstate__`/`__setstate__` methods that strip these objects before serialization and reinitialize them on deserialization. This fixes failures triggered by `ProcessingStage.with_()` and Ray executors.
@@ -300,6 +375,18 @@ Fixed a `deepcopy`/pickle crash in `MathContentExtractor` caused by unpickleable
 ### CommonCrawlWARCReader Serialization for Ray (PR #1604)
 
 Added `__getstate__`/`__setstate__` to `CommonCrawlWARCReader` for pickle compatibility with Ray executors. The `threading.Lock`, `requests.Session`, and boto3 S3 client are stripped during serialization and lazily reinitialized after deserialization.
+
+### JSONL UTF-8 Preservation (PR #1762)
+
+Fixed `JsonlWriter` escaping non-ASCII characters in output, which broke downstream tooling that consumed raw UTF-8 text. The writer now defaults to `force_ascii=False`, preserving multi-byte characters as-is. Resolves Issue #1582.
+
+### Images-Per-Tar Warning When Greater Than Batch Size (PR #1828)
+
+The image reader silently produced under-packed tars when `--images-per-tar` was greater than `--batch-size`, because each batch only emits a single chunk regardless of the tar size flag. The pipeline now warns when `--images-per-tar` exceeds `--batch-size`, and tutorials have been updated to clarify the relationship between the two flags. Addresses NVBug 6075086.
+
+### VideoReader Path Validation (PR #1845)
+
+`VideoReader` now validates input paths during initialization, accepting single-file inputs in addition to directories and raising explicit errors for unsupported file formats instead of failing later in the pipeline.
 
 ## Deprecations
 
