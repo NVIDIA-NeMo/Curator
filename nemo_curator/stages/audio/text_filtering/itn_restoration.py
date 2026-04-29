@@ -199,8 +199,8 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     enable_validation: bool = True
     tensor_parallel_size: int | None = None
     max_output_tokens: int = 512
-    max_model_len: int = 4096
-    max_num_seqs: int = 16
+    max_model_len: int = 2048
+    max_num_seqs: int = 64
     gpu_memory_utilization: float = 0.95
     kv_cache_dtype: str = "fp8"
     num_workers: int | None = None
