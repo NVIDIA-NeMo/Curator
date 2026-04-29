@@ -49,24 +49,24 @@ source_lang_key: source_lang
 model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 ml_prompt: "Transcribe the audio."
 ml_prompt_file: null
-en_prompt_file: null
+en_prompt_file: /src/Curator/examples/audio/qwen_omni_inprocess/prompts/en_qwen3_omni_disfluency_asr.md
 followup_prompt: null
 followup_prompt_file: null
 system_prompt: null
 tensor_parallel_size: 2
 batch_size: 32
 max_output_tokens: 256
-max_model_len: 32768
+max_model_len: 4096
 max_num_seqs: 16
-gpu_memory_utilization: 0.95
+gpu_memory_utilization: 0.90
 prep_workers: 16
 
 # ===========================================================================
 # TEXT FILTERING
 # ===========================================================================
-hall_phrases: ???
+hall_phrases: /src/Curator/tutorials/audio/granary_v2_postprocessing/en.txt
 fasttext_model: "facebook/fasttext-language-identification"
-regex_yaml: ???
+regex_yaml: /src/Curator/tutorials/audio/granary_v2_postprocessing/common.yaml
 min_lang_prob: 0.8
 unique_words_threshold: 0.4
 long_word_threshold: 25
@@ -87,13 +87,13 @@ asr_max_new_tokens: 4096
 skip_pnc: false
 pnc_model_id: "Qwen/Qwen3.5-35B-A3B-FP8"
 pnc_prompt: null
-pnc_prompt_file: null
+pnc_prompt_file: /src/Curator/nemo_curator/stages/audio/text_filtering/prompts/pnc_prompt.md
 completeness_prompt: null
-pnc_tensor_parallel_size: 2
-pnc_batch_size: 64
-pnc_max_model_len: 8192
+pnc_tensor_parallel_size: 1
+pnc_batch_size: 128
+pnc_max_model_len: 2048
 pnc_max_num_seqs: 64
-pnc_gpu_memory_utilization: 0.95
+pnc_gpu_memory_utilization: 0.90
 pnc_prep_workers: 8
 
 # ===========================================================================
@@ -104,12 +104,12 @@ itn_model_id: "Qwen/Qwen3.5-35B-A3B-FP8"
 itn_prompt_file: null
 itn_text_key: null
 itn_output_key: "itn_text"
-itn_batch_size: 64
-itn_tensor_parallel_size: null
+itn_batch_size: 128
+itn_tensor_parallel_size: 1
 itn_max_output_tokens: 4096
-itn_max_model_len: 4096
-itn_max_num_seqs: 16
-itn_gpu_memory_utilization: 0.95
+itn_max_model_len: 2048
+itn_max_num_seqs: 64
+itn_gpu_memory_utilization: 0.90
 itn_no_validation: false
 
 # ===========================================================================

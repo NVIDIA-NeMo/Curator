@@ -240,6 +240,11 @@ def main(cfg: DictConfig) -> None:
     """Hydra entry point for the Granary v2 Qwen-Omni pipeline."""
     logger.info(f"Hydra config:\n{OmegaConf.to_yaml(cfg)}")
 
+    hf_token = cfg.get("hf_token", "")
+    if hf_token:
+        os.environ["HF_TOKEN"] = hf_token
+        os.environ.setdefault("HF_HOME", "/tmp/hf_home")
+
     pipeline = build_granary_v2_pipeline(cfg)
     logger.info(f"Pipeline: {pipeline.describe()}")
 
