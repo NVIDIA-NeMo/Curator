@@ -25,11 +25,10 @@ import contextlib
 import http
 import json
 import os
-import shutil
-import tempfile
 import time
 import urllib.request
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import ray
@@ -133,10 +132,18 @@ class DynamoBackend(InferenceBackend):
         short_id = uuid.uuid4().hex[:8]
         self._pg_name_prefix = f"dynamo_{server.name}_"
         self._actor_name_prefix = f"{self._pg_name_prefix}{short_id}"
-        self._runtime_dir = tempfile.mkdtemp(prefix=f"nemo_curator_dynamo_{short_id}_")
-        logger.info(f"Dynamo runtime dir: {self._runtime_dir}")
 
         with ray.init(namespace=NEMO_CURATOR_DYNAMO_NAMESPACE, ignore_reinit_error=True):
+            # Anchor the runtime dir under Ray's session dir so the benchmarking
+            # runner (benchmarking/runner/ray_cluster.py) picks up Dynamo
+            # subprocess logs / manifests when it copies session_latest/ to the
+            # persistent results path before tearing down ray_temp_dir.
+            runtime_context = ray.get_runtime_context()
+            session_dir = Path(runtime_context.get_temp_dir()) / runtime_context.get_session_name()
+            self._runtime_dir = str(session_dir / f"nemo_curator_dynamo_{short_id}")
+            os.makedirs(self._runtime_dir, exist_ok=True)
+            logger.info(f"Dynamo runtime dir: {self._runtime_dir}")
+
             self._sweep_orphan_actors()
             remove_named_pgs_with_prefix(self._pg_name_prefix)
 
@@ -144,7 +151,6 @@ class DynamoBackend(InferenceBackend):
                 self._deploy_and_healthcheck(server, backend_cfg)
             except Exception:
                 self._teardown_actors_and_pgs()
-                self._cleanup_runtime_dir()
                 raise
 
     def stop(self) -> None:
@@ -162,7 +168,9 @@ class DynamoBackend(InferenceBackend):
         except Exception:  # noqa: BLE001
             logger.warning("Dynamo backend shutdown hit an error (cluster may be gone)", exc_info=True)
 
-        self._cleanup_runtime_dir()
+        # Leave the runtime dir on disk so benchmarking/runner/ray_cluster.py
+        # can copy it out of session_latest/ during ray_client.stop().
+        self._runtime_dir = None
         self._server._host = "localhost"
         logger.info("Dynamo backend stopped")
 
@@ -629,18 +637,6 @@ class DynamoBackend(InferenceBackend):
             prefix=self._pg_name_prefix,
             namespace=NEMO_CURATOR_DYNAMO_NAMESPACE,
         )
-
-    def _cleanup_runtime_dir(self) -> None:
-        if self._runtime_dir is None:
-            return
-        try:
-            shutil.rmtree(self._runtime_dir)
-            logger.debug(f"Cleaned up runtime dir: {self._runtime_dir}")
-        except FileNotFoundError:
-            pass
-        except Exception:  # noqa: BLE001
-            logger.debug(f"Failed to clean up runtime dir: {self._runtime_dir}")
-        self._runtime_dir = None
 
     # ------------------------------------------------------------------
     # Manifest

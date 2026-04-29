@@ -58,7 +58,7 @@ def mock_tokenizer() -> Mock:
 
         return MockTokenizerOutput(input_ids, attention_masks)
 
-    tokenizer.batch_encode_plus = mock_batch_encode_plus
+    tokenizer.side_effect = mock_batch_encode_plus
     return tokenizer
 
 
@@ -88,7 +88,7 @@ def test_mocks_are_working_automatically(tmpdir: str):
     assert stage.tokenizer is not None
     assert stage.tokenizer.vocab_size is not None
     assert stage.tokenizer.eos_token_id is not None
-    assert hasattr(stage.tokenizer, "batch_encode_plus")
+    assert callable(stage.tokenizer)
 
 
 class TestMegatronTokenizerWriter:

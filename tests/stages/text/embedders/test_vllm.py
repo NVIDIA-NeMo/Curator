@@ -174,3 +174,21 @@ class TestVLLMEmbeddingModelStage:
 
         cosine_sim = torch.nn.functional.cosine_similarity(vllm_embeddings_torch, reference_embeddings_torch, dim=1)
         assert torch.allclose(cosine_sim, torch.ones_like(cosine_sim), atol=1e-5)
+
+        if not pretokenize:
+            # First prove this prompt is actually over the model context
+            # without truncation, then verify the stage's process path truncates it.
+            overlength_text = "hello " * 1024
+            overlength_batch = DocumentBatch(
+                task_id="test_overlength_batch",
+                dataset_name="test_dataset",
+                data=pd.DataFrame({"text": [overlength_text]}),
+            )
+            assert vllm_stage.model is not None
+            with pytest.raises(ValueError, match="maximum context length"):
+                vllm_stage.model.embed([overlength_text], use_tqdm=False)
+
+            overlength_result = vllm_stage.process(overlength_batch)
+            overlength_result_df = overlength_result.to_pandas()
+            assert "embeddings" in overlength_result_df.columns
+            assert len(overlength_result_df["embeddings"].iloc[0]) > 0

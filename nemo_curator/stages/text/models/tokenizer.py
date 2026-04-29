@@ -124,7 +124,10 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     @lru_cache(maxsize=1)  # noqa: B019
     def load_cfg(self, local_files_only: bool = True) -> AutoConfig:
         return AutoConfig.from_pretrained(
-            self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only, **self.transformers_init_kwargs
+            self.model_identifier,
+            cache_dir=self.cache_dir,
+            local_files_only=local_files_only,
+            **self.transformers_init_kwargs,
         )
 
     # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
@@ -134,7 +137,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             padding_side=self.padding_side,
             cache_dir=self.cache_dir,
             local_files_only=local_files_only,
-            **self.transformers_init_kwargs
+            **self.transformers_init_kwargs,
         )
         if self.unk_token:
             self.tokenizer.pad_token = self.tokenizer.unk_token
@@ -157,7 +160,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             df[self.text_field] = df[self.text_field].str.slice(0, self.max_chars)
 
         with torch.no_grad():
-            tokens = self.tokenizer.batch_encode_plus(
+            tokens = self.tokenizer(
                 df[self.text_field].tolist(),
                 max_length=self.max_seq_length,
                 padding="max_length",

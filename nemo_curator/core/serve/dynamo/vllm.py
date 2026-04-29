@@ -46,10 +46,45 @@ if TYPE_CHECKING:
     from nemo_curator.core.serve.placement import ReplicaBundleSpec
 
 
-# Installs ai-dynamo[vllm] to pin the exact vLLM release matching the
-# installed ai-dynamo — required because ai-dynamo's CLI surface tracks
-# a specific vLLM version.
-DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {"uv": ["ai-dynamo[vllm]"]}
+# Dynamo actors run in their own uv venv, cloned from Curator's base image env.
+# Curator pins ``ai-dynamo==1.0.2`` in pyproject.toml, so the cloned env already
+# carries the right Dynamo + vLLM combo — we list ``ai-dynamo[vllm]`` here
+# without a version to keep the source of truth in pyproject.
+#
+# Three other pins are essential because they would otherwise float to whatever
+# the base image happened to install:
+#
+# * ``flash-attn`` — listed so uv installs it. ``--reinstall-package flash-attn``
+#   forces a rebuild against the actor-local torch/CUDA stack (flash-attn's ABI
+#   is tied to the exact torch build); ``--no-build-isolation-package
+#   flash-attn`` lets the build see torch in the env (build isolation hides it).
+# * ``flashinfer-cubin==0.6.3`` — Dynamo-1.0.2's bundled vLLM pins
+#   ``flashinfer-python==0.6.3`` but does not pin the cubin package, so without
+#   this pin the cubin floats to whatever the base image (vLLM 0.19) installed
+#   (0.6.6 today) and FlashInfer's runtime version check fails.
+# * ``uvloop<0.22`` — uvloop 0.22 breaks Ray Data MapWorker UDF init under our
+#   Ray version (see ``reference_uvloop_ray_incompat`` memory). Forcing a
+#   downgrade in the actor venv avoids the "no current event loop" crash.
+DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
+    "uv": {
+        "packages": [
+            "ai-dynamo[vllm]",
+            "uvloop<0.22",
+            "flash-attn",
+            "flashinfer-cubin==0.6.3",
+        ],
+        "uv_pip_install_options": [
+            # ``--reinstall-package flash-attn`` forces a fresh build per actor venv
+            # (its ABI is tied to the actor's torch). Other packages (ai-dynamo,
+            # uvloop, flashinfer-cubin) are cache-friendly, so we deliberately omit
+            # ``--no-cache`` to let uv reuse downloaded wheels across actors.
+            "--reinstall-package",
+            "flash-attn",
+            "--no-build-isolation-package",
+            "flash-attn",
+        ],
+    }
+}
 
 # Default KV-cache transfer configuration for disagg — NixlConnector is the
 # production path; ``kv_both`` makes each worker both send and receive KV
@@ -72,6 +107,18 @@ def merge_model_runtime_envs(models: list[DynamoVLLMModelConfig]) -> dict[str, A
     envs = [m.runtime_env for m in models if m.runtime_env]
     user_merged = reduce(BaseModelConfig.merge_runtime_envs, envs) if envs else None
     return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, user_merged)
+
+
+def _worker_subprocess_env(base_env: dict[str, str], runtime_dir: str) -> dict[str, str]:
+    """Worker subprocess env for vLLM — pins FlashInfer's workspace to the run-scoped dir.
+
+    Without this, FlashInfer caches compiled cubin artifacts under its default
+    workspace path, which can pick up stale artifacts from a prior Ray session
+    whose actor venv has since been replaced. Anchoring the workspace to the
+    Dynamo runtime dir (which lives under Ray's session dir, see
+    ``DynamoBackend.start``) makes each run's workspace independent.
+    """
+    return {**base_env, "FLASHINFER_WORKSPACE_BASE": f"{runtime_dir}/flashinfer"}
 
 
 def resolve_disagg_role_config(
@@ -325,7 +372,7 @@ def _launch_vllm_worker(  # noqa: PLR0913
         python_args=python_args,
         runtime_dir=runtime_dir,
         actor_name_prefix=actor_name_prefix,
-        subprocess_env=base_env,
+        subprocess_env=_worker_subprocess_env(base_env, runtime_dir),
         runtime_env=dynamo_runtime_env(model_config),
     )
 
@@ -489,7 +536,11 @@ def _launch_disagg_role(  # noqa: PLR0913
             python_args=python_args,
             runtime_dir=runtime_dir,
             actor_name_prefix=actor_name_prefix,
-            subprocess_env={**base_env, "VLLM_NIXL_SIDE_CHANNEL_PORT": str(nixl_port), "PYTHONHASHSEED": "0"},
+            subprocess_env={
+                **_worker_subprocess_env(base_env, runtime_dir),
+                "VLLM_NIXL_SIDE_CHANNEL_PORT": str(nixl_port),
+                "PYTHONHASHSEED": "0",
+            },
             runtime_env=dynamo_runtime_env(model_config),
         )
         worker_actors.append(proc)

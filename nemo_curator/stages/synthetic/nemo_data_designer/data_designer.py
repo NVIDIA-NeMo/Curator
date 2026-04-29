@@ -14,9 +14,10 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING
 
 from nemo_curator.stages.base import ProcessingStage
@@ -73,6 +74,16 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             self.data_designer = DataDesigner(model_providers=self.model_providers)
         else:
             self.data_designer = DataDesigner()
+
+    def __deepcopy__(self, memo: dict) -> DataDesignerStage:
+        """Rebuild from dataclass fields so ``__post_init__`` makes a fresh ``DataDesigner``.
+
+        Under hf-hub>=1.0, NDD's shared ``DEFAULT_SEED_READERS`` caches an
+        unpickleable ``duckdb.DuckDBPyConnection`` and Xenna's pipeline_spec
+        ``deepcopy`` then fails.
+        """
+        init_kwargs = {f.name: copy.deepcopy(getattr(self, f.name), memo) for f in fields(self) if f.init}
+        return self.__class__(**init_kwargs)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -138,6 +149,7 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
+
 
 # Explicitly export the class
 __all__ = ["DataDesignerStage"]

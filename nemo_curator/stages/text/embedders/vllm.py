@@ -153,12 +153,16 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
             t0 = time.perf_counter()
             max_model_len = self.model.model_config.max_model_len
-            tokenized_data = self.tokenizer.batch_encode_plus(input_data, truncation=True, max_length=max_model_len)
+            tokenized_data = self.tokenizer(input_data, truncation=True, max_length=max_model_len)
             input_data = [TokensPrompt(prompt_token_ids=ids) for ids in tokenized_data.input_ids]
             metrics["tokenization_time"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        vllm_output = self.model.embed(input_data, truncate_prompt_tokens=-1, use_tqdm=self.verbose)
+        vllm_output = self.model.embed(
+            input_data,
+            tokenization_kwargs={"truncate_prompt_tokens": -1},
+            use_tqdm=self.verbose,
+        )
         metrics["vllm_embedding_time"] = time.perf_counter() - t0
 
         df[self.embedding_field] = [e.outputs.embedding for e in vllm_output]

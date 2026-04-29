@@ -71,10 +71,7 @@ class MegatronTokenizerWriter(BaseWriter):
         try:
             # download the relevant tokenizer files once
             _ = AutoTokenizer.from_pretrained(
-                self.model_identifier,
-                cache_dir=self.cache_dir,
-                token=self.hf_token,
-                **self.transformers_init_kwargs
+                self.model_identifier, cache_dir=self.cache_dir, token=self.hf_token, **self.transformers_init_kwargs
             )
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"
@@ -83,10 +80,7 @@ class MegatronTokenizerWriter(BaseWriter):
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_identifier,
-            cache_dir=self.cache_dir,
-            local_files_only=True,
-            **self.transformers_init_kwargs
+            self.model_identifier, cache_dir=self.cache_dir, local_files_only=True, **self.transformers_init_kwargs
         )
 
     def process(self, task: DocumentBatch) -> FileGroupTask:
@@ -129,7 +123,7 @@ class MegatronTokenizerWriter(BaseWriter):
         try:
             with self.fs.open(file_prefix + ".bin", "wb") as bin_file:
                 for batch in batched(df[self.text_field], self.tokenization_batch_size):
-                    tokens_batch = self.tokenizer.batch_encode_plus(
+                    tokens_batch = self.tokenizer(
                         batch,
                         padding=False,
                         truncation=False,

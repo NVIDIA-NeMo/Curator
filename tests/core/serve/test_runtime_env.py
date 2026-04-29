@@ -42,7 +42,9 @@ class TestDynamoRuntimeEnv:
             runtime_env={"uv": ["mypkg==1.0"]},
         )
         env = dynamo_runtime_env(mc)
-        assert env["uv"] == ["ai-dynamo[vllm]", "mypkg==1.0"]
+        expected_packages = [*DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"], "mypkg==1.0"]
+        assert env["uv"]["packages"] == expected_packages
+        assert env["uv"]["uv_pip_install_options"] == DYNAMO_VLLM_RUNTIME_ENV["uv"]["uv_pip_install_options"]
 
     def test_user_env_vars_are_preserved(self) -> None:
         mc = DynamoVLLMModelConfig(
@@ -50,7 +52,7 @@ class TestDynamoRuntimeEnv:
             runtime_env={"env_vars": {"HF_TOKEN": "abc", "TRANSFORMERS_OFFLINE": "1"}},
         )
         env = dynamo_runtime_env(mc)
-        assert env["uv"] == ["ai-dynamo[vllm]"]
+        assert env["uv"] == DYNAMO_VLLM_RUNTIME_ENV["uv"]
         assert env["env_vars"] == {"HF_TOKEN": "abc", "TRANSFORMERS_OFFLINE": "1"}
 
     def test_working_dir_is_passed_through(self) -> None:
@@ -79,7 +81,8 @@ class TestMergeModelRuntimeEnvs:
         ]
         env = merge_model_runtime_envs(models)
         assert env["env_vars"] == {"A": "1", "B": "2"}
-        assert env["uv"] == ["ai-dynamo[vllm]", "userpkg"]
+        expected_packages = [*DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"], "userpkg"]
+        assert env["uv"]["packages"] == expected_packages
 
     def test_later_model_env_var_overrides_earlier(self) -> None:
         models = [

@@ -53,7 +53,7 @@ def mock_tokenizer() -> Mock:
             attention_masks.append([1] * token_count)
         return MockTokenizerOutput(input_ids, attention_masks)
 
-    tokenizer.batch_encode_plus = mock_batch_encode_plus
+    tokenizer.side_effect = mock_batch_encode_plus
     return tokenizer
 
 

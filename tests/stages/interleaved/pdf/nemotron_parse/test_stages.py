@@ -158,9 +158,10 @@ class TestPDFPreprocessStage:
 
         doc = pdfium.PdfDocument.new()
         doc.new_page(width=100, height=100)
-        pdf_bytes = doc.save()
+        buffer = io.BytesIO()
+        doc.save(buffer)
         doc.close()
-        return bytes(pdf_bytes)
+        return buffer.getvalue()
 
     def test_pdf_dir_mode(self, tmp_path: Path):
         pdf_dir = tmp_path / "pdfs"
