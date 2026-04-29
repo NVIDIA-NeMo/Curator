@@ -63,7 +63,7 @@ dependencies = [
     "openai>=1.0.0",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data]>=2.54",
+    "ray[default,data]>=2.55.1",
     "torch",
     "transformers",
 ]
@@ -73,7 +73,7 @@ cuda12 = [
     "gpustat",
     "nvidia-ml-py",
 ]
-vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
+vllm = ["vllm>=0.14.1,<0.19; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
 inference_server = [
@@ -81,8 +81,7 @@ inference_server = [
     "nemo_curator[vllm]",
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "ray[serve,llm]>=2.54",
-    "vllm<0.16.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "ray[serve,llm]>=2.55.1",
 ]
 
 # Installs CPU + GPU text curation modules
@@ -185,7 +184,7 @@ video_cuda12 = [
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "pycuda",
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "torch<=2.9.1",
+    "torch<=2.10.0",
     "torchaudio",
 ]
 
@@ -244,7 +243,7 @@ all = [
 ]
 
 [dependency-groups]
-build = ["setuptools", "torch<=2.9.1", "Cython", "packaging"]
+build = ["setuptools", "torch<=2.10.0", "Cython", "packaging"]
 dev = ["jupyter"]
 linting = ["pre-commit", "ruff==0.14.10"]
 test = [
@@ -296,10 +295,10 @@ override-dependencies = [
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "protobuf>=5.29.5,<7.0",  # Override nemo-toolkits constraint of ~=5.29.5; <7.0 due to ray serve FieldDescriptor API breakage
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
-    "torch>=2.8.0", # Override whisperx's torch~=2.8.0 upper bound; cap must match video_cuda12 and build groups
-    "torchaudio>=2.8.0", # Override whisperx's torchaudio~=2.8.0
-    "torchvision>=0.23.0", # Match torch>=2.8.0
-    "torchcodec>=0.9.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # Must match torch 2.9.x; override pyannote-audio's >=0.7.0 floor; gated since aarch64 lacks wheels
+    "torch==2.10.0", # Override whisperx's <2.9 cap to match cu129 / vllm 0.18.x
+    "torchaudio==2.10.0", # Override whisperx's <2.9 cap to match cu129 / vllm 0.18.x
+    "torchvision==0.25.0", # Match torch==2.10.0
+    "torchcodec>=0.9.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # override pyannote-audio's >=0.7.0 floor; gated since aarch64 lacks wheels
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
@@ -316,7 +315,7 @@ explicit = true
 
 [[tool.uv.index]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl/cu128"
+url = "https://download.pytorch.org/whl/cu129"
 explicit = true
 
 [tool.uv.sources]
