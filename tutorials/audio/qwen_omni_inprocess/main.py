@@ -34,6 +34,7 @@ YAML and forwarded to the appropriate stages.
 
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 os.environ.setdefault("VLLM_LOGGING_LEVEL", "ERROR")
@@ -235,6 +236,61 @@ def build_granary_v2_pipeline(cfg: DictConfig) -> Pipeline:  # noqa: C901, PLR09
     return Pipeline(name="qwen_omni_inference", stages=stages)
 
 
+def _prefetch_models(cfg: DictConfig) -> None:
+    """Download all models in parallel before pipeline execution.
+
+    On gpu.l40s.4 (218 CPUs, 980Gi RAM, 5680Gi disk) we have massive
+    network bandwidth available. Downloading QwenOmni (15GB), PnC (18GB),
+    and FastText (130MB) sequentially wastes 10-15 min. By launching all
+    downloads concurrently we saturate the NIC and cut total wait to the
+    duration of the single largest download (~18GB / bandwidth).
+    """
+    from huggingface_hub import hf_hub_download, snapshot_download
+
+    tasks: list[tuple[str, callable]] = []
+
+    omni_model = cfg.get("model_id", "Qwen/Qwen3-Omni-30B-A3B-Instruct")
+    tasks.append((f"snapshot:{omni_model}", lambda m=omni_model: snapshot_download(m)))
+
+    if not cfg.get("skip_pnc", False):
+        pnc_model = cfg.get("pnc_model_id", "Qwen/Qwen3.5-35B-A3B-FP8")
+        tasks.append((f"snapshot:{pnc_model}", lambda m=pnc_model: snapshot_download(m)))
+
+    if cfg.get("enable_itn", False):
+        itn_model = cfg.get("itn_model_id", "Qwen/Qwen3.5-35B-A3B-FP8")
+        if itn_model != cfg.get("pnc_model_id", "Qwen/Qwen3.5-35B-A3B-FP8"):
+            tasks.append((f"snapshot:{itn_model}", lambda m=itn_model: snapshot_download(m)))
+
+    asr_model_id = cfg.get("asr_model_id")
+    if asr_model_id:
+        tasks.append((f"snapshot:{asr_model_id}", lambda m=asr_model_id: snapshot_download(m)))
+
+    fasttext_model = cfg.get("fasttext_model", "facebook/fasttext-language-identification")
+    if "/" in fasttext_model and not os.path.isfile(fasttext_model):
+        tasks.append((
+            f"hf_hub:{fasttext_model}",
+            lambda m=fasttext_model: hf_hub_download(repo_id=m, filename="model.bin"),
+        ))
+
+    if not tasks:
+        return
+
+    logger.info(f"Pre-fetching {len(tasks)} models in parallel...")
+    t0 = time.time()
+
+    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
+        futures = {pool.submit(fn): name for name, fn in tasks}
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                result = future.result()
+                logger.info(f"  ✓ {name} cached ({time.time() - t0:.1f}s elapsed)")
+            except Exception as exc:
+                logger.warning(f"  ✗ {name} failed: {exc} (will retry in setup_on_node)")
+
+    logger.info(f"All model pre-fetch complete in {time.time() - t0:.1f}s")
+
+
 @hydra.main(version_base=None)
 def main(cfg: DictConfig) -> None:
     """Hydra entry point for the Granary v2 Qwen-Omni pipeline."""
@@ -244,6 +300,8 @@ def main(cfg: DictConfig) -> None:
     if hf_token:
         os.environ["HF_TOKEN"] = hf_token
         os.environ.setdefault("HF_HOME", "/tmp/hf_home")
+
+    _prefetch_models(cfg)
 
     pipeline = build_granary_v2_pipeline(cfg)
     logger.info(f"Pipeline: {pipeline.describe()}")
