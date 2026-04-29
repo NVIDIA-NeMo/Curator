@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
+from nemo_curator.stages.audio.pipeline_utils import set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -111,9 +112,11 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     def _process_single(self, task: AudioTask) -> AudioTask:
         current_flag = str(task.data.get(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
+            set_note(task.data, self.name, "skipped (flagged)", self.notes_key)
             return task
         text = task.data[self.text_key]
         if not isinstance(text, str) or not text.strip():
+            set_note(task.data, self.name, "skipped (empty text)", self.notes_key)
             return task
         words = text.split()
         duration = task.data.get(self.duration_key, 0.0) or 0.0
@@ -143,11 +146,12 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             )
             if was_flagged or not current_flag:
                 task.data[self.skip_me_key] = f"Hallucination:{self.name}"
+            set_note(task.data, self.name, f"hallucination ({', '.join(reasons)})", self.notes_key)
         elif self.overwrite and was_flagged:
             task.data[self.skip_me_key] = ""
-            existing_notes = str(task.data.get(self.notes_key, ""))
-            note = self.recovery_value
-            task.data[self.notes_key] = f"{existing_notes}; {note}".lstrip("; ") if existing_notes else note
+            set_note(task.data, self.name, self.recovery_value.lower() if self.recovery_value else "recovered", self.notes_key)
+        else:
+            set_note(task.data, self.name, "passed", self.notes_key)
         return task
 
     def process(self, task: AudioTask) -> AudioTask:
