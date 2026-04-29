@@ -23,26 +23,29 @@ from nemo_curator.tasks import AudioTask
 def get_wer(text: str, pred_text: str) -> float:
     text_words = text.split()
     pred_text_words = pred_text.split()
+    if not text_words:
+        return 0.0 if not pred_text_words else 100.0
     word_dist = editdistance.eval(text_words, pred_text_words)
-
-    num_words = len(text_words)
-    return round(word_dist / num_words * 100.0, 2)
+    return round(word_dist / len(text_words) * 100.0, 2)
 
 
 def get_cer(text: str, pred_text: str) -> float:
+    if not text:
+        return 0.0 if not pred_text else 100.0
     char_dist = editdistance.eval(text, pred_text)
-    num_chars = len(text)
-    return round(char_dist / num_chars * 100.0, 2)
+    return round(char_dist / len(text) * 100.0, 2)
 
 
 def get_charrate(text: str, duration: float) -> float:
-    num_chars = len(text)
-    return round(num_chars / duration, 2)
+    if duration == 0.0:
+        return 0.0
+    return round(len(text) / duration, 2)
 
 
 def get_wordrate(text: str, duration: float) -> float:
-    num_words = len(text.split())
-    return round(num_words / duration, 2)
+    if duration == 0.0:
+        return 0.0
+    return round(len(text.split()) / duration, 2)
 
 
 @dataclass
