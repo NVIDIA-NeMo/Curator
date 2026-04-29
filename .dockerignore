@@ -1,0 +1,45 @@
+# docker buildx includes .git in the build context by default
+.git/
+
+# Temporary notebooks workspace and downloaded artifacts
+tmp_notebooks/
+.venv/
+.venv-docs/
+# Generated PDFs and any supporting artifacts
+pdfs_output/
+
+# Caches
+hf_cache/
+.ruff_cache/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Large data/model directories from tutorials
+tutorials/image/example_data/
+tutorials/image/model_weights/
+tutorials/text/deduplication/semantic/input/
+tutorials/text/deduplication/semantic/output/
+
+# Common large file types fetched during tutorial runs
+tutorials/**/*.jsonl
+tutorials/**/*.parquet
+tutorials/**/*.pkl
+tutorials/**/*.safetensors
+tutorials/**/*.bin
+tutorials/**/*.msgpack
+tutorials/**/*.h5
+tutorials/**/*.zip
+tutorials/**/*.gz
+tutorials/**/*.log
+
+# Misc large/temp files
+data/
+ne
+*.bak
+repro*.py
+cufile.log

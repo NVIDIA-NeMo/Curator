@@ -5249,8 +5249,9 @@ requires-dist = [
     { name = "trafilatura", marker = "extra == 'text-cpu'", specifier = "==2.0.0" },
     { name = "transformers" },
     { name = "transformers", marker = "extra == 'audio-common'" },
+    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'inference-server'", specifier = "<0.19" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'math-cuda12'", specifier = ">=0.13" },
-    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'vllm'", specifier = ">=0.14.1,<0.19" },
+    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'vllm'", specifier = ">=0.14.1" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
     { name = "whisperx", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'audio-common'", specifier = ">=3.8.4" },
 ]
