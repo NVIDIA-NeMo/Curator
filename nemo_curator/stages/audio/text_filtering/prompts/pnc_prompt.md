@@ -7,4 +7,4 @@ RULES:
 - Capitalize sentence starts and proper nouns only.
 - Every single word from the input MUST appear in the output, unchanged and in the same order. Do not remove, add, replace, or reorder any words or characters.
 
-Return ONLY the normalized transcription. No explanations.
+Return ONLY the punctuated and capitalized transcription. No explanations.
