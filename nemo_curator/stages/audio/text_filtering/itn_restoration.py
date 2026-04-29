@@ -193,7 +193,7 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     prompt_file: str | None = None
     text_key: str = "pnc_text"
     output_text_key: str = "itn_text"
-    skip_me_key: str = "_skip_me"
+    skip_me_key: str = "_skipme"
     notes_key: str = "additional_notes"
     itn_filtered_key: str = "itn_filtered"
     enable_validation: bool = True

@@ -223,7 +223,7 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
 
     text_key: str = "text"
     output_text_key: str = "abbreviated_text"
-    skip_me_key: str = "_skip_me"
+    skip_me_key: str = "_skipme"
     notes_key: str = "additional_notes"
     source_lang_key: str = "source_lang"
     name: str = "AbbreviationConcat"

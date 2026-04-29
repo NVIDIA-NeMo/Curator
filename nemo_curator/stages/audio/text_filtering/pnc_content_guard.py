@@ -50,7 +50,7 @@ class PnCContentGuardStage(ProcessingStage[AudioTask, AudioTask]):
     text_key: str = "text"
     pnc_text_key: str = "pnc_text"
     rejected_text_key: str = "rejected_pnc_text"
-    skip_me_key: str = "_skip_me"
+    skip_me_key: str = "_skipme"
     notes_key: str = "additional_notes"
     name: str = "PnCContentGuard"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
