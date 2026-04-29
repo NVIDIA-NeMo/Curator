@@ -117,7 +117,14 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
             if not self.validate_input(task):
                 msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
                 raise ValueError(msg)
-        files = [t.data[self.filepath_key] for t in tasks]
+
+        # AIS-streamed pipeline: each task may carry its waveform in
+        # memory rather than a real file path.  Materialise to node-local
+        # temp WAV so NeMo's file-based transcribe() always sees a real
+        # local file on this actor's node — no shared FS required.
+        from nemo_curator.stages.audio.utils.audio_io import ensure_local_audio_path
+
+        files = [ensure_local_audio_path(t, target_sr=16000) for t in tasks]
         texts = self.transcribe(files)
         for task, text in zip(tasks, texts, strict=True):
             task.data[self.pred_text_key] = text

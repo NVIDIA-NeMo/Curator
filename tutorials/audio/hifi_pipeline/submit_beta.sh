@@ -34,7 +34,9 @@ DRY_RUN=false
 SCOTCH_PRESET="${SCOTCH_PRESET:-librispeech-2026-04}"
 STAGES_OVERRIDE=""
 DATA_CONFIG=""
+CORPUS_FILTER=""
 SEGMENT_EVENTS_KEY=""
+TEMP_DIR_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -43,7 +45,9 @@ while [[ $# -gt 0 ]]; do
         --scotch-preset) SCOTCH_PRESET="$2"; shift 2;;
         --stages) STAGES_OVERRIDE="$2"; shift 2;;
         --data-config) DATA_CONFIG="$2"; shift 2;;
+        --corpus-filter) CORPUS_FILTER="$2"; shift 2;;
         --segment-events-key) SEGMENT_EVENTS_KEY="$2"; shift 2;;
+        --temp-dir) TEMP_DIR_OVERRIDE="$2"; shift 2;;
         --dry-run) DRY_RUN=true; shift;;
         *) echo "Unknown arg: $1"; exit 1;;
     esac
@@ -98,7 +102,7 @@ NUM_SHARDS="${CORPUS_SHARDS[$CORPUS]:-}"
 # (e.g., ${WORK}/e2e_output/ytc/ru/sed) — that path stays read-only;
 # we only ever WRITE under ${WORK}/hifi_beta_output/.
 INPUT_MANIFEST="${INPUT_MANIFEST_OVERRIDE:-${GRANARY}/${SUB}}"
-OUTPUT_DIR="${WORK}/hifi_beta_output/${SUB}"
+OUTPUT_DIR="${OUTPUT_DIR_OVERRIDE:-${WORK}/hifi_beta_output/${SUB}}"
 LOG_DIR="${WORK}/hifi_beta_logs/${CORPUS}"
 
 # ---- Hard guard: never overwrite existing e2e_output paths ----
@@ -117,7 +121,15 @@ if ! $DRY_RUN; then
     mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}" "${RAY_PORT_BROADCAST_DIR}"
 fi
 
+# Default mounts: Lustre always.  When --temp-dir points at a non-Lustre
+# host path (e.g. /tmp/zelenfroind), bind-mount it too so AsrBridge can
+# write under it.  /tmp/<X> is node-local NVMe on draco-oci — fast on a
+# single node but NOT shared across compute nodes; pre-creation is
+# handled below by an srun mkdir prelude.
 MOUNTS="${CONTAINER_MOUNTS:-/lustre/fs11:/lustre/fs11,/lustre/fsw:/lustre/fsw}"
+if [[ -n "$TEMP_DIR_OVERRIDE" && "$TEMP_DIR_OVERRIDE" != /lustre/* ]]; then
+    MOUNTS="${MOUNTS},${TEMP_DIR_OVERRIDE}:${TEMP_DIR_OVERRIDE}"
+fi
 
 START_FLAG=""
 [[ -n "$START_FROM" ]] && START_FLAG="--start_from ${START_FROM}"
@@ -127,6 +139,12 @@ STAGES_FLAG=""
 
 SEGEVENTS_FLAG=""
 [[ -n "$SEGMENT_EVENTS_KEY" ]] && SEGEVENTS_FLAG="--segment_events_key ${SEGMENT_EVENTS_KEY}"
+
+CORPUS_FILTER_FLAG=""
+[[ -n "$CORPUS_FILTER" ]] && CORPUS_FILTER_FLAG="--corpus_filter ${CORPUS_FILTER}"
+
+TEMP_DIR_FLAG=""
+[[ -n "$TEMP_DIR_OVERRIDE" ]] && TEMP_DIR_FLAG="--temp_dir ${TEMP_DIR_OVERRIDE}"
 
 # Source selector: AIS streaming (granary YAML) takes precedence over file-based
 # input.  --input_manifest still defaults to ${GRANARY}/${SUB} for the
@@ -190,6 +208,8 @@ srun --ntasks-per-node=1 \\
            --slurm \\
            ${INPUT_FLAG} \\
            ${DATA_CFG_FLAG} \\
+           ${CORPUS_FILTER_FLAG} \\
+           ${TEMP_DIR_FLAG} \\
            --output_dir ${OUTPUT_DIR} \\
            --num_shards ${NUM_SHARDS} \\
            --scotch_preset ${SCOTCH_PRESET} \\
@@ -208,6 +228,13 @@ fi
 GPU_BIND=""
 if [[ -n "${SLURM_GPUS_PER_NODE:-}" && "${SLURM_GPUS_PER_NODE:-0}" != "0" ]]; then
     GPU_BIND="--gpus-per-task=${SLURM_GPUS_PER_NODE}"
+fi
+
+# Pre-create the temp dir on every compute node so the pyxis bind-mount
+# below succeeds.  /tmp/<X> exists per-node only after we mkdir it.
+if [[ -n "$TEMP_DIR_OVERRIDE" && "$TEMP_DIR_OVERRIDE" != /lustre/* ]]; then
+    echo "Pre-creating ${TEMP_DIR_OVERRIDE} on all ${SLURM_JOB_NUM_NODES:-1} node(s)..."
+    srun --ntasks-per-node=1 mkdir -p "${TEMP_DIR_OVERRIDE}"
 fi
 
 srun \
@@ -234,6 +261,14 @@ nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null
 
 # cosmos_xenna's resource discovery needs pynvml; ensure it's present.
 /opt/conda/bin/python -c \"import pynvml\" 2>/dev/null || /opt/conda/bin/python -m pip install --quiet --no-input pynvml || true
+
+# GPU keep-alive: tiny background matmul every ~5s on every visible GPU
+# so Slurm's under-utilization watchdog doesn't kill the job during
+# CPU-only stages (sed_post, segment, cluster_scotch).  Negligible
+# overhead (~3us / cycle on A100); does not contend for GPU stages.
+/opt/conda/bin/python '${CURATOR}/tutorials/audio/hifi_pipeline/gpu_keepalive.py' &
+KEEPALIVE_PID=\$!
+trap \"kill -TERM \${KEEPALIVE_PID} 2>/dev/null || true\" EXIT
 # Refresh /opt/Curator (baked into actor sys.path) with the Lustre tree.
 # Symlink rather than rsync because the vLLM container lacks rsync.
 if [[ -d '${CURATOR}/nemo_curator' && -d /opt/Curator ]]; then
@@ -245,6 +280,8 @@ fi
     --slurm \
     ${INPUT_FLAG} \
     ${DATA_CFG_FLAG} \
+    ${CORPUS_FILTER_FLAG} \
+    ${TEMP_DIR_FLAG} \
     --output_dir '${OUTPUT_DIR}' \
     --num_shards ${NUM_SHARDS} \
     --scotch_preset ${SCOTCH_PRESET} \

@@ -145,7 +145,6 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
         Handles both AudioTask (dict) and DocumentBatch (DataFrame) inputs.
         """
-        import librosa
         import numpy as np
         import pandas as pd
         import torch
@@ -174,12 +173,24 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
             return DocumentBatch(data=out_df, dataset_name=task.dataset_name, task_id=task.task_id)
 
         # --- Handle AudioTask ---
-        audio_path = str(task.data.get(self.filepath_key, ""))
-        if not audio_path:
-            msg = f"Missing {self.filepath_key} in task data"
-            raise ValueError(msg)
+        # Prefer in-memory waveform (AIS-streamed pipeline) so we never
+        # need a shared filesystem.  Falls back to audio_filepath for the
+        # legacy file-based path.
+        from nemo_curator.stages.audio.utils.audio_io import ensure_waveform
 
-        framewise, valid_frames, fps, npz_path = self._run_sed_on_file(audio_path)
+        if "waveform" in task.data:
+            waveform = ensure_waveform(task, target_sr=self.sample_rate)
+            audio_path = str(task.data.get(self.filepath_key, "") or task.task_id)
+        else:
+            audio_path = str(task.data.get(self.filepath_key, ""))
+            if not audio_path:
+                msg = f"Missing {self.filepath_key} in task data"
+                raise ValueError(msg)
+            waveform = None  # _run_sed_on_audio will load from path
+
+        framewise, valid_frames, fps, npz_path = self._run_sed_on_audio(
+            audio_path=audio_path, preloaded_waveform=waveform
+        )
         output_data = dict(task.data)
         if self.save_npz:
             output_data["npz_filepath"] = npz_path
@@ -198,16 +209,28 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         )
 
     def _run_sed_on_file(self, audio_path: str) -> "tuple[np.ndarray, int, float, str]":
-        """Core SED logic: load audio, run model, optionally save NPZ.
+        """Backwards-compatible wrapper that loads from ``audio_path``."""
+        return self._run_sed_on_audio(audio_path=audio_path, preloaded_waveform=None)
+
+    def _run_sed_on_audio(
+        self,
+        audio_path: str,
+        preloaded_waveform: "np.ndarray | None",
+    ) -> "tuple[np.ndarray, int, float, str]":
+        """Core SED logic: get audio (preloaded or via librosa), run model, save NPZ.
 
         Returns ``(framewise, valid_frames, fps, npz_path)``.  ``npz_path``
         is ``""`` when ``save_npz=False``.
         """
-        import librosa
         import numpy as np
         import torch
 
-        waveform, _ = librosa.core.load(audio_path, sr=self.sample_rate, mono=True)
+        if preloaded_waveform is not None:
+            waveform = preloaded_waveform
+        else:
+            import librosa
+
+            waveform, _ = librosa.core.load(audio_path, sr=self.sample_rate, mono=True)
         original_samples = waveform.shape[0]
 
         min_input = max(self.window_size, self.hop_size * 32)

@@ -185,13 +185,12 @@ def _audio_pipeline(
 
     pipeline = Pipeline(name=name)
     if args.data_config and needs_audio:
-        from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
-        from nemo_curator.stages.audio.preprocessing import AsrBridgeStage
-        pipeline.add_stage(NemoTarredAudioReader(
+        from nemo_curator.stages.audio.io.nemo_tarred_reader import AisTarAudioReader
+        pipeline.add_stage(AisTarAudioReader(
             yaml_path=args.data_config,
             corpus_filter=args.corpus_filter,
+            temp_dir=args.temp_dir,
         ))
-        pipeline.add_stage(AsrBridgeStage(temp_dir=args.temp_dir))
     else:
         pipeline.add_stage(ManifestReader(manifest_path=current_manifest))
     return pipeline
@@ -308,46 +307,84 @@ def run_segment(args: argparse.Namespace, current: str) -> str:
 
 
 def run_diarize(args: argparse.Namespace, current: str) -> str:
-    from nemo_curator.stages.audio.common import ManifestWriterStage
+    """Diarize with Sortformer; write per-shard JSONL via ShardedManifestWriterStage.
+
+    Per-shard output is required by ``cluster_scotch.gather_corpus()`` which
+    iterates ``shard_{N}.jsonl`` under ``manifest_dir``.  Returns the
+    diarize directory (containing the nested ``{shard_key}.jsonl`` tree).
+    """
+    from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
     from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
 
     out_dir = _stage_dir(args, "diarize")
-    out_path = os.path.join(out_dir, "manifest.jsonl")
     os.makedirs(out_dir, exist_ok=True)
 
-    print("[beta] diarize (Sortformer)")
+    print("[beta] diarize (Sortformer, sharded)")
     pipeline = _audio_pipeline("diarize", args, current)
     pipeline.add_stage(InferenceSortformerStage())
     pipeline.add_stage(_StripAudioBytesStage())
-    pipeline.add_stage(ManifestWriterStage(output_path=out_path))
+    pipeline.add_stage(ShardedManifestWriterStage(output_dir=out_dir))
     pipeline.run(executor=_xenna_executor())
-    return out_path
+    # Return the dir; downstream cluster_scotch globs shard_*.jsonl from it.
+    return out_dir
 
 
 def run_embed(args: argparse.Namespace, current: str) -> tuple[str, str]:
-    """Run TitaNet embeddings via SpeakerEmbeddingRequestStage.
+    """Run TitaNet embeddings.
 
-    Returns ``(updated_manifest, embedding_dir)``.  ``embedding_dir`` holds
-    one ``embeddings.npz`` file consumed by ``cluster_scotch``.
+    Two backends:
+
+    * **AIS-streamed** (default when ``--data_config`` is set): re-streams
+      audio from AIS via :class:`AisTarAudioReader` and runs
+      :class:`SpeakerEmbeddingAudioTaskStage` per task.  Each actor writes
+      its accumulated embeddings as ``embedding_dir/embeddings_<tag>.npz``
+      so cross-node visibility is never required.
+    * **JSONL/file-based** (legacy, used when ``--input_manifest`` is set):
+      keeps :class:`SpeakerEmbeddingRequestStage` over the prior stage's
+      manifest.  Only safe on single-node since it relies on ``audio_filepath``
+      pointing to a real file readable by every embed actor.
+
+    Returns ``(updated_manifest, embedding_dir)``.  ``embedding_dir`` is
+    consumed by ``cluster_scotch``.
     """
-    from nemo_curator.stages.audio.speaker_id.speaker_embedding_request import SpeakerEmbeddingRequestStage
-    from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
-
     embedding_dir = _stage_dir(args, "embed")
     out_manifest = os.path.join(embedding_dir, "manifest")
     os.makedirs(embedding_dir, exist_ok=True)
 
-    print(f"[beta] embed (TitaNet, {args.speaker_model})")
-    pipeline = _doc_pipeline("embed", current)
-    pipeline.add_stage(SpeakerEmbeddingRequestStage(
-        model_name=args.speaker_model,
-        audio_filepath_key=args.audio_filepath_key,
-        output_path=os.path.join(embedding_dir, "embeddings"),
-        output_format="npz",
-        batch_size=args.embed_batch_size,
-    ))
-    pipeline.add_stage(JsonlWriter(path=out_manifest, write_kwargs={"force_ascii": False}).with_(batch_size=1))
-    pipeline.run(executor=_ray_data_executor())
+    if args.data_config:
+        from nemo_curator.stages.audio.common import ManifestWriterStage
+        from nemo_curator.stages.audio.speaker_id.speaker_embedding_audiotask import (
+            SpeakerEmbeddingAudioTaskStage,
+        )
+
+        print(f"[beta] embed (TitaNet, {args.speaker_model}, AIS-streamed)")
+        pipeline = _audio_pipeline("embed", args, current)
+        pipeline.add_stage(SpeakerEmbeddingAudioTaskStage(
+            model_name=args.speaker_model,
+            output_dir=embedding_dir,
+            audio_filepath_key=args.audio_filepath_key,
+            batch_size=args.embed_batch_size,
+        ))
+        pipeline.add_stage(_StripAudioBytesStage())
+        pipeline.add_stage(ManifestWriterStage(output_path=out_manifest))
+        pipeline.run(executor=_xenna_executor())
+    else:
+        from nemo_curator.stages.audio.speaker_id.speaker_embedding_request import (
+            SpeakerEmbeddingRequestStage,
+        )
+        from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
+
+        print(f"[beta] embed (TitaNet, {args.speaker_model}, JSONL)")
+        pipeline = _doc_pipeline("embed", current)
+        pipeline.add_stage(SpeakerEmbeddingRequestStage(
+            model_name=args.speaker_model,
+            audio_filepath_key=args.audio_filepath_key,
+            output_path=os.path.join(embedding_dir, "embeddings"),
+            output_format="npz",
+            batch_size=args.embed_batch_size,
+        ))
+        pipeline.add_stage(JsonlWriter(path=out_manifest, write_kwargs={"force_ascii": False}).with_(batch_size=1))
+        pipeline.run(executor=_ray_data_executor())
     return out_manifest, embedding_dir
 
 
@@ -371,6 +408,101 @@ def run_utmos2(args: argparse.Namespace, current: str) -> str:
 # ---------------------------------------------------------------------------
 # Post-pipeline: corpus-wide SCOTCH clustering
 # ---------------------------------------------------------------------------
+
+def _gather_corpus_for_beta(
+    diarize_dir: str,
+    embedding_dir: str,
+    audio_filepath_key: str,
+) -> "tuple[np.ndarray, list[tuple[int, int]], list[list[dict]]]":
+    """Beta-specific corpus gather.
+
+    diarize_dir is the ShardedManifestWriterStage output (nested
+    ``{shard_key}.jsonl`` tree under diarize/).  embedding_dir
+    contains a single combined ``embeddings.npz`` from
+    SpeakerEmbeddingRequestStage.  Returns the same tuple as the
+    legacy :func:`gather_corpus` so cluster_embeddings_large_scale
+    works unchanged.
+    """
+    import glob
+    import json as _json
+    import os as _os
+
+    import numpy as np
+
+    # Find all shard JSONLs from the nested diarize tree, ignore .done markers.
+    shard_files = sorted(
+        f for f in glob.glob(_os.path.join(diarize_dir, "**", "*.jsonl"), recursive=True)
+        if not f.endswith(".done")
+    )
+    if not shard_files:
+        msg = f"No *.jsonl found under {diarize_dir}"
+        raise RuntimeError(msg)
+
+    shard_rows: list[list[dict]] = []
+    for shard_file in shard_files:
+        rows: list[dict] = []
+        with open(shard_file, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    rows.append(_json.loads(line))
+        shard_rows.append(rows)
+
+    # SpeakerEmbeddingRequestStage may write either embeddings.npz or
+    # embeddings_<output_format>.npz; SpeakerEmbeddingLhotseStage
+    # writes embeddings_{shard_id}.npz.  Try common names.
+    candidate_npzs = [
+        _os.path.join(embedding_dir, "embeddings.npz"),
+        *sorted(glob.glob(_os.path.join(embedding_dir, "embeddings_*.npz"))),
+    ]
+    cid_to_emb: dict[str, np.ndarray] = {}
+    for path in candidate_npzs:
+        if _os.path.isfile(path):
+            data = np.load(path, allow_pickle=True)
+            cut_ids = list(data["cut_ids"])
+            embs = data["embeddings"].astype(np.float32)
+            for i, cid in enumerate(cut_ids):
+                cid_to_emb[str(cid)] = embs[i]
+    if not cid_to_emb:
+        msg = f"No embeddings_*.npz / embeddings.npz found in {embedding_dir}"
+        raise RuntimeError(msg)
+
+    all_embs: list[np.ndarray] = []
+    origin: list[tuple[int, int]] = []
+    missing = 0
+    for sid, rows in enumerate(shard_rows):
+        for row_idx, row in enumerate(rows):
+            # Prefer the canonical task_id stashed by the diarize stage
+            # — it survives across audio_filepath mutations and matches
+            # the cut_id key written by SpeakerEmbeddingAudioTaskStage.
+            tid = row.get("_task_id", "")
+            afp = row.get(audio_filepath_key, "")
+            emb = (
+                cid_to_emb.get(tid)
+                or cid_to_emb.get(afp)
+                or cid_to_emb.get(_os.path.basename(afp))
+            )
+            if emb is None:
+                missing += 1
+                continue
+            all_embs.append(emb)
+            origin.append((sid, row_idx))
+
+    if not all_embs:
+        msg = (
+            f"No embeddings matched any manifest row.  diarize_dir={diarize_dir}, "
+            f"embedding_dir={embedding_dir}, missing={missing}"
+        )
+        raise RuntimeError(msg)
+
+    embeddings = np.stack(all_embs, axis=0)
+    print(
+        f"[beta] gathered {embeddings.shape[0]:,} embeddings "
+        f"(dim={embeddings.shape[1]}) across {len(shard_rows)} shards. "
+        f"Rows without embeddings: {missing:,}"
+    )
+    return embeddings, origin, shard_rows
+
 
 def run_cluster_scotch(
     args: argparse.Namespace,
@@ -397,7 +529,6 @@ def run_cluster_scotch(
         print_large_scale_summary,
     )
     from tutorials.audio.hifi_pipeline.slurm_e2e.run_cluster_scotch import (
-        gather_corpus,
         scatter_labels,
         write_shards,
     )
@@ -418,8 +549,8 @@ def run_cluster_scotch(
     birch_radius = cosine_floor_to_birch_radius(birch_cosine_floor)
 
     print(f"[beta] cluster_scotch (preset={args.scotch_preset})")
-    embeddings, origin, shard_rows = gather_corpus(
-        manifest_dir, embedding_dir, args.num_shards, args.audio_filepath_key,
+    embeddings, origin, shard_rows = _gather_corpus_for_beta(
+        manifest_dir, embedding_dir, args.audio_filepath_key,
     )
     if embedding_normalization == "center_global":
         embeddings -= embeddings.mean(axis=0, keepdims=True)

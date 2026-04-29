@@ -397,5 +397,82 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return self._stages[-1].outputs()
 
+
+@dataclass
+class AisTarAudioReader(CompositeStage[_EmptyTask, AudioTask]):
+    """Read AIS-streamed NeMo tars and emit ``AudioTask`` objects in memory.
+
+    Combines :class:`NemoTarShardDiscoveryStage` and
+    :class:`NemoTarShardReaderStage` into a single composite source.  Each
+    emitted task carries the decoded waveform as
+    ``task.data["waveform"]`` (numpy ``float32``) and the sample rate as
+    ``task.data["sample_rate"]`` (int).
+
+    Downstream stages (SED, Sortformer, NeMo ASR, TitaNet, UTMOSv2)
+    consume the in-memory waveform via
+    :mod:`nemo_curator.stages.audio.utils.audio_io` — either reading the
+    numpy array directly, or materialising a node-local temp WAV on the
+    actor's own node when an external API only accepts file paths.  This
+    avoids the cross-node temp-file problem that arises on multi-node
+    Slurm allocations where ``/tmp`` is per-node and Lustre is too slow.
+
+    Args:
+        yaml_path: Path to the Granary YAML data config.
+        corpus_filter: Only process shards whose ``corpus`` matches.
+        filepath_key: Manifest key for audio filenames inside tar archives.
+        s3_endpoint_url: Override for AIS/S3 endpoint.
+        bridge_to_files: If True (default False), append the legacy
+            :class:`~nemo_curator.stages.audio.preprocessing.asr_bridge.AsrBridgeStage`
+            so ``audio_filepath`` is rewritten to a real on-disk WAV.
+            Only useful for stages that haven't been ported to the
+            in-memory waveform interface (none in current Curator).
+        temp_dir: Used only when ``bridge_to_files=True``.
+        keep_waveform: Used only when ``bridge_to_files=True``.
+    """
+
+    name: str = "ais_tar_audio_reader"
+    yaml_path: str = ""
+    corpus_filter: list[str] | None = None
+    filepath_key: str = "audio_filepath"
+    s3_endpoint_url: str | None = None
+    output_dir: str | None = None
+    bridge_to_files: bool = False
+    temp_dir: str = "/tmp"
+    keep_waveform: bool = True
+
+    def __post_init__(self) -> None:
+        super().__init__()
+        if not self.yaml_path:
+            msg = "yaml_path is required for AisTarAudioReader"
+            raise ValueError(msg)
+
+        self._stages: list[ProcessingStage] = [
+            NemoTarShardDiscoveryStage(
+                yaml_path=self.yaml_path,
+                corpus_filter=self.corpus_filter,
+                output_dir=self.output_dir,
+            ),
+            NemoTarShardReaderStage(
+                filepath_key=self.filepath_key,
+                s3_endpoint_url=self.s3_endpoint_url,
+            ),
+        ]
+        if self.bridge_to_files:
+            from nemo_curator.stages.audio.preprocessing.asr_bridge import AsrBridgeStage
+
+            self._stages.append(
+                AsrBridgeStage(
+                    temp_dir=self.temp_dir,
+                    filepath_key=self.filepath_key,
+                    keep_waveform=self.keep_waveform,
+                )
+            )
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return self._stages[0].inputs()
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return self._stages[-1].outputs()
+
     def decompose(self) -> list[ProcessingStage]:
         return self._stages

@@ -229,14 +229,32 @@ class SpeakerEmbeddingRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]
         df = input_batch.to_pandas().copy()
         embeddings_list: list[np.ndarray | None] = []
 
+        # Optional in-memory waveforms travelling alongside rows.  The
+        # JsonlReader → DocumentBatch path strips them; the AIS-streamed
+        # path keeps them in task metadata.  Check the column first.
+        has_waveform_col = "waveform" in df.columns
+        has_sr_col = "sample_rate" in df.columns
+
         for idx, row in df.iterrows():
             filepath = row.get(self.audio_filepath_key, "")
-            if not filepath or (isinstance(filepath, float) and np.isnan(filepath)):
-                logger.warning(f"Row {idx}: missing {self.audio_filepath_key}, skipping")
-                embeddings_list.append(None)
-                continue
+            wav = row.get("waveform") if has_waveform_col else None
             try:
-                audio = self._load_audio_bytes(str(filepath))
+                if wav is not None and not (isinstance(wav, float) and np.isnan(wav)):
+                    sr = int(row["sample_rate"]) if has_sr_col else self.target_sample_rate
+                    audio = np.asarray(wav, dtype=np.float32)
+                    if audio.ndim > 1:
+                        audio = audio[:, 0] if audio.shape[1] < audio.shape[0] else audio[0]
+                    if sr != self.target_sample_rate:
+                        import librosa
+
+                        audio = librosa.resample(audio, orig_sr=sr, target_sr=self.target_sample_rate)
+                    audio = audio.astype(np.float32)
+                else:
+                    if not filepath or (isinstance(filepath, float) and np.isnan(filepath)):
+                        logger.warning(f"Row {idx}: missing waveform and {self.audio_filepath_key}, skipping")
+                        embeddings_list.append(None)
+                        continue
+                    audio = self._load_audio_bytes(str(filepath))
                 emb = self._extract_embedding(audio)
                 embeddings_list.append(emb)
             except Exception as exc:
