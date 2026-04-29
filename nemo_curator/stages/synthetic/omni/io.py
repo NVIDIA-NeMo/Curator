@@ -3,7 +3,6 @@
 Based on NeMo Curator's VideoReader pattern.
 """
 
-import base64
 import io
 import json
 from abc import ABC, abstractmethod
@@ -20,9 +19,6 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import _EmptyTask
 
 from nemo_curator.tasks.image import ImageTaskData, SingleDataTask
-
-
-SUPPORTED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]
 
 
 T_TaskData = TypeVar("T_TaskData", bound=ImageTaskData)
@@ -572,31 +568,6 @@ class FileReader(ABC):
         """
         image_bytes = self.read_bytes(path)
         return Image.open(io.BytesIO(image_bytes))
-
-    def read_image_url(self, path: Path) -> str:
-        """Read image as a data URL from the given path.
-
-        Args:
-            path: Path to read from.
-
-        Returns:
-            Data URL string (data:image/...;base64,...).
-
-        Raises:
-            FileNotFoundError: If the file doesn't exist.
-            ValueError: If the path format is invalid.
-        """
-        image_bytes = self.read_bytes(path)
-        with Image.open(io.BytesIO(image_bytes)) as image:
-            if image.format == "JPEG":
-                data_type = "image/jpeg"
-            elif image.format == "PNG":
-                data_type = "image/png"
-            elif image.format == "WEBP":
-                data_type = "image/webp"
-            else:
-                data_type = "image/png"
-            return f"data:{data_type};base64,{base64.b64encode(image_bytes).decode('utf-8')}"
 
 
 class RegularFileReader(FileReader):
