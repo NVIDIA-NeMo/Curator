@@ -1,0 +1,58 @@
+# ASR Audio Tagging Pipeline - E2E Test Configuration
+#
+# Starts from base_manifest.jsonl which already contains the output of
+# upstream stages (Resample, Diarize, Split, ASR Align, Join, Merge,
+# Bandwidth, SQUIM). This avoids non-deterministic GPU stages and tests
+# only the ASR-specific deterministic stages.
+
+input_manifest: ???
+final_manifest: ???
+workspace_dir: /tmp/tagging_test_workspace
+language_short: en
+text_key1: text
+text_key2: text_2
+resources:
+  cpus: 1
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.PrepareModuleSegmentsStage
+    name: "PrepareModuleSegments"
+    module: asr
+    min_duration: 5
+    max_duration: 20
+    max_pause: 2
+    terminal_punct_marks: ".!?。？！。"
+    full_utterance_ratio: 0.8
+    punctuation_split_only: false
+    resources: ${resources}
+
+  # Second pass ASR
+  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+    name: "ASRAlignment2"
+    model_name: nvidia/stt_en_conformer_ctc_large
+    is_fastconformer: False
+    decoder_type: ctc
+    batch_size: 64
+    split_batch_size: 100
+    text_key: ${text_key2}
+    infer_segment_only: True
+    compute_timestamps: False
+    resources:
+      gpus: 0.45
+
+  - _target_: nemo_curator.stages.audio.tagging.ComputeWERStage
+    name: "ComputeWER"
+    language: ${language_short}
+    hypothesis_text_key: "text"
+    reference_text_key: ${text_key2}
+    pnc_chars: ".?,"
+    compute_pnc_wer: False
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    name: "ManifestWriter"
+    output_path: ${final_manifest}

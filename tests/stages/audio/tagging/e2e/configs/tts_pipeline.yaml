@@ -57,7 +57,7 @@ stages:
     transcribe_batch_size: 4
     num_workers: 1
     resources:
-      gpus: 1
+      gpus: 0.8
 
   # 5. Join split audio metadata
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
@@ -71,6 +71,29 @@ stages:
     words_key: "words"
     resources: ${resources}
 
-  # 7. Write output manifest
+  # 7. Estimate bandwidth
+  - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
+    name: "BandwidthEstimation"
+    resources: ${resources}
+
+  # 8. Calculate audio quality metrics
+  - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
+    name: "SquimMetrics"
+    resources:
+      gpus: 0.05
+
+  # 9. Prepare TTS segments
+  - _target_: nemo_curator.stages.audio.tagging.PrepareModuleSegmentsStage
+    name: "PrepareModuleSegments"
+    module: tts
+    min_duration: 5
+    max_duration: 20
+    max_pause: 2
+    terminal_punct_marks: ".!?。？！。"
+    full_utterance_ratio: 1.0
+    punctuation_split_only: false
+    resources: ${resources}
+
+  # 10. Write output manifest
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
     output_path: ${final_manifest}

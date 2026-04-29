@@ -14,11 +14,11 @@
 
 """Audio tagging pipeline benchmarking script.
 
-Runs the core audio tagging pipeline end-to-end:
-  ManifestReader -> Resample -> Diarize -> Split -> ASR Align ->
-  Join -> Merge -> Write
+Runs the full TTS audio tagging pipeline end-to-end:
+    ManifestReader -> Resample -> Diarize -> Split -> ASR Align ->
+    Join -> Merge -> Bandwidth -> Squim -> PrepareModuleSegments -> Second pass ASR -> Compute WER -> Write
 
-Exercises the core stages of the tagging pipeline for regression tracking.
+Exercises the tagging pipeline stages for regression tracking.
 """
 
 import argparse
@@ -34,6 +34,10 @@ from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
 from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
+from nemo_curator.stages.audio.tagging.metrics.bandwidth import BandwidthEstimationStage
+from nemo_curator.stages.audio.tagging.metrics.squim import TorchSquimQualityMetricsStage
+from nemo_curator.stages.audio.tagging.metrics.wer import ComputeWERStage
+from nemo_curator.stages.audio.tagging.prepare_module_segments import PrepareModuleSegmentsStage
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
 from nemo_curator.stages.audio.tagging.split import JoinSplitAudioMetadataStage, SplitLongAudioStage
 from nemo_curator.stages.resources import Resources
@@ -91,7 +95,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             name="PyAnnoteDiarization",
             hf_token=hf_token,
             max_length=max_segment_length,
-        ).with_(resources=Resources(cpus=cpus, gpus=0.5))
+        ).with_(resources=Resources(cpus=cpus, gpus=0.25))
     )
 
     # Split long audio segments
@@ -110,7 +114,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             is_fastconformer=True,
             decoder_type="rnnt",
             batch_size=asr_batch_size,
-        ).with_(resources=Resources(cpus=cpus, gpus=0.45))
+        ).with_(resources=Resources(gpus=0.35))
     )
 
     # Rejoin split audio metadata
@@ -122,6 +126,49 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             name="MergeAlignmentDiar",
             text_key="text",
             words_key="words",
+        ).with_(resources=Resources(cpus=cpus))
+    )
+
+    # Bandwidth estimation per segment
+    pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=cpus)))
+
+    # Audio quality metrics (PESQ, STOI, SI-SDR)
+    pipeline.add_stage(TorchSquimQualityMetricsStage(name="SquimMetrics").with_(resources=Resources(gpus=0.05)))
+
+    # Prepare TTS segments
+    pipeline.add_stage(
+        PrepareModuleSegmentsStage(
+            name="PrepareModuleSegments",
+            module="tts",
+            min_duration=5,
+            max_duration=20,
+            full_utterance_ratio=1.0,
+        ).with_(resources=Resources(cpus=cpus))
+    )
+
+    # Second pass ASR
+    pipeline.add_stage(
+        NeMoASRAlignerStage(
+            name="ASRAlignment2",
+            model_name="nvidia/stt_en_conformer_ctc_large",
+            is_fastconformer=False,
+            decoder_type="ctc",
+            batch_size=64,
+            split_batch_size=100,
+            text_key="text_2",
+            infer_segment_only=True,  # to run inference only on each segment
+            compute_timestamps=False,
+        ).with_(resources=Resources(gpus=0.25))
+    )
+
+    # Compute WER
+    pipeline.add_stage(
+        ComputeWERStage(
+            name="ComputeWER",
+            language="en",
+            hypothesis_text_key="text",
+            reference_text_key="text_2",
+            pnc_chars=".?,",
         ).with_(resources=Resources(cpus=cpus))
     )
 

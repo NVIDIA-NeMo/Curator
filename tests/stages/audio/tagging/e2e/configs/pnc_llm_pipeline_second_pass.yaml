@@ -1,0 +1,118 @@
+# PNC with LLM Pipeline -- 2nd-pass ASR (full pipeline)
+#
+# Mirrors generic-sdp yt_pnc_with_llm_after_second_pass_asr.yaml.
+#
+# Full pipeline:
+#   ManifestReader -> ResampleAudio -> PrepareModuleSegments ->
+#   NeMoASRAligner (2nd pass, infer_segment_only=True) ->
+#   PNCwithvLLMInference (per-segment) -> CleanLLMOutput (cer_threshold=0.01) ->
+#   PNCwithBERT (fallback) ->
+#   ComputeWER -> ManifestWriter
+#
+# 2nd pass ASR runs with infer_segment_only=True and compute_timestamps=False.
+# PNC is applied per-segment.  No alignment update.
+#
+# Requires a GPU for ASR and vLLM inference.
+
+input_manifest: ???
+final_manifest: ???
+workspace_dir: /tmp/pnc_llm_test
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+language_short: en
+sample_rate: 16000
+text_key1: text
+text_key2: text_2
+pnc_text_key: text_2_pnc
+prompt_file: ???
+resources:
+  cpus: 1
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: "ResampleAudio"
+    resampled_audio_dir: ${resampled_audio_dir}
+    input_format: "wav"
+    target_sample_rate: ${sample_rate}
+    target_format: "wav"
+    target_nchannels: 1
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.tagging.PrepareModuleSegmentsStage
+    name: "PrepareModuleSegments"
+    terminal_punct_marks: ".!?"
+    module: asr
+    min_duration: 1.0
+    max_duration: 20
+    full_utterance_ratio: 0.8
+    resources: ${resources}
+
+  # 2nd pass ASR: segment-only inference, no timestamps
+  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+    name: "ASRAlignment_2ndPass"
+    model_name: nvidia/stt_en_conformer_ctc_large
+    is_fastconformer: false
+    decoder_type: ctc
+    batch_size: 100
+    transcribe_batch_size: 64
+    text_key: ${text_key2}
+    infer_segment_only: true
+    compute_timestamps: false
+    resources:
+      gpus: 0.45
+
+  # PNC per-segment
+  - _target_: nemo_curator.stages.audio.tagging.text.pnc.PNCwithvLLMInferenceStage
+    name: "PNCwithvLLM_2ndPass"
+    text_key: ${text_key2}
+    prompt_file: ${prompt_file}
+    generation_field: ${pnc_text_key}
+    inference_batch_size: 2
+    model_params:
+      model: "Qwen/Qwen2.5-1.5B-Instruct"
+      tensor_parallel_size: 1
+      max_model_len: 1024
+      enable_chunked_prefill: true
+      max_num_batched_tokens: 2048
+      enforce_eager: false
+      dtype: float16
+      gpu_memory_utilization: 0.5
+      max_num_seqs: 2
+    sampling_params:
+      temperature: 0.0
+      top_p: 1.0
+      repetition_penalty: 1.05
+      seed: 42
+      max_tokens: 512
+    chat_template_params:
+      tokenize: false
+      add_generation_prompt: true
+    resources:
+      gpus: 1
+
+  # Clean LLM output (cer_threshold=0.01, no alignment update)
+  - _target_: nemo_curator.stages.audio.tagging.text.pnc.CleanLLMOutputStage
+    name: "CleanLLMOutput_2ndPass"
+    generation_field: ${pnc_text_key}
+    asr_pred_text_key: ${text_key2}
+    cer_threshold: 0.01
+    punct_marks: ".,?"
+    vocab_set: "abcdefghijklmnopqrstuvwxyz' "
+    resources: ${resources}
+
+
+  - _target_: nemo_curator.stages.audio.tagging.ComputeWERStage
+    name: "ComputeWER"
+    language: ${language_short}
+    hypothesis_text_key: "${pnc_text_key}_cleaned"
+    reference_text_key: ${text_key1}
+    pnc_chars: ".?,"
+    compute_pnc_wer: false
+    resources: ${resources}
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    name: "ManifestWriter"
+    output_path: ${final_manifest}

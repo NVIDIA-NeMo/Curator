@@ -95,7 +95,7 @@ COMPLETED: 139 files evaluated (collar=0.25s)
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
 
 pipeline = Pipeline(
     name="diarization",
