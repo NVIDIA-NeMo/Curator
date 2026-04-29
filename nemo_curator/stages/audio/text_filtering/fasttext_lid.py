@@ -19,6 +19,7 @@ from typing import Any
 
 from loguru import logger
 
+from nemo_curator.stages.audio.pipeline_utils import set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -82,6 +83,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
     min_word_count: int = 2
     text_key: str = "pred_text"
     skip_me_key: str = "_skip_me"
+    notes_key: str = "additional_notes"
     name: str = "FastTextLID"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -151,24 +153,32 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _process_single(self, task: AudioTask) -> AudioTask:
         if task.data.get(self.skip_me_key, ""):
+            set_note(task.data, self.name, "skipped (flagged)", self.notes_key)
             return task
         text = task.data[self.text_key]
         if not isinstance(text, str):
+            set_note(task.data, self.name, "skipped (non-string text)", self.notes_key)
             return task
         text = text.strip().replace("\n", " ")
         if not text:
             if not task.data[self.skip_me_key]:
                 task.data[self.skip_me_key] = f"Empty text:{self.name}"
+            set_note(task.data, self.name, "empty text", self.notes_key)
             return task
         if len(text.split()) < self.min_word_count:
+            set_note(task.data, self.name, "passed (too short for lid)", self.notes_key)
             return task
         lang, prob = self._predict(text)
         expected = task.data[self.source_lang_key]
         if not task.data[self.skip_me_key]:
             if lang != expected.lower():
                 task.data[self.skip_me_key] = f"Wrong language:{self.name}"
+                set_note(task.data, self.name, f"wrong language (detected={lang}, expected={expected}, prob={prob:.2f})", self.notes_key)
             elif prob < self.min_lang_prob:
                 task.data[self.skip_me_key] = f"Low probability of language:{self.name}"
+                set_note(task.data, self.name, f"low confidence ({lang}, prob={prob:.2f})", self.notes_key)
+            else:
+                set_note(task.data, self.name, f"passed ({lang}, prob={prob:.2f})", self.notes_key)
         return task
 
     def process(self, task: AudioTask) -> AudioTask:
